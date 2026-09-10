@@ -5867,23 +5867,39 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const prefix = signed && value > 0 ? '+' : '';
         return `${prefix}${value.toFixed(2)}%`;
     };
-    const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName) => {
+    const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = []) => {
         const condition = String(runtimeCondition || '').trim();
-        if (condition && !condition.startsWith('启用 ')) return condition;
-        const tokens = Array.isArray(scenarioTokens) ? scenarioTokens : [];
+        const tokens = [...(Array.isArray(scenarioTokens) ? scenarioTokens : []),
+            ...runtimeConditions.map(item => item && item.token).filter(Boolean)];
         const name = String(talentName || '').trim();
-        const parts = [];
+        const parts = condition && !condition.startsWith('启用 ') ? [condition] : [];
         const talentLabel = name.endsWith('天赋') ? name : `${name}天赋`;
-        if (tokens.length && name && name !== '基础技能') parts.push(`点出${talentLabel}`);
+        if (!parts.length && tokens.length && name && name !== '基础技能') parts.push(`点出${talentLabel}`);
         [...new Set(tokens.map(token => String(token || '').trim()).filter(Boolean))].forEach(token => {
             const separatorIndex = token.indexOf('.');
             const scope = separatorIndex >= 0 ? token.slice(0, separatorIndex) : '';
             const stateToken = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : token;
             if (!stateToken) return;
+            const metadata = runtimeConditions.find(item => item && item.token === token) || {};
+            const stateName = metadata.display_name || metadata.name_zh || metadata.name || stateToken;
             const owner = scope === 'debuff' ? '目标' : '自身';
-            parts.push(`${owner}存在 ${stateToken} 效果时`);
+            const stacks = Number(metadata.stacks);
+            const stackLabel = Number.isInteger(stacks) && stacks > 1 ? `（${stacks}层）` : '';
+            const stateLabel = `${stateName}${stackLabel}`;
+            if (stackLabel) {
+                const escapePattern = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const statePattern = new RegExp(`(${owner}存在\\s*)(?:${escapePattern(stateName)}|${escapePattern(stateToken)})(\\s*效果)`, 'g');
+                parts.forEach((part, index) => { parts[index] = part.replace(statePattern, `$1${stateLabel}$2`); });
+            }
+            // 兼容服务端已写入状态说明的快照，不能重复追加同一个 Buff。
+            const compact = parts.join('，').replace(/\s+/g, '');
+            if (!compact.includes(`${owner}存在${stateLabel}效果`)
+                && !compact.includes(`${owner}存在${stateName}效果`)
+                && !compact.includes(`${owner}存在${stateToken}效果`)) {
+                parts.push(`${owner}存在 ${stateLabel} 效果时`);
+            }
         });
-        if (condition.includes('35%')) parts.push('血量低于35%');
+        if (condition.includes('35%') && !parts.some(part => part.includes('35%'))) parts.push('血量低于35%');
         return parts.join('，');
     };
     const body = document.getElementById('simc-skill-damage-body');
@@ -6067,7 +6083,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 .map(stacks => `${stacks}层`);
             const displayName = stackLabels.length ? `${name}（${stackLabels.join('，')}）` : name;
             const condition = effect.source_type === 'talent'
-                ? renderSimcTalentProbeCondition(effect.runtime_condition, effect.scenario_tokens, name)
+                ? renderSimcTalentProbeCondition(effect.runtime_condition, effect.scenario_tokens, name, runtimeConditions)
                 : (effect.runtime_condition || '');
             const projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
                 if (!projection || typeof projection !== 'object') return '';
@@ -6083,7 +6099,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');
             return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div>${condition ? `<div class="mt-1 text-xs leading-4 text-amber-800">${escapeHtml(condition)}</div>` : ''}</div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局效果</div><div class="mb-3 text-xs text-indigo-700">按作用域归类的全技能效果；对应状态不再进入下方条件筛选，倍率证据不足时单独说明。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">已剔除的全局分量</div><div class="mb-3 text-xs text-indigo-700">全局分量在生成前归零；混合天赋和 Buff 的局部技能分量继续保留，倍率证据不足时单独说明。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
     }
 
@@ -6160,7 +6176,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const excludedFilterKeys = excludedConditionKeys;
     candidateRows.forEach(({action, rowConditionKeys}) => {
         const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
-        const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${variant.runtime_condition || ''}`.toLowerCase();
+        const conditionLabel = renderSimcTalentProbeCondition(variant.runtime_condition, variant.scenario_tokens,
+            variant.talent_name_zh || variant.talent_name, Array.isArray(variant.runtime_conditions) ? variant.runtime_conditions : []);
+        const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${conditionLabel}`.toLowerCase();
         if (query && !haystack.includes(query)) return;
         if (rowConditionKeys.some(key => excludedFilterKeys.has(key))) return;
         const product = action.product && typeof action.product === 'object' ? action.product : {};
@@ -6188,13 +6206,27 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         return left.sourceIndex - right.sourceIndex;
     });
     body.innerHTML = rows.length ? rows.map(({action, product, selectedFinalDamage}) => {
-        const skillMeta = renderSimcSkillIdentity(action);
+        let skillMeta = renderSimcSkillIdentity(action);
+        const castParts = Array.isArray(action.components) ? action.components : [];
+        if (castParts.length > 1) {
+            const parts = castParts.map((part, index) => {
+                const hand = ['main', 'main_hand'].includes(part.hand) ? '主手 · ' : ['off', 'off_hand'].includes(part.hand) ? '副手 · ' : '';
+                const kind = part.component === 'tick' ? '持续伤害' : '直接伤害';
+                const count = Number(part.damage_equivalent_count);
+                const repeats = Number.isFinite(count) && count !== 1 ? ` × ${formatSimcSkillDamageFactor(count)}次` : '';
+                const values = part.final_normalized_damage_by_target || {};
+                const amount = values[targetCount] ?? (targetCount === '1' ? part.final_normalized_damage : null);
+                return `<li>${index + 1}. ${escapeHtml(hand + kind + repeats)}：${formatSimcSkillDamageNumber(amount)}</li>`;
+            }).join('');
+            skillMeta += `<details class="mt-2 text-xs text-stone-600"><summary>查看伤害组成（${castParts.length}部分）</summary><ul>${parts}</ul></details>`;
+        }
         const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
         const talentName = variant.talent_name_zh || variant.talent_name || '基础技能';
         const conditionLabel = renderSimcTalentProbeCondition(
             variant.runtime_condition,
             variant.scenario_tokens,
             talentName,
+            Array.isArray(variant.runtime_conditions) ? variant.runtime_conditions : [],
         );
         const fallbackTalentLabel = talentName.endsWith('天赋') ? talentName : `${talentName}天赋`;
         const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`);

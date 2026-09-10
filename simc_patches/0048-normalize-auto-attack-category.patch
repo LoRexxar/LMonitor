@@ -1,0 +1,18 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1317,6 +1317,15 @@
+   {
+     // 无技能掩码的自身伤害百分比降低，同样属于全技能伤害修正；不清除承伤分量。
+     if ( e.base_value() < 0 && skill_damage_global_aura( e, false ) ) result.insert(e.index()+1);
++    // 整个自动攻击类别的伤害与攻击速度不是某个具名技能的强化。
++    // 直接依据 DBC 效果类型与无技能掩码判定，覆盖所有职业，不依赖姿态名称。
++    if ( e.type() == E_APPLY_AURA && e.base_value() != 0 &&
++         ( e.subtype() == 344 || e.subtype() == 319 ) )
++    {
++      bool single_skill_mask = false;
++      for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i ) single_skill_mask |= e.class_flags(i) != 0;
++      if ( !single_skill_mask ) result.insert(e.index()+1);
++    }
+     for ( unsigned index : rate_anchors )
+       if ( e.type() == E_APPLY_AURA && e.subtype() == 108 &&
+            ( e.misc_value1() == 1 || e.misc_value1() == 12 || e.misc_value1() == 19 ) &&

@@ -1,0 +1,1343 @@
+{
+  "说明": "验证当前原生导出的全局作用域一致性；未支持的专精和未遍历的天赋组合不视为通过。",
+  "审计": [
+    {
+      "目录": ".cache\\global-scope-final-base",
+      "源码提交": "800980b758674a0311a68a6ec33fdc0651afe47d",
+      "二进制摘要": "49b0f689da118617dc347cbff9d80cdb988e3df07e81e95d711a58a9fbfb5b27",
+      "专精": [
+        {
+          "专精": "deathknight_blood",
+          "状态": "已复核",
+          "候选状态数": 13,
+          "两种血量扫描数": 26,
+          "伤害行数": 5,
+          "全局效果": [
+            {
+              "法术ID": 77535,
+              "名称": "Blood Shield",
+              "状态标记": "buff.blood_shield",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "deathknight_frost",
+          "状态": "已复核",
+          "候选状态数": 14,
+          "两种血量扫描数": 28,
+          "伤害行数": 14,
+          "全局效果": []
+        },
+        {
+          "专精": "deathknight_unholy",
+          "状态": "已复核",
+          "候选状态数": 14,
+          "两种血量扫描数": 28,
+          "伤害行数": 6,
+          "全局效果": [
+            {
+              "法术ID": 327096,
+              "名称": "War",
+              "状态标记": "debuff.war",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "demonhunter_devourer",
+          "状态": "已复核",
+          "候选状态数": 21,
+          "两种血量扫描数": 44,
+          "伤害行数": 9,
+          "全局效果": [
+            {
+              "法术ID": 163073,
+              "名称": "Demon Soul",
+              "状态标记": "buff.demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 347765,
+              "名称": "Demon Soul",
+              "状态标记": "buff.empowered_demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "demonhunter_havoc",
+          "状态": "已复核",
+          "候选状态数": 13,
+          "两种血量扫描数": 28,
+          "伤害行数": 9,
+          "全局效果": [
+            {
+              "法术ID": 163073,
+              "名称": "Demon Soul",
+              "状态标记": "buff.demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 347765,
+              "名称": "Demon Soul",
+              "状态标记": "buff.empowered_demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "demonhunter_vengeance",
+          "状态": "已复核",
+          "候选状态数": 19,
+          "两种血量扫描数": 40,
+          "伤害行数": 7,
+          "全局效果": [
+            {
+              "法术ID": 163073,
+              "名称": "Demon Soul",
+              "状态标记": "buff.demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 347765,
+              "名称": "Demon Soul",
+              "状态标记": "buff.empowered_demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "druid_balance",
+          "状态": "已复核",
+          "候选状态数": 21,
+          "两种血量扫描数": 42,
+          "伤害行数": 32,
+          "全局效果": [
+            {
+              "法术ID": 24858,
+              "名称": "Moonkin Form",
+              "状态标记": "buff.moonkin_form",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "druid_feral",
+          "状态": "已复核",
+          "候选状态数": 15,
+          "两种血量扫描数": 30,
+          "伤害行数": 16,
+          "全局效果": []
+        },
+        {
+          "专精": "druid_guardian",
+          "状态": "已复核",
+          "候选状态数": 14,
+          "两种血量扫描数": 28,
+          "伤害行数": 12,
+          "全局效果": []
+        },
+        {
+          "专精": "druid_restoration",
+          "状态": "已复核",
+          "候选状态数": 12,
+          "两种血量扫描数": 24,
+          "伤害行数": 10,
+          "全局效果": []
+        },
+        {
+          "专精": "evoker_augmentation",
+          "状态": "已复核",
+          "候选状态数": 12,
+          "两种血量扫描数": 24,
+          "伤害行数": 11,
+          "全局效果": []
+        },
+        {
+          "专精": "evoker_devastation",
+          "状态": "已复核",
+          "候选状态数": 12,
+          "两种血量扫描数": 24,
+          "伤害行数": 22,
+          "全局效果": []
+        },
+        {
+          "专精": "evoker_preservation",
+          "状态": "已复核",
+          "候选状态数": 11,
+          "两种血量扫描数": 22,
+          "伤害行数": 11,
+          "全局效果": []
+        },
+        {
+          "专精": "hunter_beast_mastery",
+          "状态": "已复核",
+          "候选状态数": 16,
+          "两种血量扫描数": 32,
+          "伤害行数": 2,
+          "全局效果": []
+        },
+        {
+          "专精": "hunter_marksmanship",
+          "状态": "已复核",
+          "候选状态数": 19,
+          "两种血量扫描数": 38,
+          "伤害行数": 3,
+          "全局效果": []
+        },
+        {
+          "专精": "hunter_survival",
+          "状态": "已复核",
+          "候选状态数": 18,
+          "两种血量扫描数": 36,
+          "伤害行数": 2,
+          "全局效果": []
+        },
+        {
+          "专精": "mage_arcane",
+          "状态": "已复核",
+          "候选状态数": 46,
+          "两种血量扫描数": 92,
+          "伤害行数": 13,
+          "全局效果": []
+        },
+        {
+          "专精": "mage_fire",
+          "状态": "已复核",
+          "候选状态数": 50,
+          "两种血量扫描数": 100,
+          "伤害行数": 5,
+          "全局效果": []
+        },
+        {
+          "专精": "mage_frost",
+          "状态": "已复核",
+          "候选状态数": 46,
+          "两种血量扫描数": 92,
+          "伤害行数": 9,
+          "全局效果": []
+        },
+        {
+          "专精": "monk_brewmaster",
+          "状态": "已复核",
+          "候选状态数": 16,
+          "两种血量扫描数": 32,
+          "伤害行数": 8,
+          "全局效果": []
+        },
+        {
+          "专精": "monk_mistweaver",
+          "状态": "未验证",
+          "原因": "Trivial: Buff 'touch_of_death_ww' (0) initialized with max_stack < 1 (0). Setting max_stack to 1.\nTrivial: Mistweaver Monk for Player 'skill_damage_base' is not currently supported.\nError: No active players in sim!\n"
+        },
+        {
+          "专精": "monk_windwalker",
+          "状态": "已复核",
+          "候选状态数": 14,
+          "两种血量扫描数": 28,
+          "伤害行数": 8,
+          "全局效果": []
+        },
+        {
+          "专精": "paladin_holy",
+          "状态": "未验证",
+          "原因": "Trivial: Holy Paladin for Player 'skill_damage_base' is not currently supported.\nError: No active players in sim!\n"
+        },
+        {
+          "专精": "paladin_protection",
+          "状态": "已复核",
+          "候选状态数": 81,
+          "两种血量扫描数": 162,
+          "伤害行数": 13,
+          "全局效果": [
+            {
+              "法术ID": 454693,
+              "名称": "Rise From Ash",
+              "状态标记": "buff.rise_from_ash",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "paladin_retribution",
+          "状态": "已复核",
+          "候选状态数": 80,
+          "两种血量扫描数": 160,
+          "伤害行数": 20,
+          "全局效果": [
+            {
+              "法术ID": 454693,
+              "名称": "Rise From Ash",
+              "状态标记": "buff.rise_from_ash",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "priest_discipline",
+          "状态": "已复核",
+          "候选状态数": 37,
+          "两种血量扫描数": 74,
+          "伤害行数": 10,
+          "全局效果": []
+        },
+        {
+          "专精": "priest_holy",
+          "状态": "已复核",
+          "候选状态数": 36,
+          "两种血量扫描数": 72,
+          "伤害行数": 8,
+          "全局效果": []
+        },
+        {
+          "专精": "priest_shadow",
+          "状态": "已复核",
+          "候选状态数": 41,
+          "两种血量扫描数": 82,
+          "伤害行数": 9,
+          "全局效果": [
+            {
+              "法术ID": 232698,
+              "名称": "Shadowform",
+              "状态标记": "buff.shadowform",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "rogue_assassination",
+          "状态": "已复核",
+          "候选状态数": 21,
+          "两种血量扫描数": 42,
+          "伤害行数": 11,
+          "全局效果": [
+            {
+              "法术ID": 32645,
+              "名称": "Envenom",
+              "状态标记": "buff.envenom",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "rogue_outlaw",
+          "状态": "已复核",
+          "候选状态数": 23,
+          "两种血量扫描数": 46,
+          "伤害行数": 14,
+          "全局效果": [
+            {
+              "法术ID": 315341,
+              "名称": "Between the Eyes",
+              "状态标记": "buff.between_the_eyes",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "rogue_subtlety",
+          "状态": "已复核",
+          "候选状态数": 22,
+          "两种血量扫描数": 44,
+          "伤害行数": 21,
+          "全局效果": []
+        },
+        {
+          "专精": "shaman_elemental",
+          "状态": "已复核",
+          "候选状态数": 56,
+          "两种血量扫描数": 112,
+          "伤害行数": 63,
+          "全局效果": []
+        },
+        {
+          "专精": "shaman_enhancement",
+          "状态": "已复核",
+          "候选状态数": 60,
+          "两种血量扫描数": 120,
+          "伤害行数": 89,
+          "全局效果": []
+        },
+        {
+          "专精": "shaman_restoration",
+          "状态": "已复核",
+          "候选状态数": 57,
+          "两种血量扫描数": 114,
+          "伤害行数": 46,
+          "全局效果": []
+        },
+        {
+          "专精": "warlock_affliction",
+          "状态": "已复核",
+          "候选状态数": 10,
+          "两种血量扫描数": 20,
+          "伤害行数": 4,
+          "全局效果": []
+        },
+        {
+          "专精": "warlock_demonology",
+          "状态": "已复核",
+          "候选状态数": 9,
+          "两种血量扫描数": 18,
+          "伤害行数": 1,
+          "全局效果": []
+        },
+        {
+          "专精": "warlock_destruction",
+          "状态": "已复核",
+          "候选状态数": 10,
+          "两种血量扫描数": 20,
+          "伤害行数": 5,
+          "全局效果": []
+        },
+        {
+          "专精": "warrior_arms",
+          "状态": "已复核",
+          "候选状态数": 58,
+          "两种血量扫描数": 118,
+          "伤害行数": 27,
+          "全局效果": [
+            {
+              "法术ID": 447513,
+              "名称": "Wrecked",
+              "状态标记": "debuff.wrecked",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 445836,
+              "名称": "Overwhelmed",
+              "状态标记": "debuff.overwhelmed",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "warrior_fury",
+          "状态": "已复核",
+          "候选状态数": 62,
+          "两种血量扫描数": 126,
+          "伤害行数": 22,
+          "全局效果": [
+            {
+              "法术ID": 184362,
+              "名称": "Enrage",
+              "状态标记": "buff.enrage",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 447513,
+              "名称": "Wrecked",
+              "状态标记": "debuff.wrecked",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 445836,
+              "名称": "Overwhelmed",
+              "状态标记": "debuff.overwhelmed",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "warrior_protection",
+          "状态": "已复核",
+          "候选状态数": 57,
+          "两种血量扫描数": 116,
+          "伤害行数": 17,
+          "全局效果": [
+            {
+              "法术ID": 447513,
+              "名称": "Wrecked",
+              "状态标记": "debuff.wrecked",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 445836,
+              "名称": "Overwhelmed",
+              "状态标记": "debuff.overwhelmed",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        }
+      ],
+      "错误": []
+    },
+    {
+      "目录": ".cache\\global-scope-final-talents",
+      "源码提交": "800980b758674a0311a68a6ec33fdc0651afe47d",
+      "二进制摘要": "49b0f689da118617dc347cbff9d80cdb988e3df07e81e95d711a58a9fbfb5b27",
+      "专精": [
+        {
+          "专精": "deathknight_blood",
+          "状态": "已复核",
+          "候选状态数": 41,
+          "两种血量扫描数": 82,
+          "伤害行数": 67,
+          "全局效果": [
+            {
+              "法术ID": 77535,
+              "名称": "Blood Shield",
+              "状态标记": "buff.blood_shield",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 391459,
+              "名称": "Sanguine Ground",
+              "状态标记": "buff.sanguine_ground",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1264407,
+              "名称": "Dance of Midnight",
+              "状态标记": "buff.dance_of_midnight_2",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 374557,
+              "名称": "Brittle",
+              "状态标记": "debuff.brittle",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 458478,
+              "名称": "Incite Terror",
+              "状态标记": "debuff.incite_terror",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            }
+          ]
+        },
+        {
+          "专精": "deathknight_frost",
+          "状态": "已复核",
+          "候选状态数": 42,
+          "两种血量扫描数": 84,
+          "伤害行数": 421,
+          "全局效果": [
+            {
+              "法术ID": 374557,
+              "名称": "Brittle",
+              "状态标记": "debuff.brittle",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "deathknight_unholy",
+          "状态": "已复核",
+          "候选状态数": 37,
+          "两种血量扫描数": 74,
+          "伤害行数": 556,
+          "全局效果": [
+            {
+              "法术ID": 444505,
+              "名称": "Mograine's Might",
+              "状态标记": "buff.mograines_might",
+              "作用域": "self",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            },
+            {
+              "法术ID": 374557,
+              "名称": "Brittle",
+              "状态标记": "debuff.brittle",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 327096,
+              "名称": "War",
+              "状态标记": "debuff.war",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 444828,
+              "名称": "Chains of Ice",
+              "状态标记": "debuff.chains_of_ice_trollbane_debuff",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            }
+          ]
+        },
+        {
+          "专精": "demonhunter_devourer",
+          "状态": "已复核",
+          "候选状态数": 33,
+          "两种血量扫描数": 66,
+          "伤害行数": 19,
+          "全局效果": [
+            {
+              "法术ID": 163073,
+              "名称": "Demon Soul",
+              "状态标记": "buff.demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 347765,
+              "名称": "Demon Soul",
+              "状态标记": "buff.empowered_demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1232310,
+              "名称": "Feast of Souls",
+              "状态标记": "buff.feast_of_souls",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1244235,
+              "名称": "Rolling Torment",
+              "状态标记": "buff.rolling_torment",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1241532,
+              "名称": "Devourer's Bite",
+              "状态标记": "debuff.devourers_bite",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "demonhunter_havoc",
+          "状态": "已复核",
+          "候选状态数": 31,
+          "两种血量扫描数": 86,
+          "伤害行数": 121,
+          "全局效果": [
+            {
+              "法术ID": 163073,
+              "名称": "Demon Soul",
+              "状态标记": "buff.demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 347765,
+              "名称": "Demon Soul",
+              "状态标记": "buff.empowered_demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 427641,
+              "名称": "Inertia",
+              "状态标记": "buff.inertia",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "demonhunter_vengeance",
+          "状态": "已复核",
+          "候选状态数": 29,
+          "两种血量扫描数": 60,
+          "伤害行数": 21,
+          "全局效果": [
+            {
+              "法术ID": 163073,
+              "名称": "Demon Soul",
+              "状态标记": "buff.demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 347765,
+              "名称": "Demon Soul",
+              "状态标记": "buff.empowered_demon_soul",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 247456,
+              "名称": "Frailty",
+              "状态标记": "debuff.frailty",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "druid_balance",
+          "状态": "已复核",
+          "候选状态数": 49,
+          "两种血量扫描数": 100,
+          "伤害行数": 452,
+          "全局效果": [
+            {
+              "法术ID": 24858,
+              "名称": "Moonkin Form",
+              "状态标记": "buff.moonkin_form",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 430589,
+              "名称": "Atmospheric Exposure",
+              "状态标记": "debuff.atmospheric_exposure",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "druid_feral",
+          "状态": "已复核",
+          "候选状态数": 38,
+          "两种血量扫描数": 76,
+          "伤害行数": 240,
+          "全局效果": [
+            {
+              "法术ID": 106951,
+              "名称": "Berserk",
+              "状态标记": "buff.berserk_cat",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 5217,
+              "名称": "Tiger's Fury",
+              "状态标记": "buff.tigers_fury",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1263939,
+              "名称": "Unseen Predator's Craving",
+              "状态标记": "buff.unseen_predators_craving",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 439531,
+              "名称": "Bloodseeker Vines",
+              "状态标记": "debuff.bloodseeker_vines",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            }
+          ]
+        },
+        {
+          "专精": "druid_guardian",
+          "状态": "已复核",
+          "候选状态数": 43,
+          "两种血量扫描数": 86,
+          "伤害行数": 93,
+          "全局效果": [
+            {
+              "法术ID": 24858,
+              "名称": "Moonkin Form",
+              "状态标记": "buff.moonkin_form",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "druid_restoration",
+          "状态": "已复核",
+          "候选状态数": 12,
+          "两种血量扫描数": 24,
+          "伤害行数": 10,
+          "全局效果": []
+        },
+        {
+          "专精": "evoker_augmentation",
+          "状态": "已复核",
+          "候选状态数": 12,
+          "两种血量扫描数": 24,
+          "伤害行数": 11,
+          "全局效果": []
+        },
+        {
+          "专精": "evoker_devastation",
+          "状态": "已复核",
+          "候选状态数": 28,
+          "两种血量扫描数": 58,
+          "伤害行数": 118,
+          "全局效果": [
+            {
+              "法术ID": 1271783,
+              "名称": "Rising Fury",
+              "状态标记": "buff.rising_fury",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1271799,
+              "名称": "Risen Fury",
+              "状态标记": "buff.risen_fury",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "evoker_preservation",
+          "状态": "已复核",
+          "候选状态数": 11,
+          "两种血量扫描数": 22,
+          "伤害行数": 11,
+          "全局效果": []
+        },
+        {
+          "专精": "hunter_beast_mastery",
+          "状态": "已复核",
+          "候选状态数": 28,
+          "两种血量扫描数": 56,
+          "伤害行数": 10,
+          "全局效果": [
+            {
+              "法术ID": 19574,
+              "名称": "Bestial Wrath",
+              "状态标记": "buff.bestial_wrath",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 471881,
+              "名称": "Wyvern's Cry",
+              "状态标记": "buff.wyverns_cry",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "hunter_marksmanship",
+          "状态": "已复核",
+          "候选状态数": 28,
+          "两种血量扫描数": 56,
+          "伤害行数": 445,
+          "全局效果": []
+        },
+        {
+          "专精": "hunter_survival",
+          "状态": "已复核",
+          "候选状态数": 32,
+          "两种血量扫描数": 64,
+          "伤害行数": 60,
+          "全局效果": [
+            {
+              "法术ID": 1250646,
+              "名称": "Takedown",
+              "状态标记": "buff.takedown",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 471881,
+              "名称": "Wyvern's Cry",
+              "状态标记": "buff.wyverns_cry",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "mage_arcane",
+          "状态": "已复核",
+          "候选状态数": 46,
+          "两种血量扫描数": 92,
+          "伤害行数": 53,
+          "全局效果": [
+            {
+              "法术ID": 365362,
+              "名称": "Arcane Surge",
+              "状态标记": "buff.arcane_surge",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "mage_fire",
+          "状态": "已复核",
+          "候选状态数": 50,
+          "两种血量扫描数": 100,
+          "伤害行数": 894,
+          "全局效果": [
+            {
+              "法术ID": 190319,
+              "名称": "Combustion",
+              "状态标记": "buff.combustion",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 448604,
+              "名称": "Spellfire Sphere",
+              "状态标记": "buff.spellfire_sphere",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "mage_frost",
+          "状态": "已复核",
+          "候选状态数": 46,
+          "两种血量扫描数": 92,
+          "伤害行数": 21,
+          "全局效果": [
+            {
+              "法术ID": 1263263,
+              "名称": "Hand of Frost",
+              "状态标记": "buff.hand_of_frost",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "monk_brewmaster",
+          "状态": "已复核",
+          "候选状态数": 37,
+          "两种血量扫描数": 74,
+          "伤害行数": 74,
+          "全局效果": []
+        },
+        {
+          "专精": "monk_mistweaver",
+          "状态": "未验证",
+          "原因": "Trivial: Buff 'touch_of_death_ww' (0) initialized with max_stack < 1 (0). Setting max_stack to 1.\nTrivial: Mistweaver Monk for Player 'skill_damage_base' is not currently supported.\nError: No active players in sim!\n"
+        },
+        {
+          "专精": "monk_windwalker",
+          "状态": "已复核",
+          "候选状态数": 27,
+          "两种血量扫描数": 54,
+          "伤害行数": 53,
+          "全局效果": [
+            {
+              "法术ID": 196741,
+              "名称": "Hit Combo",
+              "状态标记": "buff.hit_combo",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "paladin_holy",
+          "状态": "未验证",
+          "原因": "Trivial: Holy Paladin for Player 'skill_damage_base' is not currently supported.\nError: No active players in sim!\n"
+        },
+        {
+          "专精": "paladin_protection",
+          "状态": "已复核",
+          "候选状态数": 81,
+          "两种血量扫描数": 162,
+          "伤害行数": 72,
+          "全局效果": [
+            {
+              "法术ID": 454693,
+              "名称": "Rise From Ash",
+              "状态标记": "buff.rise_from_ash",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 31884,
+              "名称": "Avenging Wrath",
+              "状态标记": "buff.avenging_wrath",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "paladin_retribution",
+          "状态": "已复核",
+          "候选状态数": 82,
+          "两种血量扫描数": 164,
+          "伤害行数": 65,
+          "全局效果": [
+            {
+              "法术ID": 454693,
+              "名称": "Rise From Ash",
+              "状态标记": "buff.rise_from_ash",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 31884,
+              "名称": "Avenging Wrath",
+              "状态标记": "buff.avenging_wrath",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "priest_discipline",
+          "状态": "已复核",
+          "候选状态数": 37,
+          "两种血量扫描数": 74,
+          "伤害行数": 10,
+          "全局效果": []
+        },
+        {
+          "专精": "priest_holy",
+          "状态": "已复核",
+          "候选状态数": 36,
+          "两种血量扫描数": 72,
+          "伤害行数": 8,
+          "全局效果": []
+        },
+        {
+          "专精": "priest_shadow",
+          "状态": "已复核",
+          "候选状态数": 50,
+          "两种血量扫描数": 100,
+          "伤害行数": 69,
+          "全局效果": [
+            {
+              "法术ID": 390978,
+              "名称": "Twist of Fate",
+              "状态标记": "buff.twist_of_fate",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 232698,
+              "名称": "Shadowform",
+              "状态标记": "buff.shadowform",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 194249,
+              "名称": "Voidform",
+              "状态标记": "buff.voidform",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "rogue_assassination",
+          "状态": "已复核",
+          "候选状态数": 37,
+          "两种血量扫描数": 76,
+          "伤害行数": 492,
+          "全局效果": [
+            {
+              "法术ID": 32645,
+              "名称": "Envenom",
+              "状态标记": "buff.envenom",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 452923,
+              "名称": "Fatebound Coin (Heads)",
+              "状态标记": "buff.fatebound_coin_heads",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1249810,
+              "名称": "Finish the Job",
+              "状态标记": "buff.finish_the_job",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "rogue_outlaw",
+          "状态": "已复核",
+          "候选状态数": 45,
+          "两种血量扫描数": 92,
+          "伤害行数": 153,
+          "全局效果": [
+            {
+              "法术ID": 315341,
+              "名称": "Between the Eyes",
+              "状态标记": "buff.between_the_eyes",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 452923,
+              "名称": "Fatebound Coin (Heads)",
+              "状态标记": "buff.fatebound_coin_heads",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "rogue_subtlety",
+          "状态": "已复核",
+          "候选状态数": 43,
+          "两种血量扫描数": 86,
+          "伤害行数": 74,
+          "全局效果": [
+            {
+              "法术ID": 121471,
+              "名称": "Shadow Blades",
+              "状态标记": "buff.shadow_blades",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 112942,
+              "名称": "Shadow Focus",
+              "状态标记": "buff.shadow_focus",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 441224,
+              "名称": "Fazed",
+              "状态标记": "debuff.fazed",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "shaman_elemental",
+          "状态": "已复核",
+          "候选状态数": 59,
+          "两种血量扫描数": 118,
+          "伤害行数": 211,
+          "全局效果": []
+        },
+        {
+          "专精": "shaman_enhancement",
+          "状态": "已复核",
+          "候选状态数": 62,
+          "两种血量扫描数": 124,
+          "伤害行数": 429,
+          "全局效果": [
+            {
+              "法术ID": 456369,
+              "名称": "Amplification Core",
+              "状态标记": "buff.amplification_core",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "shaman_restoration",
+          "状态": "已复核",
+          "候选状态数": 57,
+          "两种血量扫描数": 114,
+          "伤害行数": 46,
+          "全局效果": []
+        },
+        {
+          "专精": "warlock_affliction",
+          "状态": "已复核",
+          "候选状态数": 17,
+          "两种血量扫描数": 34,
+          "伤害行数": 54,
+          "全局效果": [
+            {
+              "法术ID": 48181,
+              "名称": "Haunt",
+              "状态标记": "debuff.haunt",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            }
+          ]
+        },
+        {
+          "专精": "warlock_demonology",
+          "状态": "已复核",
+          "候选状态数": 26,
+          "两种血量扫描数": 52,
+          "伤害行数": 8,
+          "全局效果": [
+            {
+              "法术ID": 434424,
+              "名称": "Cloven Soul",
+              "状态标记": "debuff.cloven_soul",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            }
+          ]
+        },
+        {
+          "专精": "warlock_destruction",
+          "状态": "已复核",
+          "候选状态数": 31,
+          "两种血量扫描数": 62,
+          "伤害行数": 53,
+          "全局效果": [
+            {
+              "法术ID": 434424,
+              "名称": "Cloven Soul",
+              "状态标记": "debuff.cloven_soul",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            }
+          ]
+        },
+        {
+          "专精": "warrior_arms",
+          "状态": "已复核",
+          "候选状态数": 66,
+          "两种血量扫描数": 134,
+          "伤害行数": 169,
+          "全局效果": [
+            {
+              "法术ID": 107574,
+              "名称": "Avatar",
+              "状态标记": "buff.avatar",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 208086,
+              "名称": "Colossus Smash",
+              "状态标记": "debuff.colossus_smash",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1271964,
+              "名称": "Honed Reflexes",
+              "状态标记": "debuff.honed_reflexes",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            },
+            {
+              "法术ID": 447513,
+              "名称": "Wrecked",
+              "状态标记": "debuff.wrecked",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 445836,
+              "名称": "Overwhelmed",
+              "状态标记": "debuff.overwhelmed",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "warrior_fury",
+          "状态": "已复核",
+          "候选状态数": 70,
+          "两种血量扫描数": 142,
+          "伤害行数": 114,
+          "全局效果": [
+            {
+              "法术ID": 184362,
+              "名称": "Enrage",
+              "状态标记": "buff.enrage",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1271964,
+              "名称": "Honed Reflexes",
+              "状态标记": "debuff.honed_reflexes",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            },
+            {
+              "法术ID": 447513,
+              "名称": "Wrecked",
+              "状态标记": "debuff.wrecked",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 445836,
+              "名称": "Overwhelmed",
+              "状态标记": "debuff.overwhelmed",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        },
+        {
+          "专精": "warrior_protection",
+          "状态": "已复核",
+          "候选状态数": 64,
+          "两种血量扫描数": 130,
+          "伤害行数": 62,
+          "全局效果": [
+            {
+              "法术ID": 107574,
+              "名称": "Avatar",
+              "状态标记": "buff.avatar",
+              "作用域": "self",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 1271964,
+              "名称": "Honed Reflexes",
+              "状态标记": "debuff.honed_reflexes",
+              "作用域": "target",
+              "识别依据": "dbc_unrestricted_damage_aura"
+            },
+            {
+              "法术ID": 1160,
+              "名称": "Demoralizing Shout",
+              "状态标记": "debuff.demoralizing_shout_debuff",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 447513,
+              "名称": "Wrecked",
+              "状态标记": "debuff.wrecked",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            },
+            {
+              "法术ID": 445836,
+              "名称": "Overwhelmed",
+              "状态标记": "debuff.overwhelmed",
+              "作用域": "target",
+              "识别依据": "dbc_damage_scope_declaration"
+            }
+          ]
+        }
+      ],
+      "错误": []
+    }
+  ]
+}

@@ -13,6 +13,7 @@ import sys
 from collections import Counter
 from pathlib import Path
 from types import SimpleNamespace
+from prepare_simc_native_inputs import discover_profiles
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -23,7 +24,7 @@ from botend.constants.simc_specs import SIMC_KNOWN_SPECS
 from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService, attach_runtime_product_metrics,
     build_single_talent_actor_input, project_skill_damage_product_payload,
-    flatten_single_talent_damage_variants, classify_global_skill_effects,
+    flatten_single_talent_damage_variants, classify_global_skill_effects, prune_global_damage_talents,
     _mark_empty_runtime_amount_components_unresolved,
     _discard_empty_runtime_amount_components,
     collect_skill_damage_unresolved,
@@ -51,13 +52,12 @@ if args.raw_input:
     previous = json.loads((args.raw_input/'manifest.json').read_text(encoding='utf-8'))
     if previous.get('二进制_SHA256') != BINARY_HASH or previous.get('源码提交') != REVISION:
         parser.error('原始导出不属于当前二进制和源码提交。')
-profiles = {}
-for path in sorted((SOURCE/'profiles/MID1').glob('*.simc'), key=lambda p: (len(p.name), p.name)):
-    content = path.read_text(encoding='utf-8')
-    class_match = re.search(r'^(\w+)="[^"]+"', content, re.M)
-    spec_match = re.search(r'^spec=(\w+)', content, re.M)
-    if class_match and spec_match:
-        profiles.setdefault((class_match[1], spec_match[1]), (path, content))
+catalog_path = OUT / 'global-scope-catalog.json'
+subprocess.run([str(BINARY), f'skill_damage_scope_export={catalog_path}',
+                f'skill_damage_revision={REVISION}', f'skill_damage_game_build={BUILD}'], check=True, capture_output=True)
+catalog_service = SimcSkillDamageSnapshotService(SimpleNamespace(simc_revision=REVISION, game_build=BUILD), backend=SimpleNamespace())
+catalog = catalog_service._load_global_damage_talent_catalog(json.loads(catalog_path.read_text(encoding='utf-8')))
+profiles = discover_profiles(SOURCE)
 
 
 def run(identity):
@@ -128,7 +128,11 @@ def run(identity):
     actor=copy.deepcopy(base_high)
     effects=classify_global_skill_effects(base_high,base_low,[])
     effects=[effect for effect in effects if not any(p.get('kind')=='crit_chance' for p in effect.get('projections',[]))]
-    actor['global_skill_effects']=effects
+    selected_talents = [SimpleNamespace(pk=entry, node_id=entry, name=catalog[entry]['name'],
+                          name_zh='', tree_type='spec', db2_subtree_id=0)
+                        for entry in base_high.get('selected_trait_ids', []) if entry in catalog]
+    static_effects = prune_global_damage_talents(selected_talents, [], {}, catalog)[3]
+    actor['global_skill_effects']=static_effects+effects
     actor['actions']=flatten_single_talent_damage_variants(base_high,base_low,[],global_effects=effects)
     result['unresolved_damage'] = collect_skill_damage_unresolved({'actors': [base_high]})
     product=project_skill_damage_product_payload({'actors':[actor]})

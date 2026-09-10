@@ -1,0 +1,895 @@
+[
+  {
+    "职业": "warrior",
+    "专精": "arms",
+    "法术ID": 382896,
+    "名称": "Two-Handed Weapon Specialization",
+    "全局效果": [
+      [
+        [
+          386164
+        ],
+        "declared_runtime_state:buff.battle_stance[self:386164]"
+      ],
+      [
+        [
+          447513
+        ],
+        "declared_runtime_state:debuff.wrecked[target:447513]"
+      ],
+      [
+        [
+          445836
+        ],
+        "declared_runtime_state:debuff.overwhelmed[target:445836]"
+      ]
+    ],
+    "初始化证据": [
+      {
+        "trait_entry_id": 112179,
+        "spell_id": 382896,
+        "effect_index": 1,
+        "excluded": true,
+        "dbc_base_value": 3,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 112179,
+        "spell_id": 382896,
+        "effect_index": 2,
+        "excluded": true,
+        "dbc_base_value": 3,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 112179,
+        "spell_id": 382896,
+        "effect_index": 3,
+        "excluded": true,
+        "dbc_base_value": 3,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 112179,
+        "spell_id": 382896,
+        "effect_index": 4,
+        "excluded": false,
+        "dbc_base_value": -2,
+        "actual_base_value": -4,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 112184,
+        "spell_id": 386164,
+        "effect_index": 1,
+        "excluded": false,
+        "dbc_base_value": 3,
+        "actual_base_value": 3,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 112184,
+        "spell_id": 386164,
+        "effect_index": 2,
+        "excluded": false,
+        "dbc_base_value": -10,
+        "actual_base_value": -10,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 112184,
+        "spell_id": 386164,
+        "effect_index": 3,
+        "excluded": false,
+        "dbc_base_value": -10,
+        "actual_base_value": -10,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 112184,
+        "spell_id": 386164,
+        "effect_index": 4,
+        "excluded": true,
+        "dbc_base_value": 3,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      }
+    ],
+    "伤害变化": [],
+    "运行时全局声明": [
+      {
+        "token": "buff.avatar",
+        "scope": "self",
+        "spell_id": 107574,
+        "name": "Avatar",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.2
+      },
+      {
+        "token": "buff.battle_stance",
+        "scope": "self",
+        "spell_id": 386164,
+        "name": "Battle Stance",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      },
+      {
+        "token": "debuff.colossus_smash",
+        "scope": "target",
+        "spell_id": 208086,
+        "name": "Colossus Smash",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.3
+      },
+      {
+        "token": "debuff.demoralizing_shout_debuff",
+        "scope": "target",
+        "spell_id": 1160,
+        "name": "Demoralizing Shout",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      },
+      {
+        "token": "debuff.wrecked",
+        "scope": "target",
+        "spell_id": 447513,
+        "name": "Wrecked",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.1
+      },
+      {
+        "token": "debuff.overwhelmed",
+        "scope": "target",
+        "spell_id": 445836,
+        "name": "Overwhelmed",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.01
+      }
+    ],
+    "下方列表复核": {
+      "法术ID": 382896,
+      "下方该天赋伤害变体": 0,
+      "变体技能": []
+    }
+  },
+  {
+    "职业": "druid",
+    "专精": "feral",
+    "法术ID": 439868,
+    "名称": "Hunt Beneath the Open Skies",
+    "全局效果": [],
+    "初始化证据": [
+      {
+        "trait_entry_id": 117231,
+        "spell_id": 439868,
+        "effect_index": 1,
+        "excluded": true,
+        "dbc_base_value": 3,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 117231,
+        "spell_id": 439868,
+        "effect_index": 2,
+        "excluded": true,
+        "dbc_base_value": 3,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 117231,
+        "spell_id": 439868,
+        "effect_index": 3,
+        "excluded": true,
+        "dbc_base_value": 3,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 117231,
+        "spell_id": 439868,
+        "effect_index": 4,
+        "excluded": false,
+        "dbc_base_value": 10,
+        "actual_base_value": 10,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 117231,
+        "spell_id": 439868,
+        "effect_index": 5,
+        "excluded": false,
+        "dbc_base_value": 10,
+        "actual_base_value": 10,
+        "damage_scaling_removed": true
+      }
+    ],
+    "伤害变化": [],
+    "运行时全局声明": []
+  },
+  {
+    "职业": "druid",
+    "专精": "feral",
+    "法术ID": 439882,
+    "名称": "Root Network",
+    "全局效果": [
+      [
+        [
+          439887
+        ],
+        "declared_runtime_state:buff.root_network[self:439887]"
+      ]
+    ],
+    "初始化证据": [],
+    "伤害变化": [],
+    "运行时全局声明": [
+      {
+        "token": "buff.root_network",
+        "scope": "self",
+        "spell_id": 439887,
+        "name": "Root Network",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.02
+      }
+    ],
+    "下方列表复核": {
+      "法术ID": 439882,
+      "下方该天赋伤害变体": 0,
+      "变体技能": []
+    }
+  },
+  {
+    "职业": "druid",
+    "专精": "feral",
+    "法术ID": 1244547,
+    "名称": "Hunger for Battle",
+    "全局效果": [
+      [
+        [
+          1244553
+        ],
+        "declared_runtime_state:buff.hunger_for_battle[self:1244553]"
+      ]
+    ],
+    "初始化证据": [],
+    "伤害变化": [],
+    "运行时全局声明": [
+      {
+        "token": "buff.hunger_for_battle",
+        "scope": "self",
+        "spell_id": 1244553,
+        "name": "Hunger for Battle",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.05
+      }
+    ],
+    "下方列表复核": {
+      "法术ID": 1244547,
+      "下方该天赋伤害变体": 0,
+      "变体技能": []
+    }
+  },
+  {
+    "职业": "demonhunter",
+    "专精": "devourer",
+    "法术ID": 1244237,
+    "名称": "Rolling Torment",
+    "全局效果": [
+      [
+        [
+          163073
+        ],
+        "declared_runtime_state:buff.demon_soul[self:163073]"
+      ],
+      [
+        [
+          347765
+        ],
+        "declared_runtime_state:buff.empowered_demon_soul[self:347765]"
+      ],
+      [
+        [
+          1244235
+        ],
+        "declared_runtime_state:buff.rolling_torment[self:1244235]"
+      ]
+    ],
+    "初始化证据": [],
+    "伤害变化": [],
+    "运行时全局声明": [
+      {
+        "token": "buff.demon_soul",
+        "scope": "self",
+        "spell_id": 163073,
+        "name": "Demon Soul",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.2
+      },
+      {
+        "token": "buff.empowered_demon_soul",
+        "scope": "self",
+        "spell_id": 347765,
+        "name": "Demon Soul",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.2
+      },
+      {
+        "token": "buff.rolling_torment",
+        "scope": "self",
+        "spell_id": 1244235,
+        "name": "Rolling Torment",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.005
+      }
+    ],
+    "下方列表复核": {
+      "法术ID": 1244237,
+      "下方该天赋伤害变体": 0,
+      "变体技能": []
+    }
+  },
+  {
+    "职业": "paladin",
+    "专精": "retribution",
+    "法术ID": 343527,
+    "名称": "Execution Sentence",
+    "全局效果": [
+      [
+        [
+          454693
+        ],
+        "declared_runtime_state:buff.rise_from_ash[self:454693]"
+      ],
+      [
+        [
+          343527
+        ],
+        "declared_runtime_state:debuff.execution_sentence_debuff[target:343527]"
+      ]
+    ],
+    "初始化证据": [
+      {
+        "trait_entry_id": 115435,
+        "spell_id": 343527,
+        "effect_index": 1,
+        "excluded": false,
+        "dbc_base_value": 0,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 115435,
+        "spell_id": 343527,
+        "effect_index": 2,
+        "excluded": true,
+        "dbc_base_value": 20,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 115435,
+        "spell_id": 343527,
+        "effect_index": 3,
+        "excluded": false,
+        "dbc_base_value": 0,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 115435,
+        "spell_id": 343527,
+        "effect_index": 4,
+        "excluded": false,
+        "dbc_base_value": 0,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 115435,
+        "spell_id": 343527,
+        "effect_index": 5,
+        "excluded": false,
+        "dbc_base_value": 0,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      }
+    ],
+    "伤害变化": [],
+    "运行时全局声明": [
+      {
+        "token": "buff.rise_from_ash",
+        "scope": "self",
+        "spell_id": 454693,
+        "name": "Rise From Ash",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.08
+      },
+      {
+        "token": "buff.avenging_wrath",
+        "scope": "self",
+        "spell_id": 31884,
+        "name": "Avenging Wrath",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.2
+      },
+      {
+        "token": "debuff.execution_sentence_debuff",
+        "scope": "target",
+        "spell_id": 343527,
+        "name": "Execution Sentence",
+        "available": true,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      }
+    ]
+  },
+  {
+    "职业": "mage",
+    "专精": "arcane",
+    "法术ID": 321507,
+    "名称": "Touch of the Magi",
+    "全局效果": [],
+    "初始化证据": [
+      {
+        "trait_entry_id": 126538,
+        "spell_id": 321507,
+        "effect_index": 1,
+        "excluded": true,
+        "dbc_base_value": 20,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 126538,
+        "spell_id": 321507,
+        "effect_index": 2,
+        "excluded": false,
+        "dbc_base_value": 4,
+        "actual_base_value": 4,
+        "damage_scaling_removed": true
+      }
+    ],
+    "伤害变化": [],
+    "运行时全局声明": [
+      {
+        "token": "buff.arcane_surge",
+        "scope": "self",
+        "spell_id": 365362,
+        "name": "Arcane Surge",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.35
+      },
+      {
+        "token": "buff.enlightened",
+        "scope": "self",
+        "spell_id": 1217242,
+        "name": "Enlightened",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      },
+      {
+        "token": "buff.combustion",
+        "scope": "self",
+        "spell_id": 190319,
+        "name": "Combustion",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      },
+      {
+        "token": "buff.fired_up",
+        "scope": "self",
+        "spell_id": 1257350,
+        "name": "Fired Up",
+        "available": false,
+        "scope_basis": "dbc_unrestricted_damage_aura",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.04
+      },
+      {
+        "token": "buff.hand_of_frost",
+        "scope": "self",
+        "spell_id": 1263263,
+        "name": "Hand of Frost",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      },
+      {
+        "token": "buff.spellfire_sphere",
+        "scope": "self",
+        "spell_id": 448604,
+        "name": "Spellfire Sphere",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.01
+      }
+    ]
+  },
+  {
+    "职业": "mage",
+    "专精": "arcane",
+    "法术ID": 342231,
+    "名称": "Arcane Echo",
+    "全局效果": [],
+    "初始化证据": [
+      {
+        "trait_entry_id": 135699,
+        "spell_id": 342231,
+        "effect_index": 1,
+        "excluded": false,
+        "dbc_base_value": 8,
+        "actual_base_value": 8,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 135699,
+        "spell_id": 342231,
+        "effect_index": 2,
+        "excluded": false,
+        "dbc_base_value": 0,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 135699,
+        "spell_id": 342231,
+        "effect_index": 3,
+        "excluded": true,
+        "dbc_base_value": 5,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 135699,
+        "spell_id": 342232,
+        "effect_index": 1,
+        "excluded": true,
+        "dbc_base_value": 0,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      }
+    ],
+    "伤害变化": [],
+    "运行时全局声明": [
+      {
+        "token": "buff.arcane_surge",
+        "scope": "self",
+        "spell_id": 365362,
+        "name": "Arcane Surge",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.35
+      },
+      {
+        "token": "buff.enlightened",
+        "scope": "self",
+        "spell_id": 1217242,
+        "name": "Enlightened",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      },
+      {
+        "token": "buff.combustion",
+        "scope": "self",
+        "spell_id": 190319,
+        "name": "Combustion",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      },
+      {
+        "token": "buff.fired_up",
+        "scope": "self",
+        "spell_id": 1257350,
+        "name": "Fired Up",
+        "available": false,
+        "scope_basis": "dbc_unrestricted_damage_aura",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.04
+      },
+      {
+        "token": "buff.hand_of_frost",
+        "scope": "self",
+        "spell_id": 1263263,
+        "name": "Hand of Frost",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": null
+      },
+      {
+        "token": "buff.spellfire_sphere",
+        "scope": "self",
+        "spell_id": 448604,
+        "name": "Spellfire Sphere",
+        "available": false,
+        "scope_basis": "dbc_damage_scope_declaration",
+        "evidence": "precomputed_global_damage_scope",
+        "excluded_before_probe": true,
+        "dbc_base_multiplier": 1.01
+      }
+    ]
+  },
+  {
+    "职业": "monk",
+    "专精": "brewmaster",
+    "法术ID": 450508,
+    "名称": "Aspect of Harmony",
+    "全局效果": [],
+    "初始化证据": [
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 1,
+        "excluded": true,
+        "dbc_base_value": 12,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 2,
+        "excluded": true,
+        "dbc_base_value": 10,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 3,
+        "excluded": false,
+        "dbc_base_value": 6,
+        "actual_base_value": 6,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 4,
+        "excluded": false,
+        "dbc_base_value": 30,
+        "actual_base_value": 30,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 5,
+        "excluded": false,
+        "dbc_base_value": 0,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 6,
+        "excluded": true,
+        "dbc_base_value": 40,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 7,
+        "excluded": false,
+        "dbc_base_value": 100,
+        "actual_base_value": 100,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 8,
+        "excluded": false,
+        "dbc_base_value": 8,
+        "actual_base_value": 8,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 125033,
+        "spell_id": 450508,
+        "effect_index": 9,
+        "excluded": false,
+        "dbc_base_value": 20,
+        "actual_base_value": 20,
+        "damage_scaling_removed": true
+      }
+    ],
+    "伤害变化": [],
+    "运行时全局声明": []
+  },
+  {
+    "职业": "druid",
+    "专精": "restoration",
+    "法术ID": 426702,
+    "名称": "Liveliness",
+    "全局效果": [],
+    "初始化证据": [
+      {
+        "trait_entry_id": 103130,
+        "spell_id": 426702,
+        "effect_index": 1,
+        "excluded": true,
+        "dbc_base_value": -25,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 103130,
+        "spell_id": 426702,
+        "effect_index": 2,
+        "excluded": false,
+        "dbc_base_value": -5,
+        "actual_base_value": -5,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 103130,
+        "spell_id": 426702,
+        "effect_index": 3,
+        "excluded": true,
+        "dbc_base_value": -25,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      }
+    ],
+    "伤害变化": [],
+    "运行时全局声明": [],
+    "下方列表复核": {
+      "法术ID": 426702,
+      "下方该天赋伤害变体": 0,
+      "变体技能": []
+    }
+  },
+  {
+    "职业": "druid",
+    "专精": "feral",
+    "法术ID": 400320,
+    "名称": "Circle of Life and Death",
+    "全局效果": [],
+    "初始化证据": [
+      {
+        "trait_entry_id": 103152,
+        "spell_id": 400320,
+        "effect_index": 1,
+        "excluded": true,
+        "dbc_base_value": -20,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 103152,
+        "spell_id": 400320,
+        "effect_index": 2,
+        "excluded": false,
+        "dbc_base_value": -15,
+        "actual_base_value": -15,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 103152,
+        "spell_id": 400320,
+        "effect_index": 3,
+        "excluded": true,
+        "dbc_base_value": -20,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 103152,
+        "spell_id": 400320,
+        "effect_index": 4,
+        "excluded": false,
+        "dbc_base_value": -15,
+        "actual_base_value": -15,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 103152,
+        "spell_id": 400320,
+        "effect_index": 5,
+        "excluded": true,
+        "dbc_base_value": -20,
+        "actual_base_value": 0,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 103152,
+        "spell_id": 400320,
+        "effect_index": 6,
+        "excluded": false,
+        "dbc_base_value": 25,
+        "actual_base_value": 25,
+        "damage_scaling_removed": true
+      },
+      {
+        "trait_entry_id": 103152,
+        "spell_id": 400320,
+        "effect_index": 7,
+        "excluded": false,
+        "dbc_base_value": 25,
+        "actual_base_value": 25,
+        "damage_scaling_removed": true
+      }
+    ],
+    "伤害变化": [],
+    "运行时全局声明": [],
+    "下方列表复核": {
+      "法术ID": 400320,
+      "下方该天赋伤害变体": 0,
+      "变体技能": []
+    }
+  }
+]

@@ -54,6 +54,23 @@ row.variant = {scenario_tokens: ['buff.whirlwind'], runtime_conditions: [{
     token: 'buff.whirlwind', scope: 'self', spell_id: 85739, name_zh: '旋风斩',
     stacks: 1, stack_values: [1, 2, 3, 4],
 }]};
+assert.match(render(), /自身存在 旋风斩 效果时/);
+assert.doesNotMatch(render(), /自身存在 whirlwind 效果时/);
+row.variant.runtime_condition = '点出测试天赋，血量低于35%';
+assert.match(render(), /点出测试天赋，血量低于35%，自身存在 旋风斩 效果时/);
+row.variant.runtime_condition = '点出测试天赋，且自身存在旋风斩效果时';
+assert.doesNotMatch(render(), /自身存在旋风斩效果时，自身存在/);
+row.variant.runtime_conditions[0].stacks = 3;
+assert.match(render(), /自身存在旋风斩（3层）效果时/);
+assert.doesNotMatch(render(), /自身存在旋风斩（3层）效果时，自身存在/);
+row.variant.runtime_condition = '';
+assert.match(render(), /自身存在 旋风斩（3层） 效果时/);
+row.variant.runtime_conditions[0].stacks = 1;
+delete row.variant.scenario_tokens;
+row.variant.runtime_condition = '点出测试天赋';
+assert.match(render(), /点出测试天赋，自身存在 旋风斩 效果时/);
+row.variant.scenario_tokens = ['buff.whirlwind'];
+row.variant.runtime_condition = '';
 const singleStack = structuredClone(row);
 delete singleStack.variant.runtime_conditions[0].stack_values;
 payload.actors[0].actions.push(singleStack);

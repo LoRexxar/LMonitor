@@ -34,12 +34,15 @@ struct action_t {
   player_t* fail_target = nullptr;
   bool may_crit = true, tick_may_crit = true;
   int snapshots = 0;
+  bool secondary_only = false;
   struct { bool is_valid = true; } target_cache;
   int n_targets() { return 3; }
   std::vector<player_t*> target_list() {
     assert(!target_cache.is_valid);
     target_cache.is_valid = true;
-    return sim->target_non_sleeping_list.data();
+    auto targets = sim->target_non_sleeping_list.data();
+    if (secondary_only) targets.erase(std::remove(targets.begin(), targets.end(), target), targets.end());
+    return targets;
   }
   action_state_t* get_state() { return new action_state_t; }
   void snapshot_state(action_state_t*, result_amount_type) {
@@ -62,6 +65,7 @@ struct action_t {
 struct skill_damage_amount_t {
   struct component_t {
     double hit = 0, crit = 0, crit_chance = 0;
+    bool single_target_eligible = true;
     std::map<int,double> target_hit, target_crit, target_expected;
     std::map<int,double> target_noncrit_contribution, target_crit_contribution;
   } direct_amount, tick_amount;
@@ -96,6 +100,14 @@ int main() {
   assert(sim.active_enemies == 1 && sim.desired_targets == 1);
   assert(sim.target_non_sleeping_list.values == std::vector<player_t*>{&targets[0]});
   assert(!action.target_cache.is_valid);
+
+  // 第一滴血这类分量只命中副目标：单目标必须为零，双目标仍有伤害。
+  action.secondary_only = true;
+  skill_damage_populate_target_scenarios(action, amount);
+  assert(!amount.direct_amount.single_target_eligible);
+  close(amount.direct_amount.target_expected[1], 0);
+  close(amount.direct_amount.target_expected[2], 120);
+  action.secondary_only = false;
 
   action.fail_target = &targets[1];
   bool thrown = false;

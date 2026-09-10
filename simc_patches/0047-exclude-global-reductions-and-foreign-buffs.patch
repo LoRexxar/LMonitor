@@ -1,0 +1,102 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1048,7 +1048,7 @@
+ // 作用域在枚举前确定；不依赖伤害探针、本地化名称或已选技能数量。
+ bool skill_damage_global_aura( const spelleffect_data_t& effect, bool target )
+ {
+-  if ( effect.type() != E_APPLY_AURA || effect.percent() <= 0.0 ) return false;
++  if ( effect.type() != E_APPLY_AURA || effect.percent() == 0.0 ) return false;
+   for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i )
+     if ( effect.class_flags( i ) ) return false;
+   const bool damage_school = effect.misc_value1() > 0 && effect.misc_value1() <= 127;
+@@ -1156,7 +1156,7 @@
+   } restore{ buff, stacks, value };
+   const std::array<school_e, 7> schools{ SCHOOL_PHYSICAL, SCHOOL_HOLY, SCHOOL_FIRE,
+     SCHOOL_NATURE, SCHOOL_FROST, SCHOOL_SHADOW, SCHOOL_ARCANE };
+-  double ratio = 0.0;
++  bool changed = false;
+   for ( school_e school : schools )
+   {
+     buff->current_stack = 0; buff->current_value = 0.0; buff->invalidate_cache();
+@@ -1167,9 +1167,9 @@
+       ( player.target ? player.composite_player_target_multiplier( player.target, school ) : 1.0 );
+     if ( !std::isfinite( before ) || !std::isfinite( after ) || before <= 0.0 ) return cache[ key ] = false;
+     // 玩家倍率本身没有单技能筛选；学校不同或仅一个学校增伤仍是全局作用域。
+-    ratio = std::max( ratio, after / before );
+-  }
+-  return cache[ key ] = ratio > 1.0 + 1.0e-8;
++    changed = changed || std::abs( after / before - 1.0 ) > 1.0e-8;
++  }
++  return cache[ key ] = changed;
+ }
+ 
+ std::map<std::pair<const player_t*, const buff_t*>, const char*> skill_damage_global_scope_cache;
+@@ -1181,6 +1181,8 @@
+ {
+   if ( !buff || !buff->data().ok() || buff->source != &player ||
+        buff->player != ( target ? player.target : &player ) ) return nullptr;
++  const int family = as<int>(buff->data().class_family());
++  if ( family && family != dbc::get_class_spell_family(player.type) ) return nullptr;
+   const auto key = std::make_pair( &player, buff );
+   auto cached = skill_damage_global_scope_cache.find( key );
+   if ( cached != skill_damage_global_scope_cache.end() ) return cached->second;
+@@ -1191,7 +1193,7 @@
+     if ( const auto* parsed = dynamic_cast<const parse_player_effects_t*>( &player ) )
+       for ( const auto& effect : parsed->player_multiplier_effects )
+         if ( effect.buff == buff && ( effect.opt_enum & 127U ) != 0U &&
+-             ( effect.value > 0.0 || effect.mastery ) ) return skill_damage_global_scope_cache[ key ] = "native_player_effect_registry";
++             ( effect.value != 0.0 || effect.mastery ) ) return skill_damage_global_scope_cache[ key ] = "native_player_effect_registry";
+   if ( !skill_damage_declared_damage_indices( *player.dbc, *canonical ).empty() || skill_damage_declared_global_spell( player, *canonical, target ) ) return skill_damage_global_scope_cache[ key ] = "dbc_damage_scope_declaration";
+   if ( skill_damage_declared_linked_global_buff( player, buff ) ) return skill_damage_global_scope_cache[ key ] = "dbc_linked_global_damage_effect";
+   if ( skill_damage_native_global_buff( player, buff ) ) return skill_damage_global_scope_cache[ key ] = "native_player_multiplier_damage_schools";
+@@ -1313,6 +1315,8 @@
+   if ( declaration.id() != spell.id() && anchors.empty() && derived.empty() && rate_anchors.empty() ) return result;
+   for ( const auto& e : spell.effects() )
+   {
++    // 无技能掩码的自身伤害百分比降低，同样属于全技能伤害修正；不清除承伤分量。
++    if ( e.base_value() < 0 && skill_damage_global_aura( e, false ) ) result.insert(e.index()+1);
+     for ( unsigned index : rate_anchors )
+       if ( e.type() == E_APPLY_AURA && e.subtype() == 108 &&
+            ( e.misc_value1() == 1 || e.misc_value1() == 12 || e.misc_value1() == 19 ) &&
+@@ -1593,6 +1597,9 @@
+ // 尊重模块已经关闭的状态；同职业的其他专精天赋不能因共享 buff 对象而生效。
+ bool skill_damage_available_buff( const player_t& player, const buff_t& buff )
+ {
++  // 其他职业的公共外部 buff 也会以接收者为 source 创建，不能据此认定可以自身施加。
++  const int family = as<int>(buff.data().class_family());
++  if ( family && family != dbc::get_class_spell_family(player.type) ) return false;
+   static std::map<const buff_t*, bool> availability;
+   const auto found = availability.find( &buff );
+   if ( found != availability.end() ) return found->second;
+@@ -2006,11 +2013,11 @@
+     for ( const auto& effect : canonical->effects() )
+       if ( skill_damage_damage_aura( effect, target ) && ( indices.empty() || indices.count(effect.index()+1) ) )
+       {
+-        if ( effect.percent() <= 0.0 ) { ambiguous = true; continue; }
+-        if ( percent >= 0.0 && std::abs( effect.percent() - percent ) > 1.0e-8 ) ambiguous = true;
++        if ( effect.percent() == 0.0 ) { ambiguous = true; continue; }
++        if ( percent != -1.0 && std::abs( effect.percent() - percent ) > 1.0e-8 ) ambiguous = true;
+         percent = effect.percent();
+       }
+-    if ( !ambiguous && percent > 0.0 ) write_skill_damage_json_number( out, 1.0 + percent );
++    if ( !ambiguous && percent > -1.0 && percent != 0.0 ) write_skill_damage_json_number( out, 1.0 + percent );
+     else out << "null";
+     out << '}';
+   };
+@@ -2047,14 +2054,14 @@
+       const auto& effect = spell->effectN(index);
+       const bool percentage = effect.subtype() == 79 || effect.subtype() == 344 || effect.subtype() == 270 ||
+         ( ( effect.subtype() == 108 || effect.subtype() == 218 ) && ( effect.misc_value1() == 0 || effect.misc_value1() == 22 ) );
+-      if ( !percentage || effect.percent() <= 0.0 || ( percent >= 0.0 && std::abs(percent-effect.percent()) > 1.0e-8 ) ) scalar = false;
++      if ( !percentage || effect.percent() == 0.0 || ( percent != -1.0 && std::abs(percent-effect.percent()) > 1.0e-8 ) ) scalar = false;
+       percent = effect.percent();
+     }
+     out << "{\"trait_entry_id\":" << trait.id_trait_node_entry
+         << ",\"spell_id\":" << trait.id_spell << ",\"name\":";
+     apl_metadata_json_string( out, trait.name );
+     out << ",\"evidence\":\"dbc_global_damage_talent\",\"dbc_base_multiplier\":";
+-    if ( scalar && percent > 0.0 ) write_skill_damage_json_number(out, 1.0+percent); else out << "null";
++    if ( scalar && percent > -1.0 && percent != 0.0 ) write_skill_damage_json_number(out, 1.0+percent); else out << "null";
+     out << ",\"remove_talent\":" << ( skill_damage_pure_global_talent( spell, sim.dbc.get() ) ? "true" : "false" );
+     out << ",\"global_effect_indices\":[";
+     bool fi = true;

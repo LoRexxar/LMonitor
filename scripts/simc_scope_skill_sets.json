@@ -1,0 +1,589 @@
+[
+  {
+    "职业族": 4,
+    "选择位": [
+      0,
+      1024,
+      0,
+      0
+    ],
+    "技能集合": "嗜血与浴血奋战替代技能",
+    "完整DBC集合": [
+      23881,
+      335096
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct bloodthirst_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      },
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct bloodbath_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      }
+    ]
+  },
+  {
+    "职业族": 4,
+    "选择位": [
+      0,
+      8192,
+      0,
+      0
+    ],
+    "技能集合": "怒击与碎甲猛击的主副手分量",
+    "完整DBC集合": [
+      85384,
+      96103,
+      335098,
+      335100
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct raging_blow_attack_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      },
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct crushing_blow_attack_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      }
+    ]
+  },
+  {
+    "职业族": 4,
+    "选择位": [
+      0,
+      9216,
+      0,
+      0
+    ],
+    "技能集合": "嗜血、怒击、浴血奋战与碎甲猛击",
+    "完整DBC集合": [
+      23881,
+      85384,
+      96103,
+      335096,
+      335098,
+      335100
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct bloodthirst_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      },
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct bloodbath_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      },
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct raging_blow_attack_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      },
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct crushing_blow_attack_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      }
+    ]
+  },
+  {
+    "职业族": 4,
+    "选择位": [
+      4,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "压制与神勇无畏冲击波",
+    "完整DBC集合": [
+      7384,
+      315961
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct overpower_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      },
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct dreadnaught_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      }
+    ]
+  },
+  {
+    "职业族": 4,
+    "选择位": [
+      33554432,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "致死打击及其变体",
+    "完整DBC集合": [
+      12294,
+      339385
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct mortal_strike_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      }
+    ]
+  },
+  {
+    "职业族": 4,
+    "选择位": [
+      37748740,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "顺劈斩、压制、致死打击及其分量",
+    "完整DBC集合": [
+      845,
+      7384,
+      12294,
+      315961,
+      339385,
+      458459
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct cleave_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      },
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct overpower_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      },
+      {
+        "文件": "engine/class_modules/sc_warrior.cpp",
+        "定位代码": "struct mortal_strike_t",
+        "文本摘要": "9cf989da15ed0428ea01ef97d9621f496a33127e1fb04cdcdce79e035f496c6b"
+      }
+    ]
+  },
+  {
+    "职业族": 7,
+    "选择位": [
+      1,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "愤怒的职业与专精版本",
+    "完整DBC集合": [
+      5176,
+      190984
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_druid.cpp",
+        "定位代码": "struct wrath_t",
+        "文本摘要": "9c79f9509876eb48d0b53ff8c09c7c82d60034d84f28a6d8bdd07874a8fe2c68"
+      }
+    ]
+  },
+  {
+    "职业族": 7,
+    "选择位": [
+      4,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "星火术的专精版本",
+    "完整DBC集合": [
+      194153,
+      197628
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_druid.cpp",
+        "定位代码": "struct starfire_t",
+        "文本摘要": "9c79f9509876eb48d0b53ff8c09c7c82d60034d84f28a6d8bdd07874a8fe2c68"
+      }
+    ]
+  },
+  {
+    "职业族": 7,
+    "选择位": [
+      5,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "愤怒与星火术",
+    "完整DBC集合": [
+      5176,
+      190984,
+      194153,
+      197628
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_druid.cpp",
+        "定位代码": "struct wrath_t",
+        "文本摘要": "9c79f9509876eb48d0b53ff8c09c7c82d60034d84f28a6d8bdd07874a8fe2c68"
+      },
+      {
+        "文件": "engine/class_modules/sc_druid.cpp",
+        "定位代码": "struct starfire_t",
+        "文本摘要": "9c79f9509876eb48d0b53ff8c09c7c82d60034d84f28a6d8bdd07874a8fe2c68"
+      }
+    ]
+  },
+  {
+    "职业族": 11,
+    "选择位": [
+      0,
+      0,
+      4096,
+      0
+    ],
+    "技能集合": "风暴打击与风切的主副手伤害",
+    "完整DBC集合": [
+      32175,
+      32176,
+      115357,
+      115360
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_shaman.cpp",
+        "定位代码": "struct stormstrike_attack_t",
+        "文本摘要": "cc558e83f1321d98faca1fed5e185145ebd370b2ced499d2b3c618d0eb6ef4f7"
+      },
+      {
+        "文件": "engine/class_modules/sc_shaman.cpp",
+        "定位代码": "struct windstrike_attack_t",
+        "文本摘要": "cc558e83f1321d98faca1fed5e185145ebd370b2ced499d2b3c618d0eb6ef4f7"
+      }
+    ]
+  },
+  {
+    "职业族": 11,
+    "选择位": [
+      0,
+      0,
+      4100,
+      65536
+    ],
+    "技能集合": "风暴打击、风切与熔岩猛击",
+    "完整DBC集合": [
+      32175,
+      32176,
+      60103,
+      115356,
+      115357,
+      115360
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_shaman.cpp",
+        "定位代码": "struct stormstrike_attack_t",
+        "文本摘要": "cc558e83f1321d98faca1fed5e185145ebd370b2ced499d2b3c618d0eb6ef4f7"
+      },
+      {
+        "文件": "engine/class_modules/sc_shaman.cpp",
+        "定位代码": "struct windstrike_t",
+        "文本摘要": "cc558e83f1321d98faca1fed5e185145ebd370b2ced499d2b3c618d0eb6ef4f7"
+      },
+      {
+        "文件": "engine/class_modules/sc_shaman.cpp",
+        "定位代码": "struct lava_lash_t",
+        "文本摘要": "cc558e83f1321d98faca1fed5e185145ebd370b2ced499d2b3c618d0eb6ef4f7"
+      }
+    ]
+  },
+  {
+    "职业族": 11,
+    "选择位": [
+      2,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "闪电链的具体法术版本",
+    "完整DBC集合": [
+      188443,
+      211094
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_shaman.cpp",
+        "定位代码": "struct chain_lightning_t",
+        "文本摘要": "cc558e83f1321d98faca1fed5e185145ebd370b2ced499d2b3c618d0eb6ef4f7"
+      }
+    ]
+  },
+  {
+    "职业族": 11,
+    "选择位": [
+      0,
+      4096,
+      4194304,
+      0
+    ],
+    "技能集合": "熔岩爆裂与过载分量",
+    "完整DBC集合": [
+      51505,
+      285452,
+      285466
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_shaman.cpp",
+        "定位代码": "struct lava_burst_t",
+        "文本摘要": "cc558e83f1321d98faca1fed5e185145ebd370b2ced499d2b3c618d0eb6ef4f7"
+      },
+      {
+        "文件": "engine/class_modules/sc_shaman.cpp",
+        "定位代码": "struct lava_burst_overload_t",
+        "文本摘要": "cc558e83f1321d98faca1fed5e185145ebd370b2ced499d2b3c618d0eb6ef4f7"
+      }
+    ]
+  },
+  {
+    "职业族": 107,
+    "选择位": [
+      0,
+      0,
+      0,
+      2
+    ],
+    "技能集合": "吞噬及其伤害分量",
+    "完整DBC集合": [
+      473662,
+      1217610
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct consume_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      }
+    ]
+  },
+  {
+    "职业族": 107,
+    "选择位": [
+      0,
+      0,
+      0,
+      8
+    ],
+    "技能集合": "收割及其替代技能",
+    "完整DBC集合": [
+      1225823,
+      1225827,
+      1245455,
+      1279200
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct reap_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      },
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct cull_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      },
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct eradicate_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      }
+    ]
+  },
+  {
+    "职业族": 107,
+    "选择位": [
+      0,
+      0,
+      0,
+      10
+    ],
+    "技能集合": "吞噬、收割及其替代技能",
+    "完整DBC集合": [
+      473662,
+      1217610,
+      1225823,
+      1225827,
+      1245455,
+      1279200
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct consume_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      },
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct reap_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      },
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct cull_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      },
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct eradicate_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      }
+    ]
+  },
+  {
+    "职业族": 107,
+    "选择位": [
+      0,
+      0,
+      0,
+      16
+    ],
+    "技能集合": "虚空射线与周期分量",
+    "完整DBC集合": [
+      1213649,
+      1214595
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_demon_hunter.cpp",
+        "定位代码": "struct void_ray_t",
+        "文本摘要": "98dd4da42115055d065105ff3ab6f490d5c549909847de35cc98413ddec74ae9"
+      }
+    ]
+  },
+  {
+    "职业族": 9,
+    "选择位": [
+      0,
+      32,
+      65536,
+      0
+    ],
+    "技能集合": "猛禽一击、猛禽横扫与生存杀戮命令",
+    "完整DBC集合": [
+      186270,
+      259277,
+      265189,
+      1262293,
+      1262343
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_hunter.cpp",
+        "定位代码": "struct raptor_strike_t",
+        "文本摘要": "d576fa2205fd79d279fda803edb201eb9b375106a6eba05afd483818a19537d9"
+      },
+      {
+        "文件": "engine/class_modules/sc_hunter.cpp",
+        "定位代码": "struct kill_command_t",
+        "文本摘要": "d576fa2205fd79d279fda803edb201eb9b375106a6eba05afd483818a19537d9"
+      }
+    ]
+  },
+  {
+    "职业族": 9,
+    "选择位": [
+      8,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "急速射击的周期伤害",
+    "完整DBC集合": [
+      257045,
+      460496
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/sc_hunter.cpp",
+        "定位代码": "struct rapid_fire_t",
+        "文本摘要": "d576fa2205fd79d279fda803edb201eb9b375106a6eba05afd483818a19537d9"
+      }
+    ]
+  },
+  {
+    "职业族": 53,
+    "选择位": [
+      16,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "幻灭踢的职业与专精版本",
+    "完整DBC集合": [
+      100784,
+      205523,
+      228649
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/monk/sc_monk.cpp",
+        "定位代码": "struct blackout_kick_t",
+        "文本摘要": "31e7e803db62e39675b6d8e253f9668294b41c039f90022265edb7a7333c07d2"
+      }
+    ]
+  },
+  {
+    "职业族": 53,
+    "选择位": [
+      1024,
+      0,
+      0,
+      0
+    ],
+    "技能集合": "猛虎掌及其法术变体",
+    "完整DBC集合": [
+      100780,
+      331433,
+      468605
+    ],
+    "复核方式": "人工核对完整 DBC 选择器及 SimC 具体技能实现；程序校验该证据版本，不宣称自动推导选择器语义。",
+    "源码身份": [
+      {
+        "文件": "engine/class_modules/monk/sc_monk.cpp",
+        "定位代码": "struct tiger_palm_t",
+        "文本摘要": "31e7e803db62e39675b6d8e253f9668294b41c039f90022265edb7a7333c07d2"
+      }
+    ]
+  }
+]

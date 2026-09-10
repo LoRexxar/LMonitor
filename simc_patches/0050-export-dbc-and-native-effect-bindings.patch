@@ -1,0 +1,253 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -18,6 +18,7 @@
+ #include "action/action.hpp"
+ #include "action/action_state.hpp"
+ #include "action/parse_effects.hpp"
++#include "player/pet.hpp"
+ #include "action/dot.hpp"
+ #include "action/residual_action.hpp"
+ #include "buff/buff.hpp"
+@@ -1579,6 +1580,147 @@
+   }
+ }
+ 
++// 直接使用 SimC 的 DBC 索引，不通过描述推断作用技能。
++void skill_damage_write_dbc_relation( std::ostream& out, const dbc_t& dbc, const spelleffect_data_t& e )
++{
++  std::vector<const spell_data_t*> affected;
++  const char* method = "no_static_spell_selector";
++  if ( e.subtype() == 107 || e.subtype() == 108 || e.subtype() == 220 || e.subtype() == 416 || e.subtype() == 417 )
++  {
++    affected = dbc.effect_affects_spells(e.spell()->class_family(), &e);
++    method = "dbc.effect_affects_spells";
++  }
++  else if ( e.subtype() == 218 || e.subtype() == 219 || e.subtype() == 320 )
++  {
++    auto matches = dbc.spells_by_label(e.misc_value2());
++    affected.assign(matches.begin(), matches.end()); method = "dbc.spells_by_label";
++  }
++  else if ( e.subtype() == 271 || e.subtype() == 537 )
++  {
++    for ( const auto& candidate : spell_data_t::data(dbc.ptr) )
++      if ( candidate.affected_by_all(e) ) affected.push_back(&candidate);
++    method = "spell_data_t.affected_by_all";
++  }
++  out << "{\"effect_id\":" << e.id() << ",\"source_spell_id\":" << e.spell()->id()
++      << ",\"effect_index\":" << e.index()+1 << ",\"class_family\":" << e.spell()->class_family()
++      << ",\"type\":" << e.type() << ",\"subtype\":" << e.subtype()
++      << ",\"misc1\":" << e.misc_value1() << ",\"misc2\":" << e.misc_value2()
++      << ",\"base_value\":" << e.base_value() << ",\"method\":";
++  apl_metadata_json_string(out,method);
++  out << ",\"flags\":[";
++  for(unsigned i=0;i<NUM_CLASS_FAMILY_FLAGS;++i){if(i)out<<',';out<<e.class_flags(i);}
++  out << "],\"affected_spells\":[";
++  bool first = true;
++  for ( const auto* s : affected )
++  {
++    if ( !first ) out << ','; first = false;
++    out << "{\"spell_id\":" << s->id() << ",\"name\":";
++    apl_metadata_json_string(out,s->name_cstr());
++    out << ",\"school\":" << s->school_mask() << ",\"class_family\":" << s->class_family()
++        << ",\"dbc_direct_damage\":" << (range::any_of(s->effects(), [](const spelleffect_data_t& e) { return e.type() == E_SCHOOL_DAMAGE || e.type() == E_HEALTH_LEECH || e.type() == E_NORMALIZED_WEAPON_DMG || e.type() == E_WEAPON_DAMAGE || e.type() == E_WEAPON_PERCENT_DAMAGE; })?"true":"false")
++        << ",\"dbc_periodic_damage\":" << (range::any_of(s->effects(), [](const spelleffect_data_t& e) { return e.type() == E_APPLY_AURA && (e.subtype() == A_PERIODIC_DAMAGE || e.subtype() == A_PERIODIC_LEECH || e.subtype() == A_PERIODIC_DAMAGE_PERCENT); })?"true":"false") << '}';
++  }
++  out << "]}";
++}
++
++// 独立原生审计：正常初始化后读取实际注册关系，不清零全局分量、不调用文本分类器。
++void export_skill_damage_native_evidence( sim_t& sim )
++{
++  std::ofstream out(sim.skill_damage_evidence_export_file, std::ios::binary | std::ios::trunc);
++  out << "{\"evidence_schema\":1,\"normalized\":false,\"actors\":[";
++  bool fa = true;
++  for ( player_t* owner : sim.player_list )
++  {
++    if ( !owner->is_player() ) continue;
++    if ( !fa ) out << ','; fa = false;
++    out << "{\"class\":"; apl_metadata_json_string(out,util::player_type_string(owner->type));
++    out << ",\"spec\":"; apl_metadata_json_string(out,util::specialization_string(owner->specialization()));
++    out << ",\"selected_trait_ids\":[";
++    bool fs = true;
++    for ( const auto& t : owner->player_traits ) { if (!fs) out << ','; fs=false; out << std::get<1>(t); }
++    out << "],\"bindings\":[";
++    bool fb = true;
++    std::set<unsigned> source_effects;
++    std::vector<player_t*> entities{owner};
++    for ( auto* pet : owner->pet_list ) entities.push_back(pet);
++    for ( const auto* entity : entities )
++    {
++      const auto emit = [&](const spelleffect_data_t* e, unsigned target, const std::string& field,
++                            const char* layer, buff_t* buff, unsigned flags, bool conditional) {
++        if (!e || !e->id()) return;
++        if (!fb) out << ','; fb=false;
++        source_effects.insert(e->id());
++        out << "{\"source_spell_id\":" << e->spell()->id() << ",\"effect_id\":" << e->id()
++            << ",\"effect_index\":" << e->index()+1 << ",\"target_spell_id\":" << target
++            << ",\"base_value\":" << e->base_value() << ",\"layer\":";
++        apl_metadata_json_string(out,layer); out << ",\"field\":"; apl_metadata_json_string(out,field);
++        out << ",\"entity\":"; apl_metadata_json_string(out,entity->name_str);
++        out << ",\"pet\":" << (entity!=owner?"true":"false") << ",\"parse_flags\":" << flags
++            << ",\"conditional\":" << (conditional?"true":"false") << ",\"buff_spell_id\":" << (buff?buff->data().id():0)
++            << ",\"buff_class_family\":" << (buff?buff->data().class_family():0)
++            << ",\"owner_class_family\":" << dbc::get_class_spell_family(owner->type);
++        out << ",\"buff_token\":"; apl_metadata_json_string(out,buff?buff->name_str:"");
++        out << ",\"buff_default_chance\":" << (buff?buff->default_chance:0)
++            << ",\"buff_max_stack\":" << (buff?buff->max_stack():0)
++            << ",\"self_owned\":" << (!buff || (buff->source==entity && buff->player==entity)?"true":"false") << '}';
++      };
++      for ( const auto& [field,groups] : entity->reporting_parse_player )
++        for ( const auto& [misc,effects] : groups )
++          for ( const auto* e : effects ) emit(e,0,field,"passive_player",nullptr,0,false);
++      for ( const auto& [target,fields] : entity->reporting_parse_action )
++        for ( const auto& [field,effects] : fields )
++          for ( const auto* e : effects ) emit(e,target,field,"passive_action",nullptr,0,false);
++      for ( const auto& [target,indices] : entity->reporting_parse_effect )
++        for ( const auto& [index,effects] : indices )
++          for ( const auto* e : effects ) emit(e,target,"effect_"+std::to_string(index),"passive_effect",nullptr,0,false);
++      const auto player_bank = [&](const auto& entries,const char* field,unsigned target,const char* layer) {
++        for ( const auto& e : entries ) emit(e.eff,target,field,layer,e.buff,e.type,bool(e.func)||bool(e.value_func));
++      };
++      if ( const auto* parsed=dynamic_cast<const parse_player_effects_t*>(entity) )
++      {
++        player_bank(parsed->player_multiplier_effects,"player_multiplier",0,"player_registry");
++        player_bank(parsed->pet_multiplier_effects,"pet_multiplier",0,"player_registry");
++        player_bank(parsed->crit_bonus_effects,"crit_bonus",0,"player_registry");
++        player_bank(parsed->crit_chance_effects,"crit_chance",0,"player_registry");
++        player_bank(parsed->auto_attack_speed_effects,"auto_attack_speed",0,"player_registry");
++      }
++      for ( const auto* action : entity->action_list )
++      {
++        if (!action || !action->harmful || action->type==ACTION_HEAL || action->type==ACTION_ABSORB) continue;
++        const auto* parsed=dynamic_cast<const parse_action_base_t*>(action);
++        if (!parsed) continue;
++        const auto target=apl_metadata_action_spell_id(*action);
++        player_bank(parsed->da_multiplier_effects,"direct_damage",target,"action_registry");
++        player_bank(parsed->ta_multiplier_effects,"periodic_damage",target,"action_registry");
++        player_bank(parsed->crit_bonus_effects,"crit_bonus",target,"action_registry");
++        player_bank(parsed->crit_chance_effects,"crit_chance",target,"action_registry");
++        player_bank(parsed->dot_duration_effects,"duration",target,"action_registry");
++        player_bank(parsed->tick_time_effects,"tick_time",target,"action_registry");
++        for (const auto& e:parsed->target_multiplier_effects)
++          emit(e.eff,target,"target_multiplier","target_registry",nullptr,e.type,bool(e.func));
++      }
++    }
++    out << "],\"source_effects\":[";
++    bool fe=true;
++    for (const auto& e:spelleffect_data_t::data(sim.dbc->ptr)) if(source_effects.count(e.id()))
++    { if(!fe) out << ','; fe=false; skill_damage_write_dbc_relation(out,*sim.dbc,e); }
++    out << "],\"damage_actions\":[";
++    bool fd=true;
++    for(const auto* entity:entities) for(const auto* a:entity->action_list)
++    {
++      if(!a || !a->harmful || a->type==ACTION_HEAL || a->type==ACTION_ABSORB ||
++         (!a->does_direct_damage() && !a->does_periodic_damage()) || a->external_recipient_action()) continue;
++      if(!fd) out << ','; fd=false;
++      out << "{\"spell_id\":" << apl_metadata_action_spell_id(*a) << ",\"token\":";
++      apl_metadata_json_string(out,a->name_str); out << ",\"periodic\":" << (a->does_periodic_damage()?"true":"false")
++          << ",\"pet\":" << (entity!=owner?"true":"false") << '}';
++    }
++    out << "]}";
++  }
++  out << "]}\n";
++  if(!out) throw std::runtime_error("Unable to write native scope evidence");
++}
++
+ struct skill_damage_condition_t
+ {
+   skill_damage_condition_scope_e scope;
+@@ -2190,6 +2332,10 @@
+       for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i ) { if ( i ) out << ','; out << effect.class_flags( i ); }
+       out << "]}";
+     }
++    out << "],\"dbc_scope_effects\":[";
++    bool fr=true;
++    if(spell) for(const auto& effect:spell->effects()) if(effect.id())
++    { if(!fr) out << ','; fr=false; skill_damage_write_dbc_relation(out,*sim.dbc,effect); }
+     out << "]}";
+   }
+   out << "]}\n";
+@@ -2690,6 +2836,16 @@
+       return 0;
+     }
+ 
++    if ( !skill_damage_evidence_export_file.empty() )
++    {
++      skill_damage_dbc_candidates.clear();
++      register_actor_initializer(INIT_ACTOR_CREATE_ACTIONS + 90, &prepare_skill_damage_dbc_actions,
++                                 "skill_damage_dbc_actions_for_evidence");
++      init();
++      export_skill_damage_native_evidence(*this);
++      return 0;
++    }
++
+     if ( !skill_damage_export_file.empty() )
+     {
+       skill_damage_dbc_candidates.clear();
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -4136,7 +4136,7 @@
+ 
+ void player_t::create_actions()
+ {
+-  if ( is_player() && !is_enemy() && !is_pet() && !sim->skill_damage_export_file.empty() )
++  if ( is_player() && !is_enemy() && !is_pet() && ( !sim->skill_damage_export_file.empty() || !sim->skill_damage_evidence_export_file.empty() ) )
+   {
+     // 技能目录来自 DBC 和已选天赋，循环内容不参与技能及状态的选择。
+     clear_action_priority_lists();
+@@ -4205,7 +4205,7 @@
+ 
+   // 技能伤害目录独立于默认循环；在原生动作初始化阶段创建映射动作。
+   action_priority_list_t* skill_catalog = nullptr;
+-  if ( is_player() && !is_enemy() && !is_pet() && !sim->skill_damage_export_file.empty() )
++  if ( is_player() && !is_enemy() && !is_pet() && ( !sim->skill_damage_export_file.empty() || !sim->skill_damage_evidence_export_file.empty() ) )
+   {
+     const auto class_id = static_cast<unsigned>( util::class_id( type ) );
+     const auto spec_id = static_cast<unsigned>( specialization() );
+@@ -15570,7 +15570,7 @@
+     };
+ 
+     auto add_reporting = [ & ]( int type ) {
+-      if ( sim->parent || sim->profileset_enabled || sim->report_details == 0 || sim->html_file_str.empty() )
++      if ( sim->parent || sim->profileset_enabled || sim->report_details == 0 || ( sim->html_file_str.empty() && sim->skill_damage_evidence_export_file.empty() ) )
+         return;
+ 
+       if ( remove )
+@@ -15907,7 +15907,7 @@
+     };
+ 
+     auto add_reporting = [ & ]( std::string field ) {
+-      if ( sim->parent || sim->profileset_enabled || sim->report_details == 0 || sim->html_file_str.empty() )
++      if ( sim->parent || sim->profileset_enabled || sim->report_details == 0 || ( sim->html_file_str.empty() && sim->skill_damage_evidence_export_file.empty() ) )
+         return;
+ 
+       if ( remove )
+@@ -16139,7 +16139,7 @@
+                        eff->index() + 1, flat_val ? flat_val : pct_val * 100, flat_val ? "" : "%", now.orig,
+                        prev.value(), prev.flat, prev.pct * 100, now.value(), now.flat, now.pct * 100 ) );
+ 
+-        if ( !sim->parent && !sim->profileset_enabled && sim->report_details > 0 && !sim->html_file_str.empty() )
++        if ( !sim->parent && !sim->profileset_enabled && sim->report_details > 0 && ( !sim->html_file_str.empty() || !sim->skill_damage_evidence_export_file.empty() ) )
+         {
+           if ( remove )
+             range::erase_remove( reporting_parse_effect[ spell->id() ][ eff->index() + 1 ], &modifying_eff );
+--- a/engine/sim/sim.cpp
++++ b/engine/sim/sim.cpp
+@@ -3863,6 +3863,7 @@
+   add_option( opt_string( "apl_metadata_game_build", apl_metadata_game_build ) );
+   add_option( opt_string( "skill_damage_export", skill_damage_export_file ) );
+   add_option( opt_string( "skill_damage_scope_export", skill_damage_scope_export_file ) );
++  add_option( opt_string( "skill_damage_evidence_export", skill_damage_evidence_export_file ) );
+   add_option( opt_string( "skill_damage_revision", skill_damage_revision ) );
+   add_option( opt_string( "skill_damage_game_build", skill_damage_game_build ) );
+   add_option( opt_float( "skill_damage_target_health_percentage", skill_damage_target_health_percentage ) );
+--- a/engine/sim/sim.hpp
++++ b/engine/sim/sim.hpp
+@@ -96,6 +96,7 @@
+   // Runtime skill damage probe mode. Actors initialize, but no simulation executes.
+   std::string skill_damage_export_file;
+   std::string skill_damage_scope_export_file;
++  std::string skill_damage_evidence_export_file;
+   std::string skill_damage_revision;
+   std::string skill_damage_game_build;
+   double skill_damage_target_health_percentage = 100.0;

@@ -1,0 +1,81 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -656,6 +656,7 @@
+            changed( x.target_pet_multiplier, y.target_pet_multiplier );
+   };
+   return changed( a.direct_amount.expected, b.direct_amount.expected ) ||
++         changed( a.direct_amount.damage_equivalent_count, b.direct_amount.damage_equivalent_count ) ||
+          changed( a.tick_amount.expected, b.tick_amount.expected ) ||
+          changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count ) ||
+          target_hit_changed( a.direct_amount.target_hit, b.direct_amount.target_hit ) ||
+@@ -1638,7 +1639,24 @@
+         out << ",\"buff_token\":"; apl_metadata_json_string(out,buff?buff->name_str:"");
+         out << ",\"buff_default_chance\":" << (buff?buff->default_chance:0)
+             << ",\"buff_max_stack\":" << (buff?buff->max_stack():0)
+-            << ",\"self_owned\":" << (!buff || (buff->source==entity && buff->player==entity)?"true":"false") << '}';
++            << ",\"self_owned\":" << (!buff || (buff->source==entity &&
++                 (buff->player==entity || ((std::string_view(layer)=="target_registry" ||
++                  std::string_view(layer)=="target_player_registry") && buff->player==entity->target)))?"true":"false") << '}';
++      };
++      const auto target_bank = [&](const auto& entries, unsigned target, const char* field, const char* layer) {
++        for (const auto& e:entries)
++        {
++          buff_t* debuff=nullptr;
++          if (entity->target && e.eff && e.eff->ok())
++          {
++            entity->get_target_data(entity->target);
++            for (auto* candidate:entity->target->buff_list)
++              if (candidate->source==entity && candidate->data().id()==e.eff->spell()->id())
++              {debuff=candidate;break;}
++          }
++          // 持续伤害及其他目标条件可以没有 buff_t，仍保留原生修正登记。
++          emit(e.eff,target,field,layer,debuff,e.type,bool(e.func));
++        }
+       };
+       for ( const auto& [field,groups] : entity->reporting_parse_player )
+         for ( const auto& [misc,effects] : groups )
+@@ -1659,6 +1677,8 @@
+         player_bank(parsed->crit_bonus_effects,"crit_bonus",0,"player_registry");
+         player_bank(parsed->crit_chance_effects,"crit_chance",0,"player_registry");
+         player_bank(parsed->auto_attack_speed_effects,"auto_attack_speed",0,"player_registry");
++        target_bank(parsed->target_multiplier_effects,0,"target_multiplier","target_player_registry");
++        target_bank(parsed->target_pet_multiplier_effects,0,"pet_multiplier","target_player_registry");
+       }
+       for ( const auto* action : entity->action_list )
+       {
+@@ -1672,8 +1692,33 @@
+         player_bank(parsed->crit_chance_effects,"crit_chance",target,"action_registry");
+         player_bank(parsed->dot_duration_effects,"duration",target,"action_registry");
+         player_bank(parsed->tick_time_effects,"tick_time",target,"action_registry");
+-        for (const auto& e:parsed->target_multiplier_effects)
+-          emit(e.eff,target,"target_multiplier","target_registry",nullptr,e.type,bool(e.func));
++        target_bank(parsed->target_multiplier_effects,target,"target_multiplier","target_registry");
++      }
++    }
++    // 手写伤害函数可能完全绕过解析器，额外导出真实自身来源的目标状态及 DBC 分量。
++    // 这些记录仅证明状态来源，不冒充已经登记的技能应用关系。
++    out << "],\"target_states\":[";
++    bool first_target_state=true;
++    for (const auto* entity:entities)
++    {
++      if (!entity->target) continue;
++      entity->get_target_data(entity->target);
++      for (const auto* buff:entity->target->buff_list)
++      {
++        if (buff->source!=entity || buff->player!=entity->target || !buff->data().ok() ||
++            buff->data().class_family()!=dbc::get_class_spell_family(owner->type)) continue;
++        std::vector<unsigned> ids;
++        for (const auto& e:buff->data().effects())
++          if (e.type()==E_APPLY_AURA && (e.subtype()==270 || e.subtype()==271 || e.subtype()==343 ||
++              e.subtype()==380 || e.subtype()==381 || e.subtype()==537))
++          { ids.push_back(e.id()); source_effects.insert(e.id()); }
++        if (ids.empty()) continue;
++        if (!first_target_state) out << ','; first_target_state=false;
++        out << "{\"spell_id\":" << buff->data().id() << ",\"token\":";
++        apl_metadata_json_string(out,buff->name_str);
++        out << ",\"self_owned\":true,\"effect_ids\":[";
++        for (size_t i=0;i<ids.size();++i) { if(i) out << ','; out << ids[i]; }
++        out << "]}";
+       }
+     }
+     out << "],\"source_effects\":[";

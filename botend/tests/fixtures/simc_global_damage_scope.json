@@ -1,0 +1,5694 @@
+{
+  "说明": "真实 DBC 正反例；期望按全局伤害作用域和效果编号复核，禁止用作生产白名单。",
+  "game_build": "12.0.7.68974",
+  "cases": [
+    {
+      "spell_id": 382896,
+      "name": "Two-Handed Weapon Specialization",
+      "description": "While wielding two-handed weapons your damage is increased by $s1% and damage taken from area of effect attacks is reduced by $s4%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1014473,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1014474,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1014475,
+          "type": 6,
+          "subtype": 344,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1201167,
+          "type": 6,
+          "subtype": 229,
+          "misc1": 127,
+          "misc2": 0,
+          "value": -2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "spell_id": 382895,
+      "name": "One-Handed Weapon Specialization",
+      "description": "While wielding one-handed weapons your damage is increased by $s1% and Leech increased by $s4%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1014470,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1014471,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1014472,
+          "type": 6,
+          "subtype": 344,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1021583,
+          "type": 6,
+          "subtype": 443,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "spell_id": 382900,
+      "name": "Dual Wield Specialization",
+      "description": "While dual wielding your damage is increased by $s1% and movement speed is increased by $s4%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1014479,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1014480,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1014481,
+          "type": 6,
+          "subtype": 344,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1201165,
+          "type": 6,
+          "subtype": 129,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "spell_id": 429642,
+      "name": "Mountain of Muscle and Scars",
+      "description": "You deal $s1% more damage and take $s4% less damage.\r\n\r\nSize increased by $s5%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1114017,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1135812,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1135813,
+          "type": 6,
+          "subtype": 344,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1135814,
+          "type": 6,
+          "subtype": 87,
+          "misc1": 127,
+          "misc2": 0,
+          "value": -5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1135815,
+          "type": 6,
+          "subtype": 61,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "spell_id": 383287,
+      "name": "Bloodborne",
+      "description": "Your Bleed effects deal $s1% increased damage and $s2% increased critical strike damage.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1015106,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            16777216
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1286466,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            16777216
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ]
+    },
+    {
+      "spell_id": 383430,
+      "name": "Impale",
+      "description": "Critical strike damage of your abilities is increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1015365,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1027189,
+          "type": 3,
+          "subtype": 0,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 429638,
+      "name": "Martial Expert",
+      "description": "Critical strike damage of your abilities is increased by $s1% and the amount of damage blocked by your critical blocks is increased by $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1114013,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            512,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1168667,
+          "type": 6,
+          "subtype": 638,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 382886,
+      "name": "Fire and Ice",
+      "description": "Increases all Fire and Frost damage you deal by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1014459,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            2585788420,
+            4100,
+            2052,
+            75501572
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1036888,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            268435456,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1036889,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 0,
+          "misc2": 2379,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1036890,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 22,
+          "misc2": 2379,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1177668,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 0,
+          "misc2": 4014,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 1177669,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 22,
+          "misc2": 4014,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 7,
+          "id": 1182953,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 0,
+          "misc2": 1175,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ]
+    },
+    {
+      "spell_id": 474530,
+      "name": "Circle of the Wild",
+      "description": "Physical damage dealt by your abilities increased by $?a137012[$s3][$s1]%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1194251,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            8192,
+            4
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1194252,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            8192,
+            4
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1194253,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            8192,
+            4
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1194254,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            8192,
+            4
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "spell_id": 474541,
+      "name": "Circle of the Heavens",
+      "description": "Magical damage dealt by your spells increased by $?a137012[$s3][$s1]%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1194272,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            262144,
+            0,
+            0,
+            16777216
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1194273,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            262144,
+            0,
+            0,
+            16777216
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1194274,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            262144,
+            0,
+            0,
+            16777216
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1194275,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            262144,
+            0,
+            0,
+            16777216
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "spell_id": 439868,
+      "name": "Hunt Beneath the Open Skies",
+      "description": "Damage and healing while in Cat Form increased by $s1%.\r\n\r\nMoonfire and Sunfire damage increased by $s4%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1133413,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 12,
+          "misc2": 3244,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1133425,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 23,
+          "misc2": 3244,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1133426,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 32,
+          "misc2": 3244,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1133427,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            268435456,
+            2164260864
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1133428,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            268435456,
+            2164260864
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "spell_id": 388674,
+      "name": "Ferocity of Xuen",
+      "description": "Increases all damage dealt by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1024507,
+          "type": 6,
+          "subtype": 79,
+          "misc1": 127,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1078619,
+          "type": 6,
+          "subtype": 531,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1078620,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "spell_id": 450427,
+      "name": "Martial Instincts",
+      "description": "Increases your Physical damage done by $s1% and Avoidance increased by $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1150320,
+          "type": 6,
+          "subtype": 79,
+          "misc1": 1,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1150325,
+          "type": 6,
+          "subtype": 229,
+          "misc1": 127,
+          "misc2": 0,
+          "value": -2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1202061,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1202174,
+          "type": 6,
+          "subtype": 531,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        3,
+        4
+      ]
+    },
+    {
+      "spell_id": 450426,
+      "name": "Chi Proficiency",
+      "description": "Magical damage done increased by $s1% and healing done increased by $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1150317,
+          "type": 6,
+          "subtype": 79,
+          "misc1": 126,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1150318,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            131072,
+            65536,
+            2147483648,
+            33554432
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1176892,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            65536,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        3
+      ]
+    },
+    {
+      "spell_id": 459527,
+      "name": "Unnatural Causes",
+      "description": "Your damage over time effects deal $s1% increased damage.\r\n\r\nThis effect is increased by $s2% on targets below $s3% health.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1166403,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1166404,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1166405,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 1251077,
+      "name": "Twin Disciplines",
+      "description": "Increases the damage and healing of your Holy and Shadow spells by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1255457,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            256,
+            1073741824
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1255458,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            256,
+            1073741824
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1255562,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 24,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            1,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ]
+    },
+    {
+      "spell_id": 1244105,
+      "name": "Charm of Aegwynn",
+      "description": "The critical strike damage of your spells is increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1244679,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            8,
+            0,
+            134217728,
+            32768
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 376164,
+      "name": "Instinctive Arcana",
+      "description": "Your Magic damage done is increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1003033,
+          "type": 6,
+          "subtype": 79,
+          "misc1": 126,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 108299,
+      "name": "Killer Instinct",
+      "description": "Physical damage and Armor increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 119368,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 6,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            8192,
+            4
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1005857,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 6,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            8192,
+            4
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1005858,
+          "type": 6,
+          "subtype": 142,
+          "misc1": 1,
+          "misc2": 0,
+          "value": 6,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1005998,
+          "type": 6,
+          "subtype": 344,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 6,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        4
+      ]
+    },
+    {
+      "spell_id": 390972,
+      "name": "Twist of Fate",
+      "description": "After damaging or healing a target below $s3% health, gain $s1% increased damage and healing for $390978d.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1028172,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 3,
+          "misc2": 1949,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1028173,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 12,
+          "misc2": 1949,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1028187,
+          "type": 6,
+          "subtype": 42,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 35,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1028188,
+          "type": 0,
+          "subtype": 0,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 35,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ]
+    },
+    {
+      "spell_id": 453917,
+      "name": "Perfected Form",
+      "description": "$?a137031[Your healing done is increased by $s3% while Apotheosis is active.][Your damage dealt is increased by $s1% while Voidform is active.]",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1156077,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 3,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            33554432,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1156171,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 12,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            33554432,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1156172,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 23,
+          "misc2": 3635,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1156173,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 32,
+          "misc2": 3635,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ]
+    },
+    {
+      "spell_id": 454021,
+      "name": "Stormcaller",
+      "description": "Increases the critical strike chance of your Nature damage spells by $s1% and the critical strike damage of your Nature spells by $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1156264,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 7,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            303039499,
+            2147491840,
+            2359297,
+            6149
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1156265,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            303039499,
+            2147491840,
+            2359297,
+            4200453
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1176169,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 7,
+          "misc2": 4013,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1176170,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 15,
+          "misc2": 4013,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2,
+        4
+      ]
+    },
+    {
+      "spell_id": 1265044,
+      "name": "Jagged Wounds",
+      "description": "All bleed damage dealt by you and your pets  increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1276785,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 22,
+          "misc2": 4934,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 384355,
+      "name": "Elemental Weapons",
+      "description": "Each active weapon imbue increases all Fire, Frost, and Nature damage dealt by ${$s1/10}.1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1016914,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 391398,
+      "name": "Bloodshot",
+      "description": "While Blood Shield is active, you deal $s1% increased damage.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1028887,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 12,
+          "misc2": 0,
+          "value": 8,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            64,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1291997,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 23,
+          "misc2": 0,
+          "value": 8,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            64,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ]
+    },
+    {
+      "spell_id": 390166,
+      "name": "Plague Mastery",
+      "description": "Critical strike damage of your diseases is increased by $s1%",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1026788,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            768,
+            0,
+            8388608
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1296014,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 15,
+          "misc2": 5227,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1296015,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 15,
+          "misc2": 6230,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1296016,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 15,
+          "misc2": 961,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "spell_id": 474738,
+      "name": "Unerring Vision",
+      "description": "Trueshot now increases your critical strike chance by an additional $s1% and increases your critical strike damage by an additional $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1194573,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 23,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            2097152,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1194574,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 32,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            2097152,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ]
+    },
+    {
+      "spell_id": 471428,
+      "name": "Incendiary Ammunition",
+      "description": "Bulletstorm now increases your critical strike damage by $s1%. Additionally, Bulletstorm now stacks $s2 more times.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1188914,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 12,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            134217728
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1188915,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 37,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            134217728
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 1259498,
+      "name": "Expert Duelist",
+      "description": "Between the Eyes increases your damage dealt by an additional $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1268640,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 12,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            32768
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1269140,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 23,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            32768
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ]
+    },
+    {
+      "spell_id": 1251026,
+      "name": "Overcharge",
+      "description": "The critical strike damage of your Nature abilities are increased by $s2% of your critical strike chance.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1255386,
+          "type": 6,
+          "subtype": 163,
+          "misc1": 8,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1255435,
+          "type": 6,
+          "subtype": 226,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 40,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ]
+    },
+    {
+      "spell_id": 1253845,
+      "name": "Master the Darkness",
+      "description": "Shadow damage and Atonement healing increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1259923,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            1024,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1259924,
+          "type": 6,
+          "subtype": 79,
+          "misc1": 32,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ]
+    },
+    {
+      "spell_id": 210853,
+      "name": "Elemental Assault",
+      "description": "Stormstrike damage is increased by $s1%, and Stormstrike and Lava Lash have a $m3% chance to generate $m2 $Lstack:stacks; of Maelstrom Weapon.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 312325,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            4096,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 843152,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 1,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1027013,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 32,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            0,
+            16,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 1257950,
+      "name": "Touch of the Archmage",
+      "description": "When Touch of the Magi explodes, it leaves behind a pulsing rune on its target, dealing $s1% of its damage over $1258134d to nearby enemies. Damage is increased by $s2% on your initial Touch of the Magi target.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1266132,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 75,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1266152,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 1270898,
+      "name": "Eternal Hunt",
+      "description": "The Hunt empowers your next Eye Beam, increasing damage by $s1% and affecting enemies in a wider area.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1283311,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 382238,
+      "name": "Lethality",
+      "description": "Critical strike chance increased by $s1%. Critical strike damage bonus of your attacks that generate combo points increased by $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1013522,
+          "type": 6,
+          "subtype": 290,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 1,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1013523,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            603980558,
+            2359302,
+            395272,
+            2160599332
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1114575,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 15,
+          "misc2": 3052,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 386208,
+      "name": "Defensive Stance",
+      "description": "A defensive combat state that reduces all damage you take by $s1%$?a452494[ and all magic damage you take by an additional $s3%][]$?a137048[][ and all damage you deal by $s2%].$?a1280961[\r\n\r\nWhen an attack deals $s5% or more of your maximum health in damage, that damage is reduced by $s6%.][]\r\n\r\nLasts until canceled.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1020125,
+          "type": 6,
+          "subtype": 87,
+          "misc1": 127,
+          "misc2": 0,
+          "value": -15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1020126,
+          "type": 6,
+          "subtype": 79,
+          "misc1": 127,
+          "misc2": 0,
+          "value": -10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1153688,
+          "type": 6,
+          "subtype": 87,
+          "misc1": 126,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1293996,
+          "type": 6,
+          "subtype": 69,
+          "misc1": 127,
+          "misc2": -29,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1294015,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 1294016,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ]
+    },
+    {
+      "spell_id": 183416,
+      "name": "Blessing of Dawn",
+      "description": "While you are above $s3% health, $s1% of all damage taken by allies within $210372a1 yds is redirected to you, up to a maximum of $<maxAbsorb> every $s1 sec.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 265639,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 311460,
+          "type": 35,
+          "subtype": 4,
+          "misc1": 127,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 311461,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 85,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 311462,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 479667,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 75,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 725648,
+          "type": 6,
+          "subtype": 69,
+          "misc1": 127,
+          "misc2": 10,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 7,
+          "id": 1277563,
+          "type": 6,
+          "subtype": 23,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 210372,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 1267220,
+      "name": "Danger Sense",
+      "description": "You have a $s2% chance to partially evade any damage dealt to you, reducing the damage it deals by $s3%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1280087,
+          "type": 6,
+          "subtype": 69,
+          "misc1": 127,
+          "misc2": -10,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1280088,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1280089,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 1271689,
+      "name": "Empowered Drain Life",
+      "description": "Drain Life heals for an additional ${$s1*100}% of damage dealt and grants Soul Leech equal to $s2% of damage dealt.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1284551,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 27,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            8,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1284554,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 360194,
+      "name": "Deathmark",
+      "description": "Carve a deathmark into an enemy, dealing $o1 Bleed damage and restoring ${$s3*8} Energy to you over $d. Damage dealt to the target by your Garrote, Rupture, and Lethal Poisons is increased by $s2%.\r\n\r\nEach time you apply a Lethal Poison to the target, apply it twice.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 897169,
+          "type": 6,
+          "subtype": 3,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1033882,
+          "type": 35,
+          "subtype": 271,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            269549824,
+            0,
+            16,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1250577,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 81749,
+      "name": "Atonement",
+      "description": "Power Word: Shield, Flash Heal, Plea, Penance, and Power Word: Radiance apply Atonement to your target for $194384d.\r\n\r\nYour spell damage heals all targets affected by Atonement for $s1% of the damage done. Healing is reduced when healing more than $s2 targets.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 135203,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 178045,
+          "type": 3,
+          "subtype": 0,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 199484,
+      "name": "Psychic Link",
+      "description": "Your direct damage spells inflict $s1% of their damage on all other targets afflicted by your Vampiric Touch within $199486A2 yards.\r\n\r\nDoes not apply to damage from Shadowy Apparitions, Shadow Word: Pain, and Vampiric Touch.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 293563,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 457803,
+      "name": "Molten Fury",
+      "description": "Damage dealt to targets below $s1% health is increased by $458910s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1163297,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 203964,
+      "name": "Galactic Guardian",
+      "description": "Your damage has a $s1% chance to trigger a free automatic Moonfire on that target.\r\n\r\n$@spellicon8921 $@spellname8921:\r\nWhen this occurs, the next Moonfire you cast generates ${$213708m1/10} Rage, and deals $213708s3% increased direct damage.\r\n\r\n$@spellicon1252871 $@spellname1252871:\r\nWhen this occurs, you gain $s2 $Lcharge:charges; of Lunar Wrath. Each $s3 Rage you spend while Red Moon is active consumes a stack to deal $1253609s1 additional Arcane damage to its target and heal you for $1253609s2.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 300976,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1258340,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 1,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1313445,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 1271305,
+      "name": "Bask in Moonlight",
+      "description": "$?c1[Starsurge damage increased by $s1%. \r\nStarfall damage increased by $s2%.]?s400254[Raze][Maul] $?c3[damage increased by $s3%. Lunar Beam's damage dealt to its primary target increased by $s4%.][]\r\n",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1283928,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            33554432,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1283929,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            8388608,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1283930,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            2048,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1283931,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 22,
+          "misc2": 5960,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 441181,
+      "name": "Menacing Presence",
+      "description": "Knocking enemies up or backwards reduces their damage done to you by $s1% for $441201d.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1135484,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 441201,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 431657,
+      "name": "Primacy",
+      "description": "For each $?c2[healing over time effect from Verdant Embrace][damage over time effect from Upheaval], gain $s1% haste, up to $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1119566,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1119567,
+          "type": 0,
+          "subtype": 0,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 9,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 343527,
+      "description": "Unleash a heavenly blast around the target, dealing $343721s2 Holy damage to all enemies nearby, and call down a hammer that slowly falls from the sky upon the target. \r\n\r\nAfter $d, they suffer $s2% of the Holy damage you dealt to all targets affected by the initial blast during that time.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 845382,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 845391,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1054911,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1228426,
+          "type": 64,
+          "subtype": 0,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 1234189,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1259245,
+          "type": 64,
+          "subtype": 0,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 1260251,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ]
+    },
+    {
+      "spell_id": 321507,
+      "description": "Applies Touch of the Magi to your current target, accumulating $s1% of the damage you deal to the target for $210824d, and then exploding for that amount of Arcane damage to the target and reduced damage to all nearby enemies.\r\n\r\n|cFFFFFFFFGenerates $s2 Arcane Charges.|r",
+      "effects": [
+        {
+          "index": 1,
+          "id": 809255,
+          "type": 142,
+          "subtype": 0,
+          "misc1": 4,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 210824,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 843108,
+          "type": 30,
+          "subtype": 0,
+          "misc1": 16,
+          "misc2": 0,
+          "value": 4,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 342231,
+      "description": "Direct damage you deal to enemies affected by $?s461264[Nether Flux][Touch of the Magi], causes an explosion that deals $?s461264[${$342232s1*$s3}][$342232s1] Arcane damage to all nearby enemies. Deals reduced damage beyond $s1 targets.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 843143,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 8,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1016400,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 0,
+          "misc2": 1749,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1227296,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        3
+      ]
+    },
+    {
+      "spell_id": 450508,
+      "description": "Store vitality from $?a137023[$s1%][$s2%] of your damage dealt and $?a137023[$s3%][$s4%] of your $?a137023[effective ][]healing.$?a137024[ Vitality stored from overhealing is reduced.][]\r\n\r\nFor $450711d after casting $?a137023[Celestial Brew or Celestial Infusion][Thunder Focus Tea] your spells and abilities draw upon the stored vitality to deal $s6% additional $?a137023[damage over $450763d][healing over $450769d].",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1150447,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 12,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1150448,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1150449,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 6,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1150450,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1150722,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 1151053,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 40,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 7,
+          "id": 1168114,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 8,
+          "id": 1168900,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 8,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 9,
+          "id": 1293371,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        6
+      ]
+    },
+    {
+      "spell_id": 426702,
+      "description": "Your damage over time effects deal their damage $s1% faster, and your healing over time effects heal $s2% faster.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1105416,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 19,
+          "misc2": 0,
+          "value": -25,
+          "trigger": 0,
+          "flags": [
+            262144,
+            0,
+            65536,
+            268435460
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1105417,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 19,
+          "misc2": 0,
+          "value": -5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            4194304
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1105418,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 12,
+          "misc2": 0,
+          "value": -25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            536870912,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        3
+      ]
+    },
+    {
+      "spell_id": 400320,
+      "description": "Your damage over time effects deal their damage in $s1% less time, and your healing over time effects in $s2% less time.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1045213,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 19,
+          "misc2": 0,
+          "value": -20,
+          "trigger": 0,
+          "flags": [
+            262144,
+            256,
+            134283264,
+            268435460
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1045214,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 19,
+          "misc2": 0,
+          "value": -15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            4194304
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1045215,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 1,
+          "misc2": 0,
+          "value": -20,
+          "trigger": 0,
+          "flags": [
+            262144,
+            256,
+            134283264,
+            268435460
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1045216,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 1,
+          "misc2": 0,
+          "value": -15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            4194304
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1045217,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 12,
+          "misc2": 0,
+          "value": -20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            536870912,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 1137599,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 19,
+          "misc2": 3345,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 7,
+          "id": 1137600,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 1,
+          "misc2": 3345,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        3,
+        5
+      ]
+    },
+    {
+      "spell_id": 378209,
+      "description": "All pet damage dealt increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1006527,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 378955,
+      "description": "All damage dealt by your pet is increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1007470,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 1251717,
+      "description": "Consuming Tip of the Spear provokes your pet to attack your target, dealing $1251779s1 Physical damage.\r\n\r\nAll damage dealt by your pet is increased by $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1256503,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1290939,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ]
+    },
+    {
+      "spell_id": 474746,
+      "description": "Your pet damage is increased by $s1% and your pet is $474751s1% larger.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1194590,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 35,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 1273065,
+      "description": "Damage dealt by your pets increased by $s1%.\r\n\r\nBestial Wrath strikes $s2 additional targets.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1286435,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1288671,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 17,
+          "misc2": 6239,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 1273129,
+      "description": "Aimed Shot's critical strike damage is increased by $s4% of your critical strike chance.\r\n\r\nThe damage of your other ranged abilities is increased by $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1286547,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            131072,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1289921,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            22536,
+            5,
+            38464,
+            8389120
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1289922,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            22536,
+            5,
+            38464,
+            8389120
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1289923,
+          "type": 6,
+          "subtype": 226,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2,
+        3
+      ]
+    },
+    {
+      "spell_id": 1256630,
+      "description": "Adrenaline Rush magnifies your precision and power, increasing the damage your combo point generating abilities and finishers deal by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1264218,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 32,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            128,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1293533,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 33,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            128,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 1265861,
+      "description": "Between the Eyes has a $s1% chance to apply 2 stacks of its bonus to your damage dealt.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1277880,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 45,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 391477,
+      "description": "Enemies affected by Blood Plague take $s1% increased damage from you and Death Strike increases the damage of your Blood Plague by $391481s1% for $391481d, stacking up to $391481u times.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1029025,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 32,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            33554432,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1029049,
+          "type": 6,
+          "subtype": 42,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 391481,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 1257942,
+      "description": "Touch of the Magi increases the damage your target receives from you by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1266123,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 12,
+          "misc2": 6261,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 453105,
+      "description": "Increases the damage dealt by your spells and your demon by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1154697,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            131072,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1154698,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1154699,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            131072,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3
+      ]
+    },
+    {
+      "spell_id": 1261990,
+      "description": "Increases the initial damage of Haunt by $s1% and Haunt increases damage dealt to its host by an additional $s2%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1271972,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            32
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1272008,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 12,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            32
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1272009,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 23,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            32
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1272010,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 32,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            32
+          ]
+        }
+      ],
+      "expected": [
+        2,
+        3,
+        4
+      ]
+    },
+    {
+      "spell_id": 1261565,
+      "description": "Your critical strikes dealt during an Eclipse cause their victims to languish for an additional $s1% of damage dealt for $1263250d.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1271383,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 12,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 467644,
+      "description": "$?c1[All pet damage increased by $s2%][Critical strike chance increased by $s1%].\r\n\r\n$?c1[Dire Beast damage increased by $s3%][Dark Minion damage increased by $s4%].",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1180919,
+          "type": 6,
+          "subtype": 290,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1276990,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 6,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1276991,
+          "type": 6,
+          "subtype": 531,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1276996,
+          "type": 6,
+          "subtype": 531,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ]
+    },
+    {
+      "spell_id": 472357,
+      "description": "Damage dealt by your pet$?c1[s][] is increased by $?c1[$s1][$s2]%.\r\n\r\n$?c1[Barbed Shot damage increased by $s4%][Raptor Strike damage increased by $s3%].",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1190439,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1190440,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1190441,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            65536,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1226146,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            16384,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ]
+    },
+    {
+      "spell_id": 457055,
+      "description": "Damage dealt to targets other than your Marked target deals $s1% Plague damage to your Marked target.\r\n",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1161717,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 434261,
+      "description": "You store $s1% of all Shadow damage dealt into your Blood Beast to explode for additional damage when it expires.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1124176,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 1,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 429581,
+      "description": "$?s137044[Summon Demonic Tyrant is empowered, dealing $s1% increased damage and increasing the damage of your demons by $s2% while active.][Summon Infernal becomes empowered, dealing $s3% increased damage. When your Summon Infernal ends, it fragments into two smaller Infernals at $s4% effectiveness that lasts $456310d.]",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1113918,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 70,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            16777216
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1124695,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1124696,
+          "type": 6,
+          "subtype": 382,
+          "misc1": 3,
+          "misc2": 89,
+          "value": 40,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1131611,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1160404,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ]
+    },
+    {
+      "spell_id": 442806,
+      "description": "Expose weaknesses in the target of your $@spellname442624, causing your Physical damage to any enemy to also deal $s1% of the damage dealt to your marked target as Chaos, and sometimes shatter a Soul Fragment.\r\n\r\n",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1138289,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 260309,
+      "description": "Your ranged ability critical strikes cause the target to bleed for an additional $s1% of the damage dealt over $269576d.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 485405,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 7,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 80240,
+      "description": "Marks a target with Havoc for $d, causing your single target spells to also strike the Havoc victim for $s1% of the damage dealt.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 68521,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 60,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ]
+    },
+    {
+      "spell_id": 381990,
+      "description": "Dispatch deals $s1% increased damage and costs $s3 less Energy. This damage bonus is increased by $315341s4% while your damage is enhanced by your Between the Eyes.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1013171,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1021261,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            65536
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1021262,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 14,
+          "misc2": 0,
+          "value": -3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            65536
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 384036,
+      "description": "$s1% of damage you deal adds to your active Ignore Pain or the next Ignore Pain you activate.\r\n\r\nYour next Ignore Pain can be increased by up to ${$mhp*($190456s4/100)*($s2/100)}.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1016319,
+          "type": 6,
+          "subtype": 226,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 8,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1236983,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 210689,
+      "description": "$?s454009[Tempest, ][]$?s137040[Earth Shock, Elemental Blast, and Earthquake][Lightning Bolt and Chain Lightning] make your target a Lightning Rod for $197209d.\r\n \r\nLightning Rods take $s2% of all damage you deal with $?s454009[Tempest, Lightning Bolt,][Lightning Bolt] and Chain Lightning.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 312100,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 341410,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 196718,
+      "description": "Summons darkness around you in a$?a357419[ 12 yd][n 8 yd] radius, granting friendly targets a $209426s2% chance to avoid all damage from an attack. Lasts $d.\r\n\r\nChance to avoid damage increased by $s3% when not in a raid.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 288808,
+          "type": 179,
+          "subtype": 0,
+          "misc1": 6615,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 374312,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1107233,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 1279247,
+      "description": "Voidfall Meteor damage increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1291693,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            8192
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1291694,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            8192
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 444037,
+      "description": "The damage of your diseases and $?a137006[Frost Strike][Death Coil] are increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1140296,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            67109124,
+            1,
+            8404992
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1140714,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            100663556,
+            1,
+            8404992
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 388107,
+      "description": "Each time Immolation Aura deals damage, $s1% of the damage dealt by up to $s2 critical strikes is gathered as Ragefire.\r\n\r\nWhen Immolation Aura expires you explode, dealing all stored Ragefire damage to nearby enemies.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1023597,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 35,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1032987,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 207200,
+      "description": "Your auto attack damage grants you an absorb shield equal to $s1% of the damage dealt.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 306445,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 40,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 449620,
+      "description": "$?s137043[Shadow Bolt and Drain Soul damage increased by $s2%. Nightfall increases the damage of Shadow Bolt and Drain Soul by an additional $s1%.][Shadow Bolt damage increased by $s2%. Power Siphon increases the damage of Demonbolt by an additional $s3%.]",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1148946,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 12,
+          "misc2": 3537,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1150565,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            8388609,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1150566,
+          "type": 35,
+          "subtype": 219,
+          "misc1": 3,
+          "misc2": 3684,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1151695,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            8388608,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 471492,
+      "description": "Gain magical damage reduction equal to $s1% of your damage reduction from armor.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1189036,
+          "type": 6,
+          "subtype": 285,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 471491,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 386196,
+      "name": "Berserker Stance",
+      "description": "An aggressive combat state that increases the damage of your auto-attacks by $s1%$?a1280961[, your auto-attack speed by $s6%,][] and reduces the duration of Fear, Sap and Incapacitate effects on you by $s2%.\r\n\r\nLasts until canceled.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1020095,
+          "type": 6,
+          "subtype": 344,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1020096,
+          "type": 6,
+          "subtype": 232,
+          "misc1": 14,
+          "misc2": 0,
+          "value": -10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1020114,
+          "type": 6,
+          "subtype": 232,
+          "misc1": 30,
+          "misc2": 0,
+          "value": -10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1020115,
+          "type": 6,
+          "subtype": 232,
+          "misc1": 23,
+          "misc2": 0,
+          "value": -10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1020116,
+          "type": 6,
+          "subtype": 232,
+          "misc1": 5,
+          "misc2": 0,
+          "value": -10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 1293977,
+          "type": 6,
+          "subtype": 319,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 3,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        6
+      ]
+    },
+    {
+      "spell_id": 385704,
+      "name": "Bloodborne",
+      "description": "Your Deep Wounds and Rend deal $s1% increased damage.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1019150,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            524320,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": []
+    },
+    {
+      "spell_id": 5217,
+      "name": "Tiger's Fury",
+      "description": "Instantly restores $s2 Energy, and increases the damage of all your attacks by $s1% for their full duration. Lasts $d.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1854,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            4
+          ]
+        },
+        {
+          "index": 2,
+          "id": 117350,
+          "type": 30,
+          "subtype": 0,
+          "misc1": 3,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 479758,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            4
+          ]
+        },
+        {
+          "index": 4,
+          "id": 479881,
+          "type": 6,
+          "subtype": 344,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        3,
+        4
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 370845,
+      "name": "Spellweaver's Dominance",
+      "description": "Your damaging critical strikes deal ${$s1+200}% damage instead of the usual 200%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 982398,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            1,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 1242495,
+      "name": "Calamitous",
+      "description": "Your damaging critical strikes deal ${200+$s1}% damage instead of the usual 200%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1242029,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 40,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            2147483648,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 60188,
+      "name": "Elemental Fury",
+      "description": "Your damaging $?a343190[and healing ][]critical strikes deal ${$m1+200}% damage $?a343190[or healing ][]instead of the usual 200%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 53887,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            3492807695,
+            268709888,
+            557056,
+            41945092
+          ]
+        },
+        {
+          "index": 2,
+          "id": 830842,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 15,
+          "misc2": 3924,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 382017,
+      "name": "Veiltouched",
+      "description": "Your abilities deal $s1% increased magic damage.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1013205,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            268533760,
+            0,
+            278536,
+            272637954
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1083888,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            268533760,
+            0,
+            278528,
+            272637954
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1083890,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 0,
+          "misc2": 2696,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1083891,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 22,
+          "misc2": 2696,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1183438,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 22,
+          "misc2": 3936,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 1183439,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 0,
+          "misc2": 3936,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 1272364,
+      "name": "Blind Focus",
+      "description": "$?a212612[Fire][Cosmic] damage increased by $?a212612[$s1][$s3]%.\r\n\r\nEffect is doubled while in demon form.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1285570,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            2048,
+            256,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1285571,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 5,
+          "trigger": 0,
+          "flags": [
+            0,
+            2048,
+            256,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1285572,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            2147483648,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1285573,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 2,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            2147483648,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2,
+        3,
+        4
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 1248014,
+      "name": "Dualcasting Adept",
+      "description": "Your $?a137020[Fire]?a137019[Frost][Frost and Fire] spells deal $?a137020[$s1]?a137019[$s2][$s1]% increased critical strike damage.\r\n\r\n$?a137020[Shatter damage increased by $s3%.\r\n\r\nBlizzard damage increased by $s6%.]?a137019[Pyroblast damage increased by $s4%.\r\n\r\nFlamestrike damage increased by $s5%.][Ice Lance and Pyroblast  have their damage increased by $s3%.]",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1250585,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            8388642,
+            0,
+            16777216,
+            65
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1250586,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            610,
+            0,
+            0,
+            25165824
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1250593,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 40,
+          "trigger": 0,
+          "flags": [
+            0,
+            8,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 1250594,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            4194304,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1261863,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            4,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 1261864,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            128,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1,
+        2
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 288613,
+      "name": "Trueshot",
+      "description": "Increases your critical strike chance by $s3% and critical strike damage by $s4% for $d.\r\n\r\n$@spellicon19434 $@spellname19434\r\nCooldown recovers $s2% faster$?a471366[, cast time reduced by $471366s1%, and Focus cost reduced $471366s2%.][.]\r\n\r\n$@spellicon257044 $@spellname257044\r\nCooldown recovers $s1% faster.$?(a1253599&a470943)[\r\n\r\n|cFFFFFFFFApplies Sentinel's Mark.|r]?(!a1253599&a470943)[\r\n\r\n|cFFFFFFFFApplies Spotter's Mark.|r][]",
+      "effects": [
+        {
+          "index": 1,
+          "id": 752441,
+          "type": 6,
+          "subtype": 286,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 60,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            4194304
+          ]
+        },
+        {
+          "index": 2,
+          "id": 752442,
+          "type": 6,
+          "subtype": 148,
+          "misc1": 1715,
+          "misc2": 0,
+          "value": 40,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 752449,
+          "type": 6,
+          "subtype": 290,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 10,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 752452,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 0,
+          "flags": [
+            1,
+            0,
+            0,
+            1024
+          ]
+        },
+        {
+          "index": 5,
+          "id": 1277010,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 6,
+          "id": 1277011,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 10,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            131072,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 7,
+          "id": 1277012,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 14,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 0,
+          "flags": [
+            131072,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        4
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 467749,
+      "name": "Bleak Arrows",
+      "description": "Your auto shot now deals Shadow damage, allowing it to bypass armor.\r\n\r\nAuto shot damage increased by $s3%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1181059,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 20,
+          "trigger": 467718,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1181060,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 8,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1276119,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            1,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        3
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 471350,
+      "name": "Obsidian Arrowhead",
+      "description": "The damage of your auto shot is increased by $s2% and its critical strike chance is increased by $s1%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1187641,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 7,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1188909,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            1,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 1223323,
+      "name": "Unbreakable Bond",
+      "description": "Regain access to Call Pet.\r\n\r\nWhile outdoors, your pet deals $s1% increased damage and takes $s2% reduced damage.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1211164,
+          "type": 6,
+          "subtype": 429,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        1
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 1264781,
+      "name": "Lethal Barbs",
+      "description": "Your $?c1[auto shot][auto attacks] grant$?c1[s][] $1264783s1 Focus to you and your pet.\r\n\r\n$?c1[Auto shot][Auto attack] damage increased by $?c1[$s2][$s3]%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1276367,
+          "type": 6,
+          "subtype": 42,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 0,
+          "trigger": 1264783,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1276373,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            1,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1276378,
+          "type": 6,
+          "subtype": 344,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2,
+        3
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 202031,
+      "name": "Sabertooth",
+      "description": "Ferocious Bite deals $s1% increased damage.\r\n\r\nFor each Combo Point spent, Ferocious Bite's primary target takes $s2% increased damage from your Cat Form bleed and other periodic abilities for $391722d.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 297731,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            4096
+          ]
+        },
+        {
+          "index": 2,
+          "id": 753677,
+          "type": 6,
+          "subtype": 4,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 6,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [
+        2
+      ],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 191384,
+      "name": "Aspect of the Beast",
+      "description": "Increases the damage of Bite, Claw, Smack and the effectiveness of your pet's unique abilities by $s1%.\r\n\r\nIncreases the effectiveness of your pet's Predator's Thirst, Endurance Training, and Pathfinding passives by $s3%.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 280739,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 0,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            524288,
+            268435456,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 725119,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 22,
+          "misc2": 0,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            524288,
+            268435456,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 725122,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 3,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            8658944,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 4,
+          "id": 725606,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 12,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            8658944,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 468701,
+      "name": "Serpentine Strikes",
+      "description": "Cobra Shot critical damage dealt increased by $s1%.\r\n\r\nWhen Cobra Shot critically strikes, it refunds $1282710s1 Focus.",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1182583,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 50,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            4194304,
+            0
+          ]
+        }
+      ],
+      "expected": [],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 445033,
+      "name": "Supportive Imbuements",
+      "description": "$?a137041[Increases the critical strike chance of Flametongue Weapon by $s1%, and its critical strike damage by $s2%.][Learn a new weapon imbue, Tidecaller's Guard.\r\n\r\n$@spellicon457481 $@spellname457481\r\n$@spelldesc457481 ]",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1141758,
+          "type": 6,
+          "subtype": 107,
+          "misc1": 7,
+          "misc2": 0,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            2097152,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1162736,
+          "type": 6,
+          "subtype": 108,
+          "misc1": 15,
+          "misc2": 0,
+          "value": 100,
+          "trigger": 0,
+          "flags": [
+            2097152,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    },
+    {
+      "spell_id": 445036,
+      "name": "Totemic Coordination",
+      "description": "$?a137041[Increases the critical strike chance of your Searing Totem's attacks by $s1%, and its critical strike damage by $s2%.][Chain Heals from Lively Totem and Totemic Rebound are $s3% more effective.]",
+      "effects": [
+        {
+          "index": 1,
+          "id": 1141761,
+          "type": 6,
+          "subtype": 219,
+          "misc1": 7,
+          "misc2": 3783,
+          "value": 15,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 2,
+          "id": 1164013,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 15,
+          "misc2": 3783,
+          "value": 30,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        },
+        {
+          "index": 3,
+          "id": 1164099,
+          "type": 6,
+          "subtype": 218,
+          "misc1": 0,
+          "misc2": 3795,
+          "value": 25,
+          "trigger": 0,
+          "flags": [
+            0,
+            0,
+            0,
+            0
+          ]
+        }
+      ],
+      "expected": [],
+      "说明": "独立审阅作用范围；仅提取类别伤害分量，具名技能、资源、控制和治疗分量保留。"
+    }
+  ]
+}

@@ -1,0 +1,173 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1215,6 +1215,49 @@
+   return ( aura == 108 || aura == 218 ) && ( e.misc_value1() == 0 || e.misc_value1() == 22 || e.misc_value1() == 15 );
+ }
+ 
++// 分别分析 DBC 条件分支，不能把互斥分支拼成一句，也不能丢失分支里的数值引用。
++std::vector<std::string> skill_damage_scope_text_variants( const std::string& text )
++{
++  std::vector<std::string> pending{ text }, result;
++  while ( !pending.empty() )
++  {
++    std::string current = pending.back(); pending.pop_back();
++    size_t start = current.find("$?");
++    if ( start == std::string::npos ) { result.push_back(current); continue; }
++    size_t cursor = start + 1;
++    std::vector<std::string> branches;
++    bool valid = true;
++    const auto bracket = [&]( size_t& pos, std::string& branch ) {
++      if ( pos >= current.size() || current[pos] != '[' ) return false;
++      const size_t begin = ++pos;
++      unsigned depth = 1;
++      while ( pos < current.size() && depth )
++      {
++        if ( current[pos] == '[' ) ++depth;
++        else if ( current[pos] == ']' ) --depth;
++        ++pos;
++      }
++      if ( depth ) return false;
++      branch = current.substr(begin, pos - begin - 1); return true;
++    };
++    while ( cursor < current.size() && current[cursor] == '?' )
++    {
++      cursor = current.find('[', cursor);
++      std::string branch;
++      if ( cursor == std::string::npos || !bracket(cursor, branch) ) { valid = false; break; }
++      branches.push_back(branch);
++    }
++    std::string fallback;
++    if ( !valid || !bracket(cursor, fallback) ) { result.push_back(current); continue; }
++    branches.push_back(fallback);
++    // 复杂表达式不做不完整展开；原文仍可进入待核对清单。
++    if ( pending.size() + result.size() + branches.size() > 128 ) { result.push_back(current); continue; }
++    for ( const auto& branch : branches )
++      pending.push_back(current.substr(0,start) + branch + current.substr(cursor));
++  }
++  return result;
++}
++
+ std::set<unsigned> skill_damage_declared_damage_indices_impl( const dbc_t& dbc, const spell_data_t& spell, const spell_data_t& declaration )
+ {
+   std::set<unsigned> result, anchors;
+@@ -1223,16 +1266,22 @@
+   // 每个值绑定其前面的全局伤害主语，不能把同一天赋下一句的局部强化一起删除。
+   std::string description = text.desc() ? text.desc() : "";
+   std::string tooltip = text.tooltip() ? text.tooltip() : "";
++  std::vector<std::string> sources;
++  for ( const auto& raw : { description, tooltip } )
++  {
++    auto variants = skill_damage_scope_text_variants(raw);
++    sources.insert(sources.end(), variants.begin(), variants.end());
++  }
+   // 先识别完整的全局主语，再解析紧邻增伤谓语的百分比值；不跨越局部技能主语。
+-  static const std::string school = R"((?:(?:physical|magical?|elemental|fire|frost|shadow|holy|arcane|nature|cosmic|stormstrike(?=\s+or)|astral|bleed|periodic|direct|spell|ability|attack|critical\s+(?:strike|hit))(?:,\s*|\s+)(?:(?:and|or|other)\s+)?)*)";
++  static const std::string school = R"((?:(?:physical|magic(?:al)?|elemental|fire|frost|shadow|holy|arcane|nature|cosmic|stormstrike(?=\s+or)|astral|bleed|periodic|direct|spell|ability|attack|critical\s+(?:strike|hit))(?:,\s*|\s+)(?:(?:and|or|other)\s+)?)*)";
+   static const std::string subject = std::string( R"((?:your\s+(?:own\s+)?)?)" ) + school +
+     R"((?:damage(?:\s+bonus)?(?:\s+and\s+(?:healing|armor)|,\s*healing,\s*and\s*critical\s+strike\s+chance)?(?:\s+(?:you\s+(?:both\s+)?deal|your\s+(?:spells|abilities)\s+deal|dealt\s+by\s+(?:your\s+(?:spells\s+and\s+abilities|spells|abilities)|you(?:\s+and\s+your\s+pets)?)|from\s+(?:your\s+)?spells\s+and\s+abilities|done|dealt))?|(?:other\s+)?(?:bleed|damage\s+over\s+time)\s+effects(?:\s+deal)?|damage(?:\s+and\s+healing)?\s+of\s+your\s+(?:(?:Holy|Shadow|Nature|Fire|Frost|Arcane|Destruction|and|other)\s+)*(?:spells(?:\s+and\s+(?:Fire\s+)?spells)?|abilities|bleeds|diseases|weapon\s+poisons)))";
+-  static const std::string value = R"(((?:\$[?a-zA-Z0-9&!|]+\[)?(?:\$\{[^}]+\}|\$(?:[0-9]+)?[sSwW][0-9]+)(?:\]\[(?:\$[sSwW][0-9]+)\])?(?:\.[0-9])?)%)";
+-  static const std::string predicate = R"(\s*(?:is\s+|are\s+)?(?:(?:increased|increases|increasing)\s+)?(?:while\s+in\s+\w+\s+form\s+increased\s+)?(?:to\s+(?:(?:the|afflicted|affected)\s+)?(?:target|targets|enemies|them)(?:\s+affected\s+by\s+[^$.;]{1,70})?\s+)?(?:during\s+\w+\s+is\s+increased\s+)?(?:by\s+)?(?:an?\s+additional\s+)?)";
++  static const std::string value = R"(((?:\$[?a-zA-Z0-9&!|]+\[)?(?:\$\{[^}]+\}|\$(?:[0-9]+)?[sSwWmM][0-9]+)(?:\]\[(?:\$[sSwWmM][0-9]+)\])?(?:\.[0-9])?)%)";
++  static const std::string predicate = R"(\s*(?:is\s+|are\s+)?(?:(?:increased|increases|increasing|reduced|decreased)\s+)?(?:while\s+in\s+\w+\s+form\s+increased\s+)?(?:to\s+(?:(?:the|afflicted|affected)\s+)?(?:target|targets|enemies|them)(?:\s+affected\s+by\s+[^$.;]{1,70})?\s+)?(?:during\s+\w+\s+is\s+increased\s+)?(?:by\s+)?(?:an?\s+additional\s+)?)";
+   static const std::regex statement( "(?:^|[.\\r\\n]|\\b(?:increases?|increasing)\\s+|\\b(?:all|your)\\s+|\\band\\s+(?=(?:your|all|spell\\s+damage|ability\\s+damage))|\\bthe\\s+(?=critical))\\s*(?:the\\s+)?" + subject + predicate + value + R"((?:\s+increased\s+damage\s+and\s+)" + value + R"(\s+increased\s+critical\s+strike\s+damage)?)", std::regex::icase );
+-  static const std::regex deal( std::string( R"(\byou\s+deal\s+)" ) + value + "\\s+(?:more|additional|increased)\\s+" + school + "damage", std::regex::icase );
++  static const std::regex deal( std::string( R"(\byou\s+deal\s+)" ) + value + "\\s+(?:more|additional|increased|less|reduced)\\s+" + school + "damage", std::regex::icase );
+   static const std::regex gain( std::string( R"(\b(?:gain|grants|granted)\s+)" ) + value + R"(\s+increased\s+)" + school + "damage", std::regex::icase );
+-  static const std::regex own_value( R"(\$([0-9]*)[sw]([0-9]+))", std::regex::icase );
++  static const std::regex own_value( R"(\$([0-9]*)[swm]([0-9]+))", std::regex::icase );
+   // 全体持续伤害的周期压缩会改变实际跳数；其负值是时间缩短，不能按减伤拒绝。
+   static const std::regex periodic_rate( std::string( R"(\byour\s+damage\s+over\s+time\s+effects\s+deal\s+their\s+damage\s+(?:in\s+)?)" ) + value + R"(\s+(?:faster|less\s+time))", std::regex::icase );
+   std::set<unsigned> rate_anchors;
+@@ -1247,7 +1296,7 @@
+     }
+   }
+   // 全技能伤害的复制、储存和附加伤害也改变结果，不能因采用独立子技能而遗漏。
+-  static const std::string derived_value = "(?:" + value + R"(|\$\?[^\[]+\[\$[sw][0-9]+%\]\[\$[sw][0-9]+%\]))";
++  static const std::string derived_value = "(?:" + value + R"(|\$\?[^\[]+\[\$[swm][0-9]+%\]\[\$[swm][0-9]+%\]))";
+   static const std::regex copied( std::string( R"(\b(?:accumulating|store(?:\s+vitality\s+from)?|suffer)\s+)" ) + derived_value +
+     R"(\s+of\s+(?:(?:the|your|all)\s+)?)" + school + R"(damage\s+(?:you\s+(?:deal|dealt)|dealt|your\s+abilities\s+deal))", std::regex::icase );
+   static const std::regex added( std::string( R"(\byour\s+spells\s+and\s+abilities\s+draw\s+upon\s+[^.;]{0,80}\s+to\s+deal\s+)" ) + value + R"(\s+additional\s+[^.;]{0,60}damage)", std::regex::icase );
+@@ -1257,7 +1306,7 @@
+   static const std::string pets = R"((?:pets?(?:\$\?c[0-9]+\[s\]\[\])?|demons?|minions?))";
+   static const std::string broad_subject =
+     R"((?:(?:all\s+|your\s+)?pet(?:'s)?\s+(?:critical\s+)?damage(?:\s+dealt)?|damage\s+dealt\s+by\s+(?:your\s+)?)" + pets +
+-    R"(|damage\s+of\s+your\s+(?:attacks|demons|other\s+ranged\s+abilities)|damage\s+dealt\s+by\s+your\s+spells\s+and\s+your\s+demon|critical\s+strike\s+damage\s+of\s+your\s+minions|damage\s+your\s+combo\s+point\s+generating\s+abilities\s+and\s+finishers\s+deal|damage\s+your\s+target\s+(?:takes|receives)\s+from\s+you|damage\s+dealt\s+to\s+its\s+host))";
++    R"(|damage\s+of\s+(?:all\s+)?your\s+(?:attacks|demons|other\s+ranged\s+abilities|auto\s+shots?)|damage\s+dealt\s+by\s+your\s+spells\s+and\s+your\s+demon|critical\s+strike\s+damage\s+of\s+your\s+minions|damage\s+your\s+combo\s+point\s+generating\s+abilities\s+and\s+finishers\s+deal|damage\s+your\s+target\s+(?:takes|receives)\s+from\s+you|damage\s+dealt\s+to\s+its\s+host))";
+   static const std::regex broad_modifier( broad_subject + predicate + value, std::regex::icase );
+   static const std::regex conditioned_target( std::string(R"(\btake\s+)") + value + R"(\s+increased\s+damage\s+from\s+you\b)", std::regex::icase );
+   static const std::regex resource_scaled( school + R"(damage\s+dealt\s+is\s+increased\s+based\s+on\s+your\s+current\s+\w+,\s+up\s+to\s+)" + value, std::regex::icase );
+@@ -1269,8 +1318,15 @@
+   static const std::regex duplicate_spell( std::string(R"(\byour\s+single\s+target\s+spells\s+to\s+also\s+strike\s+[^.;]{0,80}?\s+for\s+)") + value + R"(\s+of\s+the\s+damage\s+dealt)", std::regex::icase );
+   static const std::regex global_stack_proc( std::string(R"(\bhas\s+a\s+)") + value + R"(\s+chance\s+to\s+apply\s+\d+\s+stacks\s+of\s+its\s+bonus\s+to\s+your\s+damage\s+dealt)", std::regex::icase );
+   static const std::regex global_damage_proc( std::string(R"(\byour\s+damage\s+has\s+a\s+)") + value + R"(\s+chance\s+to\s+trigger\s+a\s+free\s+automatic\s+[^.;]{1,60}\s+on\s+that\s+target)", std::regex::icase );
++
++  // 类别主语独立于具体名称；有限具名集合不会匹配这些开放类别。
++  static const std::regex category_deal( std::string(R"(\byour\s+(?:abilities|spells|attacks|pets?|demons?|minions?|(?:fire|frost|shadow|holy|arcane|nature|physical|cosmic)(?:\s+and\s+(?:fire|frost|shadow|holy|arcane|nature|physical|cosmic))?\s+spells)\s+deals?\s+)") + value + R"(\s+(?:increased|additional|more|less|reduced)\s+)" + school + "damage", std::regex::icase );
++  static const std::regex critical_total( std::string(R"(\byour\s+damaging\s+(?:and\s+healing\s+)?critical\s+strikes\s+deal\s+)") + value + R"(\s+damage\b)", std::regex::icase );
++  static const std::regex auto_damage( std::string(R"(\bauto[ -](?:shot|attack)s?\s+damage\s+(?:is\s+)?(?:increased|reduced)\s+by\s+)") + value, std::regex::icase );
++  static const std::regex critical_bonus( std::string(R"((?:\bincreases?\s+your\s+|\band\s+)critical\s+strike\s+damage\s+by\s+)") + value, std::regex::icase );
++  static const std::regex conditioned_category( std::string(R"(\btakes?\s+)") + value + R"(\s+increased\s+damage\s+from\s+your\s+(?:cat\s+form\s+)?(?:bleed|periodic|fire|frost|shadow|holy|arcane|nature|physical|cosmic)(?:\s+and\s+other\s+periodic)?\s+(?:abilities|spells)\b)", std::regex::icase );
+   std::set<unsigned> derived;
+-  for ( const std::string& source : { description, tooltip } )
++  for ( const std::string& source : sources )
+     for ( const std::regex* pattern : { &copied, &added, &triggered, &critical_residual, &school_copy, &target_copy, &stored_damage, &duplicate_spell, &global_stack_proc, &global_damage_proc } )
+       for ( std::sregex_iterator it( source.begin(), source.end(), *pattern ), end; it != end; ++it )
+       {
+@@ -1283,14 +1339,14 @@
+             derived.insert(index);
+         }
+       }
+-  for ( const std::string& source : { description, tooltip } )
+-    for ( const std::regex* pattern : { &statement, &deal, &gain, &broad_modifier, &conditioned_target, &resource_scaled } )
++  for ( const std::string& source : sources )
++    for ( const std::regex* pattern : { &statement, &deal, &gain, &broad_modifier, &conditioned_target, &resource_scaled, &category_deal, &critical_total, &auto_damage, &critical_bonus, &conditioned_category } )
+       for ( std::sregex_iterator it( source.begin(), source.end(), *pattern ), end; it != end; ++it )
+       {
+         const std::string clause = it->str();
+-        if ( pattern == &statement && clause.find( "Damage and healing while" ) == std::string::npos && !std::regex_search( clause, std::regex( R"(\b(?:your|you|all|physical|magical?|elemental|fire|frost|shadow|holy|arcane|nature|cosmic|astral|bleed|periodic|direct|spell|critical)\b)", std::regex::icase ) ) ) continue;
++        if ( pattern == &statement && clause.find( "Damage and healing while" ) == std::string::npos && !std::regex_search( clause, std::regex( R"(\b(?:your|you|all|physical|magic(?:al)?|elemental|fire|frost|shadow|holy|arcane|nature|cosmic|astral|bleed|periodic|direct|spell|critical)\b)", std::regex::icase ) ) ) continue;
+         // 拒绝减伤、治疗换算及阈值；只有绑定全局主语的百分比才是伤害分量。
+-        if ( std::regex_search( clause, std::regex( R"(reduc|taken|you\s+take|heals|chance\s+to|below|above)", std::regex::icase ) ) ) continue;
++        if ( std::regex_search( clause, std::regex( R"(taken|you\s+take|heals|chance\s+to|below|above)", std::regex::icase ) ) ) continue;
+         for ( std::sregex_iterator ref( clause.begin(), clause.end(), own_value ), refs_end; ref != refs_end; ++ref )
+         {
+           unsigned source_id = (*ref)[1].str().empty() ? declaration.id() : std::stoul( (*ref)[1].str() );
+@@ -1299,10 +1355,8 @@
+           if ( index && index <= spell.effect_count() ) { anchors.insert( index ); ++damage_ref_counts[index]; }
+         }
+       }
+-  for ( auto it = anchors.begin(); it != anchors.end(); )
+-    if ( spell.effectN(*it).base_value() < 0 ) it = anchors.erase(it); else ++it;
+   std::set<unsigned> other_refs;
+-  static const std::regex own_ref( R"(\$([0-9]*)[sw]([0-9]+))", std::regex::icase );
++  static const std::regex own_ref( R"(\$([0-9]*)[swm]([0-9]+))", std::regex::icase );
+   for ( const std::string& value : { description, tooltip } )
+     for ( std::sregex_iterator it( value.begin(), value.end(), own_ref ), end; it != end; ++it )
+     {
+@@ -1333,7 +1387,7 @@
+            ( index == e.index()+1 || !other_refs.count(e.index()+1) ) ) result.insert(e.index()+1);
+     if ( derived.count(e.index()+1) && ( e.type() == 2 || e.type() == 142 ||
+          ( e.type() == E_APPLY_AURA && e.subtype() == 4 ) ) ) result.insert(e.index()+1);
+-    if ( e.base_value() < 0 || ( e.type() != E_APPLY_AURA && e.type() != E_APPLY_AREA_AURA_PARTY && e.type() != E_APPLY_AURA_PLAYER_AND_PET ) ) continue;
++    if ( ( e.type() != E_APPLY_AURA && e.type() != E_APPLY_AREA_AURA_PARTY && e.type() != E_APPLY_AURA_PLAYER_AND_PET ) ) continue;
+     if ( e.subtype() == 4 && anchors.count( e.index()+1 ) && all_ref_counts[e.index()+1] > damage_ref_counts[e.index()+1] )
+     {
+       const std::string ref = "\\$s" + std::to_string(e.index()+1) + "\\b";
+@@ -1342,7 +1396,7 @@
+     }
+     bool masked = false;
+     for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i ) masked |= e.class_flags( i ) != 0;
+-    if ( e.base_value() > 0 && !masked && ( e.subtype() == 79 || e.subtype() == 163 || e.subtype() == 276 || e.subtype() == 168 || e.subtype() == 303 || e.subtype() == 270 || e.subtype() == 271 ) )
++    if ( e.base_value() != 0 && !masked && ( e.subtype() == 79 || e.subtype() == 163 || e.subtype() == 276 || e.subtype() == 168 || e.subtype() == 303 || e.subtype() == 270 || e.subtype() == 271 ) )
+       result.insert( e.index() + 1 );
+     if ( anchors.count( e.index() + 1 ) && ( skill_damage_result_modifier( e ) || e.subtype() == 4 || e.subtype() == 107 || e.subtype() == 219 || e.subtype() == 226 ) )
+       result.insert( e.index() + 1 );
+@@ -1371,7 +1425,7 @@
+       for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i ) same_flags &= e.class_flags( i ) == a.class_flags( i );
+       if ( same_flags && !other_refs.count( e.index() + 1 ) && ( e.misc_value2() == a.misc_value2() || ( e.subtype() == 108 && a.subtype() == 108 ) ) )
+         result.insert( e.index() + 1 );
+-      // 同一全局倍率的自动攻击伴随分量也归一化，但纯自动攻击强化不作为全技能增伤。
++      // 同一全局倍率的自动攻击伴随分量也归一化；整个自动攻击类别属于全局。
+       if ( e.subtype() == 344 && e.base_value() == a.base_value() ) result.insert( e.index() + 1 );
+     }
+   }

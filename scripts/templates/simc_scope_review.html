@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>天赋与 Buff：保留还是剔除</title>
+<style>
+body{margin:0;background:#f5f7fa;color:#203046;font:15px/1.6 system-ui}main{max-width:1450px;margin:auto;padding:28px}h1{font-size:28px;margin:0}p{color:#53647b}small{display:block;color:#65758a}.rules{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:22px 0}.rule{background:white;border:1px solid #dbe2eb;border-radius:8px;padding:16px}.rule b{display:block;font-size:17px}.note{background:#fff5de;border-left:4px solid #b98821;padding:14px 18px}.filters{display:flex;gap:12px;flex-wrap:wrap;margin:22px 0}select,input,button{font:inherit;padding:8px 12px;border:1px solid #cbd5e1;border-radius:6px;background:white}input{width:320px;max-width:100%;box-sizing:border-box}table{width:100%;border-collapse:collapse;background:white}th,td{padding:15px;border-bottom:1px solid #e1e6ed;text-align:left;vertical-align:top}th{background:#e9eef4;white-space:nowrap}td:first-child{min-width:150px}td:nth-child(2){min-width:210px}td:nth-child(3){min-width:260px}.badge{display:inline-block;font-size:14px;font-weight:600;padding:3px 9px;border-radius:5px;background:#fff1cc;color:#825c16}.exclude{background:#edf0f5;color:#39475b}.keep{background:#e1f2e9;color:#22623c}details{margin:8px 0}summary{cursor:pointer;color:#385e8c}pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;max-height:450px;overflow:auto}.pager{display:flex;gap:16px;align-items:center;margin:20px 0}#table{overflow-x:auto}#count{font-weight:600}button:disabled{opacity:.45}.empty{padding:30px;background:white}a{color:#365c8c}@media(max-width:700px){main{padding:16px}.rules{grid-template-columns:1fr}h1{font-size:24px}.filters>*{flex:1;min-width:130px}}
+</style>
+<main>
+<h1>天赋与 Buff：保留还是剔除</h1>
+<p>只看伤害相关的自身天赋与 Buff。一个天赋有多个效果时，逐个效果判断。</p>
+<div class="rules">
+<div class="rule"><b>保留 · 具体技能</b>只影响某个技能，或明确列出的技能集合。<small>例如：只强化重伤和撕裂。</small></div>
+<div class="rule"><b>应剔除 · 全局效果</b>影响全部伤害，或一整类伤害。<small>例如：所有流血、某系伤害、自动攻击或宠物伤害。</small></div>
+<div class="rule"><b>一个天赋，逐个效果判断</b>部分技能的分量保留，全局分量剔除。<small>不因技能数量多、配置未选中或没有人工记录而挂起。</small></div>
+</div>
+<div class="note"><strong>按 DBC 与原生代码的作用范围分类。</strong> 限定部分技能的效果保留，全伤害或整类伤害剔除。展开证据可查看完整选择集合及代码中的应用位置。本页提供范围分类，不是归一化伤害结果，也不表示清除逻辑已经接入。</div>
+<p id="version"></p>
+<div class="filters">
+<select id="decision" aria-label="处理结论"><option value="">全部处理结论</option><option>保留</option><option>应剔除</option></select>
+<select id="kind" aria-label="类型"><option value="">全部天赋与状态</option><option value="天赋">天赋</option><option value="自身状态">自身 Buff</option><option value="目标减益">自身施加的目标减益</option></select>
+<select id="cls" aria-label="职业"><option value="">全部职业</option></select>
+<input id="q" aria-label="搜索" placeholder="搜索名称、关联技能或法术 ID">
+</div>
+<p id="count"></p><div id="table"></div>
+<div class="pager"><button id="prev">上一页</button><span id="page"></span><button id="next">下一页</button></div>
+<details><summary>查看版本、覆盖情况与证据采集限制</summary><p id="scope"></p></details>
+<details><summary>查看通用处理逻辑的原始源码</summary><pre id="common"></pre></details>
+</main>
+<script id="data" type="application/json">__DATA__</script>
+<script>
+const D=JSON.parse(document.getElementById('data').textContent),$=s=>document.querySelector(s);
+const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rows=D.条目.flatMap(r=>r.分量.map(c=>({r,c,search:JSON.stringify({r,c}).toLowerCase()})));
+let page=0;
+for(const cls of [...new Set(D.条目.map(r=>r.职业))])$('#cls').add(new Option(cls,cls));
+$('#version').textContent='DBC '+D.客户端版本+' · SimC '+D.源码提交.slice(0,12)+' · 按效果分别审计';
+$('#scope').textContent=D.说明;$('#common').textContent=JSON.stringify(D.公共应用源码,null,2);
+function associated(c){
+ const skills=c.涉及技能;
+ if(!skills.length)return c.处理结论==='应剔除'?'角色或宠物的整体伤害／伤害类别':c.处理结论==='保留'?'已定位具体技能实现，见右侧源码证据':'尚未核实具体技能范围';
+ const lines=skills.map(s=>'<small>'+esc(s.名称)+' ('+s.法术ID+')</small>');
+ const label=c.处理结论==='保留'?'已确认限定的技能集合':c.处理结论==='应剔除'?'类别中查到的关联法术':'已查到的关联法术，范围含义仍待核实';
+ return '<small><b>'+label+'</b></small>'+lines.slice(0,3).join('')+(skills.length>3?'<details><summary>查看其余 '+(skills.length-3)+' 个关联法术</summary>'+lines.slice(3).join('')+'</details>':'');
+}
+function render(){
+ const q=$('#q').value.trim().toLowerCase();
+ const rs=rows.filter(({r,c,search})=>(!$('#decision').value||c.处理结论===$('#decision').value)&&(!$('#kind').value||r.类型===$('#kind').value)&&(!$('#cls').value||r.职业===$('#cls').value)&&(!q||search.includes(q)));
+ const pages=Math.max(1,Math.ceil(rs.length/20));page=Math.min(page,pages-1);
+ $('#count').textContent='当前 '+rs.length+' 个效果 · 全表：已确认保留 '+(D.处理统计.保留||0)+'，应剔除 '+(D.处理统计.应剔除||0)+'，待确认 '+(D.处理统计.待确认||0);
+ $('#page').textContent=(page+1)+' / '+pages;$('#prev').disabled=!page;$('#next').disabled=page===pages-1;
+ if(!rs.length){$('#table').innerHTML='<div class="empty">'+($('#decision').value==='保留'?'尚未整理出已核验的保留结论，不代表没有应当保留的效果。':'没有符合当前筛选的效果。')+'</div>';return;}
+ $('#table').innerHTML='<table><thead><tr><th>天赋或 Buff</th><th>处理结论与原因</th><th>查到的关联技能</th><th>核验依据</th></tr></thead><tbody>'+rs.slice(page*20,page*20+20).map(({r,c})=>`<tr><td><b>${esc(r.名称)}</b><small>${esc(r.职业)} · ${esc(r.专精)}</small><small>${r.类型==='天赋'?'天赋':r.类型==='目标减益'?'自身施加的目标减益':'自身 Buff'} · 效果 ${c.效果编号} · 法术 ${r.法术ID}</small></td><td><span class="badge ${c.处理结论==='应剔除'?'exclude':c.处理结论==='保留'?'keep':''}">${esc(c.处理结论)}</span><p>${esc(c.处理说明)}</p></td><td>${associated(c)}<small>关联法术不一定都是当前可用的伤害技能。</small></td><td><details><summary>展开 DBC 与 SimC 证据</summary><p>${esc(r.配置覆盖)}</p><p>${esc(c.依据)}</p><pre>${esc(JSON.stringify({范围核验:c.范围核验,追踪记录:c.范围判定,DBC:c.DBC,原生注册关系:c.原生实际应用,手写源码:c.手写读取,仅原生出现的技能:c.仅原生出现的技能,DBC中尚未观察应用的技能:c.DBC中尚未观察应用的技能},null,2))}</pre></details></td></tr>`).join('')+'</tbody></table>';
+}
+for(const id of ['#decision','#kind','#cls','#q'])$(id).addEventListener(id==='#q'?'input':'change',()=>{page=0;render()});
+$('#prev').onclick=()=>{page--;render()};$('#next').onclick=()=>{page++;render()};render();
+</script>
+</html>

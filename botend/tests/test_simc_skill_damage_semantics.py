@@ -46,6 +46,10 @@ class SkillDamageSemanticRegressionTests(SimpleTestCase):
             ('buff.enrage', 'self', 184362, 150),
         )
         high = {'class': 'warrior', 'actions': [damage_action(scenarios=states)]}
+        high['global_damage_states'] = [{
+            'token': token, 'scope': scope, 'spell_id': spell_id,
+            'evidence': 'dbc_all_school_damage_aura',
+        } for token, scope, spell_id, _ in states]
         low = {'class': 'warrior', 'actions': []}
         effects = classify_global_skill_effects(high, low, [])
         self.assertEqual({effect['source_spell_ids'][0] for effect in effects}, {107574, 208086, 184362})
@@ -80,6 +84,11 @@ class SkillDamageSemanticRegressionTests(SimpleTestCase):
         low = {'class': 'warrior', 'actions': [damage_action(scenarios=(
             ('buff.enrage', 'self', 184362, 170),
         ))]}
+        for actor in (high, low):
+            actor['global_damage_states'] = [{
+                'token': 'buff.enrage', 'scope': 'self', 'spell_id': 184362,
+                'evidence': 'dbc_all_school_damage_aura',
+            }]
         effects = classify_global_skill_effects(high, low, [])
         self.assertEqual(len(effects), 1)
         self.assertEqual(effects[0]['projections'], [])

@@ -1,0 +1,300 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1055,34 +1055,177 @@
+     : effect.subtype() == A_MOD_DAMAGE_PERCENT_DONE && all_schools;
+ }
+ 
+-bool skill_damage_excluded_global_buff( const player_t& player, const buff_t* buff, bool target )
+-{
+-  if ( !buff || !buff->data().ok() || buff->source != &player ) return false;
+-  if ( buff->player != ( target ? player.target : &player ) ) return false;
+-  // 激怒的全技能乘区由战士精通实现，不能只查 buff 自身的 aura。
+-  if ( player.type == WARRIOR &&
+-       ( target ? buff->data().id() == 208086
+-                : buff->data().id() == 107574 || buff->data().id() == 184362 ) ) return true;
++// 全局作用域依据效果声明和原生公共乘区，不按职业名、技能名或示例 ID 分类。
++bool skill_damage_text_declares_global_damage( std::string text )
++{
++  std::transform( text.begin(), text.end(), text.begin(), []( unsigned char c ) { return std::tolower( c ); } );
++  static const std::regex conditional_statement( R"(\[\s*((all\s+)?(spell\s+|ability\s+)?damage\b))" );
++  text = std::regex_replace( text, conditional_statement, ". $1" );
++  text = std::regex_replace( text, std::regex( R"(\$?\?[^\[\]\r\n]*\[)" ), " " );
++  std::replace( text.begin(), text.end(), '[', ' ' );
++  std::replace( text.begin(), text.end(), ']', ' ' );
++  // 边界必须在主语前，避免把“火焰/技能名 damage increased”截成全技能声明。
++  static const std::regex positive(
++    R"(((^|[.!;\r\n\[\]]|\band\s+)\s*(all\s+)?(spell\s+|ability\s+)?damage(,?\s+(and\s+)?(healing|critical strike chance))*(\s+(done|dealt))?(\s+by\s+you(\s+and\s+your\s+pet)?)?\s+(is\s+)?increased\b)|(\b(your|you\s+and\s+your\s+pet's)\s+damage(\s+dealt)?\s+(is\s+)?increased\b)|(\bincreas(e|es|ed|ing)\s+(all\s+)?(your\s+(spell\s+)?damage|damage\s+(you(\s+both)?\s+deal|dealt\s+by\s+you)|damage\s+and\s+healing\s+by)\b)|(\battacks\s+deal\s+[^%\r\n]{1,48}%\s+additional\s+damage\b)|(\ball\s+(attack\s+and\s+ability\s+)?damage\s+(is\s+)?increased\b)|(\bincreas(e|es|ed|ing)\s+the\s+damage\s+of\s+all\s+your\s+attacks\b)|(\bthe\s+damage\s+of\s+your\s+spells\s+and\s+abilities\s+is\s+increased\b)|((^|[.!;\r\n]|\band\s+)\s*(dealing|taking|suffering|receiving)\s+[^%\r\n]{1,48}%\s+(additional|increased|more)\s+damage\b)|(\bdamage\s+taken\s+from\s+\$@auracaster\s+increased\b)|(\bincreases\s+damage\s+taken\s+from\s+\$@auracaster\s+by\b)|(\btake(s)?\s+[^.;]{0,100}(increased|more)\s+damage\s+from\s+you\b))" );
++  static const std::regex restricted(
++    R"((your\s+damage|damage\s+you\s+deal)\s+(with|from|using|of)\b|damage\s+(dealt\s+)?by\s+your\s+(pet|guardian)|damage\s+from\s+(?!you\b|\$@auracaster(?:[.\s\[\]]|$))|damage\s+from\s+(you|\$@auracaster)['’]|increased\s+damage\s+(with|using|of)\b)" );
++  size_t begin = 0;
++  while ( begin < text.size() )
++  {
++    size_t end = text.find_first_of( ";\n\r", begin );
++    const std::string clause = text.substr( begin, end == std::string::npos ? end : end - begin );
++    if ( std::regex_search( clause, positive ) && !std::regex_search( clause, restricted ) ) return true;
++    if ( end == std::string::npos ) break;
++    begin = end + 1;
++  }
++  return false;
++}
++
++bool skill_damage_damage_aura( const spelleffect_data_t& effect, bool target )
++{
++  if ( effect.type() != E_APPLY_AURA ) return false;
++  if ( target ) return effect.subtype() == A_MOD_DAMAGE_FROM_CASTER ||
++    effect.subtype() == A_MOD_DAMAGE_FROM_CASTER_SPELLS ||
++    effect.subtype() == A_MOD_DAMAGE_FROM_CASTER_SPELLS_LABEL ||
++    effect.subtype() == A_MOD_DAMAGE_PERCENT_TAKEN;
++  return effect.subtype() == A_MOD_DAMAGE_PERCENT_DONE ||
++    ( ( effect.subtype() == A_ADD_PCT_MODIFIER || effect.subtype() == A_ADD_PCT_LABEL_MODIFIER ) &&
++      ( effect.misc_value1() == P_GENERIC || effect.misc_value1() == P_TICK_DAMAGE ) );
++}
++
++bool skill_damage_declared_global_spell( const player_t& player, const spell_data_t& spell, bool target )
++{
++  bool damage = false;
++  for ( const auto& effect : spell.effects() )
++    damage = damage || ( skill_damage_damage_aura( effect, target ) && effect.percent() >= 0.0 );
++  const auto& text = player.dbc->spell_text( spell.id() );
++  const std::string tooltip = text.tooltip() ? text.tooltip() : "";
++  // 基础值为零的光环可以由天赋、精通或层数赋值；作用域不能依赖当前是否点出。
++  // 间接数值只沿“增伤值引用”读取对应效果，不能沿触发技能把准备状态误判成增伤状态。
++  if ( !damage )
++  {
++    static const std::regex reference( R"((?:^|[\r\n\[\]])\s*(?:All |Spell |Ability )?Damage (?:done |dealt )?(?:is )?increased by \$([0-9]+)[sw]([0-9]+))", std::regex::icase );
++    std::smatch match;
++    if ( std::regex_search( tooltip, match, reference ) )
++    {
++      const auto* referenced = dbc::find_spell( &player, std::stoul( match[ 1 ].str() ) );
++      const unsigned index = std::stoul( match[ 2 ].str() );
++      if ( referenced && player.dbc->is_specialization_ability( referenced->id() ) &&
++           !player.dbc->is_specialization_ability( player.specialization(), referenced->id() ) ) return false;
++      damage = referenced && referenced->ok() && index > 0 && index <= referenced->effect_count() &&
++        std::any_of( referenced->effects().begin(), referenced->effects().end(), [&]( const auto& effect ) {
++          return skill_damage_damage_aura( effect, target ) && effect.percent() >= 0.0;
++        } );
++    }
++  }
++  if ( !damage ) return false;
++  if ( !tooltip.empty() ) return skill_damage_text_declares_global_damage( tooltip );
++  // $@spelldesc 是 DBC 官方文本引用；有界闭包覆盖引用和循环，不依赖职业或法术 ID。
++  std::vector<unsigned> pending{ spell.id() };
++  std::set<unsigned> visited;
++  static const std::regex desc_reference( R"(\$@spelldesc([0-9]+))" );
++  while ( !pending.empty() && visited.size() < 64 )
++  {
++    const unsigned id = pending.back(); pending.pop_back();
++    if ( !visited.insert( id ).second ) continue;
++    const auto& referenced = player.dbc->spell_text( id );
++    const std::string desc = referenced.desc() ? referenced.desc() : "";
++    if ( skill_damage_text_declares_global_damage( desc ) ) return true;
++    for ( std::sregex_iterator it( desc.begin(), desc.end(), desc_reference ), end; it != end; ++it )
++      pending.push_back( std::stoul( ( *it )[ 1 ].str() ) );
++  }
++  return false;
++}
++
++// 公共乘区检查每个基础伤害学校，完全不枚举技能伤害、层数或目标数。
++bool skill_damage_native_global_buff( const player_t& player, const buff_t* candidate )
++{
++  static std::map<std::pair<const player_t*, const buff_t*>, bool> cache;
++  const auto key = std::make_pair( &player, candidate );
++  auto found = cache.find( key );
++  if ( found != cache.end() ) return found->second;
++  auto* buff = const_cast<buff_t*>( candidate );
++  const int stacks = buff->current_stack;
++  const double value = buff->current_value;
++  struct restore_t {
++    buff_t* buff; int stacks; double value;
++    ~restore_t() { buff->current_stack = stacks; buff->current_value = value; buff->invalidate_cache(); }
++  } restore{ buff, stacks, value };
++  const std::array<school_e, 7> schools{ SCHOOL_PHYSICAL, SCHOOL_HOLY, SCHOOL_FIRE,
++    SCHOOL_NATURE, SCHOOL_FROST, SCHOOL_SHADOW, SCHOOL_ARCANE };
++  double ratio = 0.0;
++  for ( school_e school : schools )
++  {
++    buff->current_stack = 0; buff->current_value = 0.0; buff->invalidate_cache();
++    const double before = player.composite_player_multiplier( school ) *
++      ( player.target ? player.composite_player_target_multiplier( player.target, school ) : 1.0 );
++    buff->current_stack = 1; buff->current_value = buff->default_value; buff->invalidate_cache();
++    const double after = player.composite_player_multiplier( school ) *
++      ( player.target ? player.composite_player_target_multiplier( player.target, school ) : 1.0 );
++    if ( !std::isfinite( before ) || !std::isfinite( after ) || before <= 0.0 || after <= before * ( 1.0 + 1.0e-8 ) )
++      return cache[ key ] = false;
++    const double current = after / before;
++    if ( ratio && std::abs( current - ratio ) > 1.0e-8 * std::max( current, ratio ) ) return cache[ key ] = false;
++    ratio = current;
++  }
++  return cache[ key ] = true;
++}
++
++std::map<std::pair<const player_t*, const buff_t*>, const char*> skill_damage_global_scope_cache;
++
++const char* skill_damage_global_buff_basis( const player_t& player, const buff_t* buff, bool target )
++{
++  if ( !buff || !buff->data().ok() || buff->source != &player ||
++       buff->player != ( target ? player.target : &player ) ) return nullptr;
++  const auto key = std::make_pair( &player, buff );
++  auto cached = skill_damage_global_scope_cache.find( key );
++  if ( cached != skill_damage_global_scope_cache.end() ) return cached->second;
++  for ( const auto& effect : buff->data().effects() )
++    if ( skill_damage_global_aura( effect, target ) ) return skill_damage_global_scope_cache[ key ] = "dbc_unrestricted_damage_aura";
+   if ( !target )
+     if ( const auto* parsed = dynamic_cast<const parse_player_effects_t*>( &player ) )
+       for ( const auto& effect : parsed->player_multiplier_effects )
+         if ( effect.buff == buff && ( effect.opt_enum & 127U ) == 127U &&
+-             ( effect.value > 0.0 || effect.mastery ) ) return true;
+-  for ( const auto& effect : buff->data().effects() )
+-    if ( skill_damage_global_aura( effect, target ) ) return true;
+-  return false;
+-}
+-
+-bool skill_damage_pure_global_talent( const spell_data_t* spell )
++             ( effect.value > 0.0 || effect.mastery ) ) return skill_damage_global_scope_cache[ key ] = "native_player_effect_registry";
++  if ( skill_damage_declared_global_spell( player, buff->data(), target ) ) return skill_damage_global_scope_cache[ key ] = "dbc_damage_scope_declaration";
++  if ( skill_damage_native_global_buff( player, buff ) ) return skill_damage_global_scope_cache[ key ] = "native_global_multiplier_all_schools";
++  return skill_damage_global_scope_cache[ key ] = nullptr;
++}
++
++bool skill_damage_excluded_global_buff( const player_t& player, const buff_t* buff, bool target )
++{
++  return skill_damage_global_buff_basis( player, buff, target ) != nullptr;
++}
++
++bool skill_damage_pure_global_talent( const spell_data_t* spell, const dbc_t* dbc = nullptr )
+ {
+   // 只删除纯被动增伤；主动攻击、触发子技能或任何混合效果都保留。
+   if ( !spell || !spell->ok() || !spell->flags( spell_attribute::SX_PASSIVE ) || spell->proc_flags() )
+     return false;
++  bool declared = false;
++  if ( dbc )
++  {
++    const auto& text = dbc->spell_text( spell->id() );
++    declared = skill_damage_text_declares_global_damage( text.tooltip() ? text.tooltip() : "" ) ||
++      skill_damage_text_declares_global_damage( text.desc() ? text.desc() : "" );
++  }
+   bool found = false;
++  double percent = -1.0;
++  std::array<unsigned, NUM_CLASS_FAMILY_FLAGS> flags{};
+   for ( const auto& effect : spell->effects() )
+   {
+     if ( effect.type() == E_NONE ) continue;
+-    if ( !skill_damage_global_aura( effect, false ) || effect.trigger_spell_id() ) return false;
++    // 直伤和周期是并列作用域；只接受可证明同一正倍率的纯效果。
++    if ( effect.trigger_spell_id() || effect.percent() <= 0.0 ||
++         ( !skill_damage_global_aura( effect, false ) &&
++           !( declared && skill_damage_damage_aura( effect, false ) ) ) ) return false;
++    if ( percent >= 0.0 && std::abs( effect.percent() - percent ) > 1.0e-8 ) return false;
++    for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i )
++    {
++      if ( found && flags[ i ] != effect.class_flags( i ) ) return false;
++      flags[ i ] = effect.class_flags( i );
++    }
++    percent = effect.percent();
+     found = true;
+   }
+   return found;
+@@ -1124,7 +1267,7 @@
+   auto& traits = player->player_traits;
+   traits.erase( std::remove_if( traits.begin(), traits.end(), [&]( const auto& selected ) {
+     const auto* trait = trait_data_t::find( std::get<1>( selected ), player->is_ptr() );
+-    return trait && skill_damage_pure_global_talent( dbc::find_spell( player, trait->id_spell ) );
++    return trait && skill_damage_pure_global_talent( dbc::find_spell( player, trait->id_spell ), player->dbc.get() );
+   } ), traits.end() );
+ }
+ 
+@@ -1612,16 +1755,19 @@
+     out << ",\"scope\":"; apl_metadata_json_string( out, target ? "target" : "self" );
+     out << ",\"spell_id\":" << buff->data().id() << ",\"name\":";
+     apl_metadata_json_string( out, buff->data().name_cstr() );
++    out << ",\"available\":" << ( skill_damage_available_buff( player, *buff ) ? "true" : "false" );
++    out << ",\"scope_basis\":"; apl_metadata_json_string( out, skill_damage_global_buff_basis( player, buff, target ) );
+     out << ",\"evidence\":\"precomputed_global_damage_scope\",\"excluded_before_probe\":true,\"dbc_base_multiplier\":";
+-    double multiplier = 1.0;
+-    bool found = false;
++    double percent = -1.0;
++    bool ambiguous = false;
+     for ( const auto& effect : buff->data().effects() )
+-      if ( skill_damage_global_aura( effect, target ) )
+-      {
+-        multiplier *= 1.0 + effect.percent();
+-        found = true;
+-      }
+-    if ( found ) write_skill_damage_json_number( out, multiplier );
++      if ( skill_damage_damage_aura( effect, target ) )
++      {
++        if ( effect.percent() <= 0.0 ) { ambiguous = true; continue; }
++        if ( percent >= 0.0 && std::abs( effect.percent() - percent ) > 1.0e-8 ) ambiguous = true;
++        percent = effect.percent();
++      }
++    if ( !ambiguous && percent > 0.0 ) write_skill_damage_json_number( out, 1.0 + percent );
+     else out << "null";
+     out << '}';
+   };
+@@ -1637,7 +1783,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":16,\"simc_revision\":";
++  out << "{\"schema_version\":17,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -1645,12 +1791,12 @@
+   for ( const auto& trait : trait_data_t::data( sim.dbc->ptr ) )
+   {
+     const auto* spell = dbc::find_spell( &sim, trait.id_spell );
+-    if ( !skill_damage_pure_global_talent( spell ) ) continue;
++    if ( !skill_damage_pure_global_talent( spell, sim.dbc.get() ) ) continue;
+     if ( !first ) out << ',';
+     first = false;
+     double multiplier = 1.0;
+     for ( const auto& effect : spell->effects() )
+-      if ( skill_damage_global_aura( effect, false ) ) multiplier *= 1.0 + effect.percent();
++      if ( effect.type() != E_NONE ) { multiplier = 1.0 + effect.percent(); break; }
+     out << "{\"trait_entry_id\":" << trait.id_trait_node_entry
+         << ",\"spell_id\":" << trait.id_spell << ",\"name\":";
+     apl_metadata_json_string( out, trait.name );
+@@ -1671,6 +1817,7 @@
+   skill_damage_scaling_cache.clear();
+   skill_damage_passive_cache.clear();
+   skill_damage_excluded_buff_cache.clear();
++  skill_damage_global_scope_cache.clear();
+   const bool valid_revision = sim.skill_damage_revision.size() == 40 &&
+     std::all_of( sim.skill_damage_revision.begin(), sim.skill_damage_revision.end(),
+                  []( unsigned char c ) { return std::isxdigit( c ); } );
+@@ -1685,7 +1832,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":16,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":17,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -1921,6 +2068,25 @@
+     }
+     out << "],\"global_damage_states\":";
+     write_skill_damage_global_states( out, *player );
++    out << ",\"global_scope_candidates\":[";
++    bool first_candidate = true;
++    const auto audit_buff = [&]( buff_t* buff, bool target ) {
++      if ( !buff || !buff->data().ok() || buff->source != player || buff->player != ( target ? player->target : player ) ) return;
++      if ( !first_candidate ) out << ',';
++      first_candidate = false;
++      out << "{\"token\":"; apl_metadata_json_string( out, ( target ? "debuff." : "buff." ) + buff->name_str );
++      out << ",\"spell_id\":" << buff->data().id() << ",\"scope\":";
++      apl_metadata_json_string( out, target ? "target" : "self" );
++      out << ",\"available\":" << ( skill_damage_available_buff( *player, *buff ) ? "true" : "false" );
++      out << ",\"scope_basis\":";
++      const char* basis = skill_damage_global_buff_basis( *player, buff, target );
++      if ( basis ) apl_metadata_json_string( out, basis ); else out << "null";
++      out << '}';
++    };
++    for ( buff_t* buff : player->buff_list ) audit_buff( buff, false );
++    if ( player->target ) for ( buff_t* buff : player->target->buff_list ) audit_buff( buff, true );
++    out << ']';
++
+     out << '}';
+   }
+   out << "]}\n";

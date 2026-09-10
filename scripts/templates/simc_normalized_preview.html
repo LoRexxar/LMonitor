@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>全职业技能归一化伤害 · 本地实算</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eeece6;color:#292b2f;font:14px/1.6 system-ui,"Microsoft YaHei",sans-serif}main{max-width:1680px;margin:auto;padding:24px}h1{font-size:27px;margin:0 0 8px}h3{font-size:21px;margin:0}p{margin:8px 0}header{padding:12px 2px 22px}section{background:#fcfbf8;padding:24px;border:1px solid #d8d5cd;border-radius:16px}.hidden{display:none!important}.flex{display:flex}.flex-wrap{flex-wrap:wrap}.flex-col{flex-direction:column}.items-center{align-items:center}.items-start{align-items:flex-start}.justify-between{justify-content:space-between}.gap-2{gap:8px}.gap-3{gap:12px}.gap-4{gap:16px}.grid{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(220px,1fr))}.mt-1{margin-top:4px}.mt-2{margin-top:8px}.mt-3{margin-top:12px}.mt-4{margin-top:16px}.mb-3{margin-bottom:12px}.text-xs{font-size:12px}.text-sm{font-size:13px}.font-semibold,.font-bold{font-weight:650}.font-mono{font-family:ui-monospace,Consolas,monospace}.text-blue-900{color:#153f75}.text-indigo-900,.text-indigo-950{color:#373873}.text-amber-800{color:#795722}.text-stone-500,.text-stone-600,.text-stone-700{color:#69716d}button,select,input{font:inherit;border:1px solid #bfc6ca;border-radius:7px;padding:8px 12px;background:#fff;color:inherit}button{cursor:pointer}button:hover{background:#e8edf4}button[aria-selected=true],.bg-blue-700{background:#254e84;color:white}input[type=search]{min-width:290px;flex:1}input[type=checkbox]{accent-color:#254e84}.overflow-x-auto{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:1020px}th{background:#eeeae2;text-align:left;font-size:13px;position:sticky;top:0}td,th{padding:14px 12px;border-bottom:1px solid #ddd9d0;vertical-align:top}tbody tr:hover{background:#f4f2ec}.rounded-lg{border-radius:8px}.border{border:1px solid #dad8d0}.p-3{padding:12px}.p-4{padding:16px}.px-3{padding-left:12px;padding-right:12px}.py-2{padding-top:8px;padding-bottom:8px}.py-2\.5{padding-top:10px;padding-bottom:10px}.bg-indigo-50{background:#eeeff9}.bg-amber-50{background:#fff4db}.bg-stone-50{background:#f4f2ec}.bg-white\/70{background:#fff}.preview-toolbar{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:18px 0}.coverage{background:#fff8e8;padding:12px 16px;border-radius:8px}.meta{color:#68716b;font-size:13px}a{color:#1c538b}summary{cursor:pointer}.stat{display:inline-block;padding:5px 12px;background:#e6ece6;border-radius:6px;margin-right:7px}#simc-skill-damage-global-modifiers .grid{max-height:340px;overflow:auto}#simc-skill-damage-condition-filters label{display:inline-flex;gap:4px;margin:3px 6px 3px 0;padding:3px 7px;background:#fff;border:1px solid #ddd;border-radius:6px}#simc-skill-damage-generate{display:none!important}@media(max-width:700px){main{padding:12px}section{padding:12px}input[type=search]{min-width:0;width:100%}.preview-toolbar{align-items:stretch;flex-direction:column}}
+th:nth-child(1),td:nth-child(1){min-width:200px}th:nth-child(2),td:nth-child(2){min-width:170px}th:nth-child(3),td:nth-child(3){min-width:150px}th:nth-child(4),td:nth-child(4){min-width:380px}th:nth-child(5),td:nth-child(5){min-width:160px}th button{border:0;background:transparent;padding:0}#simc-skill-damage-body td{overflow-wrap:anywhere}#simc-skill-damage-condition-filters label{max-width:100%}#simc-skill-damage-condition-filters label span{min-width:0;overflow-wrap:anywhere}#simc-skill-damage-condition-filters input{flex-shrink:0}
+</style></head><body><main>
+<header><div class="meta">本地预览 · 使用线上同一产品投影与表格渲染函数</div><h1>全职业技能归一化伤害</h1>
+<p>AP 100 · SP 100 · 基础暴击 20% · 精通 50%。全局分量先归零，再由 SimC 实算局部技能、天赋和 Buff 的伤害。</p>
+<div id="preview-counts"></div>
+<div class="preview-toolbar"><label>数据配置 <select id="preview-mode"><option value="single">单项天赋对照</option><option value="profile">上游完整天赋配置</option></select></label><span id="preview-mode-note" class="meta"></span><a id="preview-download">下载当前数据</a></div>
+<div class="coverage">织雾武僧、神圣圣骑士：当前 SimC 不支持。单项对照使用自动赠送的基础技能框架加一个天赋；没有穷举多个可选天赋组合。下方单独列出运行时未解析的伤害记录，不以零伤害代替。</div>
+</header>
+__PANEL__
+<details class="mt-4"><summary>生成与验证摘要</summary><pre id="preview-audit" style="white-space:pre-wrap"></pre></details>
+</main><script>
+const files=__FILES__, classes=__CLASSES__, specs=__SPECS__, audit=__REPORT__;
+function escapeHtml(value){return String(value??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;')}
+__RENDERER__
+let current=null; const byId=id=>document.getElementById(id), specSelect=byId('simc-skill-damage-spec'), heroSelect=byId('simc-skill-damage-hero-tree');
+const panel=byId('simc-skill-damage-panel');panel.__simcSkillDamageFilterState={excludedConditionKeysByScope:new Map()};
+function render(){
+ renderSimcSkillDamageSnapshot(current);
+ if(!specSelect.value&&current?.actors.length){const a=current.actors.find(a=>a.class==='warrior'&&a.specialization==='arms')||current.actors[0];specSelect.value=`${a.class}:${a.specialization}`;renderSimcSkillDamageSnapshot(current)}
+ if(!heroSelect.value&&heroSelect.options.length>1){heroSelect.selectedIndex=1;renderSimcSkillDamageSnapshot(current)}
+ for(const option of specSelect.options){if(!option.value)continue;const [c,s]=option.value.split(':');option.textContent=`${classes[c]||c} / ${specs[s]||s}`}
+ const mode=byId('preview-mode').value;
+ byId('preview-mode-note').textContent=mode==='single'?'基础技能框架 + 单项天赋；默认生成未被排除的技能与状态，可按天赋、Buff、目标数筛选':'固定为对应专精的上游天赋配置；查看该配置在不同状态下的实算伤害';
+ byId('simc-skill-damage-status').textContent=`本地已生成：${current.spec_count} 个专精 · ${current.action_count} 行技能条件数据`;
+ const labels=panel.querySelectorAll('th'); if(labels[1]) labels[1].textContent=mode==='single'?'单项天赋条件':'当前配置下的状态条件';
+}
+async function load(){
+ byId('simc-skill-damage-status').textContent='正在读取本地实算结果…';
+ const mode=byId('preview-mode').value, response=await fetch(files[mode],{cache:'no-store'});if(!response.ok)throw Error('数据读取失败');current=await response.json();
+ byId('preview-download').href=files[mode];byId('preview-download').download=files[mode];
+ panel.__simcSkillDamageFilterState.excludedConditionKeysByScope.clear();heroSelect.value='';render();
+}
+byId('preview-counts').innerHTML=`<span class="stat">${audit['专精明细'].length} 个专精</span><span class="stat">${audit['已回读全局分量']} 个全局分量已回读归零</span><span class="stat">单项对照 ${audit['单项表行数']} 行</span><span class="stat">完整配置 ${audit['完整配置表行数']} 行</span>`;
+byId('preview-audit').textContent=JSON.stringify(audit,null,2);
+byId('preview-mode').addEventListener('change',()=>load().catch(e=>byId('simc-skill-damage-status').textContent=e.message));
+byId('simc-skill-damage-refresh').addEventListener('click',load);
+specSelect.addEventListener('change',()=>{heroSelect.value='';render()});heroSelect.addEventListener('change',render);byId('simc-skill-damage-search').addEventListener('input',render);
+for(const button of document.querySelectorAll('.simc-skill-damage-target-tab'))button.addEventListener('click',()=>{for(const other of document.querySelectorAll('.simc-skill-damage-target-tab')){other.setAttribute('aria-selected',String(other===button));other.classList.toggle('bg-blue-700',other===button)}render()});
+for(const name of ['name','final'])byId('simc-skill-damage-sort-'+name).addEventListener('click',()=>{const button=byId('simc-skill-damage-sort-'+name);button.dataset.direction=button.dataset.active==='true'&&button.dataset.direction==='asc'?'desc':'asc';for(const n of ['name','final'])byId('simc-skill-damage-sort-'+n).dataset.active=String(n===name);render()});
+for(const tab of document.querySelectorAll('.simc-skill-damage-filter-tab'))tab.addEventListener('click',()=>{for(const other of document.querySelectorAll('.simc-skill-damage-filter-tab')){other.setAttribute('aria-selected',String(other===tab));other.classList.toggle('bg-blue-700',other===tab)}for(const content of document.querySelectorAll('[data-filter-panel]'))content.classList.toggle('hidden',content.dataset.filterPanel!==tab.dataset.filterScope)});
+byId('simc-skill-damage-condition-filters').addEventListener('change',event=>{const key=event.target.dataset.conditionKey;if(!key)return;const scope=`${specSelect.value}:${heroSelect.value}`,map=panel.__simcSkillDamageFilterState.excludedConditionKeysByScope,set=map.get(scope)||new Set();event.target.checked?set.delete(key):set.add(key);map.set(scope,set);render()});
+load().catch(error=>byId('simc-skill-damage-status').textContent=error.message);
+</script></body></html>

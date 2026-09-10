@@ -27,7 +27,7 @@ class SkillDamageAuditTests(SimpleTestCase):
 
     def test_preclassified_export_never_reinfers_globals_from_skill_samples(self):
         actor = {'class': 'mage', 'spec': 'frost', 'global_damage_policy': 'exclude_before_probe',
-                 'global_damage_states': [], 'actions': [skill()]}
+                 'global_damage_states': [], 'global_scope_candidates': [], 'actions': [skill()]}
         with mock.patch('botend.services.simc_skill_damage._scenario_token_universe',
                         side_effect=AssertionError('不应重新扫描状态样本')):
             self.assertEqual(classify_global_skill_effects(actor, copy.deepcopy(actor), []), [])

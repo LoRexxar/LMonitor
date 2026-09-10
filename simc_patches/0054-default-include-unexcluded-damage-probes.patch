@@ -1,0 +1,95 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -579,6 +579,7 @@
+     double attack_power_coefficient = 0.0;
+     double spell_power_coefficient = 0.0;
+     std::vector<unsigned> effect_indexes;
++    unsigned source_spell_id = 0;
+ 
+     bool present() const { return !effect_indexes.empty(); }
+     double normalized_base() const
+@@ -592,22 +593,24 @@
+ 
+ skill_damage_dbc_scaling_t skill_damage_dbc_scaling( const action_t& action )
+ {
+-  const auto cached = skill_damage_scaling_cache.find( &action.data() );
++  const auto* source = action.skill_damage_coefficient_source ? action.skill_damage_coefficient_source : &action.data();
++  const auto cached = skill_damage_scaling_cache.find( source );
+   if ( cached != skill_damage_scaling_cache.end() ) return cached->second;
+   skill_damage_dbc_scaling_t scaling;
+-  for ( const auto& effect : action.data().effects() )
++  for ( const auto& effect : source->effects() )
+   {
+     skill_damage_dbc_scaling_t::component_t* component = nullptr;
+     if ( effect.type() == E_SCHOOL_DAMAGE )
+       component = &scaling.direct;
+-    else if ( effect.type() == E_APPLY_AURA && effect.subtype() == A_PERIODIC_DAMAGE )
++    else if ( effect.type() == E_APPLY_AURA && (effect.subtype() == A_PERIODIC_DAMAGE || effect.subtype() == A_PERIODIC_LEECH) )
+       component = &scaling.tick;
+     if ( !component ) continue;
++    component->source_spell_id = source->id();
+     component->attack_power_coefficient += effect.ap_coeff();
+     component->spell_power_coefficient += effect.sp_coeff();
+     component->effect_indexes.push_back( effect.index() );
+   }
+-  skill_damage_scaling_cache.emplace( &action.data(), scaling );
++  skill_damage_scaling_cache.emplace( source, scaling );
+   return scaling;
+ }
+ 
+@@ -618,6 +621,7 @@
+   out << "{\"attack_power_coefficient\":" << component.attack_power_coefficient;
+   out << ",\"spell_power_coefficient\":" << component.spell_power_coefficient;
+   out << ",\"normalized_base\":" << component.normalized_base();
++  out << ",\"source_spell_id\":" << component.source_spell_id;
+   out << ",\"effect_indexes\":[";
+   for ( size_t i = 0; i < component.effect_indexes.size(); ++i )
+   {
+@@ -1794,8 +1798,7 @@
+   // 其他职业的公共外部 buff 也会以接收者为 source 创建，不能据此认定可以自身施加。
+   const int family = as<int>(buff.data().class_family());
+   if ( family && family != dbc::get_class_spell_family(player.type) ) return false;
+-  if ( !skill_damage_reviewed_buff(buff.data().id()) &&
+-       (family != dbc::get_class_spell_family(player.type) || !skill_damage_local_target_buff(buff)) ) return false;
++  // 复核契约是排除依据；未被收录的自身状态仍应由原生快照探测。
+   static std::map<const buff_t*, bool> availability;
+   const auto found = availability.find( &buff );
+   if ( found != availability.end() ) return found->second;
+@@ -1859,7 +1862,6 @@
+       buff_t* buff, skill_damage_condition_scope_e scope ) {
+     if ( !buff || !buff->data().ok() || buff->source != action.player ||
+          !skill_damage_available_buff( *action.player, *buff ) ) return;
+-    if ( !skill_damage_reviewed_buff(buff->data().id()) && !skill_damage_local_target_buff(*buff, &action) ) return;
+     if ( scope == skill_damage_condition_scope_e::SELF && buff->player != action.player ) return;
+     if ( scope == skill_damage_condition_scope_e::TARGET && buff->player != action.target ) return;
+     if ( skill_damage_excluded_global_buff( *action.player, buff,
+--- a/engine/action/action.hpp
++++ b/engine/action/action.hpp
+@@ -639,6 +639,9 @@
+   virtual ~action_t();
+ 
+   void add_child( action_t* child );
++  // 模块从另一个 DBC 法术读取系数时，导出器沿同一来源读取基础公式。
++  const spell_data_t* skill_damage_coefficient_source = nullptr;
++
+   void add_cast_child( action_t* child, bool per_tick = false, double repetitions = 1.0 )
+   { add_child(child); cast_child_action.emplace_back(child, per_tick); cast_child_repetitions.emplace_back(child, repetitions); }
+ 
+--- a/engine/class_modules/sc_warrior.cpp
++++ b/engine/class_modules/sc_warrior.cpp
+@@ -3375,6 +3375,7 @@
+       energize_resource       = RESOURCE_RAGE;
+       energize_type           = action_energize::ON_CAST;
+       attack_power_mod.direct = damage_spell->effectN( 1 ).ap_coeff();
++      skill_damage_coefficient_source = damage_spell;
+     }
+   };
+ 
+@@ -4683,6 +4684,7 @@
+     base_teleport_distance                       = data().max_range();
+     range                                        = -1;
+     attack_power_mod.direct                      = heroic_leap_damage->effectN( 1 ).ap_coeff();
++    skill_damage_coefficient_source              = heroic_leap_damage;
+     radius                                       = heroic_leap_damage->effectN( 1 ).radius();
+ 
+     // This bug is likely fixed in spelldata for 11.1 PTR.  Recheck after PTR is up.

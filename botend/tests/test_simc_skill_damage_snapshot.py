@@ -2059,6 +2059,14 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
     def test_all_damage_text_scope_requires_player_positive_unrestricted_damage(self):
         accepted = (
+            'While wielding two-handed weapons your damage is increased by 6%.',
+            'While wielding one-handed weapons your damage is increased by 6%.',
+            'While dual wielding your damage is increased by 6%.',
+            'While dual-wielding your damage is increased by 6%.',
+            'While you are wielding two-handed weapons your damage is increased by 6%.',
+            '装备双手武器时，你的伤害提高6%。',
+            '装备单手武器时，你的伤害提高6%。',
+            '装备双持武器时，你的伤害提高6%。',
             'Increases all damage you deal by 20%.',
             'Successfully interrupting an enemy increases the damage you deal to them by 5% for 10 sec.',
             'Your damage is increased by 10%.',
@@ -2085,14 +2093,6 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             "Increases damage dealt by Hand of Gul'dan to its main target by 10%.",
             'Spending extra Energy on Ferocious Bite increases damage dealt by up to 25%.',
             '你对目标施放的锁喉、割裂和致命药膏造成的伤害提高20%。',
-            'While wielding two-handed weapons your damage is increased by 6%.',
-            'While wielding one-handed weapons your damage is increased by 6%.',
-            'While dual wielding your damage is increased by 6%.',
-            'While dual-wielding your damage is increased by 6%.',
-            'While you are wielding two-handed weapons your damage is increased by 6%.',
-            '装备双手武器时，你的伤害提高6%。',
-            '装备单手武器时，你的伤害提高6%。',
-            '装备双持武器时，你的伤害提高6%。',
         )
         for description in accepted:
             with self.subTest(description=description):
@@ -3044,8 +3044,8 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             avatar_scenario['values']['direct']['runtime_layers']['da_multiplier'] = 1.272
         variants = [{
             'talent': {
-                'id': 9, 'name': 'Weapon Specialization', 'name_zh': '武器专精',
-                'description': 'While wielding this weapon your damage is increased.',
+                'id': 9, 'name': 'Focused Strikes', 'name_zh': '局部技能强化',
+                'description': 'While wielding this weapon, Mortal Strike and Slam damage is increased.',
             },
             'reference_high': copy.deepcopy(weapon_reference),
             'high': copy.deepcopy(weapon_selected),
@@ -4349,7 +4349,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'spec': 'fury',
                 'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
-                'global_damage_policy': 'exclude_before_probe', 'global_damage_states': [],
+                'global_damage_policy': 'exclude_before_probe', 'global_damage_states': [], 'global_scope_candidates': [],
                 'actions': [{
                 'token': 'test_action',
                 'spell_id': 1,
@@ -4580,7 +4580,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'class': 'warrior', 'spec': 'fury',
                 'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
-                'global_damage_policy': 'exclude_before_probe', 'global_damage_states': [],
+                'global_damage_policy': 'exclude_before_probe', 'global_damage_states': [], 'global_scope_candidates': [],
                 'actions': [action('leaf', 1)],
             }],
         }
@@ -4689,7 +4689,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'spec': 'fury',
                 'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
-                'global_damage_policy': 'exclude_before_probe', 'global_damage_states': [],
+                'global_damage_policy': 'exclude_before_probe', 'global_damage_states': [], 'global_scope_candidates': [],
                 'actions': [{
                 'token': 'test_action',
                 'spell_id': 1,
@@ -4761,7 +4761,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 'class': 'warrior', 'spec': 'fury',
                 'talent_effectiveness': 'unknown',
                 'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
-                'global_damage_policy': 'exclude_before_probe', 'global_damage_states': [],
+                'global_damage_policy': 'exclude_before_probe', 'global_damage_states': [], 'global_scope_candidates': [],
                 'actions': [{
                     'token': 'test_action', 'spell_id': 1, 'supported': None,
                     'reporting_root_token': 'test_action', 'reporting_root_spell_id': 1,
