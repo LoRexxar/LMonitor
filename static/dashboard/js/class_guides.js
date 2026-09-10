@@ -77,6 +77,7 @@
     if(sequence!==previewSequence)return;
     $('document-preview').innerHTML=data.html;
     window.initializeGuideReader($('document-preview'));
+    window.$WowheadPower?.refreshLinks?.(true);
     $('document-outline').innerHTML=data.toc.map(row=>`<button type="button" class="outline-link" data-line="${row.line}" data-anchor="${row.id}" style="padding-left:${Math.max(0,row.level-2)*10+6}px">${escape(plain(row.title))}</button>`).join('')||'<p class="hint">添加标题后，这里会自动出现目录。</p>';
   }
   async function loadGuide(){

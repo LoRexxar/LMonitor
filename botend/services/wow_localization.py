@@ -272,8 +272,14 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
         reference_ids = {kind: {int(identity) for typ, identity in refs if typ == kind} for kind in ('spell', 'talent', 'item')}
     reference_ids = reference_ids or {}
     talent_reference_ids = {int(value) for value in reference_ids.get('talent', set())}
+    spell_reference_ids = {int(value) for value in reference_ids.get('spell', set())}
     if class_name:
         context = Q(localization_only=True) | Q(class_name__iexact=class_name, spec_name__iexact=spec_name)
+        if spell_reference_ids:
+            # 技能引用也可以命中其他职业/专精天赋节点所承载的 spell；显式 ID 不受攻略上下文限制。
+            context |= Q(name_kind='talent') & (
+                Q(spell_id__in=spell_reference_ids) | Q(display_spell_id__in=spell_reference_ids)
+            )
         if talent_reference_ids:
             # 攻略正文可以明确引用其他专精/职业的天赋；显式 ID 必须按身份解析，不能被当前攻略专精过滤掉。
             direct_rows = query.filter(name_kind='talent').filter(

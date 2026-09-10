@@ -43,6 +43,38 @@ class SharedNameTests(TestCase):
         node.name_zh = '统一更正'; node.save(update_fields=['name_zh'])
         self.assertEqual(resolve_references(blocks, '12.1', 'mage', 'arcane')['[[talent:900]]']['name'], '统一更正')
 
+    def test_explicit_talent_id_resolves_without_class_or_specialization_scope(self):
+        WowTalentNodeMetadata.objects.create(
+            talent_version=self.version, class_name='Warrior', spec_name='Arms',
+            node_id=112123, talent_id=99852, spell_id=7384, display_spell_id=7384,
+            name='Overpower', name_zh='压制', icon='ability_meleedamage',
+        )
+        blocks = [{'id': 'p', 'type': 'html', 'html': '<p>[[talent:112123]]</p>'}]
+
+        reference = resolve_references(blocks, '12.1', 'mage', 'arcane')['[[talent:112123]]']
+
+        self.assertTrue(reference['resolved'])
+        self.assertEqual(reference['name'], '压制')
+        self.assertEqual(reference['tooltip_id'], 7384)
+
+    def test_explicit_spell_id_resolves_from_native_talent_without_class_or_specialization_scope(self):
+        WowTalentNodeMetadata.objects.create(
+            talent_version=self.version, class_name='Warrior', spec_name='Arms',
+            node_id=112123, talent_id=99852, spell_id=7384, display_spell_id=1311653,
+            name='Overpower', name_zh='压制', icon='ability_meleedamage',
+        )
+        blocks = [{
+            'id': 'p', 'type': 'html',
+            'html': '<p>[[spell:7384]] [[spell:1311653]]</p>',
+        }]
+
+        references = resolve_references(blocks, '12.1', 'mage', 'arcane')
+
+        for token, identity in (('[[spell:7384]]', 7384), ('[[spell:1311653]]', 1311653)):
+            self.assertTrue(references[token]['resolved'])
+            self.assertEqual(references[token]['name'], '压制')
+            self.assertEqual(references[token]['tooltip_id'], identity)
+
     def test_name_only_rows_do_not_become_tree_nodes_or_simulation_items(self):
         write_name(self.term())
         write_name(self.term('spell', 30451))

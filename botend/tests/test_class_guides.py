@@ -633,6 +633,17 @@ class GuideFlowTests(TestCase):
         self.assertTrue(check_article(saved)['unresolved_references'])
         self.assertContains(self.client.get(f'/portal/class-guides/{current.pk}/'), '中文正文')
 
+    def test_article_and_standalone_preview_load_wowhead_tooltip_runtime(self):
+        for path in (
+            f'/portal/class-guides/{self.guide.pk}/',
+            f'/dashboard/class-guides/{self.guide.pk}/preview/',
+        ):
+            response = self.client.get(path)
+            self.assertEqual(response.status_code, 200)
+            self.assertContains(response, 'https://wow.zamimg.com/widgets/power.js')
+            self.assertContains(response, 'renameLinks: false')
+            self.assertContains(response, 'iconizeLinks: false')
+
     def test_translation_is_cached_and_preserves_reference(self):
         blocks = [{'id':'x','type':'html','html':'<p>Cast [[spell:30451]].</p>'}]
         service = Mock(); service.available.return_value = True
@@ -676,6 +687,56 @@ class GuideFlowTests(TestCase):
 
 
 class GuideContentTests(SimpleTestCase):
+    def test_references_render_exact_wowhead_tooltip_links_for_all_supported_kinds(self):
+        references = {
+            '[[talent:900]]': {'kind': 'talent', 'id': 900, 'name': '天赋名称', 'resolved': True,
+                               'icon': 'https://example.com/talent.jpg', 'tooltip_kind': 'spell', 'tooltip_id': 30451},
+            '[[spell:133]]': {'kind': 'spell', 'id': 133, 'name': '火球术', 'resolved': True,
+                              'icon': '', 'tooltip_kind': 'spell', 'tooltip_id': 133},
+            '[[item:19019]]': {'kind': 'item', 'id': 19019, 'name': '雷霆之怒', 'resolved': True,
+                                'icon': '', 'tooltip_kind': 'item', 'tooltip_id': 19019},
+        }
+
+        rendered = render_references(
+            '<p>[[talent:900]] [[spell:133]] [[item:19019]]</p>', references,
+        )
+        document = BeautifulSoup(rendered, 'html.parser')
+        links = document.select('a.guide-ref[data-wowhead]')
+
+        self.assertEqual(len(links), 3)
+        self.assertEqual(
+            [(link['data-reference-kind'], link['data-reference-id'], link['href']) for link in links],
+            [
+                ('talent', '900', 'https://www.wowhead.com/cn/spell=30451'),
+                ('spell', '133', 'https://www.wowhead.com/cn/spell=133'),
+                ('item', '19019', 'https://www.wowhead.com/cn/item=19019'),
+            ],
+        )
+        self.assertTrue(all(link['target'] == '_blank' for link in links))
+        self.assertTrue(all('noopener' in link['rel'] for link in links))
+
+    def test_talent_tooltip_uses_native_display_spell_without_specialization_scope_in_identity(self):
+        record = {
+            'kind': 'talent', 'object_id': 900, 'aliases': [901], 'node_id': 800,
+            'spell_id': 30450, 'display_spell_id': 30451, 'name_zh': '奥术天赋',
+            'name_en': 'Arcane Talent', 'name': 'Arcane Talent', 'locale': '',
+            'icon': '', 'evidence': '测试元数据',
+        }
+        with patch('botend.services.class_guide_content.names_for', return_value=[record]) as names:
+            refs = resolve_references(
+                [{'id': 'p', 'type': 'html', 'html': '<p>[[talent:901]]</p>'}],
+                '12.1', 'warrior', 'fury',
+            )
+
+        self.assertEqual(refs['[[talent:901]]']['tooltip_kind'], 'spell')
+        self.assertEqual(refs['[[talent:901]]']['tooltip_id'], 30451)
+        self.assertEqual(names.call_args.kwargs['reference_ids']['talent'], {901})
+
+    def test_dynamic_dashboard_preview_forces_wowhead_to_scan_new_links(self):
+        from django.contrib.staticfiles import finders
+        script = Path(finders.find('dashboard/js/class_guides.js')).read_text(encoding='utf-8')
+        self.assertIn('window.$WowheadPower?.refreshLinks?.(true)', script)
+
     def test_inline_styles_cannot_split_a_word_for_translation(self):
         value = '<p>your <strong><mark>Vengea</mark><mark>nce Demon Hunter</mark></strong> and you<mark>r </mark>role.</p>'
         self.assertEqual(clean_html(value), '<p>your <strong>Vengeance Demon Hunter</strong> and your role.</p>')
