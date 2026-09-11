@@ -4,7 +4,7 @@ import re
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db import connections, transaction
-from django.db.models import Q
+from django.db.models import Case, IntegerField, Q, Value, When
 
 FIELDS = ('game_version', 'kind', 'object_id', 'name_en', 'name_zh', 'icon', 'evidence')
 EDIT_STATE_FIELDS = ('name_en', 'name_zh', 'icon', 'evidence')
@@ -33,6 +33,20 @@ def version_for(value, registry=apps, using='default', create=False):
 def version_label(version, fallback):
     label = (version.major_version if version else '') or fallback
     return label[:-2] if re.fullmatch(r'\d+\.\d+\.0', label) else label
+
+
+def current_reference_version(registry=apps, using='default'):
+    """Return the current retail source; guide versions never select a data bucket."""
+    model = registry.get_model('botend', 'WowTalentVersion')
+    query = model._base_manager.using(using)
+    retail = query.filter(branch='retail', is_active=True).order_by(
+        '-is_default_player_tree', '-id',
+    ).first()
+    if retail:
+        return retail
+    return query.filter(is_active=True).order_by(
+        '-is_default_player_tree', '-id',
+    ).first()
 
 
 def validate_name(data):
@@ -73,31 +87,6 @@ def _reference_identity(value):
     return identity
 
 
-def _version_matches_label(version, label):
-    if not isinstance(label, str) or not label:
-        return False
-    normalized = label[:-2] if re.fullmatch(r'\d+\.\d+\.0', label) else label
-    major = (version.major_version or '').removesuffix('.0')
-    return version.key == label or version.key.endswith('-' + label) or major == normalized
-
-
-def _preferred_version(labels, concrete_versions, *, registry, using):
-    """选择具体版本对象；不接受请求提示，也不把已知分支压缩后再反查。"""
-    version_model = registry.get_model('botend', 'WowTalentVersion')
-    all_versions = list(version_model._base_manager.using(using).all())
-    candidates = {version.pk: version for version in concrete_versions if version}
-    for label in dict.fromkeys(labels):
-        for version in all_versions:
-            if _version_matches_label(version, label):
-                candidates.setdefault(version.pk, version)
-    pool = list(candidates.values()) or all_versions
-    if not pool:
-        raise ValidationError('没有可用于名称资料的游戏版本')
-    return max(pool, key=lambda value: (
-        bool(value.is_default_player_tree), bool(value.is_active), value.pk,
-    ))
-
-
 def _spell_snapshot_branches(version):
     return ['wowxptr', 'wowt'] if version.branch == 'ptr' else ['wow']
 
@@ -107,8 +96,7 @@ def _inferred_reference(identity, *, registry, using):
     metadata_model = registry.get_model('botend', 'WowTalentNodeMetadata')
     metadata = metadata_model._base_manager.using(using).select_related('talent_version')
     existing = list(metadata.filter(localization_only=True, reference_id=identity))
-    talent_rows = list(metadata.filter(localization_only=False).filter(
-        Q(talent_id=identity) | Q(node_id=identity)))
+    talent_rows = list(metadata.filter(localization_only=False, node_id=identity))
     if not talent_rows:
         aliases = metadata.filter(localization_only=False)
         if connections[using].features.supports_json_field_contains:
@@ -118,22 +106,12 @@ def _inferred_reference(identity, *, registry, using):
     spell_rows = list(metadata.filter(localization_only=False).filter(
         Q(spell_id=identity) | Q(display_spell_id=identity)))
     raw_spell_snapshots = list(
-        registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(spell_id=identity))
-    version_model = registry.get_model('botend', 'WowTalentVersion')
-    snapshot_versions = []
-    valid_spell_snapshots = []
-    for version in version_model._base_manager.using(using).exclude(current_build=''):
-        matches = [snapshot for snapshot in raw_spell_snapshots
-                   if snapshot.locale == 'enUS'
-                   and snapshot.snapshot_build == version.current_build
-                   and snapshot.branch in _spell_snapshot_branches(version)]
-        if matches:
-            snapshot_versions.append(version)
-            valid_spell_snapshots.extend(matches)
+        registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(
+            spell_id=identity, locale='enUS'))
     kinds = {obj.name_kind for obj in existing}
     if talent_rows:
         kinds.add('talent')
-    if spell_rows or valid_spell_snapshots:
+    if spell_rows or raw_spell_snapshots:
         kinds.add('spell')
     if registry.get_model('botend', 'WowItemSnapshot')._base_manager.using(using).filter(
             item_id=identity).exists():
@@ -142,12 +120,7 @@ def _inferred_reference(identity, *, registry, using):
         if not kinds:
             raise ValidationError('该编号未出现在攻略或权威快照中，无法自动识别类型')
         raise ValidationError('该编号匹配多个对象类型，无法安全自动识别')
-    versions = [
-        obj.talent_version for obj in [*existing, *talent_rows, *spell_rows]
-        if obj.talent_version
-    ]
-    versions.extend(snapshot_versions)
-    return kinds.pop(), versions
+    return kinds.pop()
 
 
 def _generated_reference_metadata(kind, identity, version, guide_label, *, registry, using):
@@ -158,7 +131,7 @@ def _generated_reference_metadata(kind, identity, version, guide_label, *, regis
     if version:
         native = native.filter(talent_version=version)
     if kind == 'talent':
-        native = list(native.filter(Q(talent_id=identity) | Q(node_id=identity)))
+        native = list(native.filter(node_id=identity))
         if not native:
             aliases = metadata_model._base_manager.using(using).filter(
                 localization_only=False, talent_version=version)
@@ -179,14 +152,16 @@ def _generated_reference_metadata(kind, identity, version, guide_label, *, regis
         name_en, icon = native_source.name, native_source.icon
         sources.append('WowTalentNodeMetadata')
 
-    if kind == 'spell' and version.current_build:
-        branches = _spell_snapshot_branches(version)
-        source = registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(
+    if kind == 'spell':
+        preferred_branches = _spell_snapshot_branches(version)
+        snapshots = list(registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(
             spell_id=identity,
-            branch__in=branches,
             locale='enUS',
-            snapshot_build=version.current_build,
-        ).order_by('branch').first()
+        ))
+        source = min(snapshots, key=lambda row: (
+            preferred_branches.index(row.branch) if row.branch in preferred_branches else len(preferred_branches),
+            row.branch,
+        ), default=None)
         if source and (source.name or source.icon):
             name_en = source.name or name_en
             icon = source.icon or icon
@@ -224,16 +199,13 @@ def normalize_guide_reference(data, *, registry=apps, using='default'):
         raise ValidationError('该编号在攻略中对应多种引用类型，无法安全自动识别')
     if references:
         kind = kinds.pop()
-        version_labels = [guide_version for guide_version, _, _ in references]
-        concrete_versions = []
     else:
-        kind, concrete_versions = _inferred_reference(identity, registry=registry, using=using)
-        version_labels = []
-    version = _preferred_version(
-        version_labels, concrete_versions, registry=registry, using=using)
-    guide_label = next((label for guide_version, reference_kind, label in references
-                        if _version_matches_label(version, guide_version)
-                        and reference_kind == kind and label), '')
+        kind = _inferred_reference(identity, registry=registry, using=using)
+    version = current_reference_version(registry, using)
+    if not version:
+        raise ValidationError('没有可用于名称资料的当前权威游戏版本')
+    guide_label = next((label for _, reference_kind, label in references
+                        if reference_kind == kind and label), '')
     name_en, icon, sources = _generated_reference_metadata(
         kind, identity, version, guide_label, registry=registry, using=using)
     evidence = f'系统自动识别：攻略显式引用 [[{kind}:{identity}]]' if references else (
@@ -254,54 +226,85 @@ def normalize_guide_reference(data, *, registry=apps, using='default'):
 def _record(obj, kind, version, object_id):
     return dict(id=f'{obj._meta.model_name}:{obj.pk}', game_version=version, kind=kind, object_id=object_id,
         name_en=obj.name, name_zh=obj.name_zh, icon=obj.icon, evidence=obj.localization_evidence,
+        description=getattr(obj, 'description', '') or '',
+        description_zh=getattr(obj, 'description_zh', '') or '',
         model=obj._meta.object_name, pk=obj.pk, supplemental=obj.localization_only,
         aliases=obj.reference_aliases, class_name=obj.class_name, spec_name=obj.spec_name,
-        spell_id=obj.spell_id, display_spell_id=obj.display_spell_id, node_id=obj.node_id)
+        reference_id=obj.reference_id, talent_id=obj.talent_id, node_id=obj.node_id,
+        spell_id=obj.spell_id, display_spell_id=obj.display_spell_id,
+        tree_type=obj.tree_type)
 
 
 def names_for(game_version, class_name='', spec_name='', registry=apps, using='default', *, reference_ids=None, source_text=None):
     """所有类型同表读取；名称资料与真实节点按标志区分。"""
-    version = version_for(game_version, registry, using)
+    if reference_ids is None and source_text is not None:
+        refs = re.findall(r'\[\[(spell|talent|item):(\d+)', source_text)
+        if refs:
+            reference_ids = {
+                kind: {int(identity) for typ, identity in refs if typ == kind}
+                for kind in ('spell', 'talent', 'item')
+            }
+    has_reference_filter = reference_ids is not None
+    version = (current_reference_version(registry, using)
+               if has_reference_filter else version_for(game_version, registry, using))
     if not version:
         return []
     game_version = version_label(version, game_version)
-    query = registry.get_model('botend', 'WowTalentNodeMetadata')._base_manager.using(using).filter(talent_version=version).exclude(name_zh='')
-    has_reference_filter = reference_ids is not None
-    if reference_ids is None and source_text is not None:
-        refs = re.findall(r'\[\[(spell|talent|item):(\d+)', source_text)
-        reference_ids = {kind: {int(identity) for typ, identity in refs if typ == kind} for kind in ('spell', 'talent', 'item')}
+    query = registry.get_model('botend', 'WowTalentNodeMetadata')._base_manager.using(using)
+    if has_reference_filter:
+        # 显式身份跨 active branch 查询；攻略 game_version 不选择数据桶。
+        # 同号原生事实由 retail 优先，PTR-only ID 仍可全局命中。
+        query = query.filter(
+            Q(localization_only=True) | Q(talent_version__is_active=True)
+        ).annotate(
+            _reference_branch_order=Case(
+                When(talent_version__branch='retail', then=Value(0)),
+                When(talent_version__branch='ptr', then=Value(1)),
+                default=Value(2), output_field=IntegerField(),
+            ),
+            _reference_version_order=Case(
+                When(talent_version__key__in=['retail', 'ptr'], then=Value(0)),
+                default=Value(1), output_field=IntegerField(),
+            ),
+        )
+    else:
+        query = query.filter(talent_version=version)
+    query = query.exclude(name_zh='')
     reference_ids = reference_ids or {}
     talent_reference_ids = {int(value) for value in reference_ids.get('talent', set())}
     spell_reference_ids = {int(value) for value in reference_ids.get('spell', set())}
+    talent_alias_pks = []
+    if talent_reference_ids:
+        direct_rows = query.filter(name_kind='talent').filter(
+            Q(node_id__in=talent_reference_ids) | Q(reference_id__in=talent_reference_ids)
+        ).values_list('node_id', 'reference_id')
+        direct_ids = {int(value) for row in direct_rows for value in row if value}
+        unmatched_ids = talent_reference_ids - direct_ids
+        if unmatched_ids:
+            if connections[using].features.supports_json_field_contains:
+                alias_selection = Q()
+                for value in unmatched_ids:
+                    alias_selection |= Q(reference_aliases__contains=[value])
+                talent_alias_pks = query.filter(name_kind='talent').filter(alias_selection).values('pk')
+            else:
+                # SQLite 测试后端不支持 JSON contains；仅测试/开发环境做 Python 匹配。
+                talent_alias_pks = [
+                    pk for pk, aliases in query.filter(name_kind='talent').values_list('pk', 'reference_aliases')
+                    if unmatched_ids.intersection(int(value) for value in (aliases or []))
+                ]
     if class_name:
         context = Q(localization_only=True) | Q(class_name__iexact=class_name, spec_name__iexact=spec_name)
         if spell_reference_ids:
-            # 技能引用也可以命中其他职业/专精天赋节点所承载的 spell；显式 ID 不受攻略上下文限制。
+            # 显式技能 ID 可以命中其他职业/专精天赋节点所承载的 Spell ID。
             context |= Q(name_kind='talent') & (
                 Q(spell_id__in=spell_reference_ids) | Q(display_spell_id__in=spell_reference_ids)
             )
         if talent_reference_ids:
-            # 攻略正文可以明确引用其他专精/职业的天赋；显式 ID 必须按身份解析，不能被当前攻略专精过滤掉。
-            direct_rows = query.filter(name_kind='talent').filter(
-                Q(talent_id__in=talent_reference_ids) | Q(node_id__in=talent_reference_ids)
-            ).values_list('talent_id', 'node_id')
-            direct_ids = {int(value) for pair in direct_rows for value in pair if value}
-            unmatched_ids = talent_reference_ids - direct_ids
-            alias_pks = []
-            if unmatched_ids:
-                if connections[using].features.supports_json_field_contains:
-                    alias_selection = Q()
-                    for value in unmatched_ids:
-                        alias_selection |= Q(reference_aliases__contains=[value])
-                    alias_pks = query.filter(name_kind='talent').filter(alias_selection).values('pk')
-                else:
-                    # SQLite 测试后端不支持 JSON contains；仅测试/开发环境做 Python 匹配。
-                    alias_pks = [
-                        pk for pk, aliases in query.filter(name_kind='talent').values_list('pk', 'reference_aliases')
-                        if unmatched_ids.intersection(int(value) for value in (aliases or []))
-                    ]
+            # 攻略 talent:ID 是来源 TraitNodeEntry.ID（站内 node_id），不受攻略
+            # 职业/专精上下文限制。TraitNode.ID（talent_id）是另一 ID 空间。
             context |= Q(name_kind='talent') & (
-                Q(talent_id__in=talent_reference_ids) | Q(node_id__in=talent_reference_ids) | Q(pk__in=alias_pks)
+                Q(node_id__in=talent_reference_ids) | Q(reference_id__in=talent_reference_ids) |
+                Q(pk__in=talent_alias_pks)
             )
         query = query.filter(context)
     if source_text is not None:
@@ -312,14 +315,31 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
             selection |= Q(name_kind=kind, reference_id__in=reference_ids.get(kind, set()))
         query = query.filter(selection)
     elif has_reference_filter:
-        selection = Q(name_kind='talent')
-        for kind in ('spell', 'item'):
-            selection |= Q(name_kind=kind, reference_id__in=reference_ids.get(kind, set()))
+        # 显式引用只加载与 (kind, ID) 对应的行；不把当前专精的全部天赋扩进候选集。
+        selection = Q(pk__in=[])
+        if talent_reference_ids:
+            selection |= Q(name_kind='talent') & (
+                Q(node_id__in=talent_reference_ids) | Q(reference_id__in=talent_reference_ids) |
+                Q(pk__in=talent_alias_pks)
+            )
+        if spell_reference_ids:
+            selection |= Q(name_kind='spell', reference_id__in=spell_reference_ids)
+            selection |= Q(name_kind='talent') & (
+                Q(spell_id__in=spell_reference_ids) | Q(display_spell_id__in=spell_reference_ids)
+            )
+        item_reference_ids = {int(value) for value in reference_ids.get('item', set())}
+        if item_reference_ids:
+            selection |= Q(name_kind='item', reference_id__in=item_reference_ids)
         query = query.filter(selection)
     records = []
+    order_fields = ['localization_only']
+    if has_reference_filter:
+        order_fields.extend(['_reference_branch_order', '_reference_version_order'])
+    order_fields.append('id')
     for obj in query.only('id','name','name_zh','icon','localization_evidence','localization_only','name_kind',
-            'reference_id','reference_aliases','talent_id','node_id','spell_id','display_spell_id','class_name','spec_name').order_by('localization_only', 'id'):
-        identity = obj.reference_id if obj.localization_only else obj.talent_id or obj.node_id or obj.spell_id
+            'reference_id','reference_aliases','talent_id','node_id','spell_id','display_spell_id','tree_type','class_name','spec_name',
+            'description','description_zh').order_by(*order_fields):
+        identity = obj.reference_id if obj.localization_only else obj.node_id or obj.talent_id or obj.spell_id
         if identity:
             records.append(_record(obj, obj.name_kind, game_version, identity))
     return records
@@ -339,10 +359,16 @@ def effective_names(game_version, **kwargs):
 def _source_values(row, version, registry, using):
     """迁移/初始化时利用已存在的原始快照，只补齐名称，不建立第二个维护入口。"""
     if row['kind'] == 'spell':
-        query = registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(
-            spell_id=row['object_id'], branch__in=['wowxptr', 'wowt'] if version.branch == 'ptr' else ['wow']).filter(
-                Q(snapshot_build=row['game_version']) | Q(snapshot_build__startswith=row['game_version'] + '.'))
-        source = next((r for r in query.exclude(name_zh='').order_by('locale') if re.search(r'[\u3400-\u9fff]', r.name_zh)), None)
+        preferred_branches = _spell_snapshot_branches(version)
+        snapshots = registry.get_model('botend', 'WowSpellSnapshot')._base_manager.using(using).filter(
+            spell_id=row['object_id']).exclude(name_zh='')
+        candidates = [snapshot for snapshot in snapshots
+                      if re.search(r'[\u3400-\u9fff]', snapshot.name_zh)]
+        source = max(candidates, key=lambda snapshot: (
+            snapshot.branch in preferred_branches,
+            snapshot.locale == 'zhCN',
+            snapshot.snapshot_build,
+        ), default=None)
     elif row['kind'] == 'item':
         source = registry.get_model('botend', 'WowItemSnapshot')._base_manager.using(using).filter(item_id=row['object_id']).exclude(name_zh='').first()
     else:
@@ -378,11 +404,16 @@ def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, us
             if preliminary is None:
                 raise NameEditConflict('名称记录已变化，请刷新后重试')
             if preliminary.localization_only:
-                candidates = query.filter(pk=target_pk)
+                candidates = model._base_manager.using(using).filter(
+                    localization_only=True,
+                    name_kind=kind,
+                    reference_id=preliminary.reference_id,
+                )
             elif preliminary.talent_id:
                 candidates = query.filter(localization_only=False, talent_id=preliminary.talent_id)
             elif preliminary.node_id:
-                candidates = query.filter(localization_only=False, talent_id__isnull=True, node_id=preliminary.node_id)
+                candidates = query.filter(localization_only=False, talent_id__isnull=True,
+                                          node_id=preliminary.node_id)
             else:
                 candidates = query.filter(localization_only=False, talent_id__isnull=True,
                                           node_id__isnull=True, spell_id=preliminary.spell_id)
@@ -412,7 +443,7 @@ def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, us
             return _record(targets[0], kind, row['game_version'], identity), False
         native = []
         if kind == 'talent':
-            native = list(query.filter(localization_only=False).filter(Q(talent_id=identity) | Q(node_id=identity)))
+            native = list(query.filter(localization_only=False, node_id=identity))
             if not native:
                 native = [obj for obj in query.filter(localization_only=False) if identity in obj.reference_aliases]
             if not native and row['name_en']:
@@ -421,7 +452,10 @@ def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, us
                     or len({obj.icon for obj in native if obj.icon}) > 1
                     or len({obj.name_zh for obj in native if obj.name_zh}) > 1):
                 native = []
-        targets = native or list(query.filter(localization_only=True, reference_id=identity))
+        supplemental = model._base_manager.using(using).filter(
+            localization_only=True, name_kind=kind, reference_id=identity,
+        )
+        targets = native or list(supplemental)
         if not targets:
             values = row if overwrite else _source_values(row, version, registry, using)
             obj = model._base_manager.using(using).create(talent_version=version, name_kind=kind,

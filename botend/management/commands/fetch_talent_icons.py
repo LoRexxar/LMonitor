@@ -57,7 +57,7 @@ class Command(BaseCommand):
         parser.add_argument('--fallback-dump-dir', default='',
                             help='图标兜底 DB2 dump 目录，例如 PTR 可用 latest 的 SpellMisc/cache 兜底')
         parser.add_argument('--version-key', default='',
-                            help='只处理指定天赋版本，例如 ptr-12.1.0')
+                            help='只处理指定天赋分支槽位，例如 ptr 或 retail')
         parser.add_argument('--limit', type=int, default=0, help='最多处理多少个节点，0=不限制')
         parser.add_argument('--delay', type=float, default=0.0, help='每个请求完成后的延迟(秒)')
         parser.add_argument('--workers', type=int, default=12, help='并发查询 wago.tools 的线程数')

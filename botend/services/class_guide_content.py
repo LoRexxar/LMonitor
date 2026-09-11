@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 from bs4 import BeautifulSoup, NavigableString
 
 from botend.services.wow_localization import names_for, version_for
-from botend.constants.wow import canonical_class_spec
+from botend.templatetags.wow_tags import wow_icon_oss_url
 
 
 REF_RE = re.compile(r'\[\[(spell|item|talent):(\d+)(?:@([A-Za-z0-9_-]+))?\]\]')
@@ -137,6 +137,87 @@ def validate_blocks(blocks):
     return visit(blocks)
 
 
+def _tooltip_text(*values):
+    """合并站内事实字段，保留原文换行，去重并忽略明确的占位内容。"""
+    lines = []
+    seen = set()
+    placeholders = {'placeholder', '[placeholder]'}
+    for value in values:
+        for line in str(value or '').replace('\r\n', '\n').split('\n'):
+            line = line.strip()
+            key = line.casefold()
+            if line and key not in placeholders and key not in seen:
+                seen.add(key)
+                lines.append(line)
+    return '\n'.join(lines)
+
+
+def _reference_fallback_tooltip(ref, row=None):
+    """为没有效果正文的显式引用提供诚实、可交互的站内说明。"""
+    identity = int(ref['id'])
+    kind = ref['kind']
+    if kind == 'talent' and getattr(row, 'tree_type', '') == 'hero_anchor':
+        return '英雄天赋专精\n该条目用于标识英雄天赋专精分支，不是可施放技能。\n引用 ID：{}'.format(identity)
+    if kind == 'talent':
+        return '天赋\n当前版本暂无可用的效果正文。\n引用 ID：{}'.format(identity)
+    if kind == 'spell':
+        return '技能\n当前版本暂无可用的效果正文。\n技能 ID：{}'.format(identity)
+    return '物品\n当前版本暂无可用的物品说明。\n物品 ID：{}'.format(identity)
+
+
+def _spell_snapshot_metadata(game_version, spell_ids):
+    """按当前权威分支和精确 Spell ID 批量读取站内当前技能快照。"""
+    spell_ids = {int(value) for value in spell_ids or () if value}
+    if not spell_ids:
+        return {}
+    from botend.services.wow_localization import current_reference_version
+    version = current_reference_version()
+    if not version:
+        return {}
+    from botend.models import WowSpellSnapshot
+
+    branch_order = ['wowxptr', 'wowt'] if version.branch == 'ptr' else ['wow']
+
+    def branch_rank(branch):
+        try:
+            return len(branch_order) - branch_order.index(branch)
+        except ValueError:
+            return 0
+
+    def build_rank(build):
+        return tuple(int(value) for value in re.findall(r'\d+', str(build or '')))
+
+    rows = WowSpellSnapshot.objects.filter(spell_id__in=spell_ids)
+    candidates = {}
+    for row in rows:
+        identity = int(row.spell_id)
+        entry = candidates.setdefault(identity, {
+            'tooltip': '', 'tooltip_rank': None, 'icon': '', 'icon_rank': None,
+        })
+        body = _tooltip_text(row.description, row.aura_description)
+        body_rank = (
+            branch_rank(row.branch),
+            bool(re.search(r'[\u3400-\u9fff]', body)),
+            row.locale == 'zhCN',
+            bool(body),
+            build_rank(row.snapshot_build),
+        )
+        if entry['tooltip_rank'] is None or body_rank > entry['tooltip_rank']:
+            entry['tooltip'] = body
+            entry['tooltip_rank'] = body_rank
+        icon = str(row.icon or '').strip()
+        icon_rank = (
+            branch_rank(row.branch), bool(icon), row.locale == 'zhCN', build_rank(row.snapshot_build),
+        )
+        if entry['icon_rank'] is None or icon_rank > entry['icon_rank']:
+            entry['icon'] = icon
+            entry['icon_rank'] = icon_rank
+    return {
+        spell_id: {'tooltip': entry['tooltip'], 'icon': entry['icon']}
+        for spell_id, entry in candidates.items()
+    }
+
+
 def resolve_references(blocks, game_version, class_name='', spec_name='', source_refs=None):
     """批量解析引用；不会把缺失的官方中文自动猜译成已校验词条。"""
     content = BeautifulSoup('\n'.join(b.get('title', '') + b.get('html', '') for b in walk_blocks(blocks)), 'html.parser')
@@ -146,14 +227,26 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             for m in REF_RE.finditer(content.get_text())}
     if not refs:
         return {}
-    class_name, spec_name = canonical_class_spec(class_name, spec_name) or (class_name, spec_name)
-    records = names_for(game_version, class_name, spec_name, reference_ids={kind: {r['id'] for r in refs.values() if r['kind'] == kind} for kind in ('spell', 'item', 'talent')})
+    # 显式引用由 (kind, ID) 唯一标识，不受攻略职业/专精上下文影响。
+    records = names_for(game_version, reference_ids={kind: {r['id'] for r in refs.values() if r['kind'] == kind} for kind in ('spell', 'item', 'talent')})
     source_refs = source_refs or {}
+    selected_rows = {}
+    spell_ids = set()
+    item_ids = set()
     for token, ref in refs.items():
         source_name = (source_refs.get(token) or {}).get('source_name', '')
-        candidates = [r for r in records if r['kind'] == ref['kind'] and
-            (r['object_id'] == ref['id'] or ref['id'] in r['aliases'] or
-             (ref['kind'] == 'talent' and r.get('node_id') == ref['id']))]
+        if ref['kind'] == 'talent':
+            talent_records = [r for r in records if r['kind'] == 'talent']
+            # 攻略 talent:ID 是来源 TraitNodeEntry.ID。显式核验映射优先，
+            # 其次按当前版本 Entry ID 匹配；alias 仅兼容已核验的历史来源编号。
+            candidate_tiers = (
+                [r for r in talent_records if r.get('reference_id') == ref['id']],
+                [r for r in talent_records if r.get('node_id') == ref['id']],
+                [r for r in talent_records if ref['id'] in r['aliases']],
+            )
+            candidates = next((tier for tier in candidate_tiers if tier), [])
+        else:
+            candidates = [r for r in records if r['kind'] == ref['kind'] and r['object_id'] == ref['id']]
         if not candidates and ref['kind'] == 'talent' and source_name:
             candidates = [r for r in records if r['kind'] == 'talent' and r['name_en'].casefold() == source_name.casefold()]
             if len({r['name_zh'] for r in candidates}) > 1:
@@ -165,23 +258,63 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
         selected = next(iter(matched or candidates), None)
         from types import SimpleNamespace
         row = SimpleNamespace(**selected) if selected else None
+        selected_rows[token] = row
         evidence = row.evidence if row else ''
         name = (getattr(row, 'name_zh', '') or (getattr(row, 'name', '') if getattr(row, 'locale', '') == 'zhCN' else '')) if row else ''
         if not re.search(r'[\u3400-\u9fff]', name):
             name = ''
         icon = getattr(row, 'icon', '') if row else ''
-        if icon and re.fullmatch(r'[A-Za-z0-9_-]+', icon):
-            icon = 'https://wow.zamimg.com/images/wow/icons/large/' + icon.lower() + '.jpg'
-        tooltip_kind = ref['kind']
-        tooltip_id = ref['id']
-        if ref['kind'] == 'talent':
-            tooltip_kind = 'spell'
-            tooltip_id = (getattr(row, 'display_spell_id', None) or getattr(row, 'spell_id', None)) if row else None
+        icon = wow_icon_oss_url(icon, size='small') if icon else ''
         ref.update(name=name or '待校订的{} {}'.format({'spell': '技能', 'item': '物品', 'talent': '天赋'}[ref['kind']], ref['id']),
                    resolved=bool(name), icon=safe_url(icon, image=True), evidence=evidence or ('站内元数据' if name else ''),
                    name_en=(getattr(row, 'name_en', '') or getattr(row, 'name', '')) if row else '',
                    source_name=(source_refs.get(token) or {}).get('source_name', ''),
-                   tooltip_kind=tooltip_kind, tooltip_id=tooltip_id)
+                   tooltip_title=name or '')
+        if ref['kind'] == 'spell':
+            spell_ids.add(ref['id'])
+        elif ref['kind'] == 'item':
+            item_ids.add(ref['id'])
+        elif row and not _tooltip_text(getattr(row, 'description_zh', '') or getattr(row, 'description', '')):
+            linked_spell_id = getattr(row, 'display_spell_id', None)
+            if linked_spell_id:
+                spell_ids.add(linked_spell_id)
+
+    spell_metadata = _spell_snapshot_metadata(game_version, spell_ids)
+    if item_ids:
+        from botend.services.wow_item_display import load_item_display_metadata
+        item_tooltips = load_item_display_metadata(item_ids)
+    else:
+        item_tooltips = {}
+    for token, ref in refs.items():
+        row = selected_rows[token]
+        tooltip = ''
+        source = ''
+        fallback_icon = ''
+        if ref['kind'] == 'talent' and row:
+            tooltip = _tooltip_text(getattr(row, 'description_zh', '') or getattr(row, 'description', ''))
+            source = 'talent_metadata' if tooltip else ''
+            linked_spell_id = getattr(row, 'display_spell_id', None)
+            linked_metadata = spell_metadata.get(linked_spell_id, {})
+            fallback_icon = linked_metadata.get('icon', '')
+            if not tooltip:
+                tooltip = linked_metadata.get('tooltip', '')
+                source = 'spell_snapshot' if tooltip else ''
+        elif ref['kind'] == 'spell':
+            metadata = spell_metadata.get(ref['id'], {})
+            tooltip = metadata.get('tooltip', '')
+            fallback_icon = metadata.get('icon', '')
+            source = 'spell_snapshot' if tooltip else ''
+        elif ref['kind'] == 'item':
+            metadata = item_tooltips.get(ref['id']) or {}
+            tooltip = metadata.get('tooltip', '')
+            fallback_icon = metadata.get('icon_url', '')
+            source = 'item_snapshot' if tooltip else ''
+        if not ref.get('icon') and fallback_icon:
+            ref['icon'] = safe_url(wow_icon_oss_url(fallback_icon, size='small'), image=True)
+        if not tooltip:
+            tooltip = _reference_fallback_tooltip(ref, row)
+            source = 'local_reference_fallback'
+        ref.update(tooltip_text=tooltip, tooltip_source=source)
     return refs
 
 
@@ -209,6 +342,7 @@ def render_references(value, references):
             ref = references.get(match[0], {})
             name = html.escape(ref.get('name', '待校订引用 ' + match[2]))
             icon = ref.get('icon', '')
+            icon = wow_icon_oss_url(icon, size='small') if icon else ''
             img = '<img src="{}" alt="" loading="lazy">'.format(html.escape(icon, quote=True)) if icon else ''
             classes = 'guide-ref{}'.format(' is-unresolved' if not ref.get('resolved') else '')
             attrs = 'class="{}" data-reference-kind="{}" data-reference-id="{}" aria-label="{}"'.format(
@@ -217,12 +351,12 @@ def render_references(value, references):
                 html.escape(str(ref.get('id', '')), quote=True),
                 html.escape(ref.get('source_name') or ref.get('name', ''), quote=True),
             )
-            tooltip_kind = ref.get('tooltip_kind')
-            tooltip_id = ref.get('tooltip_id')
-            if tooltip_kind in {'spell', 'item'} and tooltip_id:
-                href = 'https://www.wowhead.com/cn/{}={}'.format(tooltip_kind, int(tooltip_id))
-                return '<a {} href="{}" data-wowhead="" target="_blank" rel="noopener noreferrer">{}{}</a>'.format(
-                    attrs, href, img, name)
+            tooltip = ref.get('tooltip_text', '')
+            if tooltip:
+                attrs += ' data-guide-tooltip="" data-tooltip-title="{}" data-tooltip-body="{}" tabindex="0" role="button"'.format(
+                    html.escape(ref.get('tooltip_title') or ref.get('name', ''), quote=True),
+                    html.escape(tooltip, quote=True),
+                )
             return '<span {}>{}{}</span>'.format(attrs, img, name)
         fragment = BeautifulSoup(REF_RE.sub(replace, html.escape(str(node))), 'html.parser')
         node.replace_with(fragment)

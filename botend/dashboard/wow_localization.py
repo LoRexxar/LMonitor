@@ -6,7 +6,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connections
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin
 from botend.models import WowTalentVersion, WowTalentNodeMetadata
-from django.db.models import BigIntegerField, BinaryField, Case, Count, F, Func, Min, Q, When
+from django.db.models import BigIntegerField, BinaryField, Case, Count, F, Func, IntegerField, Min, Q, Value, When
 from django.db.models.functions import Coalesce
 from botend.services.wow_localization import (NameEditConflict, _record, _reference_identity,
                                                normalize_guide_reference, version_for, version_label,
@@ -40,9 +40,11 @@ class WowLocalizationAPI(DashboardPermissionRequiredMixin, View):
         version = version_label(None, request.GET.get('version', ''))
         query, kind = request.GET.get('q', '').strip(), request.GET.get('kind', '')
         rows = WowTalentNodeMetadata.all_objects.exclude(name_zh='').select_related('talent_version')
+        reference_kinds = ('talent', 'spell', 'item')
+        global_references = Q(localization_only=True, name_kind__in=reference_kinds)
         if version:
             selected = version_for(version)
-            rows = rows.filter(talent_version=selected) if selected else rows.none()
+            rows = rows.filter(Q(talent_version=selected) | global_references) if selected else rows.filter(global_references)
         if kind:
             rows = rows.filter(name_kind=kind)
         condition = None
@@ -60,19 +62,23 @@ class WowLocalizationAPI(DashboardPermissionRequiredMixin, View):
             When(localization_only=True, then=F('reference_id')),
             default=Coalesce('talent_id', 'node_id', 'spell_id'),
             output_field=BigIntegerField(),
+        ), effective_version=Case(
+            When(localization_only=True, name_kind__in=reference_kinds, then=Value(None)),
+            default=F('talent_version_id'),
+            output_field=IntegerField(),
         ))
         exact_fields = ['name', 'name_zh', 'icon', 'localization_evidence']
         if connections[rows.db].vendor == 'mysql':
             rows = rows.annotate(**{'exact_' + field: _Binary(field) for field in exact_fields})
             exact_fields = ['exact_' + field for field in exact_fields]
         grouped = rows.values(
-            'talent_version_id', 'name_kind', 'localization_only', 'effective_identity', *exact_fields,
+            'effective_version', 'name_kind', 'localization_only', 'effective_identity', *exact_fields,
         ).annotate(representative_pk=Min('pk'), duplicate_count=Count('pk'))
         if condition is not None:
             grouped = grouped.annotate(matching_pk=Min('pk', filter=condition),
                                        match_count=Count('pk', filter=condition)).filter(match_count__gt=0)
         grouped = grouped.order_by(
-            'talent_version_id', 'name_kind', 'localization_only', 'effective_identity', 'representative_pk')
+            'effective_version', 'name_kind', 'localization_only', 'effective_identity', 'representative_pk')
         total = grouped.count()
         page_slice = slice((page-1)*100, page*100)
         for attempt in range(2):

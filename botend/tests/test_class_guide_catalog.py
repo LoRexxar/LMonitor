@@ -92,7 +92,10 @@ class GuideMissingVersionTests(TestCase):
         self.assertEqual(ClassGuide.objects.count(), 1)
 
     def test_missing_tag_uses_shared_active_version_on_empty_database(self):
-        WowTalentVersion.objects.update_or_create(key='ptr-12.1.0', defaults={'major_version': '12.1.0', 'is_active': True})
+        WowTalentVersion.objects.update_or_create(
+            key='retail',
+            defaults={'branch': 'retail', 'major_version': '12.1.0', 'is_active': True},
+        )
         post = source_post(); post['tags'] = []
         self.assertEqual(source_version(post), '12.1')
 

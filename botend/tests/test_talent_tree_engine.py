@@ -26,7 +26,10 @@ from botend.management.commands.fetch_talent_icons import (
     Command as FetchTalentIconsCommand,
     build_node_definition_map,
 )
-from botend.management.commands.repair_ptr_talent_metadata import Command as RepairPtrTalentMetadataCommand
+from botend.management.commands.repair_ptr_talent_metadata import (
+    Command as RepairPtrTalentMetadataCommand,
+    _validate_dump_contract,
+)
 from botend.wow.spell_text import SpellTextResolver
 from botend.wow.talents.adapters import build_tree_set_from_talents
 from botend.wow.talents.layout import build_talent_tree_layout
@@ -293,16 +296,17 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
         self.assertTrue(result['_force_description'])
         self.assertEqual(result['description'], '')
 
-    def test_bundled_ptr_db2_asset_manifest_is_valid(self):
-        asset = Path('botend/data/ptr_talent_db2_12.1.0.69283.tar.gz')
+    def test_bundled_retail_db2_asset_manifest_is_valid(self):
+        asset = Path('botend/data/retail_talent_db2_12.1.0.69283.tar.gz')
         self.assertTrue(asset.is_file())
-        self.assertFalse(Path('botend/data/ptr_talent_db2_12.1.0.68914.tar.gz').exists())
+        self.assertFalse(Path('botend/data/ptr_talent_db2_12.1.0.69283.tar.gz').exists())
         with tarfile.open(asset, 'r:gz') as archive:
             manifest_member = archive.extractfile('manifest.json')
             self.assertIsNotNone(manifest_member)
             assert manifest_member is not None
             manifest = json.loads(manifest_member.read().decode('utf-8'))
             self.assertEqual(manifest['build'], '12.1.0.69283')
+            self.assertEqual(manifest['version_key'], 'retail')
             self.assertIn('spell_effect_index.csv', manifest['files'])
             for relative_path, expected in manifest['files'].items():
                 member = archive.extractfile(relative_path)
@@ -314,6 +318,12 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
                     hashlib.sha256(payload).hexdigest(),
                     expected['sha256'],
                     relative_path,
+                )
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                archive.extractall(tmp_dir)
+                self.assertEqual(
+                    _validate_dump_contract(Path(tmp_dir), 'retail'),
+                    manifest,
                 )
 
     def test_normalizes_listfile_whitespace_in_icon_keys(self):
@@ -3753,7 +3763,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('BwQAAAAAAAAAAAAAAAAAAAAA', html)
         self.assertIn('talent-copy-btn', html)
         self.assertIn(
-            '/portal/talents/?class=Monk&spec=Windwalker&version=retail-12.0.7&profile_id=7&code=BwQAAAAAAAAAAAAAAAAAAAAA',
+            '/portal/talents/?class=Monk&spec=Windwalker&profile_id=7&code=BwQAAAAAAAAAAAAAAAAAAAAA',
             html,
         )
         self.assertIn('已复制', html)

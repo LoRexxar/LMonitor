@@ -41,9 +41,9 @@ TALENT_BUILD="12.1.0.69283"
 TALENT_DUMP_DIR=".cache/wago_db2_dumps/${TALENT_BUILD}"
 rm -rf "$TALENT_DUMP_DIR"
 mkdir -p "$TALENT_DUMP_DIR"
-tar -xzf "botend/data/ptr_talent_db2_${TALENT_BUILD}.tar.gz" -C "$TALENT_DUMP_DIR"
+tar -xzf "botend/data/retail_talent_db2_${TALENT_BUILD}.tar.gz" -C "$TALENT_DUMP_DIR"
 "$PYTHON_BIN" manage.py repair_ptr_talent_metadata \
-    --version-key ptr-12.1.0 \
+    --version-key retail \
     --dump-dir "$TALENT_DUMP_DIR" \
     --backup-dir .cache/backups \
     --skip-wowhead

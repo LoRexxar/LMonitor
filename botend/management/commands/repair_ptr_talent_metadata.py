@@ -69,10 +69,10 @@ _REQUIRED_DUMP_FILES = {
 
 
 def _tracked_bundle_contracts():
-    """Load manifests from checked-in PTR bundles, which are the trust root."""
+    """Load manifests from checked-in talent bundles, which are the trust root."""
     data_dir = Path(__file__).resolve().parents[2] / 'data'
     contracts = []
-    for bundle in sorted(data_dir.glob('ptr_talent_db2_*.tar.gz')):
+    for bundle in sorted(data_dir.glob('*_talent_db2_*.tar.gz')):
         try:
             with tarfile.open(bundle, 'r:gz') as archive:
                 members = [item for item in archive.getmembers() if item.name == 'manifest.json']
@@ -98,7 +98,7 @@ def _validate_dump_contract(dump_dir, version_key):
         raise CommandError(f'invalid or missing dump manifest: {manifest_path}') from exc
 
     if manifest not in _tracked_bundle_contracts():
-        raise CommandError('dump manifest does not exactly match a tracked PTR bundle contract')
+        raise CommandError('dump manifest does not exactly match a tracked talent bundle contract')
     if manifest.get('version_key') != version_key:
         raise CommandError(
             f"dump manifest version_key {manifest.get('version_key')!r} does not match {version_key!r}"
@@ -144,10 +144,10 @@ def _validate_dump_contract(dump_dir, version_key):
 
 
 class Command(BaseCommand):
-    help = 'Repair visible PTR talent metadata fields from DB2 CSV and cache-backed Wowhead fallbacks.'
+    help = 'Repair visible talent metadata fields from a tracked DB2 bundle.'
 
     def add_arguments(self, parser):
-        parser.add_argument('--version-key', default='ptr-12.1.0')
+        parser.add_argument('--version-key', default='retail')
         parser.add_argument('--dump-dir', default='')
         parser.add_argument('--cache-dir', default='.cache')
         parser.add_argument('--backup-dir', default='', help='Write a JSON backup before changing metadata')
@@ -165,7 +165,7 @@ class Command(BaseCommand):
         except WowTalentVersion.DoesNotExist as exc:
             raise CommandError(f'WowTalentVersion not found: {version_key}') from exc
 
-        dump_dir = (options.get('dump_dir') or '').strip() or talent_version.source_dir or '.cache/wago_db2_dumps/ptr'
+        dump_dir = (options.get('dump_dir') or '').strip() or talent_version.source_dir or '.cache/wago_db2_dumps/latest'
         if not os.path.isdir(dump_dir):
             raise CommandError(f'DB2 dump dir not found: {dump_dir}')
         dump_path = Path(dump_dir).resolve()
@@ -352,7 +352,9 @@ class Command(BaseCommand):
                 now,
                 branch=talent_version.branch,
             )
-        self.stdout.write(self.style.SUCCESS(f'Updated {len(updates)} visible PTR talent metadata rows'))
+        self.stdout.write(self.style.SUCCESS(
+            f'Updated {len(updates)} visible {talent_version.branch} talent metadata rows'
+        ))
 
     def _backup_metadata(self, talent_version, backup_dir, *, snapshot_ids):
         backup_root = Path(backup_dir)
