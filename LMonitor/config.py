@@ -38,6 +38,7 @@ from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMoni
 from botend.controller.plugins.wow.WowDailyReportMonitor import WowDailyReportMonitor
 from botend.controller.plugins.wow.WowTodayMonitor import WowTodayMonitor
 from botend.controller.plugins.wow.MaxrollClassGuideMonitor import MaxrollClassGuideMonitor
+from botend.controller.plugins.wow.AdventureJournalMonitor import AdventureJournalMonitor
 
 from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailSeasonMonitor
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
@@ -87,4 +88,5 @@ Monitor_Type_BaseObject_List = [
     WowTodayMonitor,
     SpecDungeonDpsRankingMonitor,
     MaxrollClassGuideMonitor,
+    AdventureJournalMonitor,
 ]

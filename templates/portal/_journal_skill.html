@@ -1,0 +1,4 @@
+<details class="journal-skill" {% if skill.children %}open{% endif %} id="skill-{{ skill.id }}">
+<summary><span>{{ skill.title|default:'技能说明' }}</span><span class="journal-skill-tags">{% for role in skill.role_names %}<em>{{ role }}</em>{% endfor %}{% for tag in skill.tags %}<em>{{ tag }}</em>{% endfor %}</span></summary>
+<div class="journal-skill-body">{% if skill.text %}<p>{{ skill.text|linebreaksbr }}</p>{% endif %}{% if skill.spell_id %}<a data-tooltip-kind="spell" data-tooltip-id="{{ skill.spell_id }}" class="journal-spell-link" href="https://www.wowhead.com/cn/spell={{ skill.spell_id }}" target="_blank" rel="noopener">查看技能详情 ↗</a>{% endif %}
+{% for child in skill.children %}{% include 'portal/_journal_skill.html' with skill=child %}{% endfor %}</div></details>

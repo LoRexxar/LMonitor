@@ -3565,3 +3565,5 @@ from botend.guide_models import (  # noqa: E402,F401
     ClassGuide, ClassGuideSyncRun,
     ClassGuideTranslation, ClassGuideTag,
 )
+
+from botend.journal_models import JournalRelease, JournalState, JournalInstance, JournalEncounter  # noqa: E402,F401

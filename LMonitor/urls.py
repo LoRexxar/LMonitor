@@ -18,6 +18,10 @@ from django.contrib import admin
 from botend.dashboard.class_guides import (GuidePage, GuideCatalogAPI, GuideDetailAPI,
     GuidePreviewPage, GuideDisclaimerAPI)
 from botend.portal.class_guides import PortalClassGuideCatalogView, PortalClassGuideArticleView
+from botend.portal.adventure_journal import (
+    PortalAdventureJournalView, PortalAdventureJournalDetailView, PortalAdventureJournalAPIView, PortalAdventureJournalArtView,
+    PortalAdventureJournalTooltipView,
+)
 from django.urls import path
 from django.views.decorators.csrf import csrf_exempt
 from django.shortcuts import redirect
@@ -137,7 +141,13 @@ from botend.simc_agent_api import (
 from django.http import HttpResponse, JsonResponse
 
 urlpatterns = [
-    # Portal 阅读界面仅供具备攻略权限的账号内部测试。
+    path('portal/adventure-journal/', PortalAdventureJournalView.as_view(), name='portal_adventure_journal'),
+    path('portal/adventure-journal/art/<int:file_id>/', PortalAdventureJournalArtView.as_view(), name='portal_adventure_journal_art'),
+    path('portal/adventure-journal/<int:instance_id>/', PortalAdventureJournalDetailView.as_view(), name='portal_adventure_journal_detail'),
+    path('portal/api/adventure-journal/', PortalAdventureJournalAPIView.as_view(), name='portal_adventure_journal_api'),
+    path('portal/api/adventure-journal/<int:instance_id>/tooltip/<str:kind>/<int:entry_id>/', PortalAdventureJournalTooltipView.as_view(), name='portal_adventure_journal_tooltip'),
+    path('portal/api/adventure-journal/<int:instance_id>/', PortalAdventureJournalAPIView.as_view(), name='portal_adventure_journal_detail_api'),
+    # Portal 攻略阅读界面仅供具备攻略权限的账号内部测试。
     path('portal/class-guides/', PortalClassGuideCatalogView.as_view(), name='portal_class_guides'),
     path('portal/class-guides/<int:guide_id>/', PortalClassGuideArticleView.as_view(), name='portal_class_guide_article'),
     # 职业攻略仅提供受权限保护的后台与预览，不注册 Portal 公开接口。

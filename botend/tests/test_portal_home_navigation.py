@@ -148,7 +148,9 @@ class PortalHomeNavigationTests(TestCase):
             item['name'] for item in navigation_data['categories']
             if item['key'] in category_keys
         ]
-        self.assertEqual(ordered_category_names, ['数据中心', '大秘境', '站内工具', '资讯社区'])
+        self.assertEqual(ordered_category_names, ['数据中心', '大秘境&团本', '站内工具', '资讯社区'])
+        journal = next(item for item in navigation_data['items'] if item['url'] == '/portal/adventure-journal/')
+        self.assertEqual(journal['category'], 'mythic')
 
     def test_dashboard_has_dedicated_group_and_item_navigation_editor(self):
         PortalNavigationGroup.objects.all().delete()

@@ -110,6 +110,10 @@ class PortalMonitorScheduleTests(SimpleTestCase):
 
 
 class MonitorTaskClaimTests(TestCase):
+    def setUp(self):
+        # 任务领取测试只调度本用例创建的任务，不消费迁移注册的日常监控。
+        MonitorTask.objects.update(is_active=False)
+
     def test_two_worker_claims_reserve_distinct_oldest_runnable_tasks(self):
         shanghai = ZoneInfo('Asia/Shanghai')
         now = datetime(2026, 8, 29, 9, 0, tzinfo=shanghai)
