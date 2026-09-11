@@ -44,6 +44,14 @@ class PortalSiteUpdatesTests(TestCase):
         self.assertEqual(item['summary'], '今日暂无更新')
         self.assertEqual(item['today_count'], 0)
 
+    def test_headline_explains_latest_changes(self):
+        row = self.report(self.now)
+        WowSkillDiffReport.objects.filter(pk=row.pk).update(class_count=3, spell_count=17)
+        self.assertEqual(self.items()['skill_diffs']['headline'], '3 职业 · 17 项技能改动')
+        release = JournalRelease.objects.create(build='test', status='completed', completed_at=self.now)
+        JournalState.objects.create(active_release=release)
+        self.assertEqual(self.items()['journal']['headline'], '首领技能与掉落已同步')
+
     def test_hotfix_is_independent_from_build_report(self):
         row = WowHotfixReport.objects.create(to_push=123, content_md='热修内容')
         WowHotfixReport.objects.filter(pk=row.pk).update(created_at=self.now)

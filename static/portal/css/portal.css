@@ -518,9 +518,6 @@ body {
         max-width: min(100%, 20rem);
     }
 
-    .portal-today-chip:nth-child(n+4) {
-        display: none;
-    }
 }
 
 .portal-daily-report-card {
@@ -3227,46 +3224,9 @@ html.portal-theme-dark .portal-tool-row-badge.is-new {
     .portal-tool-row,
     .portal-tool-row-arrow { transition: none; }
 }
-.portal-update-feed {
-    grid-column: 1 / -1;
-    min-width: 0;
-    border-top: 1px solid var(--portal-accent-primary-soft, rgba(102, 87, 200, 0.16));
-    padding-top: 0.65rem;
-    text-align: left;
-}
+/* 今日重点保持短条，内容多时由明确的展开按钮控制。 */
+#portal-today-strip[hidden] { display: none; }
 .portal-today-strip-empty { color: var(--portal-text-muted, #64748b); background: var(--portal-surface-raised, #fff); }
-.portal-update-heading {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 0.6rem;
-    padding: 0 0.45rem 0.55rem;
-    font-size: 0.75rem;
-    font-weight: 700;
-}
-#portal-update-summary { margin-left: 0.4rem; font-size: 0.68rem; font-weight: 400; color: var(--portal-text-muted, #64748b); }
-#portal-update-refresh { color: var(--portal-accent-primary, #6657c8); white-space: nowrap; cursor: pointer; }
-#portal-update-refresh:disabled { opacity: 0.6; cursor: wait; }
-.portal-update-items { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.4rem; }
-.portal-update-item {
-    display: grid;
-    gap: 0.18rem;
-    min-width: 0;
-    padding: 0.55rem 0.65rem;
-    border: 1px solid transparent;
-    border-radius: 0.45rem;
-    font-size: 0.72rem;
-    background: var(--portal-surface-raised, #fff);
-    color: var(--portal-text, #334155);
-    text-decoration: none;
-}
-.portal-update-item strong { font-size: 0.76rem; font-weight: 600; }
-.portal-update-item.is-today { border-color: var(--portal-accent-primary-soft, #d5cff1); }
-.portal-update-status { color: var(--portal-text-muted, #64748b); }
-.portal-update-item.is-today .portal-update-status { color: var(--portal-accent-primary, #6657c8); font-weight: 600; }
-.portal-update-time { font-size: 0.65rem; color: var(--portal-text-muted, #64748b); }
-.portal-update-item:hover, .portal-update-item:focus-visible { border-color: var(--portal-accent-primary, #6657c8); }
-@media (max-width: 640px) {
-    .portal-update-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    #portal-update-summary { display: block; margin: 0.2rem 0 0; }
-}
+.portal-today-more { color: var(--portal-accent-primary, #6657c8); font-size: 0.72rem; white-space: nowrap; padding: 0.32rem 0.48rem; cursor: pointer; }
+.portal-today-more:hover { text-decoration: underline; }
+.portal-today-more:focus-visible { outline: 2px solid var(--portal-accent-primary, #6657c8); outline-offset: 2px; }

@@ -435,6 +435,9 @@ const SECTION_MAP = {
 const PORTAL_STATE = {
   query: "",
   todaySourcesSettled: {},
+  todayUpdates: [],
+  todayUpdatesSettled: false,
+  todayExpanded: false,
   dataBySection: {},
   videoTags: [],
   activeVideoTag: "",
@@ -695,12 +698,13 @@ function getItemUrl(it) {
   return sanitizeHref(it?.url || it?.source_url || it?.link || "");
 }
 
-function makeTodayChip(label, text, targetSectionId, mutedText) {
+function makeTodayChip(label, text, targetSectionId, mutedText, url) {
   const safeLabel = escapeHtml(label);
   const safeText = escapeHtml(text || "");
   const safeTarget = escapeHtml(targetSectionId || "");
   const safeMuted = mutedText ? `<span class="portal-today-chip-muted">${escapeHtml(mutedText)}</span>` : "";
   const inner = `<span class="portal-today-chip-label">${safeLabel}</span><span class="portal-today-chip-text">${safeText}</span>${safeMuted}`;
+  if (url) return `<a class="portal-today-chip" href="${escapeHtml(sanitizeHref(url))}" title="${escapeHtml(`${label} · ${text}`)}">${inner}</a>`;
   return `<button type="button" class="portal-today-chip" data-today-target="${safeTarget}">${inner}</button>`;
 }
 
@@ -863,13 +867,30 @@ function renderTodayStrip() {
       if (!duplicate) picked.push(item);
     });
 
+  // 数据更新与原有资讯共用短条；未更新的板块不进入今日重点。
+  PORTAL_STATE.todayUpdates.filter((item) => item.status === 'today').forEach((item, index) => {
+    picked.push({ label: item.label, text: item.headline || item.summary, url: item.url,
+      muted: '今日', priority: 20 + index / 10 });
+  });
+  picked.sort((a, b) => a.priority - b.priority);
+
   if (!picked.length) {
     const settled = ['blueposts', 'exwind', 'wowhead', 'videos', 'mplus_cutoffs']
-      .every((key) => PORTAL_STATE.todaySourcesSettled[key]);
-    el.innerHTML = `<span class="portal-today-strip-empty">${settled ? '暂无资讯与分数线，查看下方数据动态' : '正在加载资讯与分数线…'}</span>`;
+      .every((key) => PORTAL_STATE.todaySourcesSettled[key]) && PORTAL_STATE.todayUpdatesSettled;
+    el.innerHTML = settled ? '' : `<span class="portal-today-strip-empty">正在加载今日重点…</span>`;
+    document.getElementById('portal-today-strip').hidden = settled;
     return;
   }
-  el.innerHTML = picked.map((item) => makeTodayChip(item.label, item.text, item.target, item.muted)).join("");
+  document.getElementById('portal-today-strip').hidden = false;
+  const visible = PORTAL_STATE.todayExpanded ? picked : picked.slice(0, 6);
+  el.innerHTML = visible.map((item) => makeTodayChip(item.label, item.text, item.target, item.muted, item.url)).join("");
+  if (picked.length > 6) {
+    el.insertAdjacentHTML('beforeend', `<button type="button" class="portal-today-more" aria-expanded="${PORTAL_STATE.todayExpanded}">${PORTAL_STATE.todayExpanded ? '收起' : `另 ${picked.length - 6} 条重点`}</button>`);
+    el.querySelector('.portal-today-more').addEventListener('click', () => {
+      PORTAL_STATE.todayExpanded = !PORTAL_STATE.todayExpanded;
+      renderTodayStrip();
+    });
+  }
 }
 
 function renderExwindSourceTabs() {

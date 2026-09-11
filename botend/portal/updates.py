@@ -29,7 +29,7 @@ def build_site_updates(now=None):
     start = datetime.combine(local_now.date(), time.min, tzinfo=SITE_TIMEZONE)
     items = []
 
-    def add(key, label, url, updated_at, *, count=None, detail=''):
+    def add(key, label, url, updated_at, *, count=None, detail='', headline=''):
         updated_at = updated_at if updated_at and updated_at <= now else None
         today = bool(updated_at and updated_at >= start)
         status = 'today' if today else 'older' if updated_at else 'empty'
@@ -38,7 +38,14 @@ def build_site_updates(now=None):
         )
         items.append({
             'key': key, 'label': label, 'url': url, 'status': status,
-            'summary': summary, 'detail': detail,
+            'summary': summary, 'detail': detail, 'headline': headline or {
+                'journal': '首领技能与掉落已同步',
+                'mplus': '本赛季伤害榜已同步',
+                'raid': '本赛季首领数据已同步',
+                'gear': '装备属性与特效已同步',
+                'mdt': '副本地图与怪物资料已同步',
+                'talents': '天赋树与技能说明已同步',
+            }.get(key, summary),
             'updated_at': updated_at.astimezone(SITE_TIMEZONE).isoformat() if updated_at else None,
             'updated_label': updated_at.astimezone(SITE_TIMEZONE).strftime('%m-%d %H:%M') if updated_at else '',
             'today_count': count if count is not None else None,
@@ -53,8 +60,17 @@ def build_site_updates(now=None):
         )
         stats = reports.aggregate(latest=Max('created_at'), today=Count('id', filter=Q(created_at__gte=start)))
         latest = reports.order_by('-created_at', '-id').first()
+        headline = f"新增 {stats['today']} 份报告"
+        if latest and key == 'skill_diffs' and latest.spell_count:
+            scope = f'{latest.class_count} 职业 · ' if latest.class_count else ''
+            headline = f'{scope}{latest.spell_count} 项技能改动'
+        elif latest and key == 'hotfixes':
+            headline = latest.summary_title or (f'{latest.entry_count} 项热修变动' if latest.entry_count else headline)
+        if stats['today'] > 1 and latest:
+            headline = f'新增 {stats["today"]} 份 · 最新：{headline}'
         add(key, label, f'/portal/{detail_route}/{latest.pk}/' if latest else '/portal/wow-updates/',
-            stats['latest'], count=stats['today'], detail=getattr(latest, 'summary_title', '') or getattr(latest, 'to_build', ''))
+            stats['latest'], count=stats['today'], detail=getattr(latest, 'summary_title', '') or getattr(latest, 'to_build', ''),
+            headline=headline)
 
     journal = JournalState.objects.filter(key='wow-zhCN', active_release__status='completed').select_related('active_release').first()
     release = journal.active_release if journal else None

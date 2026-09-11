@@ -8,7 +8,7 @@
     {% load static %}
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
-    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260911_site_updates_2">
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260911_focus_digest">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -48,13 +48,6 @@
                         <div id="portal-today-strip-items" class="portal-today-strip-items">
                             <span class="portal-today-strip-empty">正在加载今日重点...</span>
                         </div>
-                        <section class="portal-update-feed" aria-label="全站数据动态">
-                            <div class="portal-update-heading">
-                                <span>数据动态 <span id="portal-update-summary" role="status">正在查询今日更新…</span></span>
-                                <button id="portal-update-refresh" type="button">刷新</button>
-                            </div>
-                            <div id="portal-update-items" class="portal-update-items" aria-busy="true"></div>
-                        </section>
                     </div>
                 </div>
             </div>
@@ -196,7 +189,7 @@
 
     <nav id="snap-dots" class="snap-dots" aria-label="首页板块导航"></nav>
 
-    <script src="{% static 'portal/js/main.js' %}?v=20260911_site_updates_2"></script>
-    <script src="{% static 'portal/js/site-updates.js' %}?v=20260911_site_updates"></script>
+    <script src="{% static 'portal/js/main.js' %}?v=20260911_focus_digest"></script>
+    <script src="{% static 'portal/js/site-updates.js' %}?v=20260911_focus_digest"></script>
 </body>
 </html>
