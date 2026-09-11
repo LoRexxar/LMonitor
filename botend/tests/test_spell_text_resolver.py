@@ -114,6 +114,52 @@ class SpellTextResolverTests(unittest.TestCase):
 
         self.assertEqual(resolver.resolve('伤害提高$s1%，第二段$s2%。', 391477), '伤害提高5%，第二段9%。')
 
+    def test_w_effect_placeholder_uses_the_same_effect_value(self):
+        resolver = _FakeEffectResolver({
+            445584: {
+                0: {'base_points': '3'},
+            }
+        })
+
+        self.assertEqual(resolver.resolve('斩杀的伤害提高$w1%。', 445584), '斩杀的伤害提高3%。')
+        self.assertEqual(
+            resolver.resolve('受到$@auracaster的伤害提高$w1%。', 445584),
+            '受到施法者的伤害提高3%。',
+        )
+
+    def test_runtime_versatility_macro_keeps_the_static_base_value(self):
+        resolver = _FakeEffectResolver({
+            190456: {
+                0: {'base_points': '100'},
+            }
+        })
+
+        self.assertEqual(
+            resolver.resolve('直到防止${($s1)*(1+$@versadmg)}点伤害。', 190456),
+            '直到防止100点伤害。',
+        )
+
+    def test_runtime_only_and_malformed_tokens_degrade_to_readable_text(self):
+        resolver = _FakeEffectResolver({})
+
+        text = resolver.resolve(
+            '触碰$@spellname腐蚀生命力。'
+            '使加速提高$ec1点，你每$ec2s2秒获得$ec2s1层充能。'
+            '不能对物品等级低于$ecim的物品使用。'
+            '$pri提高$s1点，并给予$L层效果。'
+            '每$t1秒恢复$/5;s2%生命值。伤害提高$s3%$',
+            1300871,
+        )
+
+        self.assertNotIn('$', text)
+        self.assertNotIn('@spellname', text)
+        self.assertEqual(
+            text,
+            '触碰腐蚀生命力。使加速提高一定数值，你周期性获得多层充能。'
+            '只能对符合物品等级要求的物品使用。主属性会有所提高，并给予多层效果。'
+            '周期性恢复生命值。伤害会有所提高。',
+        )
+
     def test_external_spell_effect_reference_in_expression_uses_first_effect(self):
         resolver = _FakeEffectResolver({
             221322: {
@@ -223,7 +269,7 @@ class SpellTextResolverTests(unittest.TestCase):
 
         self.assertEqual(
             resolver.resolve(text, 1),
-            '有点%的几率触发。每一段时间秒一次。几率 每层造成额外伤害。',
+            '有点%的几率触发。周期性一次。几率 每层造成额外伤害。',
         )
         self.assertEqual(
             resolver.resolve('投掷$n枚战轮，共造成$x次伤害。$@spelltooltip1269383', 1),

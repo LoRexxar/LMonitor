@@ -24,7 +24,10 @@ from bs4 import BeautifulSoup
 
 from botend.guide_models import ClassGuide, ClassGuideTag, ClassGuideTranslation
 from botend.services.wow_localization import write_name, effective_names
-from botend.models import WowItemSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowSpellSnapshot
+from botend.models import (
+    SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot, WowTalentNodeMetadata,
+    WowTalentVersion, WowSpellEffectSnapshot, WowSpellSnapshot,
+)
 from botend.services.class_guide_codec import decode_component, snappy
 from botend.services.class_guide_content import clean_html, validate_blocks, render_references, resolve_references
 from botend.services.class_guide_maxroll import discover, convert
@@ -108,6 +111,173 @@ class GuideFlowTests(TestCase):
         )
         self.assertEqual(refs['[[item:91003]]']['tooltip_text'], '物品表中文描述')
         self.assertEqual(refs['[[item:91003]]']['tooltip_source'], 'item_snapshot')
+
+    def test_item_reference_variant_uses_complete_shared_equipment_tooltip(self):
+        version, _ = WowTalentVersion.objects.update_or_create(
+            key='retail', defaults={
+                'major_version': '12.1.0', 'branch': 'retail',
+                'is_active': True, 'is_default_player_tree': True,
+            },
+        )
+        WowTalentVersion.objects.exclude(pk=version.pk).update(is_default_player_tree=False)
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=version, localization_only=True, name_kind='item',
+            reference_id=158368, name="Sethraliss' Defiled Relic", name_zh='塞塔里斯的亵渎遗物',
+        )
+        season = SeasonMeta.objects.create(
+            season_key='guide-tooltip', season_name='攻略 Tooltip 测试', is_active=True,
+            game_build='12.1.0.1', gear_batch_key='guide-tooltip-batch',
+            gear_sync_status='ready', mplus_zone_id=1, raid_zone_id=2,
+        )
+        item = WowItemSnapshot.objects.create(
+            item_id=158368, name="Sethraliss' Defiled Relic", name_zh='塞塔里斯的亵渎遗物',
+            description_zh='不得代替具体变体的基础描述。', icon='inv_trinket_80_titan02c',
+            catalog_type='equipment', slot_key='trinket', inventory_type=12,
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=item, season=season, batch_key=season.gear_batch_key,
+            variant_key='mythic_plus-myth-6-334',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=334, bonus_ids=[642], compatible_slots=['trinket'],
+            stats_json={'intellect': 179, 'haste': 655, 'versatility': 592},
+            effects_json=[{'description_zh': '使用：用腐烂伤口诅咒目标。'}],
+        )
+        token = '[[item:158368@BgQAAkQACKgTBA]]'
+
+        refs = resolve_references(
+            [{'id': 'item', 'type': 'html', 'html': f'<p>{token}</p>'}],
+            '12.1.0', 'warlock', 'affliction',
+        )
+        rendered = BeautifulSoup(render_references(token, refs), 'html.parser')
+        trigger = rendered.select_one('.guide-ref[data-wow-item-tooltip]')
+
+        self.assertEqual(
+            refs[token]['tooltip_text'],
+            '物品等级 334\n+179 智力\n+655 急速\n+592 全能\n使用：用腐烂伤口诅咒目标。',
+        )
+        self.assertEqual(refs[token]['tooltip_source'], 'item_variant_snapshot')
+        self.assertIsNotNone(trigger)
+        self.assertEqual(trigger['data-wow-item-tooltip'], refs[token]['tooltip_text'])
+        self.assertEqual(trigger['data-wow-item-tooltip-name'], '塞塔里斯的亵渎遗物')
+        self.assertFalse(trigger.has_attr('data-guide-tooltip'))
+
+    def test_spell_reference_renders_db2_effect_value_in_tooltip(self):
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=92001,
+            name='Focused Spell', name_zh='聚焦技能',
+            description='使你的伤害提高$s1%。', snapshot_build='12.1.0.69587',
+        )
+        WowSpellEffectSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=92001,
+            effect_index=0, effect=6, effect_aura=4,
+            base_points='25', coefficient='0', pvp_multiplier='1',
+            snapshot_build='12.1.0.69587',
+        )
+
+        refs = resolve_references(
+            [{'id': 'spell', 'type': 'html', 'html': '<p>[[spell:92001]]</p>'}],
+            '12.1.0', 'warlock', 'affliction',
+        )
+
+        tooltip = refs['[[spell:92001]]']['tooltip_text']
+        self.assertEqual(tooltip, '使你的伤害提高25%。')
+        self.assertNotIn('$s1', tooltip)
+
+    def test_talent_reference_resolves_raw_db2_description_at_projection_time(self):
+        version, _ = WowTalentVersion.objects.update_or_create(
+            key='12.1', defaults={
+                'major_version': '12.1.0', 'branch': 'retail',
+                'current_build': '12.1.0.69587',
+                'is_active': True, 'is_default_player_tree': True,
+            },
+        )
+        WowTalentVersion.objects.exclude(pk=version.pk).update(is_default_player_tree=False)
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=version, class_name='warrior', spec_name='arms',
+            name_kind='talent', talent_id=93001, node_id=92002,
+            spell_id=445584, display_spell_id=445584,
+            name='Executioner', name_zh='处刑者',
+            description_zh='斩杀的伤害提高$w1%。',
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=445584,
+            name='Executioner', name_zh='处刑者',
+            description='这是展示技能自身的描述，不应替代原生天赋描述。', snapshot_build='12.1.0.69587',
+        )
+        WowSpellEffectSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=445584,
+            effect_index=0, effect=6, effect_aura=108,
+            base_points='3', coefficient='0', pvp_multiplier='1',
+            snapshot_build='12.1.0.69587',
+        )
+
+        refs = resolve_references(
+            [{'id': 'talent', 'type': 'html', 'html': '<p>[[talent:92002]]</p>'}],
+            '12.1.0', 'warrior', 'arms',
+        )
+
+        tooltip = refs['[[talent:92002]]']['tooltip_text']
+        self.assertEqual(tooltip, '斩杀的伤害提高3%。')
+        self.assertNotIn('$', tooltip)
+        self.assertEqual(refs['[[talent:92002]]']['tooltip_source'], 'talent_metadata_projection')
+
+    def test_talent_reference_resolves_explicit_embedded_spell_without_display_spell(self):
+        version, _ = WowTalentVersion.objects.update_or_create(
+            key='retail', defaults={
+                'major_version': '12.1.0', 'branch': 'retail',
+                'current_build': '12.1.0.69587',
+                'is_active': True, 'is_default_player_tree': True,
+            },
+        )
+        WowTalentVersion.objects.exclude(pk=version.pk).update(is_default_player_tree=False)
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=version, class_name='warlock', spec_name='affliction',
+            name_kind='talent', talent_id=93002, node_id=92003,
+            name='Drain Soul', name_zh='吸取灵魂',
+            description_zh='$@spelldesc198590',
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=198590,
+            name='Drain Soul', name_zh='吸取灵魂',
+            description='吸取目标的灵魂，造成暗影伤害。', snapshot_build='12.1.0.69587',
+        )
+
+        refs = resolve_references(
+            [{'id': 'talent', 'type': 'html', 'html': '<p>[[talent:92003]]</p>'}],
+            '12.1.0', 'warlock', 'affliction',
+        )
+
+        tooltip = refs['[[talent:92003]]']['tooltip_text']
+        self.assertIn('吸取目标的灵魂', tooltip)
+        self.assertNotIn('$', tooltip)
+        self.assertEqual(refs['[[talent:92003]]']['tooltip_source'], 'talent_metadata_projection')
+
+    def test_talent_reference_never_exposes_unresolved_embedded_spell_template(self):
+        version, _ = WowTalentVersion.objects.update_or_create(
+            key='retail', defaults={
+                'major_version': '12.1.0', 'branch': 'retail',
+                'current_build': '12.1.0.69587',
+                'is_active': True, 'is_default_player_tree': True,
+            },
+        )
+        WowTalentVersion.objects.exclude(pk=version.pk).update(is_default_player_tree=False)
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=version, class_name='warlock', spec_name='affliction',
+            name_kind='talent', talent_id=93003, node_id=92004,
+            name='Missing Embedded Spell', name_zh='缺失嵌入技能',
+            description_zh='$@spelldesc1999999999',
+        )
+
+        refs = resolve_references(
+            [{'id': 'talent', 'type': 'html', 'html': '<p>[[talent:92004]]</p>'}],
+            '12.1.0', 'warlock', 'affliction',
+        )
+
+        tooltip = refs['[[talent:92004]]']['tooltip_text']
+        self.assertNotIn('$', tooltip)
+        self.assertIn('当前版本暂无可用的效果正文', tooltip)
+        self.assertIn('92004', tooltip)
+        self.assertEqual(refs['[[talent:92004]]']['tooltip_source'], 'local_reference_fallback')
 
     def test_talent_tooltip_uses_only_explicit_display_spell_relation(self):
         version, _ = WowTalentVersion.objects.update_or_create(
