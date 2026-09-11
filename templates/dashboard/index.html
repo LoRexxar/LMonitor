@@ -558,9 +558,9 @@
     {% endif %}
     {% if 'content.class-guides' in dashboard_permissions %}
     <script src="{% static 'dashboard/js/class_guide_reader.js' %}" defer></script>
-    <script>window.whTooltips = { colorLinks: false, iconizeLinks: false, renameLinks: false };</script>
-    <script src="https://wow.zamimg.com/widgets/power.js" defer></script>
-    <script src="{% static 'dashboard/js/class_guides.js' %}?v=20260910_wowhead_tooltips" defer></script>
+    <link rel="stylesheet" href="{% static 'shared/css/class-guide-tooltip.css' %}?v=20260910_local">
+    <script src="{% static 'shared/js/class-guide-tooltip.js' %}?v=20260910_local" defer></script>
+    <script src="{% static 'dashboard/js/class_guides.js' %}?v=20260910_local_tooltips" defer></script>
     {% endif %}
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260806c" defer></script>
     <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>

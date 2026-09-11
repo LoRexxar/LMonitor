@@ -2696,7 +2696,7 @@ class WowTalentNodeMetadata(models.Model):
     flags = models.IntegerField(default=0, help_text='DB2 TraitNode.Flags；Flags=8 表示赠送天赋（默认授予，无法取消）')
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['talent_version', 'name_kind', 'reference_id'], name='wow_name_reference_unique')]
+        constraints = [models.UniqueConstraint(fields=['name_kind', 'reference_id'], name='wow_name_reference_unique')]
         db_table = 'wow_talent_node_metadata'
         app_label = 'botend'
         verbose_name = 'WoW天赋与名称元数据'

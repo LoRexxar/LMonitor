@@ -24,7 +24,7 @@ from bs4 import BeautifulSoup
 
 from botend.guide_models import ClassGuide, ClassGuideTag, ClassGuideTranslation
 from botend.services.wow_localization import write_name, effective_names
-from botend.models import WowTalentNodeMetadata, WowSpellSnapshot
+from botend.models import WowItemSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowSpellSnapshot
 from botend.services.class_guide_codec import decode_component, snappy
 from botend.services.class_guide_content import clean_html, validate_blocks, render_references, resolve_references
 from botend.services.class_guide_maxroll import discover, convert
@@ -51,6 +51,193 @@ class GuideFlowTests(TestCase):
         self.client.force_login(self.user)
         self.url = 'https://maxroll.gg/wow/class-guides/arcane-mage-raid-guide'
         self.guide, _ = import_post(source_post(), self.url)
+
+    def test_reference_tooltips_read_native_tables_by_version_kind_and_id(self):
+        version, _ = WowTalentVersion.objects.update_or_create(
+            key='12.1', defaults={
+                'major_version': '12.1.0', 'branch': 'retail',
+                'is_active': True, 'is_default_player_tree': True,
+            },
+        )
+        WowTalentVersion.objects.exclude(pk=version.pk).update(is_default_player_tree=False)
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=version, class_name='mage', spec_name='arcane',
+            name_kind='talent', talent_id=92001, node_id=91001,
+            name='Foreign Talent', name_zh='跨专精天赋',
+            description='English talent text', description_zh='天赋表中文描述',
+        )
+        for kind, object_id, name_en, name_zh in (
+            ('spell', 91002, 'Snapshot Spell', '快照技能'),
+            ('item', 91003, 'Snapshot Item', '快照物品'),
+        ):
+            WowTalentNodeMetadata.all_objects.create(
+                talent_version=version, localization_only=True, name_kind=kind,
+                reference_id=object_id, name=name_en, name_zh=name_zh,
+            )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='enUS', spell_id=91002,
+            name='Snapshot Spell', name_zh='', icon='spell_fire_flamebolt',
+            description='English spell description', aura_description='English aura description',
+            snapshot_build='12.1.0.69404',
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=91002,
+            name='快照技能', name_zh='快照技能', icon='spell_fire_flamebolt',
+            description='技能表中文描述', aura_description='技能表光环描述',
+            snapshot_build='12.1.5.70000',
+        )
+        WowItemSnapshot.objects.create(
+            item_id=91003, name='Snapshot Item', name_zh='快照物品',
+            description='English item text', description_zh='物品表中文描述',
+            source='db2',
+        )
+
+        refs = resolve_references(
+            [{'id': 'native', 'type': 'html',
+              'html': '<p>[[talent:91001]] [[spell:91002]] [[item:91003]]</p>'}],
+            '12.1', 'warrior', 'fury',
+        )
+
+        self.assertEqual(refs['[[talent:91001]]']['tooltip_text'], '天赋表中文描述')
+        self.assertEqual(refs['[[talent:91001]]']['tooltip_source'], 'talent_metadata')
+        self.assertEqual(refs['[[spell:91002]]']['tooltip_text'], '技能表中文描述\n技能表光环描述')
+        self.assertEqual(refs['[[spell:91002]]']['tooltip_source'], 'spell_snapshot')
+        self.assertEqual(
+            refs['[[spell:91002]]']['icon'],
+            'https://oss.wowdaily.cn/wow_icons_oss/small/spell_fire_flamebolt.jpg',
+        )
+        self.assertEqual(refs['[[item:91003]]']['tooltip_text'], '物品表中文描述')
+        self.assertEqual(refs['[[item:91003]]']['tooltip_source'], 'item_snapshot')
+
+    def test_talent_tooltip_uses_only_explicit_display_spell_relation(self):
+        version, _ = WowTalentVersion.objects.update_or_create(
+            key='12.1', defaults={
+                'major_version': '12.1.0', 'branch': 'retail',
+                'is_active': True, 'is_default_player_tree': True,
+            },
+        )
+        WowTalentVersion.objects.exclude(pk=version.pk).update(is_default_player_tree=False)
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=version, class_name='priest', spec_name='holy',
+            tree_type='hero_anchor', name_kind='talent', talent_id=99802,
+            node_id=123291, spell_id=123291, display_spell_id=None,
+            reference_aliases=[123291], name='Archon', name_zh='执政官',
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=123291,
+            name='同号但无关的技能', name_zh='同号但无关的技能',
+            description='不得串入英雄专精标题', snapshot_build='12.1.0.69404',
+        )
+
+        refs = resolve_references(
+            [{'id': 'anchor', 'type': 'html', 'html': '<p>[[talent:123291]]</p>'}],
+            '12.1', 'warrior', 'fury',
+        )
+
+        self.assertEqual(refs['[[talent:123291]]']['name'], '执政官')
+        self.assertEqual(
+            refs['[[talent:123291]]']['tooltip_text'],
+            '英雄天赋专精\n该条目用于标识英雄天赋专精分支，不是可施放技能。\n引用 ID：123291',
+        )
+        self.assertEqual(refs['[[talent:123291]]']['tooltip_source'], 'local_reference_fallback')
+
+    def test_reference_without_effect_entity_still_has_local_tooltip(self):
+        version, _ = WowTalentVersion.objects.update_or_create(
+            key='12.1', defaults={'major_version': '12.1.0', 'branch': 'retail'},
+        )
+        for kind, object_id, name_en, name_zh in (
+            ('spell', 999001, 'Missing Spell Entity', '无效果实体技能'),
+            ('item', 999002, 'Missing Item Entity', '无效果实体物品'),
+            ('talent', 999003, 'Missing Talent Effect', '无效果正文天赋'),
+        ):
+            WowTalentNodeMetadata.all_objects.create(
+                talent_version=version, localization_only=True, name_kind=kind,
+                reference_id=object_id, name=name_en, name_zh=name_zh,
+            )
+
+        blocks = [{'id': 'fallbacks', 'type': 'html', 'html': (
+            '<p>[[spell:999001]] [[item:999002]] [[talent:999003]]</p>'
+        )}]
+        refs = resolve_references(blocks, '12.1')
+
+        expected = {
+            '[[spell:999001]]': '技能\n当前版本暂无可用的效果正文。\n技能 ID：999001',
+            '[[item:999002]]': '物品\n当前版本暂无可用的物品说明。\n物品 ID：999002',
+            '[[talent:999003]]': '天赋\n当前版本暂无可用的效果正文。\n引用 ID：999003',
+        }
+        for token, tooltip in expected.items():
+            self.assertEqual(refs[token]['tooltip_text'], tooltip)
+            self.assertEqual(refs[token]['tooltip_source'], 'local_reference_fallback')
+
+        rendered = render_references(blocks[0]['html'], refs)
+        document = BeautifulSoup(rendered, 'html.parser')
+        triggers = document.select('.guide-ref[data-guide-tooltip]')
+        self.assertEqual(len(triggers), 3)
+        self.assertTrue(all(trigger.get('data-tooltip-body') for trigger in triggers))
+
+    def test_placeholder_snapshot_text_uses_honest_local_fallback(self):
+        WowTalentVersion.objects.update_or_create(
+            key='12.1', defaults={'major_version': '12.1.0', 'branch': 'retail'},
+        )
+        create_name(
+            game_version='12.1', kind='spell', object_id=109997,
+            name_en='Placeholder', name_zh='待校订的技能',
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=109997,
+            name='Placeholder', name_zh='Placeholder',
+            description='Placeholder', aura_description='Placeholder',
+            snapshot_build='12.1.0.69404',
+        )
+
+        refs = resolve_references(
+            [{'id': 'placeholder', 'type': 'html', 'html': '<p>[[spell:109997]]</p>'}],
+            '12.1',
+        )
+
+        self.assertEqual(
+            refs['[[spell:109997]]']['tooltip_text'],
+            '技能\n当前版本暂无可用的效果正文。\n技能 ID：109997',
+        )
+        self.assertEqual(
+            refs['[[spell:109997]]']['tooltip_source'],
+            'local_reference_fallback',
+        )
+
+    def test_supplemental_talent_reference_uses_verified_display_spell_globally(self):
+        version, _ = WowTalentVersion.objects.update_or_create(
+            key='12.1', defaults={'major_version': '12.1.0', 'branch': 'retail'},
+        )
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=version, localization_only=True, name_kind='talent',
+            reference_id=101920, tree_type='', display_spell_id=462587,
+            name='White Water', name_zh='急浪飞流',
+        )
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=version, class_name='shaman', spec_name='restoration',
+            name_kind='talent', talent_id=81038, node_id=101920,
+            spell_id=1253093, display_spell_id=1253093,
+            name='Current Control', name_zh='潮汐掌控',
+        )
+        for spell_id, name, description in (
+            (462587, '急浪飞流', '急浪飞流的中文效果。'),
+            (1253093, '潮汐掌控', '不得串入的当前天赋效果。'),
+        ):
+            WowSpellSnapshot.objects.create(
+                branch='wow', locale='zhCN', spell_id=spell_id,
+                name=name, name_zh=name, description=description,
+                snapshot_build='12.1.0.69404',
+            )
+
+        refs = resolve_references(
+            [{'id': 'legacy', 'type': 'html', 'html': '<p>[[talent:101920]]</p>'}],
+            '12.1', 'mage', 'arcane',
+            source_refs={'[[talent:101920]]': {'source_name': 'White Water'}},
+        )
+
+        self.assertEqual(refs['[[talent:101920]]']['name'], '急浪飞流')
+        self.assertEqual(refs['[[talent:101920]]']['tooltip_text'], '急浪飞流的中文效果。')
+        self.assertEqual(refs['[[talent:101920]]']['tooltip_source'], 'spell_snapshot')
 
     def test_import_is_idempotent_and_version_isolated(self):
         _, state = import_post(source_post(), self.url)
@@ -107,17 +294,17 @@ class GuideFlowTests(TestCase):
         self.assertIsNone(document.select_one('#class-guides #class-guide-workspace'))
         self.assertTrue(any('guide_management.js' in script.get('src', '') for script in document.select('script[src]')))
 
-    def test_term_management_lists_versions_and_preserves_version_filter(self):
+    def test_reference_term_management_is_global_while_natural_terms_keep_version_filter(self):
         for version, name in [('12.1', '旧版名称'), ('12.2', '新版名称')]:
             create_name(game_version=version, kind='spell', object_id=30451,
                 name_en='Arcane Blast', name_zh=name, evidence='版本对照')
         endpoint = '/api/dashboard/wow-localization/'
         data = self.client.get(endpoint, {'q': '30451', 'kind': 'spell'}).json()
-        self.assertEqual(data['total'], 2)
+        self.assertEqual(data['total'], 1)
         self.assertTrue({'12.1', '12.2'}.issubset(data['versions']))
         filtered = self.client.get(endpoint, {'version': '12.2', 'q': '30451'}).json()
         self.assertEqual(filtered['total'], 1)
-        self.assertEqual(filtered['records'][0]['name_zh'], '新版名称')
+        self.assertEqual(filtered['records'][0]['name_zh'], '旧版名称')
         self.assertEqual(Client().get(endpoint).status_code, 403)
 
     def test_refresh_translations_rebuilds_unchanged_source_as_candidate(self):
@@ -633,16 +820,17 @@ class GuideFlowTests(TestCase):
         self.assertTrue(check_article(saved)['unresolved_references'])
         self.assertContains(self.client.get(f'/portal/class-guides/{current.pk}/'), '中文正文')
 
-    def test_article_and_standalone_preview_load_wowhead_tooltip_runtime(self):
+    def test_article_and_standalone_preview_load_local_tooltip_runtime(self):
         for path in (
             f'/portal/class-guides/{self.guide.pk}/',
             f'/dashboard/class-guides/{self.guide.pk}/preview/',
         ):
             response = self.client.get(path)
             self.assertEqual(response.status_code, 200)
-            self.assertContains(response, 'https://wow.zamimg.com/widgets/power.js')
-            self.assertContains(response, 'renameLinks: false')
-            self.assertContains(response, 'iconizeLinks: false')
+            self.assertContains(response, 'shared/css/class-guide-tooltip.css')
+            self.assertContains(response, 'shared/js/class-guide-tooltip.js')
+            self.assertNotContains(response, 'wow.zamimg.com/widgets/power.js')
+            self.assertNotContains(response, 'data-wowhead')
 
     def test_translation_is_cached_and_preserves_reference(self):
         blocks = [{'id':'x','type':'html','html':'<p>Cast [[spell:30451]].</p>'}]
@@ -687,40 +875,48 @@ class GuideFlowTests(TestCase):
 
 
 class GuideContentTests(SimpleTestCase):
-    def test_references_render_exact_wowhead_tooltip_links_for_all_supported_kinds(self):
+    def test_references_render_local_tooltip_triggers_for_all_supported_kinds(self):
         references = {
             '[[talent:900]]': {'kind': 'talent', 'id': 900, 'name': '天赋名称', 'resolved': True,
-                               'icon': 'https://example.com/talent.jpg', 'tooltip_kind': 'spell', 'tooltip_id': 30451},
+                               'icon': 'https://example.com/talent.jpg', 'tooltip_title': '天赋名称',
+                               'tooltip_text': '站内天赋描述'},
             '[[spell:133]]': {'kind': 'spell', 'id': 133, 'name': '火球术', 'resolved': True,
-                              'icon': '', 'tooltip_kind': 'spell', 'tooltip_id': 133},
+                              'icon': '', 'tooltip_title': '火球术', 'tooltip_text': '造成火焰伤害'},
             '[[item:19019]]': {'kind': 'item', 'id': 19019, 'name': '雷霆之怒', 'resolved': True,
-                                'icon': '', 'tooltip_kind': 'item', 'tooltip_id': 19019},
+                                'icon': '', 'tooltip_title': '雷霆之怒',
+                                'tooltip_text': '装备：击中时可能触发闪电。'},
         }
 
         rendered = render_references(
             '<p>[[talent:900]] [[spell:133]] [[item:19019]]</p>', references,
         )
         document = BeautifulSoup(rendered, 'html.parser')
-        links = document.select('a.guide-ref[data-wowhead]')
+        triggers = document.select('.guide-ref[data-guide-tooltip]')
 
-        self.assertEqual(len(links), 3)
+        self.assertEqual(len(triggers), 3)
         self.assertEqual(
-            [(link['data-reference-kind'], link['data-reference-id'], link['href']) for link in links],
+            [(node['data-reference-kind'], node['data-reference-id'], node['data-tooltip-body']) for node in triggers],
             [
-                ('talent', '900', 'https://www.wowhead.com/cn/spell=30451'),
-                ('spell', '133', 'https://www.wowhead.com/cn/spell=133'),
-                ('item', '19019', 'https://www.wowhead.com/cn/item=19019'),
+                ('talent', '900', '站内天赋描述'),
+                ('spell', '133', '造成火焰伤害'),
+                ('item', '19019', '装备：击中时可能触发闪电。'),
             ],
         )
-        self.assertTrue(all(link['target'] == '_blank' for link in links))
-        self.assertTrue(all('noopener' in link['rel'] for link in links))
+        self.assertTrue(all(node['tabindex'] == '0' and node['role'] == 'button' for node in triggers))
+        self.assertEqual(
+            triggers[0].find('img')['src'],
+            'https://oss.wowdaily.cn/wow_icons_oss/small/talent.jpg',
+        )
+        self.assertFalse(document.select('a.guide-ref'))
+        self.assertNotIn('wowhead', rendered.casefold())
 
-    def test_talent_tooltip_uses_native_display_spell_without_specialization_scope_in_identity(self):
+    def test_talent_tooltip_uses_native_description_without_specialization_scope_in_identity(self):
         record = {
             'kind': 'talent', 'object_id': 900, 'aliases': [901], 'node_id': 800,
             'spell_id': 30450, 'display_spell_id': 30451, 'name_zh': '奥术天赋',
             'name_en': 'Arcane Talent', 'name': 'Arcane Talent', 'locale': '',
             'icon': '', 'evidence': '测试元数据',
+            'description': 'English talent description', 'description_zh': '站内天赋描述',
         }
         with patch('botend.services.class_guide_content.names_for', return_value=[record]) as names:
             refs = resolve_references(
@@ -728,14 +924,18 @@ class GuideContentTests(SimpleTestCase):
                 '12.1', 'warrior', 'fury',
             )
 
-        self.assertEqual(refs['[[talent:901]]']['tooltip_kind'], 'spell')
-        self.assertEqual(refs['[[talent:901]]']['tooltip_id'], 30451)
+        self.assertEqual(refs['[[talent:901]]']['tooltip_text'], '站内天赋描述')
+        self.assertEqual(refs['[[talent:901]]']['tooltip_source'], 'talent_metadata')
         self.assertEqual(names.call_args.kwargs['reference_ids']['talent'], {901})
 
-    def test_dynamic_dashboard_preview_forces_wowhead_to_scan_new_links(self):
+    def test_dynamic_dashboard_preview_uses_delegated_local_tooltips_without_wowhead(self):
         from django.contrib.staticfiles import finders
         script = Path(finders.find('dashboard/js/class_guides.js')).read_text(encoding='utf-8')
-        self.assertIn('window.$WowheadPower?.refreshLinks?.(true)', script)
+        tooltip_script = Path(finders.find('shared/js/class-guide-tooltip.js')).read_text(encoding='utf-8')
+        self.assertNotIn('WowheadPower', script)
+        self.assertIn("document.addEventListener('pointerover'", tooltip_script)
+        self.assertIn("document.addEventListener('focusin'", tooltip_script)
+        self.assertIn("document.addEventListener('click'", tooltip_script)
 
     def test_inline_styles_cannot_split_a_word_for_translation(self):
         value = '<p>your <strong><mark>Vengea</mark><mark>nce Demon Hunter</mark></strong> and you<mark>r </mark>role.</p>'

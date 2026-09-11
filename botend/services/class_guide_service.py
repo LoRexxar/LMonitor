@@ -252,8 +252,11 @@ def source_version(post, catalog_version=''):
         versions = [value for value in ClassGuide.objects.filter(source_url__startswith='https://maxroll.gg/wow/class-guides/').values_list('game_version', flat=True).distinct()
                     if re.fullmatch(r'\d+\.\d+(?:\.\d+)?', value)]
     if not versions:
+        active_versions = WowTalentVersion.objects.filter(is_active=True, branch='retail')
+        if not active_versions.exists():
+            active_versions = WowTalentVersion.objects.filter(is_active=True)
         versions = [value.removesuffix('.0') if re.fullmatch(r'\d+\.\d+\.0', value) else value
-                    for value in WowTalentVersion.objects.filter(is_active=True).values_list('major_version', flat=True)
+                    for value in active_versions.values_list('major_version', flat=True)
                     if re.fullmatch(r'\d+\.\d+(?:\.\d+)?', value)]
     if not versions:
         raise ValueError('站内尚无可用的游戏版本，请先配置全站游戏版本或从完整目录同步')

@@ -4,7 +4,7 @@ from django.test import TestCase
 from django.template.loader import render_to_string
 from django.contrib.auth import get_user_model
 from botend.models import WowTalentVersion, WowTalentNodeMetadata, WowSpellSnapshot, WowItemSnapshot
-from botend.services.wow_localization import write_name, effective_names, export_names
+from botend.services.wow_localization import current_reference_version, names_for, write_name, effective_names, export_names
 from botend.services.class_guide_content import resolve_references
 from botend.services.class_guide_service import build_guide_glossary
 from botend.services.wow_news_glossary_service import WowNewsGlossary
@@ -30,7 +30,7 @@ class SharedNameTests(TestCase):
 
     def test_import_reuses_native_talent_and_preserves_shared_chinese(self):
         node = WowTalentNodeMetadata.objects.create(talent_version=self.version, class_name='mage', spec_name='arcane',
-            node_id=7, talent_id=8, spell_id=30451, name='Arcane Blast', name_zh='共享中文')
+            node_id=900, talent_id=8, spell_id=30451, name='Arcane Blast', name_zh='共享中文')
         record, created = write_name(self.term())
         self.assertFalse(created)
         self.assertEqual(record['pk'], node.pk)
@@ -48,6 +48,7 @@ class SharedNameTests(TestCase):
             talent_version=self.version, class_name='Warrior', spec_name='Arms',
             node_id=112123, talent_id=99852, spell_id=7384, display_spell_id=7384,
             name='Overpower', name_zh='压制', icon='ability_meleedamage',
+            description_zh='对敌人造成伤害。',
         )
         blocks = [{'id': 'p', 'type': 'html', 'html': '<p>[[talent:112123]]</p>'}]
 
@@ -55,7 +56,59 @@ class SharedNameTests(TestCase):
 
         self.assertTrue(reference['resolved'])
         self.assertEqual(reference['name'], '压制')
-        self.assertEqual(reference['tooltip_id'], 7384)
+        self.assertEqual(reference['tooltip_text'], '对敌人造成伤害。')
+        self.assertEqual(reference['tooltip_source'], 'talent_metadata')
+
+    def test_source_text_reference_ignores_removed_guide_version(self):
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=self.version,
+            localization_only=True,
+            name_kind='talent',
+            reference_id=102435,
+            name='Focused Enmity',
+            name_zh='专注敌意',
+        )
+
+        rows = names_for('12.0.7', source_text='旧攻略 [[talent:102435]]')
+
+        self.assertEqual([(row['kind'], row['object_id']) for row in rows], [('talent', 102435)])
+
+    def test_native_talent_record_exports_entry_id_not_trait_node_id(self):
+        WowTalentNodeMetadata.objects.create(
+            talent_version=self.version,
+            class_name='Warrior',
+            spec_name='Arms',
+            node_id=112123,
+            talent_id=99852,
+            spell_id=7384,
+            name='Overpower',
+            name_zh='压制',
+        )
+
+        rows = effective_names('9.9', reference_ids={'talent': {112123}})
+
+        self.assertEqual([(row['kind'], row['object_id']) for row in rows], [('talent', 112123)])
+
+    def test_talent_reference_uses_entry_id_not_same_numbered_trait_node_id(self):
+        WowTalentNodeMetadata.objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Arcane',
+            node_id=70001, talent_id=112123, spell_id=70002,
+            name='Unrelated Trait Node', name_zh='同号但无关的天赋',
+            description_zh='不得串入的效果。',
+        )
+        WowTalentNodeMetadata.objects.create(
+            talent_version=self.version, class_name='Warrior', spec_name='Arms',
+            node_id=112123, talent_id=99852, spell_id=7384,
+            name='Overpower', name_zh='压制', description_zh='正确的压制效果。',
+        )
+
+        reference = resolve_references(
+            [{'id': 'p', 'type': 'html', 'html': '<p>[[talent:112123]]</p>'}],
+            '12.1', 'mage', 'arcane',
+        )['[[talent:112123]]']
+
+        self.assertEqual(reference['name'], '压制')
+        self.assertEqual(reference['tooltip_text'], '正确的压制效果。')
 
     def test_explicit_spell_id_resolves_from_native_talent_without_class_or_specialization_scope(self):
         WowTalentNodeMetadata.objects.create(
@@ -63,6 +116,12 @@ class SharedNameTests(TestCase):
             node_id=112123, talent_id=99852, spell_id=7384, display_spell_id=1311653,
             name='Overpower', name_zh='压制', icon='ability_meleedamage',
         )
+        for spell_id, description in ((7384, '压制技能描述。'), (1311653, '压制展示技能描述。')):
+            WowSpellSnapshot.objects.create(
+                branch='wow', locale='zhCN', spell_id=spell_id,
+                name='压制', name_zh='压制', description=description,
+                snapshot_build='12.1.0.999',
+            )
         blocks = [{
             'id': 'p', 'type': 'html',
             'html': '<p>[[spell:7384]] [[spell:1311653]]</p>',
@@ -70,10 +129,101 @@ class SharedNameTests(TestCase):
 
         references = resolve_references(blocks, '12.1', 'mage', 'arcane')
 
-        for token, identity in (('[[spell:7384]]', 7384), ('[[spell:1311653]]', 1311653)):
+        for token, description in (
+            ('[[spell:7384]]', '压制技能描述。'),
+            ('[[spell:1311653]]', '压制展示技能描述。'),
+        ):
             self.assertTrue(references[token]['resolved'])
             self.assertEqual(references[token]['name'], '压制')
-            self.assertEqual(references[token]['tooltip_id'], identity)
+            self.assertEqual(references[token]['tooltip_text'], description)
+            self.assertEqual(references[token]['tooltip_source'], 'spell_snapshot')
+
+    def test_reference_uses_global_name_and_current_spell_snapshot_without_guide_version_binding(self):
+        write_name(self.term('spell', 30451))
+        self.version.is_default_player_tree = False
+        self.version.is_active = False
+        self.version.save(update_fields=['is_default_player_tree', 'is_active'])
+        WowTalentVersion.objects.create(
+            key='retail-12.2', major_version='12.2', branch='retail',
+            current_build='12.2.0.999', is_active=True, is_default_player_tree=True,
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=30451,
+            description='当前权威效果。', snapshot_build='12.2.0.999',
+        )
+
+        reference = resolve_references(
+            [{'id': 'p', 'type': 'html', 'html': '<p>[[spell:30451]]</p>'}],
+            '10.0',
+        )['[[spell:30451]]']
+
+        self.assertEqual(reference['name'], '奥术冲击')
+        self.assertEqual(reference['tooltip_text'], '当前权威效果。')
+
+    def test_current_reference_version_prefers_active_tree_over_inactive_default(self):
+        WowTalentVersion.objects.exclude(pk=self.version.pk).delete()
+        self.version.is_active = False
+        self.version.save(update_fields=['is_active'])
+        active = WowTalentVersion.objects.create(
+            key='retail-12.2', major_version='12.2', branch='retail',
+            current_build='12.2.0.999', is_active=True, is_default_player_tree=False,
+        )
+
+        self.assertEqual(current_reference_version(), active)
+
+    def test_current_reference_version_prefers_retail_when_ptr_is_also_active(self):
+        WowTalentVersion.objects.exclude(pk=self.version.pk).delete()
+        self.version.branch = 'retail'
+        self.version.is_active = True
+        self.version.is_default_player_tree = True
+        self.version.save(update_fields=['branch', 'is_active', 'is_default_player_tree'])
+        WowTalentVersion.objects.create(
+            key='ptr', major_version='12.1.5', branch='ptr',
+            current_build='12.1.5.99999', is_active=True,
+            is_default_player_tree=True,
+        )
+
+        self.assertEqual(current_reference_version(), self.version)
+
+    def test_explicit_reference_searches_active_branches_with_retail_priority(self):
+        ptr, _ = WowTalentVersion.objects.update_or_create(
+            key='ptr', defaults=dict(
+                major_version='12.1.5', branch='ptr',
+                current_build='12.1.5.99999', is_active=True,
+            ),
+        )
+        WowTalentNodeMetadata.objects.create(
+            talent_version=ptr, class_name='Mage', spec_name='Arcane',
+            node_id=880001, talent_id=880101, spell_id=880201,
+            name='PTR Only Talent', name_zh='测试服独有天赋',
+            description_zh='测试服效果。',
+        )
+        blocks = [{'id': 'p', 'type': 'html', 'html': '[[talent:880001]]'}]
+
+        reference = resolve_references(blocks, '10.0')['[[talent:880001]]']
+        self.assertEqual(reference['name'], '测试服独有天赋')
+
+        WowTalentNodeMetadata.objects.create(
+            talent_version=self.version, class_name='Mage', spec_name='Arcane',
+            node_id=880001, talent_id=880103, spell_id=880203,
+            name='Legacy Retail Talent', name_zh='旧正式服天赋',
+            description_zh='旧正式服效果。',
+        )
+        stable_retail, _ = WowTalentVersion.objects.update_or_create(
+            key='retail', defaults=dict(
+                major_version='12.1.0', branch='retail',
+                current_build='12.1.0.69283', is_active=True,
+            ),
+        )
+        WowTalentNodeMetadata.objects.create(
+            talent_version=stable_retail, class_name='Mage', spec_name='Arcane',
+            node_id=880001, talent_id=880102, spell_id=880202,
+            name='Retail Talent', name_zh='正式服天赋',
+            description_zh='正式服效果。',
+        )
+        reference = resolve_references(blocks, '99.9')['[[talent:880001]]']
+        self.assertEqual(reference['name'], '正式服天赋')
+        self.assertEqual(reference['tooltip_text'], '正式服效果。')
 
     def test_name_only_rows_do_not_become_tree_nodes_or_simulation_items(self):
         write_name(self.term())
@@ -129,7 +279,7 @@ class SharedNameTests(TestCase):
     def test_shared_page_writes_native_row_and_requires_global_permission(self):
         user = get_user_model().objects.create_superuser('名称管理员', password='测试密码')
         self.client.force_login(user)
-        native = WowTalentNodeMetadata.objects.create(talent_version=self.version, talent_id=900, node_id=800,
+        native = WowTalentNodeMetadata.objects.create(talent_version=self.version, talent_id=800, node_id=900,
             name='Arcane Blast', name_zh='奥术冲击')
         response = self.client.post('/api/dashboard/wow-localization/',
             {**self.term(name_zh='统一中文'), 'create': True}, content_type='application/json')
@@ -214,7 +364,7 @@ class SharedNameTests(TestCase):
         self.assertEqual(row.talent_version, self.version)
         self.assertEqual(row.name, 'Retail Spell')
 
-    def test_create_uses_the_label_from_the_selected_guide_version(self):
+    def test_create_uses_current_authoritative_source_instead_of_guide_version_labels(self):
         user = get_user_model().objects.create_superuser('跨版本名称管理员', password='测试密码')
         self.client.force_login(user)
         self.version.is_default_player_tree = False
@@ -222,6 +372,10 @@ class SharedNameTests(TestCase):
         current = WowTalentVersion.objects.create(
             key='retail-12.2', major_version='12.2', branch='retail', current_build='12.2.0.456',
             is_active=True, is_default_player_tree=True)
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='enUS', spell_id=430451, name='Current Authoritative Name',
+            icon='current_authoritative_icon', snapshot_build='12.2.0.789',
+        )
         ClassGuide.objects.create(
             title='旧攻略', slug='old-guide', class_name='mage', spec_name='arcane',
             spec_id=62, game_version='12.1', content_markdown='使用 [[spell:430451|Old Label]]。')
@@ -236,14 +390,64 @@ class SharedNameTests(TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         row = WowTalentNodeMetadata.all_objects.get(name_kind='spell', reference_id=430451)
         self.assertEqual(row.talent_version, current)
-        self.assertEqual(row.name, 'Current Label')
+        self.assertEqual(row.name, 'Current Authoritative Name')
+        self.assertEqual(row.icon, 'current_authoritative_icon')
 
-    def test_create_does_not_use_wrong_build_or_non_english_spell_snapshot(self):
+    def test_create_uses_current_reference_data_even_when_only_old_guide_mentions_id(self):
+        user = get_user_model().objects.create_superuser('全局引用管理员', password='测试密码')
+        self.client.force_login(user)
+        self.version.is_default_player_tree = False
+        self.version.is_active = False
+        self.version.save(update_fields=['is_default_player_tree', 'is_active'])
+        current = WowTalentVersion.objects.create(
+            key='retail-12.2', major_version='12.2', branch='retail', current_build='12.2.0.999',
+            is_active=True, is_default_player_tree=True,
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='enUS', spell_id=830451, name='Current Spell',
+            icon='current_icon', snapshot_build='12.2.0.1000',
+        )
+        ClassGuide.objects.create(
+            title='旧版本攻略', slug='old-only-guide', class_name='mage', spec_name='arcane',
+            spec_id=62, game_version='12.1', content_markdown='使用 [[spell:830451|Old Guide Label]]。',
+        )
+
+        response = self.client.post('/api/dashboard/wow-localization/', {
+            'object_id': 830451, 'name_zh': '当前技能', 'create': True,
+        }, content_type='application/json')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        row = WowTalentNodeMetadata.all_objects.get(name_kind='spell', reference_id=830451)
+        self.assertEqual(row.talent_version, current)
+        self.assertEqual(row.name, 'Current Spell')
+        self.assertEqual(row.icon, 'current_icon')
+
+    def test_write_reuses_global_reference_row_after_current_version_changes(self):
+        first, created = write_name(self.term('spell', 930451))
+        self.assertTrue(created)
+        self.version.is_default_player_tree = False
+        self.version.save(update_fields=['is_default_player_tree'])
+        WowTalentVersion.objects.create(
+            key='retail-12.2', major_version='12.2', branch='retail', current_build='12.2.0.999',
+            is_active=True, is_default_player_tree=True,
+        )
+
+        updated, created = write_name({
+            **self.term('spell', 930451), 'game_version': '12.2', 'name_zh': '全局修正',
+        }, overwrite=True)
+
+        self.assertFalse(created)
+        self.assertEqual(updated['pk'], first['pk'])
+        self.assertEqual(WowTalentNodeMetadata.all_objects.filter(
+            name_kind='spell', reference_id=930451).count(), 1)
+        self.assertEqual(WowTalentNodeMetadata.all_objects.get(pk=first['pk']).name_zh, '全局修正')
+
+    def test_create_uses_current_snapshot_row_without_snapshot_build_coupling(self):
         user = get_user_model().objects.create_superuser('快照边界管理员', password='测试密码')
         self.client.force_login(user)
         WowSpellSnapshot.objects.create(
-            branch='wow', locale='enUS', spell_id=530451, name='Stale Name',
-            icon='stale_icon', snapshot_build='12.0.0.1')
+            branch='wow', locale='enUS', spell_id=530451, name='Current Snapshot Name',
+            icon='current_snapshot_icon', snapshot_build='12.0.0.1')
         WowSpellSnapshot.objects.create(
             branch='wow', locale='zhCN', spell_id=530451, name='错误写入英文列的中文名',
             icon='zh_icon', snapshot_build='12.1.0.123')
@@ -257,11 +461,11 @@ class SharedNameTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         row = WowTalentNodeMetadata.all_objects.get(name_kind='spell', reference_id=530451)
-        self.assertEqual(row.name, 'Guide Label')
-        self.assertEqual(row.icon, '')
-        self.assertNotIn('WowSpellSnapshot', row.localization_evidence)
+        self.assertEqual(row.name, 'Current Snapshot Name')
+        self.assertEqual(row.icon, 'current_snapshot_icon')
+        self.assertIn('WowSpellSnapshot', row.localization_evidence)
 
-    def test_snapshot_only_spell_uses_the_version_with_matching_branch_and_build(self):
+    def test_snapshot_only_spell_uses_current_storage_bucket_with_other_branch_fallback(self):
         user = get_user_model().objects.create_superuser('PTR 快照管理员', password='测试密码')
         self.client.force_login(user)
         ptr = WowTalentVersion.objects.create(
@@ -277,26 +481,29 @@ class SharedNameTests(TestCase):
 
         self.assertEqual(response.status_code, 200, response.content)
         row = WowTalentNodeMetadata.all_objects.get(name_kind='spell', reference_id=630451)
-        self.assertEqual(row.talent_version, ptr)
+        self.assertEqual(row.talent_version, self.version)
         self.assertEqual(row.name, 'PTR Spell')
         self.assertEqual(row.icon, 'ptr_icon')
 
-    def test_invalid_spell_snapshots_alone_do_not_establish_a_reference(self):
+    def test_snapshot_only_spell_does_not_require_matching_talent_version_build(self):
         user = get_user_model().objects.create_superuser('无效快照管理员', password='测试密码')
         self.client.force_login(user)
         WowSpellSnapshot.objects.create(
-            branch='wow', locale='enUS', spell_id=730451, name='Stale Name',
-            icon='stale_icon', snapshot_build='12.0.0.1')
+            branch='wow', locale='enUS', spell_id=730451, name='Snapshot Name',
+            icon='snapshot_icon', snapshot_build='12.0.0.1')
         WowSpellSnapshot.objects.create(
             branch='wow', locale='zhCN', spell_id=730451, name='中文快照',
             icon='zh_icon', snapshot_build='12.1.0.123')
 
         response = self.client.post('/api/dashboard/wow-localization/', {
-            'object_id': 730451, 'name_zh': '不应创建', 'create': True,
+            'object_id': 730451, 'name_zh': '快照技能', 'create': True,
         }, content_type='application/json')
 
-        self.assertEqual(response.status_code, 400, response.content)
-        self.assertFalse(WowTalentNodeMetadata.all_objects.filter(reference_id=730451).exists())
+        self.assertEqual(response.status_code, 200, response.content)
+        row = WowTalentNodeMetadata.all_objects.get(reference_id=730451)
+        self.assertEqual(row.talent_version, self.version)
+        self.assertEqual(row.name, 'Snapshot Name')
+        self.assertEqual(row.icon, 'snapshot_icon')
 
     def test_edit_preserves_the_target_concrete_version_across_branches(self):
         user = get_user_model().objects.create_superuser('分支编辑管理员', password='测试密码')
@@ -343,13 +550,13 @@ class SharedNameTests(TestCase):
         target.refresh_from_db()
         self.assertEqual(target.name_zh, '旧译名')
 
-    def test_create_rejects_ambiguous_native_names_for_the_same_talent_id(self):
+    def test_create_rejects_ambiguous_native_names_for_the_same_talent_entry_id(self):
         user = get_user_model().objects.create_superuser('歧义名称管理员', password='测试密码')
         self.client.force_login(user)
-        for node_id, name in ((940101, 'First Choice'), (940102, 'Second Choice')):
+        for talent_id, name in ((940101, 'First Choice'), (940102, 'Second Choice')):
             WowTalentNodeMetadata.all_objects.create(
                 talent_version=self.version, class_name='Mage', spec_name='Arcane', tree_type='spec',
-                talent_id=940001, node_id=node_id, spell_id=node_id, name=name, name_zh='')
+                talent_id=talent_id, node_id=940001, spell_id=talent_id, name=name, name_zh='')
         ClassGuide.objects.create(
             title='歧义攻略', slug='ambiguous-native-guide', class_name='mage', spec_name='arcane',
             spec_id=62, game_version='12.1', content_markdown='使用 [[talent:940001|First Choice]]。')
@@ -360,7 +567,7 @@ class SharedNameTests(TestCase):
 
         self.assertEqual(response.status_code, 400, response.content)
         self.assertFalse(WowTalentNodeMetadata.all_objects.filter(
-            talent_id=940001).exclude(name_zh='').exists())
+            node_id=940001).exclude(name_zh='').exists())
         self.assertFalse(WowTalentNodeMetadata.all_objects.filter(
             localization_only=True, reference_id=940001).exists())
 

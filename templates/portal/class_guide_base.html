@@ -6,6 +6,7 @@
 <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
 <link rel="stylesheet" href="{% static 'portal/css/class-guides.css' %}?v=20260908_clean_labels">
 <link rel="stylesheet" href="{% static 'shared/class-guide-author.css' %}">
+<link rel="stylesheet" href="{% static 'shared/css/class-guide-tooltip.css' %}?v=20260910_local">
 </head><body class="portal-bg cg-page">
 {% include 'portal/_header.html' %}
 <a class="cg-skip" href="#cg-main">跳到正文</a>
@@ -13,6 +14,5 @@
 <footer class="cg-footer"><a href="/portal/class-guides/">WowDaily 职业攻略</a><span>中文内容持续维护 · 来源 Maxroll</span><a href="/dashboard/?section=class-guides{% if guide %}&amp;guide={{ guide.id }}{% endif %}">{% if guide %}编辑攻略{% else %}管理攻略{% endif %}</a></footer>
 <script src="{% static 'dashboard/js/class_guide_reader.js' %}" defer></script>
 <script src="{% static 'portal/js/class-guides.js' %}?v=20260908_1" defer></script>
-<script>window.whTooltips = { colorLinks: false, iconizeLinks: false, renameLinks: false };</script>
-<script src="https://wow.zamimg.com/widgets/power.js" defer></script>
+<script src="{% static 'shared/js/class-guide-tooltip.js' %}?v=20260910_local" defer></script>
 </body></html>

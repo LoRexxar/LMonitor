@@ -1,0 +1,6 @@
+.guide-ref[data-guide-tooltip]{cursor:help;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px}
+.guide-ref[data-guide-tooltip]:focus-visible{outline:2px solid #60a5fa;outline-offset:3px;border-radius:3px}
+.guide-reference-tooltip{position:fixed;z-index:10050;width:max-content;max-width:min(420px,calc(100vw - 16px));max-height:calc(100vh - 16px);overflow-y:auto;overscroll-behavior:contain;padding:12px 14px;border:1px solid rgba(148,163,184,.38);border-radius:8px;background:#111827;color:#e5e7eb;box-shadow:0 14px 36px rgba(0,0,0,.34);font:13px/1.55 system-ui,-apple-system,"Microsoft YaHei",sans-serif;pointer-events:auto}
+.guide-reference-tooltip[hidden]{display:none}
+.guide-reference-tooltip__title{display:block;margin-bottom:6px;color:#fbbf24;font-size:14px}
+.guide-reference-tooltip__body{white-space:pre-line;overflow-wrap:anywhere}
