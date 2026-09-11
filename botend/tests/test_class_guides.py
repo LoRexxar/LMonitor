@@ -844,6 +844,7 @@ class GuideFlowTests(TestCase):
         self.assertContains(page, '法师 · 奥术')
         self.assertContains(page, f'/dashboard/?section=class-guides&amp;guide={self.guide.id}')
         self.assertContains(page, 'class=Mage&amp;spec=Arcane')
+        self.assertContains(page, 'shared/js/wow-item-tooltip.js')
         self.assertEqual(page.context['guide'].id, revision.id)
         self.assertEqual(page.context['toc'][0]['title'], '中文章节')
         self.assertContains(self.client.get(endpoint, {'revision':'bad'}), '中文正文')
