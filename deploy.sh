@@ -1,8 +1,20 @@
 #!/bin/bash
 set -e
 
-exec 9>/tmp/lmonitor-deploy.lock
-flock -n 9 || { echo "另一个部署正在运行"; exit 1; }
+DEPLOY_SCRIPT="$(readlink -f "$0")"
+PROJECT_DIR="$(dirname "$DEPLOY_SCRIPT")"
+DEPLOY_LOCK_FILE="${DEPLOY_LOCK_FILE:-/tmp/lmonitor-deploy.lock}"
+cd "$PROJECT_DIR"
+
+if [ "${LMONITOR_DEPLOY_REEXEC:-0}" = "1" ]; then
+    { : >&9; } 2>/dev/null || {
+        echo "部署脚本自更新后未继承部署锁"
+        exit 1
+    }
+else
+    exec 9>"$DEPLOY_LOCK_FILE"
+    flock -n 9 || { echo "另一个部署正在运行"; exit 1; }
+fi
 
 kill_processes() {
     local pattern="$1"
@@ -24,51 +36,48 @@ if [ -x .venv/bin/python ]; then
 fi
 
 echo "=== 1. Git pull ==="
+DEPLOY_HASH_BEFORE="$(sha256sum "$DEPLOY_SCRIPT" | cut -d' ' -f1)"
 GIT_MERGE_AUTOEDIT=no git pull origin master
+DEPLOY_HASH_AFTER="$(sha256sum "$DEPLOY_SCRIPT" | cut -d' ' -f1)"
+
+if [ "$DEPLOY_HASH_BEFORE" != "$DEPLOY_HASH_AFTER" ]; then
+    if [ "${LMONITOR_DEPLOY_REEXEC:-0}" = "1" ]; then
+        echo "部署脚本在自更新重启后再次变化，停止以避免循环"
+        exit 1
+    fi
+    echo "deploy.sh 已更新，保持部署锁并切换到新脚本"
+    export LMONITOR_DEPLOY_REEXEC=1
+    exec "$DEPLOY_SCRIPT" "$@"
+fi
 
 echo "=== 2. Migrate ==="
 
 "$PYTHON_BIN" manage.py migrate --no-input
 
-echo "=== 3. 补齐活动装备 Tooltip ==="
-"$PYTHON_BIN" manage.py repair_gear_builder_tooltips --refresh-cache --workers 8
-
-echo "=== 4. Collectstatic ==="
+echo "=== 3. Collectstatic ==="
 "$PYTHON_BIN" manage.py collectstatic --no-input --ignore='simc_results/*'
 
-echo "=== 5. 更新天赋模拟器数据 ==="
-TALENT_BUILD="12.1.0.69283"
-TALENT_DUMP_DIR=".cache/wago_db2_dumps/${TALENT_BUILD}"
-rm -rf "$TALENT_DUMP_DIR"
-mkdir -p "$TALENT_DUMP_DIR"
-tar -xzf "botend/data/retail_talent_db2_${TALENT_BUILD}.tar.gz" -C "$TALENT_DUMP_DIR"
-"$PYTHON_BIN" manage.py repair_ptr_talent_metadata \
-    --version-key retail \
-    --dump-dir "$TALENT_DUMP_DIR" \
-    --backup-dir .cache/backups \
-    --skip-wowhead
-
-echo "=== 6. 重启 lmweb ==="
+echo "=== 4. 重启 lmweb ==="
 screen -S lmweb -X quit 2>/dev/null || true
 kill_processes 'manage.py runserver 0.0.0.0:18000'
 sleep 2
-screen -dmS lmweb bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py runserver 0.0.0.0:18000 --noreload"
+screen -dmS lmweb bash -lc "cd '$PROJECT_DIR' && $PYTHON_BIN manage.py runserver 0.0.0.0:18000 --noreload"
 
-echo "=== 7. 重启 lmback ==="
+echo "=== 5. 重启 lmback ==="
 screen -S lmback -X quit 2>/dev/null || true
 kill_processes 'LMonitorCoreBackend'
 sleep 2
-screen -dmS lmback bash -lc 'cd ~/LMonitor && ./start.sh'
+screen -dmS lmback bash -lc "cd '$PROJECT_DIR' && ./start.sh"
 
-echo "=== 8. 重启 lmsimc ==="
+echo "=== 6. 重启 lmsimc ==="
 screen -S lmsimc -X quit 2>/dev/null || true
 kill_processes 'manage.py simc_worker'
 sleep 2
-screen -dmS lmsimc bash -lc "cd ~/LMonitor && $PYTHON_BIN manage.py simc_worker"
+screen -dmS lmsimc bash -lc "cd '$PROJECT_DIR' && $PYTHON_BIN manage.py simc_worker"
 
 "$PYTHON_BIN" manage.py recover_interrupted_simc_update
 
-echo "=== 9. 检查服务状态 ==="
+echo "=== 7. 检查服务状态 ==="
 for session in lmweb lmback lmsimc; do
     screen -list | grep -q "\.${session}" || {
         echo "screen 会话 ${session} 启动失败"
