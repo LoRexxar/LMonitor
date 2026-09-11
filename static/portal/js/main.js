@@ -434,6 +434,7 @@ const SECTION_MAP = {
 
 const PORTAL_STATE = {
   query: "",
+  todaySourcesSettled: {},
   dataBySection: {},
   videoTags: [],
   activeVideoTag: "",
@@ -863,7 +864,9 @@ function renderTodayStrip() {
     });
 
   if (!picked.length) {
-    el.innerHTML = `<span class="portal-today-strip-empty">正在加载今日重点...</span>`;
+    const settled = ['blueposts', 'exwind', 'wowhead', 'videos', 'mplus_cutoffs']
+      .every((key) => PORTAL_STATE.todaySourcesSettled[key]);
+    el.innerHTML = `<span class="portal-today-strip-empty">${settled ? '暂无资讯与分数线，查看下方数据动态' : '正在加载资讯与分数线…'}</span>`;
     return;
   }
   el.innerHTML = picked.map((item) => makeTodayChip(item.label, item.text, item.target, item.muted)).join("");
@@ -1790,6 +1793,9 @@ async function loadSection(key) {
       const el = document.getElementById(ep.listId);
       if (el) el.innerHTML = `<div class="text-slate-500">加载失败</div>`;
     }
+  } finally {
+    PORTAL_STATE.todaySourcesSettled[key] = true;
+    renderTodayStrip();
   }
 }
 

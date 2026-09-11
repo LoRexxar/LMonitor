@@ -139,8 +139,10 @@ from botend.simc_agent_api import (
     SimcAgentEnrollmentCodeListAPIView, SimcAgentEnrollmentCodeRevokeAPIView,
 )
 from django.http import HttpResponse, JsonResponse
+from botend.portal.updates import PortalSiteUpdatesAPIView
 
 urlpatterns = [
+    path('portal/api/site-updates/', PortalSiteUpdatesAPIView.as_view(), name='portal_site_updates'),
     path('portal/adventure-journal/', PortalAdventureJournalView.as_view(), name='portal_adventure_journal'),
     path('portal/adventure-journal/art/<int:file_id>/', PortalAdventureJournalArtView.as_view(), name='portal_adventure_journal_art'),
     path('portal/adventure-journal/<int:instance_id>/', PortalAdventureJournalDetailView.as_view(), name='portal_adventure_journal_detail'),
