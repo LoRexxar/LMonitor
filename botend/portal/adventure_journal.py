@@ -23,6 +23,20 @@ def current_release():
     return state.active_release if state else None
 
 
+def _version_label(build):
+    return '.'.join(str(build or '').split('.')[:3])
+
+
+def instance_source(release, instance_id):
+    manifest = release.manifest or {}
+    overlay = (manifest.get('ptr_overlays') or {}).get(str(instance_id))
+    if overlay:
+        build = str(overlay.get('source_build') or '')
+        return {'key': 'ptr', 'label': f'PTR {_version_label(build)}', 'build': build}
+    build = str(manifest.get('retail_build') or release.build.split('+ptr-', 1)[0])
+    return {'key': 'retail', 'label': f'正式服 {_version_label(build)}', 'build': build}
+
+
 def catalog_data(request):
     release = current_release()
     query = request.GET.get('q', '').strip()[:100]
@@ -51,6 +65,7 @@ def catalog_data(request):
         payload['tier_name'] = next((t['name'] for t in result['tiers'] if t['id'] in row.payload['tier_ids'] and t['order'] != 9000), '')
         counts = [n for n in row.payload.get('boss_counts', {}).values() if n] or [row.boss_count]
         payload['boss_count_label'] = str(max(counts)) if min(counts) == max(counts) else f'{min(counts)}–{max(counts)}'
+        payload['source'] = instance_source(release, row.journal_id)
         result['instances'].append(payload)
     return result
 
@@ -79,8 +94,10 @@ def detail_data(request, instance_id):
     boss = boss or (bosses[0] if bosses else None)
     keep = {key: request.GET[key] for key in ('slot', 'class', 'item_type', 'loot_q') if key in request.GET}
     keep.update(difficulty=difficulty, role=role)
+    source = instance_source(release, instance.journal_id)
     result = {'release': {'id': release.id, 'build': release.build, 'updated': release.completed_at},
-              'instance': {**instance.payload, 'kind_label': KINDS.get(instance.kind, '副本')},
+              'source': source,
+              'instance': {**instance.payload, 'kind_label': KINDS.get(instance.kind, '副本'), 'source': source},
               'bosses': [{'id': b.journal_id, 'name': b.name, 'url': '?' + urlencode({**keep, 'tab': 'skills', 'boss': b.journal_id})}
                          for b in bosses], 'boss': None, 'difficulty': difficulty, 'role': role,
               'difficulties': [d for d in release.manifest['catalog']['difficulties'] if d['id'] in available],
@@ -159,7 +176,7 @@ def detail_data(request, instance_id):
         if identity in seen:
             continue
         seen.add(identity)
-        filtered.append({**row, 'details': cached_tooltip('item', row['item_id'], difficulty, release.build)})
+        filtered.append({**row, 'details': cached_tooltip('item', row['item_id'], difficulty, source['build'])})
     result['loot'] = filtered
     overview = next((s['descriptions'].get(str(difficulty), '') for s in payload['sections']
                      if s['type'] == 3 and not s['roles'] and difficulty in s['difficulty_ids']), '')
@@ -229,7 +246,8 @@ class PortalAdventureJournalTooltipView(View):
         boss = boss or next(iter(owners), None)
         if boss is None:
             raise Http404('没有首领')
-        context = {'difficulty': difficulty, 'release': {'build': release.build}}
+        source = instance_source(release, instance.journal_id)
+        context = {'difficulty': difficulty, 'release': {'build': source['build']}, 'source': source}
         if kind == 'item':
             rows = [row for owner in owners for row in owner.payload['loot']]
         else:
@@ -242,7 +260,7 @@ class PortalAdventureJournalTooltipView(View):
             return JsonResponse({'name': referenced['title'],
                                  'lines': referenced['descriptions'].get(str(context['difficulty']), '').splitlines(),
                                  'source': 'Wago', 'url': f'https://wago.tools/journal/{instance_id}?build={context["release"]["build"]}',
-                                 'note': f'正式服 {context["release"]["build"]}，按当前难度解析；动态效果以游戏内实际状态为准。'},
+                                 'note': f'{source["label"]}，按当前难度解析；动态效果以游戏内实际状态为准。'},
                                 json_dumps_params={'ensure_ascii': False})
         from botend.services.journal_tooltip import tooltip
         try:

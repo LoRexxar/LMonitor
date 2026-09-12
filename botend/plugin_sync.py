@@ -50,7 +50,7 @@ PORTAL_MONITOR_TASK_PRIORITY = {
 
 def monitor_default_wait_time(name):
     if name == 'AdventureJournalMonitor':
-        return 86400
+        return 604800  # 7 天；每次仅先检查正式服 build，变化后才完整同步。
     if name == 'MaxrollClassGuideMonitor':
         return 21600  # 6 小时，后续间隔由后台维护。
     if name == "PortalPeakSpecRankMonitor":

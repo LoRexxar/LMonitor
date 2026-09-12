@@ -22,7 +22,15 @@ class PtrJournalGearOverlayTests(TestCase):
             name='正式服测试团本',
             kind='raid',
             expansion=1200,
-            payload={'id': 10, 'name': '正式服测试团本', 'kind': 'raid', 'expansion': 1200},
+            payload={
+                'id': 10,
+                'name': '正式服测试团本',
+                'kind': 'raid',
+                'expansion': 1200,
+                'tier_ids': [70],
+                'difficulty_ids': [14],
+                'boss_counts': {'14': 1},
+            },
         )
         JournalEncounter.objects.create(
             instance=instance,
@@ -150,6 +158,19 @@ class PtrJournalGearOverlayTests(TestCase):
             item__item_id=190001,
             variant_key='live-existing',
         ).exists())
+
+        ptr_catalog = self.client.get('/portal/api/adventure-journal/', {'tier': ''}).json()
+        ptr_instance = next(row for row in ptr_catalog['instances'] if row['id'] == 1324)
+        live_instance = next(row for row in ptr_catalog['instances'] if row['id'] == 10)
+        self.assertEqual(ptr_instance['source'], {
+            'key': 'ptr', 'label': 'PTR 12.1.5', 'build': '12.1.5.69594',
+        })
+        self.assertEqual(live_instance['source'], {
+            'key': 'retail', 'label': '正式服 12.1.0', 'build': '12.1.0.69299',
+        })
+        detail = self.client.get('/portal/adventure-journal/1324/')
+        self.assertContains(detail, 'PTR 12.1.5')
+        self.assertNotContains(detail, '正式服 12.1.0.69299+ptr-12.1.5.69594')
 
     def test_overlay_refuses_to_replace_an_empty_live_catalog(self):
         WowItemVariantSnapshot.objects.all().delete()

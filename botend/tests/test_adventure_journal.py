@@ -366,6 +366,106 @@ class JournalPublicationTests(TestCase):
         self.assertEqual(JournalInstance.objects.filter(release=second).count(), 1)
         self.assertEqual(len(self.client.get('/portal/api/adventure-journal/10/').json()['bosses']), 1)
 
+    def test_full_sync_preserves_legacy_ptr_overlay_catalog(self):
+        ptr_catalog = {
+            'art_ids': [7955915],
+            'tiers': [{'id': 516, 'name': '至暗之夜', 'order': 1200}],
+            'difficulties': [{'id': 14, 'name': '普通', 'context': 3}],
+        }
+        manifest = deepcopy(self.release.manifest)
+        manifest['ptr_overlays'] = {
+            '1324': {
+                'source_build': '12.1.5.69594',
+                'artifact_sha256': 'ptr-artifact',
+            },
+        }
+        manifest['catalog']['art_ids'].extend(ptr_catalog['art_ids'])
+        manifest['catalog']['tiers'].extend(ptr_catalog['tiers'])
+        manifest['catalog']['difficulties'].extend(ptr_catalog['difficulties'])
+        self.release.manifest = manifest
+        self.release.report = {**self.release.report, 'instances': 2, 'encounters': 2, 'ptr_overlays': [1324]}
+        self.release.build = '12.1.0.69587+ptr-12.1.5.69594'
+        self.release.save()
+        instance = JournalInstance.objects.create(
+            release=self.release,
+            journal_id=1324,
+            name="Kith'ix Unbound",
+            kind='raid',
+            expansion=1200,
+            payload={'id': 1324, 'name': "Kith'ix Unbound", 'kind': 'raid', 'expansion': 1200,
+                     'tier_ids': [516], 'difficulty_ids': [14], 'image': 7955915},
+        )
+        JournalEncounter.objects.create(
+            instance=instance,
+            journal_id=2700,
+            name='Kithix',
+            order=1,
+            payload={'id': 2700, 'name': 'Kithix', 'order': 1, 'difficulty_ids': [14],
+                     'sections': [], 'loot': []},
+        )
+
+        second = self.publish()
+
+        self.assertEqual(
+            set(JournalInstance.objects.filter(release=second).values_list('journal_id', flat=True)),
+            {10, 1324},
+        )
+        self.assertEqual(second.manifest['ptr_overlays']['1324']['artifact_sha256'], 'ptr-artifact')
+        self.assertIn(7955915, second.manifest['catalog']['art_ids'])
+        self.assertEqual(second.report['ptr_overlays'], [1324])
+        self.assertEqual(second.build, '12.1.0.69587+ptr-12.1.5.69594')
+
+    def test_full_sync_preserves_release_published_after_fetch_started(self):
+        concurrent = JournalRelease.objects.create(
+            build='12.1.0.69587+ptr-12.1.5.69594',
+            status='completed',
+            manifest={'catalog': self.release.manifest['catalog'], 'ptr_overlays': {}},
+            report=self.release.report,
+            completed_at=timezone.now(),
+        )
+        real_compile = compile_journal
+
+        def compile_after_concurrent_publish(*args, **kwargs):
+            result = real_compile(*args, **kwargs)
+            JournalState.objects.filter(pk='wow-zhCN').update(
+                active_release=concurrent,
+                sync_until=timezone.now() - timedelta(seconds=1),
+            )
+            return result
+
+        captured = []
+
+        def capture_active_release(active_release, rows, catalog, report, retail_build):
+            captured.append(active_release.pk)
+            return rows, catalog, report, {}, retail_build
+
+        with patch('botend.services.journal_service.compile_journal', side_effect=compile_after_concurrent_publish), \
+                patch('botend.services.ptr_journal_gear_overlay.preserve_active_ptr_journal_overlay',
+                      side_effect=capture_active_release):
+            self.publish()
+
+        self.assertEqual(captured, [concurrent.pk])
+
+    def test_retail_instance_replaces_overlay_with_same_id(self):
+        manifest = deepcopy(self.release.manifest)
+        manifest['ptr_overlays'] = {
+            '10': {
+                'source_build': '12.1.5.69594',
+                'artifact_sha256': 'old-ptr-artifact',
+                'catalog': {},
+            },
+        }
+        self.release.manifest = manifest
+        self.release.build = '12.1.0.69587+ptr-12.1.5.69594'
+        self.release.save(update_fields=['manifest', 'build'])
+
+        second = self.publish()
+
+        self.assertEqual(second.build, '12.1.0.69587')
+        self.assertEqual(second.manifest['ptr_overlays'], {})
+        self.assertEqual(second.report.get('ptr_overlays') or [], [])
+        self.assertEqual(JournalInstance.objects.get(release=second, journal_id=10).name, '测试副本')
+
     def test_parallel_sync_is_rejected(self):
         JournalState.objects.filter(pk='wow-zhCN').update(sync_token='其他运行', sync_until=timezone.now() + timedelta(hours=1))
         with self.assertRaisesRegex(ValueError, '已有同步'):
@@ -394,12 +494,29 @@ class JournalPublicationTests(TestCase):
         self.assertEqual(response.json()['source'], 'Wago')
         self.assertEqual(response.json()['lines'], ['英雄特有机制'])
 
-    def test_monitor_is_appended_and_scheduled_daily(self):
+    def test_monitor_is_appended_and_checks_weekly_without_resyncing_same_build(self):
         from LMonitor.config import Monitor_Type_BaseObject_List
         from botend.plugin_sync import monitor_default_wait_time
+        from botend.controller.plugins.wow.AdventureJournalMonitor import AdventureJournalMonitor
         self.assertEqual(Monitor_Type_BaseObject_List[34].__name__, 'MaxrollClassGuideMonitor')
         self.assertEqual(Monitor_Type_BaseObject_List[35].__name__, 'AdventureJournalMonitor')
-        self.assertEqual(monitor_default_wait_time('AdventureJournalMonitor'), 86400)
+        self.assertEqual(monitor_default_wait_time('AdventureJournalMonitor'), 604800)
+        task = SimpleNamespace(flag='')
+        monitor = AdventureJournalMonitor.__new__(AdventureJournalMonitor)
+        monitor.task = task
+        monitor.last_error_detail = ''
+        with patch(
+            'botend.controller.plugins.wow.AdventureJournalMonitor.latest_retail_build',
+            return_value='12.1.0.69587',
+        ), patch(
+            'botend.controller.plugins.wow.AdventureJournalMonitor.current_release_build',
+            return_value='12.1.0.69587+ptr-12.1.5.69594',
+        ), patch(
+            'botend.controller.plugins.wow.AdventureJournalMonitor.sync_journal',
+        ) as sync:
+            self.assertTrue(monitor.scan(''))
+        sync.assert_not_called()
+        self.assertIn('无需完整同步', task.flag)
 
 
 class JournalSourceTests(SimpleTestCase):

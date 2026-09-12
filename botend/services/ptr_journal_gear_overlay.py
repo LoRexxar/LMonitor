@@ -92,6 +92,79 @@ def _active_release_rows(release):
     return rows
 
 
+def _catalog_references(row):
+    tier_ids = {int(value) for value in row.get('tier_ids') or []}
+    difficulty_ids = set()
+    art_ids = set()
+
+    def walk(value, key=''):
+        if isinstance(value, dict):
+            for child_key, child in value.items():
+                walk(child, child_key)
+        elif isinstance(value, list):
+            if key == 'difficulty_ids':
+                difficulty_ids.update(int(item) for item in value if str(item).isdigit())
+            else:
+                for child in value:
+                    walk(child, key)
+        elif key in {'image', 'background', 'icon'} and str(value).isdigit():
+            art_ids.add(int(value))
+
+    walk(row)
+    return tier_ids, difficulty_ids, art_ids - {0}
+
+
+def _legacy_overlay_catalog(active_release, row):
+    """从旧版混合 catalog 精确投影单个 PTR 实例仍引用的目录项。"""
+    catalog = (active_release.manifest or {}).get('catalog') or {}
+    tier_ids, difficulty_ids, art_ids = _catalog_references(row)
+    allowed_art = {int(value) for value in catalog.get('art_ids') or []}
+    return {
+        'art_ids': sorted(art_ids & allowed_art),
+        'tiers': [deepcopy(item) for item in catalog.get('tiers') or [] if int(item.get('id') or 0) in tier_ids],
+        'difficulties': [
+            deepcopy(item) for item in catalog.get('difficulties') or []
+            if int(item.get('id') or 0) in difficulty_ids
+        ],
+    }
+
+
+def preserve_active_ptr_journal_overlay(active_release, rows, catalog, report, retail_build):
+    """把活动 release 的 PTR 实例投影到新的正式服 release。
+
+    正式服数据优先：若正式服已包含同一 JournalInstanceID，则丢弃旧 PTR
+    overlay，避免预览数据永久压过后来发布的正式数据。
+    """
+    overlays = dict((active_release.manifest or {}).get('ptr_overlays') or {}) if active_release else {}
+    if not overlays:
+        return rows, catalog, report, {}, retail_build
+
+    official_ids = {int(row['id']) for row in rows}
+    active_rows = {int(row['id']): row for row in _active_release_rows(active_release)}
+    retained = {}
+    for key, metadata in overlays.items():
+        instance_id = int(key)
+        if instance_id in official_ids or instance_id not in active_rows:
+            continue
+        retained_row = deepcopy(active_rows[instance_id])
+        rows.append(retained_row)
+        metadata = metadata if isinstance(metadata, dict) else {}
+        overlay_catalog = metadata.get('catalog') or _legacy_overlay_catalog(active_release, retained_row)
+        catalog = _merge_catalog(catalog, overlay_catalog)
+        retained[str(instance_id)] = deepcopy(metadata)
+        retained[str(instance_id)]['catalog'] = deepcopy(overlay_catalog)
+
+    if not retained:
+        return rows, catalog, report, {}, retail_build
+
+    report = dict(report)
+    report.update(_release_totals(rows))
+    report['ptr_overlays'] = sorted(map(int, retained))
+    ptr_builds = sorted({str(row.get('source_build') or '') for row in retained.values()} - {''})
+    combined_build = retail_build + ''.join(f'+ptr-{build}' for build in ptr_builds)
+    return rows, catalog, report, retained, combined_build
+
+
 def _item_defaults(item, existing=None):
     existing = existing or None
     metadata = deepcopy(existing.metadata if existing else {})
@@ -244,6 +317,7 @@ def import_ptr_journal_gear_overlay(path, *, apply=False):
             'source_build': build,
             'artifact_sha256': artifact_hash,
             'manifest': deepcopy(payload['journal'].get('manifest') or {}),
+            'catalog': deepcopy(payload['journal'].get('catalog') or {}),
         }
         manifest['ptr_overlays'] = overlays
         release_report = deepcopy(previous.report or {})

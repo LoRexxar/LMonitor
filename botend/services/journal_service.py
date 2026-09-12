@@ -253,8 +253,6 @@ def sync_journal(*, build='', directory=None, offline=False, refresh=False, prog
         from botend.services.journal_items import supplement_items
         supplements = supplement_items(tables, source, enabled=fallback)
         rows, catalog, report = compile_journal(tables, item_fallback=supplements)
-        release.manifest = {'tables': source.manifest, 'catalog': catalog}
-        release.report = report
         if not report['instances'] or not report['encounters'] or not report['loot']:
             raise ValueError('核心冒险手册数据为空，拒绝发布')
         if report['missing_item_ids']:
@@ -264,6 +262,24 @@ def sync_journal(*, build='', directory=None, offline=False, refresh=False, prog
             if state.sync_token != token:
                 raise ValueError('同步租约已被其他任务接管，拒绝发布过期结果')
             previous = state.active_release
+            # 抓取可能超过 lease；必须在最终发布锁内读取最新活动 release，
+            # 否则期间合法写入的 PTR overlay 会被旧快照覆盖。
+            from botend.services.ptr_journal_gear_overlay import preserve_active_ptr_journal_overlay
+            rows, catalog, report, ptr_overlays, published_build = preserve_active_ptr_journal_overlay(
+                previous,
+                rows,
+                catalog,
+                report,
+                build,
+            )
+            release.build = published_build
+            release.manifest = {
+                'tables': source.manifest,
+                'catalog': catalog,
+                'retail_build': build,
+                'ptr_overlays': ptr_overlays,
+            }
+            release.report = report
             for key, label in (('instances', '副本'), ('encounters', '首领'), ('sections', '技能'), ('loot', '掉落')):
                 if previous and report[key] < previous.report.get(key, 0) * .8:
                     raise ValueError(f'{label}数量异常下降超过 20%，拒绝自动发布')
