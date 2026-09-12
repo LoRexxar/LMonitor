@@ -245,8 +245,9 @@ class Command(BaseCommand):
             meta_en = self._fetch_wowhead_en(session, item_id, ptr=opts['ptr']) if (opts['force'] or needs_en) else {}
             if not meta and not meta_en:
                 failed += 1
-                meta = {}
-                meta_en = {}
+                self.stderr.write(f'物品 {item_id} 权威元数据抓取失败，保留现有快照')
+                time.sleep(opts['sleep'])
+                continue
             fallback_name_zh = fallback.get('name_zh') if _has_cjk(fallback.get('name_zh')) else ''
             fallback_desc_zh = fallback.get('description_zh') if _has_cjk(fallback.get('description_zh')) and not _is_wowhead_seo_description(fallback.get('description_zh')) else ''
             row_name_zh = row.name_zh if row and _has_cjk(row.name_zh) else ''
