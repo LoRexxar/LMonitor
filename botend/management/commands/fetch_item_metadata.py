@@ -62,6 +62,20 @@ def _first_text(value):
     return re.sub(r'\s+', ' ', value).strip()
 
 
+def _has_authority_facts(metadata):
+    """只把抓取响应中的真实字段视为可持久化事实。"""
+    if not isinstance(metadata, dict):
+        return False
+    if any(_first_text(metadata.get(field)) for field in (
+        'name', 'name_zh', 'description', 'description_zh',
+    )):
+        return True
+    icon = _norm_icon(metadata.get('icon'))
+    if icon and icon != 'inv_misc_questionmark':
+        return True
+    return _coerce_quality(metadata.get('quality')) > 0
+
+
 def _has_cjk(value):
     return bool(re.search(r'[\u3400-\u9fff]', str(value or '')))
 
@@ -243,7 +257,7 @@ class Command(BaseCommand):
                 continue
             meta = self._fetch_wowhead_cn(session, item_id, ptr=opts['ptr']) if (opts['force'] or needs_cn) else {}
             meta_en = self._fetch_wowhead_en(session, item_id, ptr=opts['ptr']) if (opts['force'] or needs_en) else {}
-            if not meta and not meta_en:
+            if not _has_authority_facts(meta) and not _has_authority_facts(meta_en):
                 failed += 1
                 self.stderr.write(f'物品 {item_id} 权威元数据抓取失败，保留现有快照')
                 time.sleep(opts['sleep'])
