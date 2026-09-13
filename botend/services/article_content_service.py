@@ -194,6 +194,13 @@ def translate_blocks(blocks: Iterable[Dict[str, Any]], translated_pairs: Any) ->
 
 
 def _select_article_root(soup, *, source: str = ""):
+    if source == "blizzard_cn":
+        for selector in ("#blog .detail", ".Blog .detail"):
+            root = soup.select_one(selector)
+            if root is not None:
+                return root
+        return None
+
     selectors = []
     if source == "wowhead":
         selectors.extend([
@@ -203,11 +210,6 @@ def _select_article_root(soup, *, source: str = ""):
             ".blog-post .text",
             "div.news-post-content",
             "div.news-post-text",
-        ])
-    elif source == "blizzard_cn":
-        selectors.extend([
-            "#blog .detail",
-            ".Blog .detail",
         ])
     selectors.extend([
         ".article-content",

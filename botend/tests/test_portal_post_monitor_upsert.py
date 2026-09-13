@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from botend.controller.plugins.portal.PortalPostMonitor import PortalPostMonitor, _hash_url
+from botend.services.article_content_service import extract_structured_article
 
 
 class PortalPostMonitorUpsertTests(SimpleTestCase):
@@ -171,3 +172,55 @@ class PortalPostMonitorBlizzardChinaTests(SimpleTestCase):
         calls = monitor._upsert_article.call_args_list
         self.assertEqual(calls[0].kwargs["description"], "第一篇短摘要")
         self.assertEqual(calls[1].kwargs["description"], "第二篇短摘要")
+
+    def test_update_preserves_image_only_detail_and_uses_source_summary_as_plain_content(self):
+        url = "https://wow.blizzard.cn/news/2684192216/index.html"
+        listing = MagicMock(status_code=200)
+        listing.content = f"""
+        <a href="{url}">
+          <div class="list-title">国服21周年庆开启</div>
+          <div class="list-desc">坐骑免费送，周年庆活动即将开启。</div>
+          <div class="list-time" data-time="2026-08-03"></div>
+        </a>
+        """.encode("utf-8")
+        detail = MagicMock(status_code=200)
+        detail.text = """
+        <html><body><div id="blog"><div class="detail">
+          <p></p>
+          <p><img src="https://nie.res.netease.com/event.png"></p>
+        </div></div></body></html>
+        """
+
+        monitor = PortalPostMonitor.__new__(PortalPostMonitor)
+        monitor.req = MagicMock()
+        monitor.req.get.side_effect = [listing, detail]
+        saved = MagicMock(content="", content_blocks="")
+        monitor._upsert_article = MagicMock(return_value=saved)
+
+        with patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.WowArticle.objects"
+        ) as objects, patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.upload_article_images_in_blocks",
+            side_effect=lambda blocks, **kwargs: blocks,
+        ), patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.upsert_system_alert"
+        ):
+            objects.filter.return_value.only.return_value.first.return_value = MagicMock(
+                content="", content_blocks=""
+            )
+            monitor.update_blizzard_cn_news()
+
+        saved.save.assert_called_once()
+        self.assertEqual(saved.content, "坐骑免费送，周年庆活动即将开启。")
+        blocks = json.loads(saved.content_blocks)
+        self.assertEqual(blocks[0]["type"], "html")
+        self.assertIn('src="https://nie.res.netease.com/event.png"', blocks[0]["html"])
+
+    def test_extractor_does_not_fall_back_when_blizzard_detail_root_is_missing(self):
+        blocks = extract_structured_article(
+            "<html><body><main><p>错误页通用内容，不是国服新闻正文。</p></main></body></html>",
+            base_url="https://wow.blizzard.cn/news/missing",
+            source="blizzard_cn",
+        )
+
+        self.assertEqual(blocks, [])

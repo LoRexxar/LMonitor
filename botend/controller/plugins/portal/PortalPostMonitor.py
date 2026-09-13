@@ -458,8 +458,8 @@ class PortalPostMonitor(BaseScan):
                     description=desc or None,
                     publish_time=dt or timezone.now(),
                 )
-                body = blocks_to_plain_text(blocks)
-                if obj and blocks and body:
+                body = blocks_to_plain_text(blocks) or (desc or title)
+                if obj and blocks:
                     obj.content = body
                     obj.content_blocks = dumps_blocks(blocks)
                     obj.save(update_fields=["content", "content_blocks"])
