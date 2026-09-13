@@ -486,7 +486,11 @@ class PortalPostMonitor(BaseScan):
             resp = self.req.get(url, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
             if not resp or resp.status_code != 200:
                 return []
-            html_text = resp.text or ''
+            raw_content = getattr(resp, 'content', None)
+            if isinstance(raw_content, (bytes, bytearray)):
+                html_text = bytes(raw_content).decode('utf-8', 'ignore')
+            else:
+                html_text = resp.text or ''
             if not html_text:
                 return []
             blocks = extract_structured_article(

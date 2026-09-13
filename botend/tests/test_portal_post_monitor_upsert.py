@@ -121,7 +121,7 @@ class PortalPostMonitorBlizzardChinaTests(SimpleTestCase):
         </a>
         """.encode("utf-8")
         detail = MagicMock(status_code=200)
-        detail.text = """
+        detail_html = """
         <html><body>
           <div id="blog"><div class="Blog"><div class="detail">
             <h2>版本亮点</h2>
@@ -132,6 +132,8 @@ class PortalPostMonitorBlizzardChinaTests(SimpleTestCase):
           <div class="footer">不应进入正文</div>
         </body></html>
         """
+        detail.content = detail_html.encode("utf-8")
+        detail.text = detail.content.decode("latin-1")
 
         monitor = PortalPostMonitor.__new__(PortalPostMonitor)
         monitor.req = MagicMock()
