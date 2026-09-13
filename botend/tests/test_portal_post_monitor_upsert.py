@@ -1,3 +1,4 @@
+import json
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
@@ -99,3 +100,74 @@ class PortalPostMonitorExwindTests(SimpleTestCase):
         self.assertEqual(saved["title"], "职业调整即将到来 – 9月1日")
         self.assertEqual(saved["description"], existing_description)
         self.assertEqual(saved["publish_time"].strftime("%Y-%m-%d %H:%M:%S"), "2026-08-29 06:27:00")
+
+
+class PortalPostMonitorBlizzardChinaTests(SimpleTestCase):
+    def test_update_stores_detail_as_structured_body_and_skips_existing_body(self):
+        first_url = "https://wow.blizzard.cn/news/24302576"
+        second_url = "https://wow.blizzard.cn/news/24302577"
+        listing = MagicMock(status_code=200)
+        listing.content = f"""
+        <a href="{first_url}">
+          <div class="list-title">第一篇国服新闻</div>
+          <div class="list-desc">第一篇短摘要</div>
+          <div class="list-time" data-time="2026-09-12"></div>
+        </a>
+        <a href="{second_url}">
+          <div class="list-title">已有正文的新闻</div>
+          <div class="list-desc">第二篇短摘要</div>
+          <div class="list-time" data-time="2026-09-11"></div>
+        </a>
+        """.encode("utf-8")
+        detail = MagicMock(status_code=200)
+        detail.text = """
+        <html><body>
+          <div id="blog"><div class="Blog"><div class="detail">
+            <h2>版本亮点</h2>
+            <p>国服官网正文第一段。</p>
+            <ul><li>保留列表项目</li></ul>
+            <img src="/static/news/feature.jpg" alt="专题图片">
+          </div></div></div>
+          <div class="footer">不应进入正文</div>
+        </body></html>
+        """
+
+        monitor = PortalPostMonitor.__new__(PortalPostMonitor)
+        monitor.req = MagicMock()
+        monitor.req.get.side_effect = [listing, detail]
+        monitor._upsert_article = MagicMock()
+
+        missing_body = MagicMock(content="", content_blocks="")
+        complete_body = MagicMock(
+            content="已有完整正文",
+            content_blocks=json.dumps([{"type": "html", "html": "<p>已有完整正文</p>"}]),
+        )
+        saved_missing = MagicMock(content="", content_blocks="")
+        saved_complete = MagicMock(content=complete_body.content, content_blocks=complete_body.content_blocks)
+        monitor._upsert_article.side_effect = [saved_missing, saved_complete]
+
+        with patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.WowArticle.objects"
+        ) as objects, patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.upload_article_images_in_blocks",
+            side_effect=lambda blocks, **kwargs: blocks,
+        ):
+            objects.filter.return_value.only.return_value.first.side_effect = [missing_body, complete_body]
+            monitor.update_blizzard_cn_news()
+
+        self.assertEqual(monitor.req.get.call_count, 2)
+        saved_missing.save.assert_called_once()
+        self.assertEqual(set(saved_missing.save.call_args.kwargs["update_fields"]), {"content", "content_blocks"})
+        self.assertIn("国服官网正文第一段", saved_missing.content)
+        self.assertIn("保留列表项目", saved_missing.content)
+        blocks = json.loads(saved_missing.content_blocks)
+        self.assertEqual(blocks[0]["type"], "html")
+        self.assertIn("<h2>版本亮点</h2>", blocks[0]["html"])
+        self.assertIn("<ul><li>保留列表项目</li></ul>", blocks[0]["html"])
+        self.assertIn('src="https://wow.blizzard.cn/static/news/feature.jpg"', blocks[0]["html"])
+        self.assertNotIn("不应进入正文", blocks[0]["html"])
+        saved_complete.save.assert_not_called()
+
+        calls = monitor._upsert_article.call_args_list
+        self.assertEqual(calls[0].kwargs["description"], "第一篇短摘要")
+        self.assertEqual(calls[1].kwargs["description"], "第二篇短摘要")

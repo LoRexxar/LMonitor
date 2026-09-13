@@ -204,6 +204,11 @@ def _select_article_root(soup, *, source: str = ""):
             "div.news-post-content",
             "div.news-post-text",
         ])
+    elif source == "blizzard_cn":
+        selectors.extend([
+            "#blog .detail",
+            ".Blog .detail",
+        ])
     selectors.extend([
         ".article-content",
         ".post-content",
