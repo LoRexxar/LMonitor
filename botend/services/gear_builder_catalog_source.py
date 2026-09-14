@@ -15,6 +15,7 @@ from urllib.parse import urlencode
 import requests
 
 from botend.services.season_keys import canonical_season_key
+from botend.services.gear_builder_tier_sources import tier_set_sources
 
 from botend.constants.wow import SPEC_IDENTITY_MAP, localize_gear_source
 from botend.services.article_image_service import _get_configured_proxies
@@ -557,23 +558,11 @@ class CurrentGearCatalogSource:
 
     @classmethod
     def _add_tier_set_items(cls, by_id, catalyst_items, item_sets, profile, catalyst, raid_ids, instance_by_id):
-        """把当前赛季化生目录中的职业套装映射为团本可获取装备。"""
+        """补齐当前赛季职业套装，并按部位关联实际掉落首领。"""
         if not catalyst:
             return
         catalyst_id = _safe_int(catalyst.get('id'))
         sets_by_id = {_safe_int(row.get('id')): row for row in item_sets}
-        sources = []
-        for raid_id in raid_ids:
-            raid = instance_by_id.get(raid_id) or {}
-            localized = localize_gear_source({
-                'type': 'raid',
-                'instance_id': raid_id,
-                'instance': str(raid.get('name') or ''),
-                'encounter': 'Tier Set / Catalyst',
-                'encounter_zh': '职业套装（首领兑换或化生）',
-                'difficulty': 'Normal / Heroic / Mythic',
-            })
-            sources.append(localized)
         for raw in catalyst_items:
             set_id = _safe_int(raw.get('itemSetId'))
             if not set_id or _safe_int(raw.get('expansion')) != 11:
@@ -599,6 +588,7 @@ class CurrentGearCatalogSource:
                 for row in item_set.get('spells') or []
                 if _safe_int(row.get('spellId'))
             ]
+            sources = tier_set_sources(item['metadata'], item['slot_key']) or []
             cls._add_drop_variants(item, profile, 'raid', sources)
 
     @staticmethod

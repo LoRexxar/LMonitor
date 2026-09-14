@@ -370,6 +370,68 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(source['encounter_zh'], '乌拉特克')
         self.assertEqual(source['difficulty_zh'], '史诗')
 
+    def test_bootstrap_numbers_bosses_within_each_raid_and_excludes_trash(self):
+        self.season.raid_encounters = [
+            {'id': 12, 'sourceInstanceId': 100, 'order': 2},
+            {'id': -97, 'sourceInstanceId': 100, 'order': 99},
+            {'id': 11, 'sourceInstanceId': 100, 'order': 1},
+            {'id': 21, 'sourceInstanceId': 200, 'order': 100},
+        ]
+        self.season.save(update_fields=['raid_encounters'])
+
+        payload = self.client.get('/portal/api/gear-builder/bootstrap/').json()
+
+        self.assertEqual(payload['raid_boss_numbers'], {
+            '100': {'11': 1, '12': 2}, '200': {'21': 1},
+        })
+
+    def test_catalog_projects_legacy_tier_sources_to_actual_bosses(self):
+        self.helm.metadata = {'is_tier_set': True, 'item_set_id': 2067}
+        self.helm.save(update_fields=['metadata'])
+        legacy = [{'type': 'raid', 'instance_zh': '错误团本', 'encounter_zh': '职业套装（首领兑换或化生）'}]
+        self.hero.source_json = legacy
+        self.hero.save(update_fields=['source_json'])
+
+        rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head',
+        }).json()['items']
+        variant = next(v for row in rows for v in row['variants'] if v['id'] == self.hero.id)
+
+        self.assertEqual([row['encounter_id'] for row in variant['sources']], [2887, 2895])
+        self.assertIn('双子毒牙', variant['tooltip'])
+        self.assertIn('乌拉特克', variant['tooltip'])
+        self.assertNotIn('化生', variant['tooltip'])
+        self.assertNotIn('错误团本', variant['tooltip'])
+        self.hero.refresh_from_db()
+        self.assertEqual(self.hero.source_json, legacy)
+        rules = self.client.get('/portal/api/gear-builder/bootstrap/').json()['tier_set_sources']
+        self.assertIn(2067, rules['set_ids'])
+        self.assertEqual(rules['slots']['head'], variant['sources'])
+
+    def test_bootstrap_prefers_active_journal_boss_order(self):
+        from botend.journal_models import JournalEncounter, JournalInstance, JournalRelease, JournalState
+
+        self.season.raid_encounters = [
+            {'id': 11, 'sourceInstanceId': 100, 'order': 1},
+            {'id': 12, 'sourceInstanceId': 100, 'order': 2},
+        ]
+        self.season.save(update_fields=['raid_encounters'])
+        release = JournalRelease.objects.create(build='12.1.0.99999', status='completed')
+        JournalState.objects.create(key='wow-zhCN', active_release=release)
+        raid = JournalInstance.objects.create(
+            release=release, journal_id=100, name='测试团本', kind='raid',
+        )
+        JournalEncounter.objects.create(instance=raid, journal_id=12, name='第一首领', order=0)
+        JournalEncounter.objects.create(instance=raid, journal_id=11, name='第二首领', order=10)
+        dungeon = JournalInstance.objects.create(
+            release=release, journal_id=300, name='测试地下城', kind='dungeon',
+        )
+        JournalEncounter.objects.create(instance=dungeon, journal_id=31, name='地下城首领', order=1)
+
+        payload = self.client.get('/portal/api/gear-builder/bootstrap/').json()
+
+        self.assertEqual(payload['raid_boss_numbers'], {'100': {'12': 1, '11': 2}})
+
     def test_catalog_hides_invalid_myth_track_from_legacy_delve_batch(self):
         invalid_delve = WowItemVariantSnapshot.objects.create(
             item=self.helm, season=self.season, batch_key='test-batch',
@@ -1251,7 +1313,22 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertEqual(item['effect_refs'][0]['spec_id'], 72)
         self.assertEqual({row['upgrade_track'] for row in item['variants']}, {'champion', 'hero', 'myth'})
         self.assertEqual(item['variants'][0]['sources'][0]['type'], 'raid')
-        self.assertEqual(item['variants'][0]['sources'][0]['encounter_zh'], '职业套装（首领兑换或化生）')
+        self.assertEqual(item['variants'][0]['sources'][0]['encounter_zh'], '迷失的探险者')
+        self.assertEqual([row['encounter_id'] for row in item['variants'][0]['sources']], [2894, 2895])
+        self.assertEqual({row['instance_id'] for row in item['variants'][0]['sources']}, {1320})
+
+    def test_tier_sources_cover_all_current_classes_and_only_set_slots(self):
+        from botend.services.gear_builder_tier_sources import tier_set_sources
+
+        for set_id in range(2055, 2068):
+            for slot, encounter_id in {'hands': 2874, 'shoulders': 2894, 'chest': 2882, 'legs': 2871, 'head': 2887}.items():
+                with self.subTest(set_id=set_id, slot=slot):
+                    sources = tier_set_sources({'item_set_id': set_id}, slot)
+                    self.assertEqual([row['encounter_id'] for row in sources], [encounter_id, 2895])
+                    self.assertEqual(len(sources[0]['loot_item_ids']), 4)
+                    self.assertEqual(sources[1]['loot_item_ids'], [270909])
+        for metadata, slot in [({}, 'head'), ({'item_set_id': 1}, 'head'), ({'item_set_id': 2067}, 'feet')]:
+            self.assertIsNone(tier_set_sources(metadata, slot))
 
     def test_wowhead_tooltip_parser_extracts_scaled_stats_and_crafted_options(self):
         details = _tooltip_details({
@@ -1441,7 +1518,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260903_unified_item_tooltip", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260914_stat_percent", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
@@ -1449,7 +1526,7 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
-        self.assertIn("portal/css/gear_builder.css' %}?v=20260902_gear_builder_v15", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20260914_stat_percent", template)
         for value in ('gear-owned-add-icon', 'gear-owned-add-label', 'is-saving', 'is-added', '再次点击会增加数量'):
             self.assertIn(value, script)
         self.assertIn('.gear-owned-add:focus-visible', styles)

@@ -6,6 +6,7 @@ from django.db.models import Exists, OuterRef
 from botend.constants.wow import localize_gear_source
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
 from botend.templatetags.wow_tags import wow_icon_oss_url
+from botend.services.gear_builder_tier_sources import tier_set_sources
 
 
 STAT_LABELS = {
@@ -170,6 +171,12 @@ def item_display_metadata(
     variant_metadata = (
         variant.metadata if variant is not None and isinstance(variant.metadata, dict) else {}
     )
+    tier_sources = tier_set_sources(
+        {**(snapshot.metadata or {}), **variant_metadata} if snapshot else variant_metadata,
+        snapshot.slot_key if snapshot else '',
+    )
+    if tier_sources is not None:
+        sources = tier_sources
     primary_values = (
         variant_metadata.get('primary_stat_values')
         if isinstance(variant_metadata.get('primary_stat_values'), dict) else {}

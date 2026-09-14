@@ -47,11 +47,15 @@
     min_damage: "最低伤害", max_damage: "最高伤害",
   };
   const SUMMARY_STATS = ["crit", "haste", "mastery", "versatility"];
+  const STAT_ORDER = [
+    "strength", "agility", "intellect", "stamina", "armor", "bonus_armor", ...SUMMARY_STATS,
+    "leech", "avoidance", "speed", "weapon_dps", "min_damage", "max_damage",
+  ];
   const STAT_COLORS = {
     strength: "#cf2f2f", agility: "#1e9a50", intellect: "#3978d9", stamina: "#7d59c4",
     crit: "#ed7b2d", haste: "#24a7bd", mastery: "#7c3aed", versatility: "#c59d28",
   };
-  const SECONDARY_STATS = new Set(["crit", "haste", "mastery", "versatility"]);
+  const SECONDARY_STATS = new Set(SUMMARY_STATS);
   const SHARE_FORMAT_VERSION = 4;
   const LOADOUT_LIBRARY_KEY = "wowdaily:gear-builder:loadouts:v1";
   const MAX_SAVED_LOADOUTS = 30;
@@ -97,6 +101,7 @@
       viewMode: "editor",
       mobileView: "browser",
       equipment: {},
+      lockedSlots: [],
     };
   }
 
@@ -156,14 +161,24 @@
 
   function tooltipText(item, variant) {
     const canonicalTooltip = String(variant?.tooltip || "").trim();
-    if (canonicalTooltip) return canonicalTooltip;
+    if (canonicalTooltip) {
+      const sorted = sortTooltipStats(canonicalTooltip);
+      const numberedRaidSource = variantSources(variant).some((row) => raidBossNumber(row));
+      if (!numberedRaidSource) return sorted;
+      const lines = sorted.split("\n").filter((line) => !/^来源\s*[:：]/.test(line.trim()));
+      lines.push(`来源：${sourceText(variant).replaceAll("\n", "；")}`);
+      return lines.join("\n");
+    }
     const values = [];
     if (variant?.item_level) values.push(`物品等级 ${variant.item_level}`);
-    Object.entries(variant?.stats || {}).forEach(([key, value]) => values.push(`+${formatNumber(value)} ${STAT_LABELS[key] || key}`));
+    sortedStatEntries(variant?.stats).forEach(([key, value]) => values.push(`+${formatNumber(value)} ${STAT_LABELS[key] || key}`));
     variantEffectDescriptions(item, variant).forEach((description) => {
       values.push(String(description).replace(/\r\n?/g, "\n").split("\n")
         .filter((line) => !isRedundantDescriptionLine(line, variant)).join("\n"));
     });
+    if (variantSources(variant).some((row) => raidBossNumber(row))) {
+      values.push(`来源：${sourceText(variant).replaceAll("\n", "；")}`);
+    }
     const seen = new Set();
     return values.flatMap((value) => String(value || "").replace(/\r\n?/g, "\n").split("\n"))
       .map((line) => line.trim()).filter((line) => {
@@ -173,6 +188,29 @@
         seen.add(identity);
         return true;
       }).join("\n");
+  }
+
+  function statOrder(key) {
+    const index = STAT_ORDER.indexOf(key);
+    return index < 0 ? STAT_ORDER.length : index;
+  }
+
+  function sortedStatEntries(stats) {
+    return Object.entries(stats || {}).sort(([left], [right]) => statOrder(left) - statOrder(right));
+  }
+
+  function sortTooltipStats(text) {
+    const lines = text.replace(/\r\n?/g, "\n").split("\n");
+    const rank = (line) => {
+      const normalized = line.normalize("NFKC").trim().replaceAll("躲闪", "闪避");
+      const labels = normalized.replace(/^[+]?\s*[\d,.]+\s*(?:点\s*)?/, "")
+        .replace(/[\[\]]/g, "").split(/\s*(?:or|或|\/|、)\s*/i).map((label) => label.trim());
+      return STAT_ORDER.findIndex((key) => labels.includes(STAT_LABELS[key]));
+    };
+    // 仅重排独立属性行，保留装等、特效正文和来源的原始内容与位置。
+    const stats = lines.filter(isStandaloneTooltipStatLine).sort((left, right) => rank(left) - rank(right));
+    let index = 0;
+    return lines.map((line) => isStandaloneTooltipStatLine(line) ? stats[index++] : line).join("\n");
   }
 
   function tooltipAttrs(item, variant) {
@@ -187,20 +225,41 @@
     return effect?.description_zh || effect?.description || effect?.name_zh || effect?.name || "";
   }
 
+  function variantSources(variant) {
+    const catalog = bootstrap?.tier_set_sources;
+    const setId = Number(variant?.metadata?.item_set_id);
+    const slot = variant?.compatible_slots?.[0];
+    if (catalog?.set_ids?.includes(setId) && catalog.slots?.[slot]) return catalog.slots[slot];
+    return Array.isArray(variant?.sources) ? variant.sources : [];
+  }
+
   function sourceText(variant) {
-    const rows = Array.isArray(variant?.sources) ? variant.sources : [];
+    const rows = variantSources(variant);
     if (!rows.length) return "来源待补全";
     return rows.slice(0, 2).map((row) => {
       if (typeof row === "string") return row;
       const type = row.type_zh || SOURCE_LABELS[row.type] || "其他来源";
-      const instance = row.instance_zh || "";
-      const encounter = row.encounter_zh || row.boss_zh || "";
+      const instance = row.instance_zh || row.instance || "";
+      const encounter = row.encounter_zh || row.boss_zh || row.encounter || row.boss || "";
+      const bossNumber = raidBossNumber(row);
+      const location = bossNumber && encounter
+        ? `${instance}${bossNumber}号 ${encounter}`
+        : [instance, encounter].filter(Boolean).join(" · ");
       const profession = row.profession_zh || "";
       const difficulty = row.difficulty_zh || "";
-      const parts = [type, instance, encounter, profession, difficulty].filter(Boolean);
+      const parts = [type, location, profession, difficulty].filter(Boolean);
       if (parts.length === 1 && SOURCE_PLACE_FALLBACKS[row.type]) parts.push(SOURCE_PLACE_FALLBACKS[row.type]);
       return [...new Set(parts)].join(" · ");
     }).join("\n");
+  }
+
+  function raidBossNumber(source) {
+    if (source?.type !== "raid" || number(source.encounter_id) <= 0) return 0;
+    const mapped = bootstrap?.raid_boss_numbers?.[source.instance_id]?.[source.encounter_id];
+    if (Number.isInteger(mapped) && mapped > 0) return mapped;
+    const order = Number(source.encounter_order);
+    // 汇总目录的跨团本偏移编号不能作为团本内序号展示。
+    return Number.isInteger(order) && order > 0 && order < 100 ? order : 0;
   }
 
   function sourceMarkup(variant) {
@@ -208,7 +267,7 @@
   }
 
   function statMarkup(stats, limit = 4) {
-    const rows = Object.entries(stats || {}).filter(([key, value]) => SECONDARY_STATS.has(key) && number(value)).slice(0, limit);
+    const rows = sortedStatEntries(stats).filter(([key, value]) => SECONDARY_STATS.has(key) && number(value)).slice(0, limit);
     return rows.length
       ? rows.map(([key, value]) => `<span>${escapeHtml(STAT_LABELS[key] || key)} ${formatNumber(value)}</span>`).join("")
       : "<span>无常驻绿字</span>";
@@ -257,6 +316,8 @@
     next.viewMode = raw.viewMode === "preview" ? "preview" : "editor";
     next.mobileView = ["slots", "browser", "stats"].includes(raw.mobileView) ? raw.mobileView : "browser";
     next.equipment = raw.equipment && typeof raw.equipment === "object" ? raw.equipment : {};
+    next.lockedSlots = [...new Set(Array.isArray(raw.lockedSlots) ? raw.lockedSlots : [])]
+      .filter((slot) => [...PREVIEW_LEFT_SLOTS, ...PREVIEW_RIGHT_SLOTS].includes(slot));
     return next;
   }
 
@@ -297,6 +358,38 @@
 
   function selectedEntry() {
     return state.equipment[state.selectedSlot] || null;
+  }
+
+  function isSlotLocked(slot = state.selectedSlot) {
+    return state.lockedSlots.includes(slot);
+  }
+
+  function blockLockedSlot(slot = state.selectedSlot) {
+    if (!isSlotLocked(slot)) return false;
+    toast(`${slotLabel(slot)}已锁定，请先解锁后再修改。`, true);
+    return true;
+  }
+
+  function syncSlotLocks() {
+    const locked = isSlotLocked();
+    els.detail_content.querySelectorAll('select, [data-remove-item], [data-remove-enhancement]').forEach((control) => { control.disabled = locked; });
+    els.enhancement_browser.querySelectorAll('input[type="checkbox"]').forEach((control) => { control.disabled = locked; });
+  }
+
+  function toggleSlotLock(slot) {
+    if (![...PREVIEW_LEFT_SLOTS, ...PREVIEW_RIGHT_SLOTS].includes(slot)) return;
+    state.lockedSlots = isSlotLocked(slot) ? state.lockedSlots.filter((key) => key !== slot) : [...state.lockedSlots, slot];
+    // 保存快照，避免锁定前发出的异步制造解析改写已锁定部位。
+    if (isSlotLocked(slot) && state.equipment[slot]) state.equipment[slot] = structuredClone(state.equipment[slot]);
+    persist();
+    renderAll();
+    syncSlotLocks();
+    els.slot_list.querySelector(`[data-toggle-slot-lock="${slot}"]`)?.focus();
+  }
+
+  function replaceLoadout(next) {
+    if (state.lockedSlots.length) throw new Error("请先解锁已锁定的部位，再载入其他配装。");
+    state = next;
   }
 
   function slotFamily(slot = state.selectedSlot) {
@@ -389,11 +482,14 @@
       const item = entry?.item;
       const active = slot.key === state.selectedSlot;
       const enhancements = enhancementSummary(entry);
-      return `<button type="button" class="gear-slot-row${active ? " is-active" : ""}${item ? "" : " is-empty"}" data-slot="${escapeHtml(slot.key)}" role="option" aria-selected="${active}">
+      const source = item ? sourceText(entry.variant).replaceAll("\n", "；") : "";
+      const locked = isSlotLocked(slot.key);
+      const lockLabel = `${locked ? "解锁" : "锁定"}${slot.label}`;
+      return `<div class="gear-slot-row${active ? " is-active" : ""}${item ? "" : " is-empty"}${locked ? " is-locked" : ""}" role="option" aria-selected="${active}"><button type="button" class="gear-slot-select" data-slot="${escapeHtml(slot.key)}">
         ${item ? iconMarkup(item, "gear-slot-icon") : '<span class="gear-slot-placeholder" aria-hidden="true">◇</span>'}
-        <span class="gear-slot-copy"><span class="gear-slot-label">${escapeHtml(slot.label)}</span><span class="gear-slot-item">${escapeHtml(item?.name || "未选择")}</span>${enhancements ? `<small class="gear-slot-enhancements" title="${escapeHtml(enhancements)}">${escapeHtml(enhancements)}</small>` : ""}</span>
+        <span class="gear-slot-copy"><span class="gear-slot-label">${escapeHtml(slot.label)}</span><span class="gear-slot-item">${escapeHtml(item?.name || "未选择")}</span>${source ? `<small class="gear-slot-source" title="${escapeHtml(source)}">${escapeHtml(source)}</small>` : ""}${enhancements ? `<small class="gear-slot-enhancements" title="${escapeHtml(enhancements)}">${escapeHtml(enhancements)}</small>` : ""}</span>
         <span class="gear-slot-level">${entry?.variant?.item_level || entry?.itemLevel || ""}</span>
-      </button>`;
+      </button><button type="button" class="gear-slot-lock" data-toggle-slot-lock="${escapeHtml(slot.key)}" aria-label="${escapeHtml(lockLabel)}" title="${escapeHtml(lockLabel)}" aria-pressed="${locked}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${locked ? 'M8 10V7a4 4 0 0 1 8 0v3' : 'M8 10V7a4 4 0 0 1 7.5-2'}"/><path d="M12 14v3"/></svg></button></div>`;
     }).join("");
     const count = equippedCount();
     els.equipped_count.textContent = `${count}/16`;
@@ -570,8 +666,9 @@
     const selectedCount = kind === "gem"
       ? (entry?.gems || []).filter((row) => Number(row.variant?.id) === Number(variant?.id)).length
       : Number(entry?.[kind]?.variant?.id) === Number(variant?.id) ? 1 : 0;
-    const description = [...new Set([...variantEffectDescriptions(item, variant), statMarkupText(variant?.stats)].filter(Boolean))]
-      .join(" · ") || "无常驻属性说明";
+    const description = kind === "gem" ? gemDescription(item, variant)
+      : [...new Set([...variantEffectDescriptions(item, variant), statMarkupText(variant?.stats)].filter(Boolean))]
+        .join(" · ") || "无常驻属性说明";
     return `<label class="gear-option-row"${tooltipAttrs(item, variant)}>
       <input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>
       <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small></span>
@@ -579,8 +676,62 @@
   }
 
   function statMarkupText(stats) {
-    return Object.entries(stats || {}).filter(([, value]) => number(value)).slice(0, 2)
+    return sortedStatEntries(stats).filter(([, value]) => number(value)).slice(0, 2)
       .map(([key, value]) => `${STAT_LABELS[key] || key} ${formatNumber(value)}`).join(" · ");
+  }
+
+  function gemDescription(item, variant) {
+    const stats = sortedStatEntries(variant?.stats).filter(([, value]) => number(value));
+    const seen = new Set();
+    const descriptions = variantEffectDescriptions(item, variant)
+      .flatMap((text) => String(text).replace(/\r\n?/g, "\n").split(/\n|\s+[·/]\s+|[；;，](?!\d)/))
+      .map((line) => line.trim()).filter((line) => {
+        if (!line || /^(?:物品等级|来源)\s*[:：\d]/.test(line)) return false;
+        const identity = tooltipLineIdentity(line.replace(/^(?:效果|被动)\s*[:：]\s*/, ""));
+        if (seen.has(identity)) return false;
+        seen.add(identity);
+        // 只移除已被结构化属性完整覆盖的静态说明，保留触发条件和特殊效果。
+        let remaining = line.normalize("NFKC").replace(/^(?:装备|效果|被动)\s*[:：]\s*/, "");
+        remaining = remaining.replace(/\[\s*(?:力量|敏捷|智力)(?:\s*(?:or|或|\/|、)\s*(?:力量|敏捷|智力))+\s*\]/gi, "主属性");
+        for (const [key, value] of stats) {
+          const amount = String(number(value));
+          const labels = [STAT_LABELS[key] || key, key, ...({crit: ["Critical Strike", "Crit"], mastery: ["Mast"], versatility: ["Vers"]}[key] || [])];
+          if (["strength", "agility", "intellect"].includes(key)) labels.push("主要属性", "主属性", "Primary");
+          remaining = remaining.replace(/(?<=\d),(?=\d{3}(?:\D|$))/g, "");
+          for (const label of labels) {
+            const escapedAmount = amount.replace(/\./g, "\\.");
+            const escapedLabel = label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+            remaining = remaining.replace(new RegExp(`(?:^|(?<=[\\s+、,/&和与及]))[+]?\\s*${escapedAmount}\\s*(?:点\\s*)?${escapedLabel}|${escapedLabel}\\s*[+]?\\s*${escapedAmount}(?![\\d.])`, "gi"), "");
+          }
+        }
+        return Boolean(remaining.replace(/[\s+、,/&和与及。.!！]/g, ""));
+      });
+    return [...stats.map(([key, value]) => `${STAT_LABELS[key] || key} ${formatNumber(value)}`), ...descriptions]
+      .join(" · ") || "无常驻属性说明";
+  }
+
+  function gemSortKey(item) {
+    const variant = item.variants?.[0];
+    const stats = variant?.stats || {};
+    const secondary = SUMMARY_STATS.filter((key) => number(stats[key]) > 0)
+      .sort((left, right) => number(stats[right]) - number(stats[left]) || statOrder(left) - statOrder(right));
+    const primary = ["strength", "agility", "intellect"].some((key) => number(stats[key]) > 0)
+      || number(variant?.metadata?.primary_stat_amount) > 0;
+    const family = primary ? 0 : secondary.length ? SUMMARY_STATS.indexOf(secondary[0]) + 1 : 5;
+    const pairing = secondary.length > 1 ? SUMMARY_STATS.indexOf(secondary[1]) + 1 : 0;
+    const total = Object.values(stats).reduce((sum, value) => sum + number(value), 0);
+    return [family, pairing, -total];
+  }
+
+  function sortedGems(rows) {
+    return [...(rows || [])].sort((left, right) => {
+      const leftKey = gemSortKey(left);
+      const rightKey = gemSortKey(right);
+      for (let index = 0; index < leftKey.length; index++) {
+        if (leftKey[index] !== rightKey[index]) return leftKey[index] - rightKey[index];
+      }
+      return String(left.name).localeCompare(String(right.name), "zh-CN") || number(left.item_id) - number(right.item_id);
+    });
   }
 
   function renderOptionGroup(element, rows, kind, emptyText) {
@@ -598,6 +749,7 @@
     try {
       const payload = await requestJson(`${endpoints.enhancements}?${params}`);
       enhancementGroups = payload.groups || {embellishments: [], gems: [], enchants: []};
+      enhancementGroups.gems = sortedGems(enhancementGroups.gems);
       renderOptionGroup(els.embellishment_list, enhancementGroups.embellishments, "embellishment", entry?.variant?.type === "crafted_equipment" ? "当前制造装备没有兼容美化。" : "美化只能应用到制造装备。" );
       renderOptionGroup(els.gem_list, enhancementGroups.gems, "gem", entry ? "当前装备没有可用插槽或宝石。" : "请先为该槽位选择装备。" );
       renderOptionGroup(els.enchant_list, enhancementGroups.enchants, "enchant", entry ? "当前槽位没有永久附魔。" : "请先为该槽位选择装备。" );
@@ -610,6 +762,7 @@
       }
       const socketCount = socketCapacity(entry);
       els.socket_summary.textContent = socketCount ? `${(entry.gems || []).length}/${socketCount} 个插槽` : "当前装备无插槽";
+      syncSlotLocks();
     } catch (error) {
       renderOptionGroup(els.embellishment_list, [], "embellishment", error.message);
       renderOptionGroup(els.gem_list, [], "gem", error.message);
@@ -622,8 +775,21 @@
     return candidates.find((item) => Number(item.item_id) === Number(itemId));
   }
 
+  function lockedWeaponConflict(variant, targetSlot) {
+    const furyTitanGrip = state.className === "Warrior" && state.specName === "Fury";
+    if (targetSlot === "main_hand" && variant.metadata?.two_handed && !furyTitanGrip && state.equipment.off_hand && isSlotLocked("off_hand")) {
+      return "副手已锁定，请先解锁副手后再装备双手武器。";
+    }
+    if (targetSlot === "off_hand" && state.equipment.main_hand?.variant?.metadata?.two_handed && !furyTitanGrip && isSlotLocked("main_hand")) {
+      return "主手双手武器已锁定，请先解锁主手后再修改副手。";
+    }
+    return "";
+  }
+
   function validateEquipment(variant, targetSlot) {
     const furyTitanGrip = state.className === "Warrior" && state.specName === "Fury";
+    const lockedConflict = lockedWeaponConflict(variant, targetSlot);
+    if (lockedConflict) return lockedConflict;
     if (targetSlot === "off_hand" && state.equipment.main_hand?.variant?.metadata?.two_handed && !furyTitanGrip) {
       return "主手已装备双手武器，不能同时装备副手。";
     }
@@ -642,6 +808,7 @@
   }
 
   async function addItem(item, variant, targetSlot = state.selectedSlot) {
+    if (blockLockedSlot(targetSlot)) return;
     if (targetSlot !== state.selectedSlot) {
       toast("栏位已切换，请在当前栏位重新选择装备。", true);
       return;
@@ -712,6 +879,7 @@
   }
 
   async function applyEnhancement(kind, item, variant) {
+    if (blockLockedSlot()) return;
     const error = validateEnhancement(kind, variant);
     if (error) { toast(error, true); return; }
     const entry = selectedEntry();
@@ -775,10 +943,11 @@
         <label class="gear-detail-field"><span>${variant.type === "crafted_equipment" ? "品质/装等" : "品级/等级"}</span><select id="gear-detail-variant">${availableVariants.map((row) => `<option value="${row.id}"${row.id === variant.id ? " selected" : ""}>${escapeHtml(variantLabel(row))}</option>`).join("")}</select></label>
         ${crafting}
       </div>
-      <div class="gear-detail-stats">${Object.entries(stats).filter(([, value]) => number(value)).map(([key, value]) => `<div class="gear-detail-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><span>${formatNumber(value)}</span></div>`).join("") || '<span class="gear-no-effects">该变体没有可直接累加的静态属性。</span>'}</div>
+      <div class="gear-detail-stats">${sortedStatEntries(stats).filter(([, value]) => number(value)).map(([key, value]) => `<div class="gear-detail-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><span>${formatNumber(value)}</span></div>`).join("") || '<span class="gear-no-effects">该变体没有可直接累加的静态属性。</span>'}</div>
       ${applied}
       <div class="gear-detail-effects"><h3>装备特效</h3>${effects.length ? effects.map((effect) => `<div class="gear-effect-line">${escapeHtml(effectText(effect))}</div>`).join("") : '<span class="gear-no-effects">无触发型特效</span>'}</div>
       <div class="gear-detail-actions"><button type="button" class="gear-btn" data-open-enhancements>配置强化</button><button type="button" class="gear-btn gear-btn--danger-quiet" data-remove-item>移除装备</button></div>`;
+    syncSlotLocks();
   }
 
   function craftingFields(entry) {
@@ -804,24 +973,29 @@
 
   function totalsAndEffects() {
     const totals = {};
+    const lockedTotals = {};
+    const unlockedTotals = {};
     const effects = [];
     let equipped = 0;
     let missingStats = 0;
-    Object.values(state.equipment).forEach((entry) => {
+    Object.entries(state.equipment).forEach(([slot, entry]) => {
       if (!entry) return;
       equipped += 1;
       const equipmentStats = entry.resolvedStats || entry.variant?.stats || {};
       if (!Object.values(equipmentStats).some((value) => number(value))) missingStats += 1;
-      addStats(totals, equipmentStats);
-      (entry.gems || []).forEach((gem) => addStats(totals, gem.variant?.stats));
-      addStats(totals, entry.enchant?.variant?.stats);
-      addStats(totals, entry.embellishment?.variant?.stats);
+      const slotTotals = {};
+      addStats(slotTotals, equipmentStats);
+      (entry.gems || []).forEach((gem) => addStats(slotTotals, gem.variant?.stats));
+      addStats(slotTotals, entry.enchant?.variant?.stats);
+      addStats(slotTotals, entry.embellishment?.variant?.stats);
+      addStats(totals, slotTotals);
+      addStats(isSlotLocked(slot) ? lockedTotals : unlockedTotals, slotTotals);
       const entryEffects = entry.resolvedEffects || entry.variant?.effects || [];
       entryEffects.forEach((effect) => effects.push({slot: entry.item?.name || "装备", text: effectText(effect)}));
       if (!entry.resolvedEffects) (entry.embellishment?.variant?.effects || []).forEach((effect) => effects.push({slot: entry.embellishment.item.name, text: effectText(effect)}));
       (entry.enchant?.variant?.effects || []).forEach((effect) => effects.push({slot: entry.enchant.item.name, text: effectText(effect)}));
     });
-    return {totals, effects: effects.filter((row) => row.text), equipped, missingStats};
+    return {totals, lockedTotals, unlockedTotals, effects: effects.filter((row) => row.text), equipped, missingStats};
   }
 
   function secondaryPercentage(key, value) {
@@ -842,7 +1016,7 @@
   }
 
   function renderStats() {
-    const {totals, effects, equipped, missingStats} = totalsAndEffects();
+    const {totals, lockedTotals, unlockedTotals, effects, equipped, missingStats} = totalsAndEffects();
     const keys = [primaryStatKey(), ...SUMMARY_STATS];
     const max = Math.max(1, ...keys.map((key) => number(totals[key])));
     els.stat_grid.innerHTML = keys.map((key) => {
@@ -850,8 +1024,8 @@
       const percent = secondaryPercentage(key, value);
       const percentageMarkup = percent === null
         ? ""
-        : `<small class="gear-stat-percent" title="${escapeHtml(secondaryPercentageTitle(key))}">/ ${formatNumber(percent)}%</small>`;
-      return `<div class="gear-stat-card"><span class="gear-stat-label">${escapeHtml(STAT_LABELS[key] || "属性")}</span><strong class="gear-stat-value">${formatNumber(value)}${percentageMarkup}</strong><span class="gear-stat-bar" style="--stat-progress:${Math.max(value ? 8 : 0, value / max * 100)}%;--stat-color:${STAT_COLORS[key] || "#64748b"}"></span></div>`;
+        : `<small class="gear-stat-percent" title="${escapeHtml(secondaryPercentageTitle(key))}">${formatNumber(percent)}%</small>`;
+      return `<div class="gear-stat-card" data-stat="${escapeHtml(key)}"><span class="gear-stat-label">${escapeHtml(STAT_LABELS[key] || "属性")}</span><div class="gear-stat-equation"><span class="gear-stat-term"><strong>${formatNumber(lockedTotals[key])}</strong><small>锁定</small></span><span class="gear-stat-operator">+</span><span class="gear-stat-term"><strong>${formatNumber(unlockedTotals[key])}</strong><small>未锁定</small></span><span class="gear-stat-operator">=</span><span class="gear-stat-term gear-stat-current"><strong>${formatNumber(value)}</strong><small>当前</small></span>${percentageMarkup}</div><span class="gear-stat-bar" style="--stat-progress:${Math.max(value ? 8 : 0, value / max * 100)}%;--stat-color:${STAT_COLORS[key] || "#64748b"}"></span></div>`;
     }).join("");
     els.effect_list.innerHTML = effects.length
       ? effects.map((row) => `<div class="gear-effect-line"><strong>${escapeHtml(row.slot)}：</strong>${escapeHtml(row.text)}</div>`).join("")
@@ -953,6 +1127,7 @@
   }
 
   async function switchVariant(variantId) {
+    if (blockLockedSlot()) { renderDetail(); return; }
     const entry = selectedEntry();
     const item = findCandidate(entry?.item?.item_id);
     const variant = item?.variants?.find((row) => Number(row.id) === Number(variantId));
@@ -979,6 +1154,7 @@
   }
 
   async function changeCraftedStat(index, value) {
+    if (blockLockedSlot()) { renderDetail(); return; }
     const entry = selectedEntry();
     if (!entry) return;
     const selected = [...(entry.selectedStats || [])];
@@ -995,6 +1171,7 @@
   }
 
   function removeEnhancement(key) {
+    if (blockLockedSlot()) return;
     const entry = selectedEntry();
     if (!entry) return;
     if (key === "embellishment") entry.embellishment = null;
@@ -1053,6 +1230,7 @@
       b: currentState.batchKey || bootstrap?.catalog?.batch_key || "",
       u: [currentState.selectedSlot, currentState.mode, currentState.viewMode, currentState.mobileView],
       e: equipment,
+      l: currentState.lockedSlots || [],
     };
   }
 
@@ -1072,6 +1250,7 @@
       mode: ui[1],
       viewMode: ui[2],
       mobileView: ui[3],
+      lockedSlots: payload.l,
       equipment: {},
     });
     const response = await requestJson(endpoints.share, {
@@ -1241,7 +1420,7 @@
   }
 
   async function loadSavedLoadout(record) {
-    state = await hydrateSharePayload(await decodeShare(record.code));
+    replaceLoadout(await hydrateSharePayload(await decodeShare(record.code)));
     syncSelectors();
     persist();
     renderCatalogStatus();
@@ -1315,7 +1494,7 @@
 
   async function loadOnlineLoadout(record) {
     const payload = await requestJson(`${endpoints.onlineLoadouts}${Number(record.id)}/`);
-    state = await hydrateSharePayload(await decodeShare(payload.loadout.code));
+    replaceLoadout(await hydrateSharePayload(await decodeShare(payload.loadout.code)));
     syncSelectors();
     persist();
     renderCatalogStatus();
@@ -1472,6 +1651,9 @@
         body: JSON.stringify({profile}),
       });
       if (payload.identity?.class_name && payload.identity?.spec_name) {
+        if (state.lockedSlots.length && (payload.identity.class_name !== state.className || payload.identity.spec_name !== state.specName)) {
+          throw new Error("当前有已锁定部位，请先解锁后再导入其他职业专精的配装。");
+        }
         const viewMode = state.viewMode;
         state = loadStored(payload.identity.class_name, payload.identity.spec_name);
         state.className = payload.identity.class_name;
@@ -1479,8 +1661,11 @@
         state.viewMode = viewMode;
         syncSelectors();
       }
+      let importedCount = 0;
+      let skippedCount = 0;
       (payload.equipment || []).forEach((row) => {
         if (!row.slot) return;
+        if (isSlotLocked(row.slot) || (row.variant && lockedWeaponConflict(row.variant, row.slot))) { skippedCount++; return; }
         const item = row.item || {item_id: row.item_id, name: row.name || `物品 #${row.item_id}`};
         state.equipment[row.slot] = {
           item: compactItem(item),
@@ -1496,6 +1681,7 @@
           external: Boolean(row.external),
           rawValue: row.raw_value || "",
         };
+        importedCount++;
       });
       if (endpoints.ownedItems && Array.isArray(payload.owned_equipment) && payload.owned_equipment.length) {
         const items = payload.owned_equipment.filter((row) => row.item_id && row.slot).map((row) => ({
@@ -1513,7 +1699,7 @@
       await loadCandidates(true);
       els.simc_dialog.close();
       els.simc_message.textContent = "";
-      toast(`已导入 ${payload.equipment?.length || 0} 个装备槽位${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件已有装备` : ""}。`);
+      toast(`已导入 ${importedCount} 个装备槽位${skippedCount ? `，跳过 ${skippedCount} 个受锁定限制的部位` : ""}${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件已有装备` : ""}。`);
       (payload.warnings || []).slice(0, 3).forEach((warning) => toast(warning, true));
     } catch (error) {
       els.simc_message.textContent = error.message;
@@ -1650,6 +1836,8 @@
       persist(); renderAll(); await loadActiveBrowser();
     });
     els.slot_list.addEventListener("click", async (event) => {
+      const lock = event.target.closest("[data-toggle-slot-lock]");
+      if (lock) { toggleSlotLock(lock.dataset.toggleSlotLock); return; }
       const button = event.target.closest("[data-slot]");
       if (!button) return;
       state.selectedSlot = button.dataset.slot;
@@ -1717,6 +1905,7 @@
     els.enhancement_browser.addEventListener("change", (event) => {
       const control = event.target.closest("[data-add-enhancement]");
       if (!control) return;
+      if (blockLockedSlot()) { loadEnhancements(); return; }
       const groupKey = control.dataset.addEnhancement;
       const root = control.closest(".gear-option-list");
       const sourceRows = root === els.embellishment_list ? enhancementGroups.embellishments : root === els.gem_list ? enhancementGroups.gems : enhancementGroups.enchants;
@@ -1735,6 +1924,7 @@
       if (item && variant) applyEnhancement(groupKey, item, variant);
     });
     els.add_socket.addEventListener("change", () => {
+      if (blockLockedSlot()) { els.add_socket.checked = Boolean(selectedEntry()?.addedSocket); return; }
       const entry = selectedEntry();
       if (!entry || !socketRule()) return;
       entry.addedSocket = els.add_socket.checked;
@@ -1748,7 +1938,10 @@
       if (event.target.matches("[data-crafted-stat]")) changeCraftedStat(Number(event.target.dataset.craftedStat), event.target.value);
     });
     els.detail_content.addEventListener("click", (event) => {
-      if (event.target.closest("[data-remove-item]")) { delete state.equipment[state.selectedSlot]; persist(); renderAll(); loadCandidates(true); }
+      if (event.target.closest("[data-remove-item]")) {
+        if (blockLockedSlot()) return;
+        delete state.equipment[state.selectedSlot]; persist(); renderAll(); loadCandidates(true);
+      }
       const remove = event.target.closest("[data-remove-enhancement]");
       if (remove) removeEnhancement(remove.dataset.removeEnhancement);
       if (event.target.closest("[data-open-enhancements]")) { state.mode = "enhancement"; persist(); renderMode(); loadEnhancements(); closeDetail(); }
@@ -1764,8 +1957,10 @@
     els.simc_submit.addEventListener("click", importSimc);
     els.copy_share.addEventListener("click", () => copyShare().catch((error) => toast(error.message, true)));
     els.clear.addEventListener("click", () => {
-      if (!window.confirm("清空当前职业专精的全部配装？")) return;
-      state.equipment = {}; persist(); renderAll(); loadCandidates(true); toast("当前配装已清空。")
+      if (!window.confirm(state.lockedSlots.length ? "清空未锁定部位的配装？已锁定部位将保留。" : "清空当前职业专精的全部配装？")) return;
+      state.equipment = Object.fromEntries(Object.entries(state.equipment).filter(([slot]) => isSlotLocked(slot)));
+      persist(); renderAll(); loadCandidates(true);
+      toast(state.lockedSlots.length ? "未锁定部位已清空，锁定部位保持不变。" : "当前配装已清空。");
     });
   }
 

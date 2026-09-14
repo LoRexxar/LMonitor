@@ -7,6 +7,8 @@ from math import floor
 
 from django.db.models import Exists, OuterRef, Q
 
+from botend.journal_models import JournalEncounter, JournalState
+
 from botend.constants.wow import (
     CLASS_CN,
     CLASS_SPEC_MAP,
@@ -30,6 +32,7 @@ from botend.services.simc_player_config import (
     simc_spec_slug,
 )
 from botend.services.wow_item_display import item_display_metadata
+from botend.services.gear_builder_tier_sources import tier_set_source_catalog, tier_set_sources
 
 
 EQUIPMENT_SLOTS = (
@@ -335,6 +338,38 @@ def secondary_stat_conversion_rules():
     return payload
 
 
+def raid_boss_numbers(season):
+    """按团本分别编号，优先采用活动冒险手册，排除小怪等非首领来源。"""
+    groups = defaultdict(dict)
+    for row in (season.raid_encounters or []) if season else []:
+        if not isinstance(row, dict):
+            continue
+        try:
+            instance_id = int(row.get('sourceInstanceId') or season.raid_zone_id or 0)
+            encounter_id = int(row.get('id') or 0)
+            order = int(row.get('order', row.get('index', 0)) or 0)
+        except (TypeError, ValueError):
+            continue
+        if instance_id > 0 and encounter_id > 0:
+            groups[instance_id][encounter_id] = order
+    journal_groups = defaultdict(dict)
+    release = JournalState.objects.filter(pk='wow-zhCN').values('active_release_id')[:1]
+    for row in JournalEncounter.objects.filter(
+        instance__release_id=release, instance__kind='raid',
+    ).values('instance__journal_id', 'journal_id', 'order'):
+        journal_groups[row['instance__journal_id']][row['journal_id']] = row['order']
+    groups.update(journal_groups)
+    return {
+        str(instance_id): {
+            str(encounter_id): index
+            for index, (encounter_id, _order) in enumerate(
+                sorted(encounters.items(), key=lambda row: (row[1], row[0])), 1,
+            )
+        }
+        for instance_id, encounters in groups.items()
+    }
+
+
 def bootstrap_payload():
     season = active_season()
     sync_report = season.gear_sync_report if season and isinstance(season.gear_sync_report, dict) else {}
@@ -349,6 +384,8 @@ def bootstrap_payload():
     return {
         'catalog': catalog_context(season),
         'classes': specs_payload(),
+        'raid_boss_numbers': raid_boss_numbers(season),
+        'tier_set_sources': tier_set_source_catalog(),
         'slots': [{'key': key, 'label': label, 'family': SLOT_FAMILIES.get(key, key)} for key, label in EQUIPMENT_SLOTS],
         'stats': [{'key': key, 'label': label} for key, label in STAT_LABELS.items()],
         'upgrade_tracks': [{'key': key, 'label': label} for key, label in UPGRADE_TRACK_LABELS.items()],
@@ -507,9 +544,12 @@ def serialize_variant(variant, class_name='', spec_name=''):
         socket_types = socket_types[:socket_count]
         metadata['jewelry_socket_baseline_applied'] = True
     stats = stats_for_identity(variant.stats_json, variant.metadata, class_name, spec_name)
+    sources = tier_set_sources(metadata, item.slot_key)
+    if sources is None:
+        sources = [localize_gear_source(row) for row in (variant.source_json or []) if isinstance(row, dict)]
     display = item_display_metadata(
         item.item_id, item, item_level=variant.item_level, variant=variant,
-        stats=stats,
+        stats=stats, sources=sources,
     )
     return {
         'id': variant.id,
@@ -528,7 +568,7 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'socket_count': socket_count,
         'stats': stats,
         'effects': variant.effects_json or [],
-        'sources': [localize_gear_source(row) for row in (variant.source_json or []) if isinstance(row, dict)],
+        'sources': sources,
         'crafting_options': variant.crafting_options or {},
         'unique_group': variant.unique_group or item.unique_group,
         'max_equipped': variant.max_equipped,
