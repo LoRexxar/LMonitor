@@ -11,6 +11,7 @@ from botend.services.journal_service import ROLE_FLAGS, SLOTS
 from botend.services.journal_text import integer
 from botend.services.journal_loot import class_matches, equipment_type
 from botend.services.journal_tooltip import cached_tooltip
+from botend.services.wow_item_display import load_item_display_metadata
 
 
 CLASSES = [(1, '战士'), (2, '圣骑士'), (3, '猎人'), (4, '潜行者'), (5, '牧师'), (6, '死亡骑士'),
@@ -265,25 +266,39 @@ class PortalAdventureJournalTooltipView(View):
         from botend.services.journal_tooltip import tooltip
         try:
             return JsonResponse(tooltip(kind, entry_id, context['difficulty'], context['release']['build']), json_dumps_params={'ensure_ascii': False})
-        except Exception:
+        except ValueError:
+            item = load_item_display_metadata([entry_id])[entry_id]
+            if item['display_name'] == f'#{entry_id}':
+                raise Http404('中央物品目录缺少此物品')
             qualities = {0: '粗糙', 1: '普通', 2: '优秀', 3: '精良', 4: '史诗', 5: '传说', 6: '神器', 7: '传家宝'}
-            stats = {3: '敏捷', 4: '力量', 5: '智力', 7: '耐力', 32: '爆击', 36: '急速', 40: '全能', 49: '精通',
-                     61: '速度', 62: '吸血', 63: '闪避', 71: '力量／敏捷／智力', 72: '力量／敏捷', 73: '敏捷／智力', 74: '力量／智力'}
-            lines = [f'{qualities.get(referenced["quality"], "物品")} · {referenced["slot_name"]}']
-            bonding = {1: '拾取后绑定', 2: '装备后绑定', 3: '使用后绑定', 4: '任务物品'}.get(referenced.get('bonding'))
+            journal_item = item['journal_item']
+            lines = [f'{qualities.get(item["quality"], "物品")} · {SLOTS.get(item["inventory_type"], "其他")}']
+            bonding = {1: '拾取后绑定', 2: '装备后绑定', 3: '使用后绑定', 4: '任务物品'}.get(journal_item.get('bonding'))
             if bonding:
                 lines.append(bonding)
-            if referenced.get('required_level', 0) > 0:
-                lines.append(f'需要等级 {referenced["required_level"]}')
-            names = [stats[value] for value in referenced.get('stat_types', []) if value in stats]
-            if names:
-                lines.append('属性类型：' + '、'.join(names))
-            if referenced.get('description'):
-                lines.append(referenced['description'])
+            if journal_item.get('required_level', 0) > 0:
+                lines.append(f'需要等级 {journal_item["required_level"]}')
+            if item['display_description']:
+                lines.extend(item['display_description'].splitlines())
             source_names = [owner.name for owner in owners if any(
                 row['item_id'] == entry_id and context['difficulty'] in row['difficulty_ids'] for row in owner.payload['loot'])]
             lines.append('掉落首领：' + '、'.join(source_names))
-            return JsonResponse({'name': referenced['name'], 'lines': lines, 'source': 'Wago',
-                                 'url': f'https://wago.tools/db2/ItemSparse?build={context["release"]["build"]}&locale=zhCN&filter[ID]={entry_id}',
-                                 'note': '以上为已同步的物品资料。补充属性来源暂不可访问；装备等级、属性数值与触发效果请以游戏内物品为准。'},
-                                json_dumps_params={'ensure_ascii': False})
+            status = 'basic' if item['catalog_type'] == 'equipment' else 'not_equipment'
+            note = (
+                '中央物品目录已确认这是非装备掉落；此物品没有装备属性或装备特效。'
+                if status == 'not_equipment' else
+                '中央物品目录只有基础事实，尚无匹配此构建的装备属性变体。'
+            )
+            return JsonResponse({
+                'name': item['display_name'],
+                'lines': lines,
+                'source': 'LMonitor 中央物品目录',
+                'url': item['wowhead_url'],
+                'icon': item['icon_url'],
+                'note': note,
+                'status': status,
+                'complete': False,
+                'item_level': None,
+                'stats': [],
+                'effects': [],
+            }, json_dumps_params={'ensure_ascii': False})

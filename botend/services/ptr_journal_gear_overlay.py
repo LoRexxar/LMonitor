@@ -3,35 +3,22 @@ from copy import deepcopy
 import hashlib
 import json
 from pathlib import Path
-import re
 
 from django.db import transaction
 from django.utils import timezone
 
 from botend.journal_models import JournalEncounter, JournalInstance, JournalRelease, JournalState
-from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
+from botend.models import SeasonMeta, WowItemVariantSnapshot
 from botend.services.gear_builder import active_season
+from botend.services.wow_item_catalog_import import (
+    exact_build_variant_payload_is_complete,
+    item_catalog_is_complete,
+    upsert_item_catalog,
+    validate_item_catalog_payload,
+)
 
 
 OVERLAY_SCHEMA = 1
-
-
-def exact_build_variant_is_complete(*, build, metadata, stats, effects):
-    metadata = metadata if isinstance(metadata, dict) else {}
-    if (not metadata.get('ptr_preview')
-            or metadata.get('stats_status') != 'exact_build_simc'
-            or metadata.get('effects_status') != 'exact_build_db2_simc'
-            or str(metadata.get('game_build') or '') != str(build or '')
-            or not isinstance(stats, dict) or not stats
-            or not isinstance(effects, list) or not effects):
-        return False
-    return all(
-        isinstance(effect, dict)
-        and str(effect.get('game_build') or '') == str(build or '')
-        and not effect.get('unresolved_tokens')
-        and bool(str(effect.get('description_zh') or effect.get('description') or '').strip())
-        for effect in effects
-    )
 
 
 def _load_artifact(path):
@@ -58,27 +45,7 @@ def _load_artifact(path):
     encounter_ids = [int(encounter.get('id') or 0) for encounter in encounters]
     if 0 in encounter_ids or len(encounter_ids) != len(set(encounter_ids)):
         raise ValueError('PTR overlay 含有无效或重复的首领 ID')
-    item_ids = [int(item.get('item_id') or 0) for item in gear]
-    if 0 in item_ids or len(item_ids) != len(set(item_ids)):
-        raise ValueError('PTR overlay 含有无效或重复的装备 ID')
-    for item in gear:
-        item_id = int(item['item_id'])
-        icon = str(item.get('icon') or '').strip()
-        if not re.fullmatch(r'[a-z0-9_]+', icon):
-            raise ValueError(f'物品 {item_id} 的图标名不安全')
-        variants = item.get('variants') or []
-        variant_keys = [str(variant.get('key') or '').strip() for variant in variants]
-        if not variants or '' in variant_keys or len(variant_keys) != len(set(variant_keys)):
-            raise ValueError(f'物品 {item_id} 含有无效或重复的变体身份')
-        if item.get('name_zh') and not any('\u3400' <= char <= '\u9fff' for char in item['name_zh']):
-            raise ValueError(f'物品 {item_id} 的中文名不含中文字符')
-        for variant in variants:
-            if not exact_build_variant_is_complete(
-                    build=build,
-                    metadata=variant.get('metadata'),
-                    stats=variant.get('stats'),
-                    effects=variant.get('effects')):
-                raise ValueError(f'物品 {item_id} 缺少同构建 SimC 属性或特效')
+    validate_item_catalog_payload(gear, build)
     return payload, build, row, gear, hashlib.sha256(raw).hexdigest()
 
 
@@ -190,90 +157,6 @@ def preserve_active_ptr_journal_overlay(active_release, rows, catalog, report, r
     return rows, catalog, report, retained, combined_build
 
 
-def _item_defaults(item, existing=None):
-    existing = existing or None
-    metadata = deepcopy(existing.metadata if existing else {})
-    metadata.update(deepcopy(item.get('metadata') or {}))
-    return {
-        'name': item.get('name') or (existing.name if existing else ''),
-        'name_zh': item.get('name_zh') or (existing.name_zh if existing else ''),
-        'description': item.get('description') or (existing.description if existing else ''),
-        'description_zh': item.get('description_zh') or (existing.description_zh if existing else ''),
-        'icon': item.get('icon') or (existing.icon if existing else ''),
-        'quality': int(item.get('quality') or 0),
-        'source': 'wago-ptr-db2',
-        'catalog_type': item.get('catalog_type') or 'equipment',
-        'inventory_type': int(item.get('inventory_type') or 0),
-        'slot_key': item.get('slot_key') or '',
-        'item_class_id': int(item.get('item_class_id') or 0),
-        'item_subclass_id': int(item.get('item_subclass_id') or 0),
-        'armor_type': item.get('armor_type') or '',
-        'weapon_type': item.get('weapon_type') or '',
-        'allowable_class_mask': int(item.get('allowable_class_mask') or 0),
-        'eligible_specs': deepcopy(item.get('eligible_specs') or []),
-        'unique_group': item.get('unique_group') or '',
-        'effect_refs': deepcopy(item.get('effect_refs') or []),
-        'simc_token': item.get('simc_token') or '',
-        'metadata': metadata,
-        'updated_at': timezone.now(),
-    }
-
-
-def _write_gear(gear, season, build):
-    variant_count = 0
-    for item_data in gear:
-        item_id = int(item_data['item_id'])
-        existing = WowItemSnapshot.objects.filter(item_id=item_id).first()
-        item, _ = WowItemSnapshot.objects.update_or_create(
-            item_id=item_id,
-            defaults=_item_defaults(item_data, existing),
-        )
-        for variant in item_data['variants']:
-            WowItemVariantSnapshot.objects.update_or_create(
-                season=season,
-                batch_key=season.gear_batch_key,
-                item=item,
-                variant_key=variant['key'],
-                defaults={
-                    'game_build': build,
-                    'variant_type': variant.get('type') or WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
-                    'item_level': int(variant.get('item_level') or 0),
-                    'upgrade_track': variant.get('upgrade_track') or '',
-                    'track_rank': int(variant.get('track_rank') or 0),
-                    'track_max_rank': int(variant.get('track_max_rank') or 0),
-                    'bonus_ids': deepcopy(variant.get('bonus_ids') or []),
-                    'compatible_slots': deepcopy(variant.get('compatible_slots') or []),
-                    'socket_types': deepcopy(variant.get('socket_types') or []),
-                    'socket_count': int(variant.get('socket_count') or 0),
-                    'stats_json': deepcopy(variant.get('stats') or {}),
-                    'effects_json': deepcopy(variant.get('effects') or []),
-                    'source_json': deepcopy(variant.get('sources') or []),
-                    'metadata': deepcopy(variant.get('metadata') or {}),
-                },
-            )
-            variant_count += 1
-    return variant_count
-
-
-def _gear_overlay_is_complete(gear, season, build):
-    expected = {
-        (int(item['item_id']), str(variant['key']))
-        for item in gear for variant in item['variants']
-    }
-    rows = WowItemVariantSnapshot.objects.filter(
-        season=season,
-        batch_key=season.gear_batch_key,
-        item__item_id__in=[int(item['item_id']) for item in gear],
-    ).values_list('item__item_id', 'variant_key', 'game_build', 'metadata',
-                  'stats_json', 'effects_json')
-    actual = {}
-    for item_id, variant_key, game_build, metadata, stats, effects in rows:
-        if exact_build_variant_is_complete(
-                build=build, metadata=metadata, stats=stats, effects=effects):
-            actual[(int(item_id), str(variant_key))] = str(game_build or '')
-    return expected == set(actual) and all(actual[key] == build for key in expected)
-
-
 def _sync_in_progress(state):
     return bool(state.sync_token and state.sync_until and state.sync_until > timezone.now())
 
@@ -309,7 +192,7 @@ def import_ptr_journal_gear_overlay(path, *, apply=False):
     already_applied = bool(
         overlay_metadata.get('source_build') == build
         and overlay_metadata.get('artifact_sha256') == artifact_hash
-        and _gear_overlay_is_complete(gear, season, build)
+        and item_catalog_is_complete(gear, season, build)
     )
     report = {
         'applied': bool(apply and not already_applied),
@@ -377,7 +260,7 @@ def import_ptr_journal_gear_overlay(path, *, apply=False):
                 )
                 for encounter in encounters
             ])
-        written_variants = _write_gear(gear, season, build)
+        written_variants = upsert_item_catalog(gear, season, build)
         if written_variants != report['gear']['variants']:
             raise ValueError('PTR overlay 装备变体写入数量不完整')
         state.active_release = release

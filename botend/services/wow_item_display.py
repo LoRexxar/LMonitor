@@ -16,6 +16,8 @@ STAT_LABELS = {
     'mastery': '精通', 'versatility': '全能', 'leech': '吸血',
     'avoidance': '闪避', 'speed': '速度', 'weapon_dps': '武器秒伤',
     'min_damage': '最低伤害', 'max_damage': '最高伤害',
+    'stragiint': '力量／敏捷／智力', 'agiint': '敏捷／智力',
+    'stragi': '力量／敏捷', 'strint': '力量／智力',
 }
 EQUIPMENT_TYPES = {
     WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
@@ -109,6 +111,29 @@ def _format_number(value):
     return f'{parsed:,}' if isinstance(parsed, int) else f'{parsed:,.2f}'.rstrip('0').rstrip('.')
 
 
+def exact_build_variant_is_complete(variant, build):
+    """中央目录中 PTR 精确构建变体的可展示资格。"""
+    metadata = variant.metadata if isinstance(variant.metadata, dict) else {}
+    effects = variant.effects_json if isinstance(variant.effects_json, list) else []
+    if not metadata.get('ptr_preview'):
+        return True
+    if (
+        metadata.get('stats_status') != 'exact_build_simc'
+        or metadata.get('effects_status') != 'exact_build_db2_simc'
+        or str(metadata.get('game_build') or '') != str(build or '')
+        or not isinstance(variant.stats_json, dict) or not variant.stats_json
+        or not effects
+    ):
+        return False
+    return all(
+        isinstance(effect, dict)
+        and str(effect.get('game_build') or '') == str(build or '')
+        and not effect.get('unresolved_tokens')
+        and bool(str(effect.get('description_zh') or effect.get('description') or '').strip())
+        for effect in effects
+    )
+
+
 def _source_text(source):
     if isinstance(source, str):
         return source.strip()
@@ -197,6 +222,10 @@ def item_display_metadata(
     description, description_zh = separated['description'], separated['description_zh']
     normalized_effects = [text for text in (_effect_text(row) for row in separated['effects']) if text]
     normalized_sources = [text for text in (_source_text(row) for row in _rows(sources)) if text]
+    stat_lines = [
+        f'+{_format_number(value)} {STAT_LABELS.get(key, key)}'
+        for key, value in normalized_stats.items()
+    ]
     base_description = description_zh.strip() or description.strip()
     snapshot_metadata = snapshot.metadata if snapshot and isinstance(snapshot.metadata, dict) else {}
     expects_effect = bool(
@@ -226,6 +255,7 @@ def item_display_metadata(
         "tooltip": tooltip,
         "item_level": _positive_int(item_level) or None,
         "stats": normalized_stats,
+        "stat_lines": stat_lines,
         "effects": normalized_effects,
         "effect_details": separated['effects'],
         "text_schema_version": 2,
@@ -233,12 +263,20 @@ def item_display_metadata(
         "sources": normalized_sources,
         "variant_id": getattr(variant, 'pk', None),
         "variant_key": str(getattr(variant, 'variant_key', '') or ''),
+        "game_build": str(getattr(variant, 'game_build', '') or ''),
+        "variant_metadata": variant_metadata,
         "tooltip_complete": bool(normalized_stats or normalized_effects) and not (
             expects_effect and not normalized_effects
         ),
         "icon": icon,
         "icon_url": wow_icon_oss_url(icon, icon_size) if icon else "",
         "quality": (snapshot.quality if snapshot else 0) or 0,
+        "catalog_type": (snapshot.catalog_type if snapshot else "") or "",
+        "inventory_type": (snapshot.inventory_type if snapshot else 0) or 0,
+        "slot_key": (snapshot.slot_key if snapshot else "") or "",
+        "item_class_id": (snapshot.item_class_id if snapshot else 0) or 0,
+        "item_subclass_id": (snapshot.item_subclass_id if snapshot else 0) or 0,
+        "journal_item": snapshot_metadata.get('journal_item') or {},
         "wowhead_url": f"https://www.wowhead.com/cn/item={normalized_id}" if normalized_id else "",
     }
 
@@ -255,6 +293,11 @@ def _request_values(request):
             spec_name=request.get('spec_name', request.get('spec')),
         )
         allow_default_variant = bool(request.get('allow_default_variant'))
+        game_build = str(request.get('game_build') or '').strip()
+        default_variant_order = str(
+            request.get('default_variant_order') or 'highest'
+        ).strip().casefold()
+        require_complete_variant = bool(request.get('require_complete_variant'))
     else:
         values = list(request) if isinstance(request, (tuple, list)) else [request]
         item_id = values[0] if values else None
@@ -262,13 +305,16 @@ def _request_values(request):
         bonus_ids = values[2] if len(values) > 2 else None
         primary_stat = _primary_stat_for_identity(primary_stat=values[3] if len(values) > 3 else '')
         allow_default_variant = False
+        game_build = ''
+        default_variant_order = 'highest'
+        require_complete_variant = False
     if isinstance(bonus_ids, str):
         bonus_ids = bonus_ids.replace(';', '/').replace(':', '/').split('/')
     elif not isinstance(bonus_ids, (tuple, list, set)):
         bonus_ids = [bonus_ids] if bonus_ids not in (None, '') else []
     return _positive_int(item_id), _positive_int(item_level), tuple(sorted({
         value for raw in (bonus_ids or []) for value in [_positive_int(raw)] if value
-    })), primary_stat, allow_default_variant
+    })), primary_stat, allow_default_variant, game_build, default_variant_order, require_complete_variant
 
 
 def _variant_score(variant, item_level, bonus_ids):
@@ -290,7 +336,10 @@ def load_item_tooltip_metadata(requests):
         return []
     item_ids = {
         item_id
-        for item_id, _item_level, _bonus_ids, _primary_stat, _allow_default_variant in normalized
+        for (
+            item_id, _item_level, _bonus_ids, _primary_stat,
+            _allow_default_variant, _game_build, _default_order, _require_complete,
+        ) in normalized
         if item_id
     }
     snapshots = {
@@ -314,14 +363,28 @@ def load_item_tooltip_metadata(requests):
         ).select_related('item'):
             variants_by_item.setdefault(int(variant.item.item_id), []).append(variant)
     result = []
-    for item_id, item_level, bonus_ids, primary_stat, allow_default_variant in normalized:
+    for (
+        item_id, item_level, bonus_ids, primary_stat,
+        allow_default_variant, game_build, default_order, require_complete,
+    ) in normalized:
         candidates = variants_by_item.get(item_id, [])
+        if game_build:
+            candidates = [row for row in candidates if str(row.game_build or '') == game_build]
+        if require_complete:
+            candidates = [row for row in candidates if exact_build_variant_is_complete(row, game_build)]
         if item_level:
             exact = [row for row in candidates if _positive_int(row.item_level) == item_level]
             candidates = exact
         elif not bonus_ids and not allow_default_variant:
             candidates = []
-        variant = max(candidates, key=lambda row: _variant_score(row, item_level, bonus_ids), default=None)
+        if default_order == 'lowest' and not item_level and not bonus_ids:
+            variant = min(
+                candidates,
+                key=lambda row: (_positive_int(row.item_level), int(row.pk or 0)),
+                default=None,
+            )
+        else:
+            variant = max(candidates, key=lambda row: _variant_score(row, item_level, bonus_ids), default=None)
         snapshot = snapshots.get(item_id) or getattr(variant, 'item', None)
         result.append(item_display_metadata(
             item_id, snapshot, item_level=item_level, variant=variant, primary_stat=primary_stat,

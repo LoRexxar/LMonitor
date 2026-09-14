@@ -56,7 +56,26 @@
         const effects = row.querySelector('[data-item-effects]');
         try {
           const data = await fetchDetails('item', row.dataset.lootId);
-          if (!data.complete) throw new Error('补充资料暂不可用');
+          if (data.icon && !row.querySelector('.journal-loot-symbol img')) {
+            const icon = document.createElement('img');
+            icon.src = data.icon;
+            icon.alt = '';
+            icon.addEventListener('error', () => { icon.hidden = true; });
+            row.querySelector('.journal-loot-symbol').append(icon);
+          }
+          if (!data.complete) {
+            if (data.status === 'not_equipment') {
+              stats.textContent = '非装备掉落';
+              effects.textContent = '无装备属性或特效，可点击名称查看基础资料。';
+            } else if (data.status === 'basic') {
+              stats.textContent = '基础资料已同步';
+              effects.textContent = '无可展示的装备数值，可点击名称查看基础资料。';
+            } else {
+              throw new Error('补充资料暂不可用');
+            }
+            row.dataset.detailsLoaded = data.status;
+            continue;
+          }
           stats.replaceChildren();
           effects.replaceChildren();
           const append = (parent, tag, text) => {
@@ -68,13 +87,6 @@
           (data.stats?.length ? data.stats : ['无基础属性']).forEach(text => append(stats, 'span', text));
           (data.effects || []).forEach(text => append(effects, 'p', text));
           emphasizeValues(effects);
-          if (data.icon && !row.querySelector('.journal-loot-symbol img')) {
-            const icon = document.createElement('img');
-            icon.src = data.icon;
-            icon.alt = '';
-            icon.addEventListener('error', () => { icon.hidden = true; });
-            row.querySelector('.journal-loot-symbol').append(icon);
-          }
           row.dataset.detailsLoaded = 'true';
         } catch (_) {
           stats.textContent = '属性暂不可用';

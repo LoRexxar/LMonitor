@@ -1,14 +1,17 @@
 """冒险手册难度、职责、同步原子性及公开页面回归。"""
 from copy import deepcopy
 from datetime import timedelta
+from io import StringIO
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
+from django.core.management import call_command
 from django.test import TestCase, SimpleTestCase
 from django.utils import timezone
 
 from botend.journal_models import JournalEncounter, JournalInstance, JournalRelease, JournalState
+from botend.models import WowItemSnapshot
 from botend.services.journal_service import allowed_difficulties, compile_journal, section_tree, sync_journal
 from botend.services.journal_source import TABLES, WagoJournalSource, latest_retail_build
 from botend.services.journal_text import JournalText, difficulty_text
@@ -220,6 +223,21 @@ class JournalPublicationTests(TestCase):
     def setUp(self):
         self.release = self.publish()
 
+    def test_sync_supplements_missing_base_item_facts_into_central_catalog(self):
+        item = WowItemSnapshot.objects.get(item_id=60)
+        self.assertEqual(item.name_zh, '普通饰品')
+        self.assertEqual(item.inventory_type, 12)
+        self.assertEqual(item.item_class_id, 4)
+        self.assertEqual(item.catalog_type, 'equipment')
+        self.assertEqual(item.metadata['journal_builds'], ['12.1.0.69587'])
+
+    def test_backfill_command_reconciles_current_release_without_external_fetch(self):
+        WowItemSnapshot.objects.filter(item_id=60).delete()
+        output = StringIO()
+        call_command('backfill_journal_item_catalog', stdout=output)
+        self.assertTrue(WowItemSnapshot.objects.filter(item_id=60, name_zh='普通饰品').exists())
+        self.assertIn('中央物品目录回填完成', output.getvalue())
+
     def test_sync_supplements_items_before_loading_large_spell_tables(self):
         tables = fixture()
         events = []
@@ -403,6 +421,46 @@ class JournalPublicationTests(TestCase):
         self.assertContains(guide, '战斗指南')
         self.assertNotContains(guide, 'class="journal-loot-table"')
 
+    def test_central_catalog_fallback_marks_equipment_as_basic(self):
+        WowItemSnapshot.objects.filter(item_id=60).update(
+            name_zh='中央目录饰品',
+            icon='inv_trinket_test',
+        )
+        with patch('botend.services.journal_tooltip.tooltip', side_effect=ValueError('unavailable')):
+            data = self.client.get(
+                '/portal/api/adventure-journal/10/tooltip/item/60/', {'difficulty': 1}
+            ).json()
+        self.assertEqual(data['name'], '中央目录饰品')
+        self.assertEqual(data['status'], 'basic')
+        self.assertFalse(data['complete'])
+        self.assertEqual(data['stats'], [])
+        self.assertEqual(data['effects'], [])
+        self.assertEqual(
+            data['icon'],
+            'https://oss.wowdaily.cn/wow_icons_oss/small/inv_trinket_test.jpg',
+        )
+
+    def test_central_catalog_fallback_marks_recipe_as_not_equipment(self):
+        tables = fixture()
+        tables['Item'].append({'ID': '64', 'ClassID': '9', 'SubclassID': '1', 'InventoryType': '0'})
+        tables['ItemSparse'].append({
+            'ID': '64', 'Display_lang': '测试图样', 'InventoryType': '0',
+            'OverallQualityID': '3', 'AllowableClass': '-1',
+        })
+        tables['JournalEncounterItem'].append({
+            'ID': '53', 'JournalEncounterID': '30', 'ItemID': '64',
+            'Flags': '2', 'DifficultyMask': '1', 'FactionMask': '-1',
+        })
+        self.publish(tables)
+        with patch('botend.services.journal_tooltip.tooltip', side_effect=ValueError('unavailable')):
+            data = self.client.get(
+                '/portal/api/adventure-journal/10/tooltip/item/64/', {'difficulty': 1}
+            ).json()
+        self.assertEqual(data['status'], 'not_equipment')
+        self.assertFalse(data['complete'])
+        self.assertEqual(data['stats'], [])
+        self.assertEqual(data['effects'], [])
+
     def test_equipment_type_distinguishes_material_weapon_and_accessory(self):
         from botend.services.journal_loot import equipment_type
         self.assertEqual(equipment_type({'class_id': 4, 'subclass_id': 1, 'slot': 5}), ('armor:1', '布甲'))
@@ -565,9 +623,9 @@ class JournalPublicationTests(TestCase):
         with patch('botend.services.journal_tooltip.tooltip', side_effect=ValueError('来源失败')):
             response = self.client.get('/portal/api/adventure-journal/10/tooltip/item/60/')
             self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.json()['source'], 'Wago')
+            self.assertEqual(response.json()['source'], 'LMonitor 中央物品目录')
             self.assertEqual(response.json()['name'], '普通饰品')
-            self.assertIn('暂不可访问', response.json()['note'])
+            self.assertIn('中央物品目录', response.json()['note'])
 
     def test_spell_tooltip_uses_the_selected_published_description(self):
         response = self.client.get('/portal/api/adventure-journal/10/tooltip/spell/100/', {'difficulty': 2})
@@ -593,6 +651,16 @@ class JournalPublicationTests(TestCase):
 
 
 class JournalSourceTests(SimpleTestCase):
+    def test_basic_item_icon_is_inserted_before_incomplete_details_exit(self):
+        script = (
+            Path(__file__).resolve().parents[2]
+            / 'static' / 'portal' / 'js' / 'adventure-journal.js'
+        ).read_text(encoding='utf-8')
+        self.assertLess(
+            script.index("if (data.icon && !row.querySelector('.journal-loot-symbol img'))"),
+            script.index('if (!data.complete)'),
+        )
+
     def test_class_filter_checks_armor_weapon_and_primary_stats(self):
         from botend.services.journal_loot import class_matches
         cloth = {'class_id': 4, 'subclass_id': 1, 'slot': 1, 'class_mask': -1, 'stat_types': [5]}
@@ -607,27 +675,13 @@ class JournalSourceTests(SimpleTestCase):
         self.assertFalse(class_matches(trinket, 1))
         self.assertTrue(class_matches(trinket, 0))
 
-    def test_inline_tooltip_separates_static_stats_and_full_effect_values(self):
+    def test_missing_item_variant_never_fetches_wowhead(self):
         from botend.services.journal_tooltip import tooltip
-        payload = {'name': '烬翼羽毛', 'icon': 'inv_feather', 'quality': 4, 'tooltip': (
-            '<b>烬翼羽毛</b><br>物品等级：<!--ilvl-->289<br><!--rf-->'
-            '+118 [敏捷 or 智力]<br><!--nameDescStats-->'
-            '<!--useText:1:1-->使用: 急速提高800，持续15秒。<br>其他属性降低249，持续10秒。<!--useText:1:1-->'
-        )}
         with patch('botend.services.journal_tooltip.cached_tooltip', return_value=None), \
-                patch('botend.services.journal_tooltip.cache') as cache, \
-                patch('botend.services.journal_tooltip.requests.Session') as session, \
-                patch('botend.services.journal_tooltip.cache_path'):
-            cache.get.return_value = None
-            client = session.return_value.__enter__.return_value
-            client.get.return_value.json.return_value = payload
-            result = tooltip('item', 250144, 1, '12.1.0.69587')
-        self.assertEqual(result['item_level'], 289)
-        self.assertEqual(result['stats'], ['+118 敏捷／智力'])
-        self.assertIn('800', result['effects'][0])
-        self.assertIn('249', result['effects'][0])
-        self.assertNotIn('dd', client.get.call_args.kwargs['params'])
-        self.assertIn('参考装等', result['note'])
+                patch('botend.services.journal_tooltip.requests.Session') as session:
+            with self.assertRaisesRegex(ValueError, '中央装备目录缺少'):
+                tooltip('item', 250144, 1, '12.1.0.69587')
+        session.assert_not_called()
 
     def test_localized_names_do_not_overwrite_current_item_properties(self):
         tables = fixture()

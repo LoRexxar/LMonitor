@@ -301,6 +301,8 @@ def sync_journal(*, build='', directory=None, offline=False, refresh=False, prog
             state = JournalState.objects.select_for_update().get(pk='wow-zhCN')
             if state.sync_token != token:
                 raise ValueError('同步租约已被其他任务接管，拒绝发布过期结果')
+            from botend.services.wow_item_catalog_import import upsert_journal_base_item_facts
+            upsert_journal_base_item_facts(rows, build)
             previous = state.active_release
             # 抓取可能超过 lease；必须在最终发布锁内读取最新活动 release，
             # 否则期间合法写入的 PTR overlay 会被旧快照覆盖。

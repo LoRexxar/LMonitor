@@ -14,6 +14,36 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class SimcEquipmentTooltipContractTests(TestCase):
+    def test_exact_build_request_selects_variant_from_shared_catalog(self):
+        season = SeasonMeta.objects.create(
+            season_key='tooltip-build', season_name='构建隔离测试', is_active=True,
+            game_build='12.1.0.1', gear_batch_key='tooltip-build-batch', gear_sync_status='ready',
+            mplus_zone_id=1, raid_zone_id=2,
+        )
+        item = WowItemSnapshot.objects.create(
+            item_id=281235, name_zh='共享目录装备', catalog_type='equipment', slot_key='chest',
+        )
+        for build, level, intellect in (
+            ('12.1.0.1', 289, 100),
+            ('12.1.5.2', 292, 128),
+        ):
+            WowItemVariantSnapshot.objects.create(
+                item=item, season=season, batch_key=season.gear_batch_key,
+                game_build=build, variant_key=f'{build}-{level}',
+                variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+                item_level=level, stats_json={'intellect': intellect}, effects_json=[],
+            )
+
+        live, ptr = load_item_tooltip_metadata([
+            {'item_id': item.item_id, 'game_build': '12.1.0.1', 'allow_default_variant': True},
+            {'item_id': item.item_id, 'game_build': '12.1.5.2', 'allow_default_variant': True},
+        ])
+
+        self.assertEqual(live['item_level'], 289)
+        self.assertEqual(live['stat_lines'], ['+100 智力'])
+        self.assertEqual(ptr['item_level'], 292)
+        self.assertEqual(ptr['stat_lines'], ['+128 智力'])
+
     def test_dynamic_primary_stat_is_resolved_for_requested_spec(self):
         season = SeasonMeta.objects.create(
             season_key='tooltip-primary', season_name='动态主属性测试', is_active=True,

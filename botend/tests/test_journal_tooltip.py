@@ -1,11 +1,12 @@
 from datetime import timedelta
+from unittest.mock import patch
 
 from django.core.cache import cache
 from django.test import TestCase
 from django.utils import timezone
 
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
-from botend.services.journal_tooltip import cached_tooltip
+from botend.services.journal_tooltip import cached_tooltip, tooltip
 
 
 class JournalLocalTooltipTests(TestCase):
@@ -242,3 +243,10 @@ class JournalLocalTooltipTests(TestCase):
 
     def test_different_build_does_not_reuse_ptr_snapshot(self):
         self.assertIsNone(cached_tooltip('item', 281235, 14, '12.1.0.69814'))
+
+    @patch('botend.services.journal_tooltip.requests.Session')
+    def test_missing_item_variant_never_falls_back_to_external_fetch(self, session):
+        with self.assertRaisesRegex(ValueError, '中央装备目录'):
+            tooltip('item', 999999, 14, '12.1.5.69594')
+
+        session.assert_not_called()

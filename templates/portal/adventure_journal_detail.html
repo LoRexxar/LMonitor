@@ -33,4 +33,4 @@
 {% for skill in boss.skills %}{% include 'portal/_journal_skill.html' %}{% empty %}<div class="journal-empty"><p>游戏手册暂无此首领在当前筛选条件下的技能说明。</p></div>{% endfor %}</section>{% else %}<p class="journal-empty">游戏手册暂无此副本的首领记录。</p>{% endif %}
 <footer class="journal-source">{{ source.label }}（{{ source.build }}） · <a href="https://wago.tools/journal/{{ instance.id }}?build={{ source.build }}" target="_blank" rel="noopener">查看 Wago 来源</a> · {{ release.updated|date:'Y-m-d H:i' }}</footer></article></div></main>
 <dialog id="journal-tooltip-dialog" aria-labelledby="journal-tooltip-title"><div class="journal-dialog-heading"><h2 id="journal-tooltip-title">物品与技能详情</h2><button type="button" id="journal-tooltip-close" aria-label="关闭详情">×</button></div><div id="journal-tooltip-content" aria-live="polite"></div></dialog>
-<script src="{% static 'portal/js/adventure-journal.js' %}?v=20260911_3"></script></body></html>
+<script src="{% static 'portal/js/adventure-journal.js' %}?v=20260914_item_icons"></script></body></html>

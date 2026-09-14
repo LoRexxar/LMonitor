@@ -50,9 +50,10 @@ if [ "$DEPLOY_HASH_BEFORE" != "$DEPLOY_HASH_AFTER" ]; then
     exec "$DEPLOY_SCRIPT" "$@"
 fi
 
-echo "=== 2. Migrate ==="
+echo "=== 2. Migrate and reconcile central item catalog ==="
 
 "$PYTHON_BIN" manage.py migrate --no-input
+"$PYTHON_BIN" manage.py backfill_journal_item_catalog
 
 echo "=== 3. Collectstatic ==="
 "$PYTHON_BIN" manage.py collectstatic --no-input --ignore='simc_results/*'
