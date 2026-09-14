@@ -295,10 +295,15 @@ def _build_tooltip_record(
 
 
 def _referenced_spell_ids(text, default_spell_id):
-    return {
+    required = {
         int(match.group('spell_id') or default_spell_id)
         for match in VALUE_TOKEN_RE.finditer(text or '')
     }
+    required.update(
+        int(match.group(1))
+        for match in re.finditer(r'\$(\d+)proccooldown(?![A-Za-z])', text or '', re.IGNORECASE)
+    )
+    return required
 
 
 def _required_spell_ids(text, default_spell_id, spell_descriptions):

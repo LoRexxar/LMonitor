@@ -9,6 +9,9 @@ _EFFECT_VALUES_RE = re.compile(
     r'Scaled Value:\s*(?P<scaled>-?\d+(?:\.\d+)?)'
 )
 _DURATION_RE = re.compile(r'^Duration\s*:\s*(?P<seconds>\d+(?:\.\d+)?)\s+seconds?\s*$')
+_PROC_COOLDOWN_LINE_RE = re.compile(
+    r'^(?:Internal|Proc) Cooldown\s*:\s*(?P<seconds>\d+(?:\.\d+)?)\s+seconds?\s*$'
+)
 _STACKS_RE = re.compile(r'^Stacks\s*:\s*(?P<count>\d+)\s+maximum\s*$')
 _PERIOD_RE = re.compile(r'\bevery\s+(?P<seconds>\d+(?:\.\d+)?)\s+seconds?\b', re.IGNORECASE)
 _VERIFIED_TOKEN_RE = re.compile(
@@ -24,6 +27,26 @@ _UNRESOLVED_TOKEN_RE = re.compile(
     r'|\$<[^>]+>'
 )
 _CONSTANT_EXPRESSION_RE = re.compile(r'\$\{(?P<expression>[^{}]+)\}')
+_VARIABLE_EXPRESSION_RE = re.compile(
+    r'\$\{\$<(?P<name>[A-Za-z_][A-Za-z0-9_]*)>(?P<expression>[^{}]*)\}'
+)
+_VARIABLE_LINE_RE = re.compile(r'^Variables\s*:\s*(?P<body>.+)$')
+_VARIABLE_ASSIGNMENT_RE = re.compile(
+    r'\$(?P<name>[A-Za-z_][A-Za-z0-9_]*)=(?P<body>.*?)(?=\s+\$[A-Za-z_][A-Za-z0-9_]*=|$)'
+)
+_VARIABLE_CONSTANT_BODY_RE = re.compile(
+    r'^\$\{(?P<value>-?\d+(?:\.\d+)?)\}(?:\.\d+)?$'
+)
+_VARIABLE_CONDITIONAL_BODY_RE = re.compile(
+    r'^\$\?[^\[]+\[\$\{(?P<first>-?\d+(?:\.\d+)?)\}(?:\.\d+)?\]'
+    r'\[\$\{(?P<second>-?\d+(?:\.\d+)?)\}(?:\.\d+)?\]$'
+)
+_PROC_COOLDOWN_TOKEN_RE = re.compile(
+    r'\$(?P<spell_id>\d+)?proccooldown(?![A-Za-z])', re.IGNORECASE
+)
+_CONDITIONAL_RE = re.compile(
+    r'\$\?\([^)]*\)\[(?P<true>[^\]]*)\]\[(?P<false>[^\]]*)\]', re.DOTALL
+)
 
 _STAT_LABELS = {
     'stragiint': '力量/敏捷/智力', 'stragi': '力量/敏捷',
@@ -101,14 +124,20 @@ def _evaluate_constant_expression(expression):
 def parse_simc_spell_query(output):
     """Parse the stable fields used by candidate tooltip rendering."""
     duration_seconds = None
+    proc_cooldown_seconds = None
     max_stacks = None
     effects = {}
+    variables = {}
     current_effect = None
     for raw_line in str(output or '').splitlines():
         line = raw_line.strip()
         duration_match = _DURATION_RE.match(line)
         if duration_match:
             duration_seconds = _number(duration_match.group('seconds'))
+            continue
+        proc_cooldown_match = _PROC_COOLDOWN_LINE_RE.match(line)
+        if proc_cooldown_match:
+            proc_cooldown_seconds = _number(proc_cooldown_match.group('seconds'))
             continue
         stacks_match = _STACKS_RE.match(line)
         if stacks_match:
@@ -131,10 +160,30 @@ def parse_simc_spell_query(output):
         if values_match and current_effect is not None:
             effects[current_effect]['base_value'] = _number(values_match.group('base'))
             effects[current_effect]['scaled_value'] = _number(values_match.group('scaled'))
+            continue
+        variables_match = _VARIABLE_LINE_RE.match(line)
+        if variables_match:
+            for assignment in _VARIABLE_ASSIGNMENT_RE.finditer(variables_match.group('body')):
+                body = assignment.group('body').strip()
+                conditional = _VARIABLE_CONDITIONAL_BODY_RE.fullmatch(body)
+                constant = _VARIABLE_CONSTANT_BODY_RE.fullmatch(body)
+                raw_values = (
+                    (conditional.group('first'), conditional.group('second'))
+                    if conditional else ((constant.group('value'),) if constant else ())
+                )
+                values = []
+                for raw_value in raw_values:
+                    value = _number(raw_value)
+                    if value not in values:
+                        values.append(value)
+                if values:
+                    variables[assignment.group('name')] = values
     return {
         'duration_seconds': duration_seconds,
+        'proc_cooldown_seconds': proc_cooldown_seconds,
         'max_stacks': max_stacks,
         'effects': effects,
+        'variables': variables,
     }
 
 
@@ -201,6 +250,14 @@ def render_spell_description(
         text,
         flags=re.IGNORECASE,
     )
+
+    def replace_proc_cooldown(match):
+        spell_id = int(match.group('spell_id') or base_spell_id)
+        value = (spell_queries.get(spell_id) or {}).get('proc_cooldown_seconds')
+        return _format_tooltip_number(value) if value is not None else match.group(0)
+
+    text = _PROC_COOLDOWN_TOKEN_RE.sub(replace_proc_cooldown, text)
+
     def replace_verified(match):
         groups = match.groupdict()
         spell_id = int(groups.get('spell_id') or groups.get('value_spell_id') or base_spell_id)
@@ -229,6 +286,32 @@ def render_spell_description(
 
     text = _VERIFIED_TOKEN_RE.sub(replace_verified, text)
 
+    def replace_variable_expression(match):
+        name = match.group('name')
+        values = (
+            (spell_queries.get(base_spell_id) or {}).get('variables', {}).get(name) or []
+        )
+        rendered_values = []
+        for variable_value in values:
+            value = _evaluate_constant_expression(
+                f'{variable_value}{match.group("expression")}'
+            )
+            if value is not None and value not in rendered_values:
+                rendered_values.append(value)
+        if not rendered_values:
+            return match.group(0)
+        low = min(rendered_values)
+        high = max(rendered_values)
+        if low == high:
+            return _format_tooltip_number(low)
+        label = '职责' if name.lower() == 'rolemult' else name
+        return (
+            f'{_format_tooltip_number(low)}–{_format_tooltip_number(high)}'
+            f'（随{label}变化）'
+        )
+
+    text = _VARIABLE_EXPRESSION_RE.sub(replace_variable_expression, text)
+
     def replace_constant_expression(match):
         value = _evaluate_constant_expression(match.group('expression'))
         if value is None:
@@ -236,6 +319,21 @@ def render_spell_description(
         return _format_tooltip_number(value)
 
     text = _CONSTANT_EXPRESSION_RE.sub(replace_constant_expression, text)
+
+    def replace_conditional(match):
+        branches = []
+        for value in (match.group('true'), match.group('false')):
+            cleaned = re.sub(
+                r'\|c(?:[0-9A-Fa-f]{8}|n[A-Za-z0-9_]+:?)', '', value or '',
+                flags=re.IGNORECASE,
+            ).replace('|r', '').strip()
+            if cleaned and cleaned not in branches:
+                branches.append(cleaned)
+        if len(branches) != 1 or '$' in branches[0]:
+            return match.group(0)
+        return f'\n\n条件说明：{branches[0]}'
+
+    text = _CONDITIONAL_RE.sub(replace_conditional, text)
     for match in _UNRESOLVED_TOKEN_RE.finditer(text):
         token = match.group(0)
         if token not in unresolved:

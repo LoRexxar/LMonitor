@@ -50,6 +50,21 @@ Effects          :
                    Base Value: 0 | Scaled Value: 10337.87 (coefficient=17.71982)
 """
 
+ROLE_MULTIPLIER_OUTPUT = """Name             : Void Eruption (id=1310208)
+Effects          :
+#1 (id=1339535)  : Apply Aura (6) | Proc Trigger Spell (42)
+                   Base Value: 300 | Scaled Value: 527.0007
+#2 (id=1339536)  : Apply Aura (6) | Dummy (4)
+                   Base Value: 15 | Scaled Value: 0
+Variables        : $rolemult=$?a1[${0.66}.2][${1}]
+"""
+
+PROC_COOLDOWN_OUTPUT = """Name             : Twisted Horror's Tendril (id=1310446)
+Internal Cooldown: 5 seconds
+Effects          :
+#1 (id=1339970)  : Apply Aura (6) | Proc Trigger Spell (42)
+"""
+
 
 class SimcBenchmarkTooltipGeneratorTests(unittest.TestCase):
     def test_fallback_record_allows_empty_stats_but_marks_audit(self):
@@ -260,6 +275,58 @@ class SimcBenchmarkTooltipGeneratorTests(unittest.TestCase):
         self.assertEqual(unresolved, [])
         self.assertEqual(rendered, '最多可获得349.8爆击，持续20秒。')
 
+    def test_renders_simc_variable_expression_as_verified_range(self):
+        query = parse_simc_spell_query(ROLE_MULTIPLIER_OUTPUT)
+        self.assertEqual(query['variables'], {'rolemult': [0.66, 1]})
+
+        rendered, unresolved = render_spell_description(
+            '造成${$<rolemult>*$s1}点伤害，易伤时提高$s2%。',
+            base_spell_id=1310208,
+            spell_queries={1310208: query},
+        )
+
+        self.assertEqual(unresolved, [])
+        self.assertEqual(rendered, '造成347.82–527（随职责变化）点伤害，易伤时提高15%。')
+
+    def test_renders_proc_cooldown_and_static_conditional_notice(self):
+        query = parse_simc_spell_query(PROC_COOLDOWN_OUTPUT)
+        self.assertEqual(query['proc_cooldown_seconds'], 5)
+
+        rendered, unresolved = render_spell_description(
+            'Once every $1310446proccooldown sec.$?(a1)[][|cnRED_FONT_COLOR:\n\nValid only for tank specializations.|r]',
+            base_spell_id=1,
+            spell_queries={1310446: query},
+        )
+
+        self.assertEqual(unresolved, [])
+        self.assertEqual(
+            rendered,
+            'Once every 5 sec.\n\n条件说明：Valid only for tank specializations.',
+        )
+
+    def test_does_not_treat_arithmetic_variable_as_alternative_values(self):
+        query = parse_simc_spell_query(
+            'Variables        : $amount=${2}+${3}\n'
+        )
+        self.assertEqual(query['variables'], {})
+
+        rendered, unresolved = render_spell_description(
+            '造成${$<amount>*10}点伤害。',
+            base_spell_id=1,
+            spell_queries={1: query},
+        )
+        self.assertEqual(rendered, '造成${$<amount>*10}点伤害。')
+        self.assertEqual(unresolved, ['${$<amount>*10}'])
+
+    def test_keeps_two_branch_conditional_unresolved(self):
+        rendered, unresolved = render_spell_description(
+            '$?(a1)[治疗目标][伤害目标]',
+            base_spell_id=1,
+            spell_queries={},
+        )
+        self.assertEqual(rendered, '$?(a1)[治疗目标][伤害目标]')
+        self.assertTrue(unresolved)
+
     def test_renders_referenced_spell_descriptions_in_their_own_context(self):
         referenced = """Effects          :
 #1 (id=1)       : Dummy
@@ -282,11 +349,11 @@ class SimcBenchmarkTooltipGeneratorTests(unittest.TestCase):
             '造成伤害。$@spelldesc1240903',
             10,
             {
-                1240903: '伤害提高$s1%，并触发$200s2。',
+                1240903: '伤害提高$s1%，并触发$200s2，每$1310446proccooldown秒一次。',
             },
         )
 
-        self.assertEqual(required, {10, 1240903, 200})
+        self.assertEqual(required, {10, 1240903, 200, 1310446})
 
     def test_reads_simc_revision_from_the_nearest_repository_ancestor(self):
         with TemporaryDirectory() as temp_dir:

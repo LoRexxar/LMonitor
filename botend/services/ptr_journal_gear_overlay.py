@@ -16,6 +16,24 @@ from botend.services.gear_builder import active_season
 OVERLAY_SCHEMA = 1
 
 
+def exact_build_variant_is_complete(*, build, metadata, stats, effects):
+    metadata = metadata if isinstance(metadata, dict) else {}
+    if (not metadata.get('ptr_preview')
+            or metadata.get('stats_status') != 'exact_build_simc'
+            or metadata.get('effects_status') != 'exact_build_db2_simc'
+            or str(metadata.get('game_build') or '') != str(build or '')
+            or not isinstance(stats, dict) or not stats
+            or not isinstance(effects, list) or not effects):
+        return False
+    return all(
+        isinstance(effect, dict)
+        and str(effect.get('game_build') or '') == str(build or '')
+        and not effect.get('unresolved_tokens')
+        and bool(str(effect.get('description_zh') or effect.get('description') or '').strip())
+        for effect in effects
+    )
+
+
 def _load_artifact(path):
     path = Path(path)
     raw = path.read_bytes()
@@ -28,6 +46,12 @@ def _load_artifact(path):
     gear = (payload.get('gear') or {}).get('items') or []
     if not build or int(payload.get('instance_id') or 0) != int(row.get('id') or 0):
         raise ValueError('PTR overlay 的 build 或实例身份不完整')
+    catalog_art_ids = {
+        int(value) for value in ((journal.get('catalog') or {}).get('art_ids') or [])
+    }
+    missing_art_ids = sorted(_catalog_references(row)[2] - catalog_art_ids)
+    if missing_art_ids:
+        raise ValueError(f'PTR overlay 图片白名单缺少实际引用：{missing_art_ids}')
     encounters = row.get('encounters') or []
     if not encounters or not gear:
         raise ValueError('PTR overlay 缺少首领或装备数据')
@@ -49,11 +73,12 @@ def _load_artifact(path):
         if item.get('name_zh') and not any('\u3400' <= char <= '\u9fff' for char in item['name_zh']):
             raise ValueError(f'物品 {item_id} 的中文名不含中文字符')
         for variant in variants:
-            metadata = variant.get('metadata') or {}
-            if not metadata.get('ptr_preview') or metadata.get('stats_status') != 'awaiting_same_build_simc':
-                raise ValueError(f'物品 {item_id} 的 PTR 预览状态不完整')
-            if variant.get('stats') or variant.get('effects'):
-                raise ValueError(f'物品 {item_id} 在同构建 SimC 可用前不得写入猜测属性或特效')
+            if not exact_build_variant_is_complete(
+                    build=build,
+                    metadata=variant.get('metadata'),
+                    stats=variant.get('stats'),
+                    effects=variant.get('effects')):
+                raise ValueError(f'物品 {item_id} 缺少同构建 SimC 属性或特效')
     return payload, build, row, gear, hashlib.sha256(raw).hexdigest()
 
 
@@ -239,12 +264,12 @@ def _gear_overlay_is_complete(gear, season, build):
         season=season,
         batch_key=season.gear_batch_key,
         item__item_id__in=[int(item['item_id']) for item in gear],
-    ).values_list('item__item_id', 'variant_key', 'game_build', 'metadata')
+    ).values_list('item__item_id', 'variant_key', 'game_build', 'metadata',
+                  'stats_json', 'effects_json')
     actual = {}
-    for item_id, variant_key, game_build, metadata in rows:
-        metadata = metadata if isinstance(metadata, dict) else {}
-        if (metadata.get('ptr_preview')
-                and metadata.get('stats_status') == 'awaiting_same_build_simc'):
+    for item_id, variant_key, game_build, metadata, stats, effects in rows:
+        if exact_build_variant_is_complete(
+                build=build, metadata=metadata, stats=stats, effects=effects):
             actual[(int(item_id), str(variant_key))] = str(game_build or '')
     return expected == set(actual) and all(actual[key] == build for key in expected)
 

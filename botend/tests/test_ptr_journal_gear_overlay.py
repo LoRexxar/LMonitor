@@ -1,11 +1,16 @@
+import json
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from django.conf import settings
 from django.test import TestCase
 
 from botend.journal_models import JournalEncounter, JournalInstance, JournalRelease, JournalState
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
-from botend.services.ptr_journal_gear_overlay import import_ptr_journal_gear_overlay
+from botend.services.ptr_journal_gear_overlay import (
+    _load_artifact,
+    import_ptr_journal_gear_overlay,
+)
 
 
 class PtrJournalGearOverlayTests(TestCase):
@@ -75,6 +80,16 @@ class PtrJournalGearOverlayTests(TestCase):
             source_json=[{'type': 'raid'}],
         )
 
+    def test_artifact_rejects_empty_exact_build_variant(self):
+        artifact = Path(settings.BASE_DIR) / 'botend' / 'data' / 'ptr_kithix_unbound_12_1_5.json'
+        payload = json.loads(artifact.read_text(encoding='utf-8'))
+        payload['gear']['items'][0]['variants'][0]['stats'] = {}
+        with TemporaryDirectory() as temp_dir:
+            broken = Path(temp_dir) / 'broken.json'
+            broken.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+            with self.assertRaisesRegex(ValueError, '缺少同构建 SimC 属性或特效'):
+                _load_artifact(broken)
+
     def test_overlay_preserves_live_journal_and_appends_preview_gear_to_active_catalog(self):
         artifact = Path(settings.BASE_DIR) / 'botend' / 'data' / 'ptr_kithix_unbound_12_1_5.json'
 
@@ -109,6 +124,7 @@ class PtrJournalGearOverlayTests(TestCase):
         self.assertEqual(report['journal']['added'], 1)
         self.assertEqual(report['gear']['items'], 10)
         self.assertEqual(report['gear']['variants'], 180)
+        self.assertIn(7807659, active_release.manifest['catalog']['art_ids'])
 
         item = WowItemSnapshot.objects.get(item_id=281235)
         self.assertTrue(item.metadata['ptr_preview'])
@@ -118,8 +134,10 @@ class PtrJournalGearOverlayTests(TestCase):
             batch_key='active-live-batch',
         )
         self.assertEqual(variants.count(), 18)
-        self.assertTrue(all(v.metadata['stats_status'] == 'awaiting_same_build_simc' for v in variants))
-        self.assertTrue(all(v.stats_json == {} for v in variants))
+        self.assertTrue(all(v.metadata['stats_status'] == 'exact_build_simc' for v in variants))
+        self.assertTrue(all(v.metadata['effects_status'] == 'exact_build_db2_simc' for v in variants))
+        self.assertTrue(all(bool(v.stats_json) for v in variants))
+        self.assertTrue(all(bool(v.effects_json) for v in variants))
 
         response = self.client.get('/portal/api/gear-builder/catalog/', {
             'class': 'Mage',
@@ -131,7 +149,9 @@ class PtrJournalGearOverlayTests(TestCase):
         catalog_item = next(row for row in response.json()['items'] if row['item_id'] == 281235)
         self.assertEqual(catalog_item['name'], "Voidweaver's Vestments")
         self.assertTrue(catalog_item['metadata']['ptr_preview'])
-        self.assertTrue(all(v['metadata']['stats_status'] == 'awaiting_same_build_simc'
+        self.assertTrue(all(v['metadata']['stats_status'] == 'exact_build_simc'
+                            for v in catalog_item['variants']))
+        self.assertTrue(all(v['metadata']['effects_status'] == 'exact_build_db2_simc'
                             for v in catalog_item['variants']))
 
         release_count = JournalRelease.objects.count()
