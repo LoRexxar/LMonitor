@@ -205,9 +205,15 @@ class JournalCompilationTests(SimpleTestCase):
 
 class JournalPublicationTests(TestCase):
     def publish(self, tables=None):
+        tables = tables or fixture()
         with patch('botend.services.journal_service.WagoJournalSource') as source, \
                 patch('botend.services.journal_items.supplement_items', return_value={}):
-            source.return_value.load.return_value = tables or fixture()
+            source.return_value.load.side_effect = lambda names=TABLES: {
+                name: tables[name] for name in names
+            }
+            source.return_value.select.side_effect = lambda table, values, field='ID', locale=None: [
+                row for row in tables[table] if str(row.get(field)) in {str(value) for value in values}
+            ]
             source.return_value.manifest = {}
             return sync_journal(build='12.1.0.69587')
 
@@ -223,6 +229,11 @@ class JournalPublicationTests(TestCase):
             events.append(('load', names))
             return {name: tables[name] for name in names}
 
+        def select(table, values, field='ID', locale=None):
+            values = frozenset(values)
+            events.append(('select', table, values, field, locale))
+            return [row for row in tables[table] if str(row.get(field)) in {str(value) for value in values}]
+
         def supplement(loaded, source, *, enabled=True):
             events.append(('supplement', tuple(loaded)))
             return {}
@@ -230,14 +241,58 @@ class JournalPublicationTests(TestCase):
         with patch('botend.services.journal_service.WagoJournalSource') as source, \
                 patch('botend.services.journal_items.supplement_items', side_effect=supplement):
             source.return_value.load.side_effect = load
+            source.return_value.select.side_effect = select
             source.return_value.manifest = {}
             sync_journal(build='12.1.0.69587')
 
-        item_tables = ('JournalEncounterItem', 'ItemSparse')
-        self.assertEqual(events[0], ('load', item_tables))
-        self.assertEqual(events[1], ('supplement', item_tables))
-        self.assertNotIn('SpellEffect', events[1][1])
-        self.assertIn('SpellEffect', events[2][1])
+        self.assertEqual(events[0], ('load', ('JournalEncounterItem',)))
+        self.assertEqual(events[1][1:4], ('ItemSparse', frozenset({60, 61}), 'ID'))
+        self.assertEqual(events[2], ('supplement', ('JournalEncounterItem', 'ItemSparse')))
+        self.assertNotIn('SpellEffect', events[2][1])
+
+    def test_sync_projects_item_and_spell_tables_to_referenced_ids(self):
+        tables = fixture()
+        tables['Spell'] = [
+            {'ID': '100', 'Description_lang': '参见$@spelldesc200'},
+            {'ID': '200', 'Description_lang': '造成$s1点伤害'},
+            {'ID': '999', 'Description_lang': '无关技能'},
+        ]
+        tables['SpellName'] = [
+            {'ID': '100', 'Name_lang': '入口技能'},
+            {'ID': '200', 'Name_lang': '引用技能'},
+            {'ID': '999', 'Name_lang': '无关技能'},
+        ]
+        tables['SpellEffect'] = [
+            {'ID': '1', 'SpellID': '200', 'EffectIndex': '0', 'EffectBasePointsF': '25'},
+            {'ID': '2', 'SpellID': '999', 'EffectIndex': '0', 'EffectBasePointsF': '999'},
+        ]
+        selected = []
+
+        def load(names=TABLES):
+            self.assertNotIn('Item', names)
+            self.assertNotIn('ItemSparse', names)
+            self.assertFalse(set(names) & {'Spell', 'SpellName', 'SpellEffect', 'SpellMisc'})
+            return {name: tables[name] for name in names}
+
+        def select(table, values, field='ID', locale=None):
+            values = frozenset(values)
+            selected.append((table, values, field, locale))
+            return [row for row in tables[table] if str(row.get(field)) in {str(value) for value in values}]
+
+        with patch('botend.services.journal_service.WagoJournalSource') as source, \
+                patch('botend.services.journal_items.supplement_items', return_value={}):
+            source.return_value.load.side_effect = load
+            source.return_value.select.side_effect = select
+            source.return_value.manifest = {}
+            release = sync_journal(build='12.1.0.69587')
+
+        self.assertIn(('ItemSparse', frozenset({60, 61}), 'ID', None), selected)
+        self.assertIn(('Item', frozenset({60, 61}), 'ID', None), selected)
+        self.assertIn(('Spell', frozenset({100}), 'ID', None), selected)
+        self.assertIn(('Spell', frozenset({200}), 'ID', None), selected)
+        self.assertIn(('SpellEffect', frozenset({100, 200}), 'SpellID', None), selected)
+        section = JournalEncounter.objects.get(instance__release=release).payload['sections'][2]
+        self.assertEqual(section['descriptions']['2'], '参见造成25点伤害\n\n英雄特有机制')
 
     def test_published_catalog_and_navigation(self):
         response = self.client.get('/portal/adventure-journal/')
@@ -579,10 +634,18 @@ class JournalSourceTests(SimpleTestCase):
         tables['ItemSparse'] = []
         english = [{'ID': '60', 'Display_lang': 'Trinket', 'OverallQualityID': '3'},
                    {'ID': '61', 'Display_lang': 'Helm', 'OverallQualityID': '4'}]
-        source = SimpleNamespace(directory=Path('未使用的缓存') / '版本' / 'zhCN', offline=True, refresh=False,
-                                 progress=lambda _: None, table=Mock(return_value=english), manifest={})
+        source = SimpleNamespace(
+            directory=Path('未使用的缓存') / '版本' / 'zhCN',
+            offline=True,
+            refresh=False,
+            progress=lambda _: None,
+            select=Mock(side_effect=lambda table, values, field='ID', locale=None: [
+                row for row in english if str(row.get(field)) in {str(value) for value in values}
+            ]),
+            manifest={},
+        )
         with patch('pathlib.Path.exists', return_value=False), patch('botend.services.journal_items.WagoJournalSource') as legacy:
-            legacy.return_value.table.return_value = [{'ID': '60', 'Display_lang': '历史中文名称', 'OverallQualityID': '5'}]
+            legacy.return_value.select.return_value = [{'ID': '60', 'Display_lang': '历史中文名称', 'OverallQualityID': '5'}]
             legacy.return_value.manifest = {'ItemSparse': {}}
             supplements = supplement_items(tables, source)
         self.assertEqual(supplements[60]['name'], '历史中文名称')
@@ -638,6 +701,27 @@ class JournalSourceTests(SimpleTestCase):
                 read.return_value = content.encode('utf-8')
                 with self.assertRaises(ValueError):
                     source.table('JournalInstance')
+
+    def test_table_filter_validates_full_source_but_retains_only_selected_rows(self):
+        content = 'ID,Name_lang\n1,一\n2,二\n3,三\n'.encode('utf-8')
+        with patch('pathlib.Path.exists', return_value=True), \
+                patch('pathlib.Path.read_bytes', return_value=content):
+            source = WagoJournalSource('12.1.0.69587', '未使用的离线路径', offline=True)
+            rows = source.table('JournalInstance', row_filter=lambda row: row['ID'] == '2')
+        self.assertEqual(rows, [{'ID': '2', 'Name_lang': '二'}])
+        self.assertEqual(source.manifest['JournalInstance']['rows'], 3)
+        self.assertEqual(source.manifest['JournalInstance']['selected_rows'], 1)
+
+    def test_select_rejects_missing_projection_field_and_accumulates_manifest_count(self):
+        content = 'ID,SpellID\n1,100\n2,200\n3,300\n'.encode('utf-8')
+        with patch('pathlib.Path.exists', return_value=True), \
+                patch('pathlib.Path.read_bytes', return_value=content):
+            source = WagoJournalSource('12.1.0.69587', '未使用的离线路径', offline=True)
+            source.select('SpellEffect', {100}, field='SpellID')
+            source.select('SpellEffect', {200}, field='SpellID')
+            self.assertEqual(source.manifest['SpellEffect.enUS']['selected_rows'], 2)
+            with self.assertRaises(ValueError):
+                source.select('SpellEffect', {100}, field='MissingField')
 
     @patch('botend.services.journal_source.http_session')
     @patch('botend.services.journal_source.inertia')

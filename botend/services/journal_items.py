@@ -38,7 +38,7 @@ def supplement_items(tables, source, *, enabled=True):
     if not missing or not enabled:
         return {}
     # 英文表负责同版本完整属性；中文缺口单独保留来源，不混用旧版属性。
-    english = index(source.table('ItemSparse', locale='enUS'))
+    english = index(source.select('ItemSparse', missing, locale='enUS'))
     for iid in missing:
         if iid in english:
             current[iid] = {**english[iid], 'Display_lang': '', 'Description_lang': ''}
@@ -54,7 +54,7 @@ def supplement_items(tables, source, *, enabled=True):
     if missing:
         legacy = WagoJournalSource('12.0.5.67823', source.directory.parents[1],
                                     offline=source.offline, progress=source.progress)
-        names = legacy.table('ItemSparse')
+        names = legacy.select('ItemSparse', missing)
         for row in names:
             iid = integer(row['ID'])
             if iid in missing and row.get('Display_lang'):

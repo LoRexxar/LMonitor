@@ -1,4 +1,5 @@
 """关联冒险手册全量表并原子发布，保存缺项清单和每份来源的版本。"""
+import re
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -20,6 +21,37 @@ SLOTS = {0: '其他', 1: '头部', 2: '颈部', 3: '肩部', 4: '衬衣', 5: '�
          7: '腿部', 8: '脚部', 9: '腕部', 10: '手部', 11: '手指', 12: '饰品', 13: '单手',
          14: '盾牌', 15: '远程', 16: '背部', 17: '双手', 19: '战袍', 20: '胸部',
          21: '主手', 22: '副手', 23: '副手物品', 25: '投掷', 26: '远程', 28: '圣物'}
+SPELL_RELATION_TABLES = ('SpellEffect', 'SpellMisc', 'SpellAuraOptions', 'SpellTargetRestrictions')
+PROJECTED_TABLES = {'JournalEncounterItem', 'ItemSparse', 'Item', 'Spell', 'SpellName', *SPELL_RELATION_TABLES}
+SPELL_REFERENCE = re.compile(
+    r'\$@(?:spellname|spelldesc|spellaura|spelltooltip|spellicon)(\d+)|\$(\d+)[sSmMaAtTdDuUiIrR]\d*',
+    re.I,
+)
+
+
+def text_spell_ids(text):
+    return {integer(left or right) for left, right in SPELL_REFERENCE.findall(str(text or '')) if integer(left or right)}
+
+
+def load_referenced_spells(source, sections):
+    """递归加载手册正文真正引用的 Spell 行；缺失 ID 仍进入关联表筛选与缺项语义。"""
+    needed = set()
+    for section in sections:
+        spell_id = integer(section.get('SpellID'))
+        if spell_id:
+            needed.add(spell_id)
+        needed.update(text_spell_ids(section.get('Title_lang')))
+        needed.update(text_spell_ids(section.get('BodyText_lang')))
+    queried = set()
+    selected = {}
+    while pending := needed - queried:
+        queried.update(pending)
+        for row in source.select('Spell', pending):
+            spell_id = integer(row['ID'])
+            selected[spell_id] = row
+            needed.update(text_spell_ids(row.get('Description_lang')))
+            needed.update(text_spell_ids(row.get('AuraDescription_lang')))
+    return list(selected.values()), needed
 
 
 def allowed_difficulties(row, relations, available, difficulties):
@@ -249,11 +281,17 @@ def sync_journal(*, build='', directory=None, offline=False, refresh=False, prog
         release = JournalRelease.objects.create(build=build)
         source = WagoJournalSource(build, directory or Path(settings.BASE_DIR) / '.cache' / 'adventure-journal',
                                    offline=offline, refresh=refresh, progress=progress)
-        item_table_names = ('JournalEncounterItem', 'ItemSparse')
-        tables = source.load(item_table_names)
+        tables = source.load(('JournalEncounterItem',))
+        item_ids = {integer(row['ItemID']) for row in tables['JournalEncounterItem'] if not integer(row['Flags']) & 1}
+        tables['ItemSparse'] = source.select('ItemSparse', item_ids)
         from botend.services.journal_items import supplement_items
         supplements = supplement_items(tables, source, enabled=fallback)
-        tables.update(source.load(tuple(name for name in TABLES if name not in item_table_names)))
+        tables.update(source.load(tuple(name for name in TABLES if name not in PROJECTED_TABLES)))
+        tables['Item'] = source.select('Item', item_ids)
+        tables['Spell'], spell_ids = load_referenced_spells(source, tables['JournalEncounterSection'])
+        tables['SpellName'] = source.select('SpellName', spell_ids)
+        for table in SPELL_RELATION_TABLES:
+            tables[table] = source.select(table, spell_ids, field='SpellID')
         rows, catalog, report = compile_journal(tables, item_fallback=supplements)
         if not report['instances'] or not report['encounters'] or not report['loot']:
             raise ValueError('核心冒险手册数据为空，拒绝发布')
