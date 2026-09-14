@@ -230,13 +230,17 @@ class Command(BaseCommand):
         }
 
     def _upsert_item(self, payload):
+        from botend.services.wow_item_text import normalize_catalog_text
         item_id = int(payload['item_id'])
         existing = WowItemSnapshot.objects.filter(item_id=item_id).first()
+        for field in ('description', 'description_zh'):
+            payload.setdefault(field, getattr(existing, field, ''))
+        normalize_catalog_text(payload)
         defaults = {
             'name': payload.get('name') or getattr(existing, 'name', ''),
             'name_zh': payload.get('name_zh') or getattr(existing, 'name_zh', ''),
-            'description': payload.get('description') or getattr(existing, 'description', ''),
-            'description_zh': payload.get('description_zh') or getattr(existing, 'description_zh', ''),
+            'description': payload.get('description', ''),
+            'description_zh': payload.get('description_zh', ''),
             'icon': payload.get('icon') or getattr(existing, 'icon', ''),
             'quality': int(payload.get('quality') or getattr(existing, 'quality', 0) or 0),
             'source': str(payload.get('source') or getattr(existing, 'source', '') or 'wago_wowhead')[:32],

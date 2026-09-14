@@ -567,7 +567,9 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'socket_types': socket_types,
         'socket_count': socket_count,
         'stats': stats,
-        'effects': variant.effects_json or [],
+        'effects': display['effect_details'],
+        'text_schema_version': 2,
+        'effects_missing': display['effects_missing'],
         'sources': sources,
         'crafting_options': variant.crafting_options or {},
         'unique_group': variant.unique_group or item.unique_group,
@@ -580,12 +582,15 @@ def serialize_variant(variant, class_name='', spec_name=''):
 
 
 def serialize_item(item, variants, class_name='', spec_name=''):
-    display = item_display_metadata(item.item_id, item, icon_size='medium')
+    first_variant = variants[0] if variants else None
+    display = item_display_metadata(item.item_id, item, icon_size='medium', variant=first_variant,
+        stats=stats_for_identity(first_variant.stats_json, first_variant.metadata, class_name, spec_name) if first_variant else None)
     return {
         'item_id': item.item_id,
         'name': display['display_name'],
         'name_en': item.name or '',
-        'description': display['display_description'],
+        'description': display['description_zh'] or display['description'],
+        'text_schema_version': 2,
         'display_description': display['display_description'],
         'icon': item.icon or '',
         'icon_url': display['icon_url'],
@@ -744,12 +749,12 @@ def _resolve_crafted_rows(variant, selected_stats, embellishment, class_name, sp
         for index, key in enumerate(selected):
             stats[key] = base + (1 if index < remainder else 0)
 
-    effects = list(variant.effects_json or [])
+    effects = list(serialize_variant(variant, class_name, spec_name)['effects'])
     if embellishment:
         slot = target_slot or variant.item.slot_key or (variant.compatible_slots or [''])[0]
         if embellishment.variant_type != WowItemVariantSnapshot.TYPE_EMBELLISHMENT or not slot_matches(embellishment, slot):
             raise GearBuilderError('所选美化与该制造装备不兼容')
-        effects.extend(embellishment.effects_json or [])
+        effects.extend(serialize_variant(embellishment, class_name, spec_name)['effects'])
     return stats, selected, effects
 
 

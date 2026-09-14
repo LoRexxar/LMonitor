@@ -1354,8 +1354,9 @@ class GearBuilderCurrentSourceTests(TestCase):
                 '<span>(4) 组合 狂怒: 嗜血的伤害提高10%。</span>'
             ),
         })
-        self.assertIn('提供下列属性', details['description_zh'])
-        self.assertIn('(2) 组合 狂怒', details['description_zh'])
+        self.assertEqual(details['description_zh'], '')
+        self.assertIn('提供下列属性', details['effects'][0]['description_zh'])
+        self.assertIn('(2) 组合 狂怒', details['effects'][1]['description_zh'])
         self.assertEqual(len(details['effects']), 3)
 
     def test_wowhead_tooltip_parser_keeps_english_fallback_stats_and_effects(self):
@@ -1424,14 +1425,14 @@ class GearBuilderCurrentSourceTests(TestCase):
             with patch.object(cached_source, '_get_json') as get_json:
                 cached = cached_source._wowhead_tooltip(271878, 344, cache_dir)
             get_json.assert_not_called()
-            self.assertIn('精通提高', cached['description_zh'])
+            self.assertIn('精通提高', cached['effects'][0]['description_zh'])
 
             refresh_source = CurrentGearCatalogSource(cache_dir=temp_dir, refresh_wowhead_cache=True)
             with patch.object(refresh_source, '_get_json', return_value=current_payload) as get_json:
                 refreshed = refresh_source._wowhead_tooltip(271878, 344, cache_dir)
             get_json.assert_called_once()
-            self.assertIn('暴击提高', refreshed['description_zh'])
-            self.assertNotIn('精通提高', refreshed['description_zh'])
+            self.assertIn('暴击提高', refreshed['effects'][0]['description_zh'])
+            self.assertNotIn('精通提高', refreshed['effects'][0]['description_zh'])
 
 
 @override_settings(OSS_CONFIG={
@@ -1518,7 +1519,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260914_cached_stats", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260914_text_separation", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
@@ -1526,7 +1527,7 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
-        self.assertIn("portal/css/gear_builder.css' %}?v=20260914_stat_percent", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20260914_text_separation", template)
         for value in ('gear-owned-add-icon', 'gear-owned-add-label', 'is-saving', 'is-added', '再次点击会增加数量'):
             self.assertIn(value, script)
         self.assertIn('.gear-owned-add:focus-visible', styles)

@@ -16,6 +16,7 @@ from botend.models import (
     SeasonMeta, SimcBenchmarkCandidate, WowItemSnapshot, WowItemVariantSnapshot,
 )
 from botend.services.gear_builder_catalog_source import CatalogSourceError, CurrentGearCatalogSource
+from botend.services.wow_item_text import normalize_catalog_text
 
 
 EQUIPMENT_TYPES = {
@@ -239,7 +240,23 @@ class Command(BaseCommand):
                         if details.get('quality') and (options['force'] or benchmark_refresh or not item.quality):
                             item.quality = details['quality']
                             item_fields.append('quality')
-                    if item_fields:
+                    if item_fields or update_fields:
+                        text_payload = {
+                            'name': item.name, 'name_zh': item.name_zh,
+                            'description': item.description, 'description_zh': item.description_zh,
+                            'catalog_type': item.catalog_type, 'metadata': dict(item.metadata or {}),
+                            'variants': [{'stats': row.stats_json, 'effects': row.effects_json,
+                                          'metadata': dict(row.metadata or {})}],
+                        }
+                        normalize_catalog_text(text_payload)
+                        for field in ('description', 'description_zh', 'metadata'):
+                            if getattr(item, field) != text_payload[field]:
+                                setattr(item, field, text_payload[field])
+                                item_fields.append(field)
+                        normalized = text_payload['variants'][0]
+                        if row.effects_json != normalized['effects'] or row.metadata != normalized['metadata']:
+                            row.effects_json, row.metadata = normalized['effects'], normalized['metadata']
+                            row.save(update_fields=['effects_json', 'metadata'])
                         item.updated_at = timezone.now()
                         item_fields.append('updated_at')
                         item.save(update_fields=tuple(dict.fromkeys(item_fields)))

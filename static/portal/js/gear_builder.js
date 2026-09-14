@@ -155,11 +155,13 @@
   function variantEffectDescriptions(item, variant) {
     const effects = (variant?.effects || []).map(effectText).filter(Boolean);
     if (effects.length) return effects;
+    if (item?.text_schema_version >= 2 || variant?.text_schema_version >= 2) return [];
     if (["drop_equipment", "crafted_equipment"].includes(variant?.type)) return [];
     return item?.description ? [item.description] : [];
   }
 
   function tooltipText(item, variant) {
+    if (variant?.type === "gem" && !(variant.text_schema_version >= 2)) return gemDescription(item, variant);
     const canonicalTooltip = String(variant?.tooltip || "").trim();
     if (canonicalTooltip) {
       const sorted = sortTooltipStats(canonicalTooltip);
@@ -312,6 +314,7 @@
       name: item.name,
       name_en: item.name_en || "",
       description: item.description || "",
+      text_schema_version: item.text_schema_version || 0,
       icon: item.icon || "",
       icon_url: item.icon_url || "",
       quality: item.quality || 0,
@@ -690,12 +693,11 @@
     const selectedCount = kind === "gem"
       ? (entry?.gems || []).filter((row) => Number(row.variant?.id) === Number(variant?.id)).length
       : Number(entry?.[kind]?.variant?.id) === Number(variant?.id) ? 1 : 0;
-    const description = kind === "gem" ? gemDescription(item, variant)
-      : [...new Set([...variantEffectDescriptions(item, variant), statMarkupText(variant?.stats)].filter(Boolean))]
-        .join(" · ") || "无常驻属性说明";
+    const description = gemDescription(item, variant);
+    const itemDescription = item.text_schema_version >= 2 ? item.description : "";
     return `<label class="gear-option-row"${tooltipAttrs(item, variant)}>
       <input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>
-      <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small></span>
+      <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small>${itemDescription ? `<small class="gear-option-description">${escapeHtml(itemDescription)}</small>` : ""}</span>
     </label>`;
   }
 
@@ -704,11 +706,31 @@
       .map(([key, value]) => `${STAT_LABELS[key] || key} ${formatNumber(value)}`).join(" · ");
   }
 
+  function cleanGemDescription(text, item) {
+    let cleaned = String(text || "").normalize("NFKC").replace(/\r\n?/g, "\n")
+      .replace(/(?:物品等级|Item Level)\s*:?\s*[\d,.]+/gi, "")
+      .replace(/(?:最大叠加|最大堆叠|Max(?:imum)? Stack(?: Size)?)\s*:?\s*[\d,]+/gi, "")
+      .replace(/(?:售价|Sell Price)\s*:?\s*(?:[\d,.]+\s*(?:金币?|银币?|铜币?|gold|silver|copper)?\s*)+/gi, "")
+      .trim();
+    const names = [item?.name, item?.name_zh].filter(Boolean).map((name) => String(name).normalize("NFKC"));
+    for (const name of names) {
+      if (cleaned === name || (cleaned.startsWith(name) && /^\s/.test(cleaned.slice(name.length)))) {
+        cleaned = cleaned.slice(name.length).trim();
+      }
+    }
+    // 宝石分类一般位于说明开头，也是物品名称的后缀；不删除效果正文中的同名词。
+    const category = cleaned.match(/^[\p{L}]+(?=\s|$)/u)?.[0];
+    if (category && (category === "PvP" || names.some((name) => name.endsWith(category)))) {
+      cleaned = cleaned.slice(category.length).trim();
+    }
+    return cleaned.replace(/(?:使用|装备|效果|被动|Use|Equip|Effect|Passive)\s*:\s*(?=$|\n)/gi, "").trim();
+  }
+
   function gemDescription(item, variant) {
     const stats = sortedStatEntries(variant?.stats).filter(([, value]) => number(value));
     const seen = new Set();
     const descriptions = variantEffectDescriptions(item, variant)
-      .flatMap((text) => String(text).replace(/\r\n?/g, "\n").split(/\n|\s+[·/]\s+|[；;，](?!\d)/))
+      .flatMap((text) => cleanGemDescription(text, item).split(/\n|\s+[·/]\s+|[；;，,](?!\d)/))
       .map((line) => line.trim()).filter((line) => {
         if (!line || /^(?:物品等级|来源)\s*[:：\d]/.test(line)) return false;
         const identity = tooltipLineIdentity(line.replace(/^(?:效果|被动)\s*[:：]\s*/, ""));
@@ -719,7 +741,7 @@
         remaining = remaining.replace(/\[\s*(?:力量|敏捷|智力)(?:\s*(?:or|或|\/|、)\s*(?:力量|敏捷|智力))+\s*\]/gi, "主属性");
         for (const [key, value] of stats) {
           const amount = String(number(value));
-          const labels = [STAT_LABELS[key] || key, key, ...({crit: ["Critical Strike", "Crit"], mastery: ["Mast"], versatility: ["Vers"]}[key] || [])];
+          const labels = [STAT_LABELS[key] || key, key, ...({crit: ["爆击", "Critical Strike", "Crit"], mastery: ["Mast"], versatility: ["Vers"]}[key] || [])];
           if (["strength", "agility", "intellect"].includes(key)) labels.push("主要属性", "主属性", "Primary");
           remaining = remaining.replace(/(?<=\d),(?=\d{3}(?:\D|$))/g, "");
           for (const label of labels) {
@@ -731,7 +753,7 @@
         return Boolean(remaining.replace(/[\s+、,/&和与及。.!！]/g, ""));
       });
     return [...stats.map(([key, value]) => `${STAT_LABELS[key] || key} ${formatNumber(value)}`), ...descriptions]
-      .join(" · ") || "无常驻属性说明";
+      .join(" · ") || (variant?.effects_missing ? "特效数据待补全" : "无常驻属性说明");
   }
 
   function gemSortKey(item) {
@@ -773,6 +795,10 @@
     try {
       const payload = await requestJson(`${endpoints.enhancements}?${params}`);
       enhancementGroups = payload.groups || {embellishments: [], gems: [], enchants: []};
+      if (refreshCachedEnhancementText(enhancementGroups)) {
+        persist();
+        renderAll();
+      }
       enhancementGroups.gems = sortedGems(enhancementGroups.gems);
       renderOptionGroup(els.embellishment_list, enhancementGroups.embellishments, "embellishment", entry?.variant?.type === "crafted_equipment" ? "当前制造装备没有兼容美化。" : "美化只能应用到制造装备。" );
       renderOptionGroup(els.gem_list, enhancementGroups.gems, "gem", entry ? "当前装备没有可用插槽或宝石。" : "请先为该槽位选择装备。" );
@@ -799,6 +825,34 @@
     return candidates.find((item) => Number(item.item_id) === Number(itemId));
   }
 
+  function refreshCachedItemText(entry, item, fresh) {
+    if (!(fresh?.text_schema_version >= 2)) return false;
+    const changed = entry.item?.text_schema_version !== 2 || entry.item?.description !== (item.description || "")
+      || entry.variant.text_schema_version !== 2 || entry.variant.tooltip !== (fresh.tooltip || "")
+      || JSON.stringify(entry.variant.effects || []) !== JSON.stringify(fresh.effects || []);
+    if (!changed) return false;
+    entry.item = {...entry.item, description: item.description || "", text_schema_version: 2};
+    entry.variant = {...entry.variant, effects: fresh.effects || [], tooltip: fresh.tooltip || "", text_schema_version: 2};
+    return true;
+  }
+
+  function refreshCachedEnhancementText(groups) {
+    const rows = Object.values(groups).flat();
+    let changed = false;
+    Object.values(state.equipment).forEach((entry) => {
+      if (!entry) return;
+      for (const applied of [...(entry.gems || []), entry.enchant, entry.embellishment].filter(Boolean)) {
+        const item = rows.find((row) => Number(row.item_id) === Number(applied.item?.item_id));
+        const fresh = item?.variants?.find((row) => Number(row.id) === Number(applied.variant?.id));
+        if (fresh && refreshCachedItemText(applied, item, fresh)) changed = true;
+      }
+      if (entry.resolvedEffects && entry.variant?.text_schema_version >= 2) {
+        entry.resolvedEffects = [...(entry.variant.effects || []), ...(entry.embellishment?.variant?.effects || [])];
+      }
+    });
+    return changed;
+  }
+
   function refreshCachedEquipmentStats(rows) {
     let changed = false;
     Object.values(state.equipment).forEach((entry) => {
@@ -807,6 +861,10 @@
       const fresh = item?.variants?.find((row) => Number(row.id) === Number(entry.variant.id)
         && Number(row.item_level) === Number(entry.variant.item_level));
       if (!fresh) return;
+      if (refreshCachedItemText(entry, item, fresh)) {
+        if (entry.resolvedEffects) entry.resolvedEffects = [...(fresh.effects || []), ...(entry.embellishment?.variant?.effects || [])];
+        changed = true;
+      }
       // 只补齐同一物品、同一变体中缺失的基础属性，不更换装备或制造绿字。
       const keys = [primaryStatKey(), "stamina", "armor", "bonus_armor"];
       let entryChanged = false;
@@ -999,6 +1057,7 @@
       </div>
       <div class="gear-detail-stats">${sortedStatEntries(stats).filter(([, value]) => number(value)).map(([key, value]) => `<div class="gear-detail-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><span>${formatNumber(value)}</span></div>`).join("") || '<span class="gear-no-effects">该变体没有可直接累加的静态属性。</span>'}</div>
       ${applied}
+      ${item.text_schema_version >= 2 && item.description ? `<div class="gear-detail-effects"><h3>装备描述</h3><div class="gear-effect-line">${escapeHtml(item.description)}</div></div>` : ""}
       <div class="gear-detail-effects"><h3>装备特效</h3>${effects.length ? effects.map((effect) => `<div class="gear-effect-line">${escapeHtml(effectText(effect))}</div>`).join("") : '<span class="gear-no-effects">无触发型特效</span>'}</div>
       <div class="gear-detail-actions"><button type="button" class="gear-btn" data-open-enhancements>配置强化</button><button type="button" class="gear-btn gear-btn--danger-quiet" data-remove-item>移除装备</button></div>`;
     syncSlotLocks();
@@ -1048,6 +1107,7 @@
       entryEffects.forEach((effect) => effects.push({slot: entry.item?.name || "装备", text: effectText(effect)}));
       if (!entry.resolvedEffects) (entry.embellishment?.variant?.effects || []).forEach((effect) => effects.push({slot: entry.embellishment.item.name, text: effectText(effect)}));
       (entry.enchant?.variant?.effects || []).forEach((effect) => effects.push({slot: entry.enchant.item.name, text: effectText(effect)}));
+      (entry.gems || []).forEach((gem) => (gem.variant?.effects || []).forEach((effect) => effects.push({slot: gem.item.name, text: effectText(effect)})));
     });
     return {totals, lockedTotals, unlockedTotals, effects: effects.filter((row) => row.text), equipped, missingStats};
   }

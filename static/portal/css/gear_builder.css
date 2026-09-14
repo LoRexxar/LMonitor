@@ -423,6 +423,7 @@
 .gear-track--myth { color: #d95d0b; }
 .gear-source-copy,
 .gear-stat-copy { color: var(--gear-text); font-size: .7rem; line-height: 1.42; }
+.gear-option-description { display: block; margin-top: 4px; color: var(--gear-muted); font-size: .7rem; line-height: 1.4; }
 .gear-source-copy span,
 .gear-stat-copy span { display: block; }
 .gear-load-more { display: block; width: calc(100% - 28px); min-height: 36px; margin: 10px 14px; border-radius: 8px; color: var(--gear-blue); font-size: .75rem; font-weight: 760; }

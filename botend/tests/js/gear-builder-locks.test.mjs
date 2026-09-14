@@ -22,7 +22,7 @@ vm.runInNewContext(source.replace(marker, `
     setCandidates(value) { candidates = value; },
     normalizeState, toggleSlotLock, addItem, applyEnhancement, switchVariant,
     changeCraftedStat, removeEnhancement, compactShareState, hydrateSharePayload,
-    resolveCraftedEntry, replaceLoadout, totalsAndEffects, refreshCachedEquipmentStats, renderCachedDetail,
+    resolveCraftedEntry, replaceLoadout, totalsAndEffects, refreshCachedEquipmentStats, renderCachedDetail, refreshCachedEnhancementText,
   };
 `), context);
 const api = context.qa;
@@ -125,3 +125,13 @@ assert.match(element.innerHTML, /耐力<\/span><span>3,910<\/span>/, '右侧详�
 assert.match(element.innerHTML, /护甲<\/span><span>326<\/span>/, '右侧详情显示护甲');
 
 console.log('配装回归验证通过：锁定限制、属性拆分与旧配装基础属性补齐。');
+api.setState({lockedSlots: ['head'], equipment: {head: {...entry(), gems: [{
+    item: {item_id: 3, name: '旧宝石', description: '旧的整段提示'},
+    variant: {id: 3, stats: {haste: 17}, effects: [{description_zh: '+17 急速'}]},
+}]}}});
+assert.equal(api.refreshCachedEnhancementText({gems: [{item_id: 3, description: '', text_schema_version: 2,
+    variants: [{id: 3, effects: [], tooltip: '+17 急速', text_schema_version: 2}]}]}), true);
+assert.deepEqual(plain(api.state.equipment.head.gems[0].variant.stats), {haste: 17});
+assert.deepEqual(plain(api.state.equipment.head.gems[0].variant.effects), []);
+assert.equal(api.state.equipment.head.gems[0].item.description, '');
+assert.deepEqual(plain(api.state.lockedSlots), ['head'], '强化文本迁移保留装备锁定');

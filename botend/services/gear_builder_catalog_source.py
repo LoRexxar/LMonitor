@@ -16,6 +16,7 @@ import requests
 
 from botend.services.season_keys import canonical_season_key
 from botend.services.gear_builder_tier_sources import tier_set_sources
+from botend.services.wow_item_text import normalize_catalog_text
 
 from botend.constants.wow import SPEC_IDENTITY_MAP, localize_gear_source
 from botend.services.article_image_service import _get_configured_proxies
@@ -172,8 +173,12 @@ def _tooltip_details(payload):
         for value in re.findall(r'(?:^|\n)\s*\+([0-9][0-9,.]*)\s*随机属性\d+', stats_text)
     ]
     display_name = str((payload or {}).get('name') or '')
-    description_zh = '\n'.join(row.get('description_zh', '') for row in effects if row.get('description_zh'))
-    description = '\n'.join(row.get('description', '') for row in effects if row.get('description'))
+    # 描述只保留风味文字，属性和装备/使用效果各自存储。
+    flavor = [_plain_text(value) for value in re.findall(
+        r'<span\b[^>]*class=[\'"]q[\'"][^>]*>(.*?)</span>', raw_tooltip, flags=re.I | re.S,
+    )]
+    description_zh = '\n'.join(text for text in flavor if re.search(r'[\u4e00-\u9fff]', text))
+    description = '\n'.join(text for text in flavor if not re.search(r'[\u4e00-\u9fff]', text))
     return {
         'name_zh': display_name if re.search(r'[\u4e00-\u9fff]', display_name) else '',
         'name': display_name if not re.search(r'[\u4e00-\u9fff]', display_name) else '',
@@ -251,6 +256,7 @@ class CurrentGearCatalogSource:
         else:
             self.progress('已跳过 Wowhead 中文 Tooltip 与变体属性补全。')
 
+        items = [normalize_catalog_text(item) for item in items]
         content = json.dumps(items, ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8')
         batch_key = f'gear-{game_build}-{hashlib.sha256(content).hexdigest()[:12]}'
         return {

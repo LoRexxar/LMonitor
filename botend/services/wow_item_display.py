@@ -7,6 +7,7 @@ from botend.constants.wow import localize_gear_source
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
 from botend.templatetags.wow_tags import wow_icon_oss_url
 from botend.services.gear_builder_tier_sources import tier_set_sources
+from botend.services.wow_item_text import ENHANCEMENTS, separate_item_text
 
 
 STAT_LABELS = {
@@ -138,7 +139,7 @@ def _tooltip_text(*, item_level=0, stats=None, effects=None, sources=None, fallb
         effect_lines.extend(line.strip() for line in _effect_text(effect).replace('\r\n', '\n').split('\n') if line.strip())
     if effect_lines:
         lines.extend(effect_lines)
-    elif fallback:
+    if fallback:
         lines.extend(line.strip() for line in str(fallback).replace('\r\n', '\n').split('\n') if line.strip())
     source_lines = []
     for source in _rows(sources):
@@ -187,7 +188,14 @@ def item_display_metadata(
         primary_value = primary_values.get(primary_stat) or variant_metadata.get('primary_stat_amount')
         if _number(primary_value):
             normalized_stats[primary_stat] = _number(primary_value)
-    normalized_effects = [text for text in (_effect_text(row) for row in _rows(effects)) if text]
+    separated = separate_item_text(
+        description=description, description_zh=description_zh, effects=_rows(effects),
+        stats=normalized_stats, metadata=variant_metadata, names=(name, name_zh),
+        enhancement=bool(snapshot and snapshot.catalog_type in ENHANCEMENTS),
+        recover_description_effects=variant is None or bool(snapshot and snapshot.catalog_type in ENHANCEMENTS),
+    )
+    description, description_zh = separated['description'], separated['description_zh']
+    normalized_effects = [text for text in (_effect_text(row) for row in separated['effects']) if text]
     normalized_sources = [text for text in (_source_text(row) for row in _rows(sources)) if text]
     base_description = description_zh.strip() or description.strip()
     snapshot_metadata = snapshot.metadata if snapshot and isinstance(snapshot.metadata, dict) else {}
@@ -204,7 +212,7 @@ def item_display_metadata(
         stats=normalized_stats,
         effects=normalized_effects,
         sources=sources,
-        fallback=base_description if variant is None else '',
+        fallback=base_description,
     )
     return {
         "id": normalized_id,
@@ -219,6 +227,9 @@ def item_display_metadata(
         "item_level": _positive_int(item_level) or None,
         "stats": normalized_stats,
         "effects": normalized_effects,
+        "effect_details": separated['effects'],
+        "text_schema_version": 2,
+        "effects_missing": bool(snapshot and snapshot.catalog_type in ENHANCEMENTS and not normalized_effects and not normalized_stats),
         "sources": normalized_sources,
         "variant_id": getattr(variant, 'pk', None),
         "variant_key": str(getattr(variant, 'variant_key', '') or ''),
