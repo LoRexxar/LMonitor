@@ -6046,7 +6046,6 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             : (Array.isArray(effect.scenario_tokens)
                 ? effect.scenario_tokens.map(token => [String(token), '', 0, 1]).sort()
                 : []);
-        if (!runtimeIdentity.length) return JSON.stringify(sourceIdentity);
         const projectionKeys = (Array.isArray(effect.projections) ? effect.projections : [])
             .filter(projection => projection && typeof projection === 'object')
             .map(projection => [
@@ -6058,6 +6057,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 hasFiniteSimcSkillDamageNumber(projection.percentage_points)
                     ? formatSimcSkillDamageFactor(projection.percentage_points)
                     : '',
+                hasFiniteSimcSkillDamageNumber(projection.minimum) ? String(projection.minimum) : '',
+                hasFiniteSimcSkillDamageNumber(projection.maximum) ? String(projection.maximum) : '',
             ].join(':'))
             .sort();
         return JSON.stringify([sourceIdentity, runtimeIdentity, projectionKeys]);
@@ -6089,9 +6090,6 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 .filter(stacks => Number.isInteger(stacks) && stacks > 1)
                 .map(stacks => `${stacks}层`);
             const displayName = stackLabels.length ? `${name}（${stackLabels.join('，')}）` : name;
-            const condition = effect.source_type === 'talent'
-                ? renderSimcTalentProbeCondition(effect.runtime_condition, effect.scenario_tokens, name, runtimeConditions)
-                : (effect.runtime_condition || '');
             let projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
                 if (!projection || typeof projection !== 'object') return '';
                 if (projection.kind === 'crit_chance') {
@@ -6101,6 +6099,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                     const label = projection.evidence_layer === 'dbc_base_multiplier'
                         ? '基础增伤' : (String(projection.evidence_layer || '').startsWith('base_damage.') ? '基础伤害' : '全局伤害');
                     return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">${label}</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamagePercent((projection.value - 1) * 100, true)}（${formatSimcSkillDamageFactor(projection.value)}×）</span></span>`;
+                }
+                if (projection.kind === 'damage_multiplier_range'
+                    && hasFiniteSimcSkillDamageNumber(projection.minimum)
+                    && hasFiniteSimcSkillDamageNumber(projection.maximum)) {
+                    return `<span class="text-xs text-indigo-900">已验证条件下的加成：${formatSimcSkillDamagePercent((projection.minimum - 1) * 100, true)} 至 ${formatSimcSkillDamagePercent((projection.maximum - 1) * 100, true)}（${formatSimcSkillDamageFactor(projection.minimum)}–${formatSimcSkillDamageFactor(projection.maximum)}×）</span>`;
                 }
                 return '';
             }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');
@@ -6119,10 +6122,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 detailGroups.set(key, `${escapeHtml(detail.label)} ${escapeHtml(value)}`);
             });
             const details = [...detailGroups.values()].join('；');
-            if (details) projections += `<span class="text-xs text-indigo-900">${details}${effect.projections?.length ? '' : '（基础加成）'}</span>`;
-            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div>${condition ? `<div class="mt-1 text-xs leading-4 text-amber-800">${escapeHtml(condition)}</div>` : ''}</div>`;
+            if (details) projections += `<span class="text-xs text-indigo-900">基础加成：${details}</span>`;
+            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div></div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局伤害效果</div><div class="mb-3 text-xs text-indigo-700">列出影响全技能或整个伤害类别的加成及生效条件；下方技能伤害不含这些公共加成。不同伤害类别分别列示，不重复叠乘。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局伤害效果</div><div class="mb-3 text-xs text-indigo-700">列出影响全技能或整个伤害类别的加成；下方技能伤害不含这些公共加成。不同伤害类别分别列示，不重复叠乘。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
     }
 
@@ -6135,6 +6138,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             : [];
         actions.forEach(action => {
             const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
+            // 使用导出器按完整施法验证的目标数，条件选项与伤害行保持一致。
+            if (Array.isArray(action.affected_target_counts)
+                && !action.affected_target_counts.some(count => String(count) === targetCount)) return;
             if (variant.hero_subtree_id != null && String(variant.hero_subtree_id) !== selectedHeroTree) return;
             const heroSubtreeIds = Array.isArray(action.hero_subtree_ids) ? action.hero_subtree_ids : [];
             if (heroSubtreeIds.length && !heroSubtreeIds.some(id => String(id) === selectedHeroTree)) return;
@@ -6286,6 +6292,16 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 formulaComplete = false;
                 return;
             }
+            // 单目标为零时不能相除求倍率，直接列出该目标数下的实算分量。
+            const explainedSingle = runtimeFactors.reduce((value, factor) => value * factor, baseDamage);
+            if (targetCount !== '1' && componentSingleTarget === 0 && componentFinal !== 0
+                && Number.isFinite(explainedSingle) && Math.abs(explainedSingle) <= 1e-8) {
+                const key = 'direct-target-damage';
+                const group = formulaGroups.get(key) || {directTargetDamage: true, finalDamage: 0};
+                group.finalDamage += componentFinal;
+                formulaGroups.set(key, group);
+                return;
+            }
             const multiTargetFactor = targetCount !== '1'
                 && hasFiniteSimcSkillDamageNumber(componentSingleTarget)
                 && componentSingleTarget !== 0
@@ -6308,6 +6324,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             formulaGroups.set(factorKey, group);
         });
         const formulaTerms = Array.from(formulaGroups.values()).map(group => {
+            if (group.directTargetDamage) {
+                return `多目标分量 ${formatSimcSkillDamageFactor(group.finalDamage)}`;
+            }
             const factorFormula = group.runtimeFactors
                 .map(factor => ` × ${formatSimcSkillDamageFactor(factor)}`)
                 .join('');

@@ -75,6 +75,9 @@ def with_target_crit_evidence(payload):
         for action in actor.get('actions', []):
             if not isinstance(action, dict):
                 continue
+            for scenario in action.get('scenarios', []):
+                if isinstance(scenario, dict):
+                    scenario.setdefault('affected_target_counts', [1,2,5,10,20])
             for amount in [action.get('baseline'), *(s.get('values') for s in action.get('scenarios', []) if isinstance(s, dict))]:
                 if not isinstance(amount, dict):
                     continue

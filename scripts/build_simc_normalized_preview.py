@@ -9,6 +9,7 @@ from pathlib import Path
 import sys
 from collections import Counter
 from types import SimpleNamespace
+from datetime import datetime
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -169,10 +170,10 @@ def main():
             product['hero_talent_trees'] = [{'id':0,'name_zh':'基础伤害技能'}]
         display_actions = []
         for action in product['actions']:
-            if any(value <= 0 for value in action['product']['final_normalized_damage_by_target'].values()):
+            if all(value <= 0 for value in action['product']['final_normalized_damage_by_target'].values()):
                 excluded_rows.append({'class':cls,'specialization':spec,'mode':mode,
                     'action':{'token':action['token'],'spell_id':action['spell_id'],'name':name(action['spell_id'],action['name'])},
-                    'reason':('仅部分目标数有伤害，当前表要求五种目标数均有可展示结果' if any(v>0 for v in action['product']['final_normalized_damage_by_target'].values()) else '全部目标数均无伤害，缺少触发上下文，不作为完整归一化行展示'),
+                    'reason':'全部目标数均无伤害，缺少触发上下文，不作为完整归一化行展示',
                     'values':action['product']['final_normalized_damage_by_target'], 'variant':action.get('variant')})
                 continue
             action['display_name'] = name(action.get('spell_id'),action.get('name'))
@@ -189,7 +190,7 @@ def main():
                 formulas = action['product']['formula_components']
                 expected_damage = sum(f['noncrit_contribution_by_target'][count]+f['crit_contribution_by_target'][count] for f in formulas)
                 actual = action['product']['final_normalized_damage_by_target'][count]
-                if actual<=0 or not math.isclose(actual,expected_damage,rel_tol=1e-9,abs_tol=1e-8):
+                if actual<0 or not math.isclose(actual,expected_damage,rel_tol=1e-9,abs_tol=1e-8):
                     raise ValueError(f'伤害期望不一致：{cls}/{spec}/{action["token"]}')
             if any(f.get('status')=='incomplete' for f in action['product']['formula_components']):
                 raise ValueError(f'公式未完成：{cls}/{spec}/{action["token"]}')
@@ -203,12 +204,13 @@ def main():
         for action in product['actions']:
             for k in list(action):
                 if k not in {'token','name','display_name','spell_id','player_skill','variant','product','hero_subtree_ids',
-                             'component_count','components','reporting_root_token','reporting_root_spell_id'}:
+                             'component_count','components','reporting_root_token','reporting_root_spell_id',
+                             'affected_target_counts'}:
                     action.pop(k)
         return product
 
     snapshots = {mode:{'identity':identity,'preset':service.FIXED_PRESET,'actors':[], 'unresolved':[],
-                       'completed_at':'2026-09-10 本地实算'} for mode in ['single','profile']}
+                       'completed_at':datetime.now().strftime('%Y-%m-%d %H:%M 本地实算')} for mode in ['single','profile']}
     per_spec = []
     for row in summaries:
         cls,spec = row['class'],row['spec']

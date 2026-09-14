@@ -11,8 +11,9 @@ class NativeTargetScopeTests(unittest.TestCase):
     def test_direct_repetition_change_is_a_damage_condition(self):
         source=Path(os.environ['SIMC_SKILL_DAMAGE_SOURCE']).read_text(encoding='utf-8')
         structs=source[source.index('struct skill_damage_runtime_layers_t'):source.index('struct skill_damage_dbc_scaling_t')]
-        start=source.index('bool skill_damage_amount_changed(')
-        function=source[start:source.index('\n}',start)+2]
+        start=source.index('double skill_damage_final_amount(')
+        end=source.index('std::vector<skill_damage_runtime_layers_t::specialization_passive_effect_t>',start)
+        function=source[start:end]
         harness='#include <map>\n#include <vector>\n#include <string>\n#include <cmath>\n#include <algorithm>\n#include <cassert>\n'+structs+function+r'''
 int main(){
  skill_damage_amount_t before,after;
@@ -23,6 +24,29 @@ int main(){
  assert(skill_damage_amount_changed(before,after));
  after.direct_amount.damage_equivalent_count=7;
  assert(!skill_damage_amount_changed(before,after));
+ // 倍率和暴击率中间值改变，但最终伤害不变，不得保留无效状态。
+ after.direct_amount.runtime_layers.action_multiplier=2;
+ after.direct_amount.crit_chance_uncapped=0.5;
+ assert(!skill_damage_amount_changed(before,after));
+ // 直接伤害与周期伤害互相抵消，完整施法伤害未变。
+ before.periodic=after.periodic=true;
+ before.tick_amount.expected=100;
+ after.tick_amount.expected=30;
+ after.direct_amount.expected=110;
+ assert(!skill_damage_amount_changed(before,after));
+ after.direct_amount.target_expected[2]=200;
+ before.direct_amount.target_expected[2]=100;
+ assert(skill_damage_amount_changed(before,after));
+ assert(skill_damage_final_amount(before,1)==skill_damage_final_amount(after,1));
+ // 甲只影响主手，乙只影响副手：完整施法比较保留两者，丙无效。
+ const auto cast=[](const std::vector<int>& states,int targets){
+   const auto has=[&](int state){return std::find(states.begin(),states.end(),state)!=states.end();};
+   return 100.0+(has(1)?10:0)+(has(2)&&targets>1?20:0);
+ };
+ assert((skill_damage_minimal_conditions(std::vector<int>{1,2,3},1,cast)==std::vector<int>{1}));
+ assert((skill_damage_minimal_conditions(std::vector<int>{1,2,3},2,cast)==std::vector<int>{1,2}));
+ const auto synergy=[](const std::vector<int>& states,int){return states.size()==2?150.0:100.0;};
+ assert((skill_damage_minimal_conditions(std::vector<int>{1,2},1,synergy)==std::vector<int>{1,2}));
 }
 '''
         out=Path(__file__).resolve().parents[2]/'.cache/simc-target-selector-tests'

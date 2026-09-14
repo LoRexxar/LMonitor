@@ -2,10 +2,39 @@
 import copy
 from django.test import SimpleTestCase
 from botend.services.simc_skill_damage import complete_cast_damage_components, reviewed_global_display_effects, project_skill_damage_product_payload
-from botend.services.simc_skill_damage import _validate_global_scope_catalog
+from botend.services.simc_skill_damage import _validate_global_scope_catalog, classify_global_skill_effects, _amount_change_only_global_projections
+from botend.services.simc_skill_damage import flatten_single_talent_damage_variants
 
 
 class CastProjectionTests(SimpleTestCase):
+    def global_state_actor(self, multiplier):
+        return {'actions':[], 'global_damage_policy':'exclude_before_probe', 'global_damage_states':[{
+            'token':'buff.example','scope':'self','spell_id':123,'name':'测试增伤',
+            'available':True,'evidence':'precomputed_global_damage_scope',
+            'scope_basis':'reviewed_dbc_native_effect_scope','excluded_before_probe':True,
+            'dbc_base_multiplier':multiplier}]}
+
+    def test_global_multiplier_range_preserves_verified_endpoints(self):
+        rows=classify_global_skill_effects(self.global_state_actor(1.1),self.global_state_actor(1.3),[])
+        self.assertEqual(len(rows),1)
+        projection=rows[0]['projections'][0]
+        self.assertEqual(projection['kind'],'damage_multiplier_range')
+        self.assertEqual(projection['operation'],'display_only')
+        self.assertEqual((projection['minimum'],projection['maximum']),(1.1,1.3))
+        self.assertNotIn('value',projection)
+        amount={'direct':{'hit':100.0,'crit':200.0,'expected':120.0},'tick':None}
+        self.assertFalse(_amount_change_only_global_projections(amount,amount,rows[0]))
+
+    def test_incomplete_global_evidence_does_not_claim_complete_range(self):
+        rows=classify_global_skill_effects(self.global_state_actor(1.1),self.global_state_actor(None),[])
+        self.assertEqual(rows[0]['projections'],[])
+        self.assertEqual(rows[0]['value_status'],'configuration_dependent_or_unresolved')
+
+    def test_fixed_global_multiplier_remains_scalar(self):
+        rows=classify_global_skill_effects(self.global_state_actor(1.2),self.global_state_actor(1.2),[])
+        self.assertEqual(rows[0]['projections'][0]['kind'],'damage_multiplier')
+        self.assertEqual(rows[0]['projections'][0]['value'],1.2)
+
     def part(self, token, value, *, condition=''):
         return {'token':token,'spell_id':1,'supported':True,'reporting_root_component':True,
                 'reporting_root_token':'施法','reporting_root_spell_id':100,
@@ -19,6 +48,29 @@ class CastProjectionTests(SimpleTestCase):
         rows=complete_cast_damage_components([changed],{id(changed):actor})
         self.assertEqual({r['token'] for r in rows},{'主手','副手'})
         self.assertEqual(sum(r['baseline']['direct']['hit'] for r in rows),50)
+
+    def test_cast_completion_preserves_native_target_scope(self):
+        main, off = self.part('主手',30), self.part('副手',20)
+        changed = copy.deepcopy(main)
+        changed['affected_target_counts'] = [2,5,10,20]
+        rows = complete_cast_damage_components([changed], {id(changed):{'actions':[main,off]}})
+        self.assertEqual(len(rows),2)
+        self.assertTrue(all(row['affected_target_counts'] == [2,5,10,20] for row in rows))
+
+    def test_flatten_keeps_multi_target_only_runtime_evidence(self):
+        action = self.part('主手',100)
+        action['player_skill'] = True
+        condition = {'token':'buff.sweeping_strikes','scope':'self','spell_id':260708,'stacks':1}
+        action['baseline']['direct'].update(expected=120, damage_equivalent_count=1,
+            target_expected={str(n):120 for n in (1,2,5,10,20)})
+        changed = copy.deepcopy(action['baseline'])
+        changed['direct']['target_expected'].update({'2':180,'5':180,'10':180,'20':180})
+        action['scenarios'] = [{'buffs':[condition],'values':changed,'affected_target_counts':[2,5,10,20]}]
+        actor = {'actions':[action]}
+        rows = flatten_single_talent_damage_variants(actor,actor,[])
+        states = [row for row in rows if row['variant']['runtime_conditions']]
+        self.assertEqual(len(states),1)
+        self.assertEqual(states[0]['affected_target_counts'],[2,5,10,20])
 
     def test_changed_middle_hit_restores_first_and_last(self):
         parts=[self.part(str(i),v) for i,v in enumerate([10,40,30])]

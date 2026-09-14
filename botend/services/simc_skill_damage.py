@@ -2994,6 +2994,15 @@ def classify_global_skill_effects(base_high, base_low, variants):
                 '全技能增伤状态；缺少完整倍率证据'
                 if incomplete or minimum is None else '全技能增伤状态；倍率随天赋或目标条件变化'
             )
+            if not incomplete and minimum is not None and maximum is not None and minimum > 0:
+                # 范围只用于展示，不能以其中一个值参与下方技能的倍率消除。
+                effect['projections'] = [{
+                    'kind':'damage_multiplier_range', 'operation':'display_only',
+                    'minimum':minimum, 'maximum':maximum,
+                    'minimum_bonus_percent':(minimum - 1) * 100,
+                    'maximum_bonus_percent':(maximum - 1) * 100,
+                }]
+                effect['value_status'] = 'configuration_dependent'
         if effect.get('excluded_before_probe'):
             effect['runtime_condition'] = (
                 '效果生效时；展示基础加成，实际值随天赋和层数变化'
@@ -3194,6 +3203,11 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                         })
                 final_component['runtime_factor_layers'] = factor_layers
         row['scenarios'] = []
+        if scenario_tokens:
+            native_scenario = next((scenario for scenario in action.get('scenarios') or []
+                                    if _scenario_identity(scenario) == scenario_identity), {})
+            if 'affected_target_counts' in native_scenario:
+                row['affected_target_counts'] = list(native_scenario['affected_target_counts'])
         reference_state = _amount_state(comparison)
         row['variant'] = {
             'talent_id': talent.get('id'),
@@ -3446,6 +3460,8 @@ def complete_cast_damage_components(rows, cast_sources):
             added['baseline'] = copy.deepcopy(amount)
             added['scenarios'] = []
             added['variant'] = copy.deepcopy(template['variant'])
+            if 'affected_target_counts' in template:
+                added['affected_target_counts'] = list(template['affected_target_counts'])
             if template.get('hero_subtree_ids'):
                 added['hero_subtree_ids'] = list(template['hero_subtree_ids'])
             added['cast_component_unchanged'] = True
@@ -3550,6 +3566,7 @@ def _compact_equivalent_damage_states(rows):
         )}
         key = (row.get('token'), row.get('spell_id'),
                tuple(row.get('hero_subtree_ids') or ()),
+               tuple(row.get('affected_target_counts') or ()),
                '血量低于35%' in str(variant.get('runtime_condition') or ''),
                json.dumps(ownership, sort_keys=True, ensure_ascii=False))
         families.setdefault(key, []).append(row)
@@ -3713,6 +3730,9 @@ def project_skill_damage_product_payload(payload):
                         'formula_components': [],
                     }
                     group = groups[group_key] = row
+                if 'affected_target_counts' in action and 'affected_target_counts' in group:
+                    group['affected_target_counts'] = sorted(set(group['affected_target_counts'])
+                                                             | set(action['affected_target_counts']))
                 weighted_base = normalized_base * count
                 weighted_final = final_damage * count
                 weighted_hit = hit_damage * count
@@ -3902,8 +3922,8 @@ def reviewed_global_display_effects(actor):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 19
-    DATASET_SCHEMA_REVISION = 38
+    EXPORTER_SCHEMA_REVISION = 20
+    DATASET_SCHEMA_REVISION = 39
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
     WIRE_SCHEMA_REVISION = 1
@@ -4678,6 +4698,12 @@ class SimcSkillDamageSnapshotService:
             for scenario in scenarios:
                 if not isinstance(scenario, dict) or not isinstance(scenario.get('buffs'), list):
                     raise ValueError('exporter scenario 结构无效。')
+                target_counts = scenario.get('affected_target_counts')
+                if (not isinstance(target_counts, list) or not target_counts
+                        or any(type(count) is not int or count not in _SKILL_DAMAGE_TARGET_COUNTS
+                               for count in target_counts)
+                        or target_counts != sorted(set(target_counts))):
+                    raise ValueError('exporter 缺少有效状态的目标数校验证据，请重新构建导出器。')
                 buff_tokens = []
                 scenario_buff_identities = {}
                 for buff in scenario['buffs']:

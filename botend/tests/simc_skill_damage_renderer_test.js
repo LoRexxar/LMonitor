@@ -52,6 +52,16 @@ assert.match(globalHtml, /周期伤害 \+50\.00%（精通50%时）/);
 assert.match(globalHtml, /自动攻击伤害 \+15\.00%/);
 assert.match(globalHtml, /-10\.00%/);
 assert.doesNotMatch(globalHtml, /共 \d+ 个效果分量|已剔除的全局分量/);
+payload.actors[0].global_skill_effects.push({display_name:'配置变化的增伤',source_spell_ids:[999],
+    effect_details:[{label:'直接伤害',value_kind:'percent',base_value:10}],
+    projections:[{kind:'damage_multiplier_range',minimum:1.1,maximum:1.3}]});
+render();
+assert.match(element('simc-skill-damage-global-modifiers').innerHTML,/已验证条件下的加成：\+10\.00% 至 \+30\.00%/);
+assert.match(element('simc-skill-damage-global-modifiers').innerHTML,/基础加成：直接伤害 \+10\.00%/);
+payload.actors[0].global_skill_effects.push({display_name:'另一配置的增伤',source_spell_ids:[999],
+    projections:[{kind:'damage_multiplier_range',minimum:1.2,maximum:1.4}]});
+render();
+assert.match(element('simc-skill-damage-global-modifiers').innerHTML,/已验证条件下的加成：\+20\.00% 至 \+40\.00%/);
 assert.match(render(), /≈/);
 target.dataset.targetCount = '2';
 assert.match(render(), /（多目标）/);
@@ -139,3 +149,38 @@ payload.unresolved = [{class: 'monk', specialization: 'windwalker', target_healt
 render();
 assert.match(element('simc-skill-damage-unresolved').innerHTML, /触发伤害/);
 assert.match(element('simc-skill-damage-unresolved').innerHTML, /列表不代表完整覆盖/);
+
+// 目标数校验发生在生成筛选项之前，不能只隐藏伤害数值。
+payload.actors[0].actions = [{display_name:'横扫验证技能', affected_target_counts:[2,5,10,20],
+    variant:{scenario_tokens:['buff.sweeping_strikes'],runtime_conditions:[{
+        token:'buff.sweeping_strikes',scope:'self',spell_id:260708,name_zh:'横扫验证状态',stacks:1,
+    }]},product:{final_normalized_damage:120,final_normalized_damage_by_target:{'2':180}}}];
+target.dataset.targetCount = '1';
+assert.doesNotMatch(render(), /横扫验证技能/);
+assert.doesNotMatch(element('simc-skill-damage-filter-buffs').innerHTML, /横扫验证状态/);
+target.dataset.targetCount = '2';
+assert.match(render(), /横扫验证技能/);
+assert.match(element('simc-skill-damage-filter-buffs').innerHTML, /横扫验证状态/);
+target.dataset.targetCount = '1';
+assert.doesNotMatch(render(), /横扫验证技能/);
+console.log('仅多目标有效的状态不会出现在单目标伤害行或条件筛选项中。');
+
+// 单目标为零的真实分量，不能从零单目标伤害反推多目标倍率。
+payload.actors[0].actions=[{display_name:'副目标分量测试',variant:{},product:{
+    damage_metric:'critical_expectation',normalized_base_damage:100,final_normalized_damage:0,
+    final_normalized_damage_by_target:{'1':0,'2':120},formula_components:[{
+        base_damage:100,runtime_factors:[0],noncrit_damage:0,crit_damage:0,crit_chance:0.2,
+        noncrit_contribution:0,crit_contribution:0,final_damage:0,
+        noncrit_damage_by_target:{'2':100},noncrit_contribution_by_target:{'2':80},
+        crit_contribution_by_target:{'2':40},final_damage_by_target:{'2':120},
+    }],
+}}];
+target.dataset.targetCount='2';
+assert.match(render(),/多目标分量 100/);
+assert.doesNotMatch(render(),/公式未完整解析|暴击期望证据不完整/);
+target.dataset.targetCount='1';
+assert.doesNotMatch(render(),/多目标分量|公式未完整解析|暴击期望证据不完整/);
+payload.actors[0].actions[0].product.formula_components[0].status='incomplete';
+target.dataset.targetCount='2';
+assert.match(render(),/公式未完整解析/);
+console.log('零单目标分量的多目标公式按实算值列示，并保留真正的证据缺失提示。');

@@ -1,0 +1,299 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -628,52 +628,53 @@
+   out << "]}";
+ }
+
++// 仅比较一次完整施法的期望伤害；中间倍率变化不等于伤害变化。
++double skill_damage_final_amount( const skill_damage_amount_t& amount, int targets )
++{
++  double total = 0.0;
++  const auto add = [&]( const auto& component, bool present ) {
++    if ( !present ) return 0.0;
++    const auto found = component.target_expected.find( targets );
++    const double expected = found != component.target_expected.end() ? found->second
++      : targets == 1 && component.single_target_eligible ? component.expected : 0.0;
++    return expected * component.damage_equivalent_count;
++  };
++  total += add( amount.direct_amount, amount.direct );
++  total += add( amount.tick_amount, amount.periodic );
++  return total;
++}
++
++bool skill_damage_final_changed( double a, double b )
++{
++  return std::abs( a - b ) > std::max( { 1.0, std::abs( a ), std::abs( b ) } ) * 1.0e-8;
++}
++
+ bool skill_damage_amount_changed( const skill_damage_amount_t& a, const skill_damage_amount_t& b )
+ {
+-  const auto changed = []( double x, double y ) { return std::abs( x - y ) > std::max( 1.0, std::abs( x ) ) * 1.0e-8; };
+-  const auto target_hit_changed = [ &changed ]( const auto& x, const auto& y ) {
+-    if ( x.size() != y.size() )
+-      return true;
+-    auto xi = x.begin();
+-    auto yi = y.begin();
+-    for ( ; xi != x.end(); ++xi, ++yi )
+-      if ( xi->first != yi->first || changed( xi->second, yi->second ) )
+-        return true;
+-    return false;
+-  };
+-  const auto layers_changed = [&changed]( const skill_damage_runtime_layers_t& x,
+-                                          const skill_damage_runtime_layers_t& y ) {
+-    return changed( x.action_multiplier, y.action_multiplier ) ||
+-           changed( x.player_multiplier, y.player_multiplier ) ||
+-           changed( x.versus_multiplier, y.versus_multiplier ) ||
+-           changed( x.persistent_multiplier, y.persistent_multiplier ) ||
+-           changed( x.target_multiplier, y.target_multiplier ) ||
+-           changed( x.versatility, y.versatility ) ||
+-           changed( x.pet_multiplier, y.pet_multiplier ) ||
+-           changed( x.target_pet_multiplier, y.target_pet_multiplier );
+-  };
+-  return changed( a.direct_amount.expected, b.direct_amount.expected ) ||
+-         changed( a.direct_amount.damage_equivalent_count, b.direct_amount.damage_equivalent_count ) ||
+-         changed( a.tick_amount.expected, b.tick_amount.expected ) ||
+-         changed( a.tick_amount.damage_equivalent_count, b.tick_amount.damage_equivalent_count ) ||
+-         target_hit_changed( a.direct_amount.target_hit, b.direct_amount.target_hit ) ||
+-         target_hit_changed( a.tick_amount.target_hit, b.tick_amount.target_hit ) ||
+-         target_hit_changed( a.direct_amount.target_expected, b.direct_amount.target_expected ) ||
+-         target_hit_changed( a.tick_amount.target_expected, b.tick_amount.target_expected ) ||
+-         changed( a.direct_amount.crit, b.direct_amount.crit ) ||
+-         changed( a.tick_amount.crit, b.tick_amount.crit ) ||
+-         ( a.direct && b.direct && a.direct_amount.can_crit != b.direct_amount.can_crit ) ||
+-         ( a.periodic && b.periodic && a.tick_amount.can_crit != b.tick_amount.can_crit ) ||
+-         ( a.direct && b.direct &&
+-           ( changed( a.direct_amount.crit_chance_uncapped, b.direct_amount.crit_chance_uncapped ) ||
+-             changed( a.direct_amount.base_multiplier, b.direct_amount.base_multiplier ) ||
+-             changed( a.direct_amount.base_component_multiplier, b.direct_amount.base_component_multiplier ) ||
+-             layers_changed( a.direct_amount.runtime_layers, b.direct_amount.runtime_layers ) ) ) ||
+-         ( a.periodic && b.periodic &&
+-           ( changed( a.tick_amount.crit_chance_uncapped, b.tick_amount.crit_chance_uncapped ) ||
+-             changed( a.tick_amount.base_multiplier, b.tick_amount.base_multiplier ) ||
+-             changed( a.tick_amount.base_component_multiplier, b.tick_amount.base_component_multiplier ) ||
+-             layers_changed( a.tick_amount.runtime_layers, b.tick_amount.runtime_layers ) ) );
++  for ( int targets : { 1, 2, 5, 10, 20 } )
++    if ( skill_damage_final_changed( skill_damage_final_amount( a, targets ),
++                                    skill_damage_final_amount( b, targets ) ) ) return true;
++  return false;
++}
++
++// 每次只移除一个条件并重新计算；保留只有组合同时存在才生效的条件。
++template <typename Conditions, typename Probe>
++Conditions skill_damage_minimal_conditions( Conditions active, int targets, Probe probe )
++{
++  for ( size_t i = 0; i < active.size(); )
++  {
++    auto reduced = active;
++    reduced.erase( reduced.begin() + i );
++    const auto before = probe( active, targets );
++    const auto after = probe( reduced, targets );
++    if ( std::isfinite( before ) && std::isfinite( after ) && !skill_damage_final_changed( before, after ) )
++    {
++      active = std::move( reduced );
++      i = 0;
++    }
++    else ++i;
++  }
++  return active;
+ }
+
+ std::vector<skill_damage_runtime_layers_t::specialization_passive_effect_t>
+@@ -2302,7 +2303,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":19,\"simc_revision\":";
++  out << "{\"schema_version\":20,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2429,7 +2430,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":19,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":20,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -2564,52 +2565,112 @@
+
+     for (const auto& edge : native_cast_edges) action_parents[edge.second].insert(edge.first);
+
++    // 先按原生施法根归组，再验证组合；不能分别裁剪主副手或多段分量的条件。
++    using conditions_t = std::vector<skill_damage_condition_t>;
++    struct validated_scenario_t { conditions_t conditions; std::vector<int> affected_target_counts; };
++    std::map<const action_t*, const action_t*> roots;
++    std::map<const action_t*, std::vector<action_t*>> cast_actions;
++    std::map<const action_t*, skill_damage_amount_t> baselines;
++    std::vector<action_t*> eligible_actions;
+     std::set<std::pair<std::string, unsigned>> exported_actions;
+-    bool first_action = true;
+     for ( action_t* action : player->action_list )
+     {
+       if ( !action || !action->harmful || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
+            action->external_recipient_action() ||
+            ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
++      const action_t* root = action;
++      std::set<const action_t*> visited;
++      while ( visited.insert( root ).second )
++      {
++        const auto parents = action_parents.find( root );
++        if ( parents == action_parents.end() || parents->second.size() != 1 ) break;
++        const auto* parent = *parents->second.begin();
++        if ( !native_cast_edges.count( { parent, root } ) && !dbc_cast_path( parent, root ) ) break;
++        root = parent;
++      }
++      if ( root->item || !exported_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ) ).second ) continue;
++      roots[action] = root;
++      eligible_actions.push_back( action );
++      auto& baseline = baselines[action];
++      if ( action->weapon != nullptr && action->weapon_multiplier != 0.0 ) baseline.unresolved_reason = "weapon_dependent";
++      else if ( skill_damage_residual_trigger_dependent( *action ) ) baseline.unresolved_reason = "residual_trigger_dependent";
++      else if ( action->snapshot_state_requires_parent_execute_state ) baseline.unresolved_reason = "child_trigger_dependent";
++      else
++      {
++        baseline = skill_damage_snapshot( *action, {} );
++        cast_actions[root].push_back( action );
++      }
++    }
++    const auto condition_key = []( const conditions_t& conditions ) {
++      std::string key;
++      for ( const auto& condition : conditions )
++        key += condition.token + ":" + std::to_string( condition.buff->data().id() ) + ":" + std::to_string( condition.stacks ) + "\n";
++      return key;
++    };
++    std::map<const action_t*, std::vector<validated_scenario_t>> cast_scenarios;
++    const auto validate_cast = [&]( const action_t* root ) {
++      std::map<std::string, conditions_t> candidates;
++      // 先探测全部分量，确保延迟建立的目标状态也参与候选枚举。
++      for ( auto* component : cast_actions[root] )
++        for ( const auto& conditions : skill_damage_scenarios( *component ) )
++          candidates.emplace( condition_key( conditions ), conditions );
++      std::map<std::string, std::map<int, double>> totals;
++      const auto probe = [&]( const conditions_t& conditions, int targets ) {
++        const auto key = condition_key( conditions );
++        auto found = totals.find( key );
++        if ( found == totals.end() )
++        {
++          std::map<int, double> values{ {1, 0.0}, {2, 0.0}, {5, 0.0}, {10, 0.0}, {20, 0.0} };
++          for ( auto* component : cast_actions[root] )
++          {
++            const auto amount = conditions.empty() ? baselines.at( component ) : skill_damage_snapshot( *component, conditions );
++            for ( auto& [count, value] : values )
++              value += amount.unresolved_reason.empty() ? skill_damage_final_amount( amount, count )
++                : std::numeric_limits<double>::quiet_NaN();
++          }
++          found = totals.emplace( key, std::move( values ) ).first;
++        }
++        return found->second.at( targets );
++      };
++      std::map<std::string, validated_scenario_t> validated;
++      for ( const auto& [key, candidate] : candidates )
++        for ( int targets : {1, 2, 5, 10, 20} )
++        {
++          const auto base = probe( {}, targets );
++          const auto current = probe( candidate, targets );
++          if ( std::isfinite( base ) && std::isfinite( current ) && !skill_damage_final_changed( base, current ) ) continue;
++          auto minimal = skill_damage_minimal_conditions( candidate, targets, probe );
++          if ( minimal.empty() ) continue;
++          auto& state = validated[condition_key( minimal )];
++          state.conditions = std::move( minimal );
++          if ( std::find( state.affected_target_counts.begin(), state.affected_target_counts.end(), targets ) == state.affected_target_counts.end() )
++            state.affected_target_counts.push_back( targets );
++        }
++      auto& result = cast_scenarios[root];
++      for ( auto& [key, state] : validated )
++      {
++        std::sort( state.affected_target_counts.begin(), state.affected_target_counts.end() );
++        result.push_back( std::move( state ) );
++      }
++    };
++
++    bool first_action = true;
++    for ( action_t* action : eligible_actions )
++    {
+       const unsigned spell_id = apl_metadata_action_spell_id( *action );
+-
+       const auto immediate_parents = action_parents.find( action );
+       const action_t* parent_action = immediate_parents != action_parents.end() && immediate_parents->second.size() == 1
+         ? *immediate_parents->second.begin() : nullptr;
+-      const action_t* reporting_root = action;
+-      std::set<const action_t*> visited_actions;
+-      while (visited_actions.insert(reporting_root).second)
+-      {
+-        auto parents = action_parents.find(reporting_root);
+-        if (parents == action_parents.end() || parents->second.size() != 1) break;
+-        const auto* parent = *parents->second.begin();
+-        if (!native_cast_edges.count({parent, reporting_root}) && !dbc_cast_path(parent, reporting_root)) break;
+-        reporting_root = parent;
+-      }
++      const auto* reporting_root = roots.at( action );
+       const unsigned reporting_root_spell_id = apl_metadata_action_spell_id( *reporting_root );
+       const bool reporting_root_component = true;
+-
+-      // Equipment effects are initialized on the actor but are not player skills.
+-      // Use SimC's native action provenance rather than spell/name/class heuristics.
+-      if ( reporting_root->item ) continue;
+-      if ( !exported_actions.emplace( action->name_str, spell_id ).second ) continue;
+-
+       const bool requires_weapon_data = action->weapon != nullptr && action->weapon_multiplier != 0.0;
+       const bool residual_trigger_dependent = skill_damage_residual_trigger_dependent( *action );
+       const bool child_trigger_dependent = action->snapshot_state_requires_parent_execute_state;
+       const bool unsupported_probe = requires_weapon_data || residual_trigger_dependent || child_trigger_dependent;
+-      // Unsupported actions have no truthful baseline or delta. Enumerating every
+-      // actor buff for them only repeats identical unresolved rows and dominates
+-      // exporter runtime without adding product evidence.
+-      skill_damage_amount_t baseline;
+-      if ( requires_weapon_data ) baseline.unresolved_reason = "weapon_dependent";
+-      else if ( residual_trigger_dependent ) baseline.unresolved_reason = "residual_trigger_dependent";
+-      else if ( child_trigger_dependent ) baseline.unresolved_reason = "child_trigger_dependent";
+-      else baseline = skill_damage_snapshot( *action, {} );
+-      // Runtime multiplier evaluation materializes lazy actor_target_data_t states.
+-      const auto scenarios = unsupported_probe
+-        ? std::vector<std::vector<skill_damage_condition_t>>{}
+-        : skill_damage_scenarios( *action );
++      const auto& baseline = baselines.at( action );
++      if ( !unsupported_probe && !cast_scenarios.count( reporting_root ) ) validate_cast( reporting_root );
++      const auto& scenarios = unsupported_probe ? std::vector<validated_scenario_t>{} : cast_scenarios.at( reporting_root );
+       if ( !first_action ) out << ',';
+       first_action = false;
+       out << "{\"token\":"; apl_metadata_json_string( out, action->name_str );
+@@ -2644,25 +2705,24 @@
+       out << ",\"baseline\":"; write_skill_damage_amount( out, baseline );
+       out << ",\"scenarios\":[";
+       bool first_scenario = true;
+-      for ( const auto& active : scenarios )
+-      {
++      for ( const auto& scenario : scenarios )
++      {
++        const auto& active = scenario.conditions;
+         skill_damage_amount_t changed;
+         if ( requires_weapon_data ) changed.unresolved_reason = "weapon_dependent";
+         else if ( residual_trigger_dependent ) changed.unresolved_reason = "residual_trigger_dependent";
+         else if ( child_trigger_dependent ) changed.unresolved_reason = "child_trigger_dependent";
+         else changed = skill_damage_snapshot( *action, active );
+-        // Successful no-op scenarios are omitted. Process-level crashes are isolated
+-        // by the caller and recorded against the minimal failing actor.
+-        if ( changed.unresolved_reason.empty() && !baseline.unresolved_reason.empty() )
+-        {
+-          // With no baseline there is no truthful delta, but the scenario value
+-          // remains useful and is retained below.
+-        }
+-        else if ( changed.unresolved_reason.empty() && !skill_damage_amount_changed( baseline, changed ) ) continue;
+-
++        // 有效性已按完整施法验证；未变化的分量仍是这次施法总伤害的一部分。
+         if ( !first_scenario ) out << ',';
+         first_scenario = false;
+-        out << "{\"buffs\":[";
++        out << "{\"affected_target_counts\":[";
++        for ( size_t i = 0; i < scenario.affected_target_counts.size(); ++i )
++        {
++          if ( i ) out << ',';
++          out << scenario.affected_target_counts[i];
++        }
++        out << "],\"buffs\":[";
+         bool first_buff = true;
+         for ( const auto& condition : active )
+         {

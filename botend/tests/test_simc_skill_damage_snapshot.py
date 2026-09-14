@@ -4611,6 +4611,16 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         with self.assertRaisesRegex(ValueError, '期望'):
             service._validate_export(wrong_target_expectation)
 
+        for counts in (None, [], [1,1], [True], [3], [2,1]):
+            invalid_scope = copy.deepcopy(payload)
+            invalid_scope['actors'][0]['actions'][0]['scenarios'][0]['affected_target_counts'] = counts
+            with self.subTest(counts=counts), self.assertRaisesRegex(ValueError, '目标数校验证据'):
+                service._validate_export(invalid_scope)
+        missing_scope = copy.deepcopy(payload)
+        del missing_scope['actors'][0]['actions'][0]['scenarios'][0]['affected_target_counts']
+        with self.assertRaisesRegex(ValueError, '目标数校验证据'):
+            service._validate_export(missing_scope)
+
         decimal_boundary = copy.deepcopy(payload)
         decimal_component = decimal_boundary['actors'][0]['actions'][0]['scenarios'][0]['values']['direct']
         decimal_component.update({
