@@ -1,8 +1,10 @@
+import json
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase
 
 from botend.controller.plugins.portal.PortalPostMonitor import PortalPostMonitor, _hash_url
+from botend.services.article_content_service import extract_structured_article
 
 
 class PortalPostMonitorUpsertTests(SimpleTestCase):
@@ -99,3 +101,128 @@ class PortalPostMonitorExwindTests(SimpleTestCase):
         self.assertEqual(saved["title"], "职业调整即将到来 – 9月1日")
         self.assertEqual(saved["description"], existing_description)
         self.assertEqual(saved["publish_time"].strftime("%Y-%m-%d %H:%M:%S"), "2026-08-29 06:27:00")
+
+
+class PortalPostMonitorBlizzardChinaTests(SimpleTestCase):
+    def test_update_stores_detail_as_structured_body_and_skips_existing_body(self):
+        first_url = "https://wow.blizzard.cn/news/24302576"
+        second_url = "https://wow.blizzard.cn/news/24302577"
+        listing = MagicMock(status_code=200)
+        listing.content = f"""
+        <a href="{first_url}">
+          <div class="list-title">第一篇国服新闻</div>
+          <div class="list-desc">第一篇短摘要</div>
+          <div class="list-time" data-time="2026-09-12"></div>
+        </a>
+        <a href="{second_url}">
+          <div class="list-title">已有正文的新闻</div>
+          <div class="list-desc">第二篇短摘要</div>
+          <div class="list-time" data-time="2026-09-11"></div>
+        </a>
+        """.encode("utf-8")
+        detail = MagicMock(status_code=200)
+        detail_html = """
+        <html><body>
+          <div id="blog"><div class="Blog"><div class="detail">
+            <h2>版本亮点</h2>
+            <p>国服官网正文第一段。</p>
+            <ul><li>保留列表项目</li></ul>
+            <img src="/static/news/feature.jpg" alt="专题图片">
+          </div></div></div>
+          <div class="footer">不应进入正文</div>
+        </body></html>
+        """
+        detail.content = detail_html.encode("utf-8")
+        detail.text = detail.content.decode("latin-1")
+
+        monitor = PortalPostMonitor.__new__(PortalPostMonitor)
+        monitor.req = MagicMock()
+        monitor.req.get.side_effect = [listing, detail]
+        monitor._upsert_article = MagicMock()
+
+        missing_body = MagicMock(content="", content_blocks="")
+        complete_body = MagicMock(
+            content="已有完整正文",
+            content_blocks=json.dumps([{"type": "html", "html": "<p>已有完整正文</p>"}]),
+        )
+        saved_missing = MagicMock(content="", content_blocks="")
+        saved_complete = MagicMock(content=complete_body.content, content_blocks=complete_body.content_blocks)
+        monitor._upsert_article.side_effect = [saved_missing, saved_complete]
+
+        with patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.WowArticle.objects"
+        ) as objects, patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.upload_article_images_in_blocks",
+            side_effect=lambda blocks, **kwargs: blocks,
+        ):
+            objects.filter.return_value.only.return_value.first.side_effect = [missing_body, complete_body]
+            monitor.update_blizzard_cn_news()
+
+        self.assertEqual(monitor.req.get.call_count, 2)
+        saved_missing.save.assert_called_once()
+        self.assertEqual(set(saved_missing.save.call_args.kwargs["update_fields"]), {"content", "content_blocks"})
+        self.assertIn("国服官网正文第一段", saved_missing.content)
+        self.assertIn("保留列表项目", saved_missing.content)
+        blocks = json.loads(saved_missing.content_blocks)
+        self.assertEqual(blocks[0]["type"], "html")
+        self.assertIn("<h2>版本亮点</h2>", blocks[0]["html"])
+        self.assertIn("<ul><li>保留列表项目</li></ul>", blocks[0]["html"])
+        self.assertIn('src="https://wow.blizzard.cn/static/news/feature.jpg"', blocks[0]["html"])
+        self.assertNotIn("不应进入正文", blocks[0]["html"])
+        saved_complete.save.assert_not_called()
+
+        calls = monitor._upsert_article.call_args_list
+        self.assertEqual(calls[0].kwargs["description"], "第一篇短摘要")
+        self.assertEqual(calls[1].kwargs["description"], "第二篇短摘要")
+
+    def test_update_preserves_image_only_detail_and_uses_source_summary_as_plain_content(self):
+        url = "https://wow.blizzard.cn/news/2684192216/index.html"
+        listing = MagicMock(status_code=200)
+        listing.content = f"""
+        <a href="{url}">
+          <div class="list-title">国服21周年庆开启</div>
+          <div class="list-desc">坐骑免费送，周年庆活动即将开启。</div>
+          <div class="list-time" data-time="2026-08-03"></div>
+        </a>
+        """.encode("utf-8")
+        detail = MagicMock(status_code=200)
+        detail.text = """
+        <html><body><div id="blog"><div class="detail">
+          <p></p>
+          <p><img src="https://nie.res.netease.com/event.png"></p>
+        </div></div></body></html>
+        """
+
+        monitor = PortalPostMonitor.__new__(PortalPostMonitor)
+        monitor.req = MagicMock()
+        monitor.req.get.side_effect = [listing, detail]
+        saved = MagicMock(content="", content_blocks="")
+        monitor._upsert_article = MagicMock(return_value=saved)
+
+        with patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.WowArticle.objects"
+        ) as objects, patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.upload_article_images_in_blocks",
+            side_effect=lambda blocks, **kwargs: blocks,
+        ), patch(
+            "botend.controller.plugins.portal.PortalPostMonitor.upsert_system_alert"
+        ):
+            objects.filter.return_value.only.return_value.first.return_value = MagicMock(
+                content="", content_blocks=""
+            )
+            monitor.update_blizzard_cn_news()
+
+        saved.save.assert_called_once()
+        self.assertEqual(saved.content, "坐骑免费送，周年庆活动即将开启。")
+        blocks = json.loads(saved.content_blocks)
+        self.assertEqual(blocks[0]["type"], "html")
+        self.assertIn('src="https://nie.res.netease.com/event.png"', blocks[0]["html"])
+
+    def test_extractor_does_not_fall_back_when_blizzard_detail_root_is_missing(self):
+        blocks = extract_structured_article(
+            "<html><body><main><p>错误页通用内容，不是国服新闻正文。</p></main></body></html>",
+            base_url="https://wow.blizzard.cn/news/missing",
+            source="blizzard_cn",
+        )
+
+        self.assertEqual(blocks, [])

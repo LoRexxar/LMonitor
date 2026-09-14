@@ -205,14 +205,94 @@ class JournalCompilationTests(SimpleTestCase):
 
 class JournalPublicationTests(TestCase):
     def publish(self, tables=None):
+        tables = tables or fixture()
         with patch('botend.services.journal_service.WagoJournalSource') as source, \
                 patch('botend.services.journal_items.supplement_items', return_value={}):
-            source.return_value.load.return_value = tables or fixture()
+            source.return_value.load.side_effect = lambda names=TABLES: {
+                name: tables[name] for name in names
+            }
+            source.return_value.select.side_effect = lambda table, values, field='ID', locale=None: [
+                row for row in tables[table] if str(row.get(field)) in {str(value) for value in values}
+            ]
             source.return_value.manifest = {}
             return sync_journal(build='12.1.0.69587')
 
     def setUp(self):
         self.release = self.publish()
+
+    def test_sync_supplements_items_before_loading_large_spell_tables(self):
+        tables = fixture()
+        events = []
+
+        def load(names=TABLES):
+            names = tuple(names)
+            events.append(('load', names))
+            return {name: tables[name] for name in names}
+
+        def select(table, values, field='ID', locale=None):
+            values = frozenset(values)
+            events.append(('select', table, values, field, locale))
+            return [row for row in tables[table] if str(row.get(field)) in {str(value) for value in values}]
+
+        def supplement(loaded, source, *, enabled=True):
+            events.append(('supplement', tuple(loaded)))
+            return {}
+
+        with patch('botend.services.journal_service.WagoJournalSource') as source, \
+                patch('botend.services.journal_items.supplement_items', side_effect=supplement):
+            source.return_value.load.side_effect = load
+            source.return_value.select.side_effect = select
+            source.return_value.manifest = {}
+            sync_journal(build='12.1.0.69587')
+
+        self.assertEqual(events[0], ('load', ('JournalEncounterItem',)))
+        self.assertEqual(events[1][1:4], ('ItemSparse', frozenset({60, 61}), 'ID'))
+        self.assertEqual(events[2], ('supplement', ('JournalEncounterItem', 'ItemSparse')))
+        self.assertNotIn('SpellEffect', events[2][1])
+
+    def test_sync_projects_item_and_spell_tables_to_referenced_ids(self):
+        tables = fixture()
+        tables['Spell'] = [
+            {'ID': '100', 'Description_lang': '参见$@spelldesc200'},
+            {'ID': '200', 'Description_lang': '造成$s1点伤害'},
+            {'ID': '999', 'Description_lang': '无关技能'},
+        ]
+        tables['SpellName'] = [
+            {'ID': '100', 'Name_lang': '入口技能'},
+            {'ID': '200', 'Name_lang': '引用技能'},
+            {'ID': '999', 'Name_lang': '无关技能'},
+        ]
+        tables['SpellEffect'] = [
+            {'ID': '1', 'SpellID': '200', 'EffectIndex': '0', 'EffectBasePointsF': '25'},
+            {'ID': '2', 'SpellID': '999', 'EffectIndex': '0', 'EffectBasePointsF': '999'},
+        ]
+        selected = []
+
+        def load(names=TABLES):
+            self.assertNotIn('Item', names)
+            self.assertNotIn('ItemSparse', names)
+            self.assertFalse(set(names) & {'Spell', 'SpellName', 'SpellEffect', 'SpellMisc'})
+            return {name: tables[name] for name in names}
+
+        def select(table, values, field='ID', locale=None):
+            values = frozenset(values)
+            selected.append((table, values, field, locale))
+            return [row for row in tables[table] if str(row.get(field)) in {str(value) for value in values}]
+
+        with patch('botend.services.journal_service.WagoJournalSource') as source, \
+                patch('botend.services.journal_items.supplement_items', return_value={}):
+            source.return_value.load.side_effect = load
+            source.return_value.select.side_effect = select
+            source.return_value.manifest = {}
+            release = sync_journal(build='12.1.0.69587')
+
+        self.assertIn(('ItemSparse', frozenset({60, 61}), 'ID', None), selected)
+        self.assertIn(('Item', frozenset({60, 61}), 'ID', None), selected)
+        self.assertIn(('Spell', frozenset({100}), 'ID', None), selected)
+        self.assertIn(('Spell', frozenset({200}), 'ID', None), selected)
+        self.assertIn(('SpellEffect', frozenset({100, 200}), 'SpellID', None), selected)
+        section = JournalEncounter.objects.get(instance__release=release).payload['sections'][2]
+        self.assertEqual(section['descriptions']['2'], '参见造成25点伤害\n\n英雄特有机制')
 
     def test_published_catalog_and_navigation(self):
         response = self.client.get('/portal/adventure-journal/')
@@ -366,6 +446,106 @@ class JournalPublicationTests(TestCase):
         self.assertEqual(JournalInstance.objects.filter(release=second).count(), 1)
         self.assertEqual(len(self.client.get('/portal/api/adventure-journal/10/').json()['bosses']), 1)
 
+    def test_full_sync_preserves_legacy_ptr_overlay_catalog(self):
+        ptr_catalog = {
+            'art_ids': [7955915],
+            'tiers': [{'id': 516, 'name': '至暗之夜', 'order': 1200}],
+            'difficulties': [{'id': 14, 'name': '普通', 'context': 3}],
+        }
+        manifest = deepcopy(self.release.manifest)
+        manifest['ptr_overlays'] = {
+            '1324': {
+                'source_build': '12.1.5.69594',
+                'artifact_sha256': 'ptr-artifact',
+            },
+        }
+        manifest['catalog']['art_ids'].extend(ptr_catalog['art_ids'])
+        manifest['catalog']['tiers'].extend(ptr_catalog['tiers'])
+        manifest['catalog']['difficulties'].extend(ptr_catalog['difficulties'])
+        self.release.manifest = manifest
+        self.release.report = {**self.release.report, 'instances': 2, 'encounters': 2, 'ptr_overlays': [1324]}
+        self.release.build = '12.1.0.69587+ptr-12.1.5.69594'
+        self.release.save()
+        instance = JournalInstance.objects.create(
+            release=self.release,
+            journal_id=1324,
+            name="Kith'ix Unbound",
+            kind='raid',
+            expansion=1200,
+            payload={'id': 1324, 'name': "Kith'ix Unbound", 'kind': 'raid', 'expansion': 1200,
+                     'tier_ids': [516], 'difficulty_ids': [14], 'image': 7955915},
+        )
+        JournalEncounter.objects.create(
+            instance=instance,
+            journal_id=2700,
+            name='Kithix',
+            order=1,
+            payload={'id': 2700, 'name': 'Kithix', 'order': 1, 'difficulty_ids': [14],
+                     'sections': [], 'loot': []},
+        )
+
+        second = self.publish()
+
+        self.assertEqual(
+            set(JournalInstance.objects.filter(release=second).values_list('journal_id', flat=True)),
+            {10, 1324},
+        )
+        self.assertEqual(second.manifest['ptr_overlays']['1324']['artifact_sha256'], 'ptr-artifact')
+        self.assertIn(7955915, second.manifest['catalog']['art_ids'])
+        self.assertEqual(second.report['ptr_overlays'], [1324])
+        self.assertEqual(second.build, '12.1.0.69587+ptr-12.1.5.69594')
+
+    def test_full_sync_preserves_release_published_after_fetch_started(self):
+        concurrent = JournalRelease.objects.create(
+            build='12.1.0.69587+ptr-12.1.5.69594',
+            status='completed',
+            manifest={'catalog': self.release.manifest['catalog'], 'ptr_overlays': {}},
+            report=self.release.report,
+            completed_at=timezone.now(),
+        )
+        real_compile = compile_journal
+
+        def compile_after_concurrent_publish(*args, **kwargs):
+            result = real_compile(*args, **kwargs)
+            JournalState.objects.filter(pk='wow-zhCN').update(
+                active_release=concurrent,
+                sync_until=timezone.now() - timedelta(seconds=1),
+            )
+            return result
+
+        captured = []
+
+        def capture_active_release(active_release, rows, catalog, report, retail_build):
+            captured.append(active_release.pk)
+            return rows, catalog, report, {}, retail_build
+
+        with patch('botend.services.journal_service.compile_journal', side_effect=compile_after_concurrent_publish), \
+                patch('botend.services.ptr_journal_gear_overlay.preserve_active_ptr_journal_overlay',
+                      side_effect=capture_active_release):
+            self.publish()
+
+        self.assertEqual(captured, [concurrent.pk])
+
+    def test_retail_instance_replaces_overlay_with_same_id(self):
+        manifest = deepcopy(self.release.manifest)
+        manifest['ptr_overlays'] = {
+            '10': {
+                'source_build': '12.1.5.69594',
+                'artifact_sha256': 'old-ptr-artifact',
+                'catalog': {},
+            },
+        }
+        self.release.manifest = manifest
+        self.release.build = '12.1.0.69587+ptr-12.1.5.69594'
+        self.release.save(update_fields=['manifest', 'build'])
+
+        second = self.publish()
+
+        self.assertEqual(second.build, '12.1.0.69587')
+        self.assertEqual(second.manifest['ptr_overlays'], {})
+        self.assertEqual(second.report.get('ptr_overlays') or [], [])
+        self.assertEqual(JournalInstance.objects.get(release=second, journal_id=10).name, '测试副本')
+
     def test_parallel_sync_is_rejected(self):
         JournalState.objects.filter(pk='wow-zhCN').update(sync_token='其他运行', sync_until=timezone.now() + timedelta(hours=1))
         with self.assertRaisesRegex(ValueError, '已有同步'):
@@ -394,12 +574,22 @@ class JournalPublicationTests(TestCase):
         self.assertEqual(response.json()['source'], 'Wago')
         self.assertEqual(response.json()['lines'], ['英雄特有机制'])
 
-    def test_monitor_is_appended_and_scheduled_daily(self):
+    def test_monitor_is_appended_but_never_refreshes_manual_journal_data(self):
         from LMonitor.config import Monitor_Type_BaseObject_List
-        from botend.plugin_sync import monitor_default_wait_time
+        from botend.controller.plugins.wow.AdventureJournalMonitor import AdventureJournalMonitor
         self.assertEqual(Monitor_Type_BaseObject_List[34].__name__, 'MaxrollClassGuideMonitor')
         self.assertEqual(Monitor_Type_BaseObject_List[35].__name__, 'AdventureJournalMonitor')
-        self.assertEqual(monitor_default_wait_time('AdventureJournalMonitor'), 86400)
+        self.assertFalse(AdventureJournalMonitor.default_is_active)
+        task = SimpleNamespace(flag='')
+        monitor = AdventureJournalMonitor.__new__(AdventureJournalMonitor)
+        monitor.task = task
+        monitor.last_error_detail = ''
+        with patch(
+            'botend.services.journal_service.sync_journal',
+        ) as sync:
+            self.assertTrue(monitor.scan(''))
+        sync.assert_not_called()
+        self.assertIn('仅手动刷新', task.flag)
 
 
 class JournalSourceTests(SimpleTestCase):
@@ -444,10 +634,18 @@ class JournalSourceTests(SimpleTestCase):
         tables['ItemSparse'] = []
         english = [{'ID': '60', 'Display_lang': 'Trinket', 'OverallQualityID': '3'},
                    {'ID': '61', 'Display_lang': 'Helm', 'OverallQualityID': '4'}]
-        source = SimpleNamespace(directory=Path('未使用的缓存') / '版本' / 'zhCN', offline=True, refresh=False,
-                                 progress=lambda _: None, table=Mock(return_value=english), manifest={})
+        source = SimpleNamespace(
+            directory=Path('未使用的缓存') / '版本' / 'zhCN',
+            offline=True,
+            refresh=False,
+            progress=lambda _: None,
+            select=Mock(side_effect=lambda table, values, field='ID', locale=None: [
+                row for row in english if str(row.get(field)) in {str(value) for value in values}
+            ]),
+            manifest={},
+        )
         with patch('pathlib.Path.exists', return_value=False), patch('botend.services.journal_items.WagoJournalSource') as legacy:
-            legacy.return_value.table.return_value = [{'ID': '60', 'Display_lang': '历史中文名称', 'OverallQualityID': '5'}]
+            legacy.return_value.select.return_value = [{'ID': '60', 'Display_lang': '历史中文名称', 'OverallQualityID': '5'}]
             legacy.return_value.manifest = {'ItemSparse': {}}
             supplements = supplement_items(tables, source)
         self.assertEqual(supplements[60]['name'], '历史中文名称')
@@ -503,6 +701,27 @@ class JournalSourceTests(SimpleTestCase):
                 read.return_value = content.encode('utf-8')
                 with self.assertRaises(ValueError):
                     source.table('JournalInstance')
+
+    def test_table_filter_validates_full_source_but_retains_only_selected_rows(self):
+        content = 'ID,Name_lang\n1,一\n2,二\n3,三\n'.encode('utf-8')
+        with patch('pathlib.Path.exists', return_value=True), \
+                patch('pathlib.Path.read_bytes', return_value=content):
+            source = WagoJournalSource('12.1.0.69587', '未使用的离线路径', offline=True)
+            rows = source.table('JournalInstance', row_filter=lambda row: row['ID'] == '2')
+        self.assertEqual(rows, [{'ID': '2', 'Name_lang': '二'}])
+        self.assertEqual(source.manifest['JournalInstance']['rows'], 3)
+        self.assertEqual(source.manifest['JournalInstance']['selected_rows'], 1)
+
+    def test_select_rejects_missing_projection_field_and_accumulates_manifest_count(self):
+        content = 'ID,SpellID\n1,100\n2,200\n3,300\n'.encode('utf-8')
+        with patch('pathlib.Path.exists', return_value=True), \
+                patch('pathlib.Path.read_bytes', return_value=content):
+            source = WagoJournalSource('12.1.0.69587', '未使用的离线路径', offline=True)
+            source.select('SpellEffect', {100}, field='SpellID')
+            source.select('SpellEffect', {200}, field='SpellID')
+            self.assertEqual(source.manifest['SpellEffect.enUS']['selected_rows'], 2)
+            with self.assertRaises(ValueError):
+                source.select('SpellEffect', {100}, field='MissingField')
 
     @patch('botend.services.journal_source.http_session')
     @patch('botend.services.journal_source.inertia')

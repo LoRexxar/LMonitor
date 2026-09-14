@@ -50,7 +50,7 @@ PORTAL_MONITOR_TASK_PRIORITY = {
 
 def monitor_default_wait_time(name):
     if name == 'AdventureJournalMonitor':
-        return 86400
+        return 604800  # 保留历史 type=35 的间隔；任务默认关闭且只允许手动刷新。
     if name == 'MaxrollClassGuideMonitor':
         return 21600  # 6 小时，后续间隔由后台维护。
     if name == "PortalPeakSpecRankMonitor":

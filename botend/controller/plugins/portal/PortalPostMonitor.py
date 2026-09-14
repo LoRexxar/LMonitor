@@ -395,6 +395,8 @@ class PortalPostMonitor(BaseScan):
             html_text = (getattr(resp, 'content', b'') or b'').decode('utf-8', 'ignore')
             seen = set()
             added = 0
+            detail_attempts = 0
+            parsed_bodies = 0
             for m in re.finditer(
                 r'<a[^>]+href="(https?://wow\.blizzard\.cn/news/[^"]+)"[^>]*>([\s\S]*?)</a>',
                 html_text,
@@ -436,26 +438,76 @@ class PortalPostMonitor(BaseScan):
                 if not title:
                     continue
 
-                desc_full = None
+                blocks = []
                 try:
-                    existing = WowArticle.objects.filter(url=url).only("id", "description").first()
+                    existing = WowArticle.objects.filter(url_hash=_hash_url(url)).only(
+                        "id", "content", "content_blocks"
+                    ).first()
                 except Exception:
                     existing = None
-                if not existing or not (getattr(existing, "description", "") or "").strip() or len((getattr(existing, "description", "") or "")) < 800:
-                    desc_full = self._fetch_full_text(url, source='blizzard_cn')
+                if not existing or not (getattr(existing, "content_blocks", "") or "").strip():
+                    detail_attempts += 1
+                    blocks = self._fetch_blizzard_cn_blocks(url)
 
-                self._upsert_article(
+                obj = self._upsert_article(
                     title=title,
                     url=url,
                     source='blizzard_cn',
                     category='news',
                     author=None,
-                    description=desc_full or (desc or None),
+                    description=desc or None,
                     publish_time=dt or timezone.now(),
                 )
+                body = blocks_to_plain_text(blocks) or (desc or title)
+                if obj and blocks:
+                    obj.content = body
+                    obj.content_blocks = dumps_blocks(blocks)
+                    obj.save(update_fields=["content", "content_blocks"])
+                    parsed_bodies += 1
                 added += 1
+
+            if detail_attempts and parsed_bodies == 0:
+                logger.warning(
+                    "[PortalPostMonitor] blizzard_cn parsed zero bodies from %s detail attempts",
+                    detail_attempts,
+                )
+                upsert_system_alert(
+                    category='BLIZZARD_CN_ARTICLE_PARSE_FAILED',
+                    subject='wow.blizzard.cn',
+                    level=3,
+                    title='国服官网新闻正文抓取失败',
+                    content=f'列表抓取正常，但 {detail_attempts} 篇待补正文均未解析成功；请检查源站详情页结构。',
+                )
         except Exception as e:
             logger.error(f"[PortalPostMonitor] blizzard_cn_news error: {str(e)}")
+
+    def _fetch_blizzard_cn_blocks(self, url):
+        try:
+            resp = self.req.get(url, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
+            if not resp or resp.status_code != 200:
+                return []
+            raw_content = getattr(resp, 'content', None)
+            if isinstance(raw_content, (bytes, bytearray)):
+                html_text = bytes(raw_content).decode('utf-8', 'ignore')
+            else:
+                html_text = resp.text or ''
+            if not html_text:
+                return []
+            blocks = extract_structured_article(
+                html_text,
+                base_url=url,
+                source='blizzard_cn',
+            )
+            if not blocks:
+                return []
+            return upload_article_images_in_blocks(
+                blocks,
+                req=self.req,
+                article_url=url,
+                source='blizzard_cn',
+            )
+        except Exception:
+            return []
 
     def _fetch_full_text(self, url, source=''):
         try:
@@ -498,19 +550,11 @@ class PortalPostMonitor(BaseScan):
         return text or None
 
     def _extract_blizzard_cn_body(self, html_text):
-        t = html_text or ""
-        blocks = []
-        for pat in (
-            r'<div[^>]+class="[^"]*(?:detail-desc|detail-content|news-detail)[^"]*"[^>]*>([\s\S]*?)</div>',
-            r'<article[^>]*>([\s\S]*?)</article>',
-        ):
-            m = re.search(pat, t, flags=re.I)
-            if m:
-                blocks.append(m.group(1) or "")
-        if not blocks:
-            return None
-        raw = max(blocks, key=lambda x: len(x or ""))
-        return self._strip_html_text(raw)
+        blocks = extract_structured_article(
+            html_text or "",
+            source="blizzard_cn",
+        )
+        return blocks_to_plain_text(blocks) or None
 
     def _extract_exwind_body(self, html_text):
         t = html_text or ""

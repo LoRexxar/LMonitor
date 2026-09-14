@@ -236,19 +236,21 @@ def _request_values(request):
             class_name=request.get('class_name'),
             spec_name=request.get('spec_name', request.get('spec')),
         )
+        allow_default_variant = bool(request.get('allow_default_variant'))
     else:
         values = list(request) if isinstance(request, (tuple, list)) else [request]
         item_id = values[0] if values else None
         item_level = values[1] if len(values) > 1 else None
         bonus_ids = values[2] if len(values) > 2 else None
         primary_stat = _primary_stat_for_identity(primary_stat=values[3] if len(values) > 3 else '')
+        allow_default_variant = False
     if isinstance(bonus_ids, str):
         bonus_ids = bonus_ids.replace(';', '/').replace(':', '/').split('/')
     elif not isinstance(bonus_ids, (tuple, list, set)):
         bonus_ids = [bonus_ids] if bonus_ids not in (None, '') else []
     return _positive_int(item_id), _positive_int(item_level), tuple(sorted({
         value for raw in (bonus_ids or []) for value in [_positive_int(raw)] if value
-    })), primary_stat
+    })), primary_stat, allow_default_variant
 
 
 def _variant_score(variant, item_level, bonus_ids):
@@ -268,7 +270,11 @@ def load_item_tooltip_metadata(requests):
     normalized = [_request_values(request) for request in (requests or [])]
     if not normalized:
         return []
-    item_ids = {item_id for item_id, _item_level, _bonus_ids, _primary_stat in normalized if item_id}
+    item_ids = {
+        item_id
+        for item_id, _item_level, _bonus_ids, _primary_stat, _allow_default_variant in normalized
+        if item_id
+    }
     snapshots = {
         int(row.item_id): row for row in WowItemSnapshot.objects.filter(item_id__in=item_ids)
     }
@@ -290,12 +296,12 @@ def load_item_tooltip_metadata(requests):
         ).select_related('item'):
             variants_by_item.setdefault(int(variant.item.item_id), []).append(variant)
     result = []
-    for item_id, item_level, bonus_ids, primary_stat in normalized:
+    for item_id, item_level, bonus_ids, primary_stat, allow_default_variant in normalized:
         candidates = variants_by_item.get(item_id, [])
         if item_level:
             exact = [row for row in candidates if _positive_int(row.item_level) == item_level]
             candidates = exact
-        elif not bonus_ids:
+        elif not bonus_ids and not allow_default_variant:
             candidates = []
         variant = max(candidates, key=lambda row: _variant_score(row, item_level, bonus_ids), default=None)
         snapshot = snapshots.get(item_id) or getattr(variant, 'item', None)

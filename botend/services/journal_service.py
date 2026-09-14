@@ -1,4 +1,5 @@
 """关联冒险手册全量表并原子发布，保存缺项清单和每份来源的版本。"""
+import re
 from datetime import timedelta
 from pathlib import Path
 from uuid import uuid4
@@ -8,7 +9,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from botend.journal_models import JournalEncounter, JournalInstance, JournalRelease, JournalState
-from botend.services.journal_source import WagoJournalSource, latest_retail_build
+from botend.services.journal_source import TABLES, WagoJournalSource, latest_retail_build
 from botend.services.journal_text import JournalText, grouped, index, integer
 
 
@@ -20,6 +21,37 @@ SLOTS = {0: '其他', 1: '头部', 2: '颈部', 3: '肩部', 4: '衬衣', 5: '�
          7: '腿部', 8: '脚部', 9: '腕部', 10: '手部', 11: '手指', 12: '饰品', 13: '单手',
          14: '盾牌', 15: '远程', 16: '背部', 17: '双手', 19: '战袍', 20: '胸部',
          21: '主手', 22: '副手', 23: '副手物品', 25: '投掷', 26: '远程', 28: '圣物'}
+SPELL_RELATION_TABLES = ('SpellEffect', 'SpellMisc', 'SpellAuraOptions', 'SpellTargetRestrictions')
+PROJECTED_TABLES = {'JournalEncounterItem', 'ItemSparse', 'Item', 'Spell', 'SpellName', *SPELL_RELATION_TABLES}
+SPELL_REFERENCE = re.compile(
+    r'\$@(?:spellname|spelldesc|spellaura|spelltooltip|spellicon)(\d+)|\$(\d+)[sSmMaAtTdDuUiIrR]\d*',
+    re.I,
+)
+
+
+def text_spell_ids(text):
+    return {integer(left or right) for left, right in SPELL_REFERENCE.findall(str(text or '')) if integer(left or right)}
+
+
+def load_referenced_spells(source, sections):
+    """递归加载手册正文真正引用的 Spell 行；缺失 ID 仍进入关联表筛选与缺项语义。"""
+    needed = set()
+    for section in sections:
+        spell_id = integer(section.get('SpellID'))
+        if spell_id:
+            needed.add(spell_id)
+        needed.update(text_spell_ids(section.get('Title_lang')))
+        needed.update(text_spell_ids(section.get('BodyText_lang')))
+    queried = set()
+    selected = {}
+    while pending := needed - queried:
+        queried.update(pending)
+        for row in source.select('Spell', pending):
+            spell_id = integer(row['ID'])
+            selected[spell_id] = row
+            needed.update(text_spell_ids(row.get('Description_lang')))
+            needed.update(text_spell_ids(row.get('AuraDescription_lang')))
+    return list(selected.values()), needed
 
 
 def allowed_difficulties(row, relations, available, difficulties):
@@ -249,12 +281,18 @@ def sync_journal(*, build='', directory=None, offline=False, refresh=False, prog
         release = JournalRelease.objects.create(build=build)
         source = WagoJournalSource(build, directory or Path(settings.BASE_DIR) / '.cache' / 'adventure-journal',
                                    offline=offline, refresh=refresh, progress=progress)
-        tables = source.load()
+        tables = source.load(('JournalEncounterItem',))
+        item_ids = {integer(row['ItemID']) for row in tables['JournalEncounterItem'] if not integer(row['Flags']) & 1}
+        tables['ItemSparse'] = source.select('ItemSparse', item_ids)
         from botend.services.journal_items import supplement_items
         supplements = supplement_items(tables, source, enabled=fallback)
+        tables.update(source.load(tuple(name for name in TABLES if name not in PROJECTED_TABLES)))
+        tables['Item'] = source.select('Item', item_ids)
+        tables['Spell'], spell_ids = load_referenced_spells(source, tables['JournalEncounterSection'])
+        tables['SpellName'] = source.select('SpellName', spell_ids)
+        for table in SPELL_RELATION_TABLES:
+            tables[table] = source.select(table, spell_ids, field='SpellID')
         rows, catalog, report = compile_journal(tables, item_fallback=supplements)
-        release.manifest = {'tables': source.manifest, 'catalog': catalog}
-        release.report = report
         if not report['instances'] or not report['encounters'] or not report['loot']:
             raise ValueError('核心冒险手册数据为空，拒绝发布')
         if report['missing_item_ids']:
@@ -264,6 +302,24 @@ def sync_journal(*, build='', directory=None, offline=False, refresh=False, prog
             if state.sync_token != token:
                 raise ValueError('同步租约已被其他任务接管，拒绝发布过期结果')
             previous = state.active_release
+            # 抓取可能超过 lease；必须在最终发布锁内读取最新活动 release，
+            # 否则期间合法写入的 PTR overlay 会被旧快照覆盖。
+            from botend.services.ptr_journal_gear_overlay import preserve_active_ptr_journal_overlay
+            rows, catalog, report, ptr_overlays, published_build = preserve_active_ptr_journal_overlay(
+                previous,
+                rows,
+                catalog,
+                report,
+                build,
+            )
+            release.build = published_build
+            release.manifest = {
+                'tables': source.manifest,
+                'catalog': catalog,
+                'retail_build': build,
+                'ptr_overlays': ptr_overlays,
+            }
+            release.report = report
             for key, label in (('instances', '副本'), ('encounters', '首领'), ('sections', '技能'), ('loot', '掉落')):
                 if previous and report[key] < previous.report.get(key, 0) * .8:
                     raise ValueError(f'{label}数量异常下降超过 20%，拒绝自动发布')

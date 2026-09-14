@@ -1,10 +1,9 @@
-"""通过现有监控后端定期同步冒险手册。"""
+"""保留历史 MonitorTask.type=35 索引；冒险手册仅允许人工按需刷新。"""
 from botend.controller.BaseScan import BaseScan
-from botend.services.journal_service import sync_journal
 
 
 class AdventureJournalMonitor(BaseScan):
-    default_is_active = True
+    default_is_active = False
     default_target = 'https://wago.tools/journal'
 
     def __init__(self, req, task):
@@ -13,10 +12,5 @@ class AdventureJournalMonitor(BaseScan):
         self.last_error_detail = ''
 
     def scan(self, url):
-        try:
-            release = sync_journal(refresh=True)
-            self.task.flag = f'冒险手册 {release.build} · {release.report["encounters"]} 个首领'
-            return True
-        except Exception as exc:
-            self.last_error_detail = str(exc)[:1000]
-            return False
+        self.task.flag = '冒险手册仅手动刷新，后台不会自动同步'
+        return True

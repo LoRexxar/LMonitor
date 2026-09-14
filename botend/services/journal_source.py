@@ -64,6 +64,7 @@ class WagoJournalSource:
         self.refresh = refresh
         self.progress = progress or (lambda message: None)
         self.manifest = {}
+        self._selected_row_ids = {}
 
     def segmented_table(self, table, locale):
         """按来源行号取得 ID 边界，分段流式下载，失败仅重试未完成段。"""
@@ -121,7 +122,7 @@ class WagoJournalSource:
         writer.writerows(rows)
         return buffer.getvalue().encode('utf-8')
 
-    def table(self, table, locale='zhCN'):
+    def table(self, table, locale='zhCN', *, row_filter=None, required_fields=()):
         path = self.directory / f'{table}{"" if locale == "zhCN" else "." + locale}.csv'
         url = f'https://wago.tools/db2/{table}/csv?build={self.build}&locale={locale}'
         if self.offline and not path.exists():
@@ -136,12 +137,26 @@ class WagoJournalSource:
                     content = response.content
         else:
             content = path.read_bytes()
-        rows = list(csv.DictReader(io.StringIO(content.decode('utf-8-sig'))))
-        if not rows or 'ID' not in rows[0] or any(None in row or None in row.values() for row in rows):
+        reader = csv.DictReader(io.StringIO(content.decode('utf-8-sig')))
+        missing_fields = {'ID', *required_fields} - set(reader.fieldnames or ())
+        if missing_fields:
+            missing = '、'.join(sorted(missing_fields))
+            raise ValueError(f'{table} 缺少投影字段 {missing}')
+        rows = []
+        seen_ids = set()
+        total_rows = 0
+        for row in reader:
+            if 'ID' not in row or None in row or None in row.values():
+                raise ValueError(f'{table} 返回空表或不完整 CSV，拒绝发布')
+            row_id = row['ID']
+            if row_id in seen_ids:
+                raise ValueError(f'{table} 包含重复记录')
+            seen_ids.add(row_id)
+            total_rows += 1
+            if row_filter is None or row_filter(row):
+                rows.append(row)
+        if not total_rows:
             raise ValueError(f'{table} 返回空表或不完整 CSV，拒绝发布')
-        ids = [row['ID'] for row in rows]
-        if len(ids) != len(set(ids)):
-            raise ValueError(f'{table} 包含重复记录')
         # 联机下载额外比较页面声明总数，阻止截断但语法仍合法的 CSV。
         if not self.offline:
             with http_session() as session:
@@ -149,18 +164,42 @@ class WagoJournalSource:
                                        params={'build': self.build, 'locale': locale}, timeout=(10, 90))
                 response.raise_for_status()
                 props = inertia(response.text)
-            if props.get('currentVersion') != self.build or int(props['data']['total']) != len(rows):
+            if props.get('currentVersion') != self.build or int(props['data']['total']) != total_rows:
                 raise ValueError(f'{table} 的版本或完整条数校验不通过')
         if not self.offline:
             self.directory.mkdir(parents=True, exist_ok=True)
             path.write_bytes(content)
-        self.manifest[table if locale == 'zhCN' else f'{table}.{locale}'] = {
-            'rows': len(rows), 'sha256': hashlib.sha256(content).hexdigest(), 'url': url}
-        self.progress(f'{table}：{len(rows)} 条')
+        key = table if locale == 'zhCN' else f'{table}.{locale}'
+        self.manifest[key] = {
+            'rows': total_rows, 'sha256': hashlib.sha256(content).hexdigest(), 'url': url}
+        if row_filter is not None:
+            self.manifest[key]['selected_rows'] = len(rows)
+        suffix = f'（选中 {len(rows)} 条）' if row_filter is not None else ''
+        self.progress(f'{table}：{total_rows} 条{suffix}')
         return rows
 
-    def load(self):
+    def select(self, table, values, *, field='ID', locale=None):
+        """完整校验来源表，但只保留业务引用的行，避免大表常驻内存。"""
+        values = {str(value) for value in values}
+        locale = locale or ('zhCN' if table in LOCALIZED_TABLES else 'enUS')
+        rows = self.table(
+            table,
+            locale,
+            row_filter=lambda row: row[field] in values,
+            required_fields=(field,),
+        )
+        key = table if locale == 'zhCN' else f'{table}.{locale}'
+        selected = self._selected_row_ids.setdefault(key, set())
+        selected.update(row['ID'] for row in rows)
+        self.manifest[key]['selected_rows'] = len(selected)
+        return rows
+
+    def load(self, table_names=TABLES):
+        table_names = tuple(table_names)
+        unknown = set(table_names) - set(TABLES)
+        if unknown:
+            raise ValueError(f'未知冒险手册表：{", ".join(sorted(unknown))}')
         with ThreadPoolExecutor(max_workers=3) as pool:
-            result = dict(zip(TABLES, pool.map(
-                lambda table: self.table(table, 'zhCN' if table in LOCALIZED_TABLES else 'enUS'), TABLES)))
+            result = dict(zip(table_names, pool.map(
+                lambda table: self.table(table, 'zhCN' if table in LOCALIZED_TABLES else 'enUS'), table_names)))
         return result

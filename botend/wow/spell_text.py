@@ -16,8 +16,8 @@ from functools import lru_cache
 from typing import Any
 
 
-_VAR_RE = re.compile(r"\$(?:(?P<spell>\d+))?(?P<kind>[smAtdoUirnchxb])(?P<idx>\d*)", re.IGNORECASE)
-_INLINE_DIV_VAR_RE = re.compile(r"\$/((?P<divisor>\d+));(?:(?P<spell>\d+))?(?P<kind>[smAtdoUirnchxb])(?P<idx>\d*)", re.IGNORECASE)
+_VAR_RE = re.compile(r"\$(?:(?P<spell>\d+))?(?P<kind>[smwAtdoUirnchxb])(?P<idx>\d*)", re.IGNORECASE)
+_INLINE_DIV_VAR_RE = re.compile(r"\$/((?P<divisor>\d+));(?:(?P<spell>\d+))?(?P<kind>[smwAtdoUirnchxb])(?P<idx>\d*)", re.IGNORECASE)
 _LOCALIZATION_RE = re.compile(r"\$[Ll]([^:;]*):([^;]*);")
 _LOCALIZATION_LEGACY_RE = re.compile(r"\$[Ll]([A-Za-z\u4e00-\u9fff]+);([A-Za-z\u4e00-\u9fff]+)")
 _EXPR_RE = re.compile(r"\$\{([^{}]+)\}(?:\.(\d+))?")
@@ -26,6 +26,9 @@ _SPELLDESC_RE = re.compile(r"\$@spelldesc(\d+)", re.IGNORECASE)
 _SPELLTOOLTIP_RE = re.compile(r"\$@spelltooltip(\d+)", re.IGNORECASE)
 _SPELLAURA_RE = re.compile(r"\$@spellaura(\d+)", re.IGNORECASE)
 _SPELLICON_RE = re.compile(r"\$@spellicon(\d+)", re.IGNORECASE)
+_BARE_SPELLNAME_RE = re.compile(r"\$@spellname(?!\d)", re.IGNORECASE)
+_AURA_CASTER_RE = re.compile(r"\$@auracaster(?![A-Za-z0-9_])", re.IGNORECASE)
+_VERSA_DMG_RE = re.compile(r"\$@versadmg(?![A-Za-z0-9_])", re.IGNORECASE)
 _COND_RE = re.compile(r"\$\?[^\[]*\[([^\[\]]*)\]\[([^\[\]]*)\]")
 _COND_ONE_RE = re.compile(r"\$\?[^\[]*\[([^\[\]]*)\]")
 _BARE_COND_RE = re.compile(r"\?(?:!?\$?[acs]\d+)(?:&!?\$?[acs]\d+)*\[([^\[\]]*)\]\[([^\[\]]*)\]", re.IGNORECASE)
@@ -35,8 +38,8 @@ _NAMED_RE = re.compile(r"\$<([^>]+)>")
 _MECHANIC_VALUE_PATTERN = (
     r"(?:"
     r"\$\{[^{}]+\}(?:\.\d+)?"
-    r"|\$/\d+;(?:\d+)?[smAtdoUiLrnchxb]\d*"
-    r"|\$(?:\d+)?[smbhxc]\d*"
+    r"|\$/\d+;(?:\d+)?[smwAtdoUiLrnchxb]\d*"
+    r"|\$(?:\d+)?[smwbhxc]\d*"
     r"|\$<[^>]+>"
     r")"
 )
@@ -262,6 +265,11 @@ class SpellTextResolver:
                 out,
             )
             out = _SPELLICON_RE.sub('', out)
+            out = _AURA_CASTER_RE.sub('施法者' if self.locale == 'zhCN' else 'the caster', out)
+            # This macro is the player's runtime versatility multiplier. Static
+            # projections retain the authoritative base value without pretending
+            # to know the reader's current character stats.
+            out = _VERSA_DMG_RE.sub('0', out)
             # Expressions first, so ${$s3/1000}.1 becomes an evaluated value.
             out = _EXPR_RE.sub(lambda m: self._resolve_expr(m.group(1), sid), out)
             out = _INLINE_DIV_VAR_RE.sub(lambda m: self._resolve_inline_div_var_match(m, sid), out)
@@ -770,7 +778,7 @@ class SpellTextResolver:
         # Standalone `$sN`/`$mN` placeholders display a positive magnitude.
         # Arithmetic expressions must retain DB2's sign first: a -25 value in
         # `${-$s2}` evaluates to +25, while -15000 in `${$s2/-1000}` is +15.
-        if kind in {'m', 's'} and not preserve_sign:
+        if kind in {'m', 's', 'w'} and not preserve_sign:
             num = abs(num)
         return _fmt(num)
 
@@ -1056,7 +1064,23 @@ class SpellTextResolver:
         text = _SPELLTOOLTIP_RE.sub(lambda m: self.resolve(self._spell_desc(_to_int(m.group(1))), _to_int(m.group(1))), text)
         text = _SPELLAURA_RE.sub(lambda m: self.resolve(self._spell_aura(_to_int(m.group(1))), _to_int(m.group(1))), text)
         text = _SPELLICON_RE.sub("", text)
+        text = _BARE_SPELLNAME_RE.sub("", text)
+        text = _AURA_CASTER_RE.sub('施法者' if self.locale == 'zhCN' else 'the caster', text)
+        text = _VERSA_DMG_RE.sub('0', text)
         text = _EXPR_RE.sub("", text)
+        text = _INLINE_DIV_VAR_RE.sub("", text)
+        if self.locale == 'zhCN':
+            text = re.sub(
+                r'不能对物品等级低于\$ecim的物品使用',
+                '只能对符合物品等级要求的物品使用',
+                text,
+                flags=re.IGNORECASE,
+            )
+            text = re.sub(r'每\s*\$ec\d+s\d+\s*秒', '周期性', text, flags=re.IGNORECASE)
+            text = re.sub(r'\$ec\d+s\d+(?=层)', '多', text, flags=re.IGNORECASE)
+            text = re.sub(r'\$ec(?:\d+|im)点?', '一定数值', text, flags=re.IGNORECASE)
+            text = re.sub(r'\$pri(?![A-Za-z0-9_])', '主属性', text, flags=re.IGNORECASE)
+            text = re.sub(r'\$L(?=层)', '多', text)
         text = _VAR_RE.sub(lambda m: _readable_unresolved_var(m, self.locale), text)
         text = re.sub(r"(造成|受到|承受)\s*最多\s*点\s*", r"\1", text)
         text = re.sub(r"(造成|受到|承受)\s*点\s*", r"\1", text)
@@ -1105,6 +1129,10 @@ class SpellTextResolver:
             text = re.sub(r"提高额外的\s*%", "进一步提高", text)
             text = re.sub(r"投掷\s*枚(?=[\u4e00-\u9fff])", "投掷", text)
             text = re.sub(r"共?造成\s*次伤害", "造成伤害", text)
+            text = re.sub(r'每(?:隔)?\s*一段时间\s*秒', '周期性', text)
+            text = re.sub(r'恢复\s*%\s*生命值', '恢复生命值', text)
+            text = re.sub(r'主属性提高\s*点', '主属性会有所提高', text)
+            text = re.sub(r'给予\s*层', '给予多层', text)
             text = re.sub(
                 r"((?:眩晕|昏迷|定身|无法移动))\s*(\d+(?:\.\d+)?)(?=[。；，,.!?])",
                 r"\1\2秒",
@@ -1126,6 +1154,12 @@ class SpellTextResolver:
                 text,
                 flags=re.IGNORECASE,
             )
+        # A malformed source string may end with an isolated template marker
+        # after all structured placeholders have been handled. Preserve a
+        # complete Chinese sentence without reinterpreting the marker as a value.
+        if self.locale == 'zhCN':
+            text = re.sub(r"(?<![。；，,.!?])\$(?=\s*$)", "。", text)
+        text = re.sub(r"\$(?=\s*(?:[。；，,.!?])?\s*$)", "", text)
         text = text.replace("..", ".")
         return self._cleanup(text)
 

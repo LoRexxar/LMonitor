@@ -175,6 +175,7 @@ def _spell_snapshot_metadata(game_version, spell_ids):
     if not version:
         return {}
     from botend.models import WowSpellSnapshot
+    from botend.wow.spell_text import SpellTextResolver
 
     branch_order = ['wowxptr', 'wowt'] if version.branch == 'ptr' else ['wow']
 
@@ -189,12 +190,26 @@ def _spell_snapshot_metadata(game_version, spell_ids):
 
     rows = WowSpellSnapshot.objects.filter(spell_id__in=spell_ids)
     candidates = {}
+    resolvers = {}
     for row in rows:
         identity = int(row.spell_id)
         entry = candidates.setdefault(identity, {
             'tooltip': '', 'tooltip_rank': None, 'icon': '', 'icon_rank': None,
         })
-        body = _tooltip_text(row.description, row.aura_description)
+        resolver_key = (row.branch, row.locale, row.snapshot_build)
+        resolver = resolvers.get(resolver_key)
+        if resolver is None:
+            resolver = SpellTextResolver(
+                branch=row.branch,
+                locale=row.locale,
+                snapshot_build=row.snapshot_build,
+                dump_dir=version.source_dir or None,
+            )
+            resolvers[resolver_key] = resolver
+        body = _tooltip_text(
+            resolver.resolve(row.description, row.spell_id),
+            resolver.resolve(row.aura_description, row.spell_id),
+        )
         body_rank = (
             branch_rank(row.branch),
             bool(re.search(r'[\u3400-\u9fff]', body)),
@@ -274,17 +289,44 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             spell_ids.add(ref['id'])
         elif ref['kind'] == 'item':
             item_ids.add(ref['id'])
-        elif row and not _tooltip_text(getattr(row, 'description_zh', '') or getattr(row, 'description', '')):
+        elif row:
+            # Talent references are keyed by TraitNodeEntry.ID, but raw DB2
+            # descriptions with placeholders interpolate values from the explicitly
+            # linked display spell. Load that spell only when projection needs it;
+            # plain native descriptions require no additional database lookup.
+            raw_description = getattr(row, 'description_zh', '') or getattr(row, 'description', '')
+            if '$' not in raw_description and _tooltip_text(raw_description):
+                continue
             linked_spell_id = getattr(row, 'display_spell_id', None)
             if linked_spell_id:
                 spell_ids.add(linked_spell_id)
 
     spell_metadata = _spell_snapshot_metadata(game_version, spell_ids)
     if item_ids:
-        from botend.services.wow_item_display import load_item_display_metadata
+        from botend.services.class_guide_codec import Reader
+        from botend.services.wow_item_display import load_item_display_metadata, load_item_tooltip_metadata
+
         item_tooltips = load_item_display_metadata(item_ids)
+        variant_tokens = [
+            token for token, ref in refs.items()
+            if ref['kind'] == 'item' and ref.get('variant')
+        ]
+        variant_requests = []
+        for token in variant_tokens:
+            ref = refs[token]
+            request = {'item_id': ref['id'], 'allow_default_variant': True}
+            try:
+                decoded = Reader(ref['variant']).item(ref['id'])
+            except (TypeError, ValueError):
+                decoded = {}
+            request['item_level'] = decoded.get('itemLevel')
+            request['bonus_ids'] = decoded.get('bonuses') or []
+            variant_requests.append(request)
+        for token, metadata in zip(variant_tokens, load_item_tooltip_metadata(variant_requests)):
+            item_tooltips[token] = metadata
     else:
         item_tooltips = {}
+    talent_text_resolver = None
     for token, ref in refs.items():
         row = selected_rows[token]
         tooltip = ''
@@ -296,6 +338,33 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             linked_spell_id = getattr(row, 'display_spell_id', None)
             linked_metadata = spell_metadata.get(linked_spell_id, {})
             fallback_icon = linked_metadata.get('icon', '')
+            # Native talent rows deliberately retain Blizzard's raw description.
+            # Resolve placeholders in this read projection. Numeric placeholders
+            # may only use the explicitly linked display spell; embedded
+            # `$@spelldesc<ID>` relationships carry their own explicit spell ID.
+            # Do not overwrite the source fact or substitute a display spell's
+            # potentially different description.
+            if '$' in tooltip:
+                if talent_text_resolver is None:
+                    from botend.services.wow_localization import current_reference_version
+                    from botend.wow.spell_text import SpellTextResolver
+                    version = current_reference_version()
+                    if version:
+                        talent_text_resolver = SpellTextResolver(
+                            branch='wowxptr' if version.branch == 'ptr' else 'wow',
+                            locale='zhCN',
+                            snapshot_build=version.current_build,
+                            dump_dir=version.source_dir or None,
+                        )
+                if talent_text_resolver:
+                    rendered_tooltip = talent_text_resolver.resolve(tooltip, linked_spell_id)
+                    if '$' in rendered_tooltip and linked_metadata.get('tooltip'):
+                        rendered_tooltip = linked_metadata['tooltip']
+                        source = 'spell_snapshot'
+                    elif rendered_tooltip and '$' not in rendered_tooltip:
+                        source = 'talent_metadata_projection'
+                    if rendered_tooltip and '$' not in rendered_tooltip:
+                        tooltip = rendered_tooltip
             if not tooltip:
                 tooltip = linked_metadata.get('tooltip', '')
                 source = 'spell_snapshot' if tooltip else ''
@@ -305,10 +374,20 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             fallback_icon = metadata.get('icon', '')
             source = 'spell_snapshot' if tooltip else ''
         elif ref['kind'] == 'item':
-            metadata = item_tooltips.get(ref['id']) or {}
+            metadata = item_tooltips.get(token) or item_tooltips.get(ref['id']) or {}
             tooltip = metadata.get('tooltip', '')
             fallback_icon = metadata.get('icon_url', '')
-            source = 'item_snapshot' if tooltip else ''
+            source = (
+                'item_variant_snapshot'
+                if tooltip and metadata.get('variant_id') else
+                'item_snapshot' if tooltip else ''
+            )
+        # Raw Blizzard templates are source facts, never user-facing Tooltip
+        # content. If projection cannot resolve one, use the honest local
+        # reference fallback below instead of leaking client syntax.
+        if '$' in tooltip:
+            tooltip = ''
+            source = ''
         if not ref.get('icon') and fallback_icon:
             ref['icon'] = safe_url(wow_icon_oss_url(fallback_icon, size='small'), image=True)
         if not tooltip:
@@ -352,7 +431,12 @@ def render_references(value, references):
                 html.escape(ref.get('source_name') or ref.get('name', ''), quote=True),
             )
             tooltip = ref.get('tooltip_text', '')
-            if tooltip:
+            if tooltip and ref.get('kind') == 'item' and ref.get('tooltip_source') == 'item_variant_snapshot':
+                attrs += ' data-wow-item-tooltip="{}" data-wow-item-tooltip-name="{}" tabindex="0" role="button"'.format(
+                    html.escape(tooltip, quote=True),
+                    html.escape(ref.get('tooltip_title') or ref.get('name', ''), quote=True),
+                )
+            elif tooltip:
                 attrs += ' data-guide-tooltip="" data-tooltip-title="{}" data-tooltip-body="{}" tabindex="0" role="button"'.format(
                     html.escape(ref.get('tooltip_title') or ref.get('name', ''), quote=True),
                     html.escape(tooltip, quote=True),
