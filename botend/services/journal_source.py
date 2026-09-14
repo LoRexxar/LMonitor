@@ -159,8 +159,12 @@ class WagoJournalSource:
         self.progress(f'{table}：{len(rows)} 条')
         return rows
 
-    def load(self):
+    def load(self, table_names=TABLES):
+        table_names = tuple(table_names)
+        unknown = set(table_names) - set(TABLES)
+        if unknown:
+            raise ValueError(f'未知冒险手册表：{", ".join(sorted(unknown))}')
         with ThreadPoolExecutor(max_workers=3) as pool:
-            result = dict(zip(TABLES, pool.map(
-                lambda table: self.table(table, 'zhCN' if table in LOCALIZED_TABLES else 'enUS'), TABLES)))
+            result = dict(zip(table_names, pool.map(
+                lambda table: self.table(table, 'zhCN' if table in LOCALIZED_TABLES else 'enUS'), table_names)))
         return result

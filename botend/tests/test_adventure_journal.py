@@ -214,6 +214,31 @@ class JournalPublicationTests(TestCase):
     def setUp(self):
         self.release = self.publish()
 
+    def test_sync_supplements_items_before_loading_large_spell_tables(self):
+        tables = fixture()
+        events = []
+
+        def load(names=TABLES):
+            names = tuple(names)
+            events.append(('load', names))
+            return {name: tables[name] for name in names}
+
+        def supplement(loaded, source, *, enabled=True):
+            events.append(('supplement', tuple(loaded)))
+            return {}
+
+        with patch('botend.services.journal_service.WagoJournalSource') as source, \
+                patch('botend.services.journal_items.supplement_items', side_effect=supplement):
+            source.return_value.load.side_effect = load
+            source.return_value.manifest = {}
+            sync_journal(build='12.1.0.69587')
+
+        item_tables = ('JournalEncounterItem', 'ItemSparse')
+        self.assertEqual(events[0], ('load', item_tables))
+        self.assertEqual(events[1], ('supplement', item_tables))
+        self.assertNotIn('SpellEffect', events[1][1])
+        self.assertIn('SpellEffect', events[2][1])
+
     def test_published_catalog_and_navigation(self):
         response = self.client.get('/portal/adventure-journal/')
         self.assertContains(response, '测试副本')
@@ -494,29 +519,22 @@ class JournalPublicationTests(TestCase):
         self.assertEqual(response.json()['source'], 'Wago')
         self.assertEqual(response.json()['lines'], ['英雄特有机制'])
 
-    def test_monitor_is_appended_and_checks_weekly_without_resyncing_same_build(self):
+    def test_monitor_is_appended_but_never_refreshes_manual_journal_data(self):
         from LMonitor.config import Monitor_Type_BaseObject_List
-        from botend.plugin_sync import monitor_default_wait_time
         from botend.controller.plugins.wow.AdventureJournalMonitor import AdventureJournalMonitor
         self.assertEqual(Monitor_Type_BaseObject_List[34].__name__, 'MaxrollClassGuideMonitor')
         self.assertEqual(Monitor_Type_BaseObject_List[35].__name__, 'AdventureJournalMonitor')
-        self.assertEqual(monitor_default_wait_time('AdventureJournalMonitor'), 604800)
+        self.assertFalse(AdventureJournalMonitor.default_is_active)
         task = SimpleNamespace(flag='')
         monitor = AdventureJournalMonitor.__new__(AdventureJournalMonitor)
         monitor.task = task
         monitor.last_error_detail = ''
         with patch(
-            'botend.controller.plugins.wow.AdventureJournalMonitor.latest_retail_build',
-            return_value='12.1.0.69587',
-        ), patch(
-            'botend.controller.plugins.wow.AdventureJournalMonitor.current_release_build',
-            return_value='12.1.0.69587+ptr-12.1.5.69594',
-        ), patch(
-            'botend.controller.plugins.wow.AdventureJournalMonitor.sync_journal',
+            'botend.services.journal_service.sync_journal',
         ) as sync:
             self.assertTrue(monitor.scan(''))
         sync.assert_not_called()
-        self.assertIn('无需完整同步', task.flag)
+        self.assertIn('仅手动刷新', task.flag)
 
 
 class JournalSourceTests(SimpleTestCase):

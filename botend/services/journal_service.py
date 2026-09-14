@@ -8,7 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from botend.journal_models import JournalEncounter, JournalInstance, JournalRelease, JournalState
-from botend.services.journal_source import WagoJournalSource, latest_retail_build
+from botend.services.journal_source import TABLES, WagoJournalSource, latest_retail_build
 from botend.services.journal_text import JournalText, grouped, index, integer
 
 
@@ -249,9 +249,11 @@ def sync_journal(*, build='', directory=None, offline=False, refresh=False, prog
         release = JournalRelease.objects.create(build=build)
         source = WagoJournalSource(build, directory or Path(settings.BASE_DIR) / '.cache' / 'adventure-journal',
                                    offline=offline, refresh=refresh, progress=progress)
-        tables = source.load()
+        item_table_names = ('JournalEncounterItem', 'ItemSparse')
+        tables = source.load(item_table_names)
         from botend.services.journal_items import supplement_items
         supplements = supplement_items(tables, source, enabled=fallback)
+        tables.update(source.load(tuple(name for name in TABLES if name not in item_table_names)))
         rows, catalog, report = compile_journal(tables, item_fallback=supplements)
         if not report['instances'] or not report['encounters'] or not report['loot']:
             raise ValueError('核心冒险手册数据为空，拒绝发布')
