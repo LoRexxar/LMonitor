@@ -262,6 +262,25 @@
     return Number.isInteger(order) && order > 0 && order < 100 ? order : 0;
   }
 
+  function shortSourceText(variant) {
+    if (variant?.type === "crafted_equipment") return "专业制造";
+    const sources = variantSources(variant).map((row) => {
+      if (typeof row === "string") return row;
+      const instance = row.instance_zh || row.instance || "";
+      if (row.type === "crafted" || row.type === "profession") return "专业制造";
+      if (row.type === "mythic_plus") {
+        const grouped = Number(row.instance_id) < 0 || ["大秘境", "Mythic+ Dungeons"].includes(instance);
+        return (grouped ? row.encounter_zh || row.encounter : instance) || "大秘境";
+      }
+      if (row.type === "raid") {
+        const bossNumber = raidBossNumber(row);
+        return `${instance || "团队副本"}${bossNumber ? `${bossNumber}号` : ""}`;
+      }
+      return sourceText({sources: [row]});
+    });
+    return [...new Set(sources.filter(Boolean))].slice(0, 2).join("；") || "来源待补全";
+  }
+
   function sourceMarkup(variant) {
     return sourceText(variant).split("\n").map((line) => `<span>${escapeHtml(line)}</span>`).join("");
   }
@@ -483,11 +502,12 @@
       const active = slot.key === state.selectedSlot;
       const enhancements = enhancementSummary(entry);
       const source = item ? sourceText(entry.variant).replaceAll("\n", "；") : "";
+      const shortSource = item ? shortSourceText(entry.variant) : "";
       const locked = isSlotLocked(slot.key);
       const lockLabel = `${locked ? "解锁" : "锁定"}${slot.label}`;
       return `<div class="gear-slot-row${active ? " is-active" : ""}${item ? "" : " is-empty"}${locked ? " is-locked" : ""}" role="option" aria-selected="${active}"><button type="button" class="gear-slot-select" data-slot="${escapeHtml(slot.key)}">
         ${item ? iconMarkup(item, "gear-slot-icon") : '<span class="gear-slot-placeholder" aria-hidden="true">◇</span>'}
-        <span class="gear-slot-copy"><span class="gear-slot-label">${escapeHtml(slot.label)}</span><span class="gear-slot-item">${escapeHtml(item?.name || "未选择")}</span>${source ? `<small class="gear-slot-source" title="${escapeHtml(source)}">${escapeHtml(source)}</small>` : ""}${enhancements ? `<small class="gear-slot-enhancements" title="${escapeHtml(enhancements)}">${escapeHtml(enhancements)}</small>` : ""}</span>
+        <span class="gear-slot-copy"><span class="gear-slot-label">${escapeHtml(slot.label)}</span><span class="gear-slot-item">${escapeHtml(item?.name || "未选择")}</span>${source ? `<small class="gear-slot-source" title="${escapeHtml(source)}">${escapeHtml(shortSource)}</small>` : ""}${enhancements ? `<small class="gear-slot-enhancements" title="${escapeHtml(enhancements)}">${escapeHtml(enhancements)}</small>` : ""}</span>
         <span class="gear-slot-level">${entry?.variant?.item_level || entry?.itemLevel || ""}</span>
       </button><button type="button" class="gear-slot-lock" data-toggle-slot-lock="${escapeHtml(slot.key)}" aria-label="${escapeHtml(lockLabel)}" title="${escapeHtml(lockLabel)}" aria-pressed="${locked}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${locked ? 'M8 10V7a4 4 0 0 1 8 0v3' : 'M8 10V7a4 4 0 0 1 7.5-2'}"/><path d="M12 14v3"/></svg></button></div>`;
     }).join("");
@@ -647,6 +667,10 @@
       candidates = reset ? payload.items : candidates.concat(payload.items || []);
       candidatePage = requestedPage;
       candidateTotal = payload.total || 0;
+      if (refreshCachedEquipmentStats(payload.items || [])) {
+        persist();
+        renderAll();
+      }
     } catch (error) {
       if (requestId !== candidateRequestId) return;
       if (reset) candidates = [];
@@ -773,6 +797,36 @@
 
   function findCandidate(itemId) {
     return candidates.find((item) => Number(item.item_id) === Number(itemId));
+  }
+
+  function refreshCachedEquipmentStats(rows) {
+    let changed = false;
+    Object.values(state.equipment).forEach((entry) => {
+      if (!entry?.variant || entry.external) return;
+      const item = rows.find((row) => Number(row.item_id) === Number(entry.item?.item_id));
+      const fresh = item?.variants?.find((row) => Number(row.id) === Number(entry.variant.id)
+        && Number(row.item_level) === Number(entry.variant.item_level));
+      if (!fresh) return;
+      // 只补齐同一物品、同一变体中缺失的基础属性，不更换装备或制造绿字。
+      const keys = [primaryStatKey(), "stamina", "armor", "bonus_armor"];
+      let entryChanged = false;
+      for (const key of keys) {
+        if (!number(fresh.stats?.[key])) continue;
+        if (!number(entry.variant.stats?.[key])) {
+          entry.variant.stats = {...entry.variant.stats, [key]: fresh.stats[key]};
+          entryChanged = true;
+        }
+        if (entry.resolvedStats && !number(entry.resolvedStats[key])) {
+          entry.resolvedStats = {...entry.resolvedStats, [key]: fresh.stats[key]};
+          entryChanged = true;
+        }
+      }
+      if (entryChanged) {
+        if (fresh.tooltip) entry.variant.tooltip = fresh.tooltip;
+        changed = true;
+      }
+    });
+    return changed;
   }
 
   function lockedWeaponConflict(variant, targetSlot) {

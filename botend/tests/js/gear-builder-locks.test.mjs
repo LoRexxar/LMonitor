@@ -12,6 +12,7 @@ const context = {
 const marker = '  initialize();';
 assert.ok(source.includes(marker), '必须找到配装器初始化入口');
 vm.runInNewContext(source.replace(marker, `
+  const renderCachedDetail = renderDetail;
   persist = renderAll = renderDetail = openDetail = loadEnhancements = toast = () => {};
   bootstrap = {slots: [], rules: {}};
   globalThis.qa = {
@@ -21,7 +22,7 @@ vm.runInNewContext(source.replace(marker, `
     setCandidates(value) { candidates = value; },
     normalizeState, toggleSlotLock, addItem, applyEnhancement, switchVariant,
     changeCraftedStat, removeEnhancement, compactShareState, hydrateSharePayload,
-    resolveCraftedEntry, replaceLoadout, totalsAndEffects,
+    resolveCraftedEntry, replaceLoadout, totalsAndEffects, refreshCachedEquipmentStats, renderCachedDetail,
   };
 `), context);
 const api = context.qa;
@@ -104,4 +105,23 @@ assert.deepEqual(plain(split.unlockedTotals), {});
 api.setState({});
 assert.deepEqual(plain(api.totalsAndEffects().totals), {}, '空配装属性为零');
 
-console.log('配装锁定回归验证通过：变更入口、双手武器、分享兼容、异步响应与锁定属性拆分。');
+const staleEntry = {...entry(), variant: {...variant, item_level: 334, stats: {crit: 61, haste: 140}},
+    resolvedStats: {crit: 80, haste: 121}};
+api.setState({lockedSlots: ['head'], equipment: {head: staleEntry}});
+const freshVariant = {...variant, item_level: 334,
+    stats: {strength: 189, stamina: 3910, armor: 326, crit: 61, haste: 140}, tooltip: '完整属性提示'};
+assert.equal(api.refreshCachedEquipmentStats([{...item, variants: [{...freshVariant, id: 9}]}]), false, '不能用其他变体补属性');
+assert.equal(api.refreshCachedEquipmentStats([{...item, variants: [{...freshVariant, item_level: 331}]}]), false, '不能用其他装等补属性');
+assert.equal(api.refreshCachedEquipmentStats([{...item, variants: [freshVariant]}]), true);
+assert.deepEqual(plain(api.state.equipment.head.variant.stats), freshVariant.stats, '旧配装补齐主属性、耐力和护甲');
+assert.deepEqual(plain(api.state.equipment.head.resolvedStats), {crit: 80, haste: 121, strength: 189, stamina: 3910, armor: 326}, '保留制造绿字并补齐基础属性');
+assert.deepEqual(plain(api.state.lockedSlots), ['head'], '数据补齐保留部位锁定');
+assert.deepEqual(plain(api.state.equipment.head.gems), plain(staleEntry.gems), '数据补齐保留强化');
+assert.equal(api.refreshCachedEquipmentStats([{...item, variants: [freshVariant]}]), false, '完整配装无需重复补齐');
+assert.equal(api.totalsAndEffects().lockedTotals.strength, 189, '补齐后锁定属性汇总同步更新');
+api.renderCachedDetail();
+assert.match(element.innerHTML, /力量<\/span><span>189<\/span>/, '右侧详情显示主属性');
+assert.match(element.innerHTML, /耐力<\/span><span>3,910<\/span>/, '右侧详情显示耐力');
+assert.match(element.innerHTML, /护甲<\/span><span>326<\/span>/, '右侧详情显示护甲');
+
+console.log('配装回归验证通过：锁定限制、属性拆分与旧配装基础属性补齐。');
