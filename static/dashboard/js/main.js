@@ -6021,6 +6021,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const sourceIdentity = [
             String(effect.effect_id || ''),
             String(effect.source_type || ''),
+            [...(Array.isArray(effect.source_spell_ids) ? effect.source_spell_ids : [])].sort((a,b) => a-b),
             Number.isInteger(Number(effect.talent_id)) ? Number(effect.talent_id) : 0,
             String(effect.tree_type || ''),
             Number.isInteger(Number(effect.hero_subtree_id)) ? Number(effect.hero_subtree_id) : 0,
@@ -6091,7 +6092,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const condition = effect.source_type === 'talent'
                 ? renderSimcTalentProbeCondition(effect.runtime_condition, effect.scenario_tokens, name, runtimeConditions)
                 : (effect.runtime_condition || '');
-            const projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
+            let projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
                 if (!projection || typeof projection !== 'object') return '';
                 if (projection.kind === 'crit_chance') {
                     return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">暴击率</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamagePercent(projection.percentage_points, true)}</span></span>`;
@@ -6099,13 +6100,29 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 if (projection.kind === 'damage_multiplier') {
                     const label = projection.evidence_layer === 'dbc_base_multiplier'
                         ? '基础增伤' : (String(projection.evidence_layer || '').startsWith('base_damage.') ? '基础伤害' : '全局伤害');
-                    return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">${label}</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamageFactor(projection.value)}×</span></span>`;
+                    return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">${label}</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamagePercent((projection.value - 1) * 100, true)}（${formatSimcSkillDamageFactor(projection.value)}×）</span></span>`;
                 }
                 return '';
             }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');
+            const detailGroups = new Map();
+            (Array.isArray(effect.effect_details) ? effect.effect_details : []).forEach(detail => {
+                if (!detail || typeof detail !== 'object') return;
+                let value;
+                if (detail.value_kind === 'mastery') value = hasFiniteSimcSkillDamageNumber(detail.normalized_mastery_percent)
+                    ? `${formatSimcSkillDamagePercent(detail.normalized_mastery_percent, true)}（精通50%时）` : '随精通提高';
+                else if (detail.value_kind === 'dynamic') value = '随天赋或状态变化';
+                else if (hasFiniteSimcSkillDamageNumber(detail.base_value)) {
+                    value = formatSimcSkillDamagePercent(detail.base_value, true);
+                    if (detail.value_kind === 'percentage_points') value += '（百分点）';
+                } else return;
+                const key = `${detail.label}:${value}`;
+                detailGroups.set(key, `${escapeHtml(detail.label)} ${escapeHtml(value)}`);
+            });
+            const details = [...detailGroups.values()].join('；');
+            if (details) projections += `<span class="text-xs text-indigo-900">${details}${effect.projections?.length ? '' : '（基础加成）'}</span>`;
             return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div>${condition ? `<div class="mt-1 text-xs leading-4 text-amber-800">${escapeHtml(condition)}</div>` : ''}</div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">已剔除的全局分量</div><div class="mb-3 text-xs text-indigo-700">全局分量在生成前归零；混合天赋和 Buff 的局部技能分量继续保留，倍率证据不足时单独说明。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
+        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局伤害效果</div><div class="mb-3 text-xs text-indigo-700">列出影响全技能或整个伤害类别的加成及生效条件；下方技能伤害不含这些公共加成。不同伤害类别分别列示，不重复叠乘。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
     }
 

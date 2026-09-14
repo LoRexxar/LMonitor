@@ -2,6 +2,7 @@
 import copy
 from django.test import SimpleTestCase
 from botend.services.simc_skill_damage import complete_cast_damage_components, reviewed_global_display_effects, project_skill_damage_product_payload
+from botend.services.simc_skill_damage import _validate_global_scope_catalog
 
 
 class CastProjectionTests(SimpleTestCase):
@@ -46,6 +47,43 @@ class CastProjectionTests(SimpleTestCase):
         rows=reviewed_global_display_effects({'spec':'arms','reviewed_global_effects':[fact,copy.deepcopy(fact)]})
         self.assertEqual(len(rows),1)
         self.assertEqual(len(rows[0]['global_components']),1)
+
+    def test_catalog_preserves_runtime_multiplier_and_stack_conditions(self):
+        detail = {'label':'直接伤害','base_value':10,'source_spell_id':1,'effect_index':1}
+        fact = {'source_spell_ids':[1],'global_components':[{'spell_id':1,'effect_index':1,'effect_id':10}],
+                'effect_details':[detail], 'projections':[]}
+        runtime = {'source_spell_ids':[1], 'source_type':'runtime_state',
+                   'runtime_conditions':[{'token':'buff.test','scope':'self','spell_id':1,'stacks':2}],
+                   'projections':[{'kind':'damage_multiplier','value':1.2}], 'runtime_condition':'自身效果存在时'}
+        actor = {'spec':'arms','reviewed_global_effects':[fact], 'global_skill_effects':[runtime]}
+        before = copy.deepcopy(actor)
+        rows = reviewed_global_display_effects(actor)
+        self.assertEqual(len(rows),1)
+        self.assertEqual(rows[0]['projections'], runtime['projections'])
+        self.assertEqual(rows[0]['runtime_conditions'], runtime['runtime_conditions'])
+        self.assertEqual(rows[0]['effect_details'],[detail])
+        self.assertEqual(actor,before)
+
+    def test_global_runtime_state_absent_from_review_is_not_discarded(self):
+        effect = {'source_type':'runtime_state','source_spell_ids':[184362],
+                  'projections':[{'kind':'damage_multiplier','value':1.5}]}
+        rows = reviewed_global_display_effects({'reviewed_global_effects':[], 'global_skill_effects':[effect]})
+        self.assertEqual(rows,[effect])
+
+    def test_shared_class_buff_does_not_leak_into_other_specialization(self):
+        fact={'source_spell_ids':[184362],'specializations':['fury'],
+              'global_components':[{'spell_id':76856,'effect_index':1,'effect_id':68045}]}
+        runtime={'source_spell_ids':[184362],'source_type':'runtime_state','projections':[]}
+        self.assertEqual(reviewed_global_display_effects({'spec':'arms','reviewed_global_effects':[fact],
+                                                         'global_skill_effects':[runtime]}),[])
+
+    def test_zero_base_value_cannot_hide_residual_global_mastery(self):
+        component={'spell_id':76856,'effect_index':1,'effect_id':68045}
+        actor={'global_scope_candidates':[],'global_damage_states':[],'scope_contract_sha256':'a'*64,
+               'normalized_scope_effects':[{**component,'actual_base_value':0,'actual_mastery_coefficient':0.014}],
+               'reviewed_global_effects':[{'global_components':[component]}]}
+        with self.assertRaisesRegex(ValueError,'没有归零'):
+            _validate_global_scope_catalog(actor)
 
     def test_secondary_target_component_does_not_inflate_single_target_total(self):
         def part(token, secondary):

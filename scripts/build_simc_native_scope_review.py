@@ -38,6 +38,7 @@ def main():
     p.add_argument('--names',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
     p.add_argument('--merge-target-review',type=Path,help='保留同版既有复核，仅补充本次实际观察的自身来源目标减益')
+    p.add_argument('--merge-conditional-review',type=Path,help='保留同版复核，补充原生条件回调关联的自身状态')
     args=p.parse_args()
     manifest=json.loads((args.native/'manifest.json').read_text(encoding='utf-8'))
     current_revision=subprocess.check_output(['git','-C',str(args.source),'rev-parse','HEAD'],text=True).strip()
@@ -222,7 +223,8 @@ def main():
     rows.sort(key=lambda r:(r['职业'],r['类型'],r['法术ID'],r.get('节点') or 0))
     unresolved=[{'法术ID':r['法术ID'],'效果ID':c['效果ID'],'名称':r['名称']}
                 for r in rows for c in r['分量'] if c['处理结论']=='待确认'
-                and (not args.merge_target_review or r['类型']=='目标减益')]
+                and (not args.merge_target_review or r['类型']=='目标减益')
+                and (not args.merge_conditional_review or any(b['layer']=='conditional_action_registry' for c in r['分量'] for b in c['原生实际应用']))]
     if unresolved:
         raise ValueError('仍有未完成的作用域，拒绝将待确认清单覆盖结果表：'+json.dumps(unresolved,ensure_ascii=False))
     result={'标题':'天赋与 Buff：保留还是剔除','判断依据':'DBC 效果选择器、原生实际应用的技能字段、手写伤害函数中的读取。描述不参与分类。',
@@ -235,16 +237,20 @@ def main():
         '分类规则摘要':{file:hashlib.sha256((Path(__file__).parent/file).read_bytes()).hexdigest()
                          for file in ('simc_scope_resolution.py','simc_scope_skill_sets.json','simc_cpp_scope.py')},
         '导出失败':[r for r in manifest['结果'] if r['退出码']],'公共应用源码':common,'条目':rows}
-    if args.merge_target_review:
-        previous=json.loads(args.merge_target_review.read_text(encoding='utf-8'))
+    if args.merge_target_review or args.merge_conditional_review:
+        previous=json.loads((args.merge_target_review or args.merge_conditional_review).read_text(encoding='utf-8'))
         if any(previous[key]!=result[key] for key in ('源码提交','客户端版本')):
             raise ValueError('不能合并不同 SimC 或 DBC 版本的作用域证据。')
-        additions=[r for r in rows if r['类型']=='目标减益']
+        additions=[r for r in rows if r['类型']=='目标减益'] if args.merge_target_review else [
+            r for r in rows if r['类型']=='自身状态' and any(
+                b['layer']=='conditional_action_registry' for c in r['分量'] for b in c['原生实际应用'])]
         replacement={(r['类型'],r['职业'],r['法术ID']) for r in additions}
         previous['条目']=[r for r in previous['条目'] if (r['类型'],r['职业'],r['法术ID']) not in replacement]+additions
-        previous['目标减益补充审计']={'原生目录':str(args.native),'二进制摘要':manifest['二进制摘要'],
+        audit_key='目标减益补充审计' if args.merge_target_review else '条件状态补充审计'
+        previous[audit_key]={'原生目录':str(args.native),'二进制摘要':manifest['二进制摘要'],
             '源码文件摘要':manifest['源码文件摘要'],'状态数':len(additions),
-            '说明':'目标状态必须由本角色施加；依照与自身增益相同的 DBC 选择器和原生伤害登记判定。'}
+            '说明':('目标状态必须由本角色施加；依照与自身增益相同的 DBC 选择器和原生伤害登记判定。'
+                    if args.merge_target_review else '直接检查原生条件回调的状态开关依赖，再用真实源效果的 DBC 选择器判定范围；保留局部关联。')}
         previous['数量']=dict(Counter(r['类型'] for r in previous['条目']))
         previous['处理统计']=dict(Counter(c['处理结论'] for r in previous['条目'] for c in r['分量']))
         previous['范围统计']=dict(Counter(c['范围判定'] for r in previous['条目'] for c in r['分量']))

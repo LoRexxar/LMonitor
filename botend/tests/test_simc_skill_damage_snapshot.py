@@ -5499,7 +5499,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn("`${name}（${stackLabels.join('，')}）`", renderer)
         self.assertNotIn(".filter(effect => effect.source_type === 'specialization_passive')", renderer)
         self.assertIn('? actor.global_skill_effects', renderer)
-        self.assertIn('已剔除的全局分量', renderer)
+        self.assertIn('全局伤害效果', renderer)
         self.assertIn('grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3', renderer)
         self.assertNotIn('flex items-center justify-between gap-4 border-t', renderer)
 

@@ -35,6 +35,23 @@ function render() {
     context.renderSimcSkillDamageSnapshot(payload);
     return element('simc-skill-damage-body').innerHTML;
 }
+payload.actors[0].global_skill_effects = [{display_name:'激怒', source_spell_ids:[184362],
+    effect_details:[{label:'直接伤害',value_kind:'mastery',normalized_mastery_percent:50},
+        {label:'周期伤害',value_kind:'mastery',normalized_mastery_percent:50}],
+    runtime_condition:'自身激怒存在时'},
+    {display_name:'狂暴姿态',source_spell_ids:[386196],
+        effect_details:[{label:'自动攻击伤害',value_kind:'percent',base_value:15}]},
+    {display_name:'防御姿态',source_spell_ids:[386208],
+        projections:[{kind:'damage_multiplier',value:0.9}],runtime_condition:'防御姿态生效时'}];
+render();
+const globalHtml = element('simc-skill-damage-global-modifiers').innerHTML;
+assert.match(globalHtml, /全局伤害效果/);
+assert.match(globalHtml, /激怒/);
+assert.match(globalHtml, /直接伤害 \+50\.00%（精通50%时）/);
+assert.match(globalHtml, /周期伤害 \+50\.00%（精通50%时）/);
+assert.match(globalHtml, /自动攻击伤害 \+15\.00%/);
+assert.match(globalHtml, /-10\.00%/);
+assert.doesNotMatch(globalHtml, /共 \d+ 个效果分量|已剔除的全局分量/);
 assert.match(render(), /≈/);
 target.dataset.targetCount = '2';
 assert.match(render(), /（多目标）/);

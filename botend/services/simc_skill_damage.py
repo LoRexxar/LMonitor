@@ -2609,7 +2609,9 @@ def _validate_global_scope_catalog(actor):
                     or any(type(effect.get(key)) is not int or effect[key] <= 0
                            for key in ('spell_id', 'effect_index', 'effect_id'))
                     or not _finite_number(effect.get('actual_base_value'))
-                    or effect['actual_base_value'] != 0):
+                    or effect['actual_base_value'] != 0
+                    or ('actual_mastery_coefficient' in effect and (
+                        not _finite_number(effect['actual_mastery_coefficient']) or effect['actual_mastery_coefficient'] != 0))):
                 raise ValueError('已复核全局分量没有归零。')
             key = (effect['spell_id'], effect['effect_index'])
             if key in seen_effects:
@@ -2994,13 +2996,13 @@ def classify_global_skill_effects(base_high, base_low, variants):
             )
         if effect.get('excluded_before_probe'):
             effect['runtime_condition'] = (
-                '全技能增伤状态；生成前排除；DBC 基础倍率，未计算天赋联动'
-                if effect['projections'] else '全技能增伤状态；生成前排除；倍率由精通或天赋条件决定'
+                '效果生效时；展示基础加成，实际值随天赋和层数变化'
+                if effect['projections'] else '效果生效时；加成取决于精通或天赋配置'
             )
             for projection in effect['projections']:
                 projection['evidence_layer'] = 'dbc_base_multiplier'
         if effect.get('partial_state') is True:
-            effect['runtime_condition'] = '仅全局分量在生成前归零；局部技能分量保留在下方条件中'
+            effect['runtime_condition'] = '效果生效时；对特定技能的额外加成见下方对应条件'
     return [*declared_effects.values(), *result]
 
 
@@ -3859,7 +3861,7 @@ def project_skill_damage_product_payload(payload):
 
 
 def reviewed_global_display_effects(actor):
-    """上表展示已剔除的完整作用域目录，不依赖本次是否选中天赋或激活 Buff。"""
+    """补齐全局效果目录，同时保留已验证的倍率、层数与生效条件。"""
     spec = actor.get('specialization') or actor.get('spec')
     merged = {}
     for fact in actor.get('reviewed_global_effects') or []:
@@ -3873,15 +3875,35 @@ def reviewed_global_display_effects(actor):
         parts.update({(c['spell_id'],c['effect_index']):c for c in fact['global_components']})
         row['global_components'] = list(parts.values())
         row['partial_state'] = row.get('partial_state') is True or fact.get('partial_state') is True
-        row['runtime_condition'] = ('全局分量已剔除；局部技能分量保留。' if row['partial_state'] else '已从技能归一化中剔除。') + f'共 {len(parts)} 个效果分量。'
-    return list(merged.values())
+        details = {(d.get('source_spell_id'), d.get('effect_index')):d for d in row.get('effect_details', [])}
+        details.update({(d.get('source_spell_id'), d.get('effect_index')):d for d in fact.get('effect_details', [])})
+        row['effect_details'] = list(details.values())
+    result = []
+    catalog_ids = {tuple(fact.get('source_spell_ids') or []) for fact in actor.get('reviewed_global_effects') or []}
+    for effect in actor.get('global_skill_effects') or []:
+        if not isinstance(effect, dict) or effect.get('source_type') == 'specialization_passive':
+            continue
+        ids = tuple(effect.get('source_spell_ids') or [])
+        if ids in catalog_ids and ids not in merged:
+            continue
+        catalog = merged.get(ids)
+        if catalog:
+            enriched = {**copy.deepcopy(catalog), **copy.deepcopy(effect)}
+            enriched['effect_details'] = catalog.get('effect_details', [])
+            enriched['global_components'] = catalog['global_components']
+            result.append(enriched)
+        else:
+            result.append(copy.deepcopy(effect))
+    covered = {tuple(effect.get('source_spell_ids') or []) for effect in result}
+    result.extend(row for ids,row in merged.items() if ids not in covered)
+    return result
 
 
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 18
-    DATASET_SCHEMA_REVISION = 37
+    EXPORTER_SCHEMA_REVISION = 19
+    DATASET_SCHEMA_REVISION = 38
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
     WIRE_SCHEMA_REVISION = 1
@@ -4462,7 +4484,7 @@ class SimcSkillDamageSnapshotService:
         expected_actor_names=None,
     ):
         if payload.get('schema_version') != self.EXPORTER_SCHEMA_REVISION:
-            raise ValueError('exporter schema revision 不匹配。')
+            raise ValueError('exporter schema revision 不匹配，请应用最新 SimC 补丁并重新编译导出器。')
         if payload.get('simc_revision') != self.snapshot.simc_revision:
             raise ValueError('exporter SimC revision 不匹配。')
         if payload.get('game_build') != self.snapshot.game_build:
@@ -5106,10 +5128,10 @@ class SimcSkillDamageSnapshotService:
             actor['hero_talent_trees'] = hero_talent_trees
             actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
             global_effects = classify_global_skill_effects(base_high, base_low, variants)
+            actor['global_skill_effects'] = [*static_global_effects, *global_effects]
             global_effects = [effect for effect in global_effects if not any(
                 projection.get('kind') == 'crit_chance' for projection in effect.get('projections') or []
             )]
-            actor['global_skill_effects'] = [*static_global_effects, *global_effects]
             actor['actions'] = flatten_single_talent_damage_variants(
                 base_high, base_low, variants, global_effects=global_effects,
             )

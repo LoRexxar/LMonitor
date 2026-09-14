@@ -146,6 +146,7 @@ def main():
 
     def product_actor(cls, spec, high, low, variants, mode):
         global_effects = classify_global_skill_effects(high,low,variants)
+        display_global_effects = list(global_effects)
         global_effects = [e for e in global_effects if not any(p.get('kind')=='crit_chance' for p in e.get('projections',[]))]
         selected = set(high['selected_trait_ids'])
         for variant in variants:
@@ -156,7 +157,7 @@ def main():
         static = prune_global_damage_talents(talents,[],{},catalog)[3]
         actor = copy.deepcopy(high)
         actor['specialization'] = actor.pop('spec')
-        actor['global_skill_effects'] = static+global_effects
+        actor['global_skill_effects'] = static+display_global_effects
         actor['actions'] = flatten_single_talent_damage_variants(high,low,variants,global_effects=global_effects)
         product = project_skill_damage_product_payload({'actors':[actor]})['actors'][0]
         displayed_globals.update((c['spell_id'],c['effect_index']) for e in product['global_skill_effects'] for c in e.get('global_components',[]))

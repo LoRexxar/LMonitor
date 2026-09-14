@@ -1,7 +1,7 @@
 """作用域契约必须拒绝冲突，并按分量保留混合状态。"""
 import copy
 import unittest
-from scripts.build_simc_scope_contract import compile_contract, render_contract
+from scripts.build_simc_scope_contract import compile_contract, render_contract, display_details
 
 
 class ScopeContractTests(unittest.TestCase):
@@ -48,3 +48,25 @@ class ScopeContractTests(unittest.TestCase):
         original = render_contract(review, 'b'*64)
         review['条目'][0]['描述仅供参考'] = '提高所有技能伤害'
         self.assertEqual(render_contract(review, 'b'*64), original)
+
+    def test_conditional_mastery_keeps_buff_switch_and_quantitative_source(self):
+        review=self.review()
+        row=review['条目'][0]
+        row['分量']=row['分量'][:1]
+        part=row['分量'][0]
+        part['DBC'].update(subtype=108,misc1=0,base_value=0,mastery_scaled=True,mastery_coefficient=0.014)
+        part['原生实际应用']=[{'layer':'conditional_action_registry','conditional':True}]
+        _,_,buffs=compile_contract(review)
+        self.assertEqual(buffs[31884],[True,True])
+        detail=display_details(row)[0]
+        self.assertEqual(detail['value_kind'],'mastery')
+        self.assertEqual(detail['coefficient'],0.014)
+
+    def test_critical_chance_and_damage_components_keep_distinct_units(self):
+        row=self.review()['条目'][0]
+        for part,subtype,prop,value in zip(row['分量'],[107,108],[7,0],[20,15]):
+            part['处理结论']='应剔除'
+            part['DBC'].update(subtype=subtype,misc1=prop,base_value=value)
+        details=display_details(row)
+        self.assertEqual([d['value_kind'] for d in details],['percentage_points','percent'])
+        self.assertEqual([d['base_value'] for d in details],[20,15])

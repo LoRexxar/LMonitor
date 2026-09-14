@@ -24,7 +24,7 @@ def audit_directory(directory):
         catalog = {row['trait_entry_id']: row for row in json.loads(catalog_path.read_text(encoding='utf-8'))['talents']} if catalog_path.exists() else {}
         for health in (100, 34):
             payload = json.loads((directory / f'{spec}-{health}.json').read_text(encoding='utf-8'))
-            if payload['schema_version'] != 18:
+            if payload['schema_version'] not in (18, 19):
                 errors.append(f'{spec}：不是新版作用域协议')
             for actor in payload['actors']:
                 candidates = actor.get('global_scope_candidates', [])
