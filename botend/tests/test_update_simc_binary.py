@@ -14,7 +14,7 @@ from django.core.management.base import CommandError
 from django.test import TestCase, override_settings
 
 from botend.models import (SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate,
-                           WowSpellSnapshotState)
+                           WowSpellSnapshotState, WowTalentVersion)
 from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
@@ -290,6 +290,8 @@ class UpdateSimcBinaryCommandTests(TestCase):
     @override_settings(SIMC_CONFIG={})
     def test_missing_authoritative_wow_build_fails_before_writes(self):
         from botend.management.commands.update_simc_binary import Command
+        WowSpellSnapshotState.objects.all().delete()
+        WowTalentVersion.objects.update(is_active=False, is_default_simulator=False)
         command = Command()
         command.simc_source_dir = '/srv/simc'
         command.stdout = StringIO()
@@ -304,6 +306,8 @@ class UpdateSimcBinaryCommandTests(TestCase):
     @override_settings(SIMC_CONFIG={})
     def test_unique_current_wago_snapshot_is_authoritative_build_fallback(self):
         from botend.management.commands.update_simc_binary import Command
+        WowSpellSnapshotState.objects.all().delete()
+        WowTalentVersion.objects.update(is_active=False, is_default_simulator=False)
         WowSpellSnapshotState.objects.create(branch='wow', locale='enUS',
                                              snapshot_build='12.0.1.70001')
         command = Command()
@@ -445,6 +449,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         command.wow_build_override = 'current-build'
         command.row = mock.Mock(
             current_version=revision,
+            game_build='old-build',
             is_updating=False,
             update_progress=100,
         )
@@ -467,6 +472,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         command.wow_build_override = 'current-build'
         command.row = mock.Mock(
             current_version=revision,
+            game_build='current-build',
             is_updating=False,
             update_progress=100,
         )
@@ -708,9 +714,9 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 ledger['files'] = {}
                 ledger_path.write_text(json.dumps(ledger), encoding='utf-8')
                 subprocess.run(['git', 'checkout', '--', 'runtime.cpp'], cwd=source_dir, check=True)
-                self.assertTrue(command._apply_local_patches())
-                self.assertEqual(target.read_text(encoding='utf-8'), 'before\nbetter\nafter\n')
-                self.assertFalse(command._apply_local_patches())
+                with self.assertRaisesMessage(CommandError, 'ledger 结构'):
+                    command._apply_local_patches()
+                self.assertEqual(target.read_text(encoding='utf-8'), 'before\nbroken\nafter\n')
 
                 target.write_text('unrelated source rewrite\n', encoding='utf-8')
                 command.row = mock.Mock()
@@ -725,6 +731,316 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 )
                 with self.assertRaises(CommandError):
                     command._apply_local_patches()
+
+    def test_missing_ledger_recovers_prefix_when_added_file_was_changed_later(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            runtime = source_dir / 'runtime.cpp'
+            contract = source_dir / 'contract.inc'
+            runtime.write_text('base\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            patch_one = (
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1,2 @@\n+#include "contract.inc"\n base\n'
+                'diff --git a/contract.inc b/contract.inc\n'
+                'new file mode 100644\n--- /dev/null\n+++ b/contract.inc\n'
+                '@@ -0,0 +1 @@\n+version=1\n'
+            )
+            patch_two = (
+                'diff --git a/contract.inc b/contract.inc\n'
+                '--- a/contract.inc\n+++ b/contract.inc\n'
+                '@@ -1 +1 @@\n-version=1\n+version=2\n'
+            )
+            patch_three = (
+                'diff --git a/contract.inc b/contract.inc\n'
+                '--- a/contract.inc\n+++ b/contract.inc\n'
+                '@@ -1 +1 @@\n-version=2\n+version=3\n'
+            )
+            (patch_dir / '0001-add-contract.patch').write_text(patch_one, encoding='utf-8')
+            (patch_dir / '0002-change-contract.patch').write_text(patch_two, encoding='utf-8')
+            (patch_dir / '0003-change-contract-again.patch').write_text(
+                patch_three, encoding='utf-8',
+            )
+            subprocess.run(
+                ['git', 'apply', str(patch_dir / '0001-add-contract.patch')],
+                cwd=source_dir, check=True,
+            )
+            subprocess.run(
+                ['git', 'apply', str(patch_dir / '0002-change-contract.patch')],
+                cwd=source_dir, check=True,
+            )
+            self.assertEqual(contract.read_text(encoding='utf-8'), 'version=2\n')
+            self.assertFalse((source_dir / '.git' / 'lmonitor-applied-patches.json').exists())
+
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+            real_mkstemp = tempfile.mkstemp
+
+            def fail_ledger_mkstemp(*args, **kwargs):
+                if str(kwargs.get('prefix', '')).startswith('.lmonitor-applied-patches.'):
+                    raise OSError('simulated prefix ledger failure')
+                return real_mkstemp(*args, **kwargs)
+
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}), mock.patch(
+                'botend.management.commands.update_simc_binary.tempfile.mkstemp',
+                side_effect=fail_ledger_mkstemp,
+            ):
+                with self.assertRaisesRegex(OSError, 'simulated prefix ledger'):
+                    command._apply_local_patches()
+            self.assertEqual(contract.read_text(encoding='utf-8'), 'version=2\n')
+            self.assertFalse((source_dir / '.git' / 'lmonitor-applied-patches.json').exists())
+
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                self.assertTrue(command._apply_local_patches())
+                self.assertEqual(contract.read_text(encoding='utf-8'), 'version=3\n')
+                self.assertFalse(command._apply_local_patches())
+
+            ledger = json.loads(
+                (source_dir / '.git' / 'lmonitor-applied-patches.json').read_text(encoding='utf-8')
+            )
+            self.assertEqual(
+                [entry['name'] for entry in ledger['patches']],
+                ['0001-add-contract.patch', '0002-change-contract.patch',
+                 '0003-change-contract-again.patch'],
+            )
+
+    def test_missing_ledger_recovers_known_cross_prefix_file_states(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            runtime = source_dir / 'runtime.cpp'
+            contract = source_dir / 'contract.inc'
+            runtime.write_text('base\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            (patch_dir / '0001-add-contract.patch').write_text(
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1,2 @@\n+#include "contract.inc"\n base\n'
+                'diff --git a/contract.inc b/contract.inc\n'
+                'new file mode 100644\n--- /dev/null\n+++ b/contract.inc\n'
+                '@@ -0,0 +1 @@\n+version=1\n',
+                encoding='utf-8',
+            )
+            (patch_dir / '0002-change-contract.patch').write_text(
+                'diff --git a/contract.inc b/contract.inc\n'
+                '--- a/contract.inc\n+++ b/contract.inc\n'
+                '@@ -1 +1 @@\n-version=1\n+version=2\n',
+                encoding='utf-8',
+            )
+            # Reproduce production: a file has exact bytes from prefix 2 while
+            # every other managed file remains at HEAD/prefix 0.
+            contract.write_text('version=2\n', encoding='utf-8')
+
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+            real_mkstemp = tempfile.mkstemp
+
+            def fail_ledger_mkstemp(*args, **kwargs):
+                if str(kwargs.get('prefix', '')).startswith('.lmonitor-applied-patches.'):
+                    raise OSError('simulated ledger temp create failure')
+                return real_mkstemp(*args, **kwargs)
+
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}), mock.patch(
+                'botend.management.commands.update_simc_binary.tempfile.mkstemp',
+                side_effect=fail_ledger_mkstemp,
+            ):
+                with self.assertRaisesRegex(OSError, 'simulated ledger'):
+                    command._apply_local_patches()
+            self.assertEqual(runtime.read_text(encoding='utf-8'), 'base\n')
+            self.assertEqual(contract.read_text(encoding='utf-8'), 'version=2\n')
+            self.assertFalse((source_dir / '.git' / 'lmonitor-applied-patches.json').exists())
+
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                self.assertTrue(command._apply_local_patches())
+                self.assertFalse(command._apply_local_patches())
+
+            self.assertEqual(
+                runtime.read_text(encoding='utf-8'),
+                '#include "contract.inc"\nbase\n',
+            )
+            self.assertEqual(contract.read_text(encoding='utf-8'), 'version=2\n')
+            self.assertTrue((source_dir / '.git' / 'lmonitor-applied-patches.json').exists())
+
+    def test_missing_ledger_rejects_changes_outside_patch_hunks(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            target = source_dir / 'runtime.cpp'
+            target.write_text('top\nbase\nbottom\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            (patch_dir / '0001-change.patch').write_text(
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -2 +2 @@\n-base\n+current\n',
+                encoding='utf-8',
+            )
+            target.write_text('top\ncurrent\ncorrupt\n', encoding='utf-8')
+
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                with self.assertRaisesMessage(
+                    CommandError, '当前补丁涉及的源码文件不匹配 HEAD、完整前缀或已知阶段',
+                ):
+                    command._apply_local_patches()
+
+            self.assertEqual(target.read_text(encoding='utf-8'), 'top\ncurrent\ncorrupt\n')
+            self.assertFalse((source_dir / '.git' / 'lmonitor-applied-patches.json').exists())
+
+    def test_existing_ledger_rejects_git_mode_drift(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            target = source_dir / 'runtime.cpp'
+            target.write_text('before\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            (patch_dir / '0001-change.patch').write_text(
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1 @@\n-before\n+after\n',
+                encoding='utf-8',
+            )
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                self.assertTrue(command._apply_local_patches())
+                target.chmod(0o755)
+                with self.assertRaisesMessage(CommandError, 'Git mode'):
+                    command._apply_local_patches()
+            self.assertEqual(target.read_text(encoding='utf-8'), 'after\n')
+            self.assertEqual(target.stat().st_mode & 0o777, 0o755)
+
+    def test_patch_replay_rejects_symlink_parent_without_writing_target(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            actual_dir = source_dir / 'actual'
+            actual_dir.mkdir()
+            (source_dir / 'alias').symlink_to(actual_dir, target_is_directory=True)
+            (source_dir / 'base.txt').write_text('base\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'base.txt'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            (patch_dir / '0001-add-through-alias.patch').write_text(
+                'diff --git a/alias/new.txt b/alias/new.txt\n'
+                'new file mode 100644\n'
+                '--- /dev/null\n'
+                '+++ b/alias/new.txt\n'
+                '@@ -0,0 +1 @@\n'
+                '+managed\n',
+                encoding='utf-8',
+            )
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                with self.assertRaisesMessage(CommandError, '符号链接或非目录组件'):
+                    command._apply_local_patches()
+
+            self.assertFalse((actual_dir / 'new.txt').exists())
+            self.assertFalse((source_dir / '.git' / 'lmonitor-applied-patches.json').exists())
+
+    def test_existing_ledger_replays_suffix_when_head_contains_declared_prefix(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            target = source_dir / 'runtime.cpp'
+            target.write_text('base\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'base'], cwd=source_dir, check=True,
+            )
+            (patch_dir / '0001-first.patch').write_text(
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1 @@\n-base\n+first\n',
+                encoding='utf-8',
+            )
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                self.assertTrue(command._apply_local_patches())
+                subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+                subprocess.run(
+                    ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                     'commit', '-qm', 'managed prefix'], cwd=source_dir, check=True,
+                )
+                self.assertFalse(command._apply_local_patches())
+
+                (patch_dir / '0002-second.patch').write_text(
+                    'diff --git a/runtime.cpp b/runtime.cpp\n'
+                    '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                    '@@ -1 +1 @@\n-first\n+second\n',
+                    encoding='utf-8',
+                )
+                self.assertTrue(command._apply_local_patches())
+                self.assertFalse(command._apply_local_patches())
+
+            self.assertEqual(target.read_text(encoding='utf-8'), 'second\n')
 
     def test_known_pre_ledger_patch_state_is_replayed_into_current_chain(self):
         from botend.management.commands.update_simc_binary import Command
@@ -750,13 +1066,20 @@ class UpdateSimcBinaryCommandTests(TestCase):
             ).stdout.strip()
             current_patch = (
                 'diff --git a/runtime.cpp b/runtime.cpp\n'
+                'old mode 100644\n'
+                'new mode 100755\n'
                 '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
                 '@@ -1 +1 @@\n-base\n+current\n'
             )
-            legacy_patch = current_patch.replace('+current', '+legacy')
+            legacy_patch = (
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1 @@\n-base\n+legacy\n'
+            )
             (patch_dir / '0001-current.patch').write_text(current_patch, encoding='utf-8')
             (legacy_dir / 'pre-ledger.patch').write_text(legacy_patch, encoding='utf-8')
             target.write_text('legacy\n', encoding='utf-8')
+            target.chmod(0o644)
             (legacy_dir / 'pre-ledger.json').write_text(json.dumps({
                 'base_revision': revision,
                 'patch': 'pre-ledger.patch',
@@ -773,7 +1096,9 @@ class UpdateSimcBinaryCommandTests(TestCase):
             }):
                 self.assertTrue(command._apply_local_patches())
                 self.assertEqual(target.read_text(encoding='utf-8'), 'current\n')
+                self.assertEqual(target.stat().st_mode & 0o777, 0o755)
                 self.assertFalse(command._apply_local_patches())
+                self.assertEqual(target.stat().st_mode & 0o777, 0o755)
 
     def test_known_pre_ledger_patch_state_rejects_source_fingerprint_mismatch(self):
         from botend.management.commands.update_simc_binary import Command
@@ -1060,6 +1385,8 @@ class UpdateSimcBinaryCommandTests(TestCase):
                             return mock.Mock(returncode=0, stdout='Already up to date.', stderr='')
                         if cmd == ['git', 'rev-parse', 'HEAD']:
                             return mock.Mock(returncode=0, stdout=('a' * 40) + '\n', stderr='')
+                        if cmd[:2] == ['git', 'ls-tree'] or cmd[:2] == ['git', 'ls-files']:
+                            return mock.Mock(returncode=0, stdout=b'', stderr=b'')
                         if cmd[0] == 'cmake':
                             return mock.Mock(returncode=0, stdout='', stderr='')
                         if cmd[0] == 'ninja':

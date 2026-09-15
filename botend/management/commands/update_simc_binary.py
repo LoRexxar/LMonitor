@@ -11,6 +11,8 @@
 """
 import os
 import re
+import secrets
+import stat
 import subprocess
 import tempfile
 import json
@@ -269,12 +271,14 @@ class Command(BaseCommand):
         candidates = {str(value).strip() for value in candidates if str(value).strip()}
 
         binary_build = ''
-        try:
-            result, output = self._probe_binary()
-            if result.returncode == 0 and 'SimulationCraft' in output:
-                binary_build = self._parse_game_build(output)
-        except (OSError, subprocess.SubprocessError):
-            binary_build = ''
+        binary_path = str(getattr(self, 'simc_binary_path', '') or '').strip()
+        if binary_path:
+            try:
+                result, output = self._probe_binary(binary_path)
+                if result.returncode == 0 and 'SimulationCraft' in output:
+                    binary_build = self._parse_game_build(output)
+            except (OSError, subprocess.SubprocessError):
+                binary_build = ''
         if binary_build:
             return binary_build
         if len(candidates) == 1:
@@ -673,20 +677,153 @@ class Command(BaseCommand):
         ):
             self._fail('读取 SimC 补丁状态失败', '补丁 ledger 结构无效。', progress=20)
         had_ledger = ledger is not None
+        ledger_backup_content = None
+        if had_ledger:
+            try:
+                with open(ledger_path, 'rb') as ledger_backup_file:
+                    ledger_backup_content = ledger_backup_file.read()
+            except OSError as exc:
+                self._fail('读取 SimC 补丁状态失败', f'无法备份补丁 ledger: {exc}', progress=20)
         ledger = ledger or {}
 
-        def file_digest(path):
-            full_path = os.path.realpath(os.path.join(self.simc_source_dir, path))
-            source_root = os.path.realpath(self.simc_source_dir)
-            if os.path.commonpath([source_root, full_path]) != source_root:
+        source_root = os.path.realpath(self.simc_source_dir)
+
+        def safe_path_parts(path):
+            parts = path.split('/') if isinstance(path, str) else []
+            if (
+                not parts or os.path.isabs(path)
+                or any(part in {'', '.', '..'} for part in parts)
+                or os.path.normpath(path) != path
+            ):
                 self._fail('读取 SimC 补丁状态失败', f'补丁路径越界: {path}', progress=20)
-            if not os.path.isfile(full_path):
+            return parts
+
+        def open_source_parent(path, create=False):
+            parts = safe_path_parts(path)
+            flags = os.O_RDONLY | os.O_DIRECTORY
+            if hasattr(os, 'O_NOFOLLOW'):
+                flags |= os.O_NOFOLLOW
+            try:
+                current_fd = os.open(source_root, flags)
+            except OSError as exc:
+                self._fail('读取 SimC 补丁状态失败', f'无法打开源码根目录: {exc}', progress=20)
+            for part in parts[:-1]:
+                try:
+                    next_fd = os.open(part, flags, dir_fd=current_fd)
+                except FileNotFoundError:
+                    if not create:
+                        os.close(current_fd)
+                        return None, parts[-1]
+                    try:
+                        os.mkdir(part, 0o755, dir_fd=current_fd)
+                        os.fsync(current_fd)
+                        next_fd = os.open(part, flags, dir_fd=current_fd)
+                    except OSError as exc:
+                        os.close(current_fd)
+                        self._fail(
+                            '写入 SimC 补丁源码失败',
+                            f'无法安全创建补丁目录 {path}: {exc}', progress=20,
+                        )
+                except OSError as exc:
+                    os.close(current_fd)
+                    self._fail(
+                        '读取 SimC 补丁状态失败',
+                        f'补丁路径包含符号链接或非目录组件 {path}: {exc}', progress=20,
+                    )
+                os.close(current_fd)
+                current_fd = next_fd
+            return current_fd, parts[-1]
+
+        def read_source_state(path):
+            parent_fd, name = open_source_parent(path)
+            if parent_fd is None:
                 return None
-            digest = hashlib.sha256()
-            with open(full_path, 'rb') as source_file:
-                for chunk in iter(lambda: source_file.read(65536), b''):
-                    digest.update(chunk)
-            return digest.hexdigest()
+            flags = os.O_RDONLY
+            if hasattr(os, 'O_NOFOLLOW'):
+                flags |= os.O_NOFOLLOW
+            try:
+                try:
+                    source_fd = os.open(name, flags, dir_fd=parent_fd)
+                except FileNotFoundError:
+                    return None
+                except OSError as exc:
+                    self._fail(
+                        '读取 SimC 补丁状态失败',
+                        f'补丁管理路径不是普通文件 {path}: {exc}', progress=20,
+                    )
+                source_stat = os.fstat(source_fd)
+                if not stat.S_ISREG(source_stat.st_mode):
+                    os.close(source_fd)
+                    self._fail(
+                        '读取 SimC 补丁状态失败',
+                        f'补丁管理路径不是普通文件: {path}', progress=20,
+                    )
+                with os.fdopen(source_fd, 'rb') as source_file:
+                    return source_file.read(), source_stat.st_mode & 0o777
+            finally:
+                os.close(parent_fd)
+
+        def file_digest(path):
+            state = read_source_state(path)
+            return hashlib.sha256(state[0]).hexdigest() if state is not None else None
+
+        def snapshot_source_files(paths):
+            return {path: read_source_state(path) for path in paths}
+
+        def replace_source_files(files):
+            for path, state in files.items():
+                parent_fd, name = open_source_parent(path, create=state is not None)
+                if parent_fd is None:
+                    continue
+                temp_name = None
+                try:
+                    if state is None:
+                        try:
+                            os.unlink(name, dir_fd=parent_fd)
+                            os.fsync(parent_fd)
+                        except FileNotFoundError:
+                            pass
+                        except OSError as exc:
+                            self._fail(
+                                '写入 SimC 补丁源码失败',
+                                f'无法安全删除补丁文件 {path}: {exc}', progress=20,
+                            )
+                        continue
+                    content, mode = state
+                    temp_flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+                    if hasattr(os, 'O_NOFOLLOW'):
+                        temp_flags |= os.O_NOFOLLOW
+                    for _attempt in range(100):
+                        temp_name = f'.lmonitor-simc-source.{secrets.token_hex(12)}'
+                        try:
+                            source_fd = os.open(
+                                temp_name, temp_flags, 0o600, dir_fd=parent_fd,
+                            )
+                            break
+                        except FileExistsError:
+                            continue
+                    else:
+                        self._fail(
+                            '写入 SimC 补丁源码失败',
+                            f'无法创建补丁临时文件: {path}', progress=20,
+                        )
+                    with os.fdopen(source_fd, 'wb') as temp_source:
+                        os.fchmod(temp_source.fileno(), mode)
+                        temp_source.write(content)
+                        temp_source.flush()
+                        os.fsync(temp_source.fileno())
+                    os.replace(
+                        temp_name, name, src_dir_fd=parent_fd, dst_dir_fd=parent_fd,
+                    )
+                    temp_name = None
+                    os.fsync(parent_fd)
+                finally:
+                    if temp_name is not None:
+                        try:
+                            os.unlink(temp_name, dir_fd=parent_fd)
+                        except FileNotFoundError:
+                            pass
+                    os.close(parent_fd)
 
         patch_entries = []
         touched_paths = set()
@@ -742,6 +879,7 @@ class Command(BaseCommand):
                         '补丁路径不是有效 UTF-8。',
                         progress=20,
                     )
+                safe_path_parts(path)
                 paths.append(path)
                 touched_paths.add(path)
             patch_entries.append({
@@ -756,6 +894,8 @@ class Command(BaseCommand):
             for entry in patch_entries
         ]
         migrated_legacy_state = False
+        migrated_hybrid_state = False
+        migrated_replay_state = False
         migrated_trusted_prefix = 0
         legacy_backup = None
         migrated_expected_fingerprints = None
@@ -861,16 +1001,33 @@ class Command(BaseCommand):
                             ['git', 'show', f'{source_revision}:{path}'],
                             cwd=self.simc_source_dir, capture_output=True, timeout=30,
                         )
-                        if base_result.returncode != 0:
-                            detail = (base_result.stderr or base_result.stdout or b'').decode(
-                                'utf-8', errors='replace'
-                            ).strip()[-1000:]
-                            self._fail('迁移 SimC 旧补丁状态失败', detail, progress=20)
-                        base_files[path] = base_result.stdout
+                        base_mode_result = subprocess.run(
+                            ['git', 'ls-tree', source_revision, '--', path],
+                            cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+                        )
+                        if base_result.returncode != 0 or base_mode_result.returncode != 0:
+                            detail = (
+                                base_result.stderr or base_result.stdout
+                                or base_mode_result.stderr or base_mode_result.stdout or b''
+                            )
+                            if isinstance(detail, bytes):
+                                detail = detail.decode('utf-8', errors='replace')
+                            self._fail(
+                                '迁移 SimC 旧补丁状态失败', str(detail).strip()[-1000:], progress=20,
+                            )
+                        mode_token = base_mode_result.stdout.split(None, 1)[0] if base_mode_result.stdout else ''
+                        if mode_token not in {'100644', '100755'}:
+                            self._fail(
+                                '迁移 SimC 旧补丁状态失败',
+                                f'HEAD 中的补丁管理路径不是普通文件: {path}', progress=20,
+                            )
+                        base_mode = int(mode_token[-3:], 8)
+                        base_files[path] = (base_result.stdout, base_mode)
                         staged_path = os.path.join(staged_dir, path)
                         os.makedirs(os.path.dirname(staged_path), exist_ok=True)
                         with open(staged_path, 'wb') as staged_file:
                             staged_file.write(base_result.stdout)
+                        os.chmod(staged_path, base_mode)
                     run_staged(['git', 'apply', '-'], cwd=staged_dir, patch_content=legacy_patch_content)
 
                     def staged_digest(path):
@@ -882,18 +1039,93 @@ class Command(BaseCommand):
                         for path, digest in manifest['files'].items()
                     ):
                         self._fail('迁移 SimC 旧补丁状态失败', '旧补丁与 manifest 指纹不一致', progress=20)
-                    for path, content in base_files.items():
-                        with open(os.path.join(staged_dir, path), 'wb') as staged_file:
+                    for path, (content, mode) in base_files.items():
+                        staged_path = os.path.join(staged_dir, path)
+                        with open(staged_path, 'wb') as staged_file:
                             staged_file.write(content)
+                        os.chmod(staged_path, mode)
                     for entry in patch_entries:
-                        run_staged(['git', 'apply', '-'], cwd=staged_dir, patch_content=entry['content'])
+                        compatibility_args = (
+                            ['--ignore-space-change']
+                            if entry['name'] == '0031-allow-partial-monk-hero-talent-probes.patch'
+                            else []
+                        )
+                        run_staged(
+                            ['git', 'apply', *compatibility_args, '-'],
+                            cwd=staged_dir, patch_content=entry['content'],
+                        )
+
+                    mode_index_fd, mode_index = tempfile.mkstemp(
+                        prefix='.lmonitor-simc-legacy-mode-index.',
+                    )
+                    os.close(mode_index_fd)
+                    os.unlink(mode_index)
+                    mode_env = os.environ.copy()
+                    mode_env['GIT_INDEX_FILE'] = mode_index
+                    current_modes = {}
+                    try:
+                        mode_read_tree = subprocess.run(
+                            ['git', 'read-tree', source_revision], cwd=self.simc_source_dir,
+                            env=mode_env, capture_output=True, timeout=30,
+                        )
+                        if mode_read_tree.returncode != 0:
+                            detail = (mode_read_tree.stderr or mode_read_tree.stdout or b'').decode(
+                                'utf-8', errors='replace'
+                            ).strip()[-1000:]
+                            self._fail(
+                                '迁移 SimC 旧补丁状态失败', detail or '无法创建模式校验 index',
+                                progress=20,
+                            )
+                        for entry in patch_entries:
+                            compatibility_args = (
+                                ['--ignore-space-change']
+                                if entry['name'] == '0031-allow-partial-monk-hero-talent-probes.patch'
+                                else []
+                            )
+                            mode_apply = subprocess.run(
+                                ['git', 'apply', '--cached', *compatibility_args, '-'],
+                                cwd=self.simc_source_dir, env=mode_env,
+                                input=entry['content'], capture_output=True, timeout=30,
+                            )
+                            if mode_apply.returncode != 0:
+                                detail = (mode_apply.stderr or mode_apply.stdout or b'').decode(
+                                    'utf-8', errors='replace'
+                                ).strip()[-1000:]
+                                self._fail('迁移 SimC 旧补丁状态失败', detail, progress=20)
+                        for path in final_paths:
+                            mode_result = subprocess.run(
+                                ['git', 'ls-files', '--stage', '--', path],
+                                cwd=self.simc_source_dir, env=mode_env,
+                                capture_output=True, text=True, timeout=30,
+                            )
+                            mode_token = (
+                                mode_result.stdout.split(None, 1)[0]
+                                if mode_result.returncode == 0 and mode_result.stdout else ''
+                            )
+                            if mode_token not in {'100644', '100755'}:
+                                self._fail(
+                                    '迁移 SimC 旧补丁状态失败',
+                                    f'补丁重放后的路径不是普通文件: {path}', progress=20,
+                                )
+                            current_modes[path] = int(mode_token[-3:], 8)
+                    finally:
+                        for path in (mode_index, mode_index + '.lock'):
+                            try:
+                                os.unlink(path)
+                            except FileNotFoundError:
+                                pass
+
                     staged_files = {}
                     for path in final_paths:
                         staged_path = os.path.join(staged_dir, path)
-                        live_path = os.path.join(self.simc_source_dir, path)
+                        if read_source_state(path) is None:
+                            self._fail(
+                                '迁移 SimC 旧补丁状态失败',
+                                f'旧补丁管理路径不存在: {path}', progress=20,
+                            )
                         with open(staged_path, 'rb') as staged_file:
                             staged_files[path] = (
-                                staged_file.read(), os.stat(live_path).st_mode & 0o777,
+                                staged_file.read(), current_modes[path],
                             )
                     migrated_expected_fingerprints = {
                         path: hashlib.sha256(staged_files[path][0]).hexdigest()
@@ -902,28 +1134,12 @@ class Command(BaseCommand):
 
                 if not all(file_digest(path) == digest for path, digest in manifest['files'].items()):
                     self._fail('迁移 SimC 旧补丁状态失败', '源码指纹已变化', progress=20)
-                legacy_backup = {}
-                for path in final_paths:
-                    live_path = os.path.join(self.simc_source_dir, path)
-                    with open(live_path, 'rb') as live_file:
-                        legacy_backup[path] = (live_file.read(), os.stat(live_path).st_mode & 0o777)
-
-                def replace_source_files(files):
-                    for path, (content, mode) in files.items():
-                        live_path = os.path.join(self.simc_source_dir, path)
-                        fd, temp_source_path = tempfile.mkstemp(
-                            prefix='.lmonitor-simc-source.', dir=os.path.dirname(live_path),
-                        )
-                        try:
-                            os.fchmod(fd, mode)
-                            with os.fdopen(fd, 'wb') as temp_source:
-                                temp_source.write(content)
-                                temp_source.flush()
-                                os.fsync(temp_source.fileno())
-                            os.replace(temp_source_path, live_path)
-                        finally:
-                            if os.path.exists(temp_source_path):
-                                os.unlink(temp_source_path)
+                legacy_backup = snapshot_source_files(final_paths)
+                if any(state is None for state in legacy_backup.values()):
+                    self._fail(
+                        '迁移 SimC 旧补丁状态失败',
+                        '旧补丁管理路径缺失。', progress=20,
+                    )
 
                 try:
                     replace_source_files(staged_files)
@@ -948,10 +1164,216 @@ class Command(BaseCommand):
                         '源码 revision 命中已知旧部署，但完整文件指纹不匹配。',
                         progress=20,
                     )
-        previous_chain = ledger.get('patches')
-        previous_files = ledger.get('files')
+        previous_chain = list(ledger.get('patches') or []) if had_ledger else []
+        previous_files = dict(ledger.get('files') or {}) if had_ledger else {}
         trusted_prefix = migrated_trusted_prefix
-        if isinstance(previous_chain, list) and previous_chain:
+        replay_states_by_prefix = {}
+        live_states = {}
+        final_files = None
+        if not migrated_legacy_state:
+            # Older updater revisions did not persist a patch ledger.  A simple
+            # per-patch reverse check cannot identify an applied add-file patch
+            # once a later patch has changed that new file.  Replay the chain in
+            # an isolated Git index and trust only the longest prefix whose
+            # complete touched-file fingerprints match the live checkout.
+            index_fd, replay_index = tempfile.mkstemp(prefix='.lmonitor-simc-replay-index.')
+            os.close(index_fd)
+            os.unlink(replay_index)
+            replay_env = os.environ.copy()
+            replay_env['GIT_INDEX_FILE'] = replay_index
+            managed_paths = {
+                path for entry in patch_entries for path in entry['paths']
+            }
+            live_files = snapshot_source_files(managed_paths)
+
+            def normalized_state(state):
+                if state is None:
+                    return None
+                content, mode = state
+                git_mode = 0o755 if mode & 0o111 else 0o644
+                return hashlib.sha256(content).hexdigest(), git_mode
+
+            live_states = {
+                path: normalized_state(state) for path, state in live_files.items()
+            }
+            known_states = {path: set() for path in managed_paths}
+            replay_states_by_prefix = {}
+
+            def replay_index_files():
+                files = {}
+                for path in managed_paths:
+                    expected = subprocess.run(
+                        ['git', 'show', f':{path}'], cwd=self.simc_source_dir,
+                        env=replay_env, capture_output=True, timeout=30,
+                    )
+                    if expected.returncode != 0:
+                        files[path] = None
+                        continue
+                    index_entry = subprocess.run(
+                        ['git', 'ls-files', '-s', '--', path], cwd=self.simc_source_dir,
+                        env=replay_env, capture_output=True, text=True, timeout=30,
+                    )
+                    if index_entry.returncode != 0 or not index_entry.stdout.strip():
+                        self._fail(
+                            '识别 SimC 已应用补丁失败',
+                            f'无法读取临时 index 文件模式: {path}',
+                            progress=20,
+                        )
+                    mode_token = index_entry.stdout.split(None, 1)[0]
+                    if mode_token not in {'100644', '100755'}:
+                        self._fail(
+                            '识别 SimC 已应用补丁失败',
+                            f'补丁管理路径不是普通文件: {path}',
+                            progress=20,
+                        )
+                    files[path] = (expected.stdout, int(mode_token[-3:], 8))
+                return files
+
+            def record_replay_state(files):
+                states = {path: normalized_state(state) for path, state in files.items()}
+                for path, state in states.items():
+                    known_states[path].add(state)
+                return states
+
+            matching_prefix = None
+            final_files = None
+            replayed_count = 0
+
+            def apply_replay_entry(entry):
+                compatibility_args = (
+                    ['--ignore-space-change']
+                    if entry['name'] == '0031-allow-partial-monk-hero-talent-probes.patch'
+                    else []
+                )
+                return subprocess.run(
+                    ['git', 'apply', '--cached', *compatibility_args, '-'],
+                    cwd=self.simc_source_dir, env=replay_env,
+                    input=entry['content'], capture_output=True, timeout=30,
+                )
+
+            def reset_replay_index():
+                result = subprocess.run(
+                    ['git', 'read-tree', 'HEAD'], cwd=self.simc_source_dir,
+                    env=replay_env, capture_output=True, timeout=30,
+                )
+                if result.returncode != 0:
+                    detail = (result.stderr or result.stdout or b'').decode(
+                        'utf-8', errors='replace'
+                    ).strip()[-1000:]
+                    self._fail(
+                        '识别 SimC 已应用补丁失败', detail or '无法创建临时 Git index',
+                        progress=20,
+                    )
+
+            try:
+                replay_start = 0
+                if had_ledger and current_chain[:len(previous_chain)] == previous_chain:
+                    head_expected_paths = {
+                        path
+                        for entry in patch_entries[:len(previous_chain)]
+                        for path in entry['paths']
+                    }
+                    head_ledger_shape_valid = (
+                        set(previous_files) == head_expected_paths
+                        and all(
+                            isinstance(digest, str)
+                            and re.fullmatch(r'[0-9a-f]{64}', digest)
+                            for digest in previous_files.values()
+                        )
+                    )
+                    head_ledger_files_match = head_ledger_shape_valid and all(
+                        file_digest(path) == digest
+                        for path, digest in previous_files.items()
+                    )
+                    if previous_chain and head_ledger_files_match:
+                        candidate_starts = []
+                        for candidate_start in range(len(previous_chain) + 1):
+                            reset_replay_index()
+                            candidate_valid = True
+                            for entry in patch_entries[candidate_start:len(previous_chain)]:
+                                if apply_replay_entry(entry).returncode != 0:
+                                    candidate_valid = False
+                                    break
+                            if candidate_valid:
+                                candidate_files = replay_index_files()
+                                candidate_states = {
+                                    path: normalized_state(state)
+                                    for path, state in candidate_files.items()
+                                }
+                                if candidate_states == live_states:
+                                    candidate_starts.append(candidate_start)
+                        if len(candidate_starts) > 1:
+                            self._fail(
+                                '识别 SimC 已应用补丁失败',
+                                'ledger 对应多个可能的 HEAD 补丁前缀，拒绝猜测。', progress=20,
+                            )
+                        if candidate_starts:
+                            # HEAD may already contain an updater-owned prefix.
+                            # Reconstruct the declared ledger state from that
+                            # exact prefix, then replay only the append-only suffix.
+                            replay_start = candidate_starts[0]
+
+                reset_replay_index()
+                replay_files = replay_index_files()
+                replay_states = record_replay_state(replay_files)
+                replayed_count = replay_start
+                replay_states_by_prefix[replay_start] = replay_states
+                if replay_states == live_states:
+                    matching_prefix = replay_start
+                for index, entry in enumerate(
+                    patch_entries[replay_start:], start=replay_start,
+                ):
+                    replay = apply_replay_entry(entry)
+                    if replay.returncode != 0:
+                        break
+                    replayed_count = index + 1
+                    replay_files = replay_index_files()
+                    replay_states = record_replay_state(replay_files)
+                    replay_states_by_prefix[replayed_count] = replay_states
+                    if replay_states == live_states:
+                        matching_prefix = replayed_count
+                if replayed_count == len(patch_entries):
+                    final_files = replay_files
+            finally:
+                for path in (replay_index, replay_index + '.lock'):
+                    try:
+                        os.unlink(path)
+                    except FileNotFoundError:
+                        pass
+            if matching_prefix is None:
+                if not had_ledger:
+                    unknown_paths = sorted(
+                        path for path, state in live_states.items()
+                        if state not in known_states[path]
+                    )
+                    if unknown_paths or final_files is None:
+                        detail = (
+                            f'存在未知内容: {", ".join(unknown_paths)}'
+                            if unknown_paths else '当前补丁链无法完整重放'
+                        )
+                        self._fail(
+                            '识别 SimC 已应用补丁失败',
+                            f'当前补丁涉及的源码文件不匹配 HEAD、完整前缀或已知阶段；{detail}',
+                            progress=20,
+                        )
+                    legacy_backup = live_files
+                    try:
+                        replace_source_files(final_files)
+                    except BaseException:
+                        replace_source_files(legacy_backup)
+                        raise
+                    migrated_expected_fingerprints = {
+                        path: hashlib.sha256(state[0]).hexdigest()
+                        for path, state in final_files.items()
+                        if state is not None
+                    }
+                    migrated_hybrid_state = True
+                    trusted_prefix = len(current_chain)
+            else:
+                trusted_prefix = matching_prefix
+                if trusted_prefix:
+                    self.stdout.write(f'识别 SimC 已应用补丁前缀 {trusted_prefix}')
+        if had_ledger:
             if current_chain[:len(previous_chain)] != previous_chain:
                 self._fail(
                     'SimC 补丁链发生非追加变更',
@@ -972,12 +1394,56 @@ class Command(BaseCommand):
                     for digest in previous_files.values()
                 )
             )
-            if ledger_shape_valid and all(
+            expected_previous_states = replay_states_by_prefix.get(len(previous_chain))
+            ledger_files_match = ledger_shape_valid and all(
                 file_digest(path) == digest for path, digest in previous_files.items()
+            )
+            if (
+                not ledger_shape_valid
+                or expected_previous_states is None
+                or expected_previous_states != live_states
+                or not ledger_files_match
             ):
-                trusted_prefix = len(previous_chain)
+                mismatch_parts = []
+                if not ledger_shape_valid:
+                    mismatch_parts.append('ledger 结构')
+                if expected_previous_states is None:
+                    mismatch_parts.append('声明前缀不存在')
+                elif expected_previous_states != live_states:
+                    mismatch_parts.append('完整内容或 Git mode')
+                if not ledger_files_match:
+                    mismatch_parts.append('文件指纹')
+                self._fail(
+                    'SimC 补丁 ledger 与源码不一致',
+                    f'{"、".join(mismatch_parts)}不一致，拒绝继续。',
+                    progress=20,
+                )
+            trusted_prefix = len(previous_chain)
 
-        changed = migrated_legacy_state
+        if (
+            not migrated_legacy_state
+            and not migrated_hybrid_state
+            and trusted_prefix < len(current_chain)
+        ):
+            if final_files is None:
+                self._fail(
+                    '应用 SimC 补丁失败', '当前补丁链无法完整重放。', progress=20,
+                )
+            legacy_backup = snapshot_source_files(touched_paths)
+            try:
+                replace_source_files(final_files)
+            except BaseException:
+                replace_source_files(legacy_backup)
+                raise
+            migrated_expected_fingerprints = {
+                path: hashlib.sha256(state[0]).hexdigest()
+                for path, state in final_files.items()
+                if state is not None
+            }
+            migrated_replay_state = True
+            trusted_prefix = len(current_chain)
+
+        changed = migrated_legacy_state or migrated_hybrid_state or migrated_replay_state
         for index, entry in enumerate(patch_entries):
             patch_name = entry['name']
             patch_content = entry['content']
@@ -1077,13 +1543,30 @@ class Command(BaseCommand):
         except BaseException:
             if legacy_backup is not None:
                 replace_source_files(legacy_backup)
-                try:
-                    os.unlink(ledger_path)
-                except FileNotFoundError:
-                    pass
+                if ledger_backup_content is not None:
+                    fd, rollback_ledger_path = tempfile.mkstemp(
+                        prefix='.lmonitor-ledger-rollback.', suffix='.tmp', dir=git_dir,
+                    )
+                    try:
+                        os.fchmod(fd, 0o600)
+                        with os.fdopen(fd, 'wb') as rollback_ledger:
+                            rollback_ledger.write(ledger_backup_content)
+                            rollback_ledger.flush()
+                            os.fsync(rollback_ledger.fileno())
+                        os.replace(rollback_ledger_path, ledger_path)
+                    finally:
+                        if os.path.exists(rollback_ledger_path):
+                            os.unlink(rollback_ledger_path)
+                else:
+                    try:
+                        os.unlink(ledger_path)
+                    except FileNotFoundError:
+                        pass
             raise
         if migrated_legacy_state:
             self.stdout.write(f'迁移 SimC 旧补丁状态 {manifest_name}')
+        if migrated_hybrid_state:
+            self.stdout.write('恢复 SimC 已知跨前缀补丁状态')
         return changed
 
     def _apply_patches_only(self, threads=1):
