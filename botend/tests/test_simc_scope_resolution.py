@@ -166,3 +166,62 @@ class ScopeResolutionTests(unittest.TestCase):
         self.r.damage_families={100:{1,2,3}}
         e=self.effect(class_family=100,flags=[1,0,0,0])
         self.assertEqual(self.r.resolve(e,[{'传递到的伤害技能':[1,2,3]}],'已解析技能应用关系')[0],'应剔除')
+
+    def test_reviewed_runeforge_label_selector_is_local(self):
+        self.r.damage_families={15:{10,11}}
+        e=self.effect(
+            class_family=15,
+            subtype=218,
+            misc1=23,
+            misc2=963,
+            flags=[0,0,0,0],
+            method='dbc.spells_by_label',
+            affected_spells=[{'spell_id':326984},{'spell_id':327096}],
+        )
+        result=self.r.resolve(
+            e,
+            [{'target_spell_id':327096,'传递到的伤害技能':[]}],
+            '已解析技能应用关系',
+        )
+        self.assertEqual(result[0],'保留')
+        self.assertEqual(result[2]['判定路径'],'已复核局部标签选择器')
+
+    def test_changed_runeforge_label_selector_stays_fail_closed(self):
+        self.r.damage_families={15:{10,11}}
+        base={
+            'class_family':15,
+            'subtype':218,
+            'misc1':23,
+            'misc2':963,
+            'flags':[0,0,0,0],
+            'method':'dbc.spells_by_label',
+            'affected_spells':[{'spell_id':326984},{'spell_id':327096}],
+        }
+        exact_bindings=[{'target_spell_id':327096,'传递到的伤害技能':[]}]
+        cases=[
+            ('family',{'class_family':16},exact_bindings),
+            ('subtype',{'subtype':219},exact_bindings),
+            ('misc1',{'misc1':24},exact_bindings),
+            ('label',{'misc2':964},exact_bindings),
+            ('method',{'method':'dbc.spells_by_category'},exact_bindings),
+            ('flags',{'flags':[1,0,0,0]},exact_bindings),
+            ('dbc_missing',{'affected_spells':[{'spell_id':327096}]},exact_bindings),
+            ('dbc_extra',{'affected_spells':[{'spell_id':326984},{'spell_id':327096},{'spell_id':999999}]},exact_bindings),
+            ('native_missing',{},[]),
+            ('native_wrong',{},[{'target_spell_id':326984,'传递到的伤害技能':[]}]),
+            ('native_extra',{},[
+                {'target_spell_id':327096,'传递到的伤害技能':[]},
+                {'target_spell_id':326984,'传递到的伤害技能':[]},
+            ]),
+            ('native_transmission',{},[
+                {'target_spell_id':327096,'传递到的伤害技能':[326984]},
+            ]),
+        ]
+        for label,updates,bindings in cases:
+            with self.subTest(label=label):
+                e=self.effect(**(base | updates))
+                result=self.r.resolve(e,bindings,'已解析技能应用关系')
+                self.assertFalse(result and result[2].get('判定路径')=='已复核局部标签选择器')
+        self.r.revision='different'
+        result=self.r.resolve(self.effect(**base),exact_bindings,'已解析技能应用关系')
+        self.assertFalse(result and result[2].get('判定路径')=='已复核局部标签选择器')
