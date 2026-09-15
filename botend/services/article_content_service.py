@@ -2,7 +2,7 @@ import copy
 import html
 import json
 import re
-from typing import Any, Dict, Iterable, List
+from typing import Any, Dict, Iterable, List, Optional
 from urllib.parse import urljoin
 
 from botend.services.wowhead_bbcode_renderer import (
@@ -232,21 +232,30 @@ def _select_article_root(soup, *, source: str = ""):
     return best
 
 
-def html_block_translate_texts(block: Dict[str, Any], translated_by_original: Dict[str, str], translated_queue: List[str]) -> Dict[str, Any]:
+def html_block_translate_texts(
+    block: Dict[str, Any],
+    translated_by_original: Dict[str, str],
+    translated_queue: List[str],
+    *,
+    translated_by_node_index: Optional[Dict[int, str]] = None,
+) -> Dict[str, Any]:
     new_block = dict(block or {})
     html_text = new_block.get("html") or ""
     if not html_text or not BeautifulSoup:
         return new_block
     soup = BeautifulSoup(html_text, "html.parser")
     queue_index = 0
-    for text_node in _translatable_html_text_nodes(soup):
+    for node_index, text_node in enumerate(_translatable_html_text_nodes(soup)):
         original = _clean_inline_text(str(text_node))
         if not original:
             continue
-        translated = translated_by_original.get(original)
-        if not translated and queue_index < len(translated_queue):
-            translated = translated_queue[queue_index]
-            queue_index += 1
+        if translated_by_node_index is not None:
+            translated = translated_by_node_index.get(node_index)
+        else:
+            translated = translated_by_original.get(original)
+            if not translated and queue_index < len(translated_queue):
+                translated = translated_queue[queue_index]
+                queue_index += 1
         if translated:
             _replace_with_safe_inline_translation(text_node, translated)
     new_block["html"] = str(soup)

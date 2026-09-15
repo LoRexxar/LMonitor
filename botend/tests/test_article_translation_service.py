@@ -229,6 +229,83 @@ class ArticleTranslationServiceTests(SimpleTestCase):
         self.assertIn("织法者之触", translated[0]["html"])
         self.assertEqual(translated[1]["text"], "瞄准射击")
 
+    def test_translate_content_blocks_keeps_html_nodes_aligned_when_one_translation_fails(self):
+        class MissingWorldcoreEngine(FakeEngine):
+            def send_message(self, prompt, *, max_tokens):
+                self.prompts.append((prompt, max_tokens))
+                batch = json.loads(prompt.split("输入JSON：\n", 1)[1])
+                translations = {
+                    "Full Summary": "完整摘要",
+                    "Story twist.": "剧情转折",
+                    "Transmog": "幻化",
+                    "Armor identity.": "护甲定位",
+                }
+                return json.dumps([
+                    "世界之核" if "WOWTERM" in text else translations[text]
+                    for text in batch
+                ], ensure_ascii=False)
+
+        glossary = WowNewsGlossary.from_pairs([("The Worldcore", "世界之核")])
+        svc = ArticleTranslationService(
+            engine=MissingWorldcoreEngine(),
+            glossary=glossary,
+            sleep_func=lambda _: None,
+        )
+        blocks = [{
+            "type": "html",
+            "html": (
+                "<h2>Full Summary</h2>"
+                "<strong>The Worldcore</strong><ul><li>Story twist.</li></ul>"
+                "<strong>Transmog</strong><ul><li>Armor identity.</li></ul>"
+            ),
+        }]
+
+        translated = svc.translate_content_blocks(blocks)
+        soup = BeautifulSoup(translated[0]["html"], "html.parser")
+
+        self.assertEqual(soup.find("strong").get_text(strip=True), "The Worldcore")
+        self.assertEqual(soup.find("li").get_text(strip=True), "剧情转折")
+        self.assertEqual(soup.find_all("strong")[1].get_text(strip=True), "幻化")
+        self.assertEqual(soup.find_all("li")[1].get_text(strip=True), "护甲定位")
+
+    def test_translate_content_blocks_does_not_split_when_engine_is_unavailable(self):
+        engine = FakeEngine([])
+        svc = ArticleTranslationService(engine=engine, sleep_func=lambda _: None)
+        source_html = (
+            "<h2>Full Summary</h2>"
+            "<strong>The Worldcore</strong><ul><li>Story twist.</li></ul>"
+            "<strong>Transmog</strong><ul><li>Armor identity.</li></ul>"
+        )
+
+        translated = svc.translate_content_blocks([{"type": "html", "html": source_html}])
+
+        self.assertEqual(
+            BeautifulSoup(translated[0]["html"], "html.parser").get_text("|", strip=True),
+            BeautifulSoup(source_html, "html.parser").get_text("|", strip=True),
+        )
+        self.assertEqual(len(engine.prompts), 3)
+
+    def test_translate_content_blocks_keeps_valid_items_from_partial_aligned_response(self):
+        engine = FakeEngine([
+            json.dumps(["完整摘要", "", "剧情转折", "幻化", "护甲定位"], ensure_ascii=False),
+        ])
+        svc = ArticleTranslationService(engine=engine, sleep_func=lambda _: None)
+        source_html = (
+            "<h2>Full Summary</h2>"
+            "<strong>The Worldcore</strong><ul><li>Story twist.</li></ul>"
+            "<strong>Transmog</strong><ul><li>Armor identity.</li></ul>"
+        )
+
+        translated = svc.translate_content_blocks([{"type": "html", "html": source_html}])
+        soup = BeautifulSoup(translated[0]["html"], "html.parser")
+
+        self.assertEqual(soup.find("h2").get_text(strip=True), "完整摘要")
+        self.assertEqual(soup.find("strong").get_text(strip=True), "The Worldcore")
+        self.assertEqual(soup.find("li").get_text(strip=True), "剧情转折")
+        self.assertEqual(soup.find_all("strong")[1].get_text(strip=True), "幻化")
+        self.assertEqual(soup.find_all("li")[1].get_text(strip=True), "护甲定位")
+        self.assertEqual(len(engine.prompts), 3)
+
     def test_translate_content_blocks_preserves_structure(self):
         blocks = [
             {"type": "heading", "text": "Classes", "level": 2},

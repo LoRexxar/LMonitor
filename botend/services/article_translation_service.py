@@ -255,13 +255,12 @@ class ArticleTranslationService:
         if not text_items:
             return source_blocks
 
-        translated_by_index = {}
+        translated_by_index: Dict[int, str] = {}
         i = 0
         while i < len(text_items):
             batch = []
             batch_indexes = []
             total = 0
-            batch_start = i  # 记录批次起始位置，用于重试
             while i < len(text_items) and len(batch) < 10:
                 item_index, _block_index, text = text_items[i]
                 if batch and (total + len(text) > 4000):
@@ -272,58 +271,10 @@ class ArticleTranslationService:
                 i += 1
 
             protected_batch = [glossary.protect(text) for text in batch]
-            # 重试逻辑：最多 3 次
-            translated_list = None
-            result = None
-            for attempt in range(3):
-                prompt = self._translation_prompt([protected.text for protected in protected_batch])
-                result = self.engine.send_message(prompt, max_tokens=5000)
-                if not result:
-                    if attempt < 2:
-                        self.sleep_func(1)
-                        continue
-                    break
-
-                try:
-                    translated_list = json.loads(result)
-                    if (
-                        isinstance(translated_list, list)
-                        and len(translated_list) >= len(batch)
-                        and all(
-                            isinstance(translated_list[index], str)
-                            and protected_batch[index].is_intact(translated_list[index])
-                            for index in range(len(batch))
-                        )
-                    ):
-                        break  # 成功
-                    translated_list = None  # 长度不匹配，重试
-                except Exception:
-                    translated_list = None
-
-                if translated_list is None and attempt < 2:
-                    # 可能是截断：用更小的 batch 重试
-                    if len(batch) > 3:
-                        # 拆半重试
-                        i = batch_start + len(batch) // 2
-                        batch = batch[:len(batch) // 2]
-                        batch_indexes = batch_indexes[:len(batch)]
-                        protected_batch = protected_batch[:len(batch)]
-                        total = sum(len(t) for t in batch)
-                    self.sleep_func(1)
-
-            if not isinstance(translated_list, list):
-                # fallback: 按行分割
-                translated_list = [t.strip() for t in (result or "").splitlines() if t.strip()]
-
-            for j, block_index in enumerate(batch_indexes):
-                if (
-                    j < len(translated_list)
-                    and isinstance(translated_list[j], str)
-                    and protected_batch[j].is_intact(translated_list[j])
-                ):
-                    translated = glossary.restore(translated_list[j].strip(), protected_batch[j].replacements)
-                    if translated:
-                        translated_by_index[block_index] = translated
+            translated_list = self._translate_protected_batch(protected_batch, glossary=glossary)
+            for item_index, translated in zip(batch_indexes, translated_list):
+                if translated:
+                    translated_by_index[item_index] = translated
 
             self.sleep_func(0.6)
 
@@ -331,8 +282,19 @@ class ArticleTranslationService:
         for index, block in enumerate(source_blocks):
             new_block = dict(block)
             if block.get("type") == "html":
-                translations = [translated_by_index[item_index] for item_index, _block_index, _text in text_items if _block_index == index and item_index in translated_by_index]
-                new_block = html_block_translate_texts(block, {}, translations)
+                translations_by_node_index = {
+                    node_index: translated_by_index[item_index]
+                    for node_index, (item_index, _block_index, _text) in enumerate(
+                        item for item in text_items if item[1] == index
+                    )
+                    if item_index in translated_by_index
+                }
+                new_block = html_block_translate_texts(
+                    block,
+                    {},
+                    [],
+                    translated_by_node_index=translations_by_node_index,
+                )
             else:
                 translated = next(
                     (
@@ -347,6 +309,82 @@ class ArticleTranslationService:
                     new_block["text"] = translated
             result_blocks.append(new_block)
         return result_blocks
+
+    def _translate_protected_batch(
+        self,
+        protected_batch,
+        *,
+        glossary: WowNewsGlossary,
+        request_budget: Optional[List[int]] = None,
+    ) -> List[Optional[str]]:
+        """Translate a batch while preserving indexes and bounding retries."""
+        if not protected_batch:
+            return []
+        if request_budget is None:
+            request_budget = [12]
+        translated: List[Optional[str]] = [None] * len(protected_batch)
+        pending_indexes = list(range(len(protected_batch)))
+        received_result = False
+        received_aligned_result = False
+
+        for attempt in range(3):
+            if not pending_indexes or request_budget[0] <= 0:
+                break
+            pending_batch = [protected_batch[index] for index in pending_indexes]
+            request_budget[0] -= 1
+            try:
+                result = self.engine.send_message(
+                    self._translation_prompt([protected.text for protected in pending_batch]),
+                    max_tokens=5000,
+                )
+                if result:
+                    received_result = True
+                parsed = json.loads(result)
+            except Exception:
+                parsed = None
+
+            if isinstance(parsed, list) and len(parsed) == len(pending_batch):
+                received_aligned_result = True
+                unresolved_indexes = []
+                for response_index, original_index in enumerate(pending_indexes):
+                    value = parsed[response_index]
+                    protected = protected_batch[original_index]
+                    if isinstance(value, str):
+                        value = value.strip()
+                    else:
+                        value = ""
+                    if value and protected.is_intact(value):
+                        restored = glossary.restore(value, protected.replacements).strip()
+                        if restored:
+                            translated[original_index] = restored
+                            continue
+                    unresolved_indexes.append(original_index)
+                pending_indexes = unresolved_indexes
+                if not pending_indexes:
+                    return translated
+
+            if attempt < 2 and request_budget[0] > 0:
+                self.sleep_func(1)
+
+        if (
+            not pending_indexes
+            or received_aligned_result
+            or not received_result
+            or len(pending_indexes) == 1
+            or request_budget[0] <= 0
+        ):
+            return translated
+
+        split_at = max(1, len(pending_indexes) // 2)
+        for indexes in (pending_indexes[:split_at], pending_indexes[split_at:]):
+            batch_result = self._translate_protected_batch(
+                [protected_batch[index] for index in indexes],
+                glossary=glossary,
+                request_budget=request_budget,
+            )
+            for original_index, value in zip(indexes, batch_result):
+                translated[original_index] = value
+        return translated
 
     def _block_text_items(self, blocks: List[Dict[str, Any]]) -> List[Any]:
         text_items = []

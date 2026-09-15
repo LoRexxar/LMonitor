@@ -13,6 +13,13 @@
         .article-content { line-height: 1.8; overflow-x: auto; }
         .article-content p { margin-bottom: 1rem; }
         .article-content h2 { margin: 1.6rem 0 0.75rem; font-size: 1.15rem; font-weight: 700; color: #0f172a; }
+        .article-content[data-source="wowhead"] .article-subheading {
+            display: block;
+            margin: 1.25rem 0 0.4rem;
+            font-size: 1rem;
+            line-height: 1.5rem;
+        }
+        .article-content[data-source="wowhead"] h2 + .article-subheading { margin-top: 0.75rem; }
         .article-content blockquote { margin: 1rem 0; padding: 0.75rem 1rem; border-left: 3px solid #818cf8; background: #f8fafc; color: #334155; }
         .article-content ul, .article-content ol { margin: 0 0 1rem 1.25rem; padding-left: 0.5rem; }
         .article-content ul { list-style: disc; }
@@ -137,6 +144,15 @@
             return template.innerHTML;
         }
 
+        function markArticleSubheadings(root, sourceKey) {
+            if (sourceKey !== 'wowhead') return;
+            root.querySelectorAll('.article-content strong, .article-content b').forEach(label => {
+                const list = label.nextElementSibling;
+                if (!list || !['UL', 'OL'].includes(list.tagName) || label.closest('li')) return;
+                label.classList.add('article-subheading');
+            });
+        }
+
         function renderLegacyTranslation(pairs) {
             if (!Array.isArray(pairs)) return '';
             return pairs.map(pair => `
@@ -179,6 +195,9 @@
                     'blizzard_cn': '暴雪中国',
                     'nga': 'NGA'
                 };
+                const sourceKey = Object.prototype.hasOwnProperty.call(sourceNames, article.source)
+                    ? article.source
+                    : 'other';
                 const sourceName = sourceNames[article.source] || article.source;
                 const href = sanitizeHref(article.url);
 
@@ -202,10 +221,11 @@
                         </div>
                     </div>
                     <hr class="border-slate-200 mb-6">
-                    <div class="article-content text-sm">
+                    <div class="article-content text-sm" data-source="${sourceKey}">
                         ${contentHtml}
                     </div>
                 `;
+                markArticleSubheadings(container, sourceKey);
             } catch (e) {
                 container.innerHTML = '<div class="text-center text-red-500">加载失败：' + escapeHtml(e.message) + '</div>';
             }
