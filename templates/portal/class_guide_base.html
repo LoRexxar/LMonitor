@@ -11,7 +11,7 @@
 {% include 'portal/_header.html' %}
 <a class="cg-skip" href="#cg-main">跳到正文</a>
 {% block content %}{% endblock %}
-<footer class="cg-footer"><a href="/portal/class-guides/">WowDaily 职业攻略</a><span>中文内容持续维护 · 来源 Maxroll</span><a href="/dashboard/?section=class-guides{% if guide %}&amp;guide={{ guide.id }}{% endif %}">{% if guide %}编辑攻略{% else %}管理攻略{% endif %}</a></footer>
+<footer class="cg-footer"><a href="/portal/class-guides/">WowDaily 职业攻略</a><span>中文内容持续维护 · 来源 Maxroll</span>{% if can_manage_guides %}<a href="/dashboard/?section=class-guides{% if guide %}&amp;guide={{ guide.id }}{% endif %}">{% if guide %}编辑攻略{% else %}管理攻略{% endif %}</a>{% endif %}</footer>
 <script src="{% static 'dashboard/js/class_guide_reader.js' %}" defer></script>
 <script src="{% static 'portal/js/class-guides.js' %}?v=20260908_1" defer></script>
 <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260911_class_guides" defer></script>

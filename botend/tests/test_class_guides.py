@@ -112,7 +112,7 @@ class GuideFlowTests(TestCase):
         self.assertEqual(refs['[[item:91003]]']['tooltip_text'], '物品表中文描述')
         self.assertEqual(refs['[[item:91003]]']['tooltip_source'], 'item_snapshot')
 
-    def test_item_reference_variant_uses_complete_shared_equipment_tooltip(self):
+    def test_item_reference_variant_preserves_stats_effects_and_description(self):
         version, _ = WowTalentVersion.objects.update_or_create(
             key='retail', defaults={
                 'major_version': '12.1.0', 'branch': 'retail',
@@ -131,7 +131,7 @@ class GuideFlowTests(TestCase):
         )
         item = WowItemSnapshot.objects.create(
             item_id=158368, name="Sethraliss' Defiled Relic", name_zh='塞塔里斯的亵渎遗物',
-            description_zh='不得代替具体变体的基础描述。', icon='inv_trinket_80_titan02c',
+            description_zh='这件遗物残留着古老的气息。', icon='inv_trinket_80_titan02c',
             catalog_type='equipment', slot_key='trinket', inventory_type=12,
         )
         WowItemVariantSnapshot.objects.create(
@@ -151,9 +151,10 @@ class GuideFlowTests(TestCase):
         rendered = BeautifulSoup(render_references(token, refs), 'html.parser')
         trigger = rendered.select_one('.guide-ref[data-wow-item-tooltip]')
 
+        # 普通描述与变体特效同时保留，装等、属性和特效仍必须来自具体变体。
         self.assertEqual(
             refs[token]['tooltip_text'],
-            '物品等级 334\n+179 智力\n+655 急速\n+592 全能\n使用：用腐烂伤口诅咒目标。',
+            '物品等级 334\n+179 智力\n+655 急速\n+592 全能\n使用：用腐烂伤口诅咒目标。\n这件遗物残留着古老的气息。',
         )
         self.assertEqual(refs[token]['tooltip_source'], 'item_variant_snapshot')
         self.assertIsNotNone(trigger)
@@ -638,15 +639,21 @@ class GuideFlowTests(TestCase):
                 sync_guides()
             client.assert_not_called()
 
-    def test_permissions_and_no_public_route(self):
+    def test_management_permissions_remain_required(self):
         anonymous = Client()
         for url in ['/dashboard/class-guides/', '/api/dashboard/class-guides/',
                     f'/dashboard/class-guides/{self.guide.id}/preview/']:
             self.assertEqual(anonymous.get(url).status_code, 403, url)
-        self.assertEqual(anonymous.get('/portal/class-guides/').status_code, 403)
         plain = get_user_model().objects.create_user(username='guide_reader')
         anonymous.force_login(plain)
-        self.assertEqual(anonymous.get('/api/dashboard/class-guides/').status_code, 403)
+        for url in ['/dashboard/class-guides/', '/api/dashboard/class-guides/',
+                    f'/api/dashboard/class-guides/{self.guide.id}/',
+                    f'/dashboard/class-guides/{self.guide.id}/preview/']:
+            self.assertEqual(anonymous.get(url).status_code, 403, url)
+        for method in ('post', 'patch', 'delete'):
+            response = getattr(anonymous, method)(f'/api/dashboard/class-guides/{self.guide.id}/',
+                                                   data='{}', content_type='application/json')
+            self.assertEqual(response.status_code, 403)
 
     def test_csrf_required_for_mutation(self):
         client = Client(enforce_csrf_checks=True); client.force_login(self.user)
@@ -816,22 +823,35 @@ class GuideFlowTests(TestCase):
         self.assertEqual(page['Cache-Control'], 'private, no-store')
         self.assertEqual(page['X-Robots-Tag'], 'noindex, nofollow')
 
-    def test_portal_guides_require_editor_permission_and_hide_archived(self):
+    def test_portal_guides_allow_readers_and_hide_archived(self):
         catalog = '/portal/class-guides/'
         article = f'{catalog}{self.guide.id}/'
-        for url in (catalog, article):
-            response = Client().get(url)
-            self.assertEqual(response.status_code, 403)
-            self.assertEqual(response['Cache-Control'], 'private, no-store')
+        anonymous = Client()
+        reader = Client()
+        reader.force_login(get_user_model().objects.create_user(username='portal_guide_reader'))
+        for client in (anonymous, reader):
+            for url in (catalog, article):
+                response = client.get(url)
+                self.assertContains(response, self.guide.title)
+                self.assertEqual(response['Cache-Control'], 'private, no-store')
+                self.assertNotContains(response, '/dashboard/?section=class-guides')
+            self.assertEqual(client.post(article).status_code, 405)
         page = self.client.get(catalog)
         self.assertContains(page, article)
         self.assertTemplateUsed(page, 'portal/class_guides.html')
         self.assertContains(page, 'data-spec="62"')
         self.assertContains(page, 'data-cg-tag="团本"')
+        self.assertContains(page, '/dashboard/?section=class-guides')
         self.guide.archived = True
         self.guide.save(update_fields=['archived'])
-        self.assertNotContains(self.client.get(catalog), article)
-        self.assertEqual(self.client.get(article).status_code, 404)
+        visible = ClassGuide.objects.create(title='仍可阅读的同专精攻略', slug='visible-guide', spec_id=62,
+                                            game_version='current', content_markdown='公开正文')
+        for client in (anonymous, reader, self.client):
+            self.assertNotContains(client.get(catalog), article)
+            self.assertEqual(client.get(article).status_code, 404)
+            related = client.get(f'{catalog}{visible.pk}/')
+            self.assertContains(related, '公开正文')
+            self.assertNotContains(related, article)
 
     def test_portal_article_uses_whole_markdown_and_shared_renderer(self):
         revision = save_article(self.guide.id, '中文整篇攻略', content_markdown='## 中文章节\n\n中文正文。\n\n:::details 补充说明\n隐藏说明\n:::\n', expected_updated_at=ClassGuide.objects.get(pk=self.guide.pk).updated_at)

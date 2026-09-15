@@ -9,7 +9,7 @@ from django.utils.dateparse import parse_date
 from django.views import View
 
 from botend.constants.wow import CLASS_CN, CLASS_COLOR, SPEC_ROLE, specialization_catalog
-from botend.dashboard.permissions import DashboardPermissionRequiredMixin
+from botend.dashboard.permissions import has_dashboard_permission
 from botend.guide_models import ClassGuide
 from botend.services.class_guide_content import safe_url, walk_blocks
 from botend.services.class_guide_markdown import compile_markdown
@@ -20,9 +20,7 @@ from botend.services.class_guide_authors import author_profile_for
 from botend.services.class_guide_tags import guide_disclaimers
 
 
-class GuidePreviewAccess(DashboardPermissionRequiredMixin):
-    dashboard_permission = 'content.class-guides'
-
+class PortalGuidePageMixin:
     def dispatch(self, request, *args, **kwargs):
         response = super().dispatch(request, *args, **kwargs)
         response['Cache-Control'] = 'private, no-store'
@@ -52,7 +50,7 @@ def catalog_rows(query):
     return rows
 
 
-class PortalClassGuideCatalogView(GuidePreviewAccess, View):
+class PortalClassGuideCatalogView(PortalGuidePageMixin, View):
     def get(self, request):
         rows = catalog_rows(ClassGuide.objects.filter(archived=False).order_by('class_name', 'spec_name', 'title'))
         classes = [{'key': key, 'label': label, 'color': CLASS_COLOR[key],
@@ -63,10 +61,11 @@ class PortalClassGuideCatalogView(GuidePreviewAccess, View):
             'tags': sorted({tag.name for row in rows for tag in row['tags']}),
             'roles': [('tank', '坦克'), ('healer', '治疗'), ('dps', '输出')],
             'title': '职业攻略',
+            'can_manage_guides': has_dashboard_permission(request.user, 'content.class-guides'),
         })
 
 
-class PortalClassGuideArticleView(GuidePreviewAccess, View):
+class PortalClassGuideArticleView(PortalGuidePageMixin, View):
     def get(self, request, guide_id):
         guide = get_object_or_404(ClassGuide.objects.prefetch_related('tags'), pk=guide_id, archived=False)
         checks = check_article(guide)
@@ -79,6 +78,7 @@ class PortalClassGuideArticleView(GuidePreviewAccess, View):
                          if b['type'] == 'gear' and b.get('data', {}).get('tool_url')), gear_tool_url({}, guide, {}))
         return render(request, 'portal/class_guide_article.html', {
             'title': guide.title, 'guide': guide, 'spec': spec,
+            'can_manage_guides': has_dashboard_permission(request.user, 'content.class-guides'),
             'author_profile': author_profile_for(guide),
             'disclaimers': guide_disclaimers(guide),
             'updated': article_updated(guide),
