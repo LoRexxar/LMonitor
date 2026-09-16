@@ -675,13 +675,23 @@ class JournalSourceTests(SimpleTestCase):
         self.assertFalse(class_matches(trinket, 1))
         self.assertTrue(class_matches(trinket, 0))
 
-    def test_missing_item_variant_never_fetches_wowhead(self):
+    def test_missing_item_variant_falls_back_to_wowhead(self):
+        """中央目录缺失的装备应回退到 Wowhead tooltip API 获取。"""
         from botend.services.journal_tooltip import tooltip
         with patch('botend.services.journal_tooltip.cached_tooltip', return_value=None), \
-                patch('botend.services.journal_tooltip.requests.Session') as session:
-            with self.assertRaisesRegex(ValueError, '中央装备目录缺少'):
-                tooltip('item', 250144, 1, '12.1.0.69587')
-        session.assert_not_called()
+                patch('botend.services.journal_tooltip.requests.Session') as mock_session:
+            mock_response = mock_session.return_value.__enter__.return_value.get.return_value
+            mock_response.status_code = 200
+            mock_response.json.return_value = {
+                'name': '测试物品',
+                'tooltip': '<table><tr><td>史诗<br>物品等级：289<br>+361 智力<br>+884 耐力</td></tr></table>',
+                'icon': 'inv_mace_1h_raidmidnight_d_02',
+            }
+            mock_response.raise_for_status = lambda: None
+            result = tooltip('item', 250144, 1, '12.1.0.69587')
+        self.assertEqual(result['name'], '测试物品')
+        self.assertIn('Wowhead', result['source'])
+        mock_session.assert_called_once()
 
     def test_localized_names_do_not_overwrite_current_item_properties(self):
         tables = fixture()

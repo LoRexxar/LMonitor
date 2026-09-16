@@ -33,25 +33,78 @@ def _local_item_tooltip(entry_id, build):
         'default_variant_order': 'lowest',
         'require_complete_variant': True,
     }])[0]
-    if not item['variant_id'] or not item['tooltip_complete']:
-        return None
     is_ptr = bool(item['variant_metadata'].get('ptr_preview'))
-    item_level = item['item_level']
+    # variant 完整时直接返回结构化数据
+    if item['variant_id'] and item['tooltip_complete']:
+        item_level = item['item_level']
+        return {
+            'name': item['display_name'],
+            'lines': [item['display_name'], f'物品等级 {item_level}', *item['stat_lines'], *item['effects']],
+            'source': 'LMonitor PTR DB2 + SimulationCraft' if is_ptr else 'LMonitor 装备目录',
+            'url': '',
+            'icon': item['icon_url'],
+            'note': (
+                f'数值为 PTR {build} 的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
+                if is_ptr else
+                f'数值为正式服 {build} 当前装备目录的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
+            ),
+            'item_level': item_level,
+            'stats': item['stat_lines'],
+            'effects': item['effects'],
+            'complete': True,
+        }
+    # variant 缺失时从 display_description（含静态属性说明前缀）解析属性
+    tooltip_text = item.get('display_description') or item.get('description_zh') or ''
+    if not tooltip_text or not item.get('display_name') or item.get('display_name', '').startswith('#'):
+        return None
+    lines = [l.strip() for l in tooltip_text.splitlines() if l.strip()]
+    stats = []
+    effects = []
+    item_level = None
+    for line in lines:
+        # 物品等级行
+        m = re.search(r'物品等级[：:]\s*(\d[\d,.]*)', line)
+        if m:
+            try:
+                item_level = int(m.group(1).replace(',', ''))
+            except ValueError:
+                pass
+            continue
+        # 装备/使用特效行
+        if re.match(r'^(装备[：:]|使用[:：])', line):
+            effects.append(line)
+            continue
+        # 静态属性说明：+NNN 属性（DB2 原始格式）
+        m = re.match(r'静态属性说明[：:]\s*\+\s*(\d[\d,.]*\s*\S+)', line)
+        if m:
+            stats.append('+' + m.group(1).strip())
+            continue
+        # +NNN 属性（Wowhead 格式，无前缀）
+        if re.match(r'\+\s*\d[\d,.]*\s', line) and '静态属性说明' not in line:
+            stats.append(re.sub(r'\+\s+', '+', line))
+            continue
+        # 独立副属性行（如 "54暴击" 前面有 "+"）
+        if re.fullmatch(r'\d+.{1,6}', line) and not re.search(r'(伤害|速度|耐久|等级|掉落|售价|护甲)', line):
+            if stats and stats[-1] == '+':
+                stats[-1] = '+' + line
+            continue
+        if line == '+':
+            stats.append(line)
+            continue
+    source_label = 'LMonitor PTR DB2 + SimulationCraft' if is_ptr else 'LMonitor 装备目录'
+    note_prefix = f'PTR {build}' if is_ptr else f'正式服 {build}'
+    note = f'{source_label} 基础事实，参考装等 {item_level or "未知"}。' if not stats else f'数值来自 {note_prefix} 装备目录描述文本。'
     return {
         'name': item['display_name'],
-        'lines': [item['display_name'], f'物品等级 {item_level}', *item['stat_lines'], *item['effects']],
-        'source': 'LMonitor PTR DB2 + SimulationCraft' if is_ptr else 'LMonitor 装备目录',
+        'lines': lines,
+        'source': source_label,
         'url': '',
         'icon': item['icon_url'],
-        'note': (
-            f'数值为 PTR {build} 的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
-            if is_ptr else
-            f'数值为正式服 {build} 当前装备目录的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
-        ),
+        'note': note,
         'item_level': item_level,
-        'stats': item['stat_lines'],
-        'effects': item['effects'],
-        'complete': True,
+        'stats': stats,
+        'effects': effects,
+        'complete': bool(stats or effects),
     }
 
 
