@@ -245,8 +245,13 @@ class JournalLocalTooltipTests(TestCase):
         self.assertIsNone(cached_tooltip('item', 281235, 14, '12.1.0.69814'))
 
     @patch('botend.services.journal_tooltip.requests.Session')
-    def test_missing_item_variant_never_falls_back_to_external_fetch(self, session):
-        with self.assertRaisesRegex(ValueError, '中央装备目录'):
-            tooltip('item', 999999, 14, '12.1.5.69594')
+    def test_missing_item_variant_falls_back_to_wowhead_fetch(self, mock_session_cls):
+        """中央目录缺失的装备应回退到 Wowhead tooltip API 获取。"""
+        mock_resp = mock_session_cls.return_value.__enter__.return_value.get.return_value
+        mock_resp.raise_for_status = lambda: None
+        mock_resp.json.return_value = {'name': 'Test Item', 'tooltip': '<div>测试装备</div>', 'icon': 'inv_misc_questionmark'}
 
-        session.assert_not_called()
+        result = tooltip('item', 999999, 14, '12.1.5.69594')
+
+        mock_session_cls.assert_called_once()
+        self.assertEqual(result['source'], 'Wowhead')
