@@ -1,13 +1,17 @@
 """统一投影装备名称、图标、属性、效果、来源与 Tooltip。"""
 from __future__ import annotations
 
+import re
+
 from django.db.models import Exists, OuterRef
 
 from botend.constants.wow import localize_gear_source
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
 from botend.templatetags.wow_tags import wow_icon_oss_url
 from botend.services.gear_builder_tier_sources import tier_set_sources
-from botend.services.wow_item_text import ENHANCEMENTS, separate_item_text
+from botend.services.wow_item_text import (
+    EFFECT_PREFIX, ENHANCEMENTS, STAT_NAMES, separate_item_text,
+)
 
 
 STAT_LABELS = {
@@ -19,6 +23,24 @@ STAT_LABELS = {
     'stragiint': '力量／敏捷／智力', 'agiint': '敏捷／智力',
     'stragi': '力量／敏捷', 'strint': '力量／智力',
 }
+LAYOUT_STAT_ALIASES = {
+    'bonus_armor': ('额外护甲', 'Bonus Armor'),
+    'weapon_dps': ('武器秒伤', 'Damage Per Second'),
+    'min_damage': ('最低伤害',),
+    'max_damage': ('最高伤害',),
+    'stragiint': ('力量', '敏捷', '智力', 'Strength', 'Agility', 'Intellect'),
+    'agiint': ('敏捷', '智力', 'Agility', 'Intellect'),
+    'stragi': ('力量', '敏捷', 'Strength', 'Agility'),
+    'strint': ('力量', '智力', 'Strength', 'Intellect'),
+}
+LAYOUT_STATIC_BOUNDARY = re.compile(
+    r'^(?:["“”‘’「『]|装备唯一|Unique-Equipped|拾取后绑定|Binds\b|'
+    r'史诗钥石|Mythic Keystone|升级\s*[:：]|Upgrade\s*[:：]|需要|Requires\b|'
+    r'耐久|Durability\b|售价|Sell Price\b|掉落于|Dropped by\b|'
+    r'来源\s*[:：]|Source\s*[:：]|职业\s*[:：]|Classes?\s*[:：]|'
+    r'种族\s*[:：]|Races?\s*[:：]|插槽|Socket\b)',
+    re.I,
+)
 EQUIPMENT_TYPES = {
     WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
     WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
@@ -153,19 +175,214 @@ def _source_text(source):
     )
 
 
-def _tooltip_text(*, item_level=0, stats=None, effects=None, sources=None, fallback=''):
+def _stat_alias_matches(line, keys):
+    folded = line.casefold()
+    matches = []
+    for key in keys:
+        aliases = (*STAT_NAMES.get(key, ()), *LAYOUT_STAT_ALIASES.get(key, ()))
+        lengths = [len(alias) for alias in aliases if alias.casefold() in folded]
+        if lengths:
+            matches.append((max(lengths), key))
+    return matches
+
+
+def _is_source_stat_row(line):
+    """Only standalone numeric stat rows qualify; prose mentioning stats does not."""
+    value = str(line or '').strip().strip('()[]')
+    if re.fullmatch(r'[\d,.]+\s*-\s*[\d,.]+\s*(?:damage|伤害)', value, re.I):
+        return True
+    if re.fullmatch(r'[\d,.]+\s*(?:damage per second|每秒伤害|武器秒伤)', value, re.I):
+        return True
+    match = re.fullmatch(r'\+?\s*[\d,.]+\s*(?:点\s*)?(?P<labels>.+)', value)
+    if not match:
+        return False
+    remainder = match.group('labels').strip().strip('()[]')
+    aliases = sorted(
+        {alias for names in (*STAT_NAMES.values(), *LAYOUT_STAT_ALIASES.values()) for alias in names},
+        key=len,
+        reverse=True,
+    )
+    for alias in aliases:
+        remainder = re.sub(re.escape(alias), '', remainder, flags=re.I)
+    remainder = re.sub(r'\b(?:or|and)\b|[\s或和与及、,/&+／]+', '', remainder, flags=re.I)
+    return not remainder
+
+
+def _source_stat_keys(line):
+    """Classify a source tooltip stat row independently of current variant values."""
+    if not _is_source_stat_row(line):
+        return []
+    folded = line.casefold()
+    if any(token in folded for token in ('damage per second', '每秒伤害', '武器秒伤')):
+        return ['weapon_dps']
+    if 'damage' in folded or '伤害' in line:
+        return ['min_damage', 'max_damage']
+    return [key for _length, key in _stat_alias_matches(line, (*STAT_NAMES, *LAYOUT_STAT_ALIASES))]
+
+
+def _layout_stat_keys(line, remaining_keys):
+    matches = _stat_alias_matches(line, remaining_keys)
+    if not matches:
+        return []
+    longest = max(length for length, _key in matches)
+    return [key for length, key in matches if length == longest]
+
+
+def _layout_text_shape(line):
+    value = re.sub(r'[\W\d_]+', '', str(line or '').casefold())
+    return re.sub(r'^(?:装备|使用|被动|效果|equip|use|passive|effect)', '', value)
+
+
+def _consume_layout_shape(shape_parts, line):
+    """Consume one source line across current effect shapes despite line-wrap differences."""
+    remaining = list(shape_parts)
+    source_shape = _layout_text_shape(line)
+    if not source_shape:
+        return None
+    while source_shape and remaining:
+        current_shape = remaining[0]
+        if current_shape.startswith(source_shape):
+            suffix = current_shape[len(source_shape):]
+            if suffix:
+                remaining[0] = suffix
+            else:
+                remaining.pop(0)
+            source_shape = ''
+        elif source_shape.startswith(current_shape):
+            source_shape = source_shape[len(current_shape):]
+            remaining.pop(0)
+        else:
+            return None
+    return remaining if not source_shape else None
+
+
+def _clean_layout_text(text, names=()):
+    """只清除目录噪声并保留槽位、类型、换行和原始布局顺序。"""
+    value = str(text or '').replace('\r\n', '\n').replace('\r', '\n')
+    value = re.sub(r'(?:物品等级|Item Level)\s*[:：]?\s*[\d,.]+', '', value, flags=re.I)
+    value = re.sub(
+        r'(?:最大叠加|最大堆叠|Max(?:imum)? Stack(?: Size)?)\s*[:：]?\s*[\d,]+',
+        '', value, flags=re.I,
+    )
+    value = re.sub(
+        r'(?:售价|Sell Price)\s*[:：]?\s*(?:[\d,.]+\s*(?:金币?|银币?|铜币?|gold|silver|copper)?\s*)+',
+        '', value, flags=re.I,
+    ).strip()
+    for name in filter(None, names):
+        value = re.sub(r'^' + re.escape(str(name)) + r'(?:\s+|$)', '', value).strip()
+    return value
+
+
+def _clean_layout_line(line):
+    value = str(line or '').strip()
+    if not value:
+        return ''
+    if re.fullmatch(r'(?:物品等级|Item Level)\s*[:：]?\s*[\d,.]+', value, re.I):
+        return ''
+    if re.fullmatch(
+        r'(?:售价|Sell Price)\s*[:：]?\s*(?:[\d,.]+\s*(?:金币?|银币?|铜币?|gold|silver|copper)?\s*)+',
+        value,
+        re.I,
+    ):
+        return ''
+    return value
+
+
+def _layout_detail_lines(layout, stats, effect_groups, fallback):
+    """Replace source stat/effect rows in place, retaining per-item tooltip order."""
+    normalized_stats = _normalize_stats(stats)
+    remaining_keys = list(normalized_stats)
+    ordered_stat_keys = []
+    rows = []
+    effect_index = 0
+    pending_effect_shapes = []
+    in_source_effect_block = False
+    last_effect_index = None
+    last_stat_index = None
+
+    raw_layout = str(layout or '').replace('\r\n', '\n').replace('\r', '\n')
+    layout_lines = raw_layout.split('\n') if raw_layout.strip() else []
+    for raw_line in layout_lines:
+        line = _clean_layout_line(raw_line)
+        if not line:
+            if in_source_effect_block and not str(raw_line or '').strip():
+                in_source_effect_block = False
+                pending_effect_shapes = []
+            continue
+        if pending_effect_shapes:
+            consumed_shapes = _consume_layout_shape(pending_effect_shapes, line)
+            if consumed_shapes is not None:
+                pending_effect_shapes = consumed_shapes
+                continue
+            pending_effect_shapes = []
+        if EFFECT_PREFIX.match(line):
+            if effect_index < len(effect_groups):
+                group = effect_groups[effect_index]
+                rows.extend(group)
+                group_shapes = [shape for shape in map(_layout_text_shape, group) if shape]
+                consumed_shapes = _consume_layout_shape(group_shapes, line)
+                pending_effect_shapes = (
+                    consumed_shapes if consumed_shapes is not None else group_shapes[1:]
+                )
+                last_effect_index = len(rows)
+                effect_index += 1
+            in_source_effect_block = True
+            continue
+        if in_source_effect_block:
+            if not (_is_source_stat_row(line) or LAYOUT_STATIC_BOUNDARY.match(line)):
+                continue
+            in_source_effect_block = False
+        source_keys = _source_stat_keys(line)
+        if source_keys:
+            for key in _layout_stat_keys(line, remaining_keys):
+                rows.append(f'+{_format_number(normalized_stats[key])} {STAT_LABELS.get(key, key)}')
+                remaining_keys.remove(key)
+                ordered_stat_keys.append(key)
+            last_stat_index = len(rows)
+            continue
+        rows.append(line)
+
+    remaining_stat_lines = [
+        f'+{_format_number(normalized_stats[key])} {STAT_LABELS.get(key, key)}'
+        for key in remaining_keys
+    ]
+    if remaining_stat_lines:
+        insert_at = last_stat_index if last_stat_index is not None else 0
+        rows[insert_at:insert_at] = remaining_stat_lines
+        ordered_stat_keys.extend(remaining_keys)
+        if last_effect_index is not None and insert_at <= last_effect_index:
+            last_effect_index += len(remaining_stat_lines)
+        last_stat_index = insert_at + len(remaining_stat_lines)
+
+    remaining_effect_lines = [
+        line
+        for group in effect_groups[effect_index:]
+        for line in group
+    ]
+    if remaining_effect_lines:
+        insert_at = last_effect_index if last_effect_index is not None else (last_stat_index or 0)
+        rows[insert_at:insert_at] = remaining_effect_lines
+
+    if not layout_lines and fallback:
+        rows.extend(
+            line.strip()
+            for line in str(fallback).replace('\r\n', '\n').replace('\r', '\n').split('\n')
+            if line.strip()
+        )
+    return rows, ordered_stat_keys
+
+
+def _tooltip_text(*, item_level=0, stats=None, effects=None, sources=None, fallback='', layout=''):
     lines = []
     if _positive_int(item_level):
         lines.append(f'物品等级 {_positive_int(item_level)}')
-    for key, value in _normalize_stats(stats).items():
-        lines.append(f'+{_format_number(value)} {STAT_LABELS.get(key, key)}')
-    effect_lines = []
-    for effect in _rows(effects):
-        effect_lines.extend(line.strip() for line in _effect_text(effect).replace('\r\n', '\n').split('\n') if line.strip())
-    if effect_lines:
-        lines.extend(effect_lines)
-    if fallback:
-        lines.extend(line.strip() for line in str(fallback).replace('\r\n', '\n').split('\n') if line.strip())
+    effect_groups = [
+        [line.strip() for line in re.split(r'\n|\s+·\s+', _effect_text(effect).replace('\r\n', '\n')) if line.strip()]
+        for effect in _rows(effects)
+    ]
+    effect_groups = [group for group in effect_groups if group]
+    detail_lines, _ordered_stat_keys = _layout_detail_lines(layout, stats, effect_groups, fallback)
+    lines.extend(detail_lines)
     source_lines = []
     for source in _rows(sources):
         text = _source_text(source)
@@ -183,6 +400,7 @@ def item_display_metadata(
 ):
     """返回三个装备入口共同消费的稳定展示契约。"""
     normalized_id = _positive_int(item_id) or None
+    has_structured_projection = variant is not None or stats is not None or effects is not None
     if variant is not None:
         item_level = _positive_int(item_level) or _positive_int(variant.item_level)
         stats = variant.stats_json if stats is None else stats
@@ -213,20 +431,31 @@ def item_display_metadata(
         primary_value = primary_values.get(primary_stat) or variant_metadata.get('primary_stat_amount')
         if _number(primary_value):
             normalized_stats[primary_stat] = _number(primary_value)
+    tooltip_layout = _clean_layout_text(
+        description_zh.strip() or description.strip(),
+        (name, name_zh),
+    )
     separated = separate_item_text(
         description=description, description_zh=description_zh, effects=_rows(effects),
         stats=normalized_stats, metadata=variant_metadata, names=(name, name_zh),
         enhancement=bool(snapshot and snapshot.catalog_type in ENHANCEMENTS),
-        recover_description_effects=variant is None or bool(snapshot and snapshot.catalog_type in ENHANCEMENTS),
+        recover_description_effects=(
+            not has_structured_projection
+            or bool(snapshot and snapshot.catalog_type in ENHANCEMENTS)
+        ),
     )
     description, description_zh = separated['description'], separated['description_zh']
     normalized_effects = [text for text in (_effect_text(row) for row in separated['effects']) if text]
     normalized_sources = [text for text in (_source_text(row) for row in _rows(sources)) if text]
-    stat_lines = [
-        f'+{_format_number(value)} {STAT_LABELS.get(key, key)}'
-        for key, value in normalized_stats.items()
-    ]
     base_description = description_zh.strip() or description.strip()
+    projection_layout = tooltip_layout if has_structured_projection else ''
+    _layout_rows, ordered_stat_keys = _layout_detail_lines(
+        projection_layout, normalized_stats, [], base_description,
+    )
+    stat_lines = [
+        f'+{_format_number(normalized_stats[key])} {STAT_LABELS.get(key, key)}'
+        for key in ordered_stat_keys
+    ]
     snapshot_metadata = snapshot.metadata if snapshot and isinstance(snapshot.metadata, dict) else {}
     expects_effect = bool(
         snapshot and (
@@ -242,6 +471,7 @@ def item_display_metadata(
         effects=normalized_effects,
         sources=sources,
         fallback=base_description,
+        layout=projection_layout,
     )
     return {
         "id": normalized_id,
