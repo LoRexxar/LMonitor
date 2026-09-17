@@ -59,6 +59,23 @@ class SharedNameTests(TestCase):
             '迪詹崔乌斯 and Blizzard',
         )
 
+    def test_ptr_news_reuses_global_verified_phrase_from_retail_reference_version(self):
+        WowTalentVersion.objects.create(
+            key='ptr-12.2', major_version='12.2', branch='ptr',
+            current_build='12.2.0.456', is_active=True,
+        )
+        write_name(dict(game_version='12.1', kind='phrase', object_id=1,
+            name_en='Degentrius', name_zh='迪詹崔乌斯', icon='',
+            evidence='新闻译名官方证据：JournalEncounter ID 2662'))
+
+        glossary = WowNewsGlossary.from_shared_localization('PTR testing includes Degentrius.')
+        protected = glossary.protect('PTR testing includes Degentrius.')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            'PTR testing includes 迪詹崔乌斯.',
+        )
+
     def test_news_glossary_derives_source_plural_and_dropped_article_aliases(self):
         write_name(dict(game_version='12.1', kind='phrase', object_id=1,
             name_en='The Stonecore', name_zh='巨石之核', icon='',

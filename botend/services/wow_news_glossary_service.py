@@ -357,18 +357,34 @@ class WowNewsGlossary:
 
     @classmethod
     def from_shared_localization(cls, source_text):
-        """读取同版本共享名称；不复制名称、不发起额外抓取。"""
+        """读取当前分支共享名称，并为 PTR 复用正式服全局专名。"""
         from botend.models import WowTalentVersion
-        from botend.services.wow_localization import effective_names
+        from botend.services.wow_localization import current_reference_version, effective_names
         branch = 'ptr' if re.search(r'\bptr\b|public test realm', source_text, re.I) else 'retail'
         version = WowTalentVersion.objects.filter(branch=branch, is_active=True).order_by('-is_default_player_tree', '-id').first()
         if not version:
             return cls.empty()
-        label = version.major_version or version.key
-        if re.fullmatch(r'\d+\.\d+\.0', label):
-            label = label[:-2]
-        rows = [r for r in effective_names(label, source_text=source_text)
-                if r['kind'] != 'macro' and _contains_english_term(source_text, r['name_en'])]
+
+        sources: list[tuple[str, str | None]] = [(version.key, None)]
+        reference = current_reference_version() if branch == 'ptr' else None
+        if reference and reference.pk != version.pk:
+            # phrase 是跨分支的官方专名；复用正式服中央记录，不能为 PTR 复制一份。
+            sources.append((reference.key, 'phrase'))
+
+        rows = []
+        seen = set()
+        for version_key, required_kind in sources:
+            for row in effective_names(version_key, source_text=source_text):
+                if row['kind'] == 'macro' or (required_kind and row['kind'] != required_kind):
+                    continue
+                if not _contains_english_term(source_text, row['name_en']):
+                    continue
+                key = (row['kind'], str(row['name_en']).casefold())
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+
         pairs = []
         trusted = []
         for row in rows:
