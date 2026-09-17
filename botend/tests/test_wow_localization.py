@@ -43,6 +43,39 @@ class SharedNameTests(TestCase):
         node.name_zh = '统一更正'; node.save(update_fields=['name_zh'])
         self.assertEqual(resolve_references(blocks, '12.1', 'mage', 'arcane')['[[talent:900]]']['name'], '统一更正')
 
+    def test_news_glossary_trusts_only_explicitly_verified_single_word_phrases(self):
+        write_name(dict(game_version='12.1', kind='phrase', object_id=1,
+            name_en='Degentrius', name_zh='迪詹崔乌斯', icon='',
+            evidence='新闻译名官方证据：JournalEncounter ID 2662'))
+        write_name(dict(game_version='12.1', kind='phrase', object_id=2,
+            name_en='Blizzard', name_zh='暴风雪', icon='',
+            evidence='攻略宏完整技能名称匹配；客户端快照'))
+
+        glossary = WowNewsGlossary.from_shared_localization('Degentrius and Blizzard')
+        protected = glossary.protect('Degentrius and Blizzard')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            '迪詹崔乌斯 and Blizzard',
+        )
+
+    def test_news_glossary_derives_source_plural_and_dropped_article_aliases(self):
+        write_name(dict(game_version='12.1', kind='phrase', object_id=1,
+            name_en='The Stonecore', name_zh='巨石之核', icon='',
+            evidence='新闻译名官方证据：JournalInstance ID 67'))
+        write_name(dict(game_version='12.1', kind='phrase', object_id=2,
+            name_en='Dark Acolyte', name_zh='黑暗侍僧', icon='',
+            evidence='新闻译名官方证据：Creature ID 87869'))
+
+        source = 'Stonecore updates Dark Acolytes.'
+        glossary = WowNewsGlossary.from_shared_localization(source)
+        protected = glossary.protect(source)
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            '巨石之核 updates 黑暗侍僧.',
+        )
+
     def test_explicit_talent_id_resolves_without_class_or_specialization_scope(self):
         WowTalentNodeMetadata.objects.create(
             talent_version=self.version, class_name='Warrior', spec_name='Arms',
