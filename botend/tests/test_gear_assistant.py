@@ -305,5 +305,6 @@ class GearAssistantFrontendContractTests(TestCase):
             self.assertIn(value, script)
         self.assertIn('lock_gems', script)
         self.assertIn('lock_enchants', script)
+        self.assertIn('els.explanation.textContent = `未生成方案：${error.message}`;', script)
         self.assertIn('owned_equipment', builder)
         self.assertIn('wowdaily:gear-assistant:draft:v1', builder)
