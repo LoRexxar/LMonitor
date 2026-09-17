@@ -461,6 +461,7 @@
 .gear-applied-chip button { border: 0; background: transparent; color: var(--gear-red); cursor: pointer; }
 .gear-detail-effects { padding: 13px 0; }
 .gear-effect-line { margin-top: 7px; color: var(--gear-gold); font-size: .7rem; line-height: 1.55; }
+.gear-detail-description { white-space: pre-line; overflow-wrap: anywhere; }
 .gear-detail-actions { display: flex; gap: 8px; padding-top: 10px; }
 .gear-detail-actions .gear-btn { flex: 1; }
 .gear-icon-btn { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 7px; font-size: 1.1rem; }

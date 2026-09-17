@@ -1500,6 +1500,15 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('return canonicalTooltip;', branch)
         self.assertNotIn('sortTooltipStats(canonicalTooltip)', branch)
 
+    def test_detail_description_preserves_source_line_breaks(self):
+        root = Path(__file__).resolve().parents[2]
+        script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
+        styles = (root / 'static/portal/css/gear_builder.css').read_text(encoding='utf-8')
+        detail = script[script.index('function renderDetail()'):script.index('function craftingFields(entry)')]
+
+        self.assertIn('class="gear-effect-line gear-detail-description"', detail)
+        self.assertRegex(styles, r'\.gear-detail-description\s*\{[^}]*white-space:\s*pre-line;')
+
     def test_shared_header_and_frontend_contract(self):
         root = Path(__file__).resolve().parents[2]
         header = (root / 'templates/portal/_header.html').read_text(encoding='utf-8')
@@ -1538,7 +1547,7 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
-        self.assertIn("portal/css/gear_builder.css' %}?v=20260914_text_separation", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20260917_detail_line_breaks", template)
         for value in ('gear-owned-add-icon', 'gear-owned-add-label', 'is-saving', 'is-added', '再次点击会增加数量'):
             self.assertIn(value, script)
         self.assertIn('.gear-owned-add:focus-visible', styles)
