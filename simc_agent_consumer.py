@@ -206,6 +206,19 @@ class APIError(RuntimeError):
         super().__init__(message)
 
 
+class RunCancelled(APIError):
+    """控制端已明确确认 Run 取消，必须停止上传和回传。"""
+
+
+def _raise_if_run_cancelled(exc: APIError) -> None:
+    # 兼容旧控制端的明确错误文案；不能把普通 409 或其他 4xx 当作取消。
+    if exc.status == 409 and (
+        exc.details.get('code') == 'run_cancelled'
+        or exc.details.get('error') == 'Run was cancelled'
+    ):
+        raise RunCancelled('Run was cancelled', 409, exc.details) from exc
+
+
 def _is_transient_control_plane_error(exc: Exception) -> bool:
     """Return whether an API failure is safe to retry without changing state."""
     return isinstance(exc, APIError) and (exc.status is None or 500 <= exc.status < 600)
@@ -1363,6 +1376,9 @@ class SimcAgentConsumer:
                     report = self._upload_report(
                         run_id, metadata['lease_token'], report_bytes, report_name,
                     )
+                except RunCancelled:
+                    self._discard_cancelled_completion(run_id, path)
+                    continue
                 except Exception as exc:
                     self.logger.warning('completion outbox report upload still pending for Run %s: %s', run_id, exc)
                     delivered = False
@@ -1375,13 +1391,23 @@ class SimcAgentConsumer:
                 self._save_completion_outbox(
                     run_id, metadata, report_name=report_name, report_bytes=report_bytes,
                 )
-            if not self._completion_json(run_id, metadata):
+            try:
+                acknowledged = self._completion_json(run_id, metadata)
+            except RunCancelled:
+                self._discard_cancelled_completion(run_id, path)
+                continue
+            if not acknowledged:
                 self.logger.warning('completion outbox delivery still pending for Run %s', run_id)
                 delivered = False
                 continue
             path.unlink()
             self.logger.info('delivered completion outbox entry for Run %s', run_id)
         return delivered
+
+    def _discard_cancelled_completion(self, run_id: int, path: Path) -> None:
+        path.unlink()
+        _fsync_directory(self.completion_outbox_path)
+        self.logger.info('Run %s 已取消，已移除本地 outbox 并停止回传', run_id)
 
     def _completion_json(self, run_id: int, metadata: dict[str, Any]) -> bool:
         for attempt in range(COMPLETION_ATTEMPTS):
@@ -1392,8 +1418,11 @@ class SimcAgentConsumer:
                 )
                 return True
             except Exception as exc:
+                if isinstance(exc, APIError):
+                    _raise_if_run_cancelled(exc)
                 if (isinstance(exc, APIError) and exc.status is not None
                         and 400 <= exc.status < 500):
+                    self.logger.warning('Run %s 完成回传被拒绝，保留待重试记录（HTTP %s）', run_id, exc.status)
                     return False
                 if attempt + 1 == COMPLETION_ATTEMPTS:
                     return False
@@ -1417,10 +1446,15 @@ class SimcAgentConsumer:
         descriptor: dict[str, Any] | None = None
         for attempt in range(COMPLETION_ATTEMPTS):
             try:
-                ticket = self.transport.json(
-                    path=f'/api/simc-agent/v1/jobs/{run_id}/report-upload/',
-                    payload=payload, authorization=self.authorization,
-                )
+                try:
+                    ticket = self.transport.json(
+                        path=f'/api/simc-agent/v1/jobs/{run_id}/report-upload/',
+                        payload=payload, authorization=self.authorization,
+                    )
+                except APIError as exc:
+                    # 只有控制端的取消响应可信，OSS 上传失败不能触发清理。
+                    _raise_if_run_cancelled(exc)
+                    raise
                 if isinstance(ticket, dict) and ticket.get('already_completed') is True:
                     return None
                 if not isinstance(ticket, dict):
@@ -1435,6 +1469,8 @@ class SimcAgentConsumer:
                 descriptor = {'object_key': object_key, 'size': len(report_bytes), 'sha256': sha256}
                 self.transport.put_bytes(url=url, body=report_bytes, headers=headers)
                 return descriptor
+            except RunCancelled:
+                raise
             except Exception as exc:
                 last_error = exc
                 if isinstance(exc, APIError) and exc.status in (403, 404):
@@ -1465,6 +1501,9 @@ class SimcAgentConsumer:
                 if report is None:
                     self.logger.info('Run %s was already completed; discarding duplicate completion', run_id)
                     return
+            except RunCancelled:
+                self.logger.info('Run %s 已取消，停止报告上传和完成回传', run_id)
+                return
             except Exception as exc:
                 # Preserve the successful simulation and its report locally.  A
                 # later outbox drain retries the upload before reporting terminal
@@ -1479,8 +1518,13 @@ class SimcAgentConsumer:
             'stderr': _utf8_tail(stderr, COMPLETION_TEXT_MAX_BYTES),
             'report': report if status == 'completed' else None,
         }
-        if not upload_pending and self._completion_json(run_id, metadata):
-            return
+        if not upload_pending:
+            try:
+                if self._completion_json(run_id, metadata):
+                    return
+            except RunCancelled:
+                self.logger.info('Run %s 已取消，停止完成回传', run_id)
+                return
         # A response can be lost after the server committed this same completion.
         # Persist the exact payload and fixed completion_id, then let a future
         # idle cycle retry it before any new claim or maintenance can run.

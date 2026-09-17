@@ -465,6 +465,8 @@ def request_report_upload(run_id, payload, authorization):
         # forever just because the original Agent identity later changed.
         if run.status in TERMINAL:
             return {'run_id': run.pk, 'status': run.status, 'already_completed': True}
+        if run.status in ('cancelled', 'canceled'):
+            raise AgentAPIError('Run was cancelled', 409, {'code': 'run_cancelled'})
         if run.status != 'running':
             raise AgentAPIError('Run is not running', 409)
         now = timezone.now()
@@ -602,7 +604,7 @@ def complete_run(run_id, metadata, authorization):
     # locally durable outbox entry; it must not re-validate its old lease or
     # overwrite the authoritative result.
     if run_for_key.status in ('cancelled', 'canceled'):
-        raise AgentAPIError('Run was cancelled', 409)
+        raise AgentAPIError('Run was cancelled', 409, {'code': 'run_cancelled'})
     if run_for_key.status in TERMINAL:
         return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
     try:
@@ -672,7 +674,7 @@ def complete_run(run_id, metadata, authorization):
         if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
             raise AgentAPIError('Task is not agent-owned', 409)
         if run.status in ('cancelled', 'canceled'):
-            raise AgentAPIError('Run was cancelled', 409)
+            raise AgentAPIError('Run was cancelled', 409, {'code': 'run_cancelled'})
         if run.status in TERMINAL:
             return {'run_id': run.pk, 'status': run.status, 'idempotent': True}
         now = timezone.now()

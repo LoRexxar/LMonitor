@@ -1560,6 +1560,164 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual({call.kwargs['payload']['completion_id']
                               for call in transport.json.call_args_list}, {'fixed-id'})
 
+    def test_cancelled_completion_response_from_http_is_terminal(self):
+        from io import BytesIO
+        from urllib.error import HTTPError
+        from simc_agent_consumer import AgentConfig, HTTPTransport, RunCancelled, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            transport = HTTPTransport('https://control.example', 1)
+            values = self.config(root)
+            self.write_token(values, 'token')
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+            for details in ({'error': 'Run was cancelled'},
+                            {'code': 'run_cancelled', 'error': '任务已取消'}):
+                with self.subTest(details=details):
+                    error = HTTPError('https://control.example', 409, 'Conflict', {},
+                                      BytesIO(json.dumps(details).encode()))
+                    with patch.object(transport._opener, 'open', side_effect=error) as request:
+                        with self.assertRaises(RunCancelled):
+                            consumer._completion_json(82708, {})
+                    request.assert_called_once()
+
+    def test_cancelled_fresh_result_does_not_create_outbox(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        for stage in ('report-upload', 'complete'):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as root:
+                transport = MagicMock()
+                transport.json.side_effect = APIError(
+                    'control plane returned HTTP 409: Run was cancelled', 409,
+                    {'error': 'Run was cancelled'},
+                )
+                values = self.config(root)
+                self.write_token(values, 'token')
+                consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+                if stage == 'complete':
+                    consumer._upload_report = MagicMock(return_value={
+                        'object_key': 'simc_agent_results/report.html', 'size': 16, 'sha256': 'a' * 64,
+                    })
+                consumer._complete(82708, 'lease', 'a' * 32, 'completed', 'DPS=1', '',
+                                   b'<html>ok</html>', 'report.html')
+
+                self.assertFalse(consumer.completion_outbox_path.exists())
+                transport.json.assert_called_once()
+                self.assertTrue(transport.json.call_args.kwargs['path'].endswith(f'/{stage}/'))
+                transport.put_bytes.assert_not_called()
+
+    def test_cancelled_outbox_is_removed_and_other_records_continue(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        for stage in ('report-upload', 'complete'):
+            with self.subTest(stage=stage), tempfile.TemporaryDirectory() as root:
+                values = self.config(root)
+                self.write_token(values, 'token')
+                consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=MagicMock())
+                metadata = {
+                    'lease_token': 'lease', 'instance_id': consumer.instance_id,
+                    'completion_id': 'a' * 32, 'status': 'completed',
+                    'stdout': 'DPS=1', 'stderr': '',
+                    'report': None if stage == 'report-upload' else {
+                        'object_key': 'simc_agent_results/report.html', 'size': 16, 'sha256': 'a' * 64,
+                    },
+                }
+                consumer._save_completion_outbox(82708, metadata, 'report.html', b'<html>ok</html>')
+                consumer._save_completion_outbox(82709, {
+                    **metadata, 'completion_id': 'b' * 32, 'status': 'failed', 'report': None,
+                })
+                transport = MagicMock()
+                transport.json.side_effect = [
+                    APIError('Run was cancelled', 409, {'error': 'Run was cancelled'}), {},
+                ]
+                recovered = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+
+                with self.assertLogs('lmonitor.simc_agent', level='INFO') as logs:
+                    self.assertTrue(recovered.flush_completion_outbox())
+                self.assertTrue(any('82708 已取消' in line for line in logs.output))
+                self.assertEqual(list(recovered.completion_outbox_path.glob('*.json')), [])
+                self.assertEqual(transport.json.call_count, 2)
+                self.assertTrue(transport.json.call_args_list[0].kwargs['path'].endswith(f'/{stage}/'))
+                transport.put_bytes.assert_not_called()
+                transport.reset_mock()
+                self.assertTrue(recovered.flush_completion_outbox())
+                transport.json.assert_not_called()
+
+    def test_unconfirmed_cancellation_keeps_outbox_unchanged(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        for status, details in (
+            (409, {'error': 'Lease conflict'}),
+            (409, {'error': 'Run is not running'}),
+            (409, {'error': 'Panel purge is in progress'}),
+            (409, {}),
+            (401, {'error': 'Run was cancelled', 'code': 'run_cancelled'}),
+            (403, {'error': 'Forbidden'}),
+            (404, {'error': 'Run not found'}),
+            (422, {'error': 'Invalid report'}),
+            (503, {'error': 'Run was cancelled', 'code': 'run_cancelled'}),
+            (None, {}),
+        ):
+            with self.subTest(status=status, details=details), tempfile.TemporaryDirectory() as root:
+                transport = MagicMock()
+                transport.json.side_effect = APIError('Run was cancelled', status, details)
+                values = self.config(root)
+                self.write_token(values, 'token')
+                consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+                consumer._save_completion_outbox(82708, {
+                    'lease_token': 'lease', 'instance_id': consumer.instance_id,
+                    'completion_id': 'a' * 32, 'status': 'failed',
+                    'stdout': '', 'stderr': 'error', 'report': None,
+                })
+                entry = next(consumer.completion_outbox_path.glob('*.json'))
+                original = entry.read_bytes()
+                with patch.object(consumer.stop_event, 'wait', return_value=False):
+                    self.assertFalse(consumer.flush_completion_outbox())
+                self.assertEqual(entry.read_bytes(), original)
+                self.assertEqual(transport.json.call_count, 1 if status and status < 500 else 3)
+
+    def test_oss_error_cannot_confirm_run_cancellation(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            transport = MagicMock()
+            transport.json.return_value = {
+                'object_key': 'simc_agent_results/report.html', 'method': 'PUT',
+                'url': 'https://bucket.example/signed', 'headers': {},
+            }
+            transport.put_bytes.side_effect = APIError(
+                'Run was cancelled', 409, {'code': 'run_cancelled'},
+            )
+            values = self.config(root)
+            self.write_token(values, 'token')
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+            with patch.object(consumer.stop_event, 'wait', return_value=False):
+                descriptor = consumer._upload_report(82708, 'lease', b'<html>ok</html>', 'report.html')
+            self.assertEqual(descriptor['object_key'], 'simc_agent_results/report.html')
+            self.assertEqual(transport.put_bytes.call_count, 3)
+
+    def test_cancellation_after_uncertain_oss_put_stops_completion(self):
+        from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
+
+        with tempfile.TemporaryDirectory() as root:
+            values = self.config(root)
+            self.write_token(values, 'token')
+            transport = MagicMock()
+            transport.json.side_effect = [
+                {'object_key': 'simc_agent_results/report.html', 'method': 'PUT',
+                 'url': 'https://bucket.example/signed', 'headers': {}},
+                APIError('Run was cancelled', 409, {'code': 'run_cancelled'}),
+            ]
+            transport.put_bytes.side_effect = APIError('response lost')
+            consumer = SimcAgentConsumer(AgentConfig.from_dict(values), transport=transport)
+            with patch.object(consumer.stop_event, 'wait', return_value=False):
+                consumer._complete(82708, 'lease', 'a' * 32, 'completed', 'DPS=1', '',
+                                   b'<html>ok</html>', 'report.html')
+            self.assertFalse(consumer.completion_outbox_path.exists())
+            self.assertEqual(transport.json.call_count, 2)
+            self.assertTrue(all(call.kwargs['path'].endswith('/report-upload/')
+                                for call in transport.json.call_args_list))
+            transport.put_bytes.assert_called_once()
+
     def test_completion_defers_to_outbox_after_three_transient_failures(self):
         from simc_agent_consumer import APIError, AgentConfig, SimcAgentConsumer
 

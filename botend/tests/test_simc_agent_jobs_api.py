@@ -552,6 +552,50 @@ class SimcAgentJobAPITests(TestCase):
         completion = self.complete(job, verify_report=False)
         self.assertEqual(heartbeat.status_code, 409, heartbeat.content)
         self.assertEqual(completion.status_code, 409, completion.content)
+        self.assertEqual(completion.json()['code'], 'run_cancelled')
+        self.assertEqual(completion.json()['error'], 'Run was cancelled')
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        self.assertEqual(run.status, 'cancelled')
+        self.assertIsNone(run.result_summary)
+        self.assertFalse(SimcTaskArtifact.objects.filter(run=run).exists())
+
+    def test_cancelled_runs_reject_upload_and_completion_with_explicit_code(self):
+        job = self.claim_after_task()
+        for status in ('cancelled', 'canceled'):
+            with self.subTest(status=status):
+                SimulationRun.objects.filter(pk=job['run_id']).update(status=status)
+                with patch('botend.services.simc_agent_oss.issue_upload_ticket') as issue:
+                    upload = self.post_json(
+                        f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/",
+                        {'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+                         'size': 16, 'sha256': 'a' * 64, 'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg=='},
+                    )
+                    completion = self.complete(job, verify_report=False)
+                issue.assert_not_called()
+                for response in (upload, completion):
+                    self.assertEqual(response.status_code, 409, response.content)
+                    self.assertEqual(response.json()['code'], 'run_cancelled')
+                    self.assertEqual(response.json()['error'], 'Run was cancelled')
+                run = SimulationRun.objects.get(pk=job['run_id'])
+                self.assertEqual(run.status, status)
+                self.assertIsNone(run.result_summary)
+                self.assertFalse(SimcTaskArtifact.objects.filter(run=run).exists())
+
+    def test_cancellation_during_report_verification_wins_over_completion(self):
+        job = self.claim_after_task()
+
+        def cancel_during_verification(**kwargs):
+            SimulationRun.objects.filter(pk=job['run_id']).update(status='cancelled')
+
+        with patch('botend.services.simc_agent_oss.verify_uploaded_report',
+                   side_effect=cancel_during_verification), patch(
+            'botend.services.simc_agent_oss.download_report_html',
+            return_value=('<html>DPS=1234</html>', 'a' * 64),
+        ):
+            response = self.complete(job, verify_report=False)
+
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json()['code'], 'run_cancelled')
         run = SimulationRun.objects.get(pk=job['run_id'])
         self.assertEqual(run.status, 'cancelled')
         self.assertIsNone(run.result_summary)
