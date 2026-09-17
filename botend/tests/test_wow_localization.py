@@ -59,6 +59,19 @@ class SharedNameTests(TestCase):
             '迪詹崔乌斯 and Blizzard',
         )
 
+    def test_ptr_news_without_active_ptr_version_reuses_retail_phrase(self):
+        write_name(dict(game_version='12.1', kind='phrase', object_id=1,
+            name_en='Degentrius', name_zh='迪詹崔乌斯', icon='',
+            evidence='新闻译名官方证据：JournalEncounter ID 2662'))
+
+        glossary = WowNewsGlossary.from_shared_localization('PTR testing includes Degentrius.')
+        protected = glossary.protect('PTR testing includes Degentrius.')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            'PTR testing includes 迪詹崔乌斯.',
+        )
+
     def test_ptr_news_reuses_global_verified_phrase_from_retail_reference_version(self):
         WowTalentVersion.objects.create(
             key='ptr-12.2', major_version='12.2', branch='ptr',
@@ -74,6 +87,39 @@ class SharedNameTests(TestCase):
         self.assertEqual(
             glossary.restore(protected.text, protected.replacements),
             'PTR testing includes 迪詹崔乌斯.',
+        )
+
+    def test_ptr_news_does_not_reuse_non_phrase_from_retail(self):
+        write_name(dict(game_version='12.1', kind='spell', object_id=30451,
+            name_en='Arcane Blast', name_zh='奥术冲击', icon='', evidence='官方技能快照'))
+
+        glossary = WowNewsGlossary.from_shared_localization('PTR tuning changes Arcane Blast.')
+        protected = glossary.protect('PTR tuning changes Arcane Blast.')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            'PTR tuning changes Arcane Blast.',
+        )
+
+    def test_ptr_news_does_not_fallback_to_non_retail_active_branch(self):
+        self.version.is_active = False
+        self.version.save(update_fields=['is_active'])
+        beta = WowTalentVersion.objects.create(
+            key='beta-12.2', major_version='12.2', branch='beta',
+            current_build='12.2.0.789', is_active=True,
+        )
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=beta, localization_only=True, name_kind='phrase',
+            reference_id=987654, name='Degentrius', name_zh='错误跨分支译名',
+            localization_evidence='新闻译名官方证据：测试隔离',
+        )
+
+        glossary = WowNewsGlossary.from_shared_localization('PTR testing includes Degentrius.')
+        protected = glossary.protect('PTR testing includes Degentrius.')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            'PTR testing includes Degentrius.',
         )
 
     def test_news_glossary_derives_source_plural_and_dropped_article_aliases(self):

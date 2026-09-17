@@ -359,15 +359,19 @@ class WowNewsGlossary:
     def from_shared_localization(cls, source_text):
         """读取当前分支共享名称，并为 PTR 复用正式服全局专名。"""
         from botend.models import WowTalentVersion
-        from botend.services.wow_localization import current_reference_version, effective_names
+        from botend.services.wow_localization import effective_names
         branch = 'ptr' if re.search(r'\bptr\b|public test realm', source_text, re.I) else 'retail'
         version = WowTalentVersion.objects.filter(branch=branch, is_active=True).order_by('-is_default_player_tree', '-id').first()
-        if not version:
+        reference = WowTalentVersion.objects.filter(
+            branch='retail', is_active=True,
+        ).order_by('-is_default_player_tree', '-id').first()
+        if not version and not (branch == 'ptr' and reference):
             return cls.empty()
 
-        sources: list[tuple[str, str | None]] = [(version.key, None)]
-        reference = current_reference_version() if branch == 'ptr' else None
-        if reference and reference.pk != version.pk:
+        sources: list[tuple[str, str | None]] = []
+        if version:
+            sources.append((version.key, None))
+        if branch == 'ptr' and reference and (not version or reference.pk != version.pk):
             # phrase 是跨分支的官方专名；复用正式服中央记录，不能为 PTR 复制一份。
             sources.append((reference.key, 'phrase'))
 
