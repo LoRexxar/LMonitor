@@ -1489,6 +1489,17 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('if (targetSlot !== state.selectedSlot)', script)
         self.assertIn('state.equipment[targetSlot] = entry;', script)
 
+    def test_canonical_tooltip_preserves_backend_source_order(self):
+        root = Path(__file__).resolve().parents[2]
+        script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
+        branch = script[
+            script.index('if (canonicalTooltip) {'):
+            script.index('const values = [];')
+        ]
+
+        self.assertIn('return canonicalTooltip;', branch)
+        self.assertNotIn('sortTooltipStats(canonicalTooltip)', branch)
+
     def test_shared_header_and_frontend_contract(self):
         root = Path(__file__).resolve().parents[2]
         header = (root / 'templates/portal/_header.html').read_text(encoding='utf-8')
@@ -1519,7 +1530,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260914_text_separation", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260917_tooltip_order", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)

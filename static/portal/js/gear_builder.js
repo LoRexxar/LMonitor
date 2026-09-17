@@ -164,10 +164,9 @@
     if (variant?.type === "gem" && !(variant.text_schema_version >= 2)) return gemDescription(item, variant);
     const canonicalTooltip = String(variant?.tooltip || "").trim();
     if (canonicalTooltip) {
-      const sorted = sortTooltipStats(canonicalTooltip);
       const numberedRaidSource = variantSources(variant).some((row) => raidBossNumber(row));
-      if (!numberedRaidSource) return sorted;
-      const lines = sorted.split("\n").filter((line) => !/^来源\s*[:：]/.test(line.trim()));
+      if (!numberedRaidSource) return canonicalTooltip;
+      const lines = canonicalTooltip.split("\n").filter((line) => !/^来源\s*[:：]/.test(line.trim()));
       lines.push(`来源：${sourceText(variant).replaceAll("\n", "；")}`);
       return lines.join("\n");
     }
@@ -199,20 +198,6 @@
 
   function sortedStatEntries(stats) {
     return Object.entries(stats || {}).sort(([left], [right]) => statOrder(left) - statOrder(right));
-  }
-
-  function sortTooltipStats(text) {
-    const lines = text.replace(/\r\n?/g, "\n").split("\n");
-    const rank = (line) => {
-      const normalized = line.normalize("NFKC").trim().replaceAll("躲闪", "闪避");
-      const labels = normalized.replace(/^[+]?\s*[\d,.]+\s*(?:点\s*)?/, "")
-        .replace(/[\[\]]/g, "").split(/\s*(?:or|或|\/|、)\s*/i).map((label) => label.trim());
-      return STAT_ORDER.findIndex((key) => labels.includes(STAT_LABELS[key]));
-    };
-    // 仅重排独立属性行，保留装等、特效正文和来源的原始内容与位置。
-    const stats = lines.filter(isStandaloneTooltipStatLine).sort((left, right) => rank(left) - rank(right));
-    let index = 0;
-    return lines.map((line) => isStandaloneTooltipStatLine(line) ? stats[index++] : line).join("\n");
   }
 
   function tooltipAttrs(item, variant) {
