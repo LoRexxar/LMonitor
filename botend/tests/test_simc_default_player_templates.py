@@ -79,6 +79,23 @@ class ImportSimcPlayerTemplatesTests(TestCase):
         'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
         {('warrior', 'fury')},
     )
+    @patch(
+        'botend.management.commands.import_simc_player_templates.resolve_hero_talent_names',
+        return_value=['山丘领主'],
+    )
+    def test_import_persists_resolved_hero_talent_names(self, resolve_names):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, 'MID1_Warrior_Fury.simc').write_text(DEFAULT_PLAYER, encoding='utf-8')
+            call_command('import_simc_player_templates', source_dir=tmp)
+
+        talent = SimcTalentString.objects.get(system_key='simc_upstream:warrior_fury')
+        self.assertEqual(talent.hero_talent_names, ['山丘领主'])
+        resolve_names.assert_called_once_with('UPSTREAM_BUILD', 'warrior_fury', use_ptr=False)
+
+    @patch(
+        'botend.management.commands.import_simc_player_templates.REQUIRED_PROFILE_SPECS',
+        {('warrior', 'fury')},
+    )
     def test_import_normalizes_numeric_item_shorthand_and_drops_embedded_ptr(self):
         SimcProfile.objects.create(
             user_id=None,

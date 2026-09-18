@@ -11,6 +11,7 @@ from botend.constants.simc_specs import (
 )
 from botend.models import SimcProfile, SimcTalentString
 from botend.services.simc_player_config import validate_default_player_baseline, validate_player_baseline
+from botend.services.simc_hero_talents import resolve_hero_talent_names
 
 
 DEFAULT_SOURCE_DIR = '/home/lighthouse/simc/profiles/MID1'
@@ -142,11 +143,17 @@ class Command(BaseCommand):
                     errors += 1
                     self.stderr.write(self.style.ERROR(f'{filename}: {exc}'))
                     continue
+                hero_talent_names = self._resolve_hero_talent_names(
+                    talent_string,
+                    f'{class_name}_{spec}',
+                    use_ptr=bool(options.get('use_ptr', False)),
+                    filename=filename,
+                )
                 seen.add(parsed)
                 spec_key = f'{class_name}_{spec}'
                 validated.append((
                     spec_key, class_name, profile_baseline, talent_string,
-                    current_profile_set, current_profile_version,
+                    current_profile_set, current_profile_version, hero_talent_names,
                 ))
                 if options['dry_run']:
                     self.stdout.write(f'[DRY] {spec_key}: {len(baseline.splitlines())} 行')
@@ -179,7 +186,7 @@ class Command(BaseCommand):
                 )
                 for (
                     spec_key, class_name, profile_baseline, talent_string,
-                    current_profile_set, current_profile_version,
+                    current_profile_set, current_profile_version, hero_talent_names,
                 ) in validated:
                     talent_system_key = f'simc_upstream:{spec_key}'
                     existing_talent = SimcTalentString.objects.select_for_update().filter(
@@ -233,6 +240,7 @@ class Command(BaseCommand):
                             'name': f'{current_profile_set} 默认天赋 {spec_key}',
                             'spec': spec_key,
                             'talent': talent_string,
+                            'hero_talent_names': hero_talent_names,
                             'is_active': True,
                             'is_selectable': True,
                         },
@@ -241,3 +249,17 @@ class Command(BaseCommand):
         if errors:
             raise CommandError(f'{action}失败: {imported} 成功, {skipped} 跳过, {errors} 错误')
         self.stdout.write(self.style.SUCCESS(f'{action}完成: {imported} 成功, {skipped} 跳过, {errors} 错误'))
+
+    def _resolve_hero_talent_names(self, talent_string, spec_key, *, use_ptr, filename):
+        """解析上游天赋字符串对应的英雄天赋树，失败时以空列表落库并提示。"""
+        try:
+            return resolve_hero_talent_names(
+                talent_string,
+                spec_key,
+                use_ptr=use_ptr,
+            )
+        except Exception as exc:
+            self.stderr.write(self.style.WARNING(
+                f'{filename}: 无法解析英雄天赋树，将写入空归属: {exc}'
+            ))
+            return []
