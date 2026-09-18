@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
+from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import connection
 from django.test import TestCase, override_settings
@@ -1988,6 +1989,25 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.panel.save(update_fields=['is_active'])
         with self.assertRaises(ValidationError):
             create_execution(self.panel, requested_by=self.user_id)
+
+    def test_superuser_can_create_manual_supplement_for_another_users_panel(self):
+        superuser = User.objects.create_user(
+            username='benchmark-superuser', is_superuser=True,
+        )
+
+        with patch('botend.services.simc_task_service.current_validation_identity',
+                   return_value=('a' * 40, '12.0.1')), patch(
+            'botend.services.simc_task_service.validate_apl_for_profile',
+            return_value=self.validation,
+        ):
+            execution = create_execution(
+                self.panel,
+                requested_by=superuser,
+                execution_mode='supplement',
+            )
+
+        self.assertEqual(execution.panel_id, self.panel.id)
+        self.assertEqual(execution.config_snapshot['execution_mode'], 'supplement')
 
     def test_scheduled_slot_is_second_normalized_and_idempotent(self):
         slot = timezone.now().replace(microsecond=987654)

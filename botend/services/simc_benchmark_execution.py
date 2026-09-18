@@ -105,6 +105,11 @@ def _requester_id(requested_by):
     return value
 
 
+def _requester_is_superuser(requested_by):
+    """Allow the authenticated superuser to operate another owner's panel."""
+    return bool(getattr(requested_by, 'is_superuser', False))
+
+
 def _spec_display_name(value, spec_key=None):
     """Format known specializations as Chinese ``spec-class`` read-model text."""
     text = str(value or '').strip()
@@ -678,6 +683,7 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         _validation_error('execution_mode 必须是 full 或 supplement', 'execution_mode')
     slot = _normalize_trigger_slot(trigger, scheduled_slot)
     requester_id = _requester_id(requested_by)
+    requester_is_superuser = _requester_is_superuser(requested_by)
     if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL and requester_id is None:
         raise PermissionDenied('Manual benchmark execution requires the Panel owner')
 
@@ -687,8 +693,10 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         _validation_error('Panel 不存在', 'panel')
     if not current_panel.is_active:
         _validation_error('Panel 未启用，无法执行', 'panel')
-    if requester_id is not None and requester_id != current_panel.created_by_id:
-        raise PermissionDenied('Only the Panel owner may create an execution')
+    if requester_id is not None and (
+            requester_id != current_panel.created_by_id and not requester_is_superuser
+    ):
+        raise PermissionDenied('Only the Panel owner or a superuser may create an execution')
     if trigger == SimcBenchmarkExecution.TRIGGER_SCHEDULE and not current_panel.schedule_enabled:
         _validation_error('Panel 定时执行未启用', 'trigger')
     if slot is not None:
@@ -745,8 +753,10 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         _ensure_panel_not_purging(locked_panel.pk)
         if not locked_panel.is_active:
             _validation_error('Panel 未启用，无法执行', 'panel')
-        if requester_id is not None and requester_id != locked_panel.created_by_id:
-            raise PermissionDenied('Only the Panel owner may create an execution')
+        if requester_id is not None and (
+                requester_id != locked_panel.created_by_id and not requester_is_superuser
+        ):
+            raise PermissionDenied('Only the Panel owner or a superuser may create an execution')
         if trigger == SimcBenchmarkExecution.TRIGGER_SCHEDULE and not locked_panel.schedule_enabled:
             _validation_error('Panel 定时执行未启用', 'trigger')
         if slot is not None:

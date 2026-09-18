@@ -1217,6 +1217,7 @@ class Command(BaseCommand):
         replay_states_by_prefix = {}
         live_states = {}
         final_files = None
+        recovered_preapplied_suffix = False
         if not migrated_legacy_state:
             # Older updater revisions did not persist a patch ledger.  A simple
             # per-patch reverse check cannot identify an applied add-file patch
@@ -1359,6 +1360,74 @@ class Command(BaseCommand):
                             # Reconstruct the declared ledger state from that
                             # exact prefix, then replay only the append-only suffix.
                             replay_start = candidate_starts[0]
+                    elif had_ledger and previous_chain:
+                        suffix_entries = patch_entries[len(previous_chain):]
+                        suffix_paths = {
+                            path for entry in suffix_entries for path in entry['paths']
+                        }
+                        previous_path_set = set(previous_files)
+                        if suffix_entries and suffix_paths <= previous_path_set:
+                            with tempfile.TemporaryDirectory(
+                                prefix='lmonitor-simc-ledger-recovery-'
+                            ) as recovery_dir:
+                                for path in suffix_paths:
+                                    source_state = read_source_state(path)
+                                    if source_state is None:
+                                        break
+                                    recovery_path = os.path.join(recovery_dir, *path.split('/'))
+                                    os.makedirs(os.path.dirname(recovery_path), exist_ok=True)
+                                    with open(recovery_path, 'wb') as recovery_file:
+                                        recovery_file.write(source_state[0])
+                                    os.chmod(recovery_path, source_state[1])
+                                else:
+                                    recovery_valid = True
+                                    for entry in reversed(suffix_entries):
+                                        compatibility_args = (
+                                            ['--ignore-space-change']
+                                            if entry['name'] == '0031-allow-partial-monk-hero-talent-probes.patch'
+                                            else []
+                                        )
+                                        reverse_check = subprocess.run(
+                                            [
+                                                'git', 'apply', '--reverse',
+                                                *compatibility_args, '--check', '-',
+                                            ],
+                                            cwd=recovery_dir,
+                                            input=entry['content'],
+                                            capture_output=True,
+                                            timeout=30,
+                                        )
+                                        if reverse_check.returncode != 0:
+                                            recovery_valid = False
+                                            break
+                                        reverse_apply = subprocess.run(
+                                            [
+                                                'git', 'apply', '--reverse',
+                                                *compatibility_args, '-',
+                                            ],
+                                            cwd=recovery_dir,
+                                            input=entry['content'],
+                                            capture_output=True,
+                                            timeout=30,
+                                        )
+                                        if reverse_apply.returncode != 0:
+                                            recovery_valid = False
+                                            break
+                                    if recovery_valid:
+                                        for path, expected_digest in previous_files.items():
+                                            recovery_path = os.path.join(recovery_dir, *path.split('/'))
+                                            if not os.path.isfile(recovery_path):
+                                                recovery_valid = False
+                                                break
+                                            with open(recovery_path, 'rb') as recovery_file:
+                                                actual_digest = hashlib.sha256(
+                                                    recovery_file.read()
+                                                ).hexdigest()
+                                            if actual_digest != expected_digest:
+                                                recovery_valid = False
+                                                break
+                                        if recovery_valid:
+                                            recovered_preapplied_suffix = True
 
                 reset_replay_index()
                 replay_files = replay_index_files()
