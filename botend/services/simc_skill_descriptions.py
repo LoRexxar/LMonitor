@@ -1,10 +1,9 @@
 """归一化表的技能、天赋和状态说明；只补展示字段，不参与伤害计算。"""
 
 import re
-import sys
 from functools import lru_cache
 
-from django.db import connection
+from django.db.models import Q
 
 from botend.constants.wow import SPEC_ACTIVE_AURA_IDS, SPEC_CONDITION_INDEX
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
@@ -17,26 +16,6 @@ def _key(value):
 
 def _positive_id(value):
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
-
-
-@lru_cache(maxsize=4)
-def _database_catalog(connection_key, build):
-    """一次读取说明目录，避免流式返回旧快照时按 actor 重复查询数据库。"""
-    spells = list(WowSpellSnapshot.objects.filter(
-        branch='wow', locale__in=['zhCN', 'enUS'],
-    ).values('spell_id', 'locale', 'description', 'aura_description', 'snapshot_build'))
-    talents = list(WowTalentNodeMetadata.all_objects.values(
-        'id', 'node_id', 'spell_id', 'display_spell_id', 'class_name', 'spec_name',
-             'description', 'description_zh', 'talent_version__current_build'))
-    return spells, talents
-
-
-def _current_database_catalog(build):
-    connection.ensure_connection()
-    # 测试套件会在同一进程内重建数据库，不能复用上一个测试的数据目录。
-    if any(str(argument).lower() == 'test' for argument in sys.argv):
-        return _database_catalog.__wrapped__(id(connection.connection), build)
-    return _database_catalog(id(connection.connection), build)
 
 
 def attach_skill_damage_descriptions(actor, *, game_build=''):
@@ -57,19 +36,35 @@ def attach_skill_damage_descriptions(actor, *, game_build=''):
                if _positive_id(row.get('trait_entry_id'))}
     class_key = _key(actor.get('class'))
     spec_key = _key(actor.get('specialization') or actor.get('spec'))
-    database_spells, database_talents = _current_database_catalog(game_build)
-    talents = [row for row in database_talents if (
-        row['id'] in talent_ids or row['node_id'] in entries
-        or row['spell_id'] in spell_ids or row['display_spell_id'] in spell_ids
-    )] if spell_ids or talent_ids else []
+    # 只查询当前专精引用的说明；不能把线上全量技能和历代天赋缓存到每个进程。
+    talents = list(WowTalentNodeMetadata.all_objects.filter(
+        Q(id__in=talent_ids) | Q(node_id__in=entries)
+        | Q(spell_id__in=spell_ids) | Q(display_spell_id__in=spell_ids)
+    ).values(
+        'id', 'node_id', 'spell_id', 'display_spell_id', 'class_name', 'spec_name',
+        'description', 'description_zh', 'talent_version__current_build',
+    )) if spell_ids or talent_ids or entries else []
     # 明确的职业、专精边界必须匹配；同名天赋不能跨专精借用说明。
     talents = [row for row in talents if
                (not row['class_name'] or _key(row['class_name']) == class_key) and
                (not row['spec_name'] or _key(row['spec_name']) == spec_key)]
     for row in talents:
         spell_ids.update(sid for sid in (row['spell_id'], row['display_spell_id']) if _positive_id(sid))
-    spells = {(row['spell_id'], row['locale']): row for row in database_spells
-              if row['spell_id'] in spell_ids} if spell_ids else {}
+    spells = {}
+    if spell_ids:
+        rows = WowSpellSnapshot.objects.filter(
+            branch='wow', locale__in=['zhCN', 'enUS'], spell_id__in=spell_ids,
+        ).order_by('-updated_at', '-id').values(
+            'spell_id', 'locale', 'description', 'aura_description', 'snapshot_build',
+        )
+        for row in rows.iterator(chunk_size=256):
+            key = (row['spell_id'], row['locale'])
+            previous = spells.get(key)
+            if previous is None or (
+                game_build and row['snapshot_build'] == game_build
+                and previous['snapshot_build'] != game_build
+            ):
+                spells[key] = row
     resolvers = {locale: SpellTextResolver(locale=locale, snapshot_build=game_build)
                  for locale in ('zhCN', 'enUS')}
     spec_index = next((value for (cls, spec), value in SPEC_CONDITION_INDEX.items()

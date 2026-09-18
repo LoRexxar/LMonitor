@@ -5018,6 +5018,46 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             'schema_revision': SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
         })
 
+    def test_get_index_returns_only_per_spec_identity_without_actor_payloads(self):
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='i' * 40,
+            game_build='12.1.0.69300',
+            schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
+            status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=2,
+            generated_action_count=9000,
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'storage_format': 'per_spec_actor_rows_v1',
+                'wire_schema_revision': 1,
+                'total_spec_count': 2,
+                'actors': [{'actions': [{'token': 'large-private-action'}]}],
+            },
+        )
+        for ordinal, specialization in enumerate(('fury', 'arms')):
+            SimcSkillDamageSnapshotActor.objects.create(
+                snapshot=snapshot,
+                ordinal=ordinal,
+                class_name='warrior',
+                specialization=specialization,
+                actor_payload={'actions': [{'token': f'large-{specialization}'}]},
+                unresolved_payload=[],
+                raw_action_count=4500,
+                display_action_count=4500,
+            )
+        request = self.factory.get('/api/simc-skill-damage/', {'index': '1'})
+        request.user = self.user
+
+        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        body = json.loads(response.content)
+        snapshot_body = body['data']['snapshot']
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(snapshot_body['actor_index'][0]['specialization'], 'fury')
+        self.assertEqual(snapshot_body['actors'], [])
+        self.assertNotIn('large-private-action', response.content.decode())
+        self.assertNotIn('large-fury', response.content.decode())
+
     def test_get_prefers_latest_success_over_running_partial_actor_rows(self):
         latest = SimcSkillDamageSnapshot.objects.create(
             simc_revision='7' * 40,

@@ -8304,9 +8304,15 @@ class SimcSkillDamageSnapshotAPIView(View):
         return active or jobs.order_by('-created_at', '-id').values(*fields).first()
 
     @classmethod
-    def _sharded_snapshot_response(cls, display_snapshot, *, job, can_generate):
+    def _sharded_snapshot_response(
+        cls, display_snapshot, *, job, can_generate, actor_ids=None,
+        total_actor_count=None, total_action_count=None,
+    ):
         """Spool one actor at a time, then stream bytes without retaining DB rows."""
-        actor_rows = list(display_snapshot.actor_rows.order_by('ordinal', 'id').values(
+        actor_queryset = display_snapshot.actor_rows.order_by('ordinal', 'id')
+        if actor_ids is not None:
+            actor_queryset = actor_queryset.filter(id__in=actor_ids)
+        actor_rows = list(actor_queryset.values(
             'id', 'class_name', 'specialization', 'unresolved_payload',
             'raw_action_count', 'display_action_count',
         ))
@@ -8343,8 +8349,14 @@ class SimcSkillDamageSnapshotAPIView(View):
         snapshot['id'] = display_snapshot.pk
         snapshot['status'] = display_snapshot.status
         snapshot['completed_at'] = _fmt_dt(display_snapshot.completed_at)
-        snapshot['spec_count'] = len(actor_rows)
-        snapshot['action_count'] = snapshot.get('display_action_count', 0)
+        snapshot['spec_count'] = (
+            total_actor_count if total_actor_count is not None else len(actor_rows)
+        )
+        snapshot['action_count'] = (
+            total_action_count
+            if total_action_count is not None
+            else snapshot.get('display_action_count', 0)
+        )
         snapshot['raw_action_count'] = sum(
             int(row['raw_action_count'] or 0) for row in actor_rows
         )
@@ -8445,6 +8457,46 @@ class SimcSkillDamageSnapshotAPIView(View):
         # progress is exposed separately through the lightweight job summary.
         display_snapshot = latest
         if display_snapshot:
+            actor_id = request.GET.get('actor_id')
+            if actor_id:
+                try:
+                    selected_actor_id = int(actor_id)
+                except (TypeError, ValueError):
+                    return JsonResponse({'success': False, 'error': '技能专精索引无效'}, status=400)
+                if not display_snapshot.actor_rows.filter(pk=selected_actor_id).exists():
+                    return JsonResponse({'success': False, 'error': '技能专精不存在'}, status=404)
+                return self._sharded_snapshot_response(
+                    display_snapshot,
+                    job=self._summary_job_data(self._summary_job()),
+                    can_generate=bool(request.user.is_staff),
+                    actor_ids=[selected_actor_id],
+                    total_actor_count=display_snapshot.actor_rows.count(),
+                    total_action_count=display_snapshot.generated_action_count,
+                )
+            if request.GET.get('index') == '1':
+                actor_index = list(display_snapshot.actor_rows.order_by('ordinal', 'id').values(
+                    'id', 'class_name', 'specialization',
+                ))
+                payload = dict(display_snapshot.payload or {})
+                payload.pop('storage_format', None)
+                payload.pop('wire_schema_revision', None)
+                payload.update({
+                    'actors': [], 'actor_index': actor_index, 'unresolved': [],
+                    'identity': {
+                        'simc_revision': display_snapshot.simc_revision,
+                        'game_build': display_snapshot.game_build,
+                        'schema_revision': display_snapshot.schema_revision,
+                    },
+                    'id': display_snapshot.pk, 'status': display_snapshot.status,
+                    'completed_at': _fmt_dt(display_snapshot.completed_at),
+                    'spec_count': len(actor_index),
+                    'action_count': display_snapshot.generated_action_count,
+                })
+                return JsonResponse({'success': True, 'data': {
+                    'snapshot': payload, 'snapshot_unavailable_reason': None,
+                    'job': self._summary_job_data(self._summary_job()),
+                    'can_generate': bool(request.user.is_staff),
+                }})
             return self._sharded_snapshot_response(
                 display_snapshot,
                 job=self._summary_job_data(self._summary_job()),

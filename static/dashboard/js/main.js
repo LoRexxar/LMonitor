@@ -5992,6 +5992,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const actors = snapshot && Array.isArray(snapshot.actors)
         ? snapshot.actors.filter(item => item && typeof item === 'object')
         : [];
+    const actorIndex = snapshot && Array.isArray(snapshot.actor_index)
+        ? snapshot.actor_index.filter(item => item && typeof item === 'object')
+        : [];
     const previousSpec = specSelect.value;
     const classLabels = {
         warrior: '战士', paladin: '圣骑士', hunter: '猎人', rogue: '潜行者',
@@ -6011,7 +6014,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const localizedLabel = (labels, value) => labels[String(value || '').toLowerCase().replace(/[\s_-]/g, '')] || value || '-';
     const specRows = [];
     const seenSpecs = new Set();
-    actors.forEach(actor => {
+    (actorIndex.length ? actorIndex : actors).forEach(actor => {
         const key = `${actor.class || ''}:${actor.specialization || ''}`;
         if (seenSpecs.has(key)) return;
         seenSpecs.add(key);
@@ -6515,7 +6518,7 @@ function initSimcSkillDamagePanel() {
     };
 
     const loadFullSnapshot = async ({managePolling = true} = {}) => {
-        const response = await fetch('/api/simc-skill-damage/', { method: 'GET' });
+        const response = await fetch('/api/simc-skill-damage/?index=1', { method: 'GET' });
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || '加载技能伤害快照失败');
         const data = payload.data || {};
@@ -6584,9 +6587,29 @@ function initSimcSkillDamagePanel() {
         });
         renderSimcSkillDamageSnapshot(currentSnapshot);
     }));
+    let actorLoadToken = 0;
+    const loadSelectedActor = async () => {
+        const selectedKey = specSelect.value;
+        const index = currentSnapshot && Array.isArray(currentSnapshot.actor_index)
+            ? currentSnapshot.actor_index : [];
+        const indexedActor = index.find(actor => (
+            `${actor.class_name || actor.class || ''}:${actor.specialization || actor.spec || ''}` === selectedKey
+        ));
+        if (!indexedActor || !indexedActor.id) return;
+        const token = ++actorLoadToken;
+        const response = await fetch(`/api/simc-skill-damage/?actor_id=${encodeURIComponent(indexedActor.id)}`, {method: 'GET'});
+        const payload = await response.json();
+        if (token !== actorLoadToken) return;
+        if (!response.ok || !payload.success) throw new Error(payload.error || '加载专精技能数据失败');
+        const loaded = payload.data && payload.data.snapshot;
+        if (!loaded) return;
+        currentSnapshot = {...loaded, actor_index: index};
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+    };
     specSelect.addEventListener('change', () => {
         heroTreeSelect.value = '';
         renderSimcSkillDamageSnapshot(currentSnapshot);
+        loadSelectedActor().catch(error => showMessage(error.message, 'error'));
     });
     heroTreeSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
     searchInput.addEventListener('input', () => renderSimcSkillDamageSnapshot(currentSnapshot));

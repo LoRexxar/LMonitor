@@ -4047,7 +4047,8 @@ class SimcSkillDamageSnapshotService:
     STORAGE_FORMAT = 'per_spec_actor_rows_v1'
     PAYLOAD_FORMAT = 'skill_damage_product_v1'
     TALENT_BATCH_SIZE = 12
-    ACTOR_CONFIG_BATCH_SIZE = 24
+    # 每套配置包含完整技能及状态图；小批次只增加启动次数，不减少覆盖范围。
+    ACTOR_CONFIG_BATCH_SIZE = 4
     FIXED_PRESET = {
         'attack_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
         'spell_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
@@ -5081,6 +5082,8 @@ class SimcSkillDamageSnapshotService:
                 raise ValueError(f'{profile.spec} 分块 exporter 包含重复天赋 actor。')
             exported_actors.update(actor_map)
             unresolved.extend(payload.get('unresolved') or [])
+            # json.loads 的整批图在写入索引后不再需要，立即释放其引用。
+            del payload, actor_map
 
         ordered_talents = sorted(
             talents,
@@ -5108,6 +5111,7 @@ class SimcSkillDamageSnapshotService:
             if baseline is None or set(baseline_map) != {'skill_damage_base'}:
                 raise ValueError(f'{profile.spec} exporter 缺少独立基线 actor。')
             unresolved.extend(baseline_export.get('unresolved') or [])
+            del baseline_export, baseline_map
         return baseline, exported_actors, unresolved
 
     def _run_profile_target_deduplicated(
@@ -5154,6 +5158,7 @@ class SimcSkillDamageSnapshotService:
             except ValueError as exc:
                 raise ValueError(f'{profile.spec} {exc}') from exc
             unresolved.extend(payload.get('unresolved') or [])
+            del payload
 
         actor_specs = actor_plan['actors']
         for start in range(0, len(actor_specs), self.ACTOR_CONFIG_BATCH_SIZE):
