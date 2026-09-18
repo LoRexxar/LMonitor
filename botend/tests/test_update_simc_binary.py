@@ -19,6 +19,29 @@ from botend.tests.simc_apl_symbol_test_utils import create_symbol_scope
 
 
 class UpdateSimcBinaryCommandTests(TestCase):
+    def test_patch_chain_keeps_ledger_order_when_new_filename_sorts_before_old_entry(self):
+        from botend.management.commands.update_simc_binary import order_patch_entries
+
+        entries = [
+            {'name': '0059-new.patch', 'sha256': 'new'},
+            {'name': '0059-old.patch', 'sha256': 'old'},
+            {'name': '0060-next.patch', 'sha256': 'next'},
+        ]
+        previous_chain = [
+            {'name': '0059-old.patch', 'sha256': 'old'},
+        ]
+
+        ordered = order_patch_entries(entries, previous_chain)
+
+        self.assertEqual(
+            [(entry['name'], entry['sha256']) for entry in ordered],
+            [
+                ('0059-old.patch', 'old'),
+                ('0059-new.patch', 'new'),
+                ('0060-next.patch', 'next'),
+            ],
+        )
+
     def test_cli_defaults_to_single_compile_job_for_shared_production_host(self):
         from botend.management.commands.update_simc_binary import Command
 

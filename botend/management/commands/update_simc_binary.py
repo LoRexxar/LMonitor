@@ -44,6 +44,44 @@ from botend.services.simc_build_resources import read_budget, run_build
 DEFAULT_SIMC_SOURCE_DIR = '/home/lighthouse/simc'
 
 
+def order_patch_entries(patch_entries, previous_chain):
+    """Keep the persisted patch order and append only genuinely new patches.
+
+    Patch filenames are normally numeric, but a later release can add a patch
+    whose filename sorts before an already persisted entry (for example a new
+    ``0059`` after an existing ``0059-*``).  The ledger is the authoritative
+    order for patches already applied; accepting only exact name+digest matches
+    preserves the fail-closed behavior for deletion, rename, or rewrite.
+    """
+    if not previous_chain:
+        return list(patch_entries)
+
+    entries_by_key = {}
+    for entry in patch_entries:
+        key = (entry['name'], entry['sha256'])
+        if key in entries_by_key:
+            raise ValueError(f"补丁重复: {entry['name']}")
+        entries_by_key[key] = entry
+
+    ordered_previous = []
+    previous_keys = set()
+    for persisted in previous_chain:
+        if not isinstance(persisted, dict):
+            raise ValueError('补丁 ledger 条目结构无效')
+        key = (persisted.get('name'), persisted.get('sha256'))
+        entry = entries_by_key.get(key)
+        if entry is None:
+            raise ValueError('已应用补丁被删除、改名或改写')
+        ordered_previous.append(entry)
+        previous_keys.add(key)
+
+    appended = [
+        entry for entry in patch_entries
+        if (entry['name'], entry['sha256']) not in previous_keys
+    ]
+    return ordered_previous + appended
+
+
 class Command(BaseCommand):
     help = '在服务器上编译/更新 SimulationCraft 二进制'
 
@@ -1166,6 +1204,15 @@ class Command(BaseCommand):
                     )
         previous_chain = list(ledger.get('patches') or []) if had_ledger else []
         previous_files = dict(ledger.get('files') or {}) if had_ledger else {}
+        if had_ledger:
+            try:
+                patch_entries = order_patch_entries(patch_entries, previous_chain)
+            except ValueError as exc:
+                self._fail('SimC 补丁链发生非追加变更', str(exc), progress=20)
+            current_chain = [
+                {'name': entry['name'], 'sha256': entry['sha256']}
+                for entry in patch_entries
+            ]
         trusted_prefix = migrated_trusted_prefix
         replay_states_by_prefix = {}
         live_states = {}
