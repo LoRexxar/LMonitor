@@ -348,6 +348,18 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(run.lease_instance_id, '')
         self.assertIsNone(self.panel.active_execution_id)
 
+    def test_superuser_can_cancel_any_panel_execution(self):
+        superuser = User.objects.create_user(
+            username='benchmark-cancel-superuser', is_superuser=True,
+        )
+        execution = self._create()
+
+        cancelled = cancel_execution(execution, requested_by=superuser)
+
+        self.assertEqual(cancelled.pk, execution.pk)
+        self.assertEqual(cancelled.status, SimcBenchmarkExecution.STATUS_CANCELLED)
+        self.assertIsNotNone(cancelled.completed_at)
+
     def test_cancel_execution_is_idempotent_and_preserves_successful_cases(self):
         execution = self._create()
         case = execution.cases.select_related('task').get()

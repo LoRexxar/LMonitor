@@ -963,8 +963,8 @@ def cancel_execution(execution, requested_by=None):
         ).get(pk=execution.pk)
         if locked.panel_id != panel.pk:
             raise BenchmarkExecutionConflict('Execution Panel changed during cancellation')
-        if requester_id != panel.created_by_id:
-            raise PermissionDenied('Only the Panel owner may cancel this Execution')
+        if requester_id != panel.created_by_id and not _requester_is_superuser(requested_by):
+            raise PermissionDenied('Only the Panel owner or a superuser may cancel this Execution')
         if locked.completed_at is not None:
             return locked
 
