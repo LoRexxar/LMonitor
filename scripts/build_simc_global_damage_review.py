@@ -1,5 +1,6 @@
 """从实际审计产物生成可搜索的全职业归一化核对表。"""
 import argparse
+import csv
 from collections import Counter
 import json
 from pathlib import Path
@@ -15,7 +16,31 @@ SPEC_LABELS = dict(zip([71,72,73,65,66,70,253,254,255,259,260,261,256,257,258,
                        '奇袭','狂徒','敏锐','戒律','神圣','暗影','鲜血','冰霜','邪恶',
                        '元素','增强','恢复','奥术','火焰','冰霜','痛苦','恶魔学识','毁灭',
                        '酒仙','织雾','踏风','平衡','野性','守护','恢复','浩劫','复仇','噬灭',
-                       '湮灭','恩护','增辉']))
+                      '湮灭','恩护','增辉']))
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def _contains_cjk(value):
+    return any('\u3400' <= char <= '\u9fff' for char in str(value or ''))
+
+
+def _load_versioned_zh_names(build):
+    """用与审计客户端一致的 DB2 SpellName 作为名称补全源。"""
+    path = ROOT / '.cache' / 'adventure-journal' / str(build) / 'zhCN' / 'SpellName.csv'
+    names = {}
+    if not path.exists():
+        return names
+    with path.open(encoding='utf-8-sig', newline='') as handle:
+        for row in csv.DictReader(handle):
+            try:
+                spell_id = int(row.get('ID') or 0)
+            except (TypeError, ValueError):
+                spell_id = 0
+            value = str(row.get('Name_lang') or '').strip()
+            if spell_id and _contains_cjk(value):
+                names[spell_id] = value
+    return names
 
 
 def main():
@@ -38,12 +63,41 @@ def main():
         raise ValueError('初始化与全职业审计不属于同一个二进制。')
     names, names_by_text = {}, {}
     if args.names:
-        local_names = json.loads(args.names.read_text(encoding='utf-8'))
-        names = {r[1]:r[3] for r in local_names if r[1] and r[3]}
-        names_by_text = {r[2].casefold():r[3] for r in local_names if r[2] and r[3]}
+        if args.names.suffix.lower() == '.csv':
+            with args.names.open(encoding='utf-8-sig', newline='') as handle:
+                for row in csv.DictReader(handle):
+                    try:
+                        spell_id = int(row.get('ID') or 0)
+                    except ValueError:
+                        spell_id = 0
+                    if spell_id and row.get('Name_lang'):
+                        value = row['Name_lang'].strip()
+                        if _contains_cjk(value):
+                            names[spell_id] = value
+        else:
+            local_names = json.loads(args.names.read_text(encoding='utf-8'))
+            if isinstance(local_names, dict):
+                names = {int(k):v for k,v in local_names.items()
+                         if str(k).isdigit() and _contains_cjk(v)}
+            else:
+                names = {r[1]:r[3] for r in local_names if len(r) > 3 and isinstance(r[1], int)
+                         and r[1] and _contains_cjk(r[3])}
+                names_by_text = {r[2].casefold():r[3] for r in local_names if len(r) > 3
+                                 and r[2] and _contains_cjk(r[3])}
+    build = audit.get('客户端版本') or audit.get('完整目录', {}).get('客户端版本')
+    if build:
+        names.update(_load_versioned_zh_names(build))
+    # 这份小表是复核阶段人工校对过的名称兜底；不会覆盖同版本 Wago SpellName。
+    review_names = Path('.cache/global-scope-review-names.json')
+    if review_names.exists():
+        for key, value in json.loads(review_names.read_text(encoding='utf-8')).items():
+            if value and str(key).isdigit() and _contains_cjk(value):
+                names.setdefault(int(key), value)
     def name(sid, original):
-        zh = names.get(sid) or names_by_text.get(original.casefold())
-        return f'{zh}（{original}）' if zh and zh != original else original
+        zh = names.get(sid) or names_by_text.get(str(original).casefold())
+        if zh and zh != original:
+            return f'{zh}（{original}）'
+        return zh or original
     rows = []
     catalog = audit['完整目录']
     for r in catalog['节点']:

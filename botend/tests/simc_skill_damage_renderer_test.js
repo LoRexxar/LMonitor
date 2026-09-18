@@ -25,7 +25,8 @@ const context = vm.createContext({
 vm.runInContext(source.slice(start, end), context);
 const payload = {actors: [{class: 'warrior', specialization: 'fury',
     hero_talent_trees: [{id: 60, name_zh: '屠戮者'}], actions: [{
-        spell_id: 23881, display_name: '嗜血', variant: {},
+    spell_id: 23881, display_name: '嗜血', variant: {},
+        description_zh: '攻击目标并造成伤害。',
         product: {normalized_base_damage: 100, final_normalized_damage: 120,
             final_normalized_damage_by_target: {'2': 180},
             formula_components: [{base_damage: 100, runtime_factors: [1.2], final_damage: 120,
@@ -35,7 +36,11 @@ function render() {
     context.renderSimcSkillDamageSnapshot(payload);
     return element('simc-skill-damage-body').innerHTML;
 }
+function renderText() {
+    return render().replace(/<[^>]+>/g, '');
+}
 payload.actors[0].global_skill_effects = [{display_name:'激怒', source_spell_ids:[184362],
+    description_zh:'提高你造成的伤害。',
     effect_details:[{label:'直接伤害',value_kind:'mastery',normalized_mastery_percent:50},
         {label:'周期伤害',value_kind:'mastery',normalized_mastery_percent:50}],
     runtime_condition:'自身激怒存在时'},
@@ -45,6 +50,8 @@ payload.actors[0].global_skill_effects = [{display_name:'激怒', source_spell_i
         projections:[{kind:'damage_multiplier',value:0.9}],runtime_condition:'防御姿态生效时'}];
 render();
 const globalHtml = element('simc-skill-damage-global-modifiers').innerHTML;
+assert.match(element('simc-skill-damage-body').innerHTML, /data-wow-item-tooltip="攻击目标并造成伤害。"/);
+assert.match(globalHtml, /data-wow-item-tooltip="提高你造成的伤害。"/);
 assert.match(globalHtml, /全局伤害效果/);
 assert.match(globalHtml, /激怒/);
 assert.match(globalHtml, /直接伤害 \+50\.00%（精通50%时）/);
@@ -79,23 +86,25 @@ delete formula.status;
 const row = payload.actors[0].actions[0];
 row.variant = {scenario_tokens: ['buff.whirlwind'], runtime_conditions: [{
     token: 'buff.whirlwind', scope: 'self', spell_id: 85739, name_zh: '旋风斩',
-    stacks: 1, stack_values: [1, 2, 3, 4],
-}]};
-assert.match(render(), /自身存在 旋风斩 效果时/);
+    stacks: 1, stack_values: [1, 2, 3, 4], description_zh: '使后续伤害提高。',
+}], talent_name_zh: '测试天赋', talent_description_zh: '强化技能的伤害。'};
+assert.match(renderText(), /自身存在 旋风斩 效果时/);
+assert.match(render(), /data-wow-item-tooltip="使后续伤害提高。"/);
+assert.match(render(), /data-wow-item-tooltip="强化技能的伤害。"/);
 assert.doesNotMatch(render(), /自身存在 whirlwind 效果时/);
 row.variant.runtime_condition = '点出测试天赋，血量低于35%';
-assert.match(render(), /点出测试天赋，血量低于35%，自身存在 旋风斩 效果时/);
+assert.match(renderText(), /点出测试天赋，血量低于35%，自身存在 旋风斩 效果时/);
 row.variant.runtime_condition = '点出测试天赋，且自身存在旋风斩效果时';
 assert.doesNotMatch(render(), /自身存在旋风斩效果时，自身存在/);
 row.variant.runtime_conditions[0].stacks = 3;
-assert.match(render(), /自身存在旋风斩（3层）效果时/);
+assert.match(renderText(), /自身存在旋风斩（3层）效果时/);
 assert.doesNotMatch(render(), /自身存在旋风斩（3层）效果时，自身存在/);
 row.variant.runtime_condition = '';
-assert.match(render(), /自身存在 旋风斩（3层） 效果时/);
+assert.match(renderText(), /自身存在 旋风斩（3层） 效果时/);
 row.variant.runtime_conditions[0].stacks = 1;
 delete row.variant.scenario_tokens;
 row.variant.runtime_condition = '点出测试天赋';
-assert.match(render(), /点出测试天赋，自身存在 旋风斩 效果时/);
+assert.match(renderText(), /点出测试天赋，自身存在 旋风斩 效果时/);
 row.variant.scenario_tokens = ['buff.whirlwind'];
 row.variant.runtime_condition = '';
 const singleStack = structuredClone(row);
@@ -184,3 +193,14 @@ payload.actors[0].actions[0].product.formula_components[0].status='incomplete';
 target.dataset.targetCount='2';
 assert.match(render(),/公式未完整解析/);
 console.log('零单目标分量的多目标公式按实算值列示，并保留真正的证据缺失提示。');
+
+// 无额外增伤场景时，替换技能的施法前提仍须显示并参与筛选。
+payload.actors[0].actions = [{display_name:'浴血奋战验证', variant:{
+    talent_id:119139, talent_name_zh:'替换天赋', scenario_tokens:[],
+    runtime_conditions:[{token:'buff.recklessness',scope:'self',spell_id:1719,name_zh:'鲁莽',stacks:1}],
+}, product:{final_normalized_damage:120, final_normalized_damage_by_target:{'1':120,'2':120}}}];
+target.dataset.targetCount='1';
+assert.match(render(), /浴血奋战验证/);
+assert.match(renderText(), /自身存在 鲁莽 效果时/);
+assert.match(element('simc-skill-damage-filter-buffs').innerHTML, /自身：鲁莽/);
+console.log('替换技能的施法前提在无额外增伤场景时仍正确显示。');

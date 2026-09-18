@@ -49,6 +49,28 @@ class ScopeContractTests(unittest.TestCase):
         review['条目'][0]['描述仅供参考'] = '提高所有技能伤害'
         self.assertEqual(render_contract(review, 'b'*64), original)
 
+    def test_display_contract_carries_numeric_specialization_scope(self):
+        review = self.review()
+        review['条目'][0].update({'职业': '战士', '专精': '狂怒', '名称':'测试'})
+        rendered = render_contract(review, 'b'*64)
+        self.assertIn('specializations', rendered)
+        self.assertIn('fury', rendered)
+        self.assertIn('"fury",', rendered)
+        self.assertNotIn('arms', rendered)
+
+    def test_display_contract_narrows_precreated_target_state_to_talent_owner(self):
+        review = self.review()
+        review['条目'][0].update({'类型': '目标减益', '职业': '法师', '专精': '冰霜、奥术、火焰',
+                                  '法术ID': 210824, '名称': '大法师之触'})
+        review['条目'][0]['分量'][0]['源法术ID'] = 210824
+        review['条目'][0]['分量'][0]['DBC'].update(
+            source_spell_id=210824, class_family=3,
+        )
+        rendered = render_contract(review, 'b' * 64)
+        self.assertIn('{3, "arcane"', rendered)
+        self.assertNotIn('{3, "fire"', rendered)
+        self.assertNotIn('{3, "frost"', rendered)
+
     def test_conditional_mastery_keeps_buff_switch_and_quantitative_source(self):
         review=self.review()
         row=review['条目'][0]

@@ -616,7 +616,12 @@ class SpellTextResolver:
 
     def _spell_aura(self, spell_id: int) -> str:
         snap = self._spell_snapshot(spell_id)
-        return snap.get("aura_description") or snap.get("description") or self._csv_spell_desc(spell_id) or ""
+        return (
+            snap.get("aura_description")
+            or snap.get("description")
+            or (self._csv_spell_desc(spell_id) if self.dump_dir else "")
+            or ""
+        )
 
     def _csv_spell_name(self, spell_id: int) -> str:
         if self._dump_spell_name_cache is None:

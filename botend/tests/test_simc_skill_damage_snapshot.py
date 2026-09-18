@@ -938,6 +938,52 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             ],
         )
 
+    def test_localization_attaches_db_descriptions_to_skill_talent_and_buff(self):
+        build = '12.1.0.69497'
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=5308,
+            name='Execute', name_zh='斩杀', description='对敌人造成伤害。',
+            snapshot_build=build,
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=1001,
+            name='Enrage', name_zh='激怒',
+            aura_description='使你造成的伤害提高。', snapshot_build=build,
+        )
+        version = WowTalentVersion.objects.create(key='description-active', is_active=True)
+        talent = WowTalentNodeMetadata.objects.create(
+            talent_version=version, class_name='warrior', spec_name='fury',
+            tree_type='spec', node_id=101, spell_id=2001, display_spell_id=2001,
+            name='Test Talent', name_zh='测试天赋',
+            description='Increases damage.', description_zh='提高技能伤害。',
+        )
+        localized = localize_skill_damage_payload({
+            'identity': {'game_build': build},
+            'actors': [{
+                'class': 'warrior', 'specialization': 'fury',
+                'global_skill_effects': [{
+                    'source_type': 'runtime_state', 'source_kind': 'buff',
+                    'source_token': 'buff.enrage', 'source_spell_ids': [1001],
+                }],
+                'actions': [{
+                    'spell_id': 5308, 'name': 'execute',
+                    'variant': {
+                        'talent_id': talent.pk, 'talent_name_zh': '测试天赋',
+                        'runtime_conditions': [{
+                            'token': 'buff.enrage', 'scope': 'self', 'spell_id': 1001,
+                        }],
+                    },
+                }],
+            }],
+        })
+        action = localized['actors'][0]['actions'][0]
+        effect = localized['actors'][0]['global_skill_effects'][0]
+        condition = action['variant']['runtime_conditions'][0]
+        self.assertEqual(action['description_zh'], '对敌人造成伤害。')
+        self.assertEqual(action['variant']['talent_description_zh'], '提高技能伤害。')
+        self.assertEqual(effect['description_zh'], '使你造成的伤害提高。')
+        self.assertEqual(condition['description_zh'], '使你造成的伤害提高。')
+
     def test_flatten_preserves_component_changes_same_token_scenarios_and_each_health_condition(self):
         def amount(direct, tick):
             return {
@@ -2062,6 +2108,46 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             [row['display_name'] for row in localized['actors'][0]['actions']],
             ['斩杀', '暴怒', '撕裂', '已有中文'],
         )
+
+    def test_global_effect_names_use_scoped_buff_translation_before_english_source(self):
+        symbol = SimcAplSymbol.objects.create(token='enrage', symbol_kind='buff')
+        SimcAplSymbolScope.objects.create(
+            symbol=symbol, class_name='warrior', spec='fury', spell_id=184362,
+            name_zh='激怒',
+        )
+        payload = {
+            'identity': {'game_build': '12.1.0.69497'},
+            'actors': [{
+                'class': 'warrior', 'specialization': 'fury',
+                'global_skill_effects': [{
+                    'source_type': 'runtime_state', 'source_kind': 'buff',
+                    'source_token': 'buff.enrage', 'source_spell_ids': [184362],
+                    'source_name': 'Enrage', 'display_name': 'Enrage',
+                }],
+            }],
+        }
+        localized = localize_skill_damage_payload(payload)
+        self.assertEqual(localized['actors'][0]['global_skill_effects'][0]['display_name'], '激怒')
+
+    def test_global_effect_name_does_not_use_other_specialization_translation(self):
+        symbol = SimcAplSymbol.objects.create(token='enrage', symbol_kind='buff')
+        SimcAplSymbolScope.objects.create(
+            symbol=symbol, class_name='warrior', spec='fury', spell_id=184362,
+            name_zh='激怒',
+        )
+        payload = {
+            'identity': {'game_build': '12.1.0.69497'},
+            'actors': [{
+                'class': 'warrior', 'specialization': 'arms',
+                'global_skill_effects': [{
+                    'source_type': 'runtime_state', 'source_kind': 'buff',
+                    'source_token': 'buff.enrage', 'source_spell_ids': [184362],
+                    'source_name': 'Enrage', 'display_name': 'Enrage',
+                }],
+            }],
+        }
+        localized = localize_skill_damage_payload(payload)
+        self.assertNotEqual(localized['actors'][0]['global_skill_effects'][0]['display_name'], '激怒')
 
     def test_all_damage_text_scope_requires_player_positive_unrestricted_damage(self):
         accepted = (

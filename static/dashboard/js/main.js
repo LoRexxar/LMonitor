@@ -5853,7 +5853,40 @@ function initSystemAlerts() {
 function renderSimcSkillIdentity(action) {
     const name = action.display_name || action.name || '未命名技能';
     const spellId = action.spell_id || '-';
-    return `<div class="font-semibold text-gray-900">${escapeHtml(name)} <span class="font-mono text-xs font-normal text-stone-600">技能 ID：${escapeHtml(spellId)}</span></div>`;
+    const description = action.description_zh || action.description || '';
+    const tooltipAttrs = renderSimcTooltipAttrs(name, description);
+    return `<div class="font-semibold text-gray-900"><span${tooltipAttrs}>${escapeHtml(name)}</span> <span class="font-mono text-xs font-normal text-stone-600">技能 ID：${escapeHtml(spellId)}</span></div>`;
+}
+
+function renderSimcTooltipAttrs(name, description) {
+    const text = String(description || '').trim();
+    if (!text) return '';
+    return ` data-wow-item-tooltip="${escapeHtml(text)}" data-wow-item-tooltip-name="${escapeHtml(name)}" title="${escapeHtml(text)}" tabindex="0"`;
+}
+
+function renderSimcConditionDescription(label, variant) {
+    const descriptions = new Map();
+    const add = (name, description) => {
+        if (name && description) descriptions.set(String(name), String(description));
+    };
+    add(variant.talent_name_zh || variant.talent_name,
+        variant.talent_description_zh || variant.talent_description);
+    (Array.isArray(variant.runtime_conditions) ? variant.runtime_conditions : []).forEach(condition => {
+        if (!condition) return;
+        const description = condition.description_zh || condition.description;
+        add(condition.display_name || condition.name_zh || condition.name, description);
+        add(String(condition.token || '').replace(/^(buff|debuff)\./, ''), description);
+    });
+    if (!descriptions.size) return escapeHtml(label);
+    const names = [...descriptions.keys()].sort((left, right) => right.length - left.length);
+    const pattern = new RegExp(names.map(name => name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'g');
+    let html = '', offset = 0;
+    for (const match of String(label).matchAll(pattern)) {
+        html += escapeHtml(label.slice(offset, match.index));
+        html += `<span${renderSimcTooltipAttrs(match[0], descriptions.get(match[0]))}>${escapeHtml(match[0])}</span>`;
+        offset = match.index + match[0].length;
+    }
+    return html + escapeHtml(label.slice(offset));
 }
 
 function renderSimcSkillDamageSnapshot(snapshot) {
@@ -5960,13 +5993,29 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         ? snapshot.actors.filter(item => item && typeof item === 'object')
         : [];
     const previousSpec = specSelect.value;
+    const classLabels = {
+        warrior: '战士', paladin: '圣骑士', hunter: '猎人', rogue: '潜行者',
+        priest: '牧师', deathknight: '死亡骑士', shaman: '萨满祭司', mage: '法师',
+        warlock: '术士', monk: '武僧', druid: '德鲁伊', demonhunter: '恶魔猎手', evoker: '唤魔师',
+    };
+    const specLabels = {
+        arms: '武器', fury: '狂怒', protection: '防护', holy: '神圣', retribution: '惩戒',
+        beastmastery: '野兽控制', marksmanship: '射击', survival: '生存',
+        assassination: '奇袭', outlaw: '狂徒', subtlety: '敏锐', discipline: '戒律', shadow: '暗影',
+        blood: '鲜血', frost: '冰霜', unholy: '邪恶', elemental: '元素', enhancement: '增强',
+        restoration: '恢复', arcane: '奥术', fire: '火焰', affliction: '痛苦',
+        demonology: '恶魔学识', destruction: '毁灭', brewmaster: '酒仙', mistweaver: '织雾',
+        windwalker: '踏风', balance: '平衡', feral: '野性', guardian: '守护', havoc: '浩劫',
+        vengeance: '复仇', devourer: '噬灭', devastation: '湮灭', preservation: '恩护', augmentation: '增辉',
+    };
+    const localizedLabel = (labels, value) => labels[String(value || '').toLowerCase().replace(/[\s_-]/g, '')] || value || '-';
     const specRows = [];
     const seenSpecs = new Set();
     actors.forEach(actor => {
         const key = `${actor.class || ''}:${actor.specialization || ''}`;
         if (seenSpecs.has(key)) return;
         seenSpecs.add(key);
-        specRows.push({key, label: `${actor.class || '-'} / ${actor.specialization || '-'}`});
+        specRows.push({key, label: `${localizedLabel(classLabels, actor.class)} / ${localizedLabel(specLabels, actor.specialization)}`});
     });
     specSelect.innerHTML = '<option value="">请选择专精</option>' + specRows.map(row => (
         `<option value="${escapeHtml(row.key)}">${escapeHtml(row.label)}</option>`
@@ -6090,6 +6139,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 .filter(stacks => Number.isInteger(stacks) && stacks > 1)
                 .map(stacks => `${stacks}层`);
             const displayName = stackLabels.length ? `${name}（${stackLabels.join('，')}）` : name;
+            const effectDescription = effect.description_zh || effect.talent_description_zh
+                || effect.description || effect.talent_description || '';
+            const effectTooltipAttrs = renderSimcTooltipAttrs(displayName, effectDescription);
             let projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
                 if (!projection || typeof projection !== 'object') return '';
                 if (projection.kind === 'crit_chance') {
@@ -6123,7 +6175,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             });
             const details = [...detailGroups.values()].join('；');
             if (details) projections += `<span class="text-xs text-indigo-900">基础加成：${details}</span>`;
-            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div></div>`;
+            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span${effectTooltipAttrs} class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div></div>`;
         }).join('');
         globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局伤害效果</div><div class="mb-3 text-xs text-indigo-700">列出影响全技能或整个伤害类别的加成；下方技能伤害不含这些公共加成。不同伤害类别分别列示，不重复叠乘。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
@@ -6132,6 +6184,8 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const candidateRows = [];
     const talentConditions = new Map();
     const buffConditions = new Map();
+    const talentConditionDescriptions = new Map();
+    const buffConditionDescriptions = new Map();
     selectedActors.forEach(actor => {
         const actions = Array.isArray(actor.actions)
             ? actor.actions.filter(item => item && typeof item === 'object' && item.player_skill !== false)
@@ -6151,6 +6205,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 const talentLabel = variant.talent_name_zh || variant.talent_name || `天赋 ${variant.talent_id}`;
                 conditionKeys.push(conditionKey);
                 if (!talentConditions.has(conditionKey)) talentConditions.set(conditionKey, String(talentLabel));
+                const talentDescription = variant.talent_description_zh || variant.talent_description || '';
+                if (talentDescription && !talentConditionDescriptions.has(conditionKey)) {
+                    talentConditionDescriptions.set(conditionKey, talentDescription);
+                }
             }
             const runtimeConditions = Array.isArray(variant.runtime_conditions)
                 ? variant.runtime_conditions.filter(condition => condition && typeof condition === 'object')
@@ -6177,6 +6235,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 const conditionLabel = `${['target', 'debuff'].includes(scope) ? '目标' : '自身'}：${conditionName}${stackLabel}`;
                 if (!conditionKeys.includes(conditionKey)) conditionKeys.push(conditionKey);
                 if (!buffConditions.has(conditionKey)) buffConditions.set(conditionKey, String(conditionLabel));
+                const conditionDescription = condition.description_zh || condition.description || '';
+                if (conditionDescription && !buffConditionDescriptions.has(conditionKey)) {
+                    buffConditionDescriptions.set(conditionKey, conditionDescription);
+                }
             });
             candidateRows.push({action, variant, rowConditionKeys: conditionKeys});
         });
@@ -6189,14 +6251,14 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         : new Map();
     const filterScopeKey = `${selectedSpec}:${selectedHeroTree}`;
     const excludedConditionKeys = excludedConditionKeysByScope.get(filterScopeKey) || new Set();
-    const renderConditionFilterOptions = conditionMap => Array.from(conditionMap.entries())
+    const renderConditionFilterOptions = (conditionMap, descriptionMap) => Array.from(conditionMap.entries())
         .sort((left, right) => left[1].localeCompare(right[1], 'zh-CN', {numeric: true, sensitivity: 'base'}))
         .map(([conditionKey, label]) => (
-            `<label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs text-stone-700 hover:bg-stone-100"><input type="checkbox" data-condition-key="${escapeHtml(conditionKey)}" class="rounded border-stone-300 text-blue-700"${excludedConditionKeys.has(conditionKey) ? '' : ' checked'}><span>${escapeHtml(label)}</span></label>`
+            `<label class="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-stone-300 bg-white px-3 py-2 text-xs text-stone-700 hover:bg-stone-100"><input type="checkbox" data-condition-key="${escapeHtml(conditionKey)}" class="rounded border-stone-300 text-blue-700"${excludedConditionKeys.has(conditionKey) ? '' : ' checked'}><span${renderSimcTooltipAttrs(label, descriptionMap.get(conditionKey) || '')}>${escapeHtml(label)}</span></label>`
         )).join('');
-    talentFilterList.innerHTML = renderConditionFilterOptions(talentConditions)
+    talentFilterList.innerHTML = renderConditionFilterOptions(talentConditions, talentConditionDescriptions)
         || '<span class="text-xs text-stone-500">当前列表没有单项天赋条件</span>';
-    buffFilterList.innerHTML = renderConditionFilterOptions(buffConditions)
+    buffFilterList.innerHTML = renderConditionFilterOptions(buffConditions, buffConditionDescriptions)
         || '<span class="text-xs text-stone-500">当前列表没有 Buff 条件</span>';
     if (talentConditions.size || buffConditions.size) conditionFilters.classList.remove('hidden');
 
@@ -6259,7 +6321,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         );
         const fallbackTalentLabel = talentName.endsWith('天赋') ? talentName : `${talentName}天赋`;
         const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`);
-        const variantCell = `<div class="text-xs text-amber-800">${escapeHtml(variantLabel)}</div>`;
+        const variantCell = `<div class="text-xs text-amber-800">${renderSimcConditionDescription(variantLabel, variant)}</div>`;
         const normalizedBase = product.normalized_base_damage;
         const finalDamage = selectedFinalDamage;
         let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';

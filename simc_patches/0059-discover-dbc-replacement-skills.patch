@@ -1,0 +1,270 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -23,6 +23,7 @@
+ #include "action/residual_action.hpp"
+ #include "buff/buff.hpp"
+ #include "dbc/trait_data.hpp"
++#include "player/skill_damage_catalog.hpp"
+ #include "sim/cooldown.hpp"
+ #include "report/reports.hpp"
+ #include "sim/plot.hpp"
+@@ -1774,6 +1775,35 @@
+   int stacks = 1;
+ };
+
++// 替换技能的解锁状态是施法前提，独立于增伤条件的差分裁剪。
++std::map<const action_t*, std::vector<skill_damage_condition_t>> skill_damage_activation_conditions;
++
++bool skill_damage_replacement_ready( action_t& action, const std::set<unsigned>& drivers,
++                                     std::vector<skill_damage_condition_t>& required )
++{
++  auto& player = *action.player;
++  const auto probe = [&]( buff_t* buff ) {
++    player.reset();
++    for ( int index = RESOURCE_HEALTH + 1; index < RESOURCE_MAX; ++index )
++    {
++      const auto resource = static_cast<resource_e>( index );
++      player.resources.current[resource] = player.resources.max[resource];
++    }
++    if ( buff ) { buff->current_stack=1; buff->current_value=buff->default_value; buff->invalidate_cache(); }
++    const bool ready = action.ready();
++    if ( buff ) { buff->current_stack=0; buff->current_value=0; buff->invalidate_cache(); }
++    return ready;
++  };
++  if ( probe( nullptr ) ) return true;
++  for ( auto* buff : player.buff_list )
++    if ( buff->source == &player && buff->player == &player && drivers.count( buff->data().id() ) && probe( buff ) )
++    {
++      required.push_back( { skill_damage_condition_scope_e::SELF, buff, "buff."+buff->name_str, 1 } );
++      return true;
++    }
++  return false;
++}
++
+ // Each probe runs on the normally initialized actor. Fatal action bugs are
+ // isolated by the Django exporter runner at actor-process granularity; never
+ // fork from inside SimC.
+@@ -1793,8 +1823,10 @@
+ }
+
+ skill_damage_amount_t skill_damage_snapshot( action_t& action,
+-                                              const std::vector<skill_damage_condition_t>& conditions )
+-{
++                                              const std::vector<skill_damage_condition_t>& extra_conditions )
++{
++  auto conditions = skill_damage_activation_conditions[&action];
++  conditions.insert( conditions.end(), extra_conditions.begin(), extra_conditions.end() );
+   action.player->reset();
+   // 防止 reset 自动恢复全局状态；清零状态本身，不触发战斗回调。
+   for ( buff_t* buff : skill_damage_excluded_buffs( *action.player ) )
+@@ -2120,6 +2152,10 @@
+       add_candidate( trait->id_spell, "selected_player_trait", trait->name );
+   }
+
++  const auto catalog = skill_damage_catalog( *player );
++  for ( const auto& [spell_id, drivers] : catalog.replacement_drivers )
++    add_candidate( spell_id, "dbc_override_action_spell", player->find_spell( spell_id )->name_cstr() );
++
+   auto& stored = skill_damage_dbc_candidates[ player ];
+   stored.reserve( candidates.size() );
+   for ( auto& [ spell_id, candidate ] : candidates )
+@@ -2303,7 +2339,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":20,\"simc_revision\":";
++  out << "{\"schema_version\":21,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2430,7 +2466,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":20,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":21,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -2526,6 +2562,9 @@
+     out << ",\"mastery\":{\"rating\":" << player->composite_rating( RATING_MASTERY ) << ",\"percent\":" << player->composite_mastery() * 100.0 << '}';
+     out << ",\"versatility\":{\"rating\":" << player->composite_damage_versatility_rating() << ",\"percent\":" << player->composite_damage_versatility() * 100.0 << "}},\"actions\":[";
+
++    skill_damage_activation_conditions.clear();
++    const auto action_catalog = skill_damage_catalog( *player );
++    std::map<const action_t*, bool> replacement_ready;
+     skill_damage_cast_tick_parents.clear();
+     skill_damage_cast_repetitions.clear();
+     std::set<std::pair<const action_t*, const action_t*>> native_cast_edges;
+@@ -2573,6 +2612,7 @@
+     std::map<const action_t*, skill_damage_amount_t> baselines;
+     std::vector<action_t*> eligible_actions;
+     std::set<std::pair<std::string, unsigned>> exported_actions;
++    std::set<std::tuple<std::string, unsigned, std::string, unsigned>> exported_cast_actions;
+     for ( action_t* action : player->action_list )
+     {
+       if ( !action || !action->harmful || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
+@@ -2588,7 +2628,19 @@
+         if ( !native_cast_edges.count( { parent, root } ) && !dbc_cast_path( parent, root ) ) break;
+         root = parent;
+       }
+-      if ( root->item || !exported_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ) ).second ) continue;
++      // 使用原生 ready 判断天赋门槛，不能仅凭 DBC 替换边导出未解锁技能。
++      const auto replacement_names = player->action_names_from_spell_id( root->data().id() );
++      if ( action_catalog.replacement_drivers.count( root->data().id() ) &&
++           std::find( replacement_names.begin(), replacement_names.end(), root->name_str ) != replacement_names.end() )
++      {
++        if ( !replacement_ready.count( root ) )
++          replacement_ready[root] = skill_damage_replacement_ready( *const_cast<action_t*>(root),
++              action_catalog.replacement_drivers.at( root->data().id() ), skill_damage_activation_conditions[root] );
++        if ( !replacement_ready.at( root ) ) continue;
++        skill_damage_activation_conditions[action] = skill_damage_activation_conditions[root];
++      }
++      if ( root->item || !exported_cast_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ), root->name_str, root->data().id() ).second ) continue;
++      exported_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ) );
+       roots[action] = root;
+       eligible_actions.push_back( action );
+       auto& baseline = baselines[action];
+@@ -2694,6 +2746,17 @@
+       out << ",\"reporting_root_spell_id\":" << reporting_root_spell_id;
+       out << ",\"reporting_root_component\":" << ( reporting_root_component ? "true" : "false" );
+       out << ",\"player_skill\":" << ( skill_damage_player_skill( *player, reporting_root ) ? "true" : "false" );
++      out << ",\"activation_conditions\":[";
++      bool first_activation = true;
++      for ( const auto& condition : skill_damage_activation_conditions[action] )
++      {
++        if ( !first_activation ) out << ','; first_activation=false;
++        out << "{\"token\":"; apl_metadata_json_string(out,condition.token);
++        out << ",\"scope\":\"self\",\"spell_id\":" << condition.buff->data().id()
++            << ",\"name\":"; apl_metadata_json_string(out,condition.buff->data().name_cstr());
++        out << ",\"stacks\":1}";
++      }
++      out << ']';
+       out << ",\"selected_trait_effects\":";
+       write_skill_damage_selected_trait_effects( out, *player, *action );
+       out << ",\"dbc_scaling\":{\"source\":\"spell_effect\",\"direct\":";
+diff --git a/engine/player/player.cpp b/engine/player/player.cpp
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -29,6 +29,7 @@
+ #include "dbc/specialization_spell.hpp"
+ #include "dbc/temporary_enchant.hpp"
+ #include "dbc/trait_data.hpp"
++#include "player/skill_damage_catalog.hpp"
+ #include "item/item.hpp"
+ #include "item/special_effect.hpp"
+ #include "player/action_priority_list.hpp"
+@@ -4208,21 +4209,9 @@
+   action_priority_list_t* skill_catalog = nullptr;
+   if ( is_player() && !is_enemy() && !is_pet() && ( !sim->skill_damage_export_file.empty() || !sim->skill_damage_evidence_export_file.empty() ) )
+   {
+-    const auto class_id = static_cast<unsigned>( util::class_id( type ) );
+-    const auto spec_id = static_cast<unsigned>( specialization() );
+-    std::set<unsigned> spell_ids;
+-    for ( const auto& entry : active_class_spell_t::data( is_ptr() ) )
+-      if ( entry.class_id == class_id && ( entry.spec_id == 0 || entry.spec_id == spec_id ) )
+-        spell_ids.insert( entry.spell_id );
+-    for ( const auto& entry : specialization_spell_entry_t::data( is_ptr() ) )
+-      if ( entry.class_id == class_id && entry.specialization_id == spec_id )
+-        spell_ids.insert( entry.spell_id );
+-    for ( const auto& selected : player_traits )
+-      if ( std::get<2>( selected ) > 0 )
+-        if ( const auto* trait = trait_data_t::find( std::get<1>( selected ), is_ptr() ) )
+-          if ( trait->id_spell ) spell_ids.insert( trait->id_spell );
++    const auto catalog = skill_damage_catalog( *this );
+     std::set<std::string> tokens;
+-    for ( unsigned spell_id : spell_ids )
++    for ( unsigned spell_id : catalog.spells )
+       for ( const auto& token : action_names_from_spell_id( spell_id ) )
+         if ( token != "dismiss_pet" ) tokens.insert( token );
+     skill_catalog = get_action_priority_list( "skill_damage_catalog" );
+diff --git a/engine/class_modules/sc_warrior.cpp b/engine/class_modules/sc_warrior.cpp
+--- a/engine/class_modules/sc_warrior.cpp
++++ b/engine/class_modules/sc_warrior.cpp
+@@ -2828,6 +2828,8 @@
+     }
+
+     bloodbath_dot = new bloodbath_dot_t( p );
++    // 命中必定施加的流血属于同次施法伤害。
++    add_cast_child( bloodbath_dot );
+
+     if ( p->talents.mountain_thane.burst_of_power->ok() )
+     {
+@@ -2866,6 +2868,8 @@
+     }
+
+     bloodbath_dot = new bloodbath_dot_t( p );
++    // 命中必定施加的流血属于同次施法伤害。
++    add_cast_child( bloodbath_dot );
+
+     if ( p->talents.mountain_thane.burst_of_power->ok() )
+     {
+diff --git a/engine/player/skill_damage_catalog.hpp b/engine/player/skill_damage_catalog.hpp
+new file mode 100644
+--- /dev/null
++++ b/engine/player/skill_damage_catalog.hpp
+@@ -0,0 +1,63 @@
++#pragma once
++
++#include "dbc/class_spells.hpp"
++#include "dbc/specialization_spell.hpp"
++#include "dbc/trait_data.hpp"
++#include <map>
++#include <set>
++#include <vector>
++
++// 目录和导出审计共用同一份 DBC 闭包，避免只创建动作却漏报其来源。
++struct skill_damage_catalog_t
++{
++  std::set<unsigned> spells;
++  std::map<unsigned, std::set<unsigned>> replacement_drivers;
++};
++
++inline skill_damage_catalog_t skill_damage_catalog( const player_t& player )
++{
++  skill_damage_catalog_t result;
++  const auto class_id = static_cast<unsigned>( util::class_id( player.type ) );
++  const auto spec_id = static_cast<unsigned>( player.specialization() );
++  for ( const auto& entry : active_class_spell_t::data( player.is_ptr() ) )
++    if ( entry.class_id == class_id && ( entry.spec_id == 0 || entry.spec_id == spec_id ) )
++      result.spells.insert( entry.spell_id );
++  for ( const auto& entry : specialization_spell_entry_t::data( player.is_ptr() ) )
++    if ( entry.class_id == class_id && entry.specialization_id == spec_id )
++      result.spells.insert( entry.spell_id );
++  for ( const auto& selected : player.player_traits )
++    if ( std::get<2>( selected ) > 0 )
++      if ( const auto* trait = trait_data_t::find( std::get<1>( selected ), player.is_ptr() ) )
++        if ( trait->id_spell ) result.spells.insert( trait->id_spell );
++
++  const auto original = result.spells;
++  std::vector<unsigned> pending( original.begin(), original.end() );
++  // 单项天赋探针未必显式选择触发技能，但职业原生 Buff 已持有替换规则。
++  // 这里只寻找替换边；是否真正解锁仍由对应动作的 ready 判断。
++  for ( const auto* buff : player.buff_list )
++    if ( buff->source == &player && buff->player == &player && buff->data().ok() &&
++         buff->data().class_family() == dbc::get_class_spell_family( player.type ) )
++      pending.push_back( buff->data().id() );
++  std::set<unsigned> visited;
++  while ( !pending.empty() )
++  {
++    const auto id = pending.back(); pending.pop_back();
++    const auto* spell = player.find_spell( id );
++    if ( !spell || !spell->ok() || !visited.insert( id ).second ) continue;
++    for ( const auto& effect : spell->effects() )
++    {
++      // 触发边用于寻找承载替换效果的光环；普通触发子攻击仍由原生构造器创建。
++      if ( effect.trigger_spell_id() ) pending.push_back( effect.trigger_spell_id() );
++      if ( effect.subtype() != A_OVERRIDE_ACTION_SPELL &&
++           effect.subtype() != A_OVERRIDE_ACTION_SPELL_TRIGGERED ) continue;
++      if ( effect.misc_value1() <= 0 || effect.base_value() <= 0 ) continue;
++      const auto replacement = static_cast<unsigned>( effect.base_value() );
++      const auto* target = player.find_spell( replacement );
++      if ( !target || !target->ok() ) continue;
++      result.spells.insert( replacement );
++      pending.push_back( replacement );
++      if ( !original.count( replacement ) ) result.replacement_drivers[replacement].insert( id );
++    }
++  }
++  return result;
++}

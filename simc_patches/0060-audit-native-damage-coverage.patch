@@ -1,0 +1,168 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -515,6 +515,36 @@
+   out << R"json(},"limitations":["Actions, options, and expressions are limited to successfully initialized actors and their selected APLs; dynamic factories and unselected talents are not exhaustive."]},"symbols":[)json";
+   bool first = true;
+   for ( const auto& symbol : symbols ) write_apl_symbol( out, symbol, first );
++  // 独立于技能导出器的原生初始化目录，供源码工厂覆盖审计使用。
++  out << "],\"action_inventory\":[";
++  bool first_inventory = true;
++  for (const auto* player : sim.player_no_pet_list)
++    for (const auto* action : player->action_list)
++    {
++      if (!first_inventory) out << ','; first_inventory=false;
++      out << "{\"token\":"; apl_metadata_json_string(out,action->name_str);
++      out << ",\"requested_action\":"; apl_metadata_json_string(out,action->signature_str);
++      out << ",\"spell_id\":" << apl_metadata_action_spell_id(*action)
++          << ",\"spell_valid\":" << (action->data().ok()?"true":"false")
++          << ",\"harmful\":" << (action->harmful?"true":"false")
++          << ",\"damage_action\":" << (action->harmful && action->type!=ACTION_HEAL && action->type!=ACTION_ABSORB?"true":"false")
++          << ",\"direct\":" << (action->does_direct_damage()?"true":"false")
++          << ",\"periodic\":" << (action->does_periodic_damage()?"true":"false")
++          << ",\"background\":" << (action->background?"true":"false")
++          << ",\"children\":[";
++      std::set<const action_t*> children(action->child_action.begin(),action->child_action.end());
++      for(const auto& child : action->cast_child_action) children.insert(child.first);
++      for(const auto* child : {action->execute_action,action->impact_action,action->tick_action})
++        if(child) children.insert(child);
++      bool first_child=true;
++      for(const auto* child : children)
++      {
++        if(!first_child) out << ','; first_child=false;
++        out << "{\"token\":"; apl_metadata_json_string(out,child->name_str);
++        out << ",\"spell_id\":" << apl_metadata_action_spell_id(*child) << '}';
++      }
++      out << "]}";
++    }
+   out << "]}\n";
+   out.flush();
+   if ( !out ) { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to write APL metadata export file" ); }
+@@ -1790,7 +1819,20 @@
+       player.resources.current[resource] = player.resources.max[resource];
+     }
+     if ( buff ) { buff->current_stack=1; buff->current_value=buff->default_value; buff->invalidate_cache(); }
++    // remains() 依赖到期事件；只有层数会返回负哨兵值，误判变身技能不可用。
++    // 事件只提供时长，绝不调用 Buff 的 trigger/expire 或战斗回调。
++    event_t* expiration = nullptr;
++    if ( buff && buff->expiration.empty() && buff->buff_duration() > timespan_t::zero() )
++    {
++      expiration = make_event( *player.sim, buff->buff_duration(), [] {} );
++      buff->expiration.push_back( expiration );
++    }
+     const bool ready = action.ready();
++    if ( expiration )
++    {
++      buff->expiration.pop_back();
++      event_t::cancel( expiration );
++    }
+     if ( buff ) { buff->current_stack=0; buff->current_value=0; buff->invalidate_cache(); }
+     return ready;
+   };
+@@ -2339,7 +2381,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":21,\"simc_revision\":";
++  out << "{\"schema_version\":22,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2466,7 +2508,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":21,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":22,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -2611,12 +2653,15 @@
+     std::map<const action_t*, std::vector<action_t*>> cast_actions;
+     std::map<const action_t*, skill_damage_amount_t> baselines;
+     std::vector<action_t*> eligible_actions;
++    std::map<const action_t*, std::string> coverage;
+     std::set<std::pair<std::string, unsigned>> exported_actions;
+     std::set<std::tuple<std::string, unsigned, std::string, unsigned>> exported_cast_actions;
+     for ( action_t* action : player->action_list )
+     {
+-      if ( !action || !action->harmful || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
+-           action->external_recipient_action() ||
++      if ( !action ) continue;
++      coverage[action] = "no_native_damage";
++      if ( action->external_recipient_action() ) { coverage[action]="external_recipient"; continue; }
++      if ( !action->harmful || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
+            ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
+       const action_t* root = action;
+       std::set<const action_t*> visited;
+@@ -2636,10 +2681,13 @@
+         if ( !replacement_ready.count( root ) )
+           replacement_ready[root] = skill_damage_replacement_ready( *const_cast<action_t*>(root),
+               action_catalog.replacement_drivers.at( root->data().id() ), skill_damage_activation_conditions[root] );
+-        if ( !replacement_ready.at( root ) ) continue;
++        if ( !replacement_ready.at( root ) ) { coverage[action]="replacement_not_ready"; continue; }
+         skill_damage_activation_conditions[action] = skill_damage_activation_conditions[root];
+       }
+-      if ( root->item || !exported_cast_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ), root->name_str, root->data().id() ).second ) continue;
++      if ( root->item ) { coverage[action]="equipment_action"; continue; }
++      if ( !exported_cast_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ), root->name_str, root->data().id() ).second )
++      { coverage[action]="duplicate_within_cast"; continue; }
++      coverage[action]="exported_damage";
+       exported_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ) );
+       roots[action] = root;
+       eligible_actions.push_back( action );
+@@ -2867,6 +2915,26 @@
+         out << "},\"scenarios\":[]}";
+       }
+     }
++    out << "],\"action_coverage\":[";
++    bool first_coverage = true;
++    for ( const auto* action : player->action_list )
++    {
++      if ( !action ) continue;
++      if ( !coverage.count(action) ) throw std::runtime_error("Native action coverage missing");
++      if ( !first_coverage ) out << ','; first_coverage=false;
++      out << "{\"token\":"; apl_metadata_json_string(out,action->name_str);
++      out << ",\"spell_id\":" << apl_metadata_action_spell_id(*action);
++      out << ",\"requested_action\":"; apl_metadata_json_string(out,action->signature_str);
++      out << ",\"status\":"; apl_metadata_json_string(out,coverage.at(action));
++      out << ",\"direct\":" << (action->does_direct_damage()?"true":"false")
++          << ",\"periodic\":" << (action->does_periodic_damage()?"true":"false");
++      if ( roots.count(action) )
++      {
++        out << ",\"root_token\":"; apl_metadata_json_string(out,roots.at(action)->name_str);
++        out << ",\"root_spell_id\":" << apl_metadata_action_spell_id(*roots.at(action));
++      }
++      out << '}';
++    }
+     out << "],\"global_damage_states\":";
+     write_skill_damage_global_states( out, *player );
+     out << ",\"global_scope_candidates\":[";
+diff --git a/engine/player/skill_damage_catalog.hpp b/engine/player/skill_damage_catalog.hpp
+--- a/engine/player/skill_damage_catalog.hpp
++++ b/engine/player/skill_damage_catalog.hpp
+@@ -50,7 +50,8 @@
+       if ( effect.trigger_spell_id() ) pending.push_back( effect.trigger_spell_id() );
+       if ( effect.subtype() != A_OVERRIDE_ACTION_SPELL &&
+            effect.subtype() != A_OVERRIDE_ACTION_SPELL_TRIGGERED ) continue;
+-      if ( effect.misc_value1() <= 0 || effect.base_value() <= 0 ) continue;
++      // 原技能可以通过 misc1、技能掩码或驱动光环定位；332/333 的正数值就是替换法术。
++      if ( effect.base_value() <= 0 ) continue;
+       const auto replacement = static_cast<unsigned>( effect.base_value() );
+       const auto* target = player.find_spell( replacement );
+       if ( !target || !target->ok() ) continue;
+diff --git a/engine/class_modules/warlock/sc_warlock_init.cpp b/engine/class_modules/warlock/sc_warlock_init.cpp
+--- a/engine/class_modules/warlock/sc_warlock_init.cpp
++++ b/engine/class_modules/warlock/sc_warlock_init.cpp
+@@ -1592,6 +1592,10 @@
+ 
+   std::vector<std::string> warlock_t::action_names_from_spell_id( unsigned int spell_id ) const
+   {
++    // Demoniac 在原生初始化中解锁 Demonbolt，DBC 天赋本体并非施法技能。
++    if ( spell_id == 426115 && talents.demoniac.ok() )
++      return { "demonbolt" };
++
+     if ( spell_id == 172 )  // Wither from corruption
+     {
+       if ( destruction() )
+ 

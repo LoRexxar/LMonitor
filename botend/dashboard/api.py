@@ -64,6 +64,7 @@ from botend.services.simc_player_config import (
 )
 from botend.services.simc_composer import SimcComposer, validate_simulation_options
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
+from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_hero_talents import resolve_hero_talent_names
 from botend.services.simc_consumables import simc_consumable_option
@@ -8400,6 +8401,7 @@ class SimcSkillDamageSnapshotAPIView(View):
                 actor = display_snapshot.actor_rows.filter(
                     pk=actor_id,
                 ).values_list('actor_payload', flat=True).get()
+                attach_skill_damage_descriptions(actor, game_build=display_snapshot.game_build)
                 write_chunk(json.dumps(actor, cls=DjangoJSONEncoder).encode('utf-8'))
                 del actor
             write_chunk(b']')

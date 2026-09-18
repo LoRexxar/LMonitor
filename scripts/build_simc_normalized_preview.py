@@ -1,5 +1,6 @@
 """把本地真实 SimC 导出交给线上同一产品投影和表格渲染函数。"""
 import argparse
+import csv
 import copy
 import hashlib
 import json
@@ -19,6 +20,7 @@ django.setup()
 from botend.services.simc_skill_damage import (
     SimcSkillDamageSnapshotService, classify_global_skill_effects, flatten_single_talent_damage_variants,
     project_skill_damage_product_payload, collect_skill_damage_unresolved,
+    attach_skill_damage_descriptions,
     _mark_empty_runtime_amount_components_unresolved, _discard_empty_runtime_amount_components,
     prune_global_damage_talents, hero_subtree_name_by_id, hero_subtree_name_zh,
     single_talent_reference_entry,
@@ -26,6 +28,27 @@ from botend.services.simc_skill_damage import (
 from build_simc_scope_contract import compile_contract
 from build_simc_global_damage_review import KEYS, SPEC_LABELS
 from audit_simc_global_damage_initialization import SPECS
+
+
+def _contains_cjk(value):
+    return any('\u3400' <= char <= '\u9fff' for char in str(value or ''))
+
+
+def _load_versioned_zh_names(build):
+    path = ROOT / '.cache' / 'adventure-journal' / str(build) / 'zhCN' / 'SpellName.csv'
+    names = {}
+    if not path.exists():
+        return names
+    with path.open(encoding='utf-8-sig', newline='') as handle:
+        for item in csv.DictReader(handle):
+            try:
+                spell_id = int(item.get('ID') or 0)
+            except (TypeError, ValueError):
+                spell_id = 0
+            value = str(item.get('Name_lang') or '').strip()
+            if spell_id and _contains_cjk(value):
+                names[spell_id] = value
+    return names
 
 
 def main():
@@ -57,13 +80,42 @@ def main():
     validated_paths = set()
     unresolved, excluded_rows, single_unresolved = [], [], {}
     reference_audit = []
-    local_names = read(args.names)
-    names = {r[1]:r[3] for r in local_names if r[1] and r[3]}
-    names_by_text = {r[2].casefold():r[3] for r in local_names if r[2] and r[3]}
+    if args.names.suffix.lower() == '.csv':
+        names, names_by_text = {}, {}
+        with args.names.open(encoding='utf-8-sig', newline='') as handle:
+            for item in csv.DictReader(handle):
+                try:
+                    spell_id = int(item.get('ID') or 0)
+                except ValueError:
+                    spell_id = 0
+                if spell_id and item.get('Name_lang'):
+                    value = item['Name_lang'].strip()
+                    if _contains_cjk(value):
+                        names[spell_id] = value
+    else:
+        local_names = read(args.names)
+        names = ({int(k): v for k, v in local_names.items()
+                  if str(k).isdigit() and _contains_cjk(v)}
+                 if isinstance(local_names, dict) else
+                 {r[1]:r[3] for r in local_names if len(r) > 3 and isinstance(r[1], int)
+                  and r[1] and _contains_cjk(r[3])})
+        names_by_text = ({} if isinstance(local_names, dict) else
+                         {r[2].casefold():r[3] for r in local_names if len(r) > 3 and r[2]
+                          and _contains_cjk(r[3])})
+    names.update(_load_versioned_zh_names(review['客户端版本']))
+    review_names = ROOT / '.cache' / 'global-scope-review-names.json'
+    if review_names.exists():
+        for key, value in read(review_names).items():
+            if value and str(key).isdigit() and _contains_cjk(value):
+                names.setdefault(int(key), value)
     for row in review['条目']:
-        names[row['法术ID']] = row['名称']
+        if row['法术ID'] not in names and _contains_cjk(row['名称']):
+            names[row['法术ID']] = row['名称']
     def name(sid, fallback):
-        return names.get(sid) or names_by_text.get(str(fallback).casefold()) or names_by_text.get(str(fallback).removeprefix('buff.').removeprefix('debuff.').replace('_',' ').casefold()) or fallback
+        return (names.get(sid)
+                or names_by_text.get(str(fallback).casefold())
+                or names_by_text.get(str(fallback).removeprefix('buff.').removeprefix('debuff.').replace('_',' ').casefold())
+                or fallback)
 
     def load_actor(path):
         nonlocal checks
@@ -161,6 +213,7 @@ def main():
         actor['global_skill_effects'] = static+display_global_effects
         actor['actions'] = flatten_single_talent_damage_variants(high,low,variants,global_effects=global_effects)
         product = project_skill_damage_product_payload({'actors':[actor]})['actors'][0]
+        attach_skill_damage_descriptions(product, game_build=review['客户端版本'])
         displayed_globals.update((c['spell_id'],c['effect_index']) for e in product['global_skill_effects'] for c in e.get('global_components',[]))
         hero_ids = sorted({v['talent']['hero_subtree_id'] for v in variants if v['talent']['hero_subtree_id']})
         if not hero_ids:
@@ -203,7 +256,7 @@ def main():
         product = {k:product[k] for k in ['class','specialization','hero_talent_trees','actions','global_skill_effects']}
         for action in product['actions']:
             for k in list(action):
-                if k not in {'token','name','display_name','spell_id','player_skill','variant','product','hero_subtree_ids',
+                if k not in {'token','name','display_name','description','description_zh','spell_id','player_skill','variant','product','hero_subtree_ids',
                              'component_count','components','reporting_root_token','reporting_root_spell_id',
                              'affected_target_counts'}:
                     action.pop(k)

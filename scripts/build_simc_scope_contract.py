@@ -96,7 +96,7 @@ def render_contract(review, digest):
               'constexpr skill_damage_scope_buff_t skill_damage_scope_buffs[] = {']
     lines += [f'  {{{spell}, {str(flags[0]).lower()}, {str(flags[1]).lower()}}},'
               for spell, flags in sorted(buffs.items())]
-    lines += ['};', 'struct skill_damage_scope_display_t { unsigned family; const char* json; };',
+    lines += ['};', 'struct skill_damage_scope_display_t { unsigned family; const char* specialization; const char* json; };',
               'constexpr skill_damage_scope_display_t skill_damage_scope_display[] = {']
     try:
         from scripts.build_simc_global_damage_review import SPEC_LABELS
@@ -104,28 +104,53 @@ def render_contract(review, digest):
     except ModuleNotFoundError:
         from build_simc_global_damage_review import SPEC_LABELS
         from audit_simc_global_damage_initialization import SPECS
-    spec_labels = {SPEC_LABELS[key]: set() for key in SPEC_LABELS}
-    for key, label in SPEC_LABELS.items():
-        spec_labels[label].add(SPECS[key])
+    from botend.constants.wow import SPEC_IDENTITY_MAP
+    from botend.constants.simc_effect_ownership import NATIVE_STATE_OWNERS
+    from scripts.build_simc_global_damage_review import KEYS
+    class_keys = {zh: key for key, zh in KEYS.items()}
+    talent_scopes = {}
+    for row in review['条目']:
+        if row['类型'] == '天赋':
+            talent_scopes.setdefault((row.get('职业'), row['法术ID']), set()).update(row.get('专精', '').split('、'))
     for row in review['条目']:
         if not row.get('职业'):
             continue
         parts = [c for c in row['分量'] if c['处理结论'] == '应剔除']
         if not parts:
             continue
-        specs = sorted({spec for label in row.get('专精','').split('、') for spec in spec_labels.get(label, [])})
-        fact = {'effect_id':f'reviewed_scope:{row["类型"]}:{row["法术ID"]}:{row.get("节点",0)}',
+        cls = class_keys[row['职业']]
+        labels = set(row.get('专精','').split('、'))
+        # 状态可以在多个专精预创建，优先采用同 ID 天赋的可学习范围。
+        if row['类型'] != '天赋':
+            declared = talent_scopes.get((row['职业'], row['法术ID']))
+            if declared and '职业通用' not in declared:
+                labels &= declared
+        spec_ids = [sid for sid, (owner, _) in SPEC_IDENTITY_MAP.items()
+                    if owner.lower() == cls and ('职业通用' in labels or SPEC_LABELS[sid] in labels)]
+        if not spec_ids:
+            raise ValueError(f'全局展示条目缺少明确专精归属：{row["职业"]}/{row["法术ID"]}')
+        specs = sorted(SPECS[sid] for sid in spec_ids)
+        owner = NATIVE_STATE_OWNERS.get(row['法术ID'])
+        if owner:
+            if owner['class'] != cls:
+                raise ValueError('原生施加来源与职业不一致。')
+            specs = sorted(set(specs) & set(owner['specs']))
+        # 原生导出按一个专精一条事实输出，避免同一职业下的跨专精事实泄漏。
+        # JSON 内也使用单值专精范围，后端再次投影时可以继续做精确校验。
+        for specialization in specs:
+            fact = {'effect_id':f'reviewed_scope:{row["类型"]}:{row["法术ID"]}:{row.get("节点",0)}',
                 'source_type':'reviewed_scope', 'source_name':row['名称'], 'display_name':row['名称'],
-                'source_spell_ids':[row['法术ID']], 'specializations':specs,
+                'source_spell_ids':[row['法术ID']], 'specializations':[specialization],
+                'source_class':cls, 'source_kind':{'天赋':'talent','目标减益':'debuff'}.get(row['类型'],'buff'),
                 'scope_evidence':'reviewed_dbc_native_effect_scope', 'excluded_before_probe':True,
                 'partial_state':any(c['处理结论']=='保留' for c in row['分量']), 'projections':[],
                 'global_components':[{'spell_id':c['源法术ID'],'effect_index':c['效果编号'],'effect_id':c['效果ID']} for c in parts],
                 'effect_details':display_details(row),
                 'runtime_condition':'自身效果生效时' if row['类型']=='自身状态' else ('自身施加的目标效果生效时' if row['类型']=='目标减益' else '启用相应天赋时')}
-        if row['类型'] != '天赋' and any(b.get('layer') == 'conditional_action_registry' for c in row['分量'] for b in c.get('原生实际应用', [])):
-            fact['partial_state'] = True
-        value = json.dumps(json.dumps(fact,ensure_ascii=False,separators=(',',':')),ensure_ascii=True)
-        lines.append(f'  {{{parts[0]["DBC"]["class_family"]}, {value}}},')
+            if row['类型'] != '天赋' and any(b.get('layer') == 'conditional_action_registry' for c in row['分量'] for b in c.get('原生实际应用', [])):
+                fact['partial_state'] = True
+            value = json.dumps(json.dumps(fact,ensure_ascii=False,separators=(',',':')),ensure_ascii=True)
+            lines.append(f'  {{{parts[0]["DBC"]["class_family"]}, "{specialization}", {value}}},')
     lines += ['};', '']
     return '\n'.join(lines)
 

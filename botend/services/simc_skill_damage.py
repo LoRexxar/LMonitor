@@ -19,12 +19,14 @@ from botend.constants.hero_talents import (
     hero_subtree_name_by_id, hero_subtree_name_zh, spec_hero_subtree_names,
 )
 from botend.constants.simc_specs import SIMC_REQUIRED_PROFILE_SPECS
+from botend.constants.simc_effect_ownership import global_effect_matches_owner
 from botend.models import (
     SimcAplSymbol, SimcAplSymbolScope, SimcBackendBinary, SimcProfile,
     SimcSkillDamageSnapshot, SimcSkillDamageSnapshotActor, WowSpellSnapshot,
     WowTalentNodeMetadata,
 )
 from botend.services.simc_composer import SimcComposer
+from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOT_ALIASES, EQUIPMENT_SLOTS, canonical_simc_profile_identity,
     simc_spec_slug,
@@ -60,6 +62,14 @@ def _text_key(value):
 
 def _contains_cjk(value):
     return bool(re.search(r'[\u3400-\u9fff]', str(value or '')))
+
+
+def _scope_name_key(value):
+    return re.sub(r'[\s_-]+', '', _text_key(value))
+
+
+def _state_token(value):
+    return _text_key(value).removeprefix('buff.').removeprefix('debuff.').removeprefix('talent.')
 
 
 _HAND_COMPONENT_SUFFIX_RE = re.compile(
@@ -115,7 +125,7 @@ def _single_top_name(rows, rank):
 
 
 def localize_skill_damage_payload(payload):
-    """Freeze Chinese action labels into the generated product payload."""
+    """将中文名称及数据库说明写入生成结果。"""
     result = copy.deepcopy(payload or {})
     actors = [row for row in (result.get('actors') or []) if isinstance(row, dict)]
     spell_ids = {
@@ -146,6 +156,11 @@ def localize_skill_damage_payload(payload):
     )
     tokens = set()
     for actor in actors:
+        for effect in actor.get('global_skill_effects') or []:
+            tokens.add(_state_token(effect.get('source_token')))
+        for action in actor.get('actions') or []:
+            for condition in (action.get('variant') or {}).get('runtime_conditions') or []:
+                tokens.add(_state_token(condition.get('token')))
         for action in actor.get('actions') or []:
             if not isinstance(action, dict):
                 continue
@@ -168,6 +183,7 @@ def localize_skill_damage_payload(payload):
         row['spell_id']: str(row['name_zh'] or '').strip()
         for row in spell_query.values('spell_id', 'name_zh')
     } if spell_ids else {}
+    exact_spell_names = dict(spell_names) if snapshot_build else {}
     missing_spell_ids = spell_ids - set(spell_names)
     if missing_spell_ids:
         recent_spell_names = WowSpellSnapshot.objects.filter(
@@ -178,59 +194,90 @@ def localize_skill_damage_payload(payload):
             spell_names.setdefault(row['spell_id'], str(row['name_zh'] or '').strip())
     talent_rows = list(
         WowTalentNodeMetadata.objects.filter(
-            talent_version__is_active=True,
-            name_zh__gt='',
+            talent_version__is_active=True, name_zh__gt='',
         ).filter(
             models.Q(spell_id__in=spell_ids) | models.Q(display_spell_id__in=spell_ids)
         ).values(
             'spell_id', 'display_spell_id', 'class_name', 'spec_name', 'name_zh',
         )
     ) if spell_ids else []
-    apl_rows = list(
+    all_apl_rows = list(
         SimcAplSymbolScope.objects.filter(
             is_active=True,
             symbol__is_active=True,
-            symbol__symbol_kind=SimcAplSymbol.KIND_ACTION,
+            symbol__symbol_kind__in=['action', 'talent', 'buff', 'debuff'],
             name_zh__gt='',
         ).filter(
             models.Q(symbol__token__in=tokens) | models.Q(spell_id__in=spell_ids)
         ).values(
-            'symbol__token', 'spell_id', 'class_name', 'spec', 'hero_tree', 'name_zh',
+            'symbol__token', 'symbol__symbol_kind', 'spell_id', 'class_name', 'spec', 'hero_tree', 'name_zh',
         )
     ) if tokens or spell_ids else []
+    apl_rows = [row for row in all_apl_rows if row['symbol__symbol_kind'] == 'action']
 
     for actor in actors:
-        class_key = _text_key(actor.get('class'))
-        spec_key = _text_key(actor.get('specialization'))
+        class_key = _scope_name_key(actor.get('class'))
+        spec_key = _scope_name_key(actor.get('specialization') or actor.get('spec'))
         hero_key = _text_key(actor.get('hero_talent_tree'))
 
         def scope_rank(row, *, talent=False):
-            row_class = _text_key(row.get('class_name'))
-            row_spec = _text_key(row.get('spec_name') if talent else row.get('spec'))
+            row_class = _scope_name_key(row.get('class_name'))
+            row_spec = _scope_name_key(row.get('spec_name') if talent else row.get('spec'))
             row_hero = '' if talent else _text_key(row.get('hero_tree'))
             if row_class and row_class != class_key:
                 return -1
             if row_spec and row_spec != spec_key:
                 return -1
-            if row_hero and row_hero != hero_key:
+            if hero_key and row_hero and row_hero != hero_key:
                 return -1
             return (4 if row_hero else 0) + (2 if row_spec else 0) + (1 if row_class else 0)
+
+        def state_name(spell_ids, token, kinds):
+            # 精确 ID 优先；同名但不同 ID 的 Buff/技能不能互相借用译名。
+            scoped = [row for row in all_apl_rows if row['symbol__symbol_kind'] in kinds
+                      and row.get('spell_id') in spell_ids]
+            apl_name = _single_top_name(scoped, scope_rank)
+            if not apl_name and token:
+                apl_name = _single_top_name([
+                    row for row in all_apl_rows if row['symbol__symbol_kind'] in kinds
+                    and _state_token(row['symbol__token']) == token
+                    and (not row.get('spell_id') or row['spell_id'] in spell_ids)
+                ], scope_rank)
+            talent_name = _single_top_name([
+                row for row in talent_rows if any(sid in (row['spell_id'], row['display_spell_id'])
+                                                 for sid in spell_ids)
+            ], lambda row: scope_rank(row, talent=True)) if 'talent' in kinds else ''
+            candidates = ([exact_spell_names.get(sid) for sid in spell_ids]
+                          + [talent_name, apl_name] + [spell_names.get(sid) for sid in spell_ids])
+            return next((value for value in candidates if _contains_cjk(value)), '')
 
         for effect in actor.get('global_skill_effects') or []:
             if not isinstance(effect, dict):
                 continue
-            source_name = next((
-                spell_names.get(spell_id)
-                for spell_id in (effect.get('source_spell_ids') or [])
-                if spell_names.get(spell_id)
+            source_spell_ids = effect.get('source_spell_ids') or []
+            source_token = _state_token(effect.get('source_token'))
+            source_type = effect.get('source_type')
+            kinds = ({effect['source_kind']} if effect.get('source_kind') in {'buff', 'debuff', 'talent'} else
+                     {'buff', 'debuff'} if source_type == 'runtime_state' else
+                     {'talent'} if source_type == 'talent' else {'talent', 'buff', 'debuff'})
+            source_name = state_name(source_spell_ids, source_token, kinds)
+            existing_talent_name = next((
+                str(effect.get(key) or '').strip()
+                for key in ('talent_name_zh', 'talent_name')
+                if _contains_cjk(effect.get(key))
             ), '')
-            source_token = str(effect.get('source_token') or '').partition('.')[2]
+            localized_fallback = next((
+                str(effect.get(key) or '').strip()
+                for key in ('source_name', 'display_name', 'talent_name')
+                if _contains_cjk(effect.get(key))
+            ), '')
             effect['display_name'] = (
-                str(effect.get('talent_name_zh') or '').strip()
-                or str(effect.get('talent_name') or '').strip()
-                or source_name
+                source_name
+                or existing_talent_name
+                or localized_fallback
                 or source_token.replace('_', ' ').strip()
-                or '未命名全局效果'
+                or (f'未解析效果（Spell ID {source_spell_ids[0]}）' if source_spell_ids
+                    else '未命名全局效果')
             )
 
         for action in actor.get('actions') or []:
@@ -244,7 +291,8 @@ def localize_skill_damage_payload(payload):
                     continue
                 localized_condition = copy.deepcopy(runtime_condition)
                 condition_spell_id = localized_condition.get('spell_id')
-                condition_name = spell_names.get(condition_spell_id, '')
+                condition_name = state_name([condition_spell_id], _state_token(localized_condition.get('token')),
+                                            {'debuff'} if localized_condition.get('scope') == 'target' else {'buff'})
                 localized_condition['name_zh'] = (
                     condition_name if _contains_cjk(condition_name) else ''
                 )
@@ -325,6 +373,7 @@ def localize_skill_damage_payload(payload):
                 or existing_display_name
                 or str(action.get('name') or action.get('token') or '未命名技能')
             )
+        attach_skill_damage_descriptions(actor, game_build=snapshot_build)
     return result
 
 
@@ -431,6 +480,8 @@ def prune_global_damage_talents(talents, scaffold_talents, talent_prerequisites,
             'source_type': 'talent', 'talent_id': talent.pk,
             'talent_name': str(getattr(talent, 'name', '') or fact.get('name') or ''),
             'talent_name_zh': str(getattr(talent, 'name_zh', '') or ''),
+            'talent_description': str(getattr(talent, 'description', '') or ''),
+            'talent_description_zh': str(getattr(talent, 'description_zh', '') or ''),
             'tree_type': str(getattr(talent, 'tree_type', '') or ''),
             'hero_subtree_id': getattr(talent, 'db2_subtree_id', None) or None,
             'source_spell_ids': list(dict.fromkeys([fact['spell_id'], *(part['spell_id'] for part in fact.get('global_components', []))])),
@@ -706,7 +757,35 @@ def build_single_talent_actor_input(
 
 
 def _action_identity(action):
-    return (str(action.get('token') or ''), action.get('spell_id'))
+    return (str(action.get('token') or ''), action.get('spell_id'),
+            str(action.get('reporting_root_token') or action.get('token') or ''),
+            action.get('reporting_root_spell_id') or action.get('spell_id'))
+
+
+def _validate_native_action_coverage(actor):
+    """检查原生处理账本，防止已进入伤害导出分支的动作在传输时静默丢失。"""
+    ledger = actor.get('action_coverage')
+    if ledger is None:
+        return
+    statuses = {'no_native_damage', 'external_recipient', 'replacement_not_ready',
+                'equipment_action', 'duplicate_within_cast', 'exported_damage'}
+    if not isinstance(ledger, list) or any(
+        not isinstance(row, dict) or row.get('status') not in statuses for row in ledger
+    ):
+        raise ValueError('原生动作覆盖账本结构无效。')
+    actual = {_action_identity(action) for action in actor.get('actions') or []}
+    exported = set()
+    for row in ledger:
+        if row['status'] != 'exported_damage':
+            continue
+        identity = _action_identity({**row, 'reporting_root_token': row.get('root_token'),
+                                     'reporting_root_spell_id': row.get('root_spell_id')})
+        if identity not in actual:
+            raise ValueError(f'原生伤害动作未进入结果：{row.get("token")}。')
+        exported.add(identity)
+    for action in actor.get('actions') or []:
+        if action.get('supported') is True and _action_identity(action) not in exported:
+            raise ValueError(f'伤害结果缺少原生处理记录：{action.get("token")}。')
 
 
 def _scenario_identity(scenario):
@@ -1792,6 +1871,8 @@ def classify_global_damage_modifiers(variants):
                 'talent_id': talent_id,
                 'talent_name': str(talent.get('name') or ''),
                 'talent_name_zh': str(talent.get('name_zh') or ''),
+                'talent_description': str(talent.get('description') or ''),
+                'talent_description_zh': str(talent.get('description_zh') or ''),
                 'tree_type': str(talent.get('tree_type') or ''),
                 'hero_subtree_id': talent.get('hero_subtree_id'),
                 'hero_subtree_name': str(talent.get('hero_subtree_name') or ''),
@@ -2840,6 +2921,8 @@ def classify_global_skill_effects(base_high, base_low, variants):
                     'talent_id': talent_id,
                     'talent_name': str(talent.get('name') or ''),
                     'talent_name_zh': str(talent.get('name_zh') or ''),
+                    'talent_description': str(talent.get('description') or ''),
+                    'talent_description_zh': str(talent.get('description_zh') or ''),
                     'tree_type': str(talent.get('tree_type') or ''),
                     'hero_subtree_id': talent.get('hero_subtree_id'),
                     'hero_subtree_name': str(talent.get('hero_subtree_name') or ''),
@@ -2875,6 +2958,8 @@ def classify_global_skill_effects(base_high, base_low, variants):
             'talent_id': talent_id,
             'talent_name': str(talent.get('name') or ''),
             'talent_name_zh': str(talent.get('name_zh') or ''),
+            'talent_description': str(talent.get('description') or ''),
+            'talent_description_zh': str(talent.get('description_zh') or ''),
             'tree_type': str(talent.get('tree_type') or ''),
             'hero_subtree_id': talent.get('hero_subtree_id'),
             'hero_subtree_name': str(talent.get('hero_subtree_name') or ''),
@@ -3213,12 +3298,15 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             'talent_id': talent.get('id'),
             'talent_name': str(talent.get('name') or ''),
             'talent_name_zh': str(talent.get('name_zh') or ''),
+            'talent_description': str(talent.get('description') or ''),
+            'talent_description_zh': str(talent.get('description_zh') or ''),
             'tree_type': str(talent.get('tree_type') or ''),
             'hero_subtree_id': talent.get('hero_subtree_id'),
             'hero_subtree_name': str(talent.get('hero_subtree_name') or ''),
             'hero_subtree_name_zh': str(talent.get('hero_subtree_name_zh') or ''),
             'trait_entry_id': talent.get('node_id'),
             'runtime_condition': condition,
+            'activation_conditions': copy.deepcopy(action.get('activation_conditions') or []),
             'scenario_tokens': list(_scenario_identity_tokens(scenario_tokens)),
             'runtime_conditions': _scenario_metadata(
                 {'actions': [action]}, scenario_tokens,
@@ -3866,6 +3954,20 @@ def project_skill_damage_product_payload(payload):
                 }
             rows.append(group)
         rows = _compact_equivalent_damage_states(rows)
+        # 施法前提不参与增伤差分、分量补全或无效 Buff 裁剪；最终展示时再合入条件。
+        for row in rows:
+            variant = row.get('variant') or {}
+            required = variant.get('activation_conditions') or []
+            if required:
+                conditions = list(variant.get('runtime_conditions') or [])
+                identities = set(_scenario_identity({'buffs': conditions}))
+                for condition in required:
+                    identity = _scenario_identity({'buffs': [condition]})
+                    if identity and identity[0] not in identities:
+                        conditions.append(copy.deepcopy(condition))
+                        identities.add(identity[0])
+                variant['runtime_conditions'] = conditions
+                row['variant'] = variant
         actor['actions'] = rows
         # 专精的按技能掩码修正不构成全局效果，只保留上游已经交叉验证的分类。
         actor['global_skill_effects'] = [
@@ -3883,9 +3985,19 @@ def project_skill_damage_product_payload(payload):
 def reviewed_global_display_effects(actor):
     """补齐全局效果目录，同时保留已验证的倍率、层数与生效条件。"""
     spec = actor.get('specialization') or actor.get('spec')
+    class_name = _scope_name_key(actor.get('class'))
+    talent_scopes = {}
+    for fact in actor.get('reviewed_global_effects') or []:
+        if ':天赋:' not in str(fact.get('effect_id', '')):
+            continue
+        for sid in fact.get('source_spell_ids') or []:
+            if not fact.get('specializations'):
+                talent_scopes[sid] = None
+            elif sid not in talent_scopes or talent_scopes[sid] is not None:
+                talent_scopes.setdefault(sid, set()).update(fact['specializations'])
     merged = {}
     for fact in actor.get('reviewed_global_effects') or []:
-        if fact.get('specializations') and spec not in fact['specializations']:
+        if not global_effect_matches_owner(fact, class_name, spec, talent_scopes):
             continue
         ids = tuple(fact.get('source_spell_ids') or [])
         if not ids or not fact.get('global_components'):
@@ -3902,6 +4014,8 @@ def reviewed_global_display_effects(actor):
     catalog_ids = {tuple(fact.get('source_spell_ids') or []) for fact in actor.get('reviewed_global_effects') or []}
     for effect in actor.get('global_skill_effects') or []:
         if not isinstance(effect, dict) or effect.get('source_type') == 'specialization_passive':
+            continue
+        if not global_effect_matches_owner(effect, class_name, spec, talent_scopes):
             continue
         ids = tuple(effect.get('source_spell_ids') or [])
         if ids in catalog_ids and ids not in merged:
@@ -3922,8 +4036,8 @@ def reviewed_global_display_effects(actor):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 20
-    DATASET_SCHEMA_REVISION = 39
+    EXPORTER_SCHEMA_REVISION = 22
+    DATASET_SCHEMA_REVISION = 42
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
     WIRE_SCHEMA_REVISION = 1
@@ -4792,6 +4906,7 @@ class SimcSkillDamageSnapshotService:
                 ):
                     raise ValueError('exporter 全局增伤作用域结构无效。')
             _validate_global_scope_catalog(actor)
+            _validate_native_action_coverage(actor)
             for action in actor['actions']:
                 if not isinstance(action, dict):
                     raise ValueError('exporter action 结构无效。')
@@ -4802,7 +4917,7 @@ class SimcSkillDamageSnapshotService:
                     or not isinstance(spell_id, int) or isinstance(spell_id, bool) or spell_id < 0
                 ):
                     raise ValueError('exporter action token identity 无效。')
-                action_identity = (token.strip(), spell_id)
+                action_identity = _action_identity(action)
                 if action_identity in action_identities:
                     raise ValueError('exporter action token identity 重复。')
                 action_identities.add(action_identity)

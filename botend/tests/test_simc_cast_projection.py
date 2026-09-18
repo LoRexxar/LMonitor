@@ -4,9 +4,40 @@ from django.test import SimpleTestCase
 from botend.services.simc_skill_damage import complete_cast_damage_components, reviewed_global_display_effects, project_skill_damage_product_payload
 from botend.services.simc_skill_damage import _validate_global_scope_catalog, classify_global_skill_effects, _amount_change_only_global_projections
 from botend.services.simc_skill_damage import flatten_single_talent_damage_variants
+from botend.services.simc_skill_damage import _validate_native_action_coverage
 
 
 class CastProjectionTests(SimpleTestCase):
+    def test_native_coverage_detects_silently_missing_cast_component(self):
+        part = self.part('主手', 30)
+        ledger = {'token': '主手', 'spell_id': 1, 'root_token': '施法', 'root_spell_id': 100,
+                  'status': 'exported_damage'}
+        _validate_native_action_coverage({'actions': [part], 'action_coverage': [ledger]})
+        with self.assertRaisesRegex(ValueError, '未进入结果'):
+            _validate_native_action_coverage({'actions': [], 'action_coverage': [ledger]})
+        with self.assertRaisesRegex(ValueError, '缺少原生处理记录'):
+            _validate_native_action_coverage({'actions': [part], 'action_coverage': []})
+
+    def test_same_child_spell_in_distinct_casts_is_not_dropped(self):
+        first = self.part('相同流血', 30)
+        second = copy.deepcopy(first)
+        second.update(reporting_root_token='另一施法', reporting_root_spell_id=200)
+        actor = {'actions': [first, second]}
+        rows = flatten_single_talent_damage_variants(actor, actor, [])
+        self.assertEqual(len(rows), 2)
+        self.assertEqual({row['reporting_root_spell_id'] for row in rows}, {100, 200})
+
+    def test_activation_condition_survives_unchanged_damage(self):
+        action = self.part('替换技能', 30)
+        required = {'token': 'buff.required', 'scope': 'self', 'spell_id': 500,
+                    'name': '施法前提', 'stacks': 1}
+        action['activation_conditions'] = [required]
+        actor = {'actions': [action]}
+        rows = flatten_single_talent_damage_variants(actor, actor, [])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['variant']['activation_conditions'], [required])
+        self.assertEqual(rows[0]['variant']['runtime_conditions'], [])
+
     def global_state_actor(self, multiplier):
         return {'actions':[], 'global_damage_policy':'exclude_before_probe', 'global_damage_states':[{
             'token':'buff.example','scope':'self','spell_id':123,'name':'测试增伤',
@@ -154,3 +185,12 @@ class CastProjectionTests(SimpleTestCase):
         self.assertEqual(row['product']['final_normalized_damage_by_target']['2'],240.0)
         self.assertEqual(row['components'][1]['final_normalized_damage'],0.0)
         self.assertTrue(all(f.get('status') != 'incomplete' for f in row['product']['formula_components']))
+
+        # 施法前提必须在最终列表呈现，但不能把未变化的状态伪装成额外增伤行。
+        required = {'token': 'buff.required', 'scope': 'self', 'spell_id': 500, 'stacks': 1}
+        for action in raw['actors'][0]['actions']:
+            action['variant'] = {'activation_conditions': [required], 'runtime_conditions': []}
+        rows = project_skill_damage_product_payload(raw)['actors'][0]['actions']
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]['variant']['runtime_conditions'], [required])
+        self.assertEqual(rows[0]['product']['final_normalized_damage'], 120.0)
