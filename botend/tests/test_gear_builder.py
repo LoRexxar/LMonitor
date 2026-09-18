@@ -1509,6 +1509,12 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('class="gear-effect-line gear-detail-description"', detail)
         self.assertRegex(styles, r'\.gear-detail-description\s*\{[^}]*white-space:\s*pre-line;')
 
+    def test_detail_attributes_use_single_column(self):
+        root = Path(__file__).resolve().parents[2]
+        styles = (root / 'static/portal/css/gear_builder.css').read_text(encoding='utf-8')
+
+        self.assertRegex(styles, r'\.gear-detail-stats\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\);')
+
     def test_shared_header_and_frontend_contract(self):
         root = Path(__file__).resolve().parents[2]
         header = (root / 'templates/portal/_header.html').read_text(encoding='utf-8')
@@ -1547,7 +1553,7 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
-        self.assertIn("portal/css/gear_builder.css' %}?v=20260917_detail_line_breaks", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20260917_detail_vertical_stats", template)
         for value in ('gear-owned-add-icon', 'gear-owned-add-label', 'is-saving', 'is-added', '再次点击会增加数量'):
             self.assertIn(value, script)
         self.assertIn('.gear-owned-add:focus-visible', styles)

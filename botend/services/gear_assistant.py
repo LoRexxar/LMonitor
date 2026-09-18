@@ -179,8 +179,12 @@ def _fixed_entries(raw_equipment, class_name, spec_name):
             continue
         variant_id = int((row.get('variant') or {}).get('id') or row.get('variant_id') or 0)
         variant = variants.get(variant_id)
-        if not variant or not slot_matches(variant, slot, class_name, spec_name):
+        if not variant:
             continue
+        if not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
+            variant.item, class_name, spec_name, variant, slot,
+        ):
+            raise GearBuilderError(f'锁定的{SLOT_LABELS.get(slot, slot)}不适用于当前职业专精')
         selected = row.get('selectedStats') or row.get('selected_stats') or []
         try:
             candidate = _variant_candidates(variant, class_name, spec_name, selected_stats=selected)[0]
@@ -215,9 +219,9 @@ def _compatible(state, candidate, slot, identity):
         if main and main.get('two_handed') and identity not in {'Warrior:Fury'}:
             return False
     if slot == 'main_hand' and candidate.get('two_handed') and identity not in {'Warrior:Fury'}:
-        offhand = state['equipment'].get('off_hand')
-        if offhand:
-            return False
+        # 完整配装要求副手槽也有实际装备；非泰坦之握专精的双手主手
+        # 无法继续形成覆盖全部槽位的组合，因此不要让它进入搜索束。
+        return False
     return True
 
 
@@ -236,30 +240,43 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
             ):
                 continue
             normal.extend(_variant_candidates(variant, class_name, spec_name))
-        pools[slot] = (owned.get(slot) or normal) if mode == 'prefer_owned' else normal
+        pools[slot] = [*(owned.get(slot) or []), *normal] if mode == 'prefer_owned' else normal
 
     initial_stats = {key: 0.0 for key in SECONDARY}
-    unique = defaultdict(int)
-    for candidate in fixed.values():
-        initial_stats = _add_stats(initial_stats, candidate['stats'])
+    state = {'equipment': {}, 'stats': initial_stats, 'unique': {}, 'owned': {}}
+    for slot, _label in EQUIPMENT_SLOTS:
+        candidate = fixed.get(slot)
+        if not candidate:
+            continue
+        if not _compatible(state, candidate, slot, identity):
+            raise GearBuilderError(
+                f'锁定的{SLOT_LABELS.get(slot, slot)}与完整配装约束冲突，未生成不完整方案'
+            )
+        next_unique = dict(state['unique'])
         if candidate.get('unique_group'):
-            unique[candidate['unique_group']] += 1
-    beam = [{'equipment': dict(fixed), 'stats': initial_stats, 'unique': dict(unique), 'owned': {}}]
+            group = candidate['unique_group']
+            next_unique[group] = next_unique.get(group, 0) + 1
+        state = {
+            'equipment': {**state['equipment'], slot: candidate},
+            'stats': _add_stats(state['stats'], candidate['stats']),
+            'unique': next_unique,
+            'owned': {},
+        }
+    beam = [state]
     target_ratings = _target_ratings(target, conversion)
     total_slots = len(EQUIPMENT_SLOTS)
     processed = len(fixed)
     for slot, _label in EQUIPMENT_SLOTS:
         if slot in fixed:
             continue
-        choices = pools.get(slot) or [None]
-        if slot == 'off_hand' and None not in choices:
-            choices = [*choices, None]
+        choices = pools.get(slot) or []
+        if not choices:
+            raise GearBuilderError(
+                f'“{PLAN_LABELS[mode]}”无法为{SLOT_LABELS.get(slot, slot)}找到可用装备，未生成不完整方案'
+            )
         expanded = []
         for state in beam:
             for candidate in choices:
-                if candidate is None:
-                    expanded.append(state)
-                    continue
                 if not _compatible(state, candidate, slot, identity):
                     continue
                 stats = _add_stats(state['stats'], candidate['stats'])
@@ -272,17 +289,25 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
                     next_owned[candidate['owned_id']] = next_owned.get(candidate['owned_id'], 0) + 1
                 expanded.append({'equipment': equipment, 'stats': stats, 'unique': next_unique, 'owned': next_owned})
         if not expanded:
-            expanded = beam
+            raise GearBuilderError(
+                f'“{PLAN_LABELS[mode]}”无法满足{SLOT_LABELS.get(slot, slot)}的装备约束，未生成不完整方案'
+            )
         processed += 1
         progress = processed / total_slots
-        expanded.sort(key=lambda row: sum(
-            ((row['stats'][key] - target_ratings[key] * progress) / max(1, target_ratings[key], 250)) ** 2
-            for key in SECONDARY
+        expanded.sort(key=lambda row: (
+            -sum(row['owned'].values()) if mode == 'prefer_owned' else 0,
+            sum(
+                ((row['stats'][key] - target_ratings[key] * progress) / max(1, target_ratings[key], 250)) ** 2
+                for key in SECONDARY
+            ),
         ))
         beam = expanded[:600]
     if not beam:
         return {'equipment': dict(fixed), 'stats': initial_stats}
-    return min(beam, key=lambda row: _distance(row['stats'], target, conversion))
+    return min(beam, key=lambda row: (
+        -sum(row['owned'].values()) if mode == 'prefer_owned' else 0,
+        _distance(row['stats'], target, conversion),
+    ))
 
 
 def _enhancement_variants(season):

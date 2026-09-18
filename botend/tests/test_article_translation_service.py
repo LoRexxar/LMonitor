@@ -593,6 +593,41 @@ class WowNewsGlossaryDatabaseTests(TestCase):
 
         self.assertEqual(restored, "测试深渊: 石卫 uses 碾压猛击 in 深渊下层. Watcher waits.")
 
+    def test_dungeon_glossary_matches_source_punctuation_and_plural_aliases(self):
+        version = MythicDungeonDataVersion.objects.create(
+            key="alias-test",
+            label="别名测试",
+            is_active=True,
+        )
+        dungeon = MythicDungeon.objects.create(
+            data_version=version,
+            key="magisters-terrace",
+            name="Magisters Terrace",
+            name_zh="魔导师平台",
+        )
+        MythicDungeonEnemy.objects.create(
+            dungeon=dungeon,
+            key="murojin",
+            name="Muro'jin",
+            name_zh="姆罗金",
+        )
+        MythicDungeonEnemy.objects.create(
+            dungeon=dungeon,
+            key="bound-defender",
+            name="Bound Defender",
+            name_zh="被缚的防御者",
+        )
+
+        source = "Magister's Terrace and Magisters’ Terrace: Muro’jin faces Bound Defenders."
+        glossary = WowNewsGlossary.from_active_mythic_dungeon_metadata(source)
+        protected = glossary.protect(source)
+        restored = glossary.restore(protected.text, protected.replacements)
+
+        self.assertEqual(
+            restored,
+            "魔导师平台 and 魔导师平台: 姆罗金 faces 被缚的防御者.",
+        )
+
     def test_current_item_metadata_reuses_multiword_item_snapshot(self):
         WowItemSnapshot.objects.create(
             item_id=3001,

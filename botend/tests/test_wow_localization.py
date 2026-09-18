@@ -43,6 +43,102 @@ class SharedNameTests(TestCase):
         node.name_zh = '统一更正'; node.save(update_fields=['name_zh'])
         self.assertEqual(resolve_references(blocks, '12.1', 'mage', 'arcane')['[[talent:900]]']['name'], '统一更正')
 
+    def test_news_glossary_trusts_only_explicitly_verified_single_word_phrases(self):
+        write_name(dict(game_version='12.1', kind='phrase', object_id=1,
+            name_en='Degentrius', name_zh='迪詹崔乌斯', icon='',
+            evidence='新闻译名官方证据：JournalEncounter ID 2662'))
+        write_name(dict(game_version='12.1', kind='phrase', object_id=2,
+            name_en='Blizzard', name_zh='暴风雪', icon='',
+            evidence='攻略宏完整技能名称匹配；客户端快照'))
+
+        glossary = WowNewsGlossary.from_shared_localization('Degentrius and Blizzard')
+        protected = glossary.protect('Degentrius and Blizzard')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            '迪詹崔乌斯 and Blizzard',
+        )
+
+    def test_ptr_news_without_active_ptr_version_reuses_retail_phrase(self):
+        write_name(dict(game_version='12.1', kind='phrase', object_id=1,
+            name_en='Degentrius', name_zh='迪詹崔乌斯', icon='',
+            evidence='新闻译名官方证据：JournalEncounter ID 2662'))
+
+        glossary = WowNewsGlossary.from_shared_localization('PTR testing includes Degentrius.')
+        protected = glossary.protect('PTR testing includes Degentrius.')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            'PTR testing includes 迪詹崔乌斯.',
+        )
+
+    def test_ptr_news_reuses_global_verified_phrase_from_retail_reference_version(self):
+        WowTalentVersion.objects.create(
+            key='ptr-12.2', major_version='12.2', branch='ptr',
+            current_build='12.2.0.456', is_active=True,
+        )
+        write_name(dict(game_version='12.1', kind='phrase', object_id=1,
+            name_en='Degentrius', name_zh='迪詹崔乌斯', icon='',
+            evidence='新闻译名官方证据：JournalEncounter ID 2662'))
+
+        glossary = WowNewsGlossary.from_shared_localization('PTR testing includes Degentrius.')
+        protected = glossary.protect('PTR testing includes Degentrius.')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            'PTR testing includes 迪詹崔乌斯.',
+        )
+
+    def test_ptr_news_does_not_reuse_non_phrase_from_retail(self):
+        write_name(dict(game_version='12.1', kind='spell', object_id=30451,
+            name_en='Arcane Blast', name_zh='奥术冲击', icon='', evidence='官方技能快照'))
+
+        glossary = WowNewsGlossary.from_shared_localization('PTR tuning changes Arcane Blast.')
+        protected = glossary.protect('PTR tuning changes Arcane Blast.')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            'PTR tuning changes Arcane Blast.',
+        )
+
+    def test_ptr_news_does_not_fallback_to_non_retail_active_branch(self):
+        self.version.is_active = False
+        self.version.save(update_fields=['is_active'])
+        beta = WowTalentVersion.objects.create(
+            key='beta-12.2', major_version='12.2', branch='beta',
+            current_build='12.2.0.789', is_active=True,
+        )
+        WowTalentNodeMetadata.all_objects.create(
+            talent_version=beta, localization_only=True, name_kind='phrase',
+            reference_id=987654, name='Degentrius', name_zh='错误跨分支译名',
+            localization_evidence='新闻译名官方证据：测试隔离',
+        )
+
+        glossary = WowNewsGlossary.from_shared_localization('PTR testing includes Degentrius.')
+        protected = glossary.protect('PTR testing includes Degentrius.')
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            'PTR testing includes Degentrius.',
+        )
+
+    def test_news_glossary_derives_source_plural_and_dropped_article_aliases(self):
+        write_name(dict(game_version='12.1', kind='phrase', object_id=1,
+            name_en='The Stonecore', name_zh='巨石之核', icon='',
+            evidence='新闻译名官方证据：JournalInstance ID 67'))
+        write_name(dict(game_version='12.1', kind='phrase', object_id=2,
+            name_en='Dark Acolyte', name_zh='黑暗侍僧', icon='',
+            evidence='新闻译名官方证据：Creature ID 87869'))
+
+        source = 'Stonecore updates Dark Acolytes.'
+        glossary = WowNewsGlossary.from_shared_localization(source)
+        protected = glossary.protect(source)
+
+        self.assertEqual(
+            glossary.restore(protected.text, protected.replacements),
+            '巨石之核 updates 黑暗侍僧.',
+        )
+
     def test_explicit_talent_id_resolves_without_class_or_specialization_scope(self):
         WowTalentNodeMetadata.objects.create(
             talent_version=self.version, class_name='Warrior', spec_name='Arms',

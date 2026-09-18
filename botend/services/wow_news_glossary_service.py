@@ -15,6 +15,7 @@ _TOKEN_TEMPLATE = "⟦WOWTERM_{:03d}⟧"
 _TOKEN_PATTERN = re.compile(r"⟦WOWTERM_\d{3}⟧")
 _WORD_BOUNDARY = r"(?<![A-Za-z0-9]){}(?![A-Za-z0-9])"
 _NAME_CONNECTORS = {"a", "an", "and", "for", "from", "in", "of", "on", "the", "to", "with"}
+TRUSTED_NEWS_TERM_EVIDENCE_PREFIX = "新闻译名官方证据："
 
 # 数据库不可用时仍可保护少量稳定地下城名；正式数据优先来自激活的 MDT 版本。
 _FALLBACK_DUNGEON_TERMS = (
@@ -44,7 +45,59 @@ def _split_pascal_name(value: str) -> str:
 def _contains_english_term(text: str, term: str) -> bool:
     if not text or not term:
         return False
-    return bool(re.search(_WORD_BOUNDARY.format(re.escape(term)), text, flags=re.IGNORECASE))
+    if re.search(_WORD_BOUNDARY.format(re.escape(term)), text, flags=re.IGNORECASE):
+        return True
+    # 新闻原文经常混用直/弯撇号，甚至把 ``Magisters`` 写成
+    # ``Magister's``。上下文筛选只忽略这类标点差异，不改变数据库事实名。
+    normalize = lambda value: re.sub(r"[^A-Za-z0-9]+", " ", str(value or "").replace("'", "").replace("’", "")).strip()
+    normalized_text = normalize(text)
+    normalized_term = normalize(term)
+    if normalized_term and re.search(
+        _WORD_BOUNDARY.format(re.escape(normalized_term)),
+        normalized_text,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    return bool(_source_term_aliases(term, text))
+
+
+def _source_term_aliases(term: str, source_text: str) -> Set[str]:
+    """Return only grammatical/punctuation aliases that actually occur in this source."""
+    term = str(term or "").strip()
+    if not term:
+        return set()
+    candidates = {term}
+    if term.startswith("The "):
+        candidates.add(term[4:])
+    for value in list(candidates):
+        if "'" in value:
+            candidates.add(value.replace("'", "’"))
+        if "’" in value:
+            candidates.add(value.replace("’", "'"))
+        first, separator, rest = value.partition(" ")
+        if separator and first.endswith("s"):
+            candidates.add(first + "' " + rest)
+            candidates.add(first + "’ " + rest)
+            candidates.add(first[:-1] + "'s " + rest)
+            candidates.add(first[:-1] + "’s " + rest)
+    for value in list(candidates):
+        if value[-1:].isalpha() and not value.casefold().endswith("s"):
+            candidates.add(value + "s")
+    return {
+        value
+        for value in candidates
+        if re.search(_WORD_BOUNDARY.format(re.escape(value)), source_text or "", flags=re.IGNORECASE)
+    }
+
+
+def _pairs_with_source_aliases(
+    pairs: Iterable[Tuple[str, str]], source_text: str,
+) -> list[Tuple[str, str]]:
+    expanded = []
+    for english, chinese in pairs:
+        aliases = _source_term_aliases(english, source_text)
+        expanded.extend((alias, chinese) for alias in aliases or {english})
+    return expanded
 
 
 def _extract_name_candidates(text: str, limit: int = 500) -> Set[str]:
@@ -226,6 +279,7 @@ class WowNewsGlossary:
                     .distinct()
                 )
             pairs.extend(contextual_pairs)
+            pairs = _pairs_with_source_aliases(pairs, source_text)
             trusted = [english for english, _chinese in pairs]
             return cls(pairs, trusted_terms=trusted)
         except Exception as exc:  # MDT 数据不可用时保留硬编码地下城兜底。
@@ -303,19 +357,47 @@ class WowNewsGlossary:
 
     @classmethod
     def from_shared_localization(cls, source_text):
-        """读取同版本共享名称；不复制名称、不发起额外抓取。"""
+        """读取当前分支共享名称，并为 PTR 复用正式服全局专名。"""
         from botend.models import WowTalentVersion
         from botend.services.wow_localization import effective_names
         branch = 'ptr' if re.search(r'\bptr\b|public test realm', source_text, re.I) else 'retail'
         version = WowTalentVersion.objects.filter(branch=branch, is_active=True).order_by('-is_default_player_tree', '-id').first()
-        if not version:
+        reference = WowTalentVersion.objects.filter(
+            branch='retail', is_active=True,
+        ).order_by('-is_default_player_tree', '-id').first()
+        if not version and not (branch == 'ptr' and reference):
             return cls.empty()
-        label = version.major_version or version.key
-        if re.fullmatch(r'\d+\.\d+\.0', label):
-            label = label[:-2]
-        pairs = [(r['name_en'], r['name_zh']) for r in effective_names(label, source_text=source_text)
-                 if r['kind'] != 'macro' and _contains_english_term(source_text, r['name_en'])]
-        return cls.from_pairs(pairs)
+
+        sources: list[tuple[str, str | None]] = []
+        if version:
+            sources.append((version.key, None))
+        if branch == 'ptr' and reference and (not version or reference.pk != version.pk):
+            # phrase 是跨分支的官方专名；复用正式服中央记录，不能为 PTR 复制一份。
+            sources.append((reference.key, 'phrase'))
+
+        rows = []
+        seen = set()
+        for version_key, required_kind in sources:
+            for row in effective_names(version_key, source_text=source_text):
+                if row['kind'] == 'macro' or (required_kind and row['kind'] != required_kind):
+                    continue
+                if not _contains_english_term(source_text, row['name_en']):
+                    continue
+                key = (row['kind'], str(row['name_en']).casefold())
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(row)
+
+        pairs = []
+        trusted = []
+        for row in rows:
+            row_pairs = _pairs_with_source_aliases([(row['name_en'], row['name_zh'])], source_text)
+            pairs.extend(row_pairs)
+            if row['kind'] == 'phrase' and str(row.get('evidence') or '').startswith(
+                    TRUSTED_NEWS_TERM_EVIDENCE_PREFIX):
+                trusted.extend(english for english, _chinese in row_pairs)
+        return cls(pairs, trusted_terms=trusted)
 
     @classmethod
     def merged(cls, *glossaries: "WowNewsGlossary") -> "WowNewsGlossary":

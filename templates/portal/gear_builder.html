@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260917_detail_line_breaks">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20260917_detail_vertical_stats">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -88,7 +88,7 @@
                             {% if request.user.is_authenticated %}
                             <button type="button" id="gear-save-online" class="gear-action-item" role="menuitem"><span aria-hidden="true">☁</span><span><strong>保存配装到线上</strong><small>同步到当前登录账号</small></span></button>
                             <button type="button" id="gear-copy-short-share" class="gear-action-item" role="menuitem"><span aria-hidden="true">↗</span><span><strong>分享短链接</strong><small>生成适合发送的短地址</small></span></button>
-                            <button type="button" id="gear-open-assistant" class="gear-action-item" role="menuitem"><span aria-hidden="true">◎</span><span><strong>辅助配装</strong><small>允许空槽位并生成三套目标属性方案</small></span></button>
+                            <button type="button" id="gear-open-assistant" class="gear-action-item" role="menuitem"><span aria-hidden="true">◎</span><span><strong>辅助配装</strong><small>生成覆盖全部装备槽的三套目标属性方案</small></span></button>
                             {% endif %}
                         </div>
                         <div class="gear-actions-danger">

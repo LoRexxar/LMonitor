@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 
 from botend.models import GearBuilderOwnedItem, WowItemSnapshot, WowItemVariantSnapshot
+from botend.services.gear_builder import EQUIPMENT_SLOTS
 from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
 
@@ -35,6 +36,29 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             track_max_rank=6,
             compatible_slots=['head'],
             stats_json={'strength': 1100, 'crit': 500, 'mastery': 260},
+            source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
+        )
+        support_slots = [slot for slot, _label in EQUIPMENT_SLOTS if slot not in {'head', 'off_hand'}]
+        support_item = WowItemSnapshot.objects.create(
+            item_id=10102, name_zh='完整配装测试装备', catalog_type='equipment',
+            eligible_specs=['Warrior:Fury'],
+        )
+        self.support_variant = WowItemVariantSnapshot.objects.create(
+            item=support_item, season=self.season, batch_key='test-batch',
+            variant_key='support-hero-6', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=730, upgrade_track='hero', track_rank=6, track_max_rank=6,
+            compatible_slots=support_slots, stats_json={},
+            source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
+        )
+        offhand_item = WowItemSnapshot.objects.create(
+            item_id=10103, name_zh='高属性测试副手', catalog_type='equipment',
+            eligible_specs=['Warrior:Fury'],
+        )
+        self.offhand_variant = WowItemVariantSnapshot.objects.create(
+            item=offhand_item, season=self.season, batch_key='test-batch',
+            variant_key='offhand-hero-6', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=730, upgrade_track='hero', track_rank=6, track_max_rank=6,
+            compatible_slots=['off_hand'], stats_json={},
             source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
         )
 
@@ -118,9 +142,16 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
 
     def test_optimizer_returns_three_deterministic_plans(self):
         self.client.force_login(self.user)
+        self.offhand_variant.stats_json = {'crit': 1000000}
+        self.offhand_variant.save(update_fields=['stats_json'])
         self.client.post(
             '/portal/api/gear-builder/owned-items/',
             data=json.dumps({'variant_id': self.hero.id, 'slot': 'head'}),
+            content_type='application/json',
+        )
+        self.client.post(
+            '/portal/api/gear-builder/owned-items/',
+            data=json.dumps({'variant_id': self.support_variant.id, 'slot': 'finger1'}),
             content_type='application/json',
         )
         response = self.client.post(
@@ -141,10 +172,19 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
         plans = {row['key']: row for row in response.json()['plans']}
         self.assertEqual(set(plans), {'prefer_owned', 'all', 'dungeon'})
         self.assertEqual(plans['prefer_owned']['equipment']['head']['variant']['id'], self.hero.id)
-        self.assertEqual(plans['prefer_owned']['owned_count'], 1)
+        self.assertEqual(plans['prefer_owned']['owned_count'], 2)
+        missing_ring_slots = [
+            row['slot'] for row in plans['prefer_owned']['missing_items']
+            if row['slot'] in {'finger1', 'finger2'}
+        ]
+        self.assertEqual(len(missing_ring_slots), 1)
         self.assertEqual(plans['dungeon']['equipment']['head']['variant']['id'], self.dungeon_variant.id)
         self.assertIn('测试地城', plans['dungeon']['missing_items'][0]['source'])
         self.assertIn(plans['all']['flask']['key'], {'none', 'crit', 'haste', 'mastery'})
+        expected_slots = {slot for slot, _label in EQUIPMENT_SLOTS}
+        for plan in plans.values():
+            self.assertEqual(set(plan['equipment']), expected_slots)
+            self.assertEqual(plan['equipped_count'], len(expected_slots))
 
     def test_fixed_slot_is_preserved_and_not_reported_missing(self):
         self.client.force_login(self.user)
@@ -168,6 +208,47 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             self.assertEqual(plan['equipment']['head']['gems'][0]['variant']['id'], self.gem.id)
             self.assertEqual(plan['equipment']['head']['enchant']['variant']['id'], self.enchant.id)
             self.assertNotIn('head', [row['slot'] for row in plan['missing_items']])
+
+    def test_incompatible_fixed_two_hand_plan_returns_error(self):
+        main_item = WowItemSnapshot.objects.create(
+            item_id=10121, name_zh='测试双手主手', catalog_type='equipment',
+            item_class_id=2, item_subclass_id=1, inventory_type=17,
+            eligible_specs=['DeathKnight:Frost'],
+        )
+        main_variant = WowItemVariantSnapshot.objects.create(
+            item=main_item, season=self.season, batch_key='test-batch',
+            variant_key='fixed-two-hand', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=730, compatible_slots=['main_hand'], stats_json={},
+            source_json=[{'type': 'mythic_plus'}],
+        )
+        offhand_item = WowItemSnapshot.objects.create(
+            item_id=10122, name_zh='测试冲突副手', catalog_type='equipment',
+            item_class_id=2, item_subclass_id=1, inventory_type=13,
+            eligible_specs=['DeathKnight:Frost'],
+        )
+        offhand_variant = WowItemVariantSnapshot.objects.create(
+            item=offhand_item, season=self.season, batch_key='test-batch',
+            variant_key='fixed-off-hand', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=730, compatible_slots=['off_hand'], stats_json={},
+            source_json=[{'type': 'mythic_plus'}],
+        )
+        self.client.force_login(self.user)
+        response = self.client.post(
+            '/portal/api/gear-assistant/optimize/',
+            data=json.dumps({
+                'class_name': 'DeathKnight', 'spec_name': 'Frost',
+                'equipment': {
+                    'main_hand': {'variant': {'id': main_variant.id}},
+                    'off_hand': {'variant': {'id': offhand_variant.id}},
+                },
+                'target': {'crit': 20}, 'flask': 'none', 'use_ai': False,
+            }),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertFalse(response.json()['success'])
+        self.assertIn('锁定的主手', response.json()['error'])
+        self.assertIn('未生成不完整方案', response.json()['error'])
 
     def test_unlocked_gems_and_enchants_can_be_replaced(self):
         crit_gem_item = WowItemSnapshot.objects.create(
@@ -224,5 +305,6 @@ class GearAssistantFrontendContractTests(TestCase):
             self.assertIn(value, script)
         self.assertIn('lock_gems', script)
         self.assertIn('lock_enchants', script)
+        self.assertIn('els.explanation.textContent = `未生成方案：${error.message}`;', script)
         self.assertIn('owned_equipment', builder)
         self.assertIn('wowdaily:gear-assistant:draft:v1', builder)

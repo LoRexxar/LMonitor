@@ -207,7 +207,9 @@
       els.explanation.textContent = payload.explanation || "方案计算完成。";
       toast(`已生成 ${lastPlans.length} 套方案。`);
     } catch (error) {
+      lastPlans = [];
       els.results.innerHTML = `<div class="assistant-empty-state"><strong>组合失败</strong><span>${escapeHtml(error.message)}</span></div>`;
+      els.explanation.textContent = `未生成方案：${error.message}`;
       toast(error.message, true);
     } finally {
       els.generate.disabled = false;
