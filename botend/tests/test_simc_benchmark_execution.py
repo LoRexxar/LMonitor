@@ -315,6 +315,14 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIsNotNone(execution.completed_at)
         self.assertEqual(self.panel.published_execution_id, execution.pk)
 
+    def test_cancelled_execution_does_not_contribute_to_projection(self):
+        execution = self._create()
+        execution.status = SimcBenchmarkExecution.STATUS_CANCELLED
+
+        self.assertFalse(
+            benchmark_execution_service._execution_contributes_to_projection(execution),
+        )
+
     def test_cancel_execution_fences_tasks_runs_and_releases_active_slot(self):
         execution = self._create()
         case = execution.cases.select_related('task').get()

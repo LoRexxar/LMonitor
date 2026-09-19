@@ -480,7 +480,7 @@ def _execution_contributes_to_projection(execution):
     rows supersede older rows while failed/missing candidates keep falling back.
     Historical ``atomic_full`` markers use this corrected per-candidate policy too.
     """
-    return True
+    return execution.status != SimcBenchmarkExecution.STATUS_CANCELLED
 
 
 def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
@@ -2399,11 +2399,36 @@ def _snapshot_layout(execution):
     return layout
 
 
+def _benchmark_failed_run_queryset():
+    return SimulationRun.objects.filter(status='failed').only(
+        'id', 'task_id', 'sequence', 'candidate_key', 'candidate_label', 'error_detail',
+    ).order_by('sequence', 'id')
+
+
+def _benchmark_failed_run_rows(task):
+    rows = []
+    for run in getattr(task, '_benchmark_failed_runs', ()) if task else ():
+        rows.append({
+            'key': run.candidate_key,
+            'label': run.candidate_label or run.candidate_key,
+            'status': 'failed', 'dps': None,
+            'error': run.error_detail or None,
+            'error_log': run.error_detail or None,
+        })
+    return rows
+
+
 def _summarize_active_lifecycle(execution):
     """Project active progress from Case/Task lifecycle without exposing Run results."""
     cases = list(SimcBenchmarkCase.objects.filter(
         execution_id=execution.pk,
-    ).select_related('task').order_by('id'))
+    ).select_related('task').prefetch_related(
+        Prefetch(
+            'task__simulation_runs',
+            queryset=_benchmark_failed_run_queryset(),
+            to_attr='_benchmark_failed_runs',
+        ),
+    ).order_by('id'))
     names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in names}
     expected_by_coordinate = dict(_snapshot_layout(execution) or [])
@@ -2427,7 +2452,9 @@ def _summarize_active_lifecycle(execution):
             'task_status': task_status,
             'task_status_label': TASK_STATUS_LABELS.get(task_status, '未知'),
             'task_progress': task_progress(task),
-            'error': case.error_detail or None, 'runs': [],
+            'error': case.error_detail or (task.error_detail if task else None) or None,
+            'error_log': case.error_detail or (task.error_detail if task else None) or None,
+            'runs': _benchmark_failed_run_rows(task),
         })
     return {
         'id': execution.pk, 'status': execution.status,
@@ -2445,8 +2472,15 @@ def _summarize_active_lifecycle(execution):
 def _summarize_persisted_execution(execution):
     """Build terminal output solely from Execution/Case/Result aggregate tables."""
     result_qs = SimcBenchmarkResult.objects.order_by('case_id', 'id')
-    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).prefetch_related(
+    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).select_related(
+        'task',
+    ).prefetch_related(
         Prefetch('results', queryset=result_qs, to_attr='_persisted_results'),
+        Prefetch(
+            'task__simulation_runs',
+            queryset=_benchmark_failed_run_queryset(),
+            to_attr='_benchmark_failed_runs',
+        ),
     ).order_by('id'))
     definitions = execution.config_snapshot.get('candidates', []) \
         if isinstance(execution.config_snapshot, dict) else []
@@ -2465,11 +2499,20 @@ def _summarize_persisted_execution(execution):
                 result.hero_talent_names
             ),
         } for result in case._persisted_results]
+        failed_run_rows = _benchmark_failed_run_rows(case.task)
+        run_rows.extend(failed_run_rows)
         result_runs += len(run_rows)
         if case.task_id is None and case.status == SimcBenchmarkExecution.STATUS_FAILED:
             synthetic_failed_runs += len(expected_by_coordinate.get(
                 (case.spec_key, case.scenario_key, case.profile_key),
             ) or [])
+        task_error = case.task.error_detail if case.task_id and case.task else None
+        error_log_parts = [
+            value for value in (
+                case.error_detail, task_error,
+                *(row.get('error_log') for row in failed_run_rows),
+            ) if value
+        ]
         rows.append({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
             'profile_key': case.profile_key, '_case_id': case.pk,
@@ -2482,16 +2525,24 @@ def _summarize_persisted_execution(execution):
             'task_status': case.status,
             'task_status_label': TASK_STATUS_LABELS.get(case.status, '未知'),
             'task_progress': 100,
-            'error': case.error_detail or None, 'runs': run_rows,
+            'error': case.error_detail or task_error or None,
+            'error_log': '\n\n'.join(error_log_parts) or None,
+            'runs': run_rows,
         })
     names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in names}
     for case in cases:
         counts[case.status if case.status in counts else 'failed'] += 1
     run_counts = {name: 0 for name in ('pending', 'running', 'success', 'failed', 'cancelled')}
-    run_counts['success'] = result_runs
-    run_counts['failed'] = synthetic_failed_runs
-    total_runs = result_runs + synthetic_failed_runs
+    run_counts['success'] = sum(
+        sum(1 for row in case['runs'] if row['status'] == 'success')
+        for case in rows
+    )
+    run_counts['failed'] = sum(
+        sum(1 for row in case['runs'] if row['status'] == 'failed')
+        for case in rows
+    ) + synthetic_failed_runs
+    total_runs = sum(run_counts.values())
     return {
         'id': execution.pk, 'status': execution.status,
         'created_at': execution.created_at, 'completed_at': execution.completed_at,
