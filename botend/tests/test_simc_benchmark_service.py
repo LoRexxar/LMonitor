@@ -95,7 +95,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             {'slot': 'trinket1', 'raw_value': 'id=270160,ilevel=321'},
         )
 
-        self.assertIs(params['gear_swap']['is_ptr'], False)
+        self.assertNotIn('is_ptr', params['gear_swap'])
 
     def test_new_benchmark_profile_requires_independent_talent_string(self):
         payload = dict(self.payload)
@@ -263,12 +263,12 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             'candidate_type': 'gear_swap', 'is_base': False,
             'gear_swap': {
                 'slot': 'trinket1', 'raw_value': ',id=123,ilevel=700',
-                'item_id': 123, 'source': 'manual', 'is_ptr': False,
+                'item_id': 123, 'source': 'manual',
             },
         })
         self.assertEqual(result['candidates'][1]['params']['gear_swap'], {
             'slot': 'trinket2', 'raw_value': ',id=456,ilevel=700',
-            'item_id': 456, 'source': 'manual', 'is_ptr': False,
+            'item_id': 456, 'source': 'manual',
         })
 
     def test_backend_inherits_unique_candidate_benchmark_profile_before_save(self):

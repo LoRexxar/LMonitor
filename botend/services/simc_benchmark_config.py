@@ -430,13 +430,16 @@ def _normalize_candidate_params(candidate_type, params):
     item_match = re.search(r'(?:^|,)\s*id=(\d+)(?:,|$)', normalized, re.IGNORECASE)
     if item_match is None:  # Defensive invariant behind normalize_gear_candidate_value.
         _error('装备候选缺少物品 ID', 'params')
+    item_id = int(item_match.group(1))
+    gear_swap = {
+        'slot': canonical_slot, 'raw_value': normalized,
+        'item_id': item_id, 'source': 'manual',
+    }
+    if _item_requires_ptr(item_id):
+        gear_swap['is_ptr'] = True
     result = {
         'candidate_type': 'gear_swap', 'is_base': False,
-        'gear_swap': {
-            'slot': canonical_slot, 'raw_value': normalized,
-            'item_id': int(item_match.group(1)), 'source': 'manual',
-            'is_ptr': _item_requires_ptr(int(item_match.group(1))),
-        },
+        'gear_swap': gear_swap,
     }
     options = params.get('simc_options') if isinstance(params, dict) else None
     if options is not None:
