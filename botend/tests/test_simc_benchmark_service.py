@@ -16,6 +16,7 @@ from botend.services.simc_benchmark_config import (
     MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS,
     build_execution_plan, normalize_panel_payload,
     replace_panel_config, serialize_panel_config, _locked_panel_snapshot_queryset,
+    _normalize_candidate_params,
 )
 
 
@@ -67,6 +68,34 @@ class SimcBenchmarkConfigServiceTests(TestCase):
 
     def test_published_limits_only_cover_structural_choices(self):
         self.assertEqual((MAX_SPECS, MAX_PROFILES_PER_SPEC, MAX_SCENARIOS), (40, 5, 8))
+
+    def test_ptr_item_fact_is_frozen_into_gear_candidate(self):
+        WowItemSnapshot.objects.create(
+            item_id=281215,
+            source='wago-ptr-db2',
+            metadata={'ptr_preview': True, 'source_build': '12.1.5.69594'},
+        )
+
+        params = _normalize_candidate_params(
+            'gear_swap',
+            {'slot': 'trinket1', 'raw_value': 'id=281215,ilevel=321'},
+        )
+
+        self.assertIs(params['gear_swap']['is_ptr'], True)
+
+    def test_live_item_candidate_is_not_marked_ptr(self):
+        WowItemSnapshot.objects.create(
+            item_id=270160,
+            source='wowhead',
+            metadata={},
+        )
+
+        params = _normalize_candidate_params(
+            'gear_swap',
+            {'slot': 'trinket1', 'raw_value': 'id=270160,ilevel=321'},
+        )
+
+        self.assertIs(params['gear_swap']['is_ptr'], False)
 
     def test_new_benchmark_profile_requires_independent_talent_string(self):
         payload = dict(self.payload)
@@ -234,12 +263,12 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             'candidate_type': 'gear_swap', 'is_base': False,
             'gear_swap': {
                 'slot': 'trinket1', 'raw_value': ',id=123,ilevel=700',
-                'item_id': 123, 'source': 'manual',
+                'item_id': 123, 'source': 'manual', 'is_ptr': False,
             },
         })
         self.assertEqual(result['candidates'][1]['params']['gear_swap'], {
             'slot': 'trinket2', 'raw_value': ',id=456,ilevel=700',
-            'item_id': 456, 'source': 'manual',
+            'item_id': 456, 'source': 'manual', 'is_ptr': False,
         })
 
     def test_backend_inherits_unique_candidate_benchmark_profile_before_save(self):

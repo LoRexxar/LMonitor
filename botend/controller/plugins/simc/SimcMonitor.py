@@ -491,6 +491,8 @@ class SimcMonitor(BaseScan):
             raw_value = normalize_gear_candidate_value(slot, swap.get('raw_value'))
             if not slot or not raw_value:
                 raise ValueError('装备候选缺少 slot 或 raw_value')
+            if swap.get('is_ptr') is True:
+                request_data['use_ptr'] = True
             lines = []
             replaced = False
             in_candidate_section = False

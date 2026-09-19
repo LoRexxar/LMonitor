@@ -929,7 +929,8 @@ class SimcComposer:
                 for name in SIMC_RAID_BUFF_VALUES
             )
         options.append(f"iterations={request_data.get('iterations', 10000)}")
-        # PTR is frozen with the Profile resource. Missing keys on historical
+        # PTR is normally frozen with the Profile resource; a gear candidate may
+        # explicitly elevate only its own execution. Missing keys on historical
         # versions remain Live; only the explicit boolean true enables PTR.
         if request_data.get('use_ptr') is True:
             options.insert(0, 'ptr=1')

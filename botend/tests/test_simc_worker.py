@@ -30,6 +30,45 @@ class SimcWorkerTests(TestCase):
                 'candidate_type': 'base', 'simc_options': ['iterations=1'],
             })
 
+    def test_ptr_gear_candidate_enables_ptr_only_for_that_execution(self):
+        monitor = SimcMonitor(None, None)
+        request = monitor.apply_candidate_overrides(
+            {
+                'use_ptr': False,
+                'player_equipment': 'trinket1=id=270160,ilevel=321',
+            },
+            {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {
+                    'slot': 'trinket1',
+                    'raw_value': ',id=281215,ilevel=321',
+                    'is_ptr': True,
+                },
+            },
+        )
+
+        self.assertIs(request['use_ptr'], True)
+        from botend.services.simc_composer import SimcComposer
+        options = SimcComposer(None)._resolve_simulation_options(request)
+        self.assertIn('ptr=1', (options.value.content if options.value else '').splitlines())
+
+        live_request = monitor.apply_candidate_overrides(
+            {
+                'use_ptr': False,
+                'player_equipment': 'trinket1=id=270160,ilevel=321',
+            },
+            {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {
+                    'slot': 'trinket1',
+                    'raw_value': ',id=270160,ilevel=321',
+                    'is_ptr': False,
+                },
+            },
+        )
+
+        self.assertIs(live_request['use_ptr'], False)
+
     def setUp(self):
         self.backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',

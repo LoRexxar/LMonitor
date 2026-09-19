@@ -23,7 +23,7 @@ from botend.constants.wow import SPEC_CN
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
-    SimcContentTemplate, SimcProfile, SimcTalentString,
+    SimcContentTemplate, SimcProfile, SimcTalentString, WowItemSnapshot,
 )
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, canonical_simc_profile_identity,
@@ -365,6 +365,18 @@ def _normalize_item_options(raw_value):
             _error(f'装备候选包含不允许的选项: {key.strip()}', 'params')
 
 
+def _item_requires_ptr(item_id):
+    """Read the central item fact used to select SimC's PTR database."""
+    item = WowItemSnapshot.objects.filter(item_id=item_id).values('source', 'metadata').first()
+    if not item:
+        return False
+    metadata = item.get('metadata') if isinstance(item.get('metadata'), dict) else {}
+    return bool(
+        str(item.get('source') or '').casefold().startswith('wago-ptr')
+        or metadata.get('ptr_preview') is True
+    )
+
+
 def _normalize_candidate_params(candidate_type, params):
     if candidate_type != 'gear_swap':
         _error('candidate_type 只支持 gear_swap；baseline 由系统注入', 'candidate_type')
@@ -392,7 +404,7 @@ def _normalize_candidate_params(candidate_type, params):
             if not isinstance(params.get('gear_swap'), dict):
                 _error('gear_swap 必须是对象', 'params')
             swap = params['gear_swap']
-            if set(swap) - {'slot', 'raw_value', 'item_id', 'source', 'bonus_id'}:
+            if set(swap) - {'slot', 'raw_value', 'item_id', 'source', 'bonus_id', 'is_ptr'}:
                 _error('gear_swap 包含未知字段', 'params')
             slot, raw_value = swap.get('slot'), swap.get('raw_value')
         else:
@@ -423,6 +435,7 @@ def _normalize_candidate_params(candidate_type, params):
         'gear_swap': {
             'slot': canonical_slot, 'raw_value': normalized,
             'item_id': int(item_match.group(1)), 'source': 'manual',
+            'is_ptr': _item_requires_ptr(int(item_match.group(1))),
         },
     }
     options = params.get('simc_options') if isinstance(params, dict) else None
