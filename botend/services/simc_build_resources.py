@@ -27,12 +27,16 @@ class BuildBudget:
 
     @property
     def high(self):
-        return self.memory * 3 // 4
+        # Keep a narrow burst headroom below MemoryMax; a 3/4 high-water mark
+        # throttles GCC while compiling the largest SimC translation units.
+        return self.memory * 15 // 16
 
 
-def choose_budget(total, available, cpus):
-    # 不按瞬时可用内存缩小预算或拦截启动，避免缓存和业务波动导致无法编译。
-    memory = max(MIB, min(4 * GIB, total // 2) // MIB * MIB)
+def choose_budget(total, available, cpus, memory_ratio=0.5):
+    # 普通业务预算默认只使用一半；SimC 单任务可由调用方提高到
+    # cgroup slice 的 95%，因为编译器峰值集中在单个大型 C++ translation unit。
+    ratio = min(1.0, max(0.1, float(memory_ratio)))
+    memory = max(MIB, min(4 * GIB, int(total * ratio)) // MIB * MIB)
     warnings = ('当前可用内存低于编译预算，编译可能受内存压力影响',) if available < memory else ()
     return BuildBudget(memory, min(100, max(1, cpus) * 50), warnings)
 
@@ -76,7 +80,7 @@ def read_budget():
         total, available = constrain_memory(total, available, root / relative.lstrip('/'), root)
     except (OSError, ValueError, KeyError, StopIteration) as exc:
         warnings.append(f'未取得父级 cgroup 限额，继续按主机预算编译：{exc}')
-    budget = choose_budget(total, available, os.cpu_count() or 1)
+    budget = choose_budget(total, available, os.cpu_count() or 1, memory_ratio=0.95)
     return BuildBudget(budget.memory, budget.cpu_percent, tuple(warnings) + budget.warnings)
 
 

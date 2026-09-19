@@ -1,10 +1,20 @@
 """作用域契约必须拒绝冲突，并按分量保留混合状态。"""
 import copy
 import unittest
+from pathlib import Path
 from scripts.build_simc_scope_contract import compile_contract, render_contract, display_details
 
 
 class ScopeContractTests(unittest.TestCase):
+    def test_project_scope_patch_binds_current_simc_revision(self):
+        patch = (
+            Path(__file__).resolve().parents[2]
+            / 'simc_patches/0059-refresh-reviewed-scope-contract-ac0f.patch'
+        ).read_text(encoding='utf-8')
+        self.assertIn('skill_damage_scope_revision = "9f6eac065914e82578de398c08201dffc2885124";', patch)
+        self.assertIn('skill_damage_scope_build = "12.1.0.69875";', patch)
+        self.assertNotIn('skill_damage_scope_revision = "ac0f3a3c7ff9e521137c0ca1760d548330c697f3";', patch)
+
     def review(self):
         def part(index, decision):
             return {'源法术ID':31884, '效果编号':index, '效果ID':100+index, '处理结论':decision,

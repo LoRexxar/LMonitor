@@ -22,7 +22,12 @@ class SimcBuildResourceTests(unittest.TestCase):
             self.assertEqual(budget.memory, 4 * resources.GIB)
             self.assertEqual(bool(budget.warnings), available < 4 * resources.GIB)
 
-    def test_small_cpu_host_keeps_half_cpu_for_business(self):
+    def test_simc_compile_budget_can_use_three_quarters_of_its_isolated_slice(self):
+        budget = resources.choose_budget(
+            2 * resources.GIB, 2 * resources.GIB, 2, memory_ratio=0.75,
+        )
+        self.assertEqual(budget.memory, 1536 * resources.MIB)
+
         self.assertEqual(resources.choose_budget(8 * resources.GIB, 6 * resources.GIB, 1).cpu_percent, 50)
 
     def test_larger_machine_does_not_expand_shared_production_budget(self):

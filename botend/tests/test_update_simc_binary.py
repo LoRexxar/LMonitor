@@ -142,7 +142,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
         completed_bytes = subprocess.CompletedProcess([], 0, stdout=b'', stderr=b'')
         with mock.patch(
             'botend.management.commands.update_simc_binary.subprocess.run',
-            side_effect=[completed_text, completed_bytes, completed_bytes],
+            side_effect=[completed_text, completed_bytes, completed_bytes, completed_bytes],
         ) as run:
             command._pull_rebase()
 
@@ -177,12 +177,16 @@ class UpdateSimcBinaryCommandTests(TestCase):
             command._stored_simc_path = mock.Mock(return_value=str(binary_path))
             command._refresh_skill_damage_after_dbc_update = mock.Mock()
             command._run = mock.Mock()
-            command._compile_binary = mock.Mock()
+            command._compile_binary = mock.Mock(
+                side_effect=lambda source, build: Path(build, 'simc').write_text('binary', encoding='utf-8')
+            )
 
             command._update_binary(do_pull=False, threads=2, apply_patches=False)
 
-            command._compile_binary.assert_called_once_with()
-            command._run.assert_not_called()
+            command._compile_binary.assert_called_once()
+            self.assertIn('.cache/simc-candidates', command._compile_binary.call_args.args[0])
+            self.assertNotEqual(command._compile_binary.call_args.args[1], str(build_dir))
+            self.assertEqual(command._run.call_args.args[0][:4], ['git', 'worktree', 'add', '--detach'])
 
     def test_deploy_recovers_interrupted_simc_update_after_service_restarts(self):
         deploy_script = (Path(settings.BASE_DIR) / 'deploy.sh').read_text(encoding='utf-8')
@@ -234,6 +238,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
                         stdout='auto-save local changes before upstream sync (2026-08-21T02:28:09Z)\n',
                         stderr='',
                     ),
+                    subprocess.CompletedProcess([], 0, stdout='', stderr=''),
                     subprocess.CompletedProcess([], 0, stdout='.git\n', stderr=''),
                 ],
             ), mock.patch.object(command, '_run') as run:
@@ -410,14 +415,13 @@ class UpdateSimcBinaryCommandTests(TestCase):
         command.simc_binary_path = '/tmp/simc/build-cli/simc'
         command.row = mock.Mock()
 
-        with mock.patch.object(command, '_apply_local_patches', side_effect=[False, True]), \
-                mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=False), \
+        with mock.patch.object(command, '_binary_needs_patch_rebuild', side_effect=[False, True]), \
                 mock.patch.object(command, '_update_binary') as update_binary:
             command._apply_patches_only(threads=4)
             update_binary.assert_not_called()
 
             command._apply_patches_only(threads=4)
-            update_binary.assert_called_once_with(do_pull=False, threads=4, apply_patches=False)
+            update_binary.assert_called_once_with(do_pull=False, threads=4, apply_patches=True)
 
     def test_apply_patches_mode_rebuilds_when_patch_is_present_but_binary_is_stale(self):
         from botend.management.commands.update_simc_binary import Command
@@ -428,7 +432,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 mock.patch.object(command, '_binary_needs_patch_rebuild', return_value=True), \
                 mock.patch.object(command, '_update_binary') as update_binary:
             self.assertTrue(command._apply_patches_only(threads=2))
-            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=True)
 
     def test_apply_patches_mode_rebuilds_when_compiled_revision_was_not_promoted(self):
         from botend.management.commands.update_simc_binary import Command
@@ -441,7 +445,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 mock.patch.object(command, '_get_git_hash', return_value='a' * 40), \
                 mock.patch.object(command, '_update_binary') as update_binary:
             self.assertTrue(command._apply_patches_only(threads=2))
-            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=True)
 
     def test_apply_patches_mode_rebuilds_after_interrupted_catalog_publication(self):
         from botend.management.commands.update_simc_binary import Command
@@ -458,7 +462,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 mock.patch.object(command, '_get_git_hash', return_value='a' * 40), \
                 mock.patch.object(command, '_update_binary') as update_binary:
             self.assertTrue(command._apply_patches_only(threads=2))
-            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=True)
 
     def test_apply_patches_mode_rebuilds_when_catalog_build_differs(self):
         from botend.management.commands.update_simc_binary import Command
@@ -481,7 +485,7 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 mock.patch.object(command, '_get_git_hash', return_value=revision), \
                 mock.patch.object(command, '_update_binary') as update_binary:
             self.assertTrue(command._apply_patches_only(threads=2))
-            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=False)
+            update_binary.assert_called_once_with(do_pull=False, threads=2, apply_patches=True)
 
     def test_apply_patches_mode_skips_when_catalog_build_matches(self):
         from botend.management.commands.update_simc_binary import Command
@@ -1422,6 +1426,9 @@ class UpdateSimcBinaryCommandTests(TestCase):
 
                     with mock.patch('botend.management.commands.update_simc_binary.Command._sync_generated_inputs'), mock.patch(
                         'botend.management.commands.update_simc_binary.Command._compile_binary',
+                        side_effect=lambda source, build: Path(build, 'simc').write_text(
+                            "#!/bin/sh\\necho 'SimulationCraft 11.0.0'\\n", encoding='utf-8'
+                        ),
                     ):
                         out = StringIO()
                         try:

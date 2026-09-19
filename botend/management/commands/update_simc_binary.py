@@ -12,11 +12,13 @@
 import os
 import re
 import secrets
+import shutil
 import stat
 import subprocess
 import tempfile
 import json
 import hashlib
+from pathlib import Path
 from datetime import datetime, timezone as datetime_timezone
 
 from django.conf import settings
@@ -139,6 +141,106 @@ class Command(BaseCommand):
         build_dir = str(cfg.get('simc_build_dir') or os.path.join(source_dir, 'build-cli')).rstrip('/')
         binary_path = str(cfg.get('simc_path') or os.path.join(build_dir, 'simc'))
         return source_dir, build_dir, binary_path
+
+    def _patchset_digest(self):
+        cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
+        patch_dir = Path(str(
+            cfg.get('simc_patch_dir') or os.path.join(settings.BASE_DIR, 'simc_patches')
+        ))
+        digest = hashlib.sha256()
+        for patch_path in sorted(patch_dir.glob('*.patch')):
+            digest.update(patch_path.name.encode('utf-8'))
+            digest.update(b'\\0')
+            digest.update(patch_path.read_bytes())
+            digest.update(b'\\0')
+        return digest.hexdigest()
+
+    def _candidate_paths(self, revision):
+        root = Path(settings.BASE_DIR) / '.cache' / 'simc-candidates'
+        label = f'{revision}-{self._patchset_digest()[:16]}'
+        artifact_root = root / label
+        return str(artifact_root / 'source'), str(artifact_root / 'build-cli')
+
+    def _remove_candidate_worktree(self, source_dir):
+        if not os.path.lexists(source_dir):
+            return
+        result = subprocess.run(
+            ['git', 'worktree', 'remove', '--force', source_dir],
+            cwd=self.simc_source_dir, capture_output=True, text=True, timeout=120,
+        )
+        if result.returncode != 0 and os.path.lexists(source_dir):
+            shutil.rmtree(source_dir)
+
+    def _prepare_patched_candidate(self, revision, apply_patches=True):
+        source_dir, build_dir = self._candidate_paths(revision)
+        os.makedirs(os.path.dirname(source_dir), exist_ok=True)
+        self._remove_candidate_worktree(source_dir)
+        self._run(
+            ['git', 'worktree', 'add', '--detach', source_dir, revision],
+            cwd=self.simc_source_dir, timeout=180,
+            status='创建 SimC 隔离构建源码', progress=18,
+        )
+        # Test doubles may replace git worktree without materializing the path;
+        # real git has already created it, so this is a no-op in production.
+        os.makedirs(source_dir, exist_ok=True)
+        upstream_source_dir = self.simc_source_dir
+        self.simc_source_dir = source_dir
+        try:
+            if apply_patches:
+                self._last_candidate_patch_changed = bool(self._apply_local_patches())
+            else:
+                self._last_candidate_patch_changed = False
+        except BaseException:
+            self.simc_source_dir = upstream_source_dir
+            self._remove_candidate_worktree(source_dir)
+            raise
+        self.simc_source_dir = upstream_source_dir
+        os.makedirs(build_dir, exist_ok=True)
+        return source_dir, build_dir
+
+    def _promote_candidate_binary(self, candidate_binary):
+        destination = Path(self.simc_binary_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        fd, temporary = tempfile.mkstemp(prefix='.simc-candidate-', dir=destination.parent)
+        os.close(fd)
+        backup = ''
+        try:
+            with open(candidate_binary, 'rb') as source, open(temporary, 'wb') as target:
+                shutil.copyfileobj(source, target)
+                target.flush()
+                os.fsync(target.fileno())
+            os.chmod(temporary, os.stat(candidate_binary).st_mode & 0o777)
+            if destination.exists():
+                fd, backup = tempfile.mkstemp(prefix='.simc-previous-', dir=destination.parent)
+                os.close(fd)
+                os.unlink(backup)
+                os.replace(destination, backup)
+            os.replace(temporary, destination)
+            directory_fd = os.open(destination.parent, os.O_RDONLY)
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+            return backup
+        except BaseException:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+            if backup and os.path.exists(backup) and not destination.exists():
+                os.replace(backup, destination)
+            raise
+
+    def _restore_promoted_binary(self, backup):
+        destination = Path(self.simc_binary_path)
+        if backup and os.path.exists(backup):
+            if destination.exists():
+                destination.unlink()
+            os.replace(backup, destination)
+        elif destination.exists():
+            destination.unlink()
+
+    def _discard_promoted_backup(self, backup):
+        if backup and os.path.exists(backup):
+            os.unlink(backup)
 
     def _get_row(self):
         row, _ = SimcBackendBinary.objects.get_or_create(
@@ -565,6 +667,45 @@ class Command(BaseCommand):
         )
         return True
 
+    def _managed_patch_added_paths(self):
+        cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
+        patch_dir = Path(str(
+            cfg.get('simc_patch_dir') or os.path.join(settings.BASE_DIR, 'simc_patches')
+        ))
+        added = set()
+        for patch_path in sorted(patch_dir.glob('*.patch')):
+            try:
+                lines = patch_path.read_text(encoding='utf-8', errors='replace').splitlines()
+            except OSError:
+                continue
+            for index, line in enumerate(lines[:-1]):
+                if line != '--- /dev/null':
+                    continue
+                target = lines[index + 1]
+                if target.startswith('+++ b/'):
+                    relative = target[6:].split('\t', 1)[0]
+                    if relative and not os.path.isabs(relative) and '..' not in relative.split('/'):
+                        added.add(relative)
+        return sorted(added)
+
+    def _remove_legacy_managed_untracked_paths(self):
+        paths = self._managed_patch_added_paths()
+        if not paths:
+            return
+        result = subprocess.run(
+            ['git', 'ls-files', '--others', '--exclude-standard', '-z', '--', *paths],
+            cwd=self.simc_source_dir, capture_output=True, timeout=60,
+        )
+        if result.returncode != 0:
+            self._fail('检查旧 SimC 补丁文件失败', 'git 路径检查失败', progress=10)
+        untracked = [path for path in result.stdout.decode('utf-8').split('\0') if path]
+        if untracked:
+            self._run(
+                ['git', 'clean', '-f', '--', *untracked],
+                cwd=self.simc_source_dir, timeout=60,
+                status='清理旧的 SimC 补丁文件', progress=10,
+            )
+
     def _discard_managed_local_commits(self):
         """Drop only commits previously created by this updater before a large upstream jump."""
         result = subprocess.run(
@@ -581,6 +722,18 @@ class Command(BaseCommand):
         )
         if not messages or not managed:
             return False
+        dirty = subprocess.run(
+            ['git', 'status', '--porcelain', '--untracked-files=no'],
+            cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+        )
+        if dirty.returncode != 0:
+            self._fail('检查旧 SimC 源码改动失败', 'git status 失败', progress=10)
+        if (dirty.stdout or '').strip():
+            self._fail(
+                '拒绝覆盖 SimC 本地改动',
+                'upstream checkout 存在未提交 tracked 改动；请迁移为 LMonitor 补丁后再更新。',
+                progress=10,
+            )
         self._run(
             ['git', 'reset', '--hard', 'origin/midnight'],
             cwd=self.simc_source_dir, timeout=1800,
@@ -647,6 +800,7 @@ class Command(BaseCommand):
         self._set_status(progress=10, status='同步 SimC 源码', error='', updating=True)
         self.stdout.write('同步 SimC 源码')
         if self._discard_managed_local_commits():
+            self._remove_legacy_managed_untracked_paths()
             return subprocess.CompletedProcess([], 0, stdout='已对齐远端 SimC 源码', stderr='')
         rebase_cmd = ['git', 'rebase', 'refs/remotes/origin/midnight']
         try:
@@ -1686,35 +1840,35 @@ class Command(BaseCommand):
         return changed
 
     def _apply_patches_only(self, threads=1):
-        changed = self._apply_local_patches()
+        if not hasattr(self, 'simc_source_dir'):
+            self.simc_source_dir, self.simc_build_dir, self.simc_binary_path = self._resolve_paths()
         binary_stale = self._binary_needs_patch_rebuild()
         revision_unpromoted = False
         publication_incomplete = False
         catalog_build_differs = False
-        if not changed and not binary_stale:
-            row = getattr(self, 'row', None)
-            current_version = getattr(row, 'current_version', None)
-            target_build = str(getattr(self, 'wow_build_override', '') or '').strip()
-            git_hash = (
-                self._get_git_hash()
-                if isinstance(current_version, str) or target_build else ''
-            )
-            revision_unpromoted = (
-                isinstance(current_version, str)
-                and not self._revision_matches_git_hash(current_version, git_hash)
-            )
-            update_progress = getattr(row, 'update_progress', None)
-            publication_incomplete = (
-                getattr(row, 'is_updating', None) is True
-                or (isinstance(update_progress, int) and update_progress < 100)
-            )
-            if target_build and re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
-                catalog_build_differs = str(getattr(row, 'game_build', '') or '').strip() != target_build
-        if (not changed and not binary_stale and not revision_unpromoted
+        row = getattr(self, 'row', None)
+        current_version = getattr(row, 'current_version', None)
+        target_build = str(getattr(self, 'wow_build_override', '') or '').strip()
+        git_hash = (
+            self._get_git_hash()
+            if isinstance(current_version, str) or target_build else ''
+        )
+        revision_unpromoted = (
+            isinstance(current_version, str)
+            and not self._revision_matches_git_hash(current_version, git_hash)
+        )
+        update_progress = getattr(row, 'update_progress', None)
+        publication_incomplete = (
+            getattr(row, 'is_updating', None) is True
+            or (isinstance(update_progress, int) and update_progress < 100)
+        )
+        if target_build and re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
+            catalog_build_differs = str(getattr(row, 'game_build', '') or '').strip() != target_build
+        if (not binary_stale and not revision_unpromoted
                 and not publication_incomplete and not catalog_build_differs):
             self.stdout.write('SimC 本地补丁已存在，无需重新编译')
             return False
-        self._update_binary(do_pull=False, threads=threads, apply_patches=False)
+        self._update_binary(do_pull=False, threads=threads, apply_patches=True)
         return True
 
     def _binary_needs_patch_rebuild(self):
@@ -1740,33 +1894,42 @@ class Command(BaseCommand):
 
     def _update_binary(self, do_pull=True, threads=1, apply_patches=True):
         self._set_status(progress=1, status='准备更新 SimC', error='', updating=True)
+        upstream_source_dir = self.simc_source_dir
+        upstream_build_dir = self.simc_build_dir
+        active_binary_path = self.simc_binary_path
+        candidate_source_dir = None
+        promoted_backup = ''
         try:
-            if not os.path.isdir(self.simc_source_dir):
-                self._fail('源码目录不存在', f'SimC 源码目录不存在: {self.simc_source_dir}', progress=0)
+            if not os.path.isdir(upstream_source_dir):
+                self._fail('源码目录不存在', f'SimC 源码目录不存在: {upstream_source_dir}', progress=0)
 
             if do_pull:
-                self._preserve_tracked_changes_before_pull()
+                # The upstream checkout is never used as a patch/build tree.  In
+                # particular, do not auto-commit its local changes before pulling.
                 result = self._pull_rebase()
                 self.stdout.write((result.stdout or '').strip())
-
-            if apply_patches:
-                self._apply_local_patches()
 
             git_hash = self._get_git_hash()
             if not re.fullmatch(r'[0-9a-fA-F]{40}', str(git_hash or '')):
                 self._fail('源码版本无效', '无法取得有效的 40 位 hexadecimal SimC git SHA', progress=1)
             version = self._get_git_version()
             self.stdout.write(f'编译版本: {version}')
-            os.makedirs(self.simc_build_dir, exist_ok=True)
+
+            candidate_source_dir, candidate_build_dir = self._prepare_patched_candidate(
+                git_hash, apply_patches=apply_patches,
+            )
+            self.simc_source_dir = candidate_source_dir
+            self.simc_build_dir = candidate_build_dir
+            candidate_binary_path = os.path.join(candidate_build_dir, 'simc')
 
             if threads != 1:
                 self.stdout.write('共享生产主机固定单任务编译，已忽略较高并行度请求')
-            self._compile_binary()
+            self._compile_binary(candidate_source_dir, candidate_build_dir)
 
             self._set_status(progress=90, status='验证 SimC 二进制', error='', updating=True)
-            if not os.path.isfile(self.simc_binary_path):
-                self._fail('编译产物不存在', f'编译产物不存在: {self.simc_binary_path}', progress=90)
-            result, binary_output = self._probe_binary()
+            if not os.path.isfile(candidate_binary_path):
+                self._fail('编译产物不存在', f'编译产物不存在: {candidate_binary_path}', progress=90)
+            result, binary_output = self._probe_binary(candidate_binary_path)
             if result.returncode != 0 or 'SimulationCraft' not in binary_output:
                 self._fail('二进制验证失败', f'二进制验证失败: {binary_output[:500]}', progress=90)
 
@@ -1774,10 +1937,17 @@ class Command(BaseCommand):
             if parsed_version:
                 version = f'{parsed_version}-{git_hash}'
 
+            # Publish only after compilation and ordinary binary validation.  The
+            # old binary is kept until resource import and DB promotion succeed.
+            promoted_backup = self._promote_candidate_binary(candidate_binary_path)
+            self.simc_binary_path = candidate_binary_path
             self._sync_generated_inputs(
-                git_hash=git_hash, binary_path=self.simc_binary_path,
+                git_hash=git_hash, binary_path=candidate_binary_path,
                 binary_revision=git_hash)
 
+            self.simc_source_dir = upstream_source_dir
+            self.simc_build_dir = upstream_build_dir
+            self.simc_binary_path = active_binary_path
             self.row.simc_path = self._stored_simc_path()
             self.row.current_version = git_hash
             self.row.latest_version = git_hash
@@ -1792,22 +1962,42 @@ class Command(BaseCommand):
                 'simc_path', 'current_version', 'latest_version', 'last_error', 'is_updating',
                 'update_progress', 'update_status', 'last_checked_at', 'last_updated_at'
             ])
+            self._discard_promoted_backup(promoted_backup)
+            promoted_backup = ''
             self._refresh_skill_damage_after_dbc_update()
             self.stdout.write(self.style.SUCCESS(f'编译完成！版本: {version}, 路径: {self.simc_binary_path}'))
         except CommandError:
+            if promoted_backup:
+                self.simc_binary_path = active_binary_path
+                self._restore_promoted_binary(promoted_backup)
+                promoted_backup = ''
             raise
         except Exception as exc:
+            if promoted_backup:
+                self.simc_binary_path = active_binary_path
+                self._restore_promoted_binary(promoted_backup)
+                promoted_backup = ''
             self._fail('SimC 更新失败', str(exc), progress=0)
+        finally:
+            self.simc_source_dir = upstream_source_dir
+            self.simc_build_dir = upstream_build_dir
+            self.simc_binary_path = active_binary_path
+            if candidate_source_dir:
+                self._remove_candidate_worktree(candidate_source_dir)
 
-    def _compile_binary(self):
+
+    def _compile_binary(self, source_dir=None, build_dir=None):
+        source_dir = source_dir or self.simc_source_dir
+        build_dir = build_dir or self.simc_build_dir
         budget = read_budget()
         status = f'编译 SimC：单任务，内存预算 {budget.memory // (1024 ** 2)}MB，优先使用资源隔离'
         self._set_status(progress=30, status=status, error='', updating=True)
         self.stdout.write(status)
         for warning in budget.warnings:
             self.stdout.write(warning)
+        os.makedirs(build_dir, exist_ok=True)
         log_path = run_build(
-            self.simc_source_dir, self.simc_build_dir,
+            source_dir, build_dir,
             os.path.join(settings.BASE_DIR, '.cache', 'simc-build-logs'), budget,
         )
         self.stdout.write(f'编译日志：{log_path}')

@@ -6,8 +6,8 @@
 -constexpr const char* skill_damage_scope_revision = "ba72a9dcfe88e6e80384f52f7786619c5dfcd6f1";
 -constexpr const char* skill_damage_scope_build = "12.1.0.69587";
 -constexpr const char* skill_damage_scope_sha256 = "e6e8d070f13f208339f1490fa2974e404ad7bb4311f6c32b1a3ae356ae0db8d0";
-+constexpr const char* skill_damage_scope_revision = "ac0f3a3c7ff9e521137c0ca1760d548330c697f3";
-+constexpr const char* skill_damage_scope_build = "12.1.0.69814";
++constexpr const char* skill_damage_scope_revision = "9f6eac065914e82578de398c08201dffc2885124";
++constexpr const char* skill_damage_scope_build = "12.1.0.69875";
 +constexpr const char* skill_damage_scope_sha256 = "5e18eeb9ffc8d1474b3ebdeb0c4e0df2a33302885f4baba1729d30216655bcc9";
  struct skill_damage_scope_effect_t { unsigned spell, index, id, family; bool global; };
  constexpr skill_damage_scope_effect_t skill_damage_scope_effects[] = {

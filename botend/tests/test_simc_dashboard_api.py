@@ -1,6 +1,7 @@
 import importlib
 import hashlib
 import json
+import tempfile
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -1461,7 +1462,48 @@ class SimcAplCanonicalSpecPermissionTests(TestCase):
 
 
 class SimcBackendUpdateSafetyTests(TestCase):
-    def test_binary_update_removes_only_untracked_paths_now_tracked_upstream(self):
+    def test_project_patches_are_applied_in_a_detached_candidate_worktree(self):
+        command = UpdateSimcBinaryCommand()
+        command.simc_source_dir = '/srv/simc'
+        command._candidate_paths = lambda revision: (
+            '/tmp/lmonitor-test-source', '/tmp/lmonitor-test-build'
+        )
+        command._run = __import__('unittest').mock.Mock(return_value=SimpleNamespace(
+            returncode=0, stdout='', stderr='',
+        ))
+
+        with patch.object(command, '_apply_local_patches') as apply_patches, \
+             patch.object(command, '_remove_candidate_worktree') as remove_candidate:
+            source_dir, build_dir = command._prepare_patched_candidate(TEST_SIMC_REVISION)
+
+        self.assertEqual(
+            (source_dir, build_dir),
+            ('/tmp/lmonitor-test-source', '/tmp/lmonitor-test-build'),
+        )
+        self.assertEqual(command.simc_source_dir, '/srv/simc')
+        apply_patches.assert_called_once_with()
+        remove_candidate.assert_called_once_with('/tmp/lmonitor-test-source')
+        self.assertEqual(
+            command._run.call_args.args[0],
+            ['git', 'worktree', 'add', '--detach', '/tmp/lmonitor-test-source', TEST_SIMC_REVISION],
+        )
+
+    def test_failed_candidate_publication_restores_active_binary(self):
+        command = UpdateSimcBinaryCommand()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            active = root / 'simc'
+            candidate = root / 'candidate' / 'simc'
+            candidate.parent.mkdir()
+            active.write_text('old-binary', encoding='utf-8')
+            candidate.write_text('new-binary', encoding='utf-8')
+            command.simc_binary_path = str(active)
+
+            backup = command._promote_candidate_binary(str(candidate))
+            self.assertEqual(active.read_text(encoding='utf-8'), 'new-binary')
+            command._restore_promoted_binary(backup)
+            self.assertEqual(active.read_text(encoding='utf-8'), 'old-binary')
+
         command = UpdateSimcBinaryCommand()
         command.simc_source_dir = '/srv/simc'
         command._set_status = __import__('unittest').mock.Mock()
@@ -1478,6 +1520,7 @@ class SimcBackendUpdateSafetyTests(TestCase):
                 stderr=b'',
             ),
             SimpleNamespace(returncode=0, stdout='', stderr=''),
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
         ]
         with patch(
             'botend.management.commands.update_simc_binary.subprocess.run',
@@ -1488,7 +1531,7 @@ class SimcBackendUpdateSafetyTests(TestCase):
         self.assertEqual(command._run.call_args_list[0].args[0], [
             'git', 'clean', '-f', '--', 'profiles/MID2/new.simc',
         ])
-        self.assertEqual(run.call_args_list[3].args[0], [
+        self.assertEqual(run.call_args_list[4].args[0], [
             'git', 'rebase', 'refs/remotes/origin/midnight',
         ])
 
@@ -1519,6 +1562,7 @@ class SimcBackendUpdateSafetyTests(TestCase):
             SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
             SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
             SimpleNamespace(returncode=0, stdout='', stderr=''),
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
         ]
         with patch(
             'botend.management.commands.update_simc_binary.subprocess.run',
@@ -1528,7 +1572,7 @@ class SimcBackendUpdateSafetyTests(TestCase):
         self.assertEqual(run.call_args_list[0].args[0], [
             'git', 'fetch', '--prune', 'origin', 'midnight',
         ])
-        self.assertEqual(run.call_args_list[3].args[0], [
+        self.assertEqual(run.call_args_list[4].args[0], [
             'git', 'rebase', 'refs/remotes/origin/midnight',
         ])
 
@@ -1542,6 +1586,7 @@ class SimcBackendUpdateSafetyTests(TestCase):
             SimpleNamespace(returncode=0, stdout='', stderr=''),
             SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
             SimpleNamespace(returncode=0, stdout=b'', stderr=b''),
+            SimpleNamespace(returncode=0, stdout='', stderr=''),
             __import__('subprocess').TimeoutExpired(['git', 'rebase'], 1800),
             SimpleNamespace(returncode=0, stdout='', stderr=''),
         ]
@@ -1593,7 +1638,7 @@ class SimcBackendUpdateSafetyTests(TestCase):
             self.assertTrue(monitor.ensure_local_simc_backend_current())
 
         self.assertTrue(any(
-            kwargs.get('status') == '自动更新失败，继续使用现有 SimC 二进制'
+            kwargs.get('status') == '本地 SimC 二进制可用'
             for _, kwargs in set_status.call_args_list
         ))
 
