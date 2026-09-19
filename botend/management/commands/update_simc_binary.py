@@ -1440,18 +1440,37 @@ class Command(BaseCommand):
             matching_prefix = None
             final_files = None
             replayed_count = 0
+            preapplied_replay_observed = False
 
             def apply_replay_entry(entry):
+                nonlocal preapplied_replay_observed
                 compatibility_args = (
                     ['--ignore-space-change']
                     if entry['name'] == '0031-allow-partial-monk-hero-talent-probes.patch'
                     else []
                 )
-                return subprocess.run(
-                    ['git', 'apply', '--cached', *compatibility_args, '-'],
+                args = ['git', 'apply', '--cached', *compatibility_args, '-']
+                result = subprocess.run(
+                    args,
                     cwd=self.simc_source_dir, env=replay_env,
                     input=entry['content'], capture_output=True, timeout=30,
                 )
+                if result.returncode == 0:
+                    return result
+                reverse = subprocess.run(
+                    [
+                        'git', 'apply', '--cached', '--reverse',
+                        *compatibility_args, '--check', '-',
+                    ],
+                    cwd=self.simc_source_dir, env=replay_env,
+                    input=entry['content'], capture_output=True, timeout=30,
+                )
+                if reverse.returncode == 0:
+                    preapplied_replay_observed = True
+                    return subprocess.CompletedProcess(
+                        args, 0, stdout=b'', stderr=b'upstream already contains patch result',
+                    )
+                return result
 
             def reset_replay_index():
                 result = subprocess.run(
@@ -1505,10 +1524,13 @@ class Command(BaseCommand):
                                 if candidate_states == live_states:
                                     candidate_starts.append(candidate_start)
                         if len(candidate_starts) > 1:
-                            self._fail(
-                                '识别 SimC 已应用补丁失败',
-                                'ledger 对应多个可能的 HEAD 补丁前缀，拒绝猜测。', progress=20,
-                            )
+                            if preapplied_replay_observed:
+                                candidate_starts = [max(candidate_starts)]
+                            else:
+                                self._fail(
+                                    '识别 SimC 已应用补丁失败',
+                                    'ledger 对应多个可能的 HEAD 补丁前缀，拒绝猜测。', progress=20,
+                                )
                         if candidate_starts:
                             # HEAD may already contain an updater-owned prefix.
                             # Reconstruct the declared ledger state from that

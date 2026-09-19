@@ -1069,6 +1069,42 @@ class UpdateSimcBinaryCommandTests(TestCase):
 
             self.assertEqual(target.read_text(encoding='utf-8'), 'second\n')
 
+    def test_upstream_already_contains_patch_result_and_replays_following_patch(self):
+        from botend.management.commands.update_simc_binary import Command
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            source_dir = Path(tmpdir) / 'simc'
+            patch_dir = Path(tmpdir) / 'patches'
+            source_dir.mkdir()
+            patch_dir.mkdir()
+            target = source_dir / 'runtime.cpp'
+            target.write_text('first\n', encoding='utf-8')
+            subprocess.run(['git', 'init', '-q'], cwd=source_dir, check=True)
+            subprocess.run(['git', 'add', 'runtime.cpp'], cwd=source_dir, check=True)
+            subprocess.run(
+                ['git', '-c', 'user.name=Test', '-c', 'user.email=test@example.com',
+                 'commit', '-qm', 'upstream already includes first'], cwd=source_dir, check=True,
+            )
+            (patch_dir / '0001-upstream-already.patch').write_text(
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1 @@\n-base\n+first\n',
+                encoding='utf-8',
+            )
+            (patch_dir / '0002-following.patch').write_text(
+                'diff --git a/runtime.cpp b/runtime.cpp\n'
+                '--- a/runtime.cpp\n+++ b/runtime.cpp\n'
+                '@@ -1 +1 @@\n-first\n+second\n',
+                encoding='utf-8',
+            )
+            command = Command()
+            command.stdout = StringIO()
+            command.row = mock.Mock()
+            command.simc_source_dir = str(source_dir)
+            with override_settings(SIMC_CONFIG={'simc_patch_dir': str(patch_dir)}):
+                self.assertTrue(command._apply_local_patches())
+            self.assertEqual(target.read_text(encoding='utf-8'), 'second\n')
+
     def test_known_pre_ledger_patch_state_is_replayed_into_current_chain(self):
         from botend.management.commands.update_simc_binary import Command
 
