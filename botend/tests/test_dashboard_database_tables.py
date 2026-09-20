@@ -119,8 +119,9 @@ class DashboardDatabaseTableContractTests(TestCase):
         payload = response.json()
         self.assertEqual(payload["status"], "success")
         self.assertEqual(payload["data"][0]["cookie"], "••••••")
-        self.assertFalse(payload["field_types"]["cookie"]["editable"])
+        self.assertTrue(payload["field_types"]["cookie"]["editable"])
         self.assertTrue(payload["field_types"]["cookie"]["sensitive"])
+        self.assertTrue(payload["field_types"]["cookie"]["write_only"])
         self.assertTrue(payload["field_types"]["domain"]["editable"])
 
         response = self.post_action({
@@ -128,15 +129,38 @@ class DashboardDatabaseTableContractTests(TestCase):
             "table_name": "TargetAuth",
             "row_id": auth.pk,
             "update_data": {
-                "domain": "changed.example.com",
                 "cookie": "session=overwritten",
+            },
+        })
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertNotIn("session=overwritten", response.content.decode())
+        auth.refresh_from_db()
+        self.assertEqual(auth.cookie, "session=overwritten")
+
+        response = self.post_action({
+            "action": "update_table_row",
+            "table_name": "TargetAuth",
+            "row_id": auth.pk,
+            "update_data": {"cookie": ""},
+        })
+        self.assertEqual(response.status_code, 400)
+        auth.refresh_from_db()
+        self.assertEqual(auth.cookie, "session=overwritten")
+
+        response = self.post_action({
+            "action": "update_table_row",
+            "table_name": "TargetAuth",
+            "row_id": auth.pk,
+            "update_data": {
+                "domain": "changed.example.com",
+                "cookie": "session=second-overwrite",
                 "id": 99999,
             },
         })
         self.assertEqual(response.status_code, 400)
         auth.refresh_from_db()
         self.assertEqual(auth.domain, "example.com")
-        self.assertEqual(auth.cookie, "session=top-secret")
+        self.assertEqual(auth.cookie, "session=overwritten")
 
     def test_staff_can_edit_valid_field_with_model_validation(self):
         task = MonitorTask.objects.create(name="旧名称", target="https://example.com")

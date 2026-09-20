@@ -5673,6 +5673,14 @@ function updateTableRow(rowId, updateData, row) {
                 const input = cell.querySelector('input, select');
                 if (input && updateData[field] !== undefined) {
                     const value = updateData[field];
+                    const fieldMeta = (currentFieldTypes && currentFieldTypes[field]) || {};
+
+                    // Write-only secrets are never echoed back after a successful update.
+                    if (fieldMeta.write_only) {
+                        cell.textContent = '••••••';
+                        cell.title = '已设置；不会显示原值';
+                        return;
+                    }
 
                     // 清空单元格内容
                     cell.innerHTML = '';
@@ -7694,10 +7702,11 @@ function generateEditFormFields(container, rowData) {
 
     currentTableColumns.forEach(column => {
         const fieldMeta = (currentFieldTypes && currentFieldTypes[column]) || {};
+        const isWriteOnly = fieldMeta.write_only === true;
         if (
             column.toLowerCase() === 'id'
             || isEditFormHiddenField(column)
-            || fieldMeta.sensitive
+            || (fieldMeta.sensitive && !isWriteOnly)
             || fieldMeta.editable === false
         ) {
             return;
@@ -7730,7 +7739,7 @@ function generateEditFormFields(container, rowData) {
         label.textContent = getFieldDisplayName(column);
         label.setAttribute('for', `edit-field-${column}`);
 
-        const inputType = getFieldInputType(column);
+        const inputType = isWriteOnly ? 'password' : getFieldInputType(column);
         const selectOptions = getAddFormSelectOptions(column);
         let inputElement;
 
@@ -7755,9 +7764,11 @@ function generateEditFormFields(container, rowData) {
         else if (inputType === 'textarea' || isJsonField(column)) {
             inputElement = document.createElement('textarea');
             inputElement.rows = isJsonField(column) ? 8 : 4;
-            inputElement.placeholder = isJsonField(column) ? '请输入合法 JSON' : `请输入${getFieldDisplayName(column)}`;
+            inputElement.placeholder = isWriteOnly
+                ? '请输入新的 Cookie（不会显示旧值）'
+                : (isJsonField(column) ? '请输入合法 JSON' : `请输入${getFieldDisplayName(column)}`);
             inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200 resize-none font-mono text-xs';
-            inputElement.value = rowData ? serializeFieldValueForInput(rowData[column]) : '';
+            inputElement.value = isWriteOnly ? '' : (rowData ? serializeFieldValueForInput(rowData[column]) : '');
         } else if (inputType === 'checkbox') {
             inputElement = document.createElement('input');
             inputElement.type = 'checkbox';
@@ -7778,7 +7789,9 @@ function generateEditFormFields(container, rowData) {
         } else {
             inputElement = document.createElement('input');
             inputElement.type = inputType;
-            inputElement.placeholder = `请输入${getFieldDisplayName(column)}`;
+            inputElement.placeholder = isWriteOnly
+                ? '请输入新的 Cookie（不会显示旧值）'
+                : `请输入${getFieldDisplayName(column)}`;
             inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all duration-200';
             if (inputType === 'number') {
                 if (currentFieldTypes && currentFieldTypes[column]) {
@@ -7793,7 +7806,9 @@ function generateEditFormFields(container, rowData) {
                 inputElement.maxLength = currentFieldTypes[column].max_length;
             }
 
-            const raw = rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '';
+            const raw = isWriteOnly
+                ? ''
+                : (rowData && rowData[column] !== null && rowData[column] !== undefined ? rowData[column] : '');
             inputElement.value = inputType === 'number'
                 ? (raw === '' ? '' : String(raw))
                 : serializeFieldValueForInput(raw);
@@ -7801,6 +7816,9 @@ function generateEditFormFields(container, rowData) {
 
         inputElement.id = `edit-field-${column}`;
         inputElement.name = column;
+        if (isWriteOnly) {
+            inputElement.autocomplete = 'new-password';
+        }
 
         if (isRequiredField(column)) {
             inputElement.required = true;
@@ -7844,7 +7862,7 @@ function submitEditRecord() {
         if (
             column === 'id'
             || isEditFormHiddenField(column)
-            || fieldMeta.sensitive
+            || (fieldMeta.sensitive && !fieldMeta.write_only)
             || fieldMeta.editable === false
         ) {
             return;

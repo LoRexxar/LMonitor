@@ -250,6 +250,9 @@ class DashboardView(View):
     MODEL_SENSITIVE_FIELDS = {
         'GeWechatAuth': {'uuid', 'qrImgBase64'},
     }
+    MODEL_WRITE_ONLY_EDITABLE_FIELDS = {
+        'TargetAuth': {'cookie'},
+    }
     MODEL_PROTECTED_FIELDS = {
         # 装备批次只能由 sync_gear_builder_catalog 的审计/激活事务维护。
         'SeasonMeta': {
@@ -270,6 +273,10 @@ class DashboardView(View):
                 name,
             ))
         )
+
+    @classmethod
+    def _is_write_only_editable_field(cls, field, model_name=None):
+        return field.name in cls.MODEL_WRITE_ONLY_EDITABLE_FIELDS.get(model_name, set())
 
     @staticmethod
     def _model_description(model):
@@ -535,7 +542,7 @@ class DashboardView(View):
                     and not getattr(field, 'primary_key', False)
                     and not getattr(field, 'auto_now', False)
                     and not getattr(field, 'auto_now_add', False)
-                    and not sensitive
+                    and (not sensitive or self._is_write_only_editable_field(field, table_name))
                     and registry_entry['can_update']
                 )
 
@@ -572,6 +579,7 @@ class DashboardView(View):
                     'editable': field_editable,
                     'read_only': not field_editable,
                     'sensitive': sensitive,
+                    'write_only': self._is_write_only_editable_field(field, table_name),
                     'auto_now': getattr(field, 'auto_now', False),
                     'auto_now_add': getattr(field, 'auto_now_add', False),
                 }
@@ -758,7 +766,10 @@ class DashboardView(View):
             if (
                 field.primary_key or not field.editable
                 or getattr(field, 'auto_now', False) or getattr(field, 'auto_now_add', False)
-                or self._is_sensitive_field(field, table_name)
+                or (
+                    self._is_sensitive_field(field, table_name)
+                    and not self._is_write_only_editable_field(field, table_name)
+                )
             ):
                 return JsonResponse({"status": "error", "message": f"字段 {field_name} 不允许编辑"}, status=400)
             try:
