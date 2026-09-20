@@ -213,6 +213,7 @@ payload.actor_index = [{class_name: 'warrior', specialization: 'fury', hero_tale
 ]}];
 element('simc-skill-damage-hero-tree').value = '';
 render();
+assert.match(element('simc-skill-damage-spec').innerHTML, /value="warrior:fury"/);
 assert.match(element('simc-skill-damage-hero-tree').innerHTML, /屠戮者/);
 assert.match(element('simc-skill-damage-hero-tree').innerHTML, /山丘领主/);
 payload.actors = loadedActors;

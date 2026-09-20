@@ -6023,10 +6023,12 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const specRows = [];
     const seenSpecs = new Set();
     (actorIndex.length ? actorIndex : actors).forEach(actor => {
-        const key = `${actor.class || ''}:${actor.specialization || ''}`;
+        const actorClass = actor.class || actor.class_name || '';
+        const actorSpec = actor.specialization || actor.spec || '';
+        const key = `${actorClass}:${actorSpec}`;
         if (seenSpecs.has(key)) return;
         seenSpecs.add(key);
-        specRows.push({key, label: `${localizedLabel(classLabels, actor.class)} / ${localizedLabel(specLabels, actor.specialization)}`});
+        specRows.push({key, label: `${localizedLabel(classLabels, actorClass)} / ${localizedLabel(specLabels, actorSpec)}`});
     });
     specSelect.innerHTML = '<option value="">请选择专精</option>' + specRows.map(row => (
         `<option value="${escapeHtml(row.key)}">${escapeHtml(row.label)}</option>`
