@@ -15,6 +15,15 @@ class ScopeContractTests(unittest.TestCase):
         self.assertIn('skill_damage_scope_build = "12.1.0.69875";', patch)
         self.assertNotIn('skill_damage_scope_revision = "ac0f3a3c7ff9e521137c0ca1760d548330c697f3";', patch)
 
+    def test_scope_contract_uses_minimum_game_build_not_exact_git_revision(self):
+        patch = (
+            Path(__file__).resolve().parents[2]
+            / 'simc_patches/0060-allow-newer-scope-contract-builds.patch'
+        ).read_text(encoding='utf-8')
+        self.assertIn('skill_damage_game_build_at_least', patch)
+        self.assertNotIn('+  if ( sim.skill_damage_revision != skill_damage_scope_revision', patch)
+        self.assertIn('sim.skill_damage_game_build', patch)
+
     def review(self):
         def part(index, decision):
             return {'源法术ID':31884, '效果编号':index, '效果ID':100+index, '处理结论':decision,

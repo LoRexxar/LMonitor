@@ -1,0 +1,48 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1178,11 +1178,43 @@
+ std::set<unsigned> skill_damage_declared_damage_indices( const dbc_t&, const spell_data_t& );
+ bool skill_damage_declared_linked_global_buff( const player_t&, const buff_t* );
+ 
++bool skill_damage_game_build_at_least( const std::string& actual, const char* minimum )
++{
++  auto parse = []( const std::string& value, std::array<unsigned, 4>& parts )
++  {
++    std::size_t begin = 0;
++    for ( std::size_t index = 0; index < parts.size(); ++index )
++    {
++      const std::size_t end = value.find( '.', begin );
++      if ( index == parts.size() - 1 && end != std::string::npos ) return false;
++      if ( end == begin ) return false;
++      const std::size_t length = end == std::string::npos ? std::string::npos : end - begin;
++      unsigned number = 0;
++      for ( const char character : value.substr( begin, length ) )
++      {
++        if ( character < '0' || character > '9' ) return false;
++        number = number * 10U + static_cast<unsigned>( character - '0' );
++      }
++      parts[index] = number;
++      if ( end == std::string::npos ) return index == parts.size() - 1;
++      begin = end + 1;
++    }
++    return false;
++  };
++
++  std::array<unsigned, 4> actual_parts{};
++  std::array<unsigned, 4> minimum_parts{};
++  if ( !parse( actual, actual_parts ) || !parse( minimum ? minimum : "", minimum_parts ) ) return false;
++  for ( std::size_t index = 0; index < actual_parts.size(); ++index )
++    if ( actual_parts[index] != minimum_parts[index] ) return actual_parts[index] > minimum_parts[index];
++  return true;
++}
++
+ // 分量契约固定最低支持的 WoW build 和已复核的 DBC 身份；更新版本只要不低于最低 build 即可。
+ void skill_damage_validate_scope_contract( const sim_t& sim )
+ {
+-  if ( sim.skill_damage_revision != skill_damage_scope_revision || sim.skill_damage_game_build != skill_damage_scope_build )
+-    throw std::runtime_error("Skill damage scope contract version mismatch");
++  if ( !skill_damage_game_build_at_least( sim.skill_damage_game_build, skill_damage_scope_build ) )
++    throw std::runtime_error("Skill damage game build is older than the reviewed scope contract");
+   for ( const auto& fact : skill_damage_scope_effects )
+   {
+     const auto* spell = dbc::find_spell(&sim, fact.spell);
