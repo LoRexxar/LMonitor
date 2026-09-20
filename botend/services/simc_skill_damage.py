@@ -2709,7 +2709,7 @@ def _validate_global_scope_catalog(actor):
                 if not isinstance(component, dict) or any(type(component.get(k)) is not int or component[k] <= 0 for k in ('spell_id','effect_index','effect_id')):
                     raise ValueError('全局展示目录分量身份无效。')
                 catalog_effects.add((component['spell_id'],component['effect_index']))
-        if catalog_effects != seen_effects:
+        if not catalog_effects or not catalog_effects.issubset(seen_effects):
             raise ValueError('全局展示目录与实际剔除分量不一致。')
 
 

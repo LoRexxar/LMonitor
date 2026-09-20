@@ -407,6 +407,42 @@ class SkillDamagePruningTests(SimpleTestCase):
             service._validate_export(payload)
         actor['reviewed_global_effects'] = [{'global_components':[{'spell_id':208086,'effect_index':1,'effect_id':42}]}]
         service._validate_export(payload)
+        actor['normalized_scope_effects'].append({
+            'spell_id':999999, 'effect_index':1, 'effect_id':99,
+            'actual_base_value':0, 'actual_mastery_coefficient':0,
+        })
+        # normalized contract is class-wide; reviewed display is specialization-scoped.
+        service._validate_export(payload)
+        actor['reviewed_global_effects'][0]['global_components'][0]['spell_id'] = 777777
+        with self.assertRaisesRegex(ValueError, '展示目录与实际剔除分量不一致'):
+            service._validate_export(payload)
         actor['normalized_scope_effects'][0]['actual_base_value'] = 1
         with self.assertRaisesRegex(ValueError, '没有归零'):
             service._validate_export(payload)
+
+    def test_reviewed_scope_display_may_be_specialization_subset_of_contract(self):
+        component = {'spell_id': 1, 'effect_index': 1, 'effect_id': 11}
+        actor = {
+            'global_scope_candidates': [{
+                'token': 'buff.test', 'scope': 'self', 'spell_id': 1,
+                'available': True, 'scope_basis': 'reviewed_dbc_native_effect_scope',
+            }],
+            'global_damage_states': [{
+                'token': 'buff.test', 'scope': 'self', 'spell_id': 1,
+                'available': True, 'scope_basis': 'reviewed_dbc_native_effect_scope',
+                'partial_state': False,
+            }],
+            'scope_contract_sha256': 'a' * 64,
+            'normalized_scope_effects': [
+                {**component, 'actual_base_value': 0, 'actual_mastery_coefficient': 0},
+                {'spell_id': 2, 'effect_index': 1, 'effect_id': 22,
+                 'actual_base_value': 0, 'actual_mastery_coefficient': 0},
+            ],
+            'reviewed_global_effects': [{'global_components': [component]}],
+        }
+        _validate_global_scope_catalog(actor)
+        actor['reviewed_global_effects'][0]['global_components'].append(
+            {'spell_id': 3, 'effect_index': 1, 'effect_id': 33},
+        )
+        with self.assertRaisesRegex(ValueError, '展示目录与实际剔除分量不一致'):
+            _validate_global_scope_catalog(actor)
