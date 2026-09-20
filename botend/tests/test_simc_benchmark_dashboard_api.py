@@ -4,9 +4,10 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
-from django.test import Client, TestCase
+from django.test import Client, SimpleTestCase, TestCase
 from django.utils import timezone
 
+from botend.dashboard.api import _benchmark_safe_error_log
 from botend.models import (
     DashboardUserGroup,
     DashboardUserGroupMembership,
@@ -15,7 +16,37 @@ from botend.models import (
     SimcTaskArtifact, SimcTalentString, SimulationRun,
 )
 from botend.services.simc_benchmark_config import build_execution_plan
-from botend.services.simc_benchmark_execution import BenchmarkExecutionConflict
+from botend.services.simc_benchmark_execution import BenchmarkExecutionConflict, _canonical_hash
+
+
+
+
+class BenchmarkErrorLogSanitizerTests(SimpleTestCase):
+    def test_redacts_credentials_paths_and_preserves_multiline_diagnostics(self):
+        marker = 'credential-value'
+        samples = (
+            'Authorization: Bearer ' + marker,
+            'authorization=Bearer ' + marker,
+            'bearer token ' + marker,
+            'token' + '=' + marker + ' api_key' + ':' + marker,
+            'https://user:' + marker + '@example.com/private',
+            'C:\\Users\\alice\\secret.txt',
+            '/srv/private/config traceback',
+        )
+        for sample in samples:
+            sanitized = _benchmark_safe_error_log(sample)
+            self.assertIsNotNone(sanitized)
+            self.assertNotIn(marker, sanitized)
+            self.assertNotIn('alice', sanitized.lower())
+
+        sanitized = _benchmark_safe_error_log(
+            'Traceback:\r\nAuthorization: Bearer ' + marker + '\r\n'
+            'worker stderr: failed',
+        )
+        self.assertIn(chr(10), sanitized)
+        self.assertIn('Authorization:', sanitized)
+        self.assertIn('[redacted]', sanitized)
+        self.assertIn('worker stderr: failed', sanitized)
 
 
 class SimcBenchmarkDashboardApiTests(TestCase):
@@ -116,6 +147,60 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(failure['labels']['spec'], '敏锐-潜行者')
         self.assertIn('Profile #313', failure['error'])
         self.assertIn('Segmentation fault', failure['error'])
+
+    def test_terminal_execution_detail_includes_failed_run_error_log(self):
+        talent = SimcTalentString.objects.create(
+            name='Fury benchmark talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.payload['specs'][0]['profiles'][0]['talent_string_id'] = talent.id
+        panel = self._create_panel()
+        snapshot = {
+            'version': 2, 'case_count': 1, 'run_count': 1,
+            'cases': [{
+                'spec_key': 'warrior_fury', 'scenario_key': 'patchwerk',
+                'profile_key': 'raid', 'candidate_keys': ['baseline'],
+            }],
+            'candidates': [{'key': 'baseline', 'label': 'Baseline'}],
+        }
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status=SimcBenchmarkExecution.STATUS_PARTIAL,
+            completed_at=timezone.now(), config_snapshot=snapshot,
+            config_hash=_canonical_hash(snapshot),
+        )
+        task = SimcTask.objects.create(
+            user_id=self.staff.id, name='Benchmark failed task',
+            simc_profile_id=self.profile.id, backend=self.backend,
+            mode='comparison', current_status=3, is_benchmark_task=True,
+            queue_priority=SimcTask.QUEUE_PRIORITY_BENCHMARK_NORMAL,
+            error_detail='Worker 重试次数上限（3）',
+        )
+        case = SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, status=SimcBenchmarkExecution.STATUS_PARTIAL,
+            error_detail='Initialization error: item lookup failed',
+            spec_key='warrior_fury', scenario_key='patchwerk', profile_key='raid',
+            spec_label='狂怒战士', scenario_label='Patchwerk', profile_label='Raid',
+            coordinate_hash='c' * 64,
+        )
+        SimulationRun.objects.create(
+            task=task, sequence=1, candidate_key='baseline',
+            candidate_label='Baseline', status='failed',
+            error_detail=(
+                'Traceback (most recent call last):\n'
+                'Error: Unable to fetch bearer token from https://us.battle.net/oauth/token\n'
+                'worker stderr: initialization failed'
+            ),
+        )
+
+        response = self.client.get(f'/api/simc-benchmarks/executions/{execution.id}/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        run = response.json()['data']['cases'][0]['runs'][0]
+        self.assertEqual(run['status'], 'failed')
+        self.assertEqual(run['error'], '[redacted]')
+        self.assertIn('Unable to fetch bearer token', run['error_log'])
+        self.assertIn('\n', run['error_log'])
+        self.assertNotIn('/home/', run['error_log'])
 
     def test_create_generates_stable_unique_slug_when_client_omits_it(self):
         payload = dict(self.payload)

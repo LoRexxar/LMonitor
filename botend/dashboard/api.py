@@ -118,7 +118,7 @@ from botend.services.simc_benchmark_config import (
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, cancel_execution, create_execution, reconcile_execution,
     rerun_failed_cases, rerun_case, serialize_incremental_panel_results,
-    summarize_execution,
+    summarize_execution, summarize_incremental_panel_coverage,
     summarize_panel_coverage_counts, task_progress, _canonical_hash,
 )
 from botend.services.simc_task_service import TaskValidationUnavailable
@@ -10474,6 +10474,42 @@ def _benchmark_safe_key(value):
     return _benchmark_safe_string(value, limit=200) or ''
 
 
+def _benchmark_safe_error_log(value, *, limit=12000):
+    """Keep useful multiline diagnostics while removing local paths and secrets."""
+    if not isinstance(value, str):
+        return None
+    text = value.replace('\x00', '').replace('\r\n', '\n').replace('\r', '\n').strip()
+    if not text:
+        return None
+    text = re.sub(
+        r'(?i)((?:https?|ftp)://)[^\s/@:]+:[^\s/@]+@',
+        r'\1[redacted]@', text,
+    )
+    text = re.sub(
+        r'(?i)((?:authorization)\s*[:=]\s*)bearer(?:\s+token)?\s+\S+',
+        r'\1Bearer [redacted]', text,
+    )
+    text = re.sub(
+        r'(?i)(\bbearer(?:\s+token)?\s+)\S+',
+        r'\1[redacted]', text,
+    )
+    text = re.sub(
+        r'(?i)((?:access[_-]?token|client[_-]?secret|api[_-]?key|password|passwd|secret|token)\s*[:=]\s*)\S+',
+        r'\1[redacted]', text,
+    )
+    text = re.sub(
+        r'(?i)((?:authorization)\s*[:=]\s*)\S+',
+        r'\1[redacted]', text,
+    )
+    text = re.sub(
+        r'(?:[A-Za-z]:[\\/]|/)(?:[^\s;:,]+[\\/])*[^\s;:,]*',
+        '[redacted]', text,
+    )
+    if len(text) > limit:
+        text = text[:limit] + '\n...[truncated]'
+    return text
+
+
 def _benchmark_spec_display_name(value, spec_key=None):
     text = _benchmark_safe_key(value)
     normalized = re.sub(r'[^a-z0-9]', '', text.lower())
@@ -10540,6 +10576,7 @@ def _benchmark_safe_detail(summary, execution):
                 'status': status if status in run_statuses else 'failed',
                 'dps': _benchmark_safe_dps(run.get('dps')),
                 'error': _benchmark_safe_string(run.get('error')),
+                'error_log': _benchmark_safe_error_log(run.get('error_log')),
             })
         status = row.get('status')
         task_id = row.get('task_id')
@@ -10562,6 +10599,7 @@ def _benchmark_safe_detail(summary, execution):
             'task_status_label': _benchmark_safe_key(row.get('task_status_label')) or None,
             'task_progress': row.get('task_progress') if type(row.get('task_progress')) is int and 0 <= row.get('task_progress') <= 100 else None,
             'error': _benchmark_safe_string(row.get('error')),
+            'error_log': _benchmark_safe_error_log(row.get('error_log')),
             'runs': runs,
         })
     count_keys = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
