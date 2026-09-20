@@ -8474,9 +8474,31 @@ class SimcSkillDamageSnapshotAPIView(View):
                     total_action_count=display_snapshot.generated_action_count,
                 )
             if request.GET.get('index') == '1':
-                actor_index = list(display_snapshot.actor_rows.order_by('ordinal', 'id').values(
-                    'id', 'class_name', 'specialization',
-                ))
+                actor_index = []
+                for row in display_snapshot.actor_rows.order_by('ordinal', 'id').annotate(
+                    hero_talent_trees_value=KeyTextTransform(
+                        'hero_talent_trees', 'actor_payload',
+                    ),
+                ).values(
+                    'id', 'class_name', 'specialization', 'hero_talent_trees_value',
+                ):
+                    raw_hero_talent_trees = row.pop('hero_talent_trees_value', None)
+                    if isinstance(raw_hero_talent_trees, str):
+                        try:
+                            raw_hero_talent_trees = json.loads(raw_hero_talent_trees)
+                        except (TypeError, ValueError):
+                            raw_hero_talent_trees = []
+                    hero_talent_trees = [
+                        {
+                            key: tree[key]
+                            for key in ('id', 'name', 'name_zh')
+                            if key in tree
+                        }
+                        for tree in (raw_hero_talent_trees or [])
+                        if isinstance(tree, dict) and tree.get('id') is not None
+                    ]
+                    row['hero_talent_trees'] = hero_talent_trees
+                    actor_index.append(row)
                 payload = dict(display_snapshot.payload or {})
                 payload.pop('storage_format', None)
                 payload.pop('wire_schema_revision', None)

@@ -204,3 +204,16 @@ assert.match(render(), /浴血奋战验证/);
 assert.match(renderText(), /自身存在 鲁莽 效果时/);
 assert.match(element('simc-skill-damage-filter-buffs').innerHTML, /自身：鲁莽/);
 console.log('替换技能的施法前提在无额外增伤场景时仍正确显示。');
+
+// 索引首屏没有 actor payload 时，英雄天赋仍必须可选。
+const loadedActors = payload.actors;
+payload.actors = [];
+payload.actor_index = [{class_name: 'warrior', specialization: 'fury', hero_talent_trees: [
+    {id: 60, name_zh: '屠戮者'}, {id: 61, name_zh: '山丘领主'},
+]}];
+element('simc-skill-damage-hero-tree').value = '';
+render();
+assert.match(element('simc-skill-damage-hero-tree').innerHTML, /屠戮者/);
+assert.match(element('simc-skill-damage-hero-tree').innerHTML, /山丘领主/);
+payload.actors = loadedActors;
+console.log('索引首屏也能加载英雄天赋选择项。');

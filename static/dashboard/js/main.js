@@ -6038,9 +6038,14 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const selectedActors = actors.filter(actor => (
         `${actor.class || ''}:${actor.specialization || ''}` === selectedSpec
     ));
+    const indexedSpec = actorIndex.find(actor => (
+        `${actor.class_name || actor.class || ''}:${actor.specialization || actor.spec || ''}` === selectedSpec
+    ));
     const heroTalentTrees = selectedActors.length && Array.isArray(selectedActors[0].hero_talent_trees)
         ? selectedActors[0].hero_talent_trees.filter(item => item && item.id != null)
-        : [];
+        : (indexedSpec && Array.isArray(indexedSpec.hero_talent_trees)
+            ? indexedSpec.hero_talent_trees.filter(item => item && item.id != null)
+            : []);
     heroTreeSelect.innerHTML = '<option value="">请选择英雄天赋</option>' + heroTalentTrees.map(tree => (
         `<option value="${escapeHtml(String(tree.id))}">${escapeHtml(tree.name_zh || tree.name || tree.id)}</option>`
     )).join('');

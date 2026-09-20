@@ -5040,7 +5040,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
                 ordinal=ordinal,
                 class_name='warrior',
                 specialization=specialization,
-                actor_payload={'actions': [{'token': f'large-{specialization}'}]},
+                actor_payload={'actions': [{'token': f'large-{specialization}'}], 'hero_talent_trees': [
+                    {'id': 60, 'name_zh': '屠戮者'}, {'id': 61, 'name_zh': '山丘领主'},
+                ]},
                 unresolved_payload=[],
                 raw_action_count=4500,
                 display_action_count=4500,
@@ -5054,6 +5056,9 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(snapshot_body['actor_index'][0]['specialization'], 'fury')
+        self.assertEqual(snapshot_body['actor_index'][0]['hero_talent_trees'], [
+            {'id': 60, 'name_zh': '屠戮者'}, {'id': 61, 'name_zh': '山丘领主'},
+        ])
         self.assertEqual(snapshot_body['actors'], [])
         self.assertNotIn('large-private-action', response.content.decode())
         self.assertNotIn('large-fury', response.content.decode())
