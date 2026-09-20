@@ -276,6 +276,88 @@ class SimcBenchmarkCleanupCommandTests(TestCase):
         self.assertTrue(SimulationRun.objects.filter(pk=run.id).exists())
         self.assertTrue(SimcBenchmarkResult.objects.filter(pk=result.id).exists())
 
+    def test_history_cleanup_deletes_only_the_explicit_unreachable_closure(self):
+        backend = SimcBackendBinary.objects.create(
+            identifier='cleanup-history', name='Cleanup', current_version='e' * 40,
+        )
+        panel = SimcBenchmarkPanel.objects.create(
+            name='Cleanup history', slug='cleanup-history', created_by_id=1,
+        )
+        old_execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_hash='f' * 64,
+            status=SimcBenchmarkExecution.STATUS_SUCCESS,
+        )
+        kept_execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_hash='g' * 64,
+            status=SimcBenchmarkExecution.STATUS_SUCCESS,
+        )
+
+        old_task = SimcTask.objects.create(
+            user_id=1, name='old benchmark', simc_profile_id=1,
+            backend=backend, mode='comparison', current_status=2,
+        )
+        old_run = SimulationRun.objects.create(
+            task=old_task, sequence=1, status='completed',
+        )
+        old_artifact = SimcTaskArtifact.objects.create(
+            task=old_task, run=old_run, artifact_type='html_report',
+            file_path='simc_agent_results/simc_task_1_run_1.html',
+        )
+        old_case = SimcBenchmarkCase.objects.create(
+            execution=old_execution, task=old_task,
+            status=SimcBenchmarkExecution.STATUS_SUCCESS,
+            spec_key='mage_frost', scenario_key='single', profile_key='default',
+            spec_label='冰法', scenario_label='单体', profile_label='默认',
+            coordinate_hash='h' * 64,
+        )
+        old_result = SimcBenchmarkResult.objects.create(
+            case=old_case, candidate_key='baseline', dps=100,
+        )
+        kept_task = SimcTask.objects.create(
+            user_id=1, name='kept benchmark', simc_profile_id=1,
+            backend=backend, mode='comparison', current_status=2,
+        )
+        kept_run = SimulationRun.objects.create(
+            task=kept_task, sequence=1, status='completed',
+        )
+        kept_case = SimcBenchmarkCase.objects.create(
+            execution=kept_execution, task=kept_task,
+            status=SimcBenchmarkExecution.STATUS_SUCCESS,
+            spec_key='mage_frost', scenario_key='single', profile_key='default',
+            spec_label='冰法', scenario_label='单体', profile_label='默认',
+            coordinate_hash='i' * 64,
+        )
+        kept_result = SimcBenchmarkResult.objects.create(
+            case=kept_case, candidate_key='baseline', dps=200,
+        )
+
+        Command()._delete_history_rows(SimpleNamespace(
+            artifact_ids=frozenset({old_artifact.id}),
+            run_ids=frozenset({old_run.id}),
+            result_ids=frozenset({old_result.id}),
+            deletable_case_ids=frozenset({old_case.id}),
+            deletable_execution_ids=frozenset({old_execution.id}),
+            deletable_task_ids=frozenset({old_task.id}),
+        ))
+
+        for model, pk in (
+                (SimcTaskArtifact, old_artifact.id),
+                (SimulationRun, old_run.id),
+                (SimcBenchmarkResult, old_result.id),
+                (SimcBenchmarkCase, old_case.id),
+                (SimcBenchmarkExecution, old_execution.id),
+                (SimcTask, old_task.id),
+        ):
+            self.assertFalse(model.objects.filter(pk=pk).exists())
+        for model, pk in (
+                (SimulationRun, kept_run.id),
+                (SimcBenchmarkResult, kept_result.id),
+                (SimcBenchmarkCase, kept_case.id),
+                (SimcBenchmarkExecution, kept_execution.id),
+                (SimcTask, kept_task.id),
+        ):
+            self.assertTrue(model.objects.filter(pk=pk).exists())
+
     def test_signed_backup_restores_artifact_idempotently_and_rejects_conflicts(self):
         backend = SimcBackendBinary.objects.create(
             identifier='cleanup-backup', name='Cleanup', current_version='a' * 40,

@@ -547,18 +547,110 @@ def _reusable_candidate_tasks_by_coordinate(
                 task__backend_id=coordinate['backend_id'],
             )
         cases = cases.filter(current_coordinates)
-    if summary_only:
-        result_rows = SimcBenchmarkResult.objects.only(
-            'id', 'case_id', 'candidate_key', 'dps', 'hero_talent_names',
-        )
-        cases = cases.select_related('task', 'execution').only(
-            'id', 'spec_key', 'scenario_key', 'profile_key', 'execution_id',
-            'task__id', 'task__profile_id', 'task__apl_id', 'task__template_id',
-            'task__backend_id', 'task__simulation_params', 'task__mode_params',
-            'task__source_task_id',
-        ).prefetch_related(
-            Prefetch('results', queryset=result_rows),
-        )
+    if summary_only and not include_resource_versions:
+        # Cleanup only needs the newest task id for each executable candidate.
+        # Do not prefetch Result model instances here: a large historical panel
+        # can contain tens of thousands of results and the normal projection
+        # path would otherwise materialize the whole panel at once.
+        wanted_coordinates = None
+        if coordinate_plans:
+            wanted_coordinates = {
+                _coordinate_input_identity(coordinate)
+                for coordinate in coordinate_plans
+            }
+        coordinates = {}
+        last_execution_id = None
+        last_case_id = None
+        while True:
+            page = cases
+            if last_execution_id is not None:
+                page = page.filter(
+                    Q(execution_id__lt=last_execution_id)
+                    | Q(execution_id=last_execution_id, id__lt=last_case_id)
+                )
+            case_rows = list(page.order_by('-execution_id', '-id').distinct().values(
+                'id', 'spec_key', 'scenario_key', 'profile_key', 'execution_id',
+                'execution__status', 'task_id', 'task__profile_id', 'task__apl_id',
+                'task__template_id', 'task__backend_id', 'task__simulation_params',
+            )[:100])
+            if not case_rows:
+                break
+            last_execution_id = case_rows[-1]['execution_id']
+            last_case_id = case_rows[-1]['id']
+
+            case_ids = [row['id'] for row in case_rows]
+            result_keys = {}
+            for case_id, candidate_key in SimcBenchmarkResult.objects.filter(
+                    case_id__in=case_ids,
+            ).values_list('case_id', 'candidate_key').iterator(chunk_size=1000):
+                result_keys.setdefault(case_id, set()).add(candidate_key)
+
+            task_rows = {}
+            pending_task_ids = {
+                row['task_id'] for row in case_rows if row['task_id'] is not None
+            }
+            while pending_task_ids:
+                task_batch = pending_task_ids - task_rows.keys()
+                if not task_batch:
+                    break
+                for row in SimcTask.objects.filter(id__in=task_batch).values(
+                        'id', 'mode_params', 'source_task_id',
+                ).iterator(chunk_size=100):
+                    task_rows[row['id']] = row
+                    if row['source_task_id'] is not None:
+                        pending_task_ids.add(row['source_task_id'])
+
+            def candidate_identities(task_id):
+                chain = []
+                seen = set()
+                current_id = task_id
+                while current_id is not None and current_id not in seen:
+                    seen.add(current_id)
+                    task = task_rows.get(current_id)
+                    if task is None:
+                        break
+                    chain.append(task)
+                    current_id = task['source_task_id']
+                identities = {}
+                for task in reversed(chain):
+                    mode_params = task['mode_params'] if isinstance(task['mode_params'], dict) else {}
+                    manifest = mode_params.get('request_manifest')
+                    candidates = manifest.get('candidates') if isinstance(manifest, dict) else None
+                    if not isinstance(candidates, list):
+                        continue
+                    identities.update({
+                        candidate.get('candidate_key'): _candidate_input_identity(candidate)
+                        for candidate in candidates
+                        if isinstance(candidate, dict)
+                        and isinstance(candidate.get('candidate_key'), str)
+                    })
+                return identities
+
+            for row in case_rows:
+                if row['execution__status'] == SimcBenchmarkExecution.STATUS_CANCELLED:
+                    continue
+                task_id = row['task_id']
+                if task_id is None:
+                    continue
+                coordinate = _coordinate_input_identity({
+                    'spec_key': row['spec_key'],
+                    'scenario_key': row['scenario_key'],
+                    'profile_key': row['profile_key'],
+                    'profile_id': row['task__profile_id'],
+                    'apl_id': row['task__apl_id'],
+                    'template_id': row['task__template_id'],
+                    'backend_id': row['task__backend_id'],
+                    'simulation_params': row['task__simulation_params'] or {},
+                })
+                if wanted_coordinates is not None and coordinate not in wanted_coordinates:
+                    continue
+                matches = coordinates.setdefault(coordinate, {})
+                identities = candidate_identities(task_id)
+                for candidate_key in result_keys.get(row['id'], ()):
+                    identity = identities.get(candidate_key)
+                    if identity and identity not in matches:
+                        matches[identity] = {'task_id': task_id}
+        return coordinates
     else:
         cases = cases.select_related(
             'task', 'task__profile_version', 'task__apl_version',

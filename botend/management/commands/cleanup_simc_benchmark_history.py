@@ -84,6 +84,14 @@ class Command(BaseCommand):
             '--apply', action='store_true',
             help='执行隔离、Artifact 索引删除及 OSS 原键删除；不删除运行历史。',
         )
+        parser.add_argument(
+            '--delete-history', action='store_true',
+            help='与 --apply 联用，额外删除 planner 判定为不可达的 Benchmark 历史闭包。',
+        )
+        parser.add_argument(
+            '--history-db-backup', default='',
+            help='历史删除必须提供已存在且非空的外部数据库备份路径。',
+        )
         parser.add_argument('--confirm-fingerprint', default='', help='必须与本次 dry-run fingerprint 完全一致。')
         parser.add_argument('--minimum-age-days', type=int, default=7, help='纯 OSS 孤儿的最小年龄，默认 7 天。')
         parser.add_argument('--skip-oss-orphans', action='store_true', help='不枚举或清理纯 OSS 孤儿。')
@@ -104,6 +112,7 @@ class Command(BaseCommand):
         plan, orphans, document = self._build_document(
             minimum_age_days=minimum_age_days,
             include_orphans=include_orphans,
+            delete_history=options['delete_history'],
         )
         self._print_document(document, mode='APPLY-CANDIDATE' if options['apply'] else 'DRY-RUN')
 
@@ -116,6 +125,10 @@ class Command(BaseCommand):
             raise CommandError('存在规划告警，拒绝 apply')
         if options['confirm_fingerprint'] != document['fingerprint']:
             raise CommandError('confirm fingerprint 不匹配；请先重新 dry-run')
+        if options['delete_history']:
+            history_backup = Path(options['history_db_backup'])
+            if not history_backup.is_file() or history_backup.stat().st_size <= 0:
+                raise CommandError('历史删除必须先提供非空外部数据库备份: --history-db-backup')
         self._assert_simc_queue_drained()
 
         backup_path = Path(options['backup']) if options['backup'] else self._default_backup_path(document)
@@ -148,7 +161,10 @@ class Command(BaseCommand):
                 # commits, so an old pure-OSS orphan cannot gain a new DB owner
                 # between this check and deletion.
                 self._delete_objects(quarantine_map)
-                self._delete_artifact_rows(locked_plan)
+                if options['delete_history']:
+                    self._delete_history_rows(locked_plan)
+                else:
+                    self._delete_artifact_rows(locked_plan)
         except Exception:
             # A normal Python/DB failure must not leave registered report keys
             # missing while the DB transaction rolls back. Process death is
@@ -166,11 +182,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS(
             f'cleanup complete fingerprint={document["fingerprint"]} '
             f'db_artifacts={len(plan.artifact_ids)} oss_objects={len(quarantine_map)} '
-            'history_records_retained=true '
+            f'history_records_retained={str(document["operation"] != "delete_history").lower()} '
             f'backup={backup_path.resolve()}'
         ))
 
-    def _build_document(self, *, minimum_age_days, include_orphans):
+    def _build_document(self, *, minimum_age_days, include_orphans, delete_history=False):
         plan = build_cleanup_plan()
         orphans = (
             list_oss_orphan_reports(minimum_age_days=minimum_age_days)
@@ -181,6 +197,7 @@ class Command(BaseCommand):
             self._validate_report_key(key)
         fingerprint_payload = {
             'database': plan.fingerprint,
+            'operation': 'delete_history' if delete_history else 'delete_artifacts',
             'orphans': [
                 [row.key, row.size, row.last_modified, row.reason]
                 for row in orphans
@@ -199,6 +216,7 @@ class Command(BaseCommand):
             'retained_results': planner_summary['deletable_results'],
             'registered_report_bytes': planner_summary['report_bytes'],
             'warnings': planner_summary['warnings'],
+            'delete_history': delete_history,
             'oss_orphans': len(orphans),
             'oss_orphan_bytes': sum(row.size for row in orphans),
             'oss_total_objects': len(object_keys),
@@ -212,6 +230,7 @@ class Command(BaseCommand):
             'database_fingerprint': plan.fingerprint,
             'minimum_age_days': minimum_age_days,
             'include_oss_orphans': include_orphans,
+            'operation': 'delete_history' if delete_history else 'delete_artifacts',
             'summary': summary,
             'ids': {
                 'retained_history': {
@@ -764,6 +783,32 @@ class Command(BaseCommand):
         if missing:
             raise CommandError(f'运行历史记录意外变化，事务回滚: {missing}')
 
+    @staticmethod
+    def _delete_history_rows(plan):
+        """Delete only the planner's unreachable Benchmark history closure."""
+        SimcTaskArtifact.objects.filter(id__in=plan.artifact_ids).delete()
+        SimcTaskFavorite.objects.filter(task_id__in=plan.deletable_task_ids).delete()
+        SimulationRun.objects.filter(id__in=plan.run_ids).delete()
+        SimcBenchmarkResult.objects.filter(id__in=plan.result_ids).delete()
+        SimcBenchmarkCase.objects.filter(id__in=plan.deletable_case_ids).delete()
+        SimcBenchmarkExecution.objects.filter(id__in=plan.deletable_execution_ids).delete()
+        SimcTask.objects.filter(id__in=plan.deletable_task_ids).delete()
+
+        checks = (
+            (SimcTaskArtifact, plan.artifact_ids),
+            (SimulationRun, plan.run_ids),
+            (SimcBenchmarkResult, plan.result_ids),
+            (SimcBenchmarkCase, plan.deletable_case_ids),
+            (SimcBenchmarkExecution, plan.deletable_execution_ids),
+            (SimcTask, plan.deletable_task_ids),
+        )
+        residual = {
+            model.__name__: model.objects.filter(id__in=ids).count()
+            for model, ids in checks if ids
+        }
+        if any(residual.values()):
+            raise CommandError(f'历史闭包删除后仍有残留: {residual}')
+
     def _validate_backup(self, backup):
         if backup.get('backup_schema') != BACKUP_SCHEMA:
             raise CommandError('不支持的备份版本')
@@ -852,6 +897,10 @@ class Command(BaseCommand):
         if not backup_path.exists():
             raise CommandError(f'备份不存在: {backup_path}')
         backup = self._read_backup(backup_path)
+        if backup['plan'].get('operation') == 'delete_history':
+            raise CommandError(
+                '历史数据库删除不支持使用 Artifact rollback；请使用 --history-db-backup 恢复数据库'
+            )
         quarantine_map = backup['quarantine_map']
 
         # OSS conflicts are checked before DB writes. Existing original keys are

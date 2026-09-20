@@ -47,7 +47,7 @@ class BenchmarkCleanupPlan:
     run_ids: frozenset[int]
     result_ids: frozenset[int]
     object_keys: tuple[str, ...]
-    state_rows: tuple[tuple[str, tuple[str, ...], tuple[tuple, ...]], ...]
+    state_summaries: tuple[tuple[str, tuple[str, ...], int, str], ...]
     warnings: tuple[str, ...] = field(default_factory=tuple)
     report_bytes: int = 0
 
@@ -61,7 +61,7 @@ class BenchmarkCleanupPlan:
             'run_ids': sorted(self.run_ids),
             'result_ids': sorted(self.result_ids),
             'object_keys': list(self.object_keys),
-            'state_rows': self.state_rows,
+            'state_summaries': self.state_summaries,
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(',', ':')).encode()
         return hashlib.sha256(encoded).hexdigest()
@@ -85,9 +85,10 @@ class BenchmarkCleanupPlan:
         return {
             name: {
                 'fields': list(fields),
-                'rows': [list(row) for row in rows],
+                'count': count,
+                'sha256': digest,
             }
-            for name, fields, rows in self.state_rows
+            for name, fields, count, digest in self.state_summaries
         }
 
 
@@ -98,10 +99,17 @@ def _stable_value(value):
 
 
 def _state_rows(queryset, *fields):
-    return tuple(
-        tuple(_stable_value(value) for value in row)
-        for row in queryset.order_by('id').values_list(*fields)
-    )
+    hasher = hashlib.sha256()
+    count = 0
+    for row in queryset.order_by('id').values_list(*fields).iterator(chunk_size=2000):
+        encoded = json.dumps(
+            [_stable_value(value) for value in row],
+            ensure_ascii=False, sort_keys=True, separators=(',', ':'), default=str,
+        ).encode('utf-8')
+        hasher.update(len(encoded).to_bytes(8, 'big'))
+        hasher.update(encoded)
+        count += 1
+    return count, hasher.hexdigest()
 
 
 def _explicit_execution_ids() -> set[int]:
@@ -125,14 +133,18 @@ def _current_projection_task_ids(panel, warnings: list[str]) -> set[int]:
             .values_list('task_id', flat=True)
         )
 
-    reusable = _reusable_candidate_tasks_by_coordinate(panel)
+    reusable = _reusable_candidate_tasks_by_coordinate(
+        panel,
+        summary_only=True,
+        coordinate_plans=plan.get('cases') or (),
+    )
     selected: set[int] = set()
     for coordinate in plan.get('cases') or ():
         matches = reusable.get(_coordinate_input_identity(coordinate), {})
         for candidate in coordinate.get('candidates') or ():
             match = matches.get(_candidate_input_identity(candidate))
             if match:
-                selected.add(match['task'].id)
+                selected.add(match['task_id'])
     return selected
 
 
@@ -239,7 +251,7 @@ def build_cleanup_plan() -> BenchmarkCleanupPlan:
         if _artifact_object_key(path) in object_keys
     )
     artifact_ids = frozenset(row[0] for row in artifact_rows)
-    state_rows = (
+    state_summaries = (
         (
             'executions',
             ('id', 'panel_id', 'status', 'config_hash', 'result_hash', 'completed_at'),
@@ -296,7 +308,10 @@ def build_cleanup_plan() -> BenchmarkCleanupPlan:
         run_ids=run_ids,
         result_ids=result_ids,
         object_keys=object_keys,
-        state_rows=state_rows,
+        state_summaries=tuple(
+            (name, fields, count, digest)
+            for name, fields, (count, digest) in state_summaries
+        ),
         warnings=tuple(warnings),
         report_bytes=report_bytes,
     )
