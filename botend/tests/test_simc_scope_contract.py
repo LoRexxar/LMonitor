@@ -27,6 +27,8 @@ class ScopeContractTests(unittest.TestCase):
     def review(self):
         def part(index, decision):
             return {'源法术ID':31884, '效果编号':index, '效果ID':100+index, '处理结论':decision,
+                    '范围核验': {'判定路径': 'DBC 部分技能选择器',
+                                 '完整DBC集合': [184575] if decision == '保留' else []},
                     'DBC':{'source_spell_id':31884,'effect_index':index,'effect_id':100+index,'class_family':10}}
         return {'源码提交':'a'*40,'客户端版本':'12.1.0.69587','条目':[
             {'类型':'自身Buff','法术ID':31884,'分量':[part(1,'应剔除'),part(12,'保留')]}]}
@@ -36,6 +38,17 @@ class ScopeContractTests(unittest.TestCase):
         self.assertTrue(effects[(31884,1)][2])
         self.assertFalse(effects[(31884,12)][2])
         self.assertEqual(buffs[31884], [True,True])
+
+    def test_display_fact_records_global_and_local_components_separately(self):
+        review = self.review()
+        review['条目'][0].update({'职业': '战士', '专精': '狂怒', '名称': '测试',
+                                  '范围判定': 'SimC 原生局部技能证据'})
+        rendered = render_contract(review, 'b' * 64)
+        self.assertIn(r'\"global_components\":[{\"spell_id\":31884,\"effect_index\":1', rendered)
+        self.assertIn(r'\"local_components\":[{\"spell_id\":31884,\"effect_index\":12', rendered)
+        self.assertIn(r'\"local_skill_bindings\":[{\"spell_id\":31884,\"effect_index\":12,\"effect_id\":112,\"skill_spell_ids\":[184575]', rendered)
+        self.assertIn(r'\"lower_skill_policy\":\"exclude_global_keep_explicit_local\"', rendered)
+        self.assertIn(r'\"local_scope_evidence\":\"SimC \u539f\u751f\u5c40\u90e8\u6280\u80fd\u8bc1\u636e\"', rendered)
 
     def test_talent_and_target_state_share_all_self_components(self):
         review=self.review()

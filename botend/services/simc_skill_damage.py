@@ -489,6 +489,9 @@ def prune_global_damage_talents(talents, scaffold_talents, talent_prerequisites,
             'scope_evidence': fact['evidence'],
             'global_effect_indices': fact.get('global_effect_indices', []),
             'global_components': fact.get('global_components', []),
+            'local_skill_bindings': fact.get('local_skill_bindings', []),
+            'lower_skill_policy': 'exclude_global_keep_explicit_local',
+            'partial_state': not fact.get('remove_talent', True),
             'excluded_before_probe': True,
             'runtime_condition': '全局增伤分量在职业初始化前排除；生效条件不改变作用域分类',
             'scope_description': str(fact.get('description') or ''),
@@ -2713,10 +2716,41 @@ def _validate_global_scope_catalog(actor):
             raise ValueError('全局展示目录与实际剔除分量不一致。')
 
 
+def _reviewed_global_fact_metadata(actor, spell_id):
+    """把同一来源的局部分量与技能绑定合并到运行时状态事实。"""
+    class_name = _scope_name_key(actor.get('class'))
+    spec = actor.get('specialization') or actor.get('spec')
+    matches = [
+        fact for fact in actor.get('reviewed_global_effects') or []
+        if isinstance(fact, dict)
+        and spell_id in (fact.get('source_spell_ids') or [])
+        and global_effect_matches_owner(fact, class_name, spec)
+    ]
+    if not matches:
+        return {}
+    result = {
+        'lower_skill_policy': 'exclude_global_keep_explicit_local',
+        'partial_state': any(fact.get('partial_state') is True for fact in matches),
+    }
+    for field in ('local_components', 'local_skill_bindings'):
+        unique = {}
+        for fact in matches:
+            for item in fact.get(field) or []:
+                if not isinstance(item, dict):
+                    continue
+                key = json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+                unique[key] = copy.deepcopy(item)
+        result[field] = list(unique.values())
+    evidence = [fact.get('local_scope_evidence') for fact in matches if fact.get('local_scope_evidence')]
+    if evidence:
+        result['local_scope_evidence'] = '；'.join(dict.fromkeys(map(str, evidence)))
+    return result
+
+
 def _collect_declared_global_state_effects(actor, effects):
     """复用已有逐天赋遍历，仅积累轻量作用域与倍率范围。"""
     def get_effect(identity, name):
-        return effects.setdefault(identity, {
+        effect = effects.setdefault(identity, {
             'effect_id': _global_effect_identity('declared_runtime_state', identity),
             'source_type': 'runtime_state', 'source_name': name,
             'source_token': identity[0][0], 'source_spell_ids': [identity[0][2]],
@@ -2725,6 +2759,8 @@ def _collect_declared_global_state_effects(actor, effects):
             'runtime_condition': '全技能增伤状态；倍率随天赋配置变化',
             'scope_evidence': 'declared_global_damage_state', 'projections': [],
         })
+        effect.update(_reviewed_global_fact_metadata(actor, identity[0][2]))
+        return effect
     for state in actor.get('global_damage_states') or []:
         if not isinstance(state, dict) or not state.get('token'):
             continue
@@ -3119,6 +3155,13 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         and effect.get('partial_state') is not True
         for condition in effect.get('runtime_conditions') or []
     }
+    declared_state_effects = {}
+    for effect in global_effects or []:
+        if not isinstance(effect, dict) or effect.get('scope_evidence') != 'declared_global_damage_state':
+            continue
+        for condition in effect.get('runtime_conditions') or []:
+            key = (condition.get('scope'), condition.get('spell_id'))
+            declared_state_effects.setdefault(key, []).append(effect)
     base_high_actions = {
         _action_identity(action): action
         for action in (base_high.get('actions') or [])
@@ -3192,12 +3235,28 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         if not isinstance(action, dict):
             return []
         return sorted(hero_ownership_by_action.get(_action_identity(action)) or ())
+
+    def action_has_explicit_local_binding(action, effects):
+        identities = {
+            action.get('spell_id'), action.get('reporting_root_spell_id'),
+        }
+        identities.discard(None)
+        for effect in effects:
+            if effect.get('lower_skill_policy') != 'exclude_global_keep_explicit_local':
+                continue
+            for binding in effect.get('local_skill_bindings') or []:
+                if not isinstance(binding, dict):
+                    continue
+                skill_ids = binding.get('skill_spell_ids') or []
+                if any(spell_id in identities for spell_id in skill_ids):
+                    return True
+        return False
+
     global_runtime_effects_by_scenario = {}
     global_talent_effects_by_owner_scenario = {}
+    global_talent_effects_by_owner = {}
     for effect in global_effects or []:
         if not isinstance(effect, dict):
-            continue
-        if effect.get('partial_state') is True:
             continue
         # 暴击率属于期望计算输入，不得当作全局直接增伤把对应天赋/状态行删除。
         if any(projection.get('kind') == 'crit_chance' for projection in effect.get('projections') or []):
@@ -3206,6 +3265,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         if effect.get('source_type') == 'talent':
             owner = _talent_source_ownership(effect)
             if owner is not None:
+                global_talent_effects_by_owner.setdefault(owner, []).append(effect)
                 global_talent_effects_by_owner_scenario.setdefault(
                     (owner, scenario_identity),
                     [],
@@ -3222,17 +3282,31 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         scenario_identity = tuple(scenario_tokens or ())
         # 下表的比较域排除明确声明的全局状态；组合探针也不能重新引入该维度。
         # 不按施法技能 ID 删除 action，巨人打击自身的直接伤害仍然保留。
-        if any(_declared_global_state_name(base_high, identity)
-               or (identity[1], identity[2]) in declared_state_identities
-               for identity in scenario_identity):
-            return
+        for identity in scenario_identity:
+            if (_declared_global_state_name(base_high, identity)
+                    or (identity[1], identity[2]) in declared_state_identities):
+                return
+            partial_effects = [
+                effect for effect in declared_state_effects.get((identity[1], identity[2]), ())
+                if effect.get('partial_state') is True
+            ]
+            if partial_effects and not action_has_explicit_local_binding(action, partial_effects):
+                return
         candidate_owner = _talent_source_ownership(talent)
+        if candidate_owner is not None:
+            partial_talent_effects = [
+                effect for effect in global_talent_effects_by_owner.get(candidate_owner, ())
+                if effect.get('partial_state') is True
+            ]
+            if partial_talent_effects and not action_has_explicit_local_binding(action, partial_talent_effects):
+                return
         candidate_effects = [
             *global_runtime_effects_by_scenario.get(scenario_identity, ()),
             *global_talent_effects_by_owner_scenario.get(
                 (candidate_owner, scenario_identity),
                 (),
             ),
+            *global_talent_effects_by_owner.get(candidate_owner, ()),
         ]
         if (
             not preserve_owned_action
@@ -4006,6 +4080,19 @@ def reviewed_global_display_effects(actor):
         parts = {(c['spell_id'],c['effect_index']):c for c in row['global_components']}
         parts.update({(c['spell_id'],c['effect_index']):c for c in fact['global_components']})
         row['global_components'] = list(parts.values())
+        for field in ('local_components', 'local_skill_bindings'):
+            local_parts = {(json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(',', ':'))): item
+                           for item in row.get(field, []) if isinstance(item, dict)}
+            local_parts.update({json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(',', ':')): item
+                                for item in fact.get(field, []) if isinstance(item, dict)})
+            row[field] = list(local_parts.values())
+        row['lower_skill_policy'] = fact.get('lower_skill_policy') or row.get(
+            'lower_skill_policy', 'exclude_global_keep_explicit_local',
+        )
+        evidence = [row.get('local_scope_evidence'), fact.get('local_scope_evidence')]
+        evidence = [str(value) for value in evidence if value]
+        if evidence:
+            row['local_scope_evidence'] = '；'.join(dict.fromkeys(evidence))
         row['partial_state'] = row.get('partial_state') is True or fact.get('partial_state') is True
         details = {(d.get('source_spell_id'), d.get('effect_index')):d for d in row.get('effect_details', [])}
         details.update({(d.get('source_spell_id'), d.get('effect_index')):d for d in fact.get('effect_details', [])})
@@ -5274,8 +5361,15 @@ class SimcSkillDamageSnapshotService:
             actor['hero_talent_trees'] = hero_talent_trees
             actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
             global_effects = classify_global_skill_effects(base_high, base_low, variants)
-            actor['global_skill_effects'] = [*static_global_effects, *global_effects]
-            global_effects = [effect for effect in global_effects if not any(
+            all_global_effects = [*static_global_effects, *global_effects]
+            for effect in all_global_effects:
+                if not isinstance(effect, dict):
+                    continue
+                source_spell_ids = effect.get('source_spell_ids') or []
+                if source_spell_ids:
+                    effect.update(_reviewed_global_fact_metadata(base_high, source_spell_ids[0]))
+            actor['global_skill_effects'] = all_global_effects
+            global_effects = [effect for effect in all_global_effects if not any(
                 projection.get('kind') == 'crit_chance' for projection in effect.get('projections') or []
             )]
             actor['actions'] = flatten_single_talent_damage_variants(

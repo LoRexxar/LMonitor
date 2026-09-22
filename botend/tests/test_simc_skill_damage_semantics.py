@@ -96,6 +96,54 @@ class SkillDamageSemanticRegressionTests(SimpleTestCase):
         self.assertFalse(any(row['variant']['scenario_tokens'] for row in
                              flatten_single_talent_damage_variants(high, low, [], global_effects=effects)))
 
+    def test_mixed_global_state_requires_explicit_local_skill_binding(self):
+        high = {'class': 'warrior', 'actions': [damage_action(scenarios=(
+            ('buff.enrage', 'self', 184362, 150),
+        ))]}
+        effect = {
+            'effect_id': 'reviewed_scope:自身状态:184362:None',
+            'source_type': 'runtime_state',
+            'scope_evidence': 'declared_global_damage_state',
+            'partial_state': True,
+            'runtime_conditions': [{'token': 'buff.enrage', 'scope': 'self',
+                                   'spell_id': 184362, 'stacks': 1}],
+            'projections': [],
+            'lower_skill_policy': 'exclude_global_keep_explicit_local',
+        }
+        rows = flatten_single_talent_damage_variants(high, high, [], global_effects=[effect])
+        self.assertEqual([row['variant']['scenario_tokens'] for row in rows], [[]])
+        bound = copy.deepcopy(effect)
+        bound['local_skill_bindings'] = [{
+            'spell_id': 184362, 'effect_index': 1, 'effect_id': 1,
+            'skill_spell_ids': [167105], 'evidence': 'SimC 原生局部技能证据',
+        }]
+        rows = flatten_single_talent_damage_variants(high, high, [], global_effects=[bound])
+        self.assertEqual([row['variant']['scenario_tokens'] for row in rows], [[], ['buff.enrage']])
+
+    def test_mixed_talent_requires_explicit_local_skill_binding(self):
+        reference = {'class': 'warrior', 'actions': [damage_action()]}
+        selected = {'class': 'warrior', 'actions': [damage_action()]}
+        selected['actions'][0]['baseline']['direct']['hit'] = 120
+        talent = {'id': 1, 'name': '混合天赋', 'tree_type': 'class', 'node_id': 1}
+        effect = {
+            'effect_id': 'reviewed_scope:天赋:1:1', 'source_type': 'talent', 'talent_id': 1,
+            'tree_type': 'class',
+            'source_spell_ids': [1], 'scope_evidence': 'reviewed_dbc_native_effect_scope',
+            'partial_state': True, 'runtime_conditions': [], 'scenario_tokens': [],
+            'projections': [], 'lower_skill_policy': 'exclude_global_keep_explicit_local',
+        }
+        variant = {'talent': talent, 'reference_high': reference, 'reference_low': reference,
+                   'high': selected, 'low': selected}
+        rows = flatten_single_talent_damage_variants(
+            reference, reference, [variant], global_effects=[effect],
+        )
+        self.assertFalse([row for row in rows if row['variant']['talent_id'] == 1])
+        effect['local_skill_bindings'] = [{'skill_spell_ids': [167105]}]
+        rows = flatten_single_talent_damage_variants(
+            reference, reference, [variant], global_effects=[effect],
+        )
+        self.assertEqual(len([row for row in rows if row['variant']['talent_id'] == 1]), 1)
+
     def test_equal_stack_damage_merges_only_with_same_multi_target_curve(self):
         def row(stacks, *, targets=200, talent=1):
             return {

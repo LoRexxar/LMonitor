@@ -44,6 +44,35 @@ def display_details(row):
     return details
 
 
+def local_skill_bindings(row):
+    """把已复核的局部分量及其具体技能集合编入契约，禁止只留下混合布尔值。"""
+    bindings = []
+    for part in row['分量']:
+        if part['处理结论'] != '保留':
+            continue
+        scope = part.get('范围核验') or {}
+        skill_ids = set()
+        for field in ('完整DBC集合', '原生附加技能', '伤害技能', '代码附加技能'):
+            values = scope.get(field) or []
+            if not isinstance(values, list):
+                raise ValueError(f'局部分量技能集合结构无效：{row["法术ID"]}/{part["效果编号"]}/{field}')
+            for value in values:
+                if isinstance(value, int) and not isinstance(value, bool) and value > 0:
+                    skill_ids.add(value)
+                elif isinstance(value, dict):
+                    spell_id = value.get('spell_id') or value.get('法术ID')
+                    if isinstance(spell_id, int) and not isinstance(spell_id, bool) and spell_id > 0:
+                        skill_ids.add(spell_id)
+        bindings.append({
+            'spell_id': part['源法术ID'],
+            'effect_index': part['效果编号'],
+            'effect_id': part['效果ID'],
+            'skill_spell_ids': sorted(skill_ids),
+            'evidence': scope.get('判定路径') or part.get('范围判定') or row.get('范围判定'),
+        })
+    return bindings
+
+
 def compile_contract(review):
     effects, parents, buffs = {}, set(), {}
     for row in review['条目']:
@@ -138,6 +167,8 @@ def render_contract(review, digest):
         # 原生导出按一个专精一条事实输出，避免同一职业下的跨专精事实泄漏。
         # JSON 内也使用单值专精范围，后端再次投影时可以继续做精确校验。
         for specialization in specs:
+            local_parts = [c for c in row['分量'] if c['处理结论'] == '保留']
+            local_bindings = local_skill_bindings(row)
             fact = {'effect_id':f'reviewed_scope:{row["类型"]}:{row["法术ID"]}:{row.get("节点",0)}',
                 'source_type':'reviewed_scope', 'source_name':row['名称'], 'display_name':row['名称'],
                 'source_spell_ids':[row['法术ID']], 'specializations':[specialization],
@@ -145,6 +176,10 @@ def render_contract(review, digest):
                 'scope_evidence':'reviewed_dbc_native_effect_scope', 'excluded_before_probe':True,
                 'partial_state':any(c['处理结论']=='保留' for c in row['分量']), 'projections':[],
                 'global_components':[{'spell_id':c['源法术ID'],'effect_index':c['效果编号'],'effect_id':c['效果ID']} for c in parts],
+                'local_components':[{'spell_id':c['源法术ID'],'effect_index':c['效果编号'],'effect_id':c['效果ID']} for c in local_parts],
+                'local_skill_bindings':local_bindings,
+                'lower_skill_policy':'exclude_global_keep_explicit_local',
+                'local_scope_evidence':row.get('范围判定') if local_parts else None,
                 'effect_details':display_details(row),
                 'runtime_condition':'自身效果生效时' if row['类型']=='自身状态' else ('自身施加的目标效果生效时' if row['类型']=='目标减益' else '启用相应天赋时')}
             if row['类型'] != '天赋' and any(b.get('layer') == 'conditional_action_registry' for c in row['分量'] for b in c.get('原生实际应用', [])):
