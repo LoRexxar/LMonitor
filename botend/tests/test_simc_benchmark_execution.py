@@ -1828,6 +1828,19 @@ class SimcBenchmarkExecutionTests(TestCase):
         ])
         self.assertEqual(by_scenario['pending-coordinate'], [])
 
+    def test_summary_projection_does_not_require_full_task_matches(self):
+        self._published_success()
+
+        aggregate = serialize_incremental_panel_results(
+            self.panel, include_details=False,
+        )
+
+        self.assertEqual(len(aggregate['coordinates']), 1)
+        self.assertEqual(
+            {row['key'] for row in aggregate['coordinates'][0]['candidates']},
+            {'baseline', 'trinket'},
+        )
+
     def test_partial_execution_persists_complete_case_results_for_incremental_aggregation(self):
         SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='failed-coordinate', name='Failed coordinate',

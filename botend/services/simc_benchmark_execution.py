@@ -1853,8 +1853,11 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         display_candidates,
         load_item_tooltip_metadata(display_requests) if display_requests else (),
     ))
+    # The projection needs the matched Task and Result objects below even when
+    # optional detail fields are omitted.  ``summary_only`` is reserved for the
+    # cleanup planner, which only needs task identities.
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(
-        panel, selected_filter, summary_only=not include_details,
+        panel, selected_filter, summary_only=False,
         coordinate_plans=projected_cases,
     )
     report_urls = (
