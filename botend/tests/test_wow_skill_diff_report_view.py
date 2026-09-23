@@ -339,6 +339,24 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
                     'traitdefinition': [
                         {'id': 987, 'action': 'changed', 'fields': [{'field': 'TraitDefinitionID', 'before': '987', 'after': '988'}]},
                     ],
+                    'spelleffect': [
+                        {'id': 1353090, 'action': 'changed', 'fields': [
+                            {'field': 'EffectAura', 'before': '219', 'after': '648'},
+                            {'field': 'EffectMiscValue_0', 'before': '3', 'after': '5'},
+                        ]},
+                        {'id': 1353103, 'action': 'changed', 'fields': [
+                            {'field': 'EffectAura', 'before': '219', 'after': '648'},
+                            {'field': 'EffectMiscValue_0', 'before': '3', 'after': '5'},
+                        ]},
+                        {'id': 1353104, 'action': 'changed', 'fields': [
+                            {'field': 'EffectAura', 'before': '219', 'after': '648'},
+                            {'field': 'EffectMiscValue_0', 'before': '12', 'after': '6'},
+                        ]},
+                        {'id': 1353105, 'action': 'changed', 'fields': [
+                            {'field': 'EffectAura', 'before': '219', 'after': '648'},
+                            {'field': 'EffectMiscValue_0', 'before': '12', 'after': '6'},
+                        ]},
+                    ],
                 }
             }
         }
@@ -358,6 +376,7 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
                     spec_to_class={0: 1},
                     spell_changes=spell_changes,
                     data_build='12.1.0.68412',
+                    effect_record_ids=True,
                 )
 
         html = (self.base_dir / 'static' / meta['path']).read_text(encoding='utf-8')
@@ -365,11 +384,37 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         self.assertIn('最高缩放等级 / MaxScalingLevel', html)
         self.assertIn('天赋定义 / traitdefinition', html)
         self.assertIn('天赋定义 ID / TraitDefinitionID', html)
+        self.assertIn('SpellEffect.ID 1353090', html)
+        self.assertIn('EffectAura', html)
+        self.assertIn('EffectMiscValue_0', html)
+        self.assertIn("class='del'>219</span> → <span class='ins'>648", html)
+        self.assertIn("class='del'>3</span> → <span class='ins'>5", html)
+        self.assertIn("class='del'>12</span> → <span class='ins'>6", html)
+        for record_id in (1353090, 1353103, 1353104, 1353105):
+            self.assertIn(f'SpellEffect.ID {record_id}', html)
         self.assertIn('改动影响概览', html)
         self.assertIn('这条改动可能影响', html)
         self.assertIn('等级缩放范围', html)
         self.assertIn('查看 DB2 字段细节', html)
         self.assertIn("data-tone='mechanic'", html)
+
+        spell_changes[12345]['diffs']['spelleffect'] = [{
+            'id': 0, 'action': 'changed', 'meta': {'EffectIndex': 0},
+            'fields': [{'field': 'EffectAura', 'before': '219', 'after': '648'}],
+        }]
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects', _EmptySnapshotManager()):
+                hotfix_meta = monitor._write_html_report(
+                    branch='wowt', server_title='PTR(测试服)',
+                    from_build='12.1.0.68301', to_build='12.1.0.68412',
+                    display_from_build='', display_to_build='',
+                    class_names={1: 'Warrior'}, spec_meta={0: {'name': 'General', 'class_id': 1}},
+                    spell_to_specs={12345: {0}}, spec_to_class={0: 1},
+                    spell_changes=spell_changes, data_build='12.1.0.68412',
+                )
+        hotfix_html = (self.base_dir / 'static' / hotfix_meta['path']).read_text(encoding='utf-8')
+        self.assertIn('EffectIndex 0', hotfix_html)
+        self.assertNotIn('SpellEffect.ID ?', hotfix_html)
     def test_html_report_resolves_or_hides_unresolved_tooltip_placeholders(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.locale = 'enUS'

@@ -2329,6 +2329,7 @@ class WagoSkillDiffMonitor(BaseScan):
             spec_to_class=spec_to_class,
             spell_changes=spell_changes,
             wowhead_url=wowhead_url,
+            effect_record_ids=True,
         )
         content_html_path = (html_meta or {}).get('path') or ''
         class_count = int((html_meta or {}).get('class_count') or 0)
@@ -5565,7 +5566,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             return {}
         return {'path': rel_path, 'class_count': 0}
 
-    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build=''):
+    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build='', effect_record_ids=False):
         data_build = (data_build or '').strip() or to_build
         rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{to_build.replace('.', '_')}.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
@@ -5769,6 +5770,9 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             'PvpMultiplier': 'PvP系数',
             'EffectAmplitude': '周期',
             'EffectAuraPeriod': '周期',
+            'EffectAura': '效果光环类型',
+            'EffectMiscValue_0': '效果杂项值0',
+            'EffectMiscValue_1': '效果杂项值1',
             'SpellID': '技能ID',
             'DifficultyID': '难度ID',
             'RangeIndex': '距离索引',
@@ -5888,6 +5892,11 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                             continue
 
                         if tkey == 'spelleffect':
+                            numeric_fields = (
+                                'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient',
+                                'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier',
+                                'EffectAuraPeriod', 'EffectAmplitude',
+                            )
                             effects = {}
                             for it in filtered_items:
                                 kv = {}
@@ -5925,7 +5934,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                     eff_cn = '触发法术'
                                 idx_part = f"(#{effect_idx})" if effect_idx != '' else ''
                                 changes = []
-                                for fk in ('EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient', 'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'EffectAuraPeriod', 'EffectAmplitude'):
+                                for fk in numeric_fields:
                                     if fk not in merged:
                                         continue
                                     b, a = merged.get(fk) or ('', '')
@@ -5944,6 +5953,24 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                 if changes:
                                     label = f"{eff_cn}{idx_part}" if eff_cn else f"技能效果{idx_part}"
                                     lines.append(f"<div class='line'><span class='hash'>#</span>{html.escape(label)}（{'，'.join(changes)}）</div>")
+                            for it in filtered_items:
+                                technical_changes = []
+                                for fd in it.get('fields') or []:
+                                    field = fd.get('field') or ''
+                                    before, after = fd.get('before'), fd.get('after')
+                                    if field in numeric_fields or str(before) == str(after):
+                                        continue
+                                    technical_changes.append(f"{html.escape(field_change_label(field))}：{fmt_change(before, after)}")
+                                if technical_changes:
+                                    raw_id = it.get('id')
+                                    if not effect_record_ids:
+                                        raw_id = (it.get('meta') or {}).get('EffectIndex', raw_id)
+                                    identity = 'SpellEffect.ID' if effect_record_ids else 'EffectIndex'
+                                    record_label = html.escape(f"{identity} {raw_id if raw_id is not None and raw_id != '' else '?'}")
+                                    lines.append(
+                                        f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> "
+                                        f"<span class='mono'>{record_label}</span>（{'，'.join(technical_changes)}）</div>"
+                                    )
                             continue
 
                         if tkey in ('spell', 'spelldescription'):
