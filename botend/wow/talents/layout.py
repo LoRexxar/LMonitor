@@ -392,7 +392,7 @@ def _build_tree_panel_layout(tree, panel_x, panel_y, width, height, grid_columns
         for raw_parent in node_layout.parents:
             parent_id = _coerce_positive_int(raw_parent)
             parent_layout = identity_lookup.get(parent_id) if parent_id is not None else None
-            if parent_layout is None:
+            if parent_layout is None or parent_layout is node_layout:
                 continue
 
             edge_key = (parent_layout.node_key, node_layout.node_key)
@@ -440,6 +440,12 @@ def _register_node_identity(identity_lookup, node, node_layout):
         parsed = _coerce_positive_int(value)
         if parsed is not None:
             identity_lookup[parsed] = node_layout
+    # TraitEdge uses TraitNodeEntry IDs, including hidden choice options and
+    # same-slot physical entries collapsed into this one visible icon.
+    for value in node.node_aliases:
+        parsed = _coerce_positive_int(value)
+        if parsed is not None:
+            identity_lookup.setdefault(parsed, node_layout)
 
 
 def _build_minimal_svg_path(start_x, start_y, end_x, end_y):

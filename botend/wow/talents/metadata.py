@@ -258,32 +258,59 @@ class TalentMetadataProvider:
         ).exclude(tree_type='hero_anchor').order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
 
         grouped_by_node = {}
-        seen_spell_ids = set()
+        spell_groups = {}
+        entry_aliases = {}
+        parent_ids = {}
         for row in rows.iterator():
             row_data = self._as_dict(row)
-            # Deduplicate by spell_id first - some nodes have different talent_id
-            # but the same spell_id (e.g., multiple Battle Stance entries)
-            spell_id = row_data.get('spell_id')
-            if spell_id and spell_id in seen_spell_ids:
-                continue
-            if spell_id:
-                seen_spell_ids.add(spell_id)
-            # Use talent_id (DB2 TraitNode ID) as grouping key.
-            # Choice nodes have multiple entries with different node_id/spell_id
-            # but the same talent_id. Using node_id would split them into separate groups.
+            # TraitNode (not SpellID) groups selectable entries. A spell can
+            # appear in another slot or hero subtree without being the same node.
             node_key = (
                 row_data.get('tree_type') or 'spec',
                 row_data.get('talent_id') or row_data.get('node_id') or row_data.get('spell_id'),
             )
+            entry_id = row_data.get('node_id')
             current = grouped_by_node.get(node_key)
-            if not current:
+            if current:
+                if entry_id:
+                    entry_aliases.setdefault(node_key, set()).add(int(entry_id))
+                parent_ids.setdefault(node_key, set()).update(row_data.get('parents') or [])
+                current_options = current.setdefault('choice_options', [])
+                current['is_choice_node'] = True
+                if row_data not in current_options:
+                    current_options.append(row_data)
+            else:
+                # Separate TraitNodes with the same spell at the same DB2 slot
+                # share one visible icon, but their entry IDs remain valid edge
+                # targets. Do not deduplicate across subtrees or different slots.
+                spell_id = row_data.get('spell_id')
+                spell_key = (
+                    node_key[0], row_data.get('db2_subtree_id') or 0, spell_id,
+                )
+                same_slot = next((
+                    key for key, other in spell_groups.get(spell_key, ())
+                    if row_data.get('row') is not None
+                    and row_data.get('column') is not None
+                    and other.get('row') is not None
+                    and other.get('column') is not None
+                    and abs(row_data['row'] - other['row']) <= 10
+                    and abs(row_data['column'] - other['column']) <= 10
+                ), None) if spell_id else None
+                if same_slot is not None:
+                    if entry_id:
+                        entry_aliases.setdefault(same_slot, set()).add(int(entry_id))
+                    parent_ids.setdefault(same_slot, set()).update(row_data.get('parents') or [])
+                    continue
                 grouped_by_node[node_key] = row_data
-                continue
-
-            current_options = current.setdefault('choice_options', [])
-            current['is_choice_node'] = True
-            if row_data not in current_options:
-                current_options.append(row_data)
+                if entry_id:
+                    entry_aliases.setdefault(node_key, set()).add(int(entry_id))
+                parent_ids.setdefault(node_key, set()).update(row_data.get('parents') or [])
+            spell_id = row_data.get('spell_id')
+            if spell_id:
+                spell_key = (
+                    node_key[0], row_data.get('db2_subtree_id') or 0, spell_id,
+                )
+                spell_groups.setdefault(spell_key, []).append((node_key, row_data))
 
         nodes = []
         for node in grouped_by_node.values():
@@ -291,6 +318,12 @@ class TalentMetadataProvider:
                 option for option in node.get('choice_options', []) if option
             ]))
             node = dict(choice_nodes[0]) if choice_nodes else node
+            group_key = (
+                node.get('tree_type') or 'spec',
+                node.get('talent_id') or node.get('node_id') or node.get('spell_id'),
+            )
+            node['node_aliases'] = sorted(entry_aliases.get(group_key, ()))
+            node['parents'] = sorted(parent_ids.get(group_key, ()))
             if len(choice_nodes) > 1:
                 options = [
                     self._build_choice_option(option) for option in choice_nodes
