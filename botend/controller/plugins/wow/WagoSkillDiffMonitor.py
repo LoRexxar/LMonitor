@@ -4,7 +4,11 @@ import io
 import json
 import os
 import re
+import shutil
+import sqlite3
+import tempfile
 import time
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
 
 import requests
@@ -1496,7 +1500,8 @@ class WagoSkillDiffMonitor(BaseScan):
         to_build = (event.to_build or '').strip()
         wago_diff_url = (event.wago_diff_url or '').strip() or f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
 
-        self._mark_event(event, last_attempt_at=now, error_message='')
+        # Keep the last failure visible until the retry reaches a terminal outcome.
+        self._mark_event(event, last_attempt_at=now)
 
         report = None
         try:
@@ -2016,9 +2021,23 @@ class WagoSkillDiffMonitor(BaseScan):
         class_names = self._load_chr_classes(to_build)
         spec_meta = self._load_chr_specialization_meta(to_build)
         spec_to_class = {sid: meta.get('class_id') for sid, meta in (spec_meta or {}).items() if meta.get('class_id')}
-        spell_to_specs = self._load_specialization_spells(to_build)
-        if not spec_to_class or not spell_to_specs:
-            return None
+        current_spell_to_specs = self._load_specialization_spells(to_build)
+        if not spec_to_class or not current_spell_to_specs:
+            raise WagoDiffUnavailable(
+                f'Wago DB2 class attribution unavailable for {branch} {to_build}: '
+                f'specs={len(spec_to_class)} mapped_spells={len(current_spell_to_specs)}'
+            )
+        old_spec_meta = self._load_chr_specialization_meta(from_build)
+        old_spell_to_specs = self._load_specialization_spells(from_build)
+        if not old_spec_meta or not old_spell_to_specs:
+            raise WagoDiffUnavailable(f'Wago DB2 class attribution unavailable for {branch} {from_build}')
+        spec_meta = {**old_spec_meta, **spec_meta}
+        for sid, meta in old_spec_meta.items():
+            if meta.get('class_id'):
+                spec_to_class.setdefault(sid, meta['class_id'])
+        spell_to_specs = {spell_id: set(spec_ids) for spell_id, spec_ids in current_spell_to_specs.items()}
+        for spell_id, spec_ids in old_spell_to_specs.items():
+            spell_to_specs.setdefault(spell_id, set()).update(spec_ids)
 
         whitelist = self._field_whitelist()
         spell_changes = {}
@@ -2035,6 +2054,8 @@ class WagoSkillDiffMonitor(BaseScan):
             tkey = t.lower()
             for row in diff_rows:
                 spell_id = self._extract_spell_id(tkey, row)
+                if not spell_id and row.get('Action') == 'removed' and isinstance(row.get('oldData'), dict):
+                    spell_id = self._extract_spell_id(tkey, row['oldData'])
                 if not spell_id:
                     continue
                 if wowhead_spell_ids and spell_id not in wowhead_spell_ids:
@@ -2048,9 +2069,12 @@ class WagoSkillDiffMonitor(BaseScan):
                     continue
                 action = (row.get('Action') or '').strip()
                 old_data = row.get('oldData')
-                if action in ('changed', 'removed') and isinstance(old_data, dict):
+                if action == 'changed' and isinstance(old_data, dict):
                     before = old_data
                     after = {k: v for k, v in row.items() if k not in ('oldData',)}
+                elif action == 'removed' and isinstance(old_data, dict):
+                    before = old_data
+                    after = {}
                 elif action == 'added':
                     before = {}
                     after = {k: v for k, v in row.items() if k not in ('oldData',)}
@@ -2130,8 +2154,9 @@ class WagoSkillDiffMonitor(BaseScan):
                     snap_effects[key] = e
                 elif tkey == 'specializationspells':
                     spec_id = 0
+                    spec_row = old_data if action == 'removed' and isinstance(old_data, dict) else row
                     for k in ('SpecID', 'ChrSpecializationID', 'SpecializationID'):
-                        v = row.get(k)
+                        v = spec_row.get(k)
                         if v is None:
                             continue
                         try:
@@ -2161,7 +2186,7 @@ class WagoSkillDiffMonitor(BaseScan):
         spell_changes = filtered_spell_changes
 
         for spell_id in spell_changes.keys():
-            specs = spell_to_specs.get(spell_id) or set()
+            specs = current_spell_to_specs.get(spell_id) or set()
             for spec_id in specs:
                 snap_map_add.add((spec_id, spell_id))
             snap_spells.setdefault(spell_id, {})
@@ -3837,7 +3862,12 @@ class WagoSkillDiffMonitor(BaseScan):
         next_url = url
         visited = set()
         tables = set()
-        while next_url and next_url not in visited:
+        seen_files = set()
+        expected_total = None
+        page = 1
+        while next_url:
+            if next_url in visited:
+                raise WagoDiffUnavailable(f'Wago builds-diff pagination loop for {from_build} -> {to_build}')
             visited.add(next_url)
             text = self._http_get_text(next_url)
             if not text:
@@ -3846,10 +3876,23 @@ class WagoSkillDiffMonitor(BaseScan):
                 )
             props = self._extract_inertia_props(text)
             payload = props.get('items') or {}
-            items = payload.get('data') if isinstance(payload, dict) else payload
-            for it in items if isinstance(items, list) else []:
+            if not isinstance(payload, dict) or not isinstance(payload.get('data'), list):
+                raise WagoDiffUnavailable(f'Wago builds-diff lacks paginated items: {next_url}')
+            try:
+                total = int(payload['total'])
+                current_page = int(payload['current_page'])
+            except (KeyError, TypeError, ValueError):
+                raise WagoDiffUnavailable(f'Wago builds-diff lacks pagination metadata: {next_url}')
+            if current_page != page or (expected_total is not None and total != expected_total):
+                raise WagoDiffUnavailable(f'Wago builds-diff pagination changed for {from_build} -> {to_build}')
+            expected_total = total
+            for it in payload['data']:
                 if not isinstance(it, dict):
-                    continue
+                    raise WagoDiffUnavailable(f'Wago builds-diff malformed item: {next_url}')
+                identity = (it.get('Type'), it.get('Filename'), it.get('FDID'), it.get('Action'))
+                if identity in seen_files:
+                    raise WagoDiffUnavailable(f'Wago builds-diff duplicate item: {identity}')
+                seen_files.add(identity)
                 if (it.get('Type') or '').strip() != 'db2':
                     continue
                 filename = (it.get('Filename') or '').strip()
@@ -3858,12 +3901,15 @@ class WagoSkillDiffMonitor(BaseScan):
                 table = filename.split('/')[-1][:-4]
                 if table:
                     tables.add(table)
-            next_url = payload.get('next_page_url') if isinstance(payload, dict) else None
+            next_url = payload.get('next_page_url')
             if next_url and next_url.startswith('/'):
                 next_url = "https://wago.tools" + next_url
             if next_url and 'from=' not in next_url and 'to=' not in next_url:
                 sep = '&' if '?' in next_url else '?'
                 next_url = f"{next_url}{sep}from={from_build}&to={to_build}"
+            page += 1
+        if len(seen_files) != expected_total:
+            raise WagoDiffUnavailable(f'Wago builds-diff incomplete: {len(seen_files)}/{expected_total}')
         return tables
 
     def _fetch_db2_diff_rows(self, table, from_build, to_build):
@@ -3871,8 +3917,13 @@ class WagoSkillDiffMonitor(BaseScan):
         rows = []
         next_url = url
         visited = set()
+        seen_ids = set()
         max_rows = int(getattr(settings, 'WAGO_SKILL_DIFF_MAX_DIFF_ROWS', 10000) or 10000)
-        while next_url and next_url not in visited and len(rows) < max_rows:
+        expected_total = None
+        page = 1
+        while next_url:
+            if next_url in visited:
+                raise WagoDiffUnavailable(f'Wago DB2 diff pagination loop for {table} {from_build} -> {to_build}')
             visited.add(next_url)
             text = self._http_get_text(next_url)
             if not text:
@@ -3881,23 +3932,153 @@ class WagoSkillDiffMonitor(BaseScan):
                 )
             props = self._extract_inertia_props(text)
             entries = props.get('entries') or {}
-            data = []
-            if isinstance(entries, dict):
-                data = entries.get('data') or []
-                next_url = entries.get('next_page_url')
-            elif isinstance(entries, list):
-                data = entries
-                next_url = None
-            else:
-                next_url = None
-            if isinstance(data, list) and data:
-                rows.extend(data)
+            if not isinstance(entries, dict) or not isinstance(entries.get('data'), list):
+                raise WagoDiffUnavailable(f'Wago DB2 diff lacks paginated entries for {table}: {next_url}')
+            try:
+                total = int(entries['total'])
+                current_page = int(entries['current_page'])
+            except (KeyError, TypeError, ValueError):
+                raise WagoDiffUnavailable(f'Wago DB2 diff lacks pagination metadata for {table}: {next_url}')
+            if current_page != page:
+                raise WagoDiffUnavailable(f'Wago DB2 diff page sequence changed for {table}: {next_url}')
+            if expected_total is None:
+                expected_total = total
+                if total > max_rows:
+                    return self._fetch_db2_diff_rows_from_csv(table, from_build, to_build, max_rows)
+            if total != expected_total:
+                raise WagoDiffUnavailable(f'Wago DB2 diff total changed during pagination for {table}')
+            data = entries['data']
+            if not data and total > len(rows):
+                raise WagoDiffUnavailable(f'Wago DB2 diff page empty before total for {table}: {next_url}')
+            for row in data:
+                if not isinstance(row, dict) or not str(row.get('ID') or '').strip():
+                    raise WagoDiffUnavailable(f'Wago DB2 diff invalid ID for {table}: {next_url}')
+                identity = str(row['ID']).strip()
+                if identity in seen_ids:
+                    raise WagoDiffUnavailable(f'Wago DB2 diff duplicate ID for {table}: {identity}')
+                seen_ids.add(identity)
+            rows.extend(data)
+            next_url = entries.get('next_page_url')
             if next_url and next_url.startswith('/'):
                 next_url = "https://wago.tools" + next_url
             if next_url and 'from=' not in next_url and 'to=' not in next_url:
                 sep = '&' if '?' in next_url else '?'
                 next_url = f"{next_url}{sep}from={from_build}&to={to_build}"
+            page += 1
+        if len(rows) != expected_total:
+            raise WagoDiffUnavailable(f'Wago DB2 diff incomplete for {table}: {len(rows)}/{expected_total}')
         return rows
+
+    def _fetch_db2_table_count(self, table, build):
+        url = f'https://wago.tools/db2/{table}?build={build}&locale={self.locale}'
+        text = self._http_get_text(url)
+        props = self._extract_inertia_props(text or '')
+        filters = props.get('filters') or {}
+        data = props.get('data') or {}
+        try:
+            if filters.get('build') != build or filters.get('locale') != self.locale:
+                raise ValueError('build/locale mismatch')
+            total = int(data['total'])
+            if total < 0:
+                raise ValueError('negative row count')
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise WagoDiffUnavailable(f'Wago DB2 table count unavailable for {table} {build}: {exc}') from exc
+        return total
+
+    def _iter_db2_csv_rows(self, table, build):
+        url = f'https://wago.tools/db2/{table}/csv?build={build}&locale={self.locale}'
+        try:
+            with closing(self._http_session.get(url, stream=True, timeout=max(60, self.http_timeout))) as response:
+                if response.status_code != 200 or 'text/csv' not in response.headers.get('Content-Type', '').lower():
+                    raise WagoDiffUnavailable(f'Wago DB2 CSV unavailable for {table} {build}: HTTP {response.status_code}')
+                disposition = response.headers.get('Content-Disposition', '')
+                if f'{table}.{build}.csv'.lower() not in disposition.lower():
+                    raise WagoDiffUnavailable(f'Wago DB2 CSV identity unavailable for {table} {build}')
+                with io.TextIOWrapper(response.raw, encoding='utf-8-sig', newline='') as stream:
+                    reader = csv.DictReader(stream)
+                    fields = reader.fieldnames or []
+                    if 'ID' not in fields or len(fields) != len(set(fields)):
+                        raise WagoDiffUnavailable(f'Wago DB2 CSV missing unique ID/header for {table} {build}')
+                    for row in reader:
+                        if None in row or any(value is None for value in row.values()) or not (row.get('ID') or '').strip():
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV malformed row for {table} {build}')
+                        yield row
+        except (OSError, UnicodeError, csv.Error, requests.RequestException) as exc:
+            raise WagoDiffUnavailable(f'Wago DB2 CSV interrupted for {table} {build}: {exc}') from exc
+
+    def _fetch_db2_diff_rows_from_csv(self, table, from_build, to_build, max_rows):
+        """Compare exact-build exports on disk; never publish a capped prefix of a diff."""
+        old_total = self._fetch_db2_table_count(table, from_build)
+        new_total = self._fetch_db2_table_count(table, to_build)
+        max_temp_bytes = int(getattr(settings, 'WAGO_SKILL_DIFF_MAX_TEMP_BYTES', 2 * 1024**3))
+        min_free_bytes = int(getattr(settings, 'WAGO_SKILL_DIFF_MIN_FREE_BYTES', 1024**3))
+        try:
+            with tempfile.TemporaryDirectory(prefix='wago_db2_diff_') as folder:
+                path = os.path.join(folder, 'rows.sqlite3')
+
+                def check_storage():
+                    size = os.path.getsize(path) if os.path.exists(path) else 0
+                    free = shutil.disk_usage(folder).free
+                    if size > max_temp_bytes or free < min_free_bytes:
+                        raise WagoDiffUnavailable(
+                            f'Wago DB2 temporary storage limit for {table}: size={size} free={free}'
+                        )
+
+                check_storage()
+                conn = sqlite3.connect(path)
+                try:
+                    conn.execute('PRAGMA journal_mode=OFF')
+                    conn.execute('PRAGMA synchronous=OFF')
+                    conn.execute('CREATE TABLE old_rows (id TEXT PRIMARY KEY, payload TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0)')
+                    conn.execute('CREATE TABLE added_ids (id TEXT PRIMARY KEY)')
+                    old_count = 0
+                    for row in self._iter_db2_csv_rows(table, from_build):
+                        conn.execute('INSERT INTO old_rows (id, payload) VALUES (?, ?)',
+                                     (row['ID'], json.dumps(row, ensure_ascii=False)))
+                        old_count += 1
+                        if old_count % 2000 == 0:
+                            check_storage()
+                    check_storage()
+                    if old_count != old_total:
+                        raise WagoDiffUnavailable(f'Wago DB2 CSV incomplete for {table} {from_build}: {old_count}/{old_total}')
+
+                    rows = []
+                    new_count = 0
+                    for row in self._iter_db2_csv_rows(table, to_build):
+                        record_id = row['ID']
+                        original = conn.execute('SELECT payload, seen FROM old_rows WHERE id=?', (record_id,)).fetchone()
+                        if original:
+                            if original[1]:
+                                raise WagoDiffUnavailable(f'Wago DB2 CSV duplicate ID for {table} {to_build}: {record_id}')
+                            before = json.loads(original[0])
+                            conn.execute('UPDATE old_rows SET seen=1 WHERE id=?', (record_id,))
+                            fields = (set(before) | set(row)) - {'ID'}
+                            if any(before.get(field, '') != row.get(field, '') for field in fields):
+                                rows.append({**row, 'Action': 'changed', 'oldData': before})
+                        else:
+                            try:
+                                conn.execute('INSERT INTO added_ids (id) VALUES (?)', (record_id,))
+                            except sqlite3.IntegrityError as exc:
+                                raise WagoDiffUnavailable(f'Wago DB2 CSV duplicate ID for {table} {to_build}: {record_id}') from exc
+                            rows.append({**row, 'Action': 'added'})
+                        new_count += 1
+                        if new_count % 2000 == 0:
+                            check_storage()
+                        if len(rows) > max_rows:
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV real diff exceeds {max_rows} rows for {table}')
+                    if new_count != new_total:
+                        raise WagoDiffUnavailable(f'Wago DB2 CSV incomplete for {table} {to_build}: {new_count}/{new_total}')
+                    for record_id, payload in conn.execute('SELECT id, payload FROM old_rows WHERE seen=0'):
+                        rows.append({'ID': record_id, 'Action': 'removed', 'oldData': json.loads(payload)})
+                        if len(rows) > max_rows:
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV real diff exceeds {max_rows} rows for {table}')
+                    check_storage()
+                    logger.info(f'[WagoSkillDiffMonitor] exact-build CSV diff {table} {from_build}->{to_build}: old={old_count} new={new_count} real={len(rows)}')
+                    return rows
+                finally:
+                    conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            raise WagoDiffUnavailable(f'Wago DB2 CSV comparison failed for {table}: {exc}') from exc
 
     def _load_skilllineability_spell_classmask(self, build):
         build = (build or '').strip()

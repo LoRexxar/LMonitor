@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import patch
 from pathlib import Path
+from io import BytesIO
+import html
 import json
 import tempfile
 
@@ -14,7 +16,7 @@ from botend.portal.views import (
 )
 from botend.services.wago_report_html import build_wow_skill_diff_fallback_html
 from botend.portal.api import _normalize_url as _normalize_portal_url
-from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
+from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoDiffUnavailable, WagoSkillDiffMonitor
 
 
 class _FakeQuerySet:
@@ -911,6 +913,115 @@ class PortalReportFileViewTests(SimpleTestCase):
                 self.assertEqual(response.status_code, 404, report_path)
 
 class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
+    @override_settings(WAGO_SKILL_DIFF_MAX_DIFF_ROWS=3)
+    def test_oversized_diff_compares_complete_exact_build_csv_instead_of_first_page(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+
+        def inertia(payload):
+            return '<div data-page="' + html.escape(json.dumps({'props': payload}), quote=True) + '"></div>'
+
+        def fetch_page(url, **kwargs):
+            if '/diff?' in url:
+                return inertia({'entries': {
+                    'total': 4, 'current_page': 1, 'last_page': 2, 'per_page': 3,
+                    'data': [
+                        {'ID': '1', 'Description_lang': 'unchanged', 'Action': 'changed', 'oldData': {'ID': '1', 'Description_lang': 'unchanged'}},
+                        {'ID': '2', 'Description_lang': 'new', 'Action': 'changed', 'oldData': {'ID': '2', 'Description_lang': 'old'}},
+                        {'ID': '4', 'Description_lang': 'added', 'Action': 'added'},
+                    ],
+                    'next_page_url': 'https://wago.tools/db2/Spell/diff?page=2',
+                }})
+            if '/db2/Spell?build=' in url:
+                build = url.split('build=', 1)[1].split('&', 1)[0]
+                return inertia({'filters': {'build': build, 'locale': monitor.locale}, 'data': {'total': 3}})
+            raise AssertionError(url)
+
+        old = b'ID,Description_lang\n1,unchanged\n2,old\n3,removed\n'
+        new = b'ID,Description_lang\n1,unchanged\n2,new\n4,added\n'
+
+        class CsvResponse:
+            status_code = 200
+
+            def __init__(self, data, build):
+                self.raw = BytesIO(data)
+                self.headers = {'Content-Type': 'text/csv', 'Content-Disposition': f'attachment; filename="Spell.{build}.csv"'}
+
+            def close(self):
+                self.raw.close()
+
+        def fetch_csv(url, **kwargs):
+            self.assertTrue(kwargs.get('stream'), url)
+            return CsvResponse(old if 'build=old' in url else new, 'old' if 'build=old' in url else 'new')
+
+        with patch.object(monitor, '_http_get_text', side_effect=fetch_page), patch.object(monitor._http_session, 'get', side_effect=fetch_csv):
+            rows = monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+
+        self.assertEqual({int(row['ID']): row['Action'] for row in rows}, {2: 'changed', 3: 'removed', 4: 'added'})
+        self.assertEqual(next(row for row in rows if row['ID'] == '2')['oldData']['Description_lang'], 'old')
+
+        def truncated_csv(url, **kwargs):
+            return CsvResponse(old if 'build=old' in url else b'ID,Description_lang\n1,unchanged\n2,new\n', 'old' if 'build=old' in url else 'new')
+
+        with patch.object(monitor, '_http_get_text', side_effect=fetch_page), patch.object(monitor._http_session, 'get', side_effect=truncated_csv):
+            with self.assertRaisesRegex(WagoDiffUnavailable, 'incomplete'):
+                monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+
+        def unidentified_csv(url, **kwargs):
+            response = fetch_csv(url, **kwargs)
+            response.headers.pop('Content-Disposition')
+            return response
+
+        with patch.object(monitor, '_http_get_text', side_effect=fetch_page), patch.object(monitor._http_session, 'get', side_effect=unidentified_csv):
+            with self.assertRaisesRegex(WagoDiffUnavailable, 'identity'):
+                monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+
+        with override_settings(WAGO_SKILL_DIFF_MAX_TEMP_BYTES=1):
+            with patch.object(monitor, '_http_get_text', side_effect=fetch_page), patch.object(monitor._http_session, 'get', side_effect=fetch_csv):
+                with self.assertRaisesRegex(WagoDiffUnavailable, 'temporary storage'):
+                    monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+
+    def test_paginated_diff_incomplete_total_is_not_returned_as_no_change(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        payload = html.escape(json.dumps({'props': {'entries': {
+            'total': 2, 'current_page': 1, 'data': [{'ID': '1', 'Action': 'changed'}], 'next_page_url': None,
+        }}}), quote=True)
+        with patch.object(monitor, '_http_get_text', return_value=f'<div data-page="{payload}"></div>'):
+            with self.assertRaisesRegex(WagoDiffUnavailable, 'incomplete'):
+                monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+
+    def test_paginated_diff_duplicate_id_cannot_pass_total_check(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        def fetch_page(url):
+            page = 2 if 'page=2' in url else 1
+            payload = html.escape(json.dumps({'props': {'entries': {
+                'total': 2, 'current_page': page, 'data': [{'ID': '1', 'Action': 'changed'}],
+                'next_page_url': 'https://wago.tools/db2/Spell/diff?page=2' if page == 1 else None,
+            }}}), quote=True)
+            return f'<div data-page="{payload}"></div>'
+        with patch.object(monitor, '_http_get_text', side_effect=fetch_page):
+            with self.assertRaisesRegex(WagoDiffUnavailable, 'duplicate'):
+                monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+
+    def test_build_manifest_incomplete_does_not_skip_a_core_table(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        payload = html.escape(json.dumps({'props': {'items': {
+            'total': 2, 'current_page': 1, 'data': [
+                {'Type': 'db2', 'Filename': 'dbfilesclient/spell.db2', 'Action': 'modified', 'FDID': 1},
+            ], 'next_page_url': None,
+        }}}), quote=True)
+        with patch.object(monitor, '_http_get_text', return_value=f'<div data-page="{payload}"></div>'):
+            with self.assertRaisesRegex(WagoDiffUnavailable, 'incomplete'):
+                monitor._fetch_changed_db2_tables('old', 'new')
+
+    def test_missing_class_mapping_does_not_advance_as_no_class_change(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._fetch_changed_db2_tables = lambda from_build, to_build: {'Spell'}
+        monitor._load_chr_classes = lambda build: {}
+        monitor._load_chr_specialization_meta = lambda build: {}
+        monitor._load_specialization_spells = lambda build: {}
+        with self.assertRaisesRegex(WagoDiffUnavailable, 'class attribution'):
+            monitor._generate_report('wow', 'old', 'new')
+
     def test_diff_unavailable_report_is_explicit_not_empty_no_change(self):
         from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoDiffUnavailable
 
