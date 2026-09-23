@@ -379,8 +379,12 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
             {538561: 'passive_icon', 7514181: 'active_icon', 132344: 'new_ptr_icon'},
         )
 
-        self.assertEqual(result[1267028], 'active_icon')
+        self.assertEqual(result[1267028], 'passive_icon')
         self.assertEqual(result[1271925], 'new_ptr_icon')
+        self.assertNotIn(
+            1267028,
+            command._build_spell_icon_map(rows, {7514181: 'active_icon', 132344: 'new_ptr_icon'}),
+        )
 
     def test_resolves_duration_from_exact_spell_misc_csv(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -93,9 +93,8 @@ class Command(BaseCommand):
                 entry_def_map[eid] = did
         self.stdout.write(f'  TraitNodeEntry: {len(entry_def_map)}')
 
-        # TraitNode.ID 不是 TraitNodeEntry.ID，必须经过关系表解析 OverrideIcon。
-        node_to_defs = build_node_definition_map(dump_dir)
-        self.stdout.write(f'  TraitNode→TraitDefinition: {len(node_to_defs)}')
+        # OverrideIcon belongs to each TraitNodeEntry, not the physical node
+        # shared by choice siblings.
 
         # 3. 加载 SpellMisc → SpellIconFileDataID 映射
         self.stdout.write('加载 SpellMisc...')
@@ -105,7 +104,7 @@ class Command(BaseCommand):
             with open(spell_misc_path) as f:
                 for row in csv.DictReader(f):
                     sid = int(row.get('SpellID', 0) or 0)
-                    icon_id = int(row.get('ActiveIconFileDataID', 0) or 0) or int(row.get('SpellIconFileDataID', 0) or 0)
+                    icon_id = int(row.get('SpellIconFileDataID', 0) or 0) or int(row.get('ActiveIconFileDataID', 0) or 0)
                     if sid > 0 and icon_id > 0:
                         spell_icon_map[sid] = icon_id
         if fallback_dump_dir:
@@ -114,7 +113,7 @@ class Command(BaseCommand):
                 with open(fallback_spell_misc_path) as f:
                     for row in csv.DictReader(f):
                         sid = int(row.get('SpellID', 0) or 0)
-                        icon_id = int(row.get('ActiveIconFileDataID', 0) or 0) or int(row.get('SpellIconFileDataID', 0) or 0)
+                        icon_id = int(row.get('SpellIconFileDataID', 0) or 0) or int(row.get('ActiveIconFileDataID', 0) or 0)
                         if sid > 0 and icon_id > 0 and sid not in spell_icon_map:
                             spell_icon_map[sid] = icon_id
         self.stdout.write(f'  SpellMisc with icon: {len(spell_icon_map)}')
@@ -139,12 +138,10 @@ class Command(BaseCommand):
         for node in nodes:
             file_data_id = None
 
-            # 方法1: TraitNode.ID 必须经过 TraitNodeXTraitNodeEntry，不能直接当作
-            # TraitNodeEntry.ID；后者命中少量碰巧相同的 ID 会产生错图标。
-            for def_id in node_to_defs.get(node.talent_id, []):
-                if def_id in def_icon_map:
-                    file_data_id = def_icon_map[def_id]
-                    break
+            # 方法1: 逐 Entry 的 TraitDefinition.OverrideIcon。
+            def_id = entry_def_map.get(node.node_id)
+            if def_id in def_icon_map:
+                file_data_id = def_icon_map[def_id]
 
             # 方法2: 通过 display_spell_id → SpellMisc → SpellIconFileDataID
             if not file_data_id and node.display_spell_id:
@@ -235,11 +232,6 @@ class Command(BaseCommand):
         ))
 
     def _extract_icon_name(self, text, file_data_id):
-        for raw in re.findall(r'filename&quot;:&quot;([^&]+\.blp)&quot;', text, re.I):
-            icon_name = self._icon_name_from_path(raw)
-            if icon_name:
-                return icon_name
-
         page_match = re.search(r'data-page="([^"]+)"', text, re.S)
         if not page_match:
             return ''
@@ -255,7 +247,7 @@ class Command(BaseCommand):
                 row_fdid = int(row.get('fdid') or row.get('id') or 0)
             except Exception:
                 row_fdid = 0
-            if row_fdid and row_fdid != int(file_data_id):
+            if row_fdid != int(file_data_id):
                 continue
             icon_name = self._icon_name_from_path(row.get('filename') or '')
             if icon_name:
