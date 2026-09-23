@@ -737,7 +737,7 @@
         do {
             changed = false;
             for (const node of state.nodes.values()) {
-                if (Number(node.points || 0) > 0 && !selectionIsValid(node)) {
+                if (Number(node.points || 0) > 0 && node.purchased !== false && !selectionIsValid(node)) {
                     resetNodeSelection(node);
                     changed = true;
                     didPrune = true;
@@ -1027,11 +1027,10 @@
     });
     els.resetBtn.addEventListener('click', () => {
         if (state.treeLoading) return;
-        state.buildCode = '';
         state.profileId = '';
         for (const node of state.nodes.values()) {
-            // 跳过赠送天赋（purchased=false, selected=true, points=0）
-            if (node.purchased === false && node.selected === true && node.points === 0) {
+            // 默认授予的有效点无论来自空白树或导入串，清空时都保留。
+            if (node.purchased === false && node.selected === true) {
                 continue;
             }
             resetNodeSelection(node);

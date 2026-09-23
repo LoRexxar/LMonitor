@@ -2632,6 +2632,7 @@ class WowTalentVersion(models.Model):
     branch = models.CharField(max_length=16, default='retail', blank=True)
     major_version = models.CharField(max_length=32, default='', blank=True)
     current_build = models.CharField(max_length=32, default='', blank=True)
+    granted_entries_json = models.JSONField(default=dict, blank=True, help_text='同 build TraitCond 赠送天赋：spec ID → TraitNodeEntry.ID 列表')
     is_active = models.BooleanField(default=False)
     is_default_simulator = models.BooleanField(default=False)
     is_default_player_tree = models.BooleanField(default=False)

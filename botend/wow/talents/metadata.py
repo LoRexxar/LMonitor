@@ -18,7 +18,7 @@ import re
 from typing import Any
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
-from botend.constants.wow import SPEC_ACTIVE_AURA_IDS, SPEC_CONDITION_INDEX
+from botend.constants.wow import SPEC_ACTIVE_AURA_IDS, SPEC_CONDITION_INDEX, SPEC_IDENTITY_MAP
 from botend.wow.spell_text import SpellTextResolver
 from botend.wow.talents.versioning import TalentVersionResolver
 
@@ -246,6 +246,12 @@ class TalentMetadataProvider:
         version = self.resolved_version
         if not version:
             return []
+        grant_snapshot = getattr(version, 'granted_entries_json', None) or {}
+        spec_id = next((key for key, identity in SPEC_IDENTITY_MAP.items()
+                        if identity == (class_name, spec_name)), None)
+        grant_ids = set()
+        if grant_snapshot.get('build') and grant_snapshot.get('build') == getattr(version, 'current_build', None) and spec_id is not None:
+            grant_ids = set(grant_snapshot.get('specs', {}).get(str(spec_id), ()))
         cache_key = (self.version_cache_key, class_name or '', spec_name or '', 'full_nodes')
         if cache_key in self._spec_cache:
             return [dict(node) for node in self._spec_cache[cache_key]]
@@ -261,6 +267,7 @@ class TalentMetadataProvider:
         spell_groups = {}
         entry_aliases = {}
         parent_ids = {}
+        collapsed_candidates = {}
         for row in rows.iterator():
             row_data = self._as_dict(row)
             # TraitNode (not SpellID) groups selectable entries. A spell can
@@ -297,6 +304,7 @@ class TalentMetadataProvider:
                     and abs(row_data['column'] - other['column']) <= 10
                 ), None) if spell_id else None
                 if same_slot is not None:
+                    collapsed_candidates.setdefault(same_slot, []).append(row_data)
                     if entry_id:
                         entry_aliases.setdefault(same_slot, set()).add(int(entry_id))
                     parent_ids.setdefault(same_slot, set()).update(row_data.get('parents') or [])
@@ -313,17 +321,23 @@ class TalentMetadataProvider:
                 spell_groups.setdefault(spell_key, []).append((node_key, row_data))
 
         nodes = []
-        for node in grouped_by_node.values():
+        for group_key, node in grouped_by_node.items():
+            # Same-slot duplicate spell entries share a visual card, but each
+            # specialization has its own canonical granted Entry ID. Keep the
+            # current spec's starter as the visible representative.
+            if node.get('tree_type') == 'class' and node.get('node_id') not in grant_ids:
+                node = next((candidate for candidate in collapsed_candidates.get(group_key, ())
+                             if candidate.get('node_id') in grant_ids), node)
             choice_nodes = self._order_choice_nodes(dedupe_talent_option_nodes([node] + [
                 option for option in node.get('choice_options', []) if option
             ]))
             node = dict(choice_nodes[0]) if choice_nodes else node
-            group_key = (
-                node.get('tree_type') or 'spec',
-                node.get('talent_id') or node.get('node_id') or node.get('spell_id'),
-            )
             node['node_aliases'] = sorted(entry_aliases.get(group_key, ()))
             node['parents'] = sorted(parent_ids.get(group_key, ()))
+            node['granted'] = (
+                node.get('tree_type') == 'class'
+                and bool(grant_ids.intersection(node['node_aliases']))
+            )
             if len(choice_nodes) > 1:
                 options = [
                     self._build_choice_option(option) for option in choice_nodes
