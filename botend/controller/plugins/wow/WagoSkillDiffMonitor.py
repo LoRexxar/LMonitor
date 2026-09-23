@@ -3994,16 +3994,43 @@ class WagoSkillDiffMonitor(BaseScan):
                 disposition = response.headers.get('Content-Disposition', '')
                 if f'{table}.{build}.csv'.lower() not in disposition.lower():
                     raise WagoDiffUnavailable(f'Wago DB2 CSV identity unavailable for {table} {build}')
-                with io.TextIOWrapper(response.raw, encoding='utf-8-sig', newline='') as stream:
-                    reader = csv.DictReader(stream)
-                    fields = reader.fieldnames or []
-                    if 'ID' not in fields or len(fields) != len(set(fields)):
-                        raise WagoDiffUnavailable(f'Wago DB2 CSV missing unique ID/header for {table} {build}')
-                    for row in reader:
-                        if None in row or any(value is None for value in row.values()) or not (row.get('ID') or '').strip():
-                            raise WagoDiffUnavailable(f'Wago DB2 CSV malformed row for {table} {build}')
-                        yield row
-        except (OSError, UnicodeError, csv.Error, requests.RequestException) as exc:
+                # urllib3 can auto-close response.raw after its last bytes. Split the
+                # response bytes ourselves: iter_lines can emit an extra empty segment
+                # at a chunk boundary, corrupting quoted multiline CSV values.
+                def physical_lines():
+                    pending = b''
+                    first = True
+                    for chunk in response.iter_content(chunk_size=65536):
+                        if not chunk:
+                            continue
+                        pending += chunk
+                        while True:
+                            cr = pending.find(b'\r')
+                            lf = pending.find(b'\n')
+                            ends = [position for position in (cr, lf) if position >= 0]
+                            if not ends:
+                                break
+                            position = min(ends)
+                            if pending[position] == 13 and position + 1 == len(pending):
+                                break  # A CRLF may straddle two HTTP chunks.
+                            end = position + (2 if pending[position:position + 2] == b'\r\n' else 1)
+                            line, pending = pending[:end], pending[end:]
+                            yield line.decode('utf-8-sig' if first else 'utf-8')
+                            first = False
+                        if len(pending) > 8 * 1024 * 1024:
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV physical line too large for {table} {build}')
+                    if pending:
+                        yield pending.decode('utf-8-sig' if first else 'utf-8')
+
+                reader = csv.DictReader(physical_lines())
+                fields = reader.fieldnames or []
+                if 'ID' not in fields or len(fields) != len(set(fields)):
+                    raise WagoDiffUnavailable(f'Wago DB2 CSV missing unique ID/header for {table} {build}')
+                for row in reader:
+                    if None in row or any(value is None for value in row.values()) or not (row.get('ID') or '').strip():
+                        raise WagoDiffUnavailable(f'Wago DB2 CSV malformed row for {table} {build}')
+                    yield row
+        except (OSError, ValueError, UnicodeError, csv.Error, requests.RequestException) as exc:
             raise WagoDiffUnavailable(f'Wago DB2 CSV interrupted for {table} {build}: {exc}') from exc
 
     def _fetch_db2_diff_rows_from_csv(self, table, from_build, to_build, max_rows):

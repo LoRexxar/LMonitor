@@ -936,15 +936,35 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
                 return inertia({'filters': {'build': build, 'locale': monitor.locale}, 'data': {'total': 3}})
             raise AssertionError(url)
 
-        old = b'ID,Description_lang\n1,unchanged\n2,old\n3,removed\n'
-        new = b'ID,Description_lang\n1,unchanged\n2,new\n4,added\n'
+        old = b'ID,Description_lang\n1,"unchanged\nsecond line"\n2,old\n3,removed\n'
+        new = b'ID,Description_lang\n1,"unchanged\nsecond line"\n2,new\n4,added\n'
+
+        class AutoClosingRaw(BytesIO):
+            def _close_at_end(self, result):
+                if result and self.tell() == len(self.getvalue()):
+                    self.close()
+                return result
+
+            def read(self, size=-1):
+                return self._close_at_end(super().read(size))
+
+            def read1(self, size=-1):
+                return self._close_at_end(super().read1(size))
 
         class CsvResponse:
             status_code = 200
 
             def __init__(self, data, build):
-                self.raw = BytesIO(data)
+                self.raw = AutoClosingRaw(data)
+                self.data = data
                 self.headers = {'Content-Type': 'text/csv', 'Content-Disposition': f'attachment; filename="Spell.{build}.csv"'}
+
+            def iter_lines(self, chunk_size=None, delimiter=None):
+                return iter(self.data.split(delimiter or b'\n'))
+
+            def iter_content(self, chunk_size=None):
+                for start in range(0, len(self.data), 7):
+                    yield self.data[start:start + 7]
 
             def close(self):
                 self.raw.close()
@@ -979,6 +999,18 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
             with patch.object(monitor, '_http_get_text', side_effect=fetch_page), patch.object(monitor._http_session, 'get', side_effect=fetch_csv):
                 with self.assertRaisesRegex(WagoDiffUnavailable, 'temporary storage'):
                     monitor._fetch_db2_diff_rows('Spell', 'old', 'new')
+
+        cr_only = b'ID,Description_lang\r1,"first\rsecond"\r2,last\r'
+        with patch.object(monitor._http_session, 'get', return_value=CsvResponse(cr_only, 'old')):
+            cr_rows = list(monitor._iter_db2_csv_rows('Spell', 'old'))
+        self.assertEqual(len(cr_rows), 2)
+        self.assertEqual(cr_rows[0]['Description_lang'], 'first\rsecond')
+
+        crlf = b'ID,Description_lang\r\n1,"first\r\nsecond"\r\n2,last\r\n'
+        with patch.object(monitor._http_session, 'get', return_value=CsvResponse(crlf, 'old')):
+            crlf_rows = list(monitor._iter_db2_csv_rows('Spell', 'old'))
+        self.assertEqual(len(crlf_rows), 2)
+        self.assertEqual(crlf_rows[0]['Description_lang'], 'first\r\nsecond')
 
     def test_paginated_diff_incomplete_total_is_not_returned_as_no_change(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
