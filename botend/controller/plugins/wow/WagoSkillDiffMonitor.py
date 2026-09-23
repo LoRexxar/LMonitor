@@ -5967,9 +5967,16 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                         raw_id = (it.get('meta') or {}).get('EffectIndex', raw_id)
                                     identity = 'SpellEffect.ID' if effect_record_ids else 'EffectIndex'
                                     record_label = html.escape(f"{identity} {raw_id if raw_id is not None and raw_id != '' else '?'}")
+                                    effect_index = (it.get('meta') or {}).get('EffectIndex')
+                                    if effect_index is None and not effect_record_ids:
+                                        effect_index = it.get('id')
+                                    try:
+                                        effect_marker = f"效果(#{int(effect_index)})" if int(effect_index) >= 0 else ''
+                                    except (TypeError, ValueError):
+                                        effect_marker = ''
                                     lines.append(
                                         f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> "
-                                        f"<span class='mono'>{record_label}</span>（{'，'.join(technical_changes)}）</div>"
+                                        f"<span class='mono'>{record_label}</span> {effect_marker}（{'，'.join(technical_changes)}）</div>"
                                     )
                             continue
 

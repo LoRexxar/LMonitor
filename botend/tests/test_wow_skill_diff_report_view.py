@@ -340,19 +340,19 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
                         {'id': 987, 'action': 'changed', 'fields': [{'field': 'TraitDefinitionID', 'before': '987', 'after': '988'}]},
                     ],
                     'spelleffect': [
-                        {'id': 1353090, 'action': 'changed', 'fields': [
+                        {'id': 1353090, 'action': 'changed', 'meta': {'EffectIndex': 9}, 'fields': [
                             {'field': 'EffectAura', 'before': '219', 'after': '648'},
                             {'field': 'EffectMiscValue_0', 'before': '3', 'after': '5'},
                         ]},
-                        {'id': 1353103, 'action': 'changed', 'fields': [
+                        {'id': 1353103, 'action': 'changed', 'meta': {'EffectIndex': 10}, 'fields': [
                             {'field': 'EffectAura', 'before': '219', 'after': '648'},
                             {'field': 'EffectMiscValue_0', 'before': '3', 'after': '5'},
                         ]},
-                        {'id': 1353104, 'action': 'changed', 'fields': [
+                        {'id': 1353104, 'action': 'changed', 'meta': {'EffectIndex': 11}, 'fields': [
                             {'field': 'EffectAura', 'before': '219', 'after': '648'},
                             {'field': 'EffectMiscValue_0', 'before': '12', 'after': '6'},
                         ]},
-                        {'id': 1353105, 'action': 'changed', 'fields': [
+                        {'id': 1353105, 'action': 'changed', 'meta': {'EffectIndex': 12}, 'fields': [
                             {'field': 'EffectAura', 'before': '219', 'after': '648'},
                             {'field': 'EffectMiscValue_0', 'before': '12', 'after': '6'},
                         ]},
@@ -392,6 +392,8 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         self.assertIn("class='del'>12</span> → <span class='ins'>6", html)
         for record_id in (1353090, 1353103, 1353104, 1353105):
             self.assertIn(f'SpellEffect.ID {record_id}', html)
+        from botend.services.wow_skill_report_metadata import report_spell_entries
+        self.assertEqual(report_spell_entries(html)[12345]['indices'], {9, 10, 11, 12})
         self.assertIn('改动影响概览', html)
         self.assertIn('这条改动可能影响', html)
         self.assertIn('等级缩放范围', html)
