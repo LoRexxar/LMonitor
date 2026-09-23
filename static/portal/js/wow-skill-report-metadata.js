@@ -76,7 +76,8 @@
           for (const match of element.textContent.matchAll(/\(#(\d+)\)/g)) expectedIndices.add(Number(match[1]));
         });
         const returnedIndices = new Set(effects.map(effect => Number(effect.index)));
-        if ([...expectedIndices].some(index => !returnedIndices.has(index))) complete = false;
+        const allExpectedReturned = [...expectedIndices].every(index => returnedIndices.has(index));
+        if (!allExpectedReturned) complete = false;
         if (!effects.length) {
           if (!expectedIndices.size) affectedIds.add(id);
           if (item.name) title.textContent = item.name;
@@ -96,6 +97,7 @@
         titleRow.after(source);
         article.dataset.search = `${article.dataset.search || ''} ${title.textContent.toLowerCase()} pvp`;
         let previousGroup = source;
+        let copiedFacts = 0;
         effects.forEach(effect => {
           const group = document.createElement('div');
           group.className = 'spell-affected-skills';
@@ -127,6 +129,7 @@
             facts.className = 'spell-effect-change';
             evidenceRows.forEach(row => facts.append(row.cloneNode(true)));
             group.append(facts);
+            copiedFacts++;
           } else {
             const unavailable = document.createElement('div');
             unavailable.className = 'spell-effect-change';
@@ -136,6 +139,17 @@
           previousGroup.after(group);
           previousGroup = group;
         });
+        if (allExpectedReturned && copiedFacts === effects.length && effects.every(effect => effect.targets.length && !effect.truncated)) {
+          const sourceFacts = article.querySelector(':scope > .impact-block');
+          if (sourceFacts) {
+            const details = document.createElement('details');
+            details.className = 'source-facts';
+            const summary = document.createElement('summary');
+            summary.textContent = '查看来源记录的完整字段变化';
+            sourceFacts.before(details);
+            details.append(summary, sourceFacts);
+          }
+        }
       });
       const count = document.querySelector('.affected-metric strong');
       if (count) count.textContent = complete ? String(affectedIds.size) : (affectedIds.size ? `已解析 ${affectedIds.size}+` : '待解析');

@@ -119,8 +119,8 @@ class PortalReportFileView(View):
                     branch = report.branch if report.branch in ('wow', 'wowt', 'wowxptr', 'wow_beta') else 'wow'
                     enhancement = (
                         f'<div data-report-branch="{branch}" data-skill-report-metadata="/portal/api/wow-skill-diff/{report.id}/metadata/"></div>'
-                        '<link rel="stylesheet" href="/static/portal/css/wow-skill-report-metadata.css?v=20260923_1">'
-                        '<script src="/static/portal/js/wow-skill-report-metadata.js?v=20260923_1"></script>'
+                        '<link rel="stylesheet" href="/static/portal/css/wow-skill-report-metadata.css?v=20260923_2">'
+                        '<script src="/static/portal/js/wow-skill-report-metadata.js?v=20260923_2"></script>'
                     )
                     content = content.replace('</body>', enhancement + '</body>', 1) if '</body>' in content else content + enhancement
             return HttpResponse(content, content_type='text/html; charset=utf-8')
