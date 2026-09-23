@@ -638,6 +638,13 @@
         return `<div class="talent-floating-tooltip-name">${escapeHtml(node.display_name)}</div><div class="talent-floating-tooltip-state">${escapeHtml(nodeStateLabel(node, selectable))} · ${escapeHtml(unlockText)}</div><div class="talent-floating-tooltip-desc">${escapeHtml(node.display_desc || '暂无描述')}</div>${options}`;
     }
 
+    function choiceOptionIconMarkup(option, fallbackUrl = '') {
+        if (option.is_unresolved) {
+            return '<span class="talent-choice-unresolved-mark" aria-hidden="true">—</span>';
+        }
+        return `<img src="${escapeHtml(option.icon_url || fallbackUrl)}" alt="">`;
+    }
+
     function choiceOptionsTooltipHtml(node) {
         const options = node.choice_options || [];
         if (!options.length) return '';
@@ -653,8 +660,8 @@
         }
         return `<div class="talent-floating-tooltip-options" role="group" aria-label="二选一天赋选项">
             ${options.map((option, index) => `
-                <button type="button" class="talent-floating-tooltip-option ${Number(node.choice_selection || 0) === index ? 'is-active' : ''}" data-option-index="${index}">
-                    <img src="${escapeHtml(option.icon_url || node.icon_url)}" alt="">
+                <button type="button" class="talent-floating-tooltip-option ${Number(node.choice_selection || 0) === index ? 'is-active' : ''}" data-option-index="${index}" ${option.is_unresolved ? 'disabled aria-disabled="true"' : ''}>
+                    ${choiceOptionIconMarkup(option, node.icon_url)}
                     <span><strong>${escapeHtml(option.display_name || '未命名选项')}</strong><small>${escapeHtml(option.display_desc || '暂无描述')}</small></span>
                 </button>
             `).join('')}
@@ -719,7 +726,8 @@
         const points = Number(node.points || 0);
         const selectable = canSelect(node);
         const pointsMarkup = `<span class="talent-node-points">${points}/${max}</span><span class="talent-node-state-badge">${escapeHtml(nodeStateLabel(node, selectable))}</span>`;
-        if (node.is_choice_node && points <= 0 && (node.choice_options || []).length >= 2) {
+        if (node.is_choice_node && points <= 0 && (node.choice_options || []).length >= 2
+            && node.choice_options.every(option => !option.is_unresolved)) {
             const [left, right] = node.choice_options;
             return `<span class="talent-node-icon"><span class="talent-icon-split"><span class="talent-icon-split-half"><img src="${escapeHtml(left.icon_url || node.icon_url)}" alt=""></span><span class="talent-icon-split-half is-right"><img src="${escapeHtml(right.icon_url || node.icon_url)}" alt=""></span></span>${pointsMarkup}</span>`;
         }
@@ -855,8 +863,8 @@
             return;
         }
         els.inspectorOptions.innerHTML = options.map((option, index) => `
-            <button type="button" class="talent-inspector-option ${Number(node.choice_selection || 0) === index ? 'is-active' : ''}" data-option-index="${index}">
-                <img src="${escapeHtml(option.icon_url)}" alt="">
+            <button type="button" class="talent-inspector-option ${Number(node.choice_selection || 0) === index ? 'is-active' : ''}" data-option-index="${index}" ${option.is_unresolved ? 'disabled aria-disabled="true"' : ''}>
+                ${choiceOptionIconMarkup(option)}
                 <span><strong>${escapeHtml(option.display_name)}</strong><span>${escapeHtml(option.display_desc).slice(0, 90)}</span></span>
             </button>
         `).join('');
@@ -872,6 +880,10 @@
         }
         const option = (node.choice_options || [])[index];
         if (!option) return;
+        if (option.is_unresolved) {
+            toast('该天赋选项缺少同 build 技能事实，暂不可选');
+            return;
+        }
         const wasSelected = Number(node.points || 0) > 0;
         node.choice_selection = index;
         state.profileId = '';

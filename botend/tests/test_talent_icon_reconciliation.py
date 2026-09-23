@@ -8,7 +8,10 @@ from django.core.management.base import CommandError
 from django.test import SimpleTestCase, TestCase
 
 from botend.models import WowTalentNodeMetadata, WowTalentVersion
+from botend.portal.talent_simulator import _decorate_render_model
 from botend.wow.talents.icon_source import resolve_talent_entry_icon
+from botend.wow.talents.metadata import TalentMetadataProvider
+from botend.wow.talents.view_model import build_talent_view_model
 
 
 class TalentEntryIconSourceTests(SimpleTestCase):
@@ -43,6 +46,31 @@ class TalentEntryIconSourceTests(SimpleTestCase):
 
 
 class TalentIconReconciliationTests(TestCase):
+    def test_unsourced_choice_entry_keeps_code_slot_without_fake_questionmark_icon(self):
+        version = WowTalentVersion.objects.create(
+            key='icon-choice-test', current_build='12.1.0.test', branch='retail',
+        )
+        for entry, spell, name, icon in (
+            (124883, 124883, '', ''),
+            (124884, 1271431, 'Amplified Rush', 'ability_monk_rushingjadewind'),
+        ):
+            WowTalentNodeMetadata.objects.create(
+                talent_version=version, class_name='Monk', spec_name='Mistweaver',
+                tree_type='spec', source='db2_backfill', node_id=entry,
+                talent_id=101103, spell_id=spell, name=name, icon=icon,
+                row=1200, column=3600,
+            )
+        nodes = TalentMetadataProvider(talent_version=version).get_full_tree_nodes('Monk', 'Mistweaver')
+        model = _decorate_render_model(build_talent_view_model(
+            nodes, class_name='Monk', spec_name='Mistweaver')['render_model'])
+        option_map = {o['node_id']: o for t in model['trees'] for n in t['nodes']
+                      for o in n.get('choice_options') or []}
+        self.assertEqual(set(option_map), {124883, 124884})
+        self.assertTrue(option_map[124883]['is_unresolved'])
+        self.assertEqual(option_map[124883]['icon_url'], '')
+        self.assertFalse(option_map[124884]['is_unresolved'])
+        self.assertEqual(option_map[124884]['icon'], 'ability_monk_rushingjadewind')
+
     def test_dry_run_then_apply_corrects_each_choice_entry_only_at_matching_build(self):
         version = WowTalentVersion.objects.create(
             key='icon-test', current_build='12.1.0.test', branch='retail',

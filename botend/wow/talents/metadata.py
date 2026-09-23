@@ -618,6 +618,13 @@ class TalentMetadataProvider:
         option_key = node.get('talent_id') or spell_id
         if not option_key:
             return {}
+        # Some same-build TraitDefinitions are all zero. Keep their physical
+        # choice slot for code decoding, but never invent a skill/icon for UI.
+        is_unresolved = (
+            not (node.get('name') or node.get('name_zh') or node.get('icon')
+                 or node.get('description') or node.get('description_zh'))
+            and spell_id == node.get('node_id')
+        )
         resolver_en = self._spell_resolver('enUS')
         resolver_zh = self._spell_resolver('zhCN')
         return {
@@ -630,6 +637,7 @@ class TalentMetadataProvider:
             'name': node.get('name') or '',
             'name_zh': node.get('name_zh') or '',
             'icon': node.get('icon') or '',
+            'is_unresolved': is_unresolved,
             'description': resolver_en.resolve(node.get('description') or '', spell_id),
             'description_zh': resolver_zh.resolve(node.get('description_zh') or '', spell_id),
         }
