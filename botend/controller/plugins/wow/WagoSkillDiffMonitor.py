@@ -5686,6 +5686,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         parts.append('.spell{margin-top:12px;padding:16px 17px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px rgba(28,36,52,.035)}.spell[data-tone="buff"]{border-color:rgba(8,127,91,.38)}.spell[data-tone="nerf"]{border-color:rgba(180,35,24,.36)}.spell[data-tone="mixed"]{border-color:rgba(121,80,178,.38)}.spell[data-tone="mechanic"]{border-color:rgba(154,103,0,.34)}')
         parts.append('.spell-head{display:flex;gap:12px;align-items:flex-start}.spell-icon,.spell-icon-fallback{width:44px;height:44px;border-radius:9px;flex:0 0 auto;border:1px solid rgba(23,32,51,.15);background:#eef0f4}.spell-icon{object-fit:cover}.spell-icon-fallback{display:grid;place-items:center;color:#667085;font-weight:850;font-size:15px}.spell-head-main{min-width:0;flex:1}.spell-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.spell-title{font-size:16px;font-weight:850;color:var(--ink)}.spell-id{color:var(--muted);font-size:12px;font-weight:650}.spell-desc{margin-top:8px;max-width:75ch;color:#475467;font-size:13px;line-height:1.7;text-wrap:pretty}.tone-badge,.delta-badge{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:800;white-space:nowrap}.tone-badge.buff,.delta-badge.buff{color:var(--buff);background:var(--buff-bg)}.tone-badge.nerf,.delta-badge.nerf{color:var(--nerf);background:var(--nerf-bg)}.tone-badge.mixed{color:#6941c6;background:#f4f0ff}.tone-badge.mechanic,.delta-badge.mechanic{color:var(--mechanic);background:var(--mechanic-bg)}')
         parts.append('.impact-block{margin-top:13px}.impact-block-title{font-size:12px;font-weight:850;color:#344054;margin-bottom:7px}.impact-list{display:flex;flex-direction:column;gap:6px}.impact-row{display:grid;grid-template-columns:minmax(150px,1fr) auto;gap:14px;align-items:center;padding:9px 11px;border-radius:9px;background:var(--soft);border:1px solid #e7e9ee}.impact-label{font-size:13px;font-weight:780;color:#344054}.impact-evidence{display:block;color:var(--muted);font-size:11px;margin-top:1px}.value-flow{display:flex;align-items:center;justify-content:flex-end;gap:7px;font-size:13px;font-variant-numeric:tabular-nums}.old-value{color:#8a3029;text-decoration:line-through}.new-value{color:#067647;font-weight:800}.change-arrow{color:#98a2b3}')
+        parts.append('.fact-values{display:flex;flex-direction:column;gap:3px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums}.impact-assessment{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:12px}.impact-assessment strong{color:var(--ink)}')
         parts.append('.tech-details{margin-top:12px;border-top:1px solid var(--line);padding-top:9px}.tech-details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:750;min-height:32px;display:flex;align-items:center}.tech-details[open] summary{color:#344054}.line{margin-top:7px;color:#475467;font-size:12px;padding:8px 10px;border-radius:8px;background:var(--soft);overflow-wrap:anywhere}.hash{color:#5145b7;font-weight:800;margin-right:4px}.k{color:#344054;font-weight:800}.ins{color:#067647;font-weight:800}.del{color:#b42318;font-weight:750;text-decoration:line-through}.subtle{color:var(--muted);font-size:12px;font-weight:500}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.hidden{display:none!important}')
         parts.append('.portal-theme-dark .skill-report{--ink:#f4f1ed;--muted:#b8afa6;--line:rgba(154,141,128,.42);--surface:#302b26;--soft:#27231f;--accent:#b6adff;--buff:#77d9b6;--buff-bg:rgba(31,123,91,.24);--nerf:#ff9b94;--nerf-bg:rgba(180,53,44,.22);--mechanic:#f4cc72;--mechanic-bg:rgba(154,103,0,.24);box-shadow:none}.portal-theme-dark .skill-report .impact-row,.portal-theme-dark .skill-report .line{border-color:var(--line)}.portal-theme-dark .skill-report .impact-label,.portal-theme-dark .skill-report h3,.portal-theme-dark .skill-report .tech-details[open] summary{color:var(--ink)}.portal-theme-dark .skill-report .old-value{color:#ffaaa3}.portal-theme-dark .skill-report .new-value{color:#83dfbf}.portal-theme-dark .skill-report .tone-tab[aria-pressed="true"]{background:rgba(91,79,196,.25);color:#d8d3ff}.portal-theme-dark .skill-report .controls{background:rgba(48,43,38,.96)}')
         parts.append('@media(max-width:720px){.skill-report-page{padding:8px}.skill-report{padding:14px;border-radius:12px}.report-hero{display:block}.impact-overview-head{display:block}.impact-note{margin-top:4px}.controls{top:6px;align-items:stretch}.controls .count{display:none}.tone-tab{min-height:44px}.impact-row{grid-template-columns:1fr;gap:6px}.value-flow{justify-content:flex-start;flex-wrap:wrap}.spell{padding:14px 12px}.spell-head{gap:10px}.spell-icon,.spell-icon-fallback{width:40px;height:40px}.class-head{display:block}.class-head .subtle{display:block;margin-top:3px}}@media(prefers-reduced-motion:reduce){.skill-report *{scroll-behavior:auto!important;transition:none!important}}')
@@ -5700,7 +5701,8 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             parts.append(f"<div class='meta'><a href='{html.escape(wowhead_url)}' target='_blank' rel='noopener noreferrer'>Wowhead 参考链接</a></div>")
         parts.append('</div>')
         parts.append('<div class="summary">')
-        parts.append(f"<div class='metric'><span>变更技能</span><strong>{len(spell_changes)}</strong></div>")
+        parts.append(f"<div class='metric'><span>改动来源</span><strong>{len(spell_changes)}</strong></div>")
+        parts.append("<div class='metric affected-metric'><span>受影响技能</span><strong>—</strong></div>")
         parts.append(f"<div class='metric'><span>涉及职业</span><strong>{class_count}</strong></div>")
         parts.append(f"<div class='metric'><span>涉及专精</span><strong>{sum(class_spec_counts.values())}</strong></div>")
         parts.append(f"<div class='metric'><span>DB2 表</span><strong>{len(changed_table_counts)}</strong></div>")
@@ -5709,12 +5711,12 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             table_summary = '、'.join([f"{k} {v}" for k, v in sorted(changed_table_counts.items(), key=lambda x: (-x[1], x[0]))[:8]])
             parts.append(f"<div class='meta'><span>主要变更表：{html.escape(table_summary)}</span></div>")
         parts.append("<section class='impact-overview' aria-labelledby='impactOverviewTitle'>")
-        parts.append("<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>改动影响概览</div><div class='impact-note'>增强/削弱依据可直接判断的数值、系数和冷却字段归类；机制与联动仍需结合实战验证。</div></div>")
+        parts.append("<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>影响评估（独立于改动事实）</div><div class='impact-note'>仅对可直接判读的数值、系数与消耗字段评估方向；枚举与机制参数不等于伤害百分比。</div></div>")
         parts.append("<div class='tone-tabs' role='group' aria-label='按改动方向筛选'>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='all' aria-pressed='true'>全部<span class='tab-count'>{len(spell_changes)}</span></button>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='buff' aria-pressed='false'>增强<span class='tab-count'>{tone_counts.get('buff', 0)}</span></button>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='nerf' aria-pressed='false'>削弱<span class='tab-count'>{tone_counts.get('nerf', 0)}</span></button>")
-        parts.append(f"<button class='tone-tab' type='button' data-filter-tone='other' aria-pressed='false'>机制 / 混合<span class='tab-count'>{tone_counts.get('mechanic', 0) + tone_counts.get('mixed', 0)}</span></button>")
+        parts.append(f"<button class='tone-tab' type='button' data-filter-tone='other' aria-pressed='false'>待评估 / 混合<span class='tab-count'>{tone_counts.get('mechanic', 0) + tone_counts.get('mixed', 0)}</span></button>")
         parts.append("</div></section>")
         parts.append("<div class='controls'><input id='spellFilter' type='search' aria-label='筛选职业改动' placeholder='搜索技能名、ID、职业或专精…' autocomplete='off'><span class='count' id='filterCount'>全部显示</span></div>")
         parts.append("<div class='filter-empty hidden' id='filterEmpty'>没有符合当前筛选条件的技能改动。</div>")
@@ -5722,7 +5724,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         parts.append("<div class='toc'><div class='toc-title'>目录</div>")
         for cid in sorted(class_to_spec_to_spells.keys()):
             cname = (display_class_names or {}).get(cid) or str(cid)
-            parts.append(f"<div class='toc-item'><a href='#class-{cid}'>{html.escape(cname)}</a> <span class='subtle'>{class_spell_counts.get(cid, 0)} 技能 / {class_spec_counts.get(cid, 0)} 专精</span>")
+            parts.append(f"<div class='toc-item'><a href='#class-{cid}'>{html.escape(cname)}</a> <span class='subtle'>{class_spell_counts.get(cid, 0)} 条改动来源 / {class_spec_counts.get(cid, 0)} 专精</span>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
@@ -5839,36 +5841,30 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             }
             if field in technical_only:
                 return ''
-            dimension = self._report_impact_dimension(table_key, field)
-            tone, direction, delta_label = self._report_change_tone(field, before, after)
             evidence_html = f"<span class='impact-evidence'>{html.escape(evidence)}</span>" if evidence else ''
-            if 'Flags' in field or field == 'InterruptFlags':
-                value_html = "<span class='delta-badge mechanic'>规则调整</span>"
-            else:
-                old_value = '空' if before is None or str(before).strip() == '' else str(before).strip()
-                new_value = '空' if after is None or str(after).strip() == '' else str(after).strip()
-                delta_html = f"<span class='delta-badge {tone}'>{html.escape(delta_label or direction)}</span>"
-                value_html = (
-                    f"<span class='old-value'>{html.escape(old_value)}</span>"
-                    "<span class='change-arrow'>→</span>"
-                    f"<span class='new-value'>{html.escape(new_value)}</span>{delta_html}"
-                )
+            old_value = '空' if before is None or str(before).strip() == '' else str(before).strip()
+            new_value = '空' if after is None or str(after).strip() == '' else str(after).strip()
+            value_html = (
+                f"<span class='old-value'>{html.escape(old_value)}</span>"
+                "<span class='change-arrow'>→</span>"
+                f"<span class='new-value'>{html.escape(new_value)}</span>"
+            )
             return (
-                f"<div class='impact-row {tone}'><div><span class='impact-label'>{html.escape(dimension)}</span>"
+                f"<div class='impact-row'><div><span class='impact-label'>{html.escape(field_change_label(field))}</span>"
                 f"{evidence_html}</div><div class='value-flow'>{value_html}</div></div>"
             )
 
         for cid in sorted(class_to_spec_to_spells.keys()):
             cname = self._clean_external_text((display_class_names or {}).get(cid) or str(cid))
             parts.append(f"<section class='class-section' id='class-{cid}' data-class='{html.escape(str(cname).lower())}'>")
-            parts.append(f"<div class='class-head'><h2>{html.escape(cname)}</h2><span class='subtle'>职业 {cid} ｜ {class_spell_counts.get(cid, 0)} 技能</span></div>")
+            parts.append(f"<div class='class-head'><h2>{html.escape(cname)}</h2><span class='subtle'>职业 {cid} ｜ {class_spell_counts.get(cid, 0)} 条改动来源</span></div>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
                     spec_name = '通用'
                 else:
                     spec_name = self._clean_external_text(((display_spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id))
-                parts.append(f"<section class='spec-section' id='class-{cid}-spec-{spec_id}'><h3>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id} ｜ {len(spec_map.get(spec_id) or [])} 技能</span></h3>")
+                parts.append(f"<section class='spec-section' id='class-{cid}-spec-{spec_id}'><h3>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id} ｜ {len(spec_map.get(spec_id) or [])} 条改动来源</span></h3>")
                 for spell_id in sorted(spec_map.get(spec_id) or []):
                     sname = self._clean_external_text((zh_name_cache.get(spell_id) or '') or (name_cache.get(spell_id) or '') or str(spell_id))
                     wowhead_spell_url = report_spell_url(branch, spell_id)
@@ -5878,6 +5874,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     desc_primary = ''
                     lines = []
                     impact_lines = []
+                    fact_lines = []
                     impact_seen = set()
 
                     for tkey in sorted(diffs_by_table.keys()):
@@ -5941,27 +5938,22 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                     if str(b) == str(a):
                                         continue
                                     changes.append(f"{field_change_label(fk)}：{fmt_change(b, a)}")
-                                    impact_key = (self._report_impact_dimension(tkey, fk), str(b), str(a))
-                                    if impact_key not in impact_seen:
-                                        impact_seen.add(impact_key)
-                                        impact_html = render_impact_change(
-                                            tkey, fk, b, a,
-                                            evidence=f"{eff_cn or '技能效果'}{idx_part}",
-                                        )
-                                        if impact_html:
-                                            impact_lines.append(impact_html)
                                 if changes:
                                     label = f"{eff_cn}{idx_part}" if eff_cn else f"技能效果{idx_part}"
                                     lines.append(f"<div class='line'><span class='hash'>#</span>{html.escape(label)}（{'，'.join(changes)}）</div>")
                             for it in filtered_items:
                                 technical_changes = []
+                                record_changes = []
                                 for fd in it.get('fields') or []:
                                     field = fd.get('field') or ''
                                     before, after = fd.get('before'), fd.get('after')
-                                    if field in numeric_fields or str(before) == str(after):
+                                    if str(before) == str(after):
                                         continue
-                                    technical_changes.append(f"{html.escape(field_change_label(field))}：{fmt_change(before, after)}")
-                                if technical_changes:
+                                    change = f"{html.escape(field_change_label(field))}：{fmt_change(before, after)}"
+                                    record_changes.append(change)
+                                    if field not in numeric_fields:
+                                        technical_changes.append(change)
+                                if record_changes:
                                     raw_id = it.get('id')
                                     if not effect_record_ids:
                                         raw_id = (it.get('meta') or {}).get('EffectIndex', raw_id)
@@ -5974,9 +5966,16 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                         effect_marker = f"效果(#{int(effect_index)})" if int(effect_index) >= 0 else ''
                                     except (TypeError, ValueError):
                                         effect_marker = ''
-                                    lines.append(
-                                        f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> "
-                                        f"<span class='mono'>{record_label}</span> {effect_marker}（{'，'.join(technical_changes)}）</div>"
+                                    if technical_changes:
+                                        lines.append(
+                                            f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> "
+                                            f"<span class='mono'>{record_label}</span> {effect_marker}（{'，'.join(technical_changes)}）</div>"
+                                        )
+                                    index_attr = f" data-effect-index='{int(effect_index)}'" if effect_marker else ''
+                                    fact_lines.append(
+                                        f"<div class='impact-row'{index_attr}><div><span class='impact-label'>{html.escape(table_change_label(tkey))} {effect_marker}</span>"
+                                        f"<span class='impact-evidence'>{record_label}</span></div>"
+                                        f"<div class='fact-values'>{'<br>'.join(record_changes)}</div></div>"
                                     )
                             continue
 
@@ -6021,7 +6020,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     if not desc_primary and context.get('description'):
                         desc_primary = self._render_spell_text_html(to_build, spell_id, context.get('description'))
                     tone = spell_tones.get(int(spell_id)) or 'mechanic'
-                    tone_label = {'buff': '增强', 'nerf': '削弱', 'mixed': '有增有减', 'mechanic': '机制调整'}.get(tone, '机制调整')
+                    tone_label = {'buff': '增强', 'nerf': '削弱', 'mixed': '有增有减', 'mechanic': '强弱待评估'}.get(tone, '强弱待评估')
                     icon_url = self._report_spell_icon_url(context.get('icon'))
                     if icon_url:
                         icon_html = f"<img class='spell-icon' src='{html.escape(icon_url, quote=True)}' alt='' loading='lazy'>"
@@ -6033,18 +6032,20 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     parts.append("<div class='spell-head-main'>")
                     parts.append(
                         f"<div class='spell-title-row'><span class='spell-title'>{html.escape(sname)}</span>"
-                        f"<span class='spell-id mono'>#{spell_id}</span><span class='tone-badge {tone}'>{tone_label}</span>"
+                        f"<span class='spell-id mono'>#{spell_id}</span>"
                         f"<a class='subtle' href='{html.escape(wowhead_spell_url)}' target='_blank' rel='noopener noreferrer'>Wowhead</a></div>"
                     )
                     if desc_primary:
                         parts.append(f"<div class='spell-desc'>{desc_primary}</div>")
                     parts.append("</div></div>")
-                    parts.append("<div class='impact-block'><div class='impact-block-title'>这条改动可能影响</div><div class='impact-list'>")
-                    if impact_lines:
+                    parts.append("<div class='impact-block'><div class='impact-block-title'>本次字段与数值变化</div><div class='impact-list'>")
+                    if impact_lines or fact_lines:
                         parts.extend(impact_lines)
+                        parts.extend(fact_lines)
                     else:
-                        parts.append("<div class='impact-row mechanic'><div><span class='impact-label'>技能机制</span><span class='impact-evidence'>当前字段无法可靠换算为直接强弱</span></div><div class='value-flow'><span class='delta-badge mechanic'>需实战验证</span></div></div>")
+                        parts.append("<div class='impact-row'><div><span class='impact-label'>字段变化见下方 DB2 明细</span></div></div>")
                     parts.append("</div></div>")
+                    parts.append(f"<div class='impact-assessment'><strong>影响评估</strong><span class='tone-badge {tone}'>{tone_label}</span><span class='subtle'>判断独立于上方原始字段值；机制参数不直接代表强弱。</span></div>")
                     if lines:
                         parts.append(f"<details class='tech-details'><summary>查看 DB2 字段细节（{len(lines)}）</summary>")
                         parts.extend(lines)

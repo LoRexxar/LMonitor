@@ -107,6 +107,21 @@ class ReportRelationshipTests(SimpleTestCase):
         self.assertEqual(relation['aura'], 647)
         self.assertEqual(relation['spell_ids'], [100])
 
+    def test_label_target_cap_is_reported_as_incomplete(self):
+        def db2(table, build, field, value, locale='enUS'):
+            if table == 'SpellEffect':
+                return [{'EffectIndex': '8', 'EffectAura': '648', 'EffectMiscValue_1': '3450'}]
+            if table == 'SpellLabel':
+                return [{'SpellID': str(sid)} for sid in range(100, 151)]
+            return []
+
+        with patch('botend.services.wow_skill_report_metadata._db2_rows', side_effect=db2), \
+             patch('botend.services.wow_skill_report_metadata.database_spell_metadata', side_effect=lambda ids, *args: {sid: {'icon': '', 'name': str(sid), 'icon_source': ''} for sid in ids}), \
+             patch('botend.services.wow_skill_report_metadata._tooltip_icon', return_value=''):
+            relation = build_report_spell_metadata(self.html, 'wowt', '12.1.0.69587')['1256919']['effects'][0]
+        self.assertEqual(len(relation['targets']), 50)
+        self.assertTrue(relation['truncated'])
+
     def test_branch_links_and_saved_report_effect_indices(self):
         self.assertEqual(report_spell_entries(self.html)[1256919]['indices'], {8})
         for branch, prefix in [('wow', ''), ('wowt', 'ptr/'), ('wowxptr', 'ptr-2/'), ('wow_beta', 'beta/')]:

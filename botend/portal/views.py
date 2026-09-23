@@ -113,14 +113,14 @@ class PortalReportFileView(View):
             return HttpResponse('Not Found', status=404)
         try:
             content = full_path.read_text(encoding='utf-8')
-            if full_path.name.startswith('wow_skill_diff_') and 'spell-icon-fallback' in content:
+            if full_path.name.startswith('wow_skill_diff_'):
                 report = WowSkillDiffReport.objects.filter(content_html_path__endswith='/' + full_path.name).first()
                 if report:
                     branch = report.branch if report.branch in ('wow', 'wowt', 'wowxptr', 'wow_beta') else 'wow'
                     enhancement = (
                         f'<div data-report-branch="{branch}" data-skill-report-metadata="/portal/api/wow-skill-diff/{report.id}/metadata/"></div>'
-                        '<link rel="stylesheet" href="/static/portal/css/wow-skill-report-metadata.css?v=20260907_1">'
-                        '<script src="/static/portal/js/wow-skill-report-metadata.js?v=20260907_1"></script>'
+                        '<link rel="stylesheet" href="/static/portal/css/wow-skill-report-metadata.css?v=20260923_1">'
+                        '<script src="/static/portal/js/wow-skill-report-metadata.js?v=20260923_1"></script>'
                     )
                     content = content.replace('</body>', enhancement + '</body>', 1) if '</body>' in content else content + enhancement
             return HttpResponse(content, content_type='text/html; charset=utf-8')

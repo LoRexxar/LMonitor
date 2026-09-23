@@ -4,6 +4,23 @@
   if (!host) return;
   const articles = [...document.querySelectorAll('.spell[id^="spell-"]')];
   if (!articles.length) return;
+  const summary = document.querySelector('.skill-report .summary');
+  const legacyMetric = [...(summary?.querySelectorAll('.metric') || [])].find(metric =>
+    metric.querySelector('span')?.textContent.trim() === '变更技能');
+  if (legacyMetric) {
+    legacyMetric.querySelector('span').textContent = '改动来源';
+    const metric = document.createElement('div');
+    metric.className = 'metric affected-metric';
+    const label = document.createElement('span');
+    label.textContent = '受影响技能';
+    const value = document.createElement('strong');
+    value.textContent = '—';
+    metric.append(label, value);
+    legacyMetric.after(metric);
+    document.querySelectorAll('.toc-item > .subtle, .class-head > .subtle, .spec-section h3 > .subtle').forEach(node => {
+      node.textContent = node.textContent.replace(/(\d+)\s*技能/g, '$1 条改动来源');
+    });
+  }
   // 文字首字不是技能图标，补全期间也不继续展示它。
   const branchPrefix = {wowt: 'ptr/', wowxptr: 'ptr-2/', wow_beta: 'beta/'}[host.dataset.reportBranch] || '';
   articles.forEach(article => {
@@ -41,18 +58,27 @@
   fetch(host.dataset.skillReportMetadata)
     .then(response => { if (!response.ok) throw new Error('报告补全失败'); return response.json(); })
     .then(payload => {
+      const affectedIds = new Set();
+      let complete = true;
       articles.forEach(article => {
         const id = article.id.slice('spell-'.length);
         const item = payload.spells?.[id];
-        if (!item) return;
+        if (!item) { complete = false; return; }
         const title = article.querySelector('.spell-title');
         const titleRow = article.querySelector('.spell-title-row');
         const head = article.querySelector('.spell-head');
-        if (!title || !titleRow || !head) return;
+        if (!title || !titleRow || !head) { complete = false; return; }
         const link = titleRow.querySelector('a');
         if (link) link.href = item.url;
         const effects = item.effects || [];
+        const expectedIndices = new Set();
+        article.querySelectorAll('.impact-evidence, .line').forEach(element => {
+          for (const match of element.textContent.matchAll(/\(#(\d+)\)/g)) expectedIndices.add(Number(match[1]));
+        });
+        const returnedIndices = new Set(effects.map(effect => Number(effect.index)));
+        if ([...expectedIndices].some(index => !returnedIndices.has(index))) complete = false;
         if (!effects.length) {
+          if (!expectedIndices.size) affectedIds.add(id);
           if (item.name) title.textContent = item.name;
           const image = icon(item, 'spell-icon');
           if (image) { head.querySelector('.spell-icon')?.remove(); head.prepend(image); }
@@ -61,10 +87,10 @@
         head.querySelector('.spell-icon')?.remove();
         const sourceName = title.textContent;
         const targets = displayTargets(effects.flatMap(effect => effect.targets));
-        title.textContent = targets.length ? targets.map(target => target.name).join('、') : `${sourceName}：PvP 调整`;
+        title.textContent = targets.length ? targets.map(target => target.name).join('、') : `${sourceName}：关联技能待解析`;
         const source = document.createElement('div');
         source.className = 'spell-adjustment-source';
-        source.textContent = `PvP 调整 · 来源：${sourceName} #${id}`;
+        source.textContent = `改动来源：${sourceName} #${id}`;
         titleRow.querySelector('.spell-id')?.remove();
         if (link) { link.textContent = '查看调整记录'; source.append(' · ', link); }
         titleRow.after(source);
@@ -74,9 +100,11 @@
           const group = document.createElement('div');
           group.className = 'spell-affected-skills';
           const label = document.createElement('span');
-          label.textContent = `效果 #${effect.index} · PvP ${[647, 649].includes(effect.aura) ? '百分比' : '固定值'}修正：`;
+          label.textContent = `效果 #${effect.index} · 受影响技能：`;
           group.append(label);
           const related = displayTargets(effect.targets);
+          if (!effect.targets.length || effect.truncated) complete = false;
+          effect.targets.forEach(target => affectedIds.add(String(target.id)));
           related.forEach(target => {
             const targetLink = document.createElement('a');
             targetLink.href = target.url;
@@ -89,15 +117,28 @@
             group.append(targetLink);
           });
           if (!effect.targets.length) group.append(document.createTextNode('关联技能待解析'));
+          const factRows = Array.from(article.querySelectorAll('.impact-block .impact-row[data-effect-index]')).filter(row =>
+            row.dataset.effectIndex === String(effect.index));
+          const detailRows = Array.from(article.querySelectorAll('.tech-details .line')).filter(row =>
+            row.textContent.includes(`(#${effect.index})`));
+          const evidenceRows = factRows.length ? factRows : detailRows;
+          if (evidenceRows.length) {
+            const facts = document.createElement('div');
+            facts.className = 'spell-effect-change';
+            evidenceRows.forEach(row => facts.append(row.cloneNode(true)));
+            group.append(facts);
+          } else {
+            const unavailable = document.createElement('div');
+            unavailable.className = 'spell-effect-change';
+            unavailable.textContent = '该历史报告未保存本效果的逐项字段值';
+            group.append(unavailable);
+          }
           previousGroup.after(group);
           previousGroup = group;
-          article.querySelectorAll('.impact-evidence').forEach(evidence => {
-            if (evidence.textContent.includes(`(#${effect.index})`)) {
-              evidence.textContent = `PvP · ${related.map(target => target.name).join('、') || '关联技能待解析'} · 效果 #${effect.index}`;
-            }
-          });
         });
       });
+      const count = document.querySelector('.affected-metric strong');
+      if (count) count.textContent = complete ? String(affectedIds.size) : (affectedIds.size ? `已解析 ${affectedIds.size}+` : '待解析');
       document.getElementById('spellFilter')?.dispatchEvent(new Event('input', {bubbles: true}));
     })
     .catch(() => {

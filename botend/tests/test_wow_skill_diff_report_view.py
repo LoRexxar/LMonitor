@@ -394,11 +394,52 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
             self.assertIn(f'SpellEffect.ID {record_id}', html)
         from botend.services.wow_skill_report_metadata import report_spell_entries
         self.assertEqual(report_spell_entries(html)[12345]['indices'], {9, 10, 11, 12})
-        self.assertIn('改动影响概览', html)
-        self.assertIn('这条改动可能影响', html)
-        self.assertIn('等级缩放范围', html)
+        from bs4 import BeautifulSoup
+        report = BeautifulSoup(html, 'html.parser')
+        self.assertIn('改动来源', report.select_one('.summary').get_text())
+        self.assertEqual(report.select_one('.affected-metric strong').get_text(strip=True), '—')
+        self.assertEqual(report.select_one('.impact-block-title').get_text(strip=True), '本次字段与数值变化')
+        facts = report.select('.impact-block [data-effect-index]')
+        self.assertEqual([row['data-effect-index'] for row in facts], ['9', '10', '11', '12'])
+        self.assertIn('EffectAura', facts[0].get_text())
+        self.assertIn('219 → 648', facts[0].get_text(' ', strip=True))
+        self.assertIn('EffectMiscValue_0', facts[2].get_text())
+        self.assertIn('12 → 6', facts[2].get_text(' ', strip=True))
+        self.assertIn('最高缩放等级 / MaxScalingLevel', report.select_one('.impact-block').get_text())
+        assessment = report.select_one('.impact-assessment')
+        self.assertIsNotNone(assessment)
+        self.assertIn('影响评估', assessment.get_text())
+        self.assertIn('强弱待评估', assessment.get_text())
+        self.assertNotIn('需实战验证', report.select_one('.impact-block').get_text())
+        self.assertIn('影响评估', report.select_one('.impact-overview-title').get_text())
         self.assertIn('查看 DB2 字段细节', html)
         self.assertIn("data-tone='mechanic'", html)
+
+        spell_changes[12345]['diffs']['spelleffect'] = [
+            {'id': record_id, 'action': 'changed', 'meta': {'EffectIndex': index, 'Effect': 6},
+             'fields': [{'field': 'EffectBonusCoefficient', 'before': '1', 'after': '2'}]}
+            for record_id, index in ((9001, 9), (9002, 10))
+        ]
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects', _EmptySnapshotManager()):
+                numeric_meta = monitor._write_html_report(
+                    branch='wowt', server_title='PTR(测试服)',
+                    from_build='12.1.0.68301', to_build='12.1.0.68412',
+                    display_from_build='', display_to_build='',
+                    class_names={1: 'Warrior'}, spec_meta={0: {'name': 'General', 'class_id': 1}},
+                    spell_to_specs={12345: {0}}, spec_to_class={0: 1},
+                    spell_changes=spell_changes, data_build='12.1.0.68412', effect_record_ids=True,
+                )
+        numeric = BeautifulSoup((self.base_dir / 'static' / numeric_meta['path']).read_text(encoding='utf-8'), 'html.parser')
+        numeric_facts = numeric.select('.impact-block [data-effect-index]')
+        self.assertEqual([row['data-effect-index'] for row in numeric_facts], ['9', '10'])
+        for row, record_id in zip(numeric_facts, (9001, 9002)):
+            text = row.get_text(' ', strip=True)
+            self.assertIn(f'SpellEffect.ID {record_id}', text)
+            self.assertIn('EffectBonusCoefficient', text)
+            self.assertIn('1 → 2', text)
+        self.assertNotIn('+100%', numeric.select_one('.impact-block').get_text())
+        self.assertNotIn('增强', numeric.select_one('.impact-block').get_text())
 
         spell_changes[12345]['diffs']['spelleffect'] = [{
             'id': 0, 'action': 'changed', 'meta': {'EffectIndex': 0},
@@ -943,6 +984,23 @@ class PortalReportFileViewTests(SimpleTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('nested report', response.content.decode('utf-8'))
+
+    def test_standalone_skill_report_with_icons_still_loads_metadata(self):
+        name = 'wow_skill_diff_wow_enUS_12_1_0_69875.html'
+        (self.base_dir / 'static' / 'portal' / 'reports' / name).write_text(
+            "<html><body><article class='spell' id='spell-123'></article></body></html>", encoding='utf-8',
+        )
+        row = SimpleNamespace(id=27, branch='wow')
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.portal.views.WowSkillDiffReport.objects.filter') as lookup:
+            lookup.return_value.first.return_value = row
+            response = PortalReportFileView.as_view()(
+                self.factory.get(f'/portal/reports/{name}'), report_path=name,
+            )
+        body = response.content.decode('utf-8')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('/portal/api/wow-skill-diff/27/metadata/', body)
+        self.assertIn('wow-skill-report-metadata.js', body)
 
     def test_report_file_view_rejects_path_traversal(self):
         blocked_paths = [

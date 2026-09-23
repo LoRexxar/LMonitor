@@ -174,7 +174,9 @@ def build_report_spell_metadata(html_text, branch, build):
                 matches = [row for row in family_rows.get(class_sets.get(sid), []) if any(
                     int(row.get(f'SpellClassMask_{i}') or 0) & relation['mask'][i] for i in range(4)
                 )]
-            relation['spell_ids'] = sorted({int(r['SpellID']) for r in matches if str(r.get('SpellID', '')).isdigit()})[:50]
+            matched_ids = sorted({int(r['SpellID']) for r in matches if str(r.get('SpellID', '')).isdigit()})
+            relation['truncated'] = len(matched_ids) > 50
+            relation['spell_ids'] = matched_ids[:50]
             target_ids.update(relation['spell_ids'])
     metadata = database_spell_metadata(set(ids) | target_ids, branch, build)
     missing_names = sorted(sid for sid in target_ids if not metadata[sid]['name'])
