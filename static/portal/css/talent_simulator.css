@@ -320,6 +320,7 @@
 .talent-node-card--tree:hover { transform: translateY(-2px) scale(1.04); }
 .talent-node-card--tree.is-locked { opacity: .32; cursor: not-allowed; }
 .talent-node-card--tree.is-available { opacity: 1; }
+.talent-node-card--tree.is-selected { z-index: 4; }
 .talent-node-card--tree.is-related { z-index: 5; opacity: 1; }
 
 .talent-node-icon {
