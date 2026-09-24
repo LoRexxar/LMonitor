@@ -64,8 +64,9 @@ class StatsRequestPerformanceTests(TestCase):
 
     def test_build_reuses_observations_without_losing_players_or_overrides(self):
         node = {'node_id': 123, 'spell_id': 456, 'tree_type': 'hero',
-                'db2_subtree_id': 99, 'name': 'Original', 'points': 1}
-        records = [dict(talents_json=[deepcopy(node)], talent_build_code='invalid',
+                'db2_subtree_id': 60, 'name': 'Original', 'points': 1}
+        arms_code = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
+        records = [dict(talents_json=[deepcopy(node)], talent_build_code=arms_code,
                         character_name=f'Player{i}', realm='Realm', region='EU', dps=i)
                    for i in range(12)]
         records[-1]['talents_json'][0].update(points=2, name='Override')
@@ -78,7 +79,7 @@ class StatsRequestPerformanceTests(TestCase):
         self.assertEqual(sorted(b['count'] for b in result['builds']), [1, 11])
         self.assertEqual(len(result['builds'][0]['top_players']), 5)
         self.assertEqual(normalize.call_count, 2)
-        self.assertEqual(hero.call_count, 1)
+        self.assertEqual(hero.call_count, 0)  # Canonical ID 60 supplies the name locally.
         # No cross-request state: a later observation must be resolved again.
         with patch.object(s, '_normalize_stats_talent_node', wraps=s._normalize_stats_talent_node) as normalize:
             self.assertEqual(s._compute_talent_build_popularity(records, 'Warrior', 'Arms'), result)

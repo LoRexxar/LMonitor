@@ -38,11 +38,13 @@ class Command(BaseCommand):
         parser.add_argument('--class', dest='class_name', help='职业名 (如 DeathKnight)')
         parser.add_argument('--spec', dest='spec_name', help='专精名 (如 Blood)')
         parser.add_argument('--season', type=int, dest='season_id', help='赛季 ID')
+        parser.add_argument('--dungeon-only', action='store_true', help='仅刷新该赛季大秘境缓存，不写团本或人物榜')
 
     def handle(self, *args, **options):
         season_id = options.get('season_id')
         target_class = options.get('class_name')
         target_spec = options.get('spec_name')
+        dungeon_only = bool(options.get('dungeon_only'))
 
         season = SeasonMeta.objects.filter(id=season_id).first() if season_id else SeasonMeta.objects.filter(is_active=True).first()
         if not season:
@@ -68,14 +70,13 @@ class Command(BaseCommand):
 
                 # 1. 副本统计
                 self._aggregate_dungeon(season, class_name, spec_name, spec_dir)
+                if not dungeon_only:
+                    # 2. 团本统计
+                    self._aggregate_raid(season, class_name, spec_name, spec_dir)
+                    # 3. 人物榜
+                    self._aggregate_leaderboard(class_name, spec_name, spec_dir)
 
-                # 2. 团本统计
-                self._aggregate_raid(season, class_name, spec_name, spec_dir)
-
-                # 3. 人物榜
-                self._aggregate_leaderboard(class_name, spec_name, spec_dir)
-
-                total_files += 3
+                total_files += 1 if dungeon_only else 3
                 self.stdout.write(f'  {class_name}/{spec_name} ✓')
 
         elapsed = time.time() - t0

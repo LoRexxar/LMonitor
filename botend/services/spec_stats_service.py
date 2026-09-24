@@ -12,7 +12,10 @@ from botend.models import (
     SeasonMeta, PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking, WowItemSnapshot,
     WowTalentNodeMetadata,
 )
-from botend.constants.hero_talents import hero_subtree_name_zh
+from botend.constants.hero_talents import (
+    hero_subtree_name_by_id, hero_subtree_name_zh,
+    spec_hero_subtree_ids, spec_hero_subtree_names,
+)
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN, SLOT_CN, RACE_CN, ENCHANT_CN, GEM_STAT_CN, QUALITY_CN
 from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.build_code import TalentBuildCodeDecoder
@@ -1020,6 +1023,9 @@ def _stats_talent_version_filter():
 
 
 def _hero_subtree_display_title(class_name, spec_name, subtree_id, hero_index=None):
+    canonical_name = hero_subtree_name_by_id(subtree_id)
+    if canonical_name and canonical_name in spec_hero_subtree_names(class_name, spec_name):
+        return hero_subtree_name_zh(canonical_name)
     title = _hero_subtree_name_from_table(subtree_id)
     if title:
         return title
@@ -1057,9 +1063,37 @@ def _has_valid_talent_payload(record):
     return False
 
 
-def _valid_talent_records(records):
-    """Filter ranking records to rows that can contribute to talent stats."""
-    return [record for record in (records or []) if _has_valid_talent_payload(record)]
+def _valid_talent_records(records, class_name=None, spec_name=None, *, provider=None, context=None):
+    """Reject talents contradicted by the target spec; keep ranking facts intact."""
+    if not class_name or not spec_name:
+        return [record for record in (records or []) if _has_valid_talent_payload(record)]
+    allowed_heroes = spec_hero_subtree_ids(class_name, spec_name)
+    if not allowed_heroes:
+        return []
+    provider = provider or TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
+    context = context if context is not None else {}
+    accepted = []
+    for record in records or []:
+        if not _has_valid_talent_payload(record):
+            continue
+        code = str(record.get('talent_build_code') or '').strip()
+        if code and not TalentBuildCodeDecoder.matches_spec(code, class_name, spec_name):
+            continue
+        mismatched = False
+        for raw in record.get('talents_json') or []:
+            if not isinstance(raw, dict) or raw.get('tree_type') == 'build_code':
+                continue
+            raw_subtree = _coerce_positive_int(raw.get('db2_subtree_id') or raw.get('db2SubtreeID'))
+            if raw_subtree and raw_subtree not in allowed_heroes:
+                mismatched = True
+                break
+            node = _request_normalized_talent_node(raw, provider, class_name, spec_name, context)
+            if node and node.tree_type == 'hero' and node.db2_subtree_id and node.db2_subtree_id not in allowed_heroes:
+                mismatched = True
+                break
+        if not mismatched:
+            accepted.append(record)
+    return accepted
 
 
 def _build_decoder_node_key(node):
@@ -1105,9 +1139,12 @@ def _add_selected_choice_options_from_build_code(record_nodes, build_code, decod
 
 def _build_talent_usage_snapshot(records, class_name, spec_name):
     """聚合统计页热门天赋所需的节点、使用率、玩家样本与父子连线。"""
-    records = _valid_talent_records(records)
-    total = len(records)
     provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
+    normalization_context = {}
+    records = _valid_talent_records(
+        records, class_name, spec_name, provider=provider, context=normalization_context,
+    )
+    total = len(records)
     decoder_nodes = provider.get_decoder_node_list(class_name)
     decoder_nodes_by_key = {
         _build_decoder_node_key(node): node
@@ -1122,22 +1159,11 @@ def _build_talent_usage_snapshot(records, class_name, spec_name):
     # Snapshot-local only: the entire raw observation (including points, choice,
     # source and metadata overrides) is the key, never just the node identity.
     # Nodes are read-only during this loop; rendering happens after it completes.
-    normalized_nodes = {}
-
     for record_index, record in enumerate(records):
         record_nodes = {}
         identity_lookup = {}
         for raw in record.get('talents_json') or []:
-            try:
-                raw_key = json.dumps(raw, ensure_ascii=False, allow_nan=False)
-            except (TypeError, ValueError):
-                raw_key = None
-            if raw_key is not None and raw_key in normalized_nodes:
-                node = normalized_nodes[raw_key]
-            else:
-                node = _normalize_stats_talent_node(raw, provider, class_name, spec_name)
-                if raw_key is not None:
-                    normalized_nodes[raw_key] = node
+            node = _request_normalized_talent_node(raw, provider, class_name, spec_name, normalization_context)
             if not node or node.tree_type == 'build_code':
                 continue
             node_key = _build_talent_node_key(node)
@@ -1588,7 +1614,7 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, con
         fallback_name = f"英雄天赋 {subtree_id}" if subtree_id else '英雄天赋'
         summary.append({
             'subtree_id': subtree_id,
-            'name': _hero_subtree_name_from_table(subtree_id) or anchor_names.get(subtree_id) or fallback_name,
+            'name': hero_subtree_name_zh(hero_subtree_name_by_id(subtree_id)) or _hero_subtree_name_from_table(subtree_id) or anchor_names.get(subtree_id) or fallback_name,
             'selected_count': len(nodes),
         })
     if context is not None:
@@ -1598,15 +1624,21 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, con
 
 def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     """按解码后的天赋语义聚合，并输出与最热门模板状态的完整差异。"""
+    coded_records = [record for record in records or [] if str(record.get('talent_build_code') or '').strip()]
+    if not coded_records:
+        return {
+            'semantic_state_version': 2,
+            'total': 0,
+            'template_code': '',
+            'template_count': 0,
+            'hero_groups': [],
+            'builds': [],
+        }
+    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
+    context = {}
     candidate_records = []
-    for record in _valid_talent_records(records):
-        build_code = str(record.get('talent_build_code') or '').strip()
-        if not build_code:
-            continue
-        resolved_identity = TalentBuildCodeDecoder.resolve_spec_identity(build_code)
-        if resolved_identity and resolved_identity != (class_name, spec_name):
-            continue
-        candidate_records.append((record, build_code))
+    for record in _valid_talent_records(coded_records, class_name, spec_name, provider=provider, context=context):
+        candidate_records.append((record, str(record['talent_build_code']).strip()))
 
     if not candidate_records:
         return {
@@ -1618,7 +1650,6 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
             'builds': [],
         }
 
-    provider = TalentMetadataProvider(usage=TalentVersionResolver.USAGE_STATS)
     decoder_nodes = list(provider.get_decoder_node_list(class_name) or [])
     decoder_nodes_by_key = {
         TalentBuildCodeService._build_node_key(node): node
@@ -1633,7 +1664,6 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
     raw_code_first_seen = {}
     total = 0
     first_seen_order = {}
-    context = {}
 
     def _hero_group(state):
         heroes = state.get('hero_talent_summary') or []
@@ -2273,28 +2303,10 @@ def _attach_usage_to_render_model(render_model, usage_map, highlighted_keys):
 def _filter_hero_subtrees_for_spec(hero_subtrees, class_name, spec_name, used_subtree_ids):
     if not hero_subtrees:
         return {}
-
-    used_subtree_ids = {subtree_id for subtree_id in used_subtree_ids if subtree_id in hero_subtrees}
-    anchor_subtree_ids = set(
-        WowTalentNodeMetadata.objects.filter(
-            class_name=class_name or '',
-            spec_name=spec_name or '',
-            tree_type='hero_anchor',
-            db2_subtree_id__in=list(hero_subtrees.keys()),
-        ).exclude(db2_subtree_id=0).values_list('db2_subtree_id', flat=True)
-    )
-    preferred_ids = used_subtree_ids | anchor_subtree_ids
-    if len(preferred_ids) >= 2:
-        return {subtree_id: hero_subtrees[subtree_id] for subtree_id in hero_subtrees if subtree_id in preferred_ids}
-
-    result = {subtree_id: hero_subtrees[subtree_id] for subtree_id in hero_subtrees if subtree_id in preferred_ids}
-    for subtree_id, nodes in sorted(hero_subtrees.items(), key=lambda item: _hero_subtree_sort_key(item[0], item[1])):
-        if subtree_id in result:
-            continue
-        result[subtree_id] = nodes
-        if len(result) >= 2:
-            break
-    return result
+    # Neither a contaminated observation nor a stale anchor may expand the
+    # two-tree choice defined for the target specialization.
+    allowed = spec_hero_subtree_ids(class_name, spec_name)
+    return {subtree_id: nodes for subtree_id, nodes in hero_subtrees.items() if subtree_id in allowed}
 
 
 def _group_hero_subtrees_by_column(hero_nodes):
@@ -2737,7 +2749,7 @@ def _merge_player_profile_fields(records, season_id, class_name, spec_name, fiel
             profile_build_code = str(profile.get('talent_build_code') or '').strip()
             profile_identity = TalentBuildCodeDecoder.resolve_spec_identity(profile_build_code)
             reject_profile_talents = bool(
-                profile_identity and profile_identity != (class_name, spec_name)
+                profile_build_code and profile_identity != (class_name, spec_name)
             )
             for field in fields:
                 if reject_profile_talents and field in {'talent_build_code', 'talents_json'}:

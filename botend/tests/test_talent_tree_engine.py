@@ -3054,6 +3054,26 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
     ARMS_REFERENCE_CODE = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
     FURY_REFERENCE_CODE = 'CgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgGDDjZ2WmZmZmxMmZMjZmZWmZGjxsMmZGAAIMwGssZ0YGQmNMjFAzgxAgZGADzMzMMYA'
 
+    def setUp(self):
+        super().setUp()
+        # These short tokens test grouping semantics, not header parsing. The
+        # real-code identity boundary is exercised by separate regressions.
+        semantic_fixtures = {
+            'CODE_A', 'CODE_B', 'ENCODED_A', 'ENCODED_B',
+            'HILL_BASE', 'HILL_VARIANT', 'SLAYER_BASE',
+            'LEFT_CHOICE', 'RIGHT_CHOICE', 'TWO_POINTS', 'ONE_POINT',
+            'LEGACY_TEST_CODE', 'build-a', 'build-b',
+        }
+        actual_matches = TalentBuildCodeDecoder.matches_spec
+        matcher = patch.object(
+            TalentBuildCodeDecoder, 'matches_spec',
+            side_effect=lambda code, class_name, spec_name: (
+                True if code in semantic_fixtures else actual_matches(code, class_name, spec_name)
+            ),
+        )
+        matcher.start()
+        self.addCleanup(matcher.stop)
+
     def test_cached_fury_detail_with_arms_build_is_stale(self):
         from botend.portal.spec_detail_views import _talent_build_popularity_has_builds
 
@@ -3076,7 +3096,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         new_detail = {
             'talent_build_popularity': {
                 'semantic_state_version': 2,
-                'builds': [{'code': 'CODE_A', 'top_players': []}],
+                'builds': [{'code': self.FURY_REFERENCE_CODE, 'top_players': []}],
             },
         }
 
@@ -3484,36 +3504,36 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             lambda node, class_name='', spec_name='': node
         )
         mock_anchor_filter.return_value.exclude.return_value.values.return_value = [
-            {'db2_subtree_id': 11, 'name': 'Colossus', 'name_zh': '山丘之王'},
-            {'db2_subtree_id': 12, 'name': 'Slayer', 'name_zh': '屠戮者'},
+            {'db2_subtree_id': 61, 'name': 'Mountain Thane', 'name_zh': '山丘领主'},
+            {'db2_subtree_id': 60, 'name': 'Slayer', 'name_zh': '屠戮者'},
         ]
         records = [
             {'talent_build_code': 'HILL_BASE', 'talents_json': [
                 {'node_id': 1, 'spell_id': 101, 'name': '共同天赋', 'tree_type': 'spec', 'points': 1},
-                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 11, 'points': 1},
+                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 61, 'points': 1},
             ]},
             {'talent_build_code': 'HILL_BASE', 'talents_json': [
                 {'node_id': 1, 'spell_id': 101, 'name': '共同天赋', 'tree_type': 'spec', 'points': 1},
-                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 11, 'points': 1},
+                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 61, 'points': 1},
             ]},
             {'talent_build_code': 'HILL_VARIANT', 'talents_json': [
                 {'node_id': 2, 'spell_id': 102, 'name': '山丘变体', 'tree_type': 'spec', 'points': 1},
-                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 11, 'points': 1},
+                {'node_id': 11, 'spell_id': 201, 'name': '山丘英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 61, 'points': 1},
             ]},
             {'talent_build_code': 'SLAYER_BASE', 'talents_json': [
                 {'node_id': 3, 'spell_id': 103, 'name': '屠戮基准', 'tree_type': 'spec', 'points': 1},
-                {'node_id': 12, 'spell_id': 202, 'name': '屠戮英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 12, 'points': 1},
+                {'node_id': 12, 'spell_id': 202, 'name': '屠戮英雄天赋', 'tree_type': 'hero', 'db2_subtree_id': 60, 'points': 1},
             ]},
         ]
 
         result = _compute_talent_build_popularity(records, 'Warrior', 'Fury', top_n=10)
 
         groups = {group['hero_talent_name']: group for group in result['hero_groups']}
-        self.assertEqual(groups['山丘之王']['total'], 3)
-        self.assertEqual(groups['山丘之王']['template_code'], 'HILL_BASE')
-        self.assertEqual([build['code'] for build in groups['山丘之王']['builds']], ['HILL_BASE', 'HILL_VARIANT'])
-        self.assertEqual(groups['山丘之王']['builds'][1]['pct'], 33.3)
-        self.assertEqual(groups['山丘之王']['builds'][1]['diff_count'], 2)
+        self.assertEqual(groups['山丘领主']['total'], 3)
+        self.assertEqual(groups['山丘领主']['template_code'], 'HILL_BASE')
+        self.assertEqual([build['code'] for build in groups['山丘领主']['builds']], ['HILL_BASE', 'HILL_VARIANT'])
+        self.assertEqual(groups['山丘领主']['builds'][1]['pct'], 33.3)
+        self.assertEqual(groups['山丘领主']['builds'][1]['diff_count'], 2)
         self.assertEqual(groups['屠戮者']['total'], 1)
         self.assertEqual(groups['屠戮者']['template_code'], 'SLAYER_BASE')
         self.assertEqual(groups['屠戮者']['builds'][0]['diff_count'], 0)
@@ -3525,8 +3545,8 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             lambda node, class_name='', spec_name='': node
         )
         mock_anchor_filter.return_value.exclude.return_value.values.return_value = [
-            {'db2_subtree_id': 11, 'name': 'Deathbringer', 'name_zh': ''},
-            {'db2_subtree_id': 12, 'name': "San'layn", 'name_zh': ''},
+            {'db2_subtree_id': 33, 'name': 'Deathbringer', 'name_zh': ''},
+            {'db2_subtree_id': 31, 'name': "San'layn", 'name_zh': ''},
         ]
         records = [
             {
@@ -3534,7 +3554,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                 'talents_json': [
                     {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
                     {'node_id': 2, 'spell_id': 102, 'name': '专精天赋', 'tree_type': 'spec', 'points': 1},
-                    {'node_id': 11, 'spell_id': 201, 'name': '英雄A', 'tree_type': 'hero', 'db2_subtree_id': 11, 'points': 1},
+                    {'node_id': 11, 'spell_id': 201, 'name': '英雄A', 'tree_type': 'hero', 'db2_subtree_id': 33, 'points': 1},
                 ],
             },
             {
@@ -3542,7 +3562,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                 'talents_json': [
                     {'node_id': 1, 'spell_id': 101, 'name': '通用天赋', 'tree_type': 'class', 'points': 1},
                     {'node_id': 2, 'spell_id': 102, 'name': '专精天赋', 'tree_type': 'spec', 'points': 1},
-                    {'node_id': 12, 'spell_id': 202, 'name': '英雄B', 'tree_type': 'hero', 'db2_subtree_id': 12, 'points': 1},
+                    {'node_id': 12, 'spell_id': 202, 'name': '英雄B', 'tree_type': 'hero', 'db2_subtree_id': 31, 'points': 1},
                 ],
             },
         ]
@@ -4338,8 +4358,8 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         )
         mock_provider_cls.return_value.get_full_tree_nodes.return_value = [
             {'spell_id': 1001, 'talent_id': 1001, 'name': '职业', 'tree_type': 'class', 'row': 1000, 'column': 1000},
-            {'spell_id': 2001, 'talent_id': 2001, 'name': '英雄一', 'tree_type': 'hero', 'db2_subtree_id': 11, 'row': 1000, 'column': 5000},
-            {'spell_id': 2002, 'talent_id': 2002, 'name': '英雄二', 'tree_type': 'hero', 'db2_subtree_id': 22, 'row': 1000, 'column': 9000},
+            {'spell_id': 2001, 'talent_id': 2001, 'name': '英雄一', 'tree_type': 'hero', 'db2_subtree_id': 33, 'row': 1000, 'column': 5000},
+            {'spell_id': 2002, 'talent_id': 2002, 'name': '英雄二', 'tree_type': 'hero', 'db2_subtree_id': 31, 'row': 1000, 'column': 9000},
             {'spell_id': 3001, 'talent_id': 3001, 'name': '专精', 'tree_type': 'spec', 'row': 1000, 'column': 13000},
         ]
 
@@ -4347,8 +4367,8 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             records=[{
                 'talents_json': [
                     {'spell_id': 1001, 'talent_id': 1001, 'name': '职业', 'tree_type': 'class', 'row': 1000, 'column': 1000},
-                    {'spell_id': 2001, 'talent_id': 2001, 'name': '英雄一', 'tree_type': 'hero', 'db2_subtree_id': 11, 'row': 1000, 'column': 5000},
-                    {'spell_id': 2002, 'talent_id': 2002, 'name': '英雄二', 'tree_type': 'hero', 'db2_subtree_id': 22, 'row': 1000, 'column': 9000},
+                    {'spell_id': 2001, 'talent_id': 2001, 'name': '英雄一', 'tree_type': 'hero', 'db2_subtree_id': 33, 'row': 1000, 'column': 5000},
+                    {'spell_id': 2002, 'talent_id': 2002, 'name': '英雄二', 'tree_type': 'hero', 'db2_subtree_id': 31, 'row': 1000, 'column': 9000},
                     {'spell_id': 3001, 'talent_id': 3001, 'name': '专精', 'tree_type': 'spec', 'row': 1000, 'column': 13000},
                 ],
             }],
@@ -4359,7 +4379,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
 
         trees = talent_tree['render_model']['trees']
         self.assertEqual([tree['tree_type'] for tree in trees], ['class', 'hero', 'hero', 'spec'])
-        self.assertEqual([tree['title'] for tree in trees], ['职业天赋', '死亡使者', '天启骑士', '专精天赋'])
+        self.assertEqual([tree['title'] for tree in trees], ['职业天赋', '死亡使者', '萨莱因', '专精天赋'])
         hero_panels = [tree['panel'] for tree in trees if tree['tree_type'] == 'hero']
         self.assertEqual(hero_panels[0]['x'], hero_panels[1]['x'])
         self.assertLess(hero_panels[0]['y'], hero_panels[1]['y'])
@@ -4467,7 +4487,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                 'talent_id': 30,
                 'name': '团本前置',
                 'tree_type': 'hero',
-                'db2_subtree_id': 1,
+                'db2_subtree_id': 64,
                 'row': 1,
                 'column': 2,
             },
@@ -4476,7 +4496,7 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
                 'talent_id': 40,
                 'name': '团本热门节点',
                 'tree_type': 'hero',
-                'db2_subtree_id': 1,
+                'db2_subtree_id': 64,
                 'row': 2,
                 'column': 2,
                 'parents': [30],
