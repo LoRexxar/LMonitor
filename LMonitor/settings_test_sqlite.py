@@ -14,3 +14,5 @@ DATABASES = {
 EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
 # Tests opt in to bounded Wago identity lookups and stub their HTTP boundary.
 WAGO_HOTFIX_READER_NAME_LOOKUPS = 0
+WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS = 0
+WAGO_HOTFIX_READER_CONTEXT_LOOKUPS = 0

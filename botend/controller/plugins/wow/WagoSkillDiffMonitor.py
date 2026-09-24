@@ -29,6 +29,7 @@ from botend.services.wago_db2.graph import WagoDB2GraphService
 from botend.services.wow_skill_report_metadata import database_spell_metadata, wowhead_spell_url as report_spell_url
 from botend.services.wago_hotfix_source import collect_hotfix_push_rows, collect_hotfix_record_history, collect_hotfix_build_rows, source_ids_sha256, HotfixSourceIncomplete
 from botend.services.wago_hotfix_facts import build_hotfix_facts, previous_hotfix_row, project_class_spell_changes
+from botend.services.wago_hotfix_reader_fields import FIELDS as HOTFIX_READER_FIELDS, display_hotfix_value, project_hotfix_columns
 
 try:
     from core.glm import GLMClient
@@ -4253,7 +4254,7 @@ class WagoSkillDiffMonitor(BaseScan):
             confirmed_cards.append(
                 f"<article class='reader-confirmed-card' data-category='{esc(group['category'])}' data-search='{esc(search_value)}'>"
                 f"<h4>{esc(group['title'])}</h4>"
-                f"<ul><li><strong>{esc(field_label(group['field']))}</strong>：{esc(group['before'])} → {esc(group['after'])}</li></ul>"
+                f"<ul><li><strong>{esc(field_label(group['field']))}</strong>：{esc(display_hotfix_value(group['field'], group['before']))} → {esc(display_hotfix_value(group['field'], group['after']))}</li></ul>"
                 f"<small>{esc(table_label(table))} {' / '.join(esc(ref) for ref in physical_refs)} · push {pid} "
                 f"<a href='{esc(hotfix_table_url(table, pid))}' target='_blank' rel='noreferrer'>来源</a></small>"
                 "</article>"
@@ -4265,6 +4266,130 @@ class WagoSkillDiffMonitor(BaseScan):
                "<h3>已核实改动：无</h3>")
             + "</section>"
         ) if facts is not None else ''
+        impact_limit = max(0, min(80, int(getattr(settings, 'WAGO_HOTFIX_READER_IMPACT_MAX', 32) or 0)))
+        impact_scan_limit = max(impact_limit, min(600, int(getattr(settings, 'WAGO_HOTFIX_READER_SCAN_MAX', 600) or 0)))
+        baseline_limit = max(0, min(32, int(getattr(settings, 'WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS', 24) or 0)))
+        impact_candidates = sorted((f for f in facts or []
+                                    if f.get('after_verified')
+                                    and not (f.get('before_verified') and f.get('changes'))
+                                    and tkey((f.get('source') or {}).get('table_name')) in HOTFIX_READER_FIELDS),
+                                   key=lambda f: (self._to_int((f.get('source') or {}).get('push_id')),
+                                                  self._to_int((f.get('source') or {}).get('record_id'))),
+                                   reverse=True)[:impact_scan_limit if impact_limit else 0]
+        impact_cards = []
+        context_limit = max(0, min(8, int(getattr(settings, 'WAGO_HOTFIX_READER_CONTEXT_LOOKUPS', 4) or 0)))
+        context_cache = {}
+        for position, fact in enumerate(impact_candidates):
+            source = fact.get('source') or {}
+            table = norm_table(source.get('table_name'))
+            rid = self._to_int(source.get('record_id'))
+            pid = self._to_int(source.get('push_id'))
+            version = source_version(fact)
+            after = fact.get('after') or {}
+            baseline = None
+            if position < baseline_limit and version and rid > 0:
+                baseline = self._fetch_hotfix_db2_baseline_row(table, version, rid, locale)
+            fields = project_hotfix_columns(table, after, baseline)
+            if tkey(table) == 'spellmisc' and version:
+                for field in fields:
+                    context_table = {'RangeIndex': 'SpellRange',
+                                     'CastingTimeIndex': 'SpellCastTimes'}.get(field['field'])
+                    ref_id = self._to_int(after.get(field['field']))
+                    if not context_table or ref_id <= 0:
+                        continue
+                    context_key = (context_table, version, ref_id)
+                    if context_key not in context_cache and len(context_cache) < context_limit:
+                        context_cache[context_key] = self._fetch_hotfix_db2_baseline_row(
+                            context_table, version, ref_id, locale)
+                    context = context_cache.get(context_key) or {}
+                    if context_table == 'SpellRange' and all(
+                            str(context.get(k)) in ('0', '0.0') for k in (
+                                'RangeMin_0', 'RangeMin_1', 'RangeMax_0', 'RangeMax_1')):
+                        field['label'] = '距离 / SpellRange'
+                        field['text'] = '0 码'
+                    elif context_table == 'SpellCastTimes' and all(
+                            str(context.get(k)) in ('0', '0.0') for k in ('Base', 'Minimum')):
+                        field['label'] = '施法时间 / SpellCastTimes'
+                        field['text'] = '瞬发'
+            if not fields:
+                continue
+            if isinstance(baseline, dict) and baseline and not any(field['base_changed'] for field in fields):
+                continue
+            identity, category, title, _kind = reader_identity(table, rid, after, version, pid)
+            object_id = self._to_int(identity.rsplit(':', 1)[-1])
+            object_kind = identity.split(':', 1)[0]
+            if title.strip().lower().startswith('[dnt]'):
+                title = '内部技能 ' + title
+            if object_kind in ('spell', 'item', 'trait') and object_id > 0 and not re.search(rf'(?<!\d){object_id}(?!\d)', title):
+                title += f'（#{object_id}）'
+            badge = ('基表对照' if isinstance(baseline, dict) and baseline else
+                     '基表无该行 · 新配置' if baseline == {} else '本次配置')
+            field_html = ''.join(
+                f"<li><span>{esc(field['label'])}</span> <strong>{esc(field['text'])}</strong></li>"
+                for field in fields
+            )
+            search_value = (f'{title} {table} {rid} {pid} {category} ' +
+                            ' '.join(f"{field['field']} {field['text']}" for field in fields)).lower()
+            impact_cards.append(
+                f"<article class='reader-impact-card' data-category='{esc(category)}' data-search='{esc(search_value)}'>"
+                f"<header><strong>{esc(title)}</strong><small>{esc(badge)}</small></header>"
+                f"<ul>{field_html}</ul>"
+                f"<details class='reader-impact-source'><summary>来源</summary><small>"
+                f"{esc(table_label(table))} #{rid} · build {esc(version or source.get('build') or '')} · push {pid} · "
+                f"<a href='{esc(hotfix_table_url(table, pid))}' target='_blank' rel='noreferrer'>Wago Hotfix</a>"
+                + (f"；<a href='https://wago.tools/db2/{esc(table)}?{urlencode({'build': version, 'locale': locale, 'filter[ID]': f'exact:{rid}'})}' target='_blank' rel='noreferrer'>客户端 DB2 基表</a>"
+                   if baseline is not None and version else '')
+                + "</small></details></article>"
+            )
+        impact_summaries = {}
+        for fact in impact_candidates:
+            source = fact.get('source') or {}
+            table = tkey(source.get('table_name'))
+            after = fact.get('after') or {}
+            sid = self._to_int(after.get('SpellID') or (after.get('ID') if table == 'spellname' else 0))
+            if sid <= 0:
+                continue
+            pid = self._to_int(source.get('push_id'))
+            version = source_version(fact)
+            item = impact_summaries.setdefault((pid, version, sid), {})
+            if table == 'spelleffect' and str(after.get('Effect')) == '189':
+                item['effect'] = '拾取'
+                item['target'] = '施法者' if str(after.get('ImplicitTarget_0')) == '1' else ''
+            elif table == 'spellcooldowns':
+                try:
+                    recovery = Decimal(str(after.get('RecoveryTime') or '0'))
+                    if recovery > 0:
+                        item['cooldown'] = f'{(recovery / Decimal(1000)).normalize():f} 秒'
+                except (InvalidOperation, ValueError, TypeError):
+                    pass
+            elif table == 'spellname':
+                item['name'] = clean_report_text(after.get('Name_lang') or '').strip()
+        summary_cards = []
+        for (pid, version, sid), values in impact_summaries.items():
+            if not (values.get('effect') and values.get('cooldown')):
+                continue
+            name = values.get('name') or scoped_name('spell', sid, version, pid)
+            title = (('内部技能 ' if name.lower().startswith('[dnt]') else '') + name
+                     if name else '技能') + f'（#{sid}）'
+            target = f"，目标{values['target']}" if values.get('target') else ''
+            summary_cards.append(
+                f"<p class='reader-impact-summary' data-category='技能/法术' data-search='{esc((title + ' ' + str(sid) + ' 拾取 冷却 ' + values['cooldown']).lower())}'>"
+                f"<strong>{esc(title)}</strong>：本次配置{esc(values['effect'])}效果{esc(target)}；"
+                f"冷却记录 {esc(values['cooldown'])}。"
+                "</p>"
+            )
+        impact_section = (
+            "<section class='reader-impacts' id='readerImpacts'>"
+            f"<h3>单条配置与影响 <small>{len(impact_cards)} 条</small></h3>"
+            + ''.join(summary_cards)
+            + ''.join(impact_cards[:impact_limit])
+            + (f"<details class='reader-impact-more' id='readerImpactMore'><summary>其余 {len(impact_cards) - impact_limit} 条单行配置 · 展开</summary>"
+               + ''.join(impact_cards[impact_limit:]) + "</details>"
+               if len(impact_cards) > impact_limit else '')
+            + "</section>"
+        ) if impact_cards else ''
+        if impact_cards and not confirmed_cards:
+            confirmed_section = ''
         db2_context_cards = []
         for fact in facts or []:
             source = fact.get('source') or {}
@@ -4338,8 +4463,9 @@ class WagoSkillDiffMonitor(BaseScan):
             f"<span id='readerCount' class='hidden'>仅新值 {len(readable_cards)} · 底层 {len(raw_cards)} 个对象</span></div>"
             + ("<p class='reader-verdict'>旧报告仅有 DB2 基表参考，不能作为热修生效值或变化幅度。</p>"
                if facts is None else '')
+            + impact_section
             + confirmed_section
-            + (f"<p class='reader-verdict'>{esc(verdict)}</p>" if verdict else '')
+            + (f"<p class='reader-verdict'>{esc(verdict)}</p>" if verdict and not impact_cards else '')
             + db2_context_section
             + (world_status_section if not readable_cards and not confirmed_cards else '')
             + "<div class='controls'><input id='hotfixFilter' type='search' placeholder='搜索对象、ID、字段…' autocomplete='off' aria-label='搜索热修对象和新值'>"
@@ -4358,6 +4484,13 @@ class WagoSkillDiffMonitor(BaseScan):
             + "</section>"
         )
 
+        quick_counts = ''
+        if facts is not None:
+            quick_counts = f'<span><strong>{len(impact_cards)}</strong> 条单行配置</span>'
+            if confirmed_cards:
+                quick_counts += f'<span><strong>{len(confirmed_cards)}</strong> 项热修前态对照</span>'
+            quick_counts += (f'<span><strong>{readable_count}</strong> 条有新值</span>'
+                             f'<span><strong>{status_only_count}</strong> 条仅状态/来源</span>')
         html_text = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -4378,6 +4511,9 @@ class WagoSkillDiffMonitor(BaseScan):
     .reader-filter-drawer {{ margin:8px 0 12px; padding:0 9px 9px; border:1px solid var(--line); border-radius:10px; }} .reader-filter-drawer>summary {{ min-height:43px; display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; font-weight:800; }} .reader-filter-drawer>summary small {{ color:var(--muted); font-size:11px; font-weight:500; }}
     .reader-digest {{ margin:20px 0 16px; }} .reader-digest-head {{ display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:4px; }} .reader-digest h2 {{ margin:0; font-size:21px; }} .reader-digest-head p {{ max-width:74ch; margin:3px 0 0; color:var(--muted); font-size:12px; text-wrap:pretty; }} .reader-digest-head>span {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
     .reader-verdict {{ margin:10px 0; padding:8px 11px; border-left:3px solid var(--accent); background:var(--soft); font-size:13px; overflow-wrap:anywhere; }}
+    .reader-impacts {{ margin:14px 0; }} .reader-impacts>h3 {{ margin:0 0 8px; font-size:18px; }} .reader-impacts>h3 small {{ color:var(--muted); font-size:12px; }} .reader-impact-card {{ display:grid; grid-template-columns:minmax(185px,.9fr) minmax(0,2fr); gap:3px 14px; align-items:start; padding:11px 12px; margin:6px 0; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-impact-card header strong {{ display:block; font-size:14px; overflow-wrap:anywhere; }} .reader-impact-card header small {{ color:var(--accent); font-size:11px; font-weight:750; }} .reader-impact-card ul {{ margin:0; padding-left:17px; font-size:13px; }} .reader-impact-card li+li {{ margin-top:3px; }} .reader-impact-card li span {{ color:var(--muted); }} .reader-impact-card li strong {{ font-weight:750; overflow-wrap:anywhere; }} .reader-impact-source {{ grid-column:2; }} .reader-impact-source>summary {{ display:inline-flex; align-items:center; min-height:30px; color:var(--accent); font-size:11px; cursor:pointer; }} .reader-impact-source small {{ display:block; color:var(--muted); overflow-wrap:anywhere; }}
+    .reader-impact-summary {{ margin:9px 0 12px; padding:10px 13px; border-left:3px solid var(--accent); border-radius:6px; background:var(--accent-soft); font-size:14px; overflow-wrap:anywhere; }}
+    .reader-impact-more {{ margin:12px 0; padding:0 10px 10px; border:1px solid var(--line); border-radius:10px; background:var(--soft); }} .reader-impact-more>summary {{ min-height:45px; display:flex; align-items:center; font-size:13px; font-weight:750; cursor:pointer; }}
     .reader-confirmed {{ margin:12px 0; }} .reader-confirmed>h3 {{ margin:0 0 7px; font-size:18px; }} .reader-confirmed>h3 span {{ color:var(--accent); font-variant-numeric:tabular-nums; }} .reader-confirmed-card {{ padding:9px 11px; margin:6px 0; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-confirmed-card h4 {{ margin:0; font-size:14px; }} .reader-confirmed-card ul {{ margin:3px 0; padding-left:19px; font-size:13px; }} .reader-confirmed-card small,.reader-confirmed-empty {{ color:var(--muted); font-size:11px; }}
     .reader-db2-names {{ margin:12px 0; }} .reader-db2-names h3 {{ margin:0 0 7px; font-size:16px; }} .reader-db2-name-card {{ margin:5px 0; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; }} .reader-db2-name-card span {{ display:block; color:var(--muted); font-size:11px; }} .reader-db2-name-card a {{ font-size:11px; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
@@ -4400,7 +4536,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; margin-top:9px; }} .important-fields {{ grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); }} .field {{ border:1px solid var(--line); background:var(--soft); border-radius:9px; padding:7px 9px; min-width:0; }} .field.primary {{ border-color:#d8d3ff; background:#f7f5ff; }} .field.important {{ border-color:#e6c85e; background:#fff9df; }} .field span {{ display:block; color:var(--muted); font-size:10px; font-weight:800; }} .field strong {{ display:block; color:var(--ink); font-size:12px; overflow-wrap:anywhere; white-space:pre-wrap; }} .raw-fields {{ margin-top:9px; border:1px dashed #cbd1dc; border-radius:9px; background:var(--soft); padding:7px 9px; }} .raw-fields summary {{ min-height:40px; display:flex; align-items:center; cursor:pointer; color:var(--muted); font-size:11px; font-weight:850; }} .raw-grid {{ grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }} .raw-grid .field {{ background:var(--surface); opacity:.86; }}
     .hotfix-report code {{ background:var(--soft); padding:1px 6px; border-radius:4px; }} .muted {{ color:var(--muted); font-size:12px; }} .more {{ margin-top:10px; }} .hidden {{ display:none!important; }}
     @media(max-width:920px) {{ .hotfix-report-page{{padding:8px}} .hotfix-report{{padding:14px;border-radius:12px}} .report-hero{{display:block}} .source-link{{margin-top:10px}} .layout{{display:block}} .stats{{position:static;max-height:none;margin-bottom:14px}} .controls{{top:4px}} }}
-    @media(max-width:560px) {{ .hotfix-report h1{{font-size:23px}} .impact-filter{{min-height:44px}} .reader-digest-head,.reader-card>header,.reader-evidence,.table-head,.record-head{{display:block}} .reader-digest-head>span,.reader-card>header small{{display:block;margin-top:5px}} .reader-evidence>a,.table-head>a,.record-head>a{{margin-top:6px;min-height:44px}} .impact-callout{{grid-template-columns:1fr}} .impact-callout p{{grid-column:1}} .controls .count{{display:none}} }}
+    @media(max-width:560px) {{ .hotfix-report h1{{font-size:23px}} .impact-filter{{min-height:44px}} .reader-impact-card{{grid-template-columns:1fr}} .reader-impact-source{{grid-column:1}} .reader-digest-head,.reader-card>header,.reader-evidence,.table-head,.record-head{{display:block}} .reader-digest-head>span,.reader-card>header small{{display:block;margin-top:5px}} .reader-evidence>a,.table-head>a,.record-head>a{{margin-top:6px;min-height:44px}} .impact-callout{{grid-template-columns:1fr}} .impact-callout p{{grid-column:1}} .controls .count{{display:none}} }}
     @media(prefers-color-scheme:dark) {{ .hotfix-report-page{{background:#211e1b}} .hotfix-report{{--ink:#f4f1ed;--muted:#b8afa6;--line:rgba(154,141,128,.42);--surface:#302b26;--soft:#27231f;--accent:#b6adff;--accent-soft:rgba(91,79,196,.24);box-shadow:none}} .controls{{background:rgba(48,43,38,.95)}} .note,.impact-callout p,.semantic-line small{{color:#d8d3ff}} .impact-filter span,.object-tags span,.system-card span{{color:#d8d3ff}} .object-section{{background:#2b2730}} .field.primary{{background:#2d2938;border-color:#5d557a}} .field.important{{background:#39311f;border-color:#73643b}} }}
     @media(prefers-reduced-motion:reduce) {{ .hotfix-report *{{scroll-behavior:auto!important;transition:none!important}} }}
   </style>
@@ -4415,7 +4551,7 @@ class WagoSkillDiffMonitor(BaseScan):
       </div>
       <a class="source-link" href="{esc(wago_url)}" target="_blank" rel="noreferrer">核对 Wago 原始列表</a>
     </header>
-    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条来源</span>{(f'<span><strong>{len(confirmed_cards)}</strong> 项已核实改动</span><span><strong>{readable_count}</strong> 条有新值</span><span><strong>{status_only_count}</strong> 条仅状态/来源</span>' if facts is not None else '')}</div>
+    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条来源</span>{quick_counts}</div>
     {reader_digest_section}
     <details class="technical-report">
       <summary><span>查看技术明细与 DB2 基表参考字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
@@ -4438,6 +4574,8 @@ class WagoSkillDiffMonitor(BaseScan):
   var rawGroup=document.getElementById('readerRawOnly');
   var readableGroup=document.getElementById('readerReadable');
   var confirmedGroup=document.getElementById('readerConfirmed');
+  var impactGroup=document.getElementById('readerImpacts');
+  var impactMore=document.getElementById('readerImpactMore');
   var db2NameGroup=document.getElementById('readerDB2Names');
   var worldGroup=document.getElementById('readerWorldStatuses');
   var filterDrawer=document.getElementById('readerFilterDrawer');
@@ -4471,6 +4609,24 @@ class WagoSkillDiffMonitor(BaseScan):
     }});
     if(confirmedGroup){{confirmedGroup.classList.toggle('hidden',
       (q || category!=='all') && confirmedVisible===0);}}
+    var impactVisible=0;
+    document.querySelectorAll('.reader-impact-card').forEach(function(el){{
+      var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
+      el.classList.toggle('hidden', !ok);
+      if(ok){{impactVisible++;}}
+    }});
+    if(impactMore){{
+      var moreVisible=impactMore.querySelectorAll('.reader-impact-card:not(.hidden)').length;
+      impactMore.classList.toggle('hidden', moreVisible===0);
+      if(moreVisible && (q || category!=='all')){{impactMore.open=true;}}
+    }}
+    var impactSummaryVisible=0;
+    document.querySelectorAll('.reader-impact-summary').forEach(function(el){{
+      var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
+      el.classList.toggle('hidden', !ok);
+      if(ok){{impactSummaryVisible++;}}
+    }});
+    if(impactGroup){{impactGroup.classList.toggle('hidden', impactVisible===0 && impactSummaryVisible===0);}}
     var db2NameVisible=0;
     document.querySelectorAll('.reader-db2-name-card').forEach(function(el){{
       var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
@@ -4514,7 +4670,7 @@ class WagoSkillDiffMonitor(BaseScan):
     }}
     if(empty){{
       empty.textContent=rawVisible ? '具体改动未知；下方列出底层记录。' : '无匹配记录；来源详见技术明细。';
-      empty.classList.toggle('hidden', confirmedVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0);
+      empty.classList.toggle('hidden', confirmedVisible!==0 || impactVisible!==0 || impactSummaryVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0);
     }}
   }}
   input.addEventListener('input', apply);
@@ -5496,13 +5652,26 @@ class WagoSkillDiffMonitor(BaseScan):
 
     def _fetch_hotfix_db2_identity_row(self, table, build, record_id, locale):
         """One bounded name-only lookup; reject Wago's mismatched/ignored filters."""
-        if table not in ('TraitDefinition', 'ItemSparse'):
-            return {}
+        return (self._fetch_hotfix_db2_exact_row(table, build, record_id, locale,
+                                                allowed=('TraitDefinition', 'ItemSparse')) or {})
+
+    def _fetch_hotfix_db2_baseline_row(self, table, build, record_id, locale):
+        """Read one exact client-build row for a labeled comparison, never a Hotfix predecessor."""
+        return self._fetch_hotfix_db2_exact_row(
+            table, build, record_id, locale,
+            allowed=('SpellName', 'SpellEffect', 'SpellCooldowns', 'SpellMisc',
+                     'ItemSparse', 'TraitDefinition', 'SpellTargetRestrictions',
+                     'SpellRange', 'SpellCastTimes'),
+        )
+
+    def _fetch_hotfix_db2_exact_row(self, table, build, record_id, locale, *, allowed):
+        if table not in allowed:
+            return None
         rid = self._to_int(record_id)
         if rid <= 0 or not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', str(build or '')):
-            return {}
+            return None
         if not re.fullmatch(r'[A-Za-z]{2,6}', str(locale or '')):
-            return {}
+            return None
         try:
             response = requests.get(
                 f'https://wago.tools/db2/{table}',
@@ -5510,22 +5679,24 @@ class WagoSkillDiffMonitor(BaseScan):
                 headers={'User-Agent': 'Mozilla/5.0'}, timeout=(4, 8),
             )
             if response.status_code != 200:
-                return {}
+                return None
             props = self._extract_inertia_props(response.text or '')
             filters = props.get('filters') or {}
             if not isinstance(filters, dict) or not isinstance(filters.get('filter'), dict):
-                return {}
+                return None
             if (str(filters.get('build') or '') != build or
                     str(filters.get('locale') or '') != locale or
                     str((filters.get('filter') or {}).get('ID') or '') != f'exact:{rid}'):
-                return {}
+                return None
             entries = props.get('entries') or props.get('data') or {}
             rows = entries.get('data') if isinstance(entries, dict) else entries
-            if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+            if rows == []:
                 return {}
-            return rows[0] if self._to_int(rows[0].get('ID')) == rid else {}
+            if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+                return None
+            return rows[0] if self._to_int(rows[0].get('ID')) == rid else None
         except (requests.RequestException, ValueError, TypeError):
-            return {}
+            return None
 
     def _fetch_db2_row_by_id(self, table, build, record_id):
         record_id = str(record_id).strip()

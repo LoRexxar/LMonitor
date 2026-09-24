@@ -10,9 +10,130 @@ from bs4 import BeautifulSoup
 from django.test import SimpleTestCase, override_settings
 
 from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
+from botend.services.wago_hotfix_reader_fields import project_hotfix_columns
 
 
 class FullHotfixNewValueReaderTests(SimpleTestCase):
+    def test_identical_client_row_is_not_a_change_and_request_failure_is_not_new(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 99, 'push_id': 112236, 'table_name': 'SpellEffect',
+                  'record_id': 1358044, 'region_id': 3, 'locale': 'enUS',
+                  'build': 69933, 'status': 1}
+        row = {'ID': '1358044', 'SpellID': '1322323', 'Effect': '189',
+               'ImplicitTarget_0': '1', 'EffectMiscValue_0': '142879'}
+        fact = {'source': source, 'source_build': '12.1.0.69933',
+                'after': row, 'before': None, 'after_verified': True,
+                'before_verified': False, 'changes': []}
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=1):
+            monitor._fetch_hotfix_db2_baseline_row = lambda *args: row
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112235, to_push=112236, summary_title='基表同值',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933', table_stats=[('SpellEffect', 1)],
+                by_table={'SpellEffect': [source]}, sample_per_table=1,
+                enrich_max=0, facts=[fact],
+            )
+            unchanged = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+            monitor._fetch_hotfix_db2_baseline_row = lambda *args: None
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112235, to_push=112236, summary_title='基表不可用',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933', table_stats=[('SpellEffect', 1)],
+                by_table={'SpellEffect': [source]}, sample_per_table=1,
+                enrich_max=0, facts=[fact],
+            )
+            unavailable = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        self.assertEqual(len(unchanged.select('.reader-impact-card')), 0)
+        self.assertEqual(len(unchanged.select('.technical-report article.record')), 1)
+        self.assertEqual(len(unavailable.select('.reader-impact-card')), 1)
+        self.assertIn('本次配置', unavailable.select_one('.reader-impact-card header small').get_text(' ', strip=True))
+        self.assertNotIn('新配置', unavailable.select_one('.reader-impact-card header small').get_text(' ', strip=True))
+
+    def test_common_spell_enums_are_readable_without_inventing_other_values(self):
+        fields = project_hotfix_columns('SpellEffect', {
+            'Effect': '6', 'ImplicitTarget_0': '25', 'EffectAura': '430',
+            'EffectMiscValue_0': '3081',
+        })
+        text = ' '.join(item['text'] for item in fields)
+        self.assertIn('施加光环', text)
+        self.assertIn('任意目标', text)
+        self.assertIn('播放场景', text)
+        self.assertIn('3081', text)
+
+    def test_single_push_lists_meaningful_fields_and_client_base_differences(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        rows = [
+            ('SpellName', 1271622, {'ID': '1271622', 'Name_lang': '[DNT] Tainted Page'}),
+            ('SpellEffect', 1284426, {'ID': '1284426', 'SpellID': '1271622',
+                                       'EffectIndex': '0', 'Effect': '189',
+                                       'ImplicitTarget_0': '1', 'EffectMiscValue_0': '139621'}),
+            ('SpellName', 1322323, {'ID': '1322323', 'Name_lang': "[DNT] Head Mason's Tablet"}),
+            ('SpellEffect', 1358044, {'ID': '1358044', 'SpellID': '1322323',
+                                       'EffectIndex': '0', 'Effect': '189',
+                                       'ImplicitTarget_0': '1', 'EffectMiscValue_0': '142879'}),
+            ('SpellCooldowns', 101894, {'ID': '101894', 'SpellID': '1322323',
+                                         'RecoveryTime': '20000'}),
+            ('SpellMisc', 867977, {'ID': '867977', 'SpellID': '1322323',
+                                   'RangeIndex': '1', 'CastingTimeIndex': '1'}),
+        ]
+        sources = [{'id': i, 'push_id': 112236, 'table_name': table,
+                    'record_id': rid, 'build': 69933, 'region_id': 3,
+                    'locale': 'enUS', 'status': 1}
+                   for i, (table, rid, _row) in enumerate(rows, 1)]
+        facts = [{'source': source, 'source_build': '12.1.0.69933',
+                  'after': row, 'before': None, 'after_verified': True,
+                  'before_verified': False, 'changes': []}
+                 for source, (_table, _rid, row) in zip(sources, rows)]
+        base = {('SpellName', 1271622): {'ID': '1271622',
+                                         'Name_lang': "[DNT] Head Mason's Tablet"},
+                ('SpellEffect', 1284426): {'ID': '1284426', 'SpellID': '1271622',
+                                            'EffectIndex': '0', 'Effect': '189',
+                                            'ImplicitTarget_0': '1', 'EffectMiscValue_0': '142879'},
+                ('SpellRange', 1): {'ID': '1', 'RangeMin_0': '0', 'RangeMax_0': '0',
+                                    'RangeMin_1': '0', 'RangeMax_1': '0'},
+                ('SpellCastTimes', 1): {'ID': '1', 'Base': '0', 'Minimum': '0'}}
+        monitor._fetch_hotfix_db2_baseline_row = lambda table, build, rid, locale: base.get((table, rid), {})
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=8,
+                     WAGO_HOTFIX_READER_CONTEXT_LOOKUPS=4,
+                     WAGO_HOTFIX_READER_IMPACT_MAX=2):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, from_push=112235,
+                to_push=112236, summary_title='单条字段说明测试',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933',
+                table_stats=[(table, 1 if table not in ('SpellName', 'SpellEffect') else 2)
+                             for table in ('SpellName', 'SpellEffect', 'SpellCooldowns', 'SpellMisc')],
+                by_table={table: [s for s in sources if s['table_name'] == table]
+                          for table in ('SpellName', 'SpellEffect', 'SpellCooldowns', 'SpellMisc')},
+                sample_per_table=2, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        cards = doc.select('.reader-impact-card')
+        self.assertEqual(len(cards), 6)
+        self.assertEqual(len(doc.select('.reader-impact-more .reader-impact-card')), 4)
+        text = ' '.join(card.get_text(' ', strip=True) for card in cards)
+        self.assertIn('拾取', text)
+        self.assertIn('施法者', text)
+        self.assertIn('20 秒', text)
+        self.assertIn('0 码', text)
+        self.assertIn('瞬发', text)
+        self.assertIn('142879 → 139621', text)
+        self.assertIn("[DNT] Head Mason's Tablet → [DNT] Tainted Page", text)
+        self.assertIn('基表', text)
+        self.assertIn('新配置', text)
+        self.assertNotIn('装备冷却', text)
+        impact = doc.select_one('.reader-impact-summary')
+        self.assertIsNotNone(impact)
+        self.assertIn('拾取', impact.get_text(' ', strip=True))
+        self.assertIn('20 秒', impact.get_text(' ', strip=True))
+        self.assertIn('1322323', impact.get_text(' ', strip=True))
+        self.assertNotIn('装备', impact.get_text(' ', strip=True))
+        self.assertEqual(len(doc.select('.technical-report article.record')), 6)
+
     def test_exact_build_db2_identity_lookup_rejects_wrong_build_and_id(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         def response(build, rid, locale='enUS', selector='exact:136970'):
@@ -76,7 +197,7 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertIn('Reuse', label.get_text(' ', strip=True))
         self.assertIn('136970', label.get_text(' ', strip=True))
         self.assertIn('改动未知', label.get_text(' ', strip=True))
-        self.assertNotIn('Reuse', doc.select_one('.reader-confirmed').get_text(' ', strip=True))
+        self.assertIsNone(doc.select_one('.reader-confirmed-card'))
 
     def test_item_relation_title_uses_previous_frozen_itemsparse_name(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
@@ -204,7 +325,9 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertEqual(len(confirmed.select('.reader-confirmed-card')), 1)
         self.assertIn('3 条来源', confirmed.get_text(' ', strip=True))
         card = confirmed.select_one('.reader-confirmed-card')
-        self.assertEqual(card.get_text(' ', strip=True).count('218 → 649'), 1)
+        self.assertEqual(card.get_text(' ', strip=True).count('→'), 1)
+        self.assertIn('218（标签百分比修正）', card.get_text(' ', strip=True))
+        self.assertIn('649（标签 PvP 倍率百分比修正）', card.get_text(' ', strip=True))
         for effect in ('#8', '#9', '#10'):
             self.assertIn(effect, card.get_text(' ', strip=True))
         for source in sources:
@@ -272,13 +395,9 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
             )
             doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
         reader = doc.select_one('.reader-digest')
-        self.assertIn('已核实改动：无', reader.get_text(' ', strip=True))
-        verdict = reader.select_one('.reader-verdict')
-        self.assertIsNotNone(verdict)
-        self.assertIn('世界交互物', verdict.get_text(' ', strip=True))
-        self.assertIn('20 秒', verdict.get_text(' ', strip=True))
-        self.assertIn('关联、旧值未核实', verdict.get_text(' ', strip=True))
-        self.assertIn('具体改动未知', verdict.get_text(' ', strip=True))
+        self.assertIsNone(reader.select_one('.reader-confirmed'))
+        self.assertIsNone(reader.select_one('.reader-verdict'))
+        self.assertIn('20 秒', reader.select_one('.reader-impacts').get_text(' ', strip=True))
         self.assertNotIn('这次究竟知道什么', reader.get_text(' ', strip=True))
         self.assertIn('状态：失效', reader.select_one('.reader-world-status').get_text(' ', strip=True))
         self.assertEqual(len(reader.select('.reader-readable .reader-card')), 0)
@@ -410,7 +529,7 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertIn('Hotfix 改动', reader.get_text(' ', strip=True))
         self.assertIn('已核实改动 1', reader.get_text(' ', strip=True))
         self.assertEqual(len(reader.select('.reader-evidence')), 3)
-        self.assertIn('1 项已核实改动', doc.select_one('.quick-facts').get_text(' ', strip=True))
+        self.assertIn('1 项热修前态对照', doc.select_one('.quick-facts').get_text(' ', strip=True))
         self.assertIn('1 条仅状态/来源', doc.select_one('.quick-facts').get_text(' ', strip=True))
         self.assertIn('勇士徽记包', [heading.get_text(strip=True) for heading in reader.select('.reader-card h3')])
         primary = reader.select_one('.reader-readable')
