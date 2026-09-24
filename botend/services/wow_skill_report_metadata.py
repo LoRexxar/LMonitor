@@ -134,7 +134,8 @@ def report_spell_entries(html_text):
     return entries
 
 
-def build_report_spell_metadata(html_text, branch, build, *, entries_override=None, effect_rows_override=None):
+def build_report_spell_metadata(html_text, branch, build, *, entries_override=None,
+                                effect_rows_override=None, resolve_remote=True):
     entries = report_spell_entries(html_text) if entries_override is None else entries_override
     if not entries or not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
         return {}
@@ -170,15 +171,20 @@ def build_report_spell_metadata(html_text, branch, build, *, entries_override=No
                         relation['push_id'] = int(row['__source_push'])
                     relations.setdefault(sid, []).append(relation)
     labels = sorted({r['label'] for rows in relations.values() for r in rows if r['relation'] == 'label'})
-    label_rows = _parallel(labels, lambda label: _db2_rows('SpellLabel', build, 'LabelID', label)) if labels else {}
+    label_rows = _parallel(labels, lambda label: _db2_rows('SpellLabel', build, 'LabelID', label)) if labels and resolve_remote else {}
     masked_ids = [sid for sid, rows in relations.items() if any(r['relation'] == 'class_mask' for r in rows)]
-    options = _parallel(masked_ids, lambda sid: _db2_rows('SpellClassOptions', build, 'SpellID', sid)) if masked_ids else {}
+    options = _parallel(masked_ids, lambda sid: _db2_rows('SpellClassOptions', build, 'SpellID', sid)) if masked_ids and resolve_remote else {}
     class_sets = {sid: int(rows[0].get('SpellClassSet') or 0) for sid, rows in options.items() if rows}
     families = sorted(set(class_sets.values()) - {0})
-    family_rows = _parallel(families, lambda family: _db2_rows('SpellClassOptions', build, 'SpellClassSet', family)) if families else {}
+    family_rows = _parallel(families, lambda family: _db2_rows('SpellClassOptions', build, 'SpellClassSet', family)) if families and resolve_remote else {}
     target_ids = set()
     for sid, rows in relations.items():
         for relation in rows:
+            if not resolve_remote:
+                # The frozen Hotfix effect proves the relationship selector,
+                # not its targets. Do not fetch unrelated history on page load.
+                relation.update(spell_ids=[], truncated=False, resolved=False)
+                continue
             if relation['relation'] == 'label':
                 matches = label_rows[relation['label']]
             else:
@@ -191,13 +197,13 @@ def build_report_spell_metadata(html_text, branch, build, *, entries_override=No
             target_ids.update(relation['spell_ids'])
     metadata = database_spell_metadata(set(ids) | target_ids, branch, build)
     missing_names = sorted(sid for sid in target_ids if not metadata[sid]['name'])
-    names = _parallel(missing_names, lambda sid: _db2_rows('SpellName', build, 'ID', sid, 'zhCN')) if missing_names else {}
+    names = _parallel(missing_names, lambda sid: _db2_rows('SpellName', build, 'ID', sid, 'zhCN')) if missing_names and resolve_remote else {}
     for sid, rows in names.items():
         metadata[sid]['name'] = next((r.get('Name_lang', '') for r in rows), '')
     # 调整光环使用受影响技能各自的图标，不借用其上游可能存在的占位图标。
     icon_ids = sorted((set(ids) - set(relations)) | target_ids)
     missing_icons = [sid for sid in icon_ids if not metadata[sid]['icon']]
-    icons = _parallel(missing_icons, lambda sid: _tooltip_icon(branch, sid)) if missing_icons else {}
+    icons = _parallel(missing_icons, lambda sid: _tooltip_icon(branch, sid)) if missing_icons and resolve_remote else {}
     for sid, icon in icons.items():
         if icon:
             metadata[sid].update(icon=icon, icon_source='wowhead')
@@ -222,7 +228,7 @@ def build_report_spell_metadata(html_text, branch, build, *, entries_override=No
     return result
 
 
-def build_hotfix_report_spell_metadata(html_text, branch, facts):
+def build_hotfix_report_spell_metadata(html_text, branch, facts, *, resolve_remote=True):
     """Resolve each reported Hotfix effect using its frozen source build."""
     entries = report_spell_entries(html_text)
     if not entries:
@@ -276,6 +282,7 @@ def build_hotfix_report_spell_metadata(html_text, branch, facts):
         for sid, item in build_report_spell_metadata(
             html_text, branch, build, entries_override=grouped[build],
             effect_rows_override=effect_rows.get(build) or {},
+            resolve_remote=resolve_remote,
         ).items():
             effects = [{**effect, 'source_build': build} for effect in item['effects']]
             if sid in result:

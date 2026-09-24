@@ -1304,7 +1304,9 @@ class PortalWowHotfixClassReportViewTests(SimpleTestCase):
         self.assertIn('push 112181', response.content.decode())
         self.assertEqual(json.loads(metadata.content)['spells']['123']['id'], 123)
         self.assertEqual(json.loads(metadata.content)['unresolved_count'], 8)
-        build.assert_called_once_with(self.content, 'wow', json.loads(self.row.source_facts_json))
+        self.assertEqual(json.loads(metadata.content)['relation_unresolved_count'], 0)
+        build.assert_called_once_with(self.content, 'wow', json.loads(self.row.source_facts_json),
+                                      resolve_remote=False)
 
     def test_unverified_class_projection_is_not_public(self):
         self.row.collection_complete = False

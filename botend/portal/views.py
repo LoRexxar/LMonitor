@@ -222,11 +222,17 @@ class PortalWowHotfixClassMetadataAPIView(View):
             facts = json.loads(row.source_facts_json)
             if not isinstance(facts, list) or not facts:
                 raise ValueError('Hotfix source facts missing')
-            spells = build_hotfix_report_spell_metadata(content, row.branch, facts)
+            spells = build_hotfix_report_spell_metadata(
+                content, row.branch, facts, resolve_remote=False,
+            )
         except (TypeError, ValueError):
             return JsonResponse({'error': '热修元数据来源不可验证'}, status=503)
         return JsonResponse({'spells': spells, 'branch': row.branch,
-                             'unresolved_count': row.class_unresolved_count})
+                             'unresolved_count': row.class_unresolved_count,
+                             'relation_unresolved_count': sum(
+                                 not effect.get('resolved', True)
+                                 for spell in spells.values() for effect in spell.get('effects', [])
+                             )})
 
 
 def _extract_portal_report_embedded_html(html_text):

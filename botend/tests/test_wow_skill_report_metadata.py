@@ -187,3 +187,24 @@ class ReportRelationshipTests(SimpleTestCase):
         for branch, prefix in [('wow', ''), ('wowt', 'ptr/'), ('wowxptr', 'ptr-2/'), ('wow_beta', 'beta/')]:
             self.assertEqual(wowhead_spell_url(branch, 1), f'https://www.wowhead.com/{prefix}spell=1')
         self.assertEqual(build_report_spell_metadata(self.html, 'wowt', 'invalid'), {})
+
+    def test_hotfix_fast_metadata_preserves_relation_evidence_without_remote_enrichment(self):
+        html = "<article class='spell' id='spell-123'><span class='spell-title'>技能</span><span class='impact-evidence'>效果(#0)</span></article>"
+        fact = {'source': {'table_name': 'SpellEffect', 'record_id': 456, 'push_id': 112185, 'build': 69933},
+                'source_build': '12.1.0.69933', 'after_verified': True,
+                'after': {'ID': '456', 'SpellID': '123', 'EffectIndex': '0',
+                          'EffectAura': '648', 'EffectMiscValue_1': '3450'}}
+        with patch('botend.services.wow_skill_report_metadata._db2_rows',
+                   side_effect=AssertionError('external DB2 queried')), \
+             patch('botend.services.wow_skill_report_metadata._tooltip_icon',
+                   side_effect=AssertionError('external icon queried')), \
+             patch('botend.services.wow_skill_report_metadata.database_spell_metadata',
+                   return_value={123: {'name': '', 'icon': '', 'icon_source': ''}}):
+            item = build_hotfix_report_spell_metadata(html, 'wow', [fact], resolve_remote=False)['123']
+        self.assertEqual(item['effects'], [{
+            'index': 0, 'aura': 648, 'label': 3450, 'relation': 'label',
+            'push_id': 112185, 'spell_ids': [], 'targets': [], 'truncated': False,
+            'resolved': False, 'source_build': '12.1.0.69933',
+        }])
+        self.assertEqual(item['direct_indices'], [])
+        self.assertEqual(item['name'], '技能')
