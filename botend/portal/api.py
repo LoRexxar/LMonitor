@@ -1,11 +1,14 @@
 import json
 import re
+from math import ceil
+from types import SimpleNamespace
 
 from django.core.paginator import EmptyPage, Paginator
 from django.http import JsonResponse
 from django.views import View
 from django.core.cache import cache
 from django.db.models import Count, Q
+from django.db.models.functions import Substr
 from django.utils import timezone
 from datetime import timedelta
 
@@ -392,6 +395,8 @@ def _state_to_dict(s):
         'init_no_class_change': '初始化：无职业更新',
         'build_changed_has_class_change': '更新：有职业更新',
         'build_changed_no_class_change': '更新：无职业更新',
+        'hotfix_source_behind_cursor': '源站推送落后游标，待重试',
+        'has_class_change': '有职业更新',
         'failed': '失败',
     }
     run_status = (getattr(s, 'last_run_status', '') or '').strip()
@@ -479,7 +484,7 @@ def _state_to_dict(s):
     }
 
 
-def _paginate_recent_reports(request, queryset, serializer):
+def _paginate_recent_reports(request, queryset, serializer, *, all_history=False):
     try:
         page = max(1, int(request.GET.get('page') or 1))
     except ValueError:
@@ -490,8 +495,10 @@ def _paginate_recent_reports(request, queryset, serializer):
         page_size = 20
     page_size = max(1, min(100, page_size))
 
-    since = timezone.now() - timedelta(days=60)
-    paginator = Paginator(queryset.filter(created_at__gte=since).order_by('-created_at', '-id'), page_size)
+    if not all_history:
+        since = timezone.now() - timedelta(days=60)
+        queryset = queryset.filter(created_at__gte=since)
+    paginator = Paginator(queryset.order_by('-created_at', '-id'), page_size)
     try:
         page_obj = paginator.page(page)
     except EmptyPage:
@@ -513,11 +520,61 @@ def _paginate_recent_reports(request, queryset, serializer):
 
 class PortalWowSkillDiffListAPIView(View):
     def get(self, request):
-        return _paginate_recent_reports(
-            request,
-            WowSkillDiffReport.objects.all(),
-            _skilldiff_to_dict,
-        )
+        try:
+            page = max(1, int(request.GET.get('page') or 1))
+        except ValueError:
+            page = 1
+        try:
+            page_size = int(request.GET.get('page_size') or request.GET.get('limit') or 20)
+        except ValueError:
+            page_size = 20
+        page_size = max(1, min(100, page_size))
+        since = timezone.now() - timedelta(days=60)
+        builds = WowSkillDiffReport.objects.filter(created_at__gte=since)
+        hotfixes = (WowHotfixReport.objects.filter(
+            created_at__gte=since, collection_complete=True, class_spell_count__gt=0,
+        ).exclude(class_content_html_path=''))
+        total = builds.count() + hotfixes.count()
+        total_pages = max(1, ceil(total / page_size))
+        page = min(page, total_pages)
+        end = page * page_size
+        build_rows = list(builds.annotate(md_head=Substr('content_md', 1, 300))
+                          .order_by('-created_at', '-id').values(
+                              'id', 'branch', 'from_build', 'to_build', 'class_count', 'spell_count',
+                              'created_at', 'md_head',
+                          )[:end])
+        hotfix_rows = list(hotfixes.order_by('-created_at', '-id').values(
+            'id', 'branch', 'region_id', 'from_push', 'to_push', 'build_str',
+            'class_spell_count', 'class_class_count', 'class_unresolved_count', 'created_at',
+        )[:end])
+        ordered = sorted(
+            [('build', row) for row in build_rows] + [('hotfix', row) for row in hotfix_rows],
+            key=lambda item: (item[1]['created_at'], item[1]['id'], item[0]), reverse=True,
+        )[(page - 1) * page_size:end]
+        data = []
+        for kind, row in ordered:
+            if kind == 'build':
+                payload = _skilldiff_to_dict(SimpleNamespace(**{**row, 'content_md': row['md_head']}))
+                payload['type'] = 'build'
+            else:
+                region = wago_region_name(row['region_id']) or '区域未确认'
+                unresolved = int(row['class_unresolved_count'] or 0)
+                scope = (f"已解析 {row['class_spell_count']}+ 技能，{unresolved} 条失效来源归属未核实"
+                         if unresolved else f"{row['class_spell_count']} 改动来源")
+                payload = {
+                    'id': row['id'], 'type': 'hotfix', 'source': 'Wago Hotfix',
+                    'title': f"Hotfix 职业更新（{row['class_class_count']} 职业 / {scope}）"
+                             f"（{row['branch']} {region} · {row['build_str']} · push {row['from_push']}→{row['to_push']}）",
+                    'url': f"/portal/wow-hotfix-class/{row['id']}/",
+                    'branch': row['branch'], 'time': _fmt_dt(row['created_at']),
+                    'from_push': row['from_push'], 'to_push': row['to_push'],
+                    'unresolved_count': unresolved,
+                }
+            data.append(payload)
+        return JsonResponse({'status': 'success', 'data': data, 'meta': {
+            'page': page, 'page_size': page_size, 'total': total, 'total_pages': total_pages,
+            'has_next': page < total_pages, 'has_previous': page > 1,
+        }})
 
 
 class PortalWowSkillDiffStatesAPIView(View):
@@ -542,19 +599,44 @@ def _hotfix_report_to_dict(r):
         'title': title,
         'url': f"/portal/wow-hotfix-report/{r.id}/",
         'source': 'Wago',
+        'verified': bool(getattr(r, 'collection_complete', False)),
         'time': _fmt_dt(getattr(r, 'created_at', None)),
         'branch': branch,
+        'build': (getattr(r, 'build_str', '') or getattr(r, 'build_num', '') or '').strip(),
         'from_push': from_push,
         'to_push': to_push,
+        'table_count': int(getattr(r, 'table_count', 0) or 0),
+        'entry_count': int(getattr(r, 'entry_count', 0) or 0),
     }
 
 
 class PortalHotfixReportsAPIView(View):
     def get(self, request):
+        all_history = request.GET.get('scope') == 'all'
+        reports = WowHotfixReport.objects.all()
+        if all_history:
+            branch = (request.GET.get('branch') or '').strip()
+            if branch and branch not in ('wow', 'wowt', 'wowxptr', 'wow_beta'):
+                return JsonResponse({'error': '无效分支'}, status=400)
+            if branch:
+                reports = reports.filter(branch=branch)
+            query = (request.GET.get('q') or '').strip()[:80]
+            if query:
+                condition = (
+                    Q(summary_title__icontains=query)
+                    | Q(build_str__icontains=query)
+                    | Q(build_num__icontains=query)
+                    | Q(changed_tables_json__icontains=query)
+                )
+                if query.isdecimal():
+                    value = int(query)
+                    condition |= Q(from_push=value) | Q(to_push=value)
+                reports = reports.filter(condition)
         return _paginate_recent_reports(
             request,
-            WowHotfixReport.objects.all(),
+            reports,
             _hotfix_report_to_dict,
+            all_history=all_history,
         )
 
 

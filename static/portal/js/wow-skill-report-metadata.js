@@ -59,7 +59,7 @@
     .then(response => { if (!response.ok) throw new Error('报告补全失败'); return response.json(); })
     .then(payload => {
       const affectedIds = new Set();
-      let complete = true;
+      let complete = !(Number(payload.unresolved_count) > 0);
       articles.forEach(article => {
         const id = article.id.slice('spell-'.length);
         const item = payload.spells?.[id];
@@ -71,12 +71,14 @@
         const link = titleRow.querySelector('a');
         if (link) link.href = item.url;
         const effects = item.effects || [];
+        const directIndices = new Set(item.direct_indices || []);
+        if (directIndices.size) affectedIds.add(id);
         const expectedIndices = new Set();
         article.querySelectorAll('.impact-evidence, .line').forEach(element => {
           for (const match of element.textContent.matchAll(/\(#(\d+)\)/g)) expectedIndices.add(Number(match[1]));
         });
         const returnedIndices = new Set(effects.map(effect => Number(effect.index)));
-        const allExpectedReturned = [...expectedIndices].every(index => returnedIndices.has(index));
+        const allExpectedReturned = [...expectedIndices].every(index => returnedIndices.has(index) || directIndices.has(index));
         if (!allExpectedReturned) complete = false;
         if (!effects.length) {
           if (!expectedIndices.size) affectedIds.add(id);
@@ -102,7 +104,8 @@
           const group = document.createElement('div');
           group.className = 'spell-affected-skills';
           const label = document.createElement('span');
-          label.textContent = `效果 #${effect.index} · 受影响技能：`;
+          const origin = effect.source_build ? ` · 来源 build ${effect.source_build}${effect.push_id ? ` / push ${effect.push_id}` : ''}` : '';
+          label.textContent = `效果 #${effect.index}${origin} · 受影响技能：`;
           group.append(label);
           const related = displayTargets(effect.targets);
           if (!effect.targets.length || effect.truncated) complete = false;
@@ -120,10 +123,12 @@
           });
           if (!effect.targets.length) group.append(document.createTextNode('关联技能待解析'));
           const factRows = Array.from(article.querySelectorAll('.impact-block .impact-row[data-effect-index]')).filter(row =>
-            row.dataset.effectIndex === String(effect.index));
+            row.dataset.effectIndex === String(effect.index) &&
+            (!effect.source_build || row.dataset.sourceBuild === effect.source_build) &&
+            (!effect.push_id || row.dataset.sourcePush === String(effect.push_id)));
           const detailRows = Array.from(article.querySelectorAll('.tech-details .line')).filter(row =>
             row.textContent.includes(`(#${effect.index})`));
-          const evidenceRows = factRows.length ? factRows : detailRows;
+          const evidenceRows = factRows.length ? factRows : (effect.source_build ? [] : detailRows);
           if (evidenceRows.length) {
             const facts = document.createElement('div');
             facts.className = 'spell-effect-change';

@@ -4,7 +4,8 @@ from django.test import TestCase, SimpleTestCase
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion, WowSkillDiffReport
 from botend.services.wow_skill_report_metadata import (
-    build_report_spell_metadata, database_spell_metadata, report_spell_entries, wowhead_spell_url,
+    build_report_spell_metadata, build_hotfix_report_spell_metadata,
+    database_spell_metadata, report_spell_entries, wowhead_spell_url,
 )
 
 
@@ -51,6 +52,65 @@ class ReportRelationshipTests(SimpleTestCase):
     html = """<article class='spell' id='spell-1256919'><span class='spell-title'>武器战士</span>
     <span class='impact-evidence'>应用光环(#8)</span><div class='line'>应用光环(#8)</div></article>
     <article class='spell' id='spell-2098'><span class='spell-title'>斩击</span></article>"""
+
+    def test_hotfix_relation_uses_frozen_source_build_not_report_current_build(self):
+        html = "<article class='spell' id='spell-123'><span class='spell-title'>旧技能</span><span class='impact-evidence'>效果(#0)</span></article>"
+        fact = {'source': {'table_name': 'SpellEffect', 'record_id': 456, 'build': 69814},
+                'source_build': '12.1.0.69814', 'after_verified': True,
+                'after': {'ID': '456', 'SpellID': '123', 'EffectIndex': '0',
+                          'EffectAura': '648', 'EffectMiscValue_1': '3450'}}
+        fetched = []
+        def db2(table, build, field, value, locale='enUS'):
+            fetched.append((table, build))
+            if table == 'SpellEffect':
+                return [{'EffectIndex': '0', 'EffectAura': '0', 'EffectMiscValue_1': '0'}]
+            if table == 'SpellLabel':
+                return [{'SpellID': '777'}]
+            return []
+        with patch('botend.services.wow_skill_report_metadata._db2_rows', side_effect=db2), \
+             patch('botend.services.wow_skill_report_metadata.database_spell_metadata',
+                   side_effect=lambda ids, *args: {sid: {'name': f'技能 {sid}', 'icon': 'existing', 'icon_source': 'spell_snapshot'} for sid in ids}):
+            result = build_hotfix_report_spell_metadata(html, 'wow', [fact])
+        self.assertEqual(result['123']['effects'][0]['targets'][0]['id'], 777)
+        self.assertEqual(result['123']['effects'][0]['source_build'], '12.1.0.69814')
+        self.assertEqual({build for _, build in fetched}, {'12.1.0.69814'})
+        self.assertNotIn('SpellEffect', [table for table, _ in fetched])
+        with self.assertRaises(ValueError):
+            build_hotfix_report_spell_metadata(html, 'wow', [{**fact, 'source_build': ''}])
+
+    def test_hotfix_direct_effect_counts_its_own_spell_without_inventing_targets(self):
+        html = "<article class='spell' id='spell-427453'><span class='spell-title'>光明之锤</span><span class='impact-evidence'>效果(#0)</span></article>"
+        fact = {'source': {'table_name': 'SpellEffect', 'record_id': 1106904, 'build': 69933},
+                'source_build': '12.1.0.69933', 'after_verified': True,
+                'after': {'ID': '1106904', 'SpellID': '427453', 'EffectIndex': '0', 'EffectAura': '0'}}
+        with patch('botend.services.wow_skill_report_metadata._db2_rows') as db2, \
+             patch('botend.services.wow_skill_report_metadata.database_spell_metadata',
+                   return_value={427453: {'name': '光明之锤', 'icon': 'hammer', 'icon_source': 'spell_snapshot'}}):
+            item = build_hotfix_report_spell_metadata(html, 'wow', [fact])['427453']
+        self.assertEqual(item['effects'], [])
+        self.assertEqual(item['direct_indices'], [0])
+        db2.assert_not_called()
+
+    def test_hotfix_same_effect_index_from_two_builds_preserves_both_physical_relations(self):
+        html = "<article class='spell' id='spell-123'><span class='spell-title'>技能</span><span class='impact-evidence'>效果(#0)</span></article>"
+        facts = [
+            {'source': {'table_name': 'SpellEffect', 'record_id': 1, 'push_id': 112185, 'build': 69814},
+             'source_build': '12.1.0.69814', 'after_verified': True,
+             'after': {'SpellID': '123', 'EffectIndex': '0', 'EffectAura': '648', 'EffectMiscValue_1': '3450'}},
+            {'source': {'table_name': 'SpellEffect', 'record_id': 1, 'push_id': 112208, 'build': 69933},
+             'source_build': '12.1.0.69933', 'after_verified': True,
+             'after': {'SpellID': '123', 'EffectIndex': '0', 'EffectAura': '648', 'EffectMiscValue_1': '4567'}},
+        ]
+        def db2(table, build, field, value, locale='enUS'):
+            self.assertNotEqual(table, 'SpellEffect')
+            return [{'SpellID': '777' if build.endswith('69814') else '888'}] if table == 'SpellLabel' else []
+        with patch('botend.services.wow_skill_report_metadata._db2_rows', side_effect=db2), \
+             patch('botend.services.wow_skill_report_metadata.database_spell_metadata',
+                   side_effect=lambda ids, *args: {sid: {'name': str(sid), 'icon': 'existing', 'icon_source': 'spell_snapshot'} for sid in ids}):
+            effects = build_hotfix_report_spell_metadata(html, 'wow', facts)['123']['effects']
+        self.assertEqual([(item['source_build'], item['push_id'], item['targets'][0]['id']) for item in effects], [
+            ('12.1.0.69814', 112185, 777), ('12.1.0.69933', 112208, 888),
+        ])
 
     def test_only_changed_effect_is_resolved_and_database_icons_do_not_fetch_tooltips(self):
         def db2(table, build, field, value, locale='enUS'):

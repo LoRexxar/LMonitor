@@ -1,4 +1,5 @@
 import csv
+import fcntl
 import html
 import io
 import json
@@ -10,6 +11,7 @@ import tempfile
 import time
 from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
+from urllib.parse import urlencode
 
 import requests
 from django.conf import settings
@@ -24,6 +26,8 @@ from botend.controller.plugins.wow.wago_regions import wago_region_id, wago_regi
 from botend.services.wago_db2.client import WagoDB2Client
 from botend.services.wago_db2.graph import WagoDB2GraphService
 from botend.services.wow_skill_report_metadata import database_spell_metadata, wowhead_spell_url as report_spell_url
+from botend.services.wago_hotfix_source import collect_hotfix_push_rows, collect_hotfix_record_history, collect_hotfix_build_rows, source_ids_sha256, HotfixSourceIncomplete
+from botend.services.wago_hotfix_facts import build_hotfix_facts, previous_hotfix_row, project_class_spell_changes
 
 try:
     from core.glm import GLMClient
@@ -60,6 +64,7 @@ class WagoSkillDiffMonitor(BaseScan):
             'User-Agent': 'Mozilla/5.0',
             'Connection': 'close',
         })
+        self._hotfix_history_cache = {}
         self.core_tables = {
             'spell',
             'spelleffect',
@@ -410,13 +415,65 @@ class WagoSkillDiffMonitor(BaseScan):
             count += 1
         return ok if count else True
 
-    def _scan_hotfix_if_needed(self, st, branch, current_build):
+    def _scan_hotfix_if_needed(self, st, branch, current_build, *, backfill_interval=None,
+                               expected_source_count=None, expected_source_sha256=None):
         if (branch or '').strip().lower() != 'wow':
             return True
+        # Serialize both scheduled scans and explicit backfills for the same
+        # region across worker processes, including file publication and DB
+        # completion. A second run must not demote the first published row.
+        region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
+        lock_dir = os.path.join(str(settings.BASE_DIR), 'tmp')
+        os.makedirs(lock_dir, exist_ok=True)
+        lock_path = os.path.join(lock_dir, f'wago-hotfix-scan-r{region_id}.lock')
+        with open(lock_path, 'a+') as lock_file:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                logger.warning('[WagoSkillDiffMonitor] region %s Hotfix scan already running', region_id)
+                return False
+            try:
+                return self._scan_hotfix_locked(
+                    st, branch, current_build, backfill_interval=backfill_interval,
+                    expected_source_count=expected_source_count,
+                    expected_source_sha256=expected_source_sha256,
+                )
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def _scan_hotfix_locked(self, st, branch, current_build, *, backfill_interval=None,
+                            expected_source_count=None, expected_source_sha256=None):
         now = timezone.now()
         hotfix_locale = 'enUS'
+        region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
         last_push = self._to_int(getattr(st, 'hotfix_push_id', 0) or 0)
-        latest_push = self._fetch_latest_hotfix_push_id(locale=hotfix_locale)
+        if region_id <= 0:
+            logger.warning(
+                '[WagoSkillDiffMonitor] Hotfix region is unverified; preserve legacy cursor %s',
+                last_push,
+            )
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'hotfix_region_unverified'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            return False
+        if backfill_interval is not None:
+            try:
+                requested_from, latest_push = map(int, backfill_interval)
+            except (TypeError, ValueError):
+                raise ValueError('Hotfix backfill requires an exact (from_push, to_push) interval')
+            if requested_from != last_push or latest_push <= last_push:
+                raise ValueError('Hotfix backfill interval must start at the supplied state cursor')
+        else:
+            try:
+                latest_push = self._fetch_latest_hotfix_push_id(
+                    locale=hotfix_locale, region_id=region_id, current_build=current_build,
+                )
+            except (HotfixSourceIncomplete, WagoDiffUnavailable) as exc:
+                logger.warning('[WagoSkillDiffMonitor] Hotfix discovery incomplete: %s', exc)
+                st.hotfix_last_run_status = 'failed'
+                st.hotfix_last_event_status = 'source_incomplete'
+                st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+                return False
         st.hotfix_last_run_at = now
         st.hotfix_last_run_status = 'success' if latest_push > 0 else 'no_data'
         st.save(update_fields=['hotfix_last_run_at', 'hotfix_last_run_status'])
@@ -424,31 +481,33 @@ class WagoSkillDiffMonitor(BaseScan):
             return True
         if last_push > latest_push:
             logger.warning(
-                "[WagoSkillDiffMonitor] hotfix cursor is ahead of Wago latest push, "
-                "recover as initial scan: branch=%s locale=%s last_push=%s latest_push=%s",
+                "[WagoSkillDiffMonitor] Wago hotfix candidate is behind committed cursor; "
+                "keep cursor/report and retry later: branch=%s locale=%s last_push=%s latest_push=%s",
                 branch,
                 hotfix_locale,
                 last_push,
                 latest_push,
             )
-            st.hotfix_push_id = 0
-            st.hotfix_last_event_status = 'hotfix_cursor_recovered'
-            st.save(update_fields=['hotfix_push_id', 'hotfix_last_event_status'])
-            last_push = 0
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'hotfix_source_behind_cursor'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            return True
         if latest_push <= last_push:
             return True
 
         report = None
+        class_report = None
         is_init = last_push <= 0
         from_push = last_push
         if is_init:
-            prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale)
+            prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale, region_id=region_id)
             from_push = prev_push if prev_push > 0 else max(0, latest_push - 1)
 
         hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
         hotfix_event, _ = WowWagoHotfixEvent.objects.update_or_create(
             branch=branch,
             locale=hotfix_locale,
+            region_id=region_id,
             to_push=latest_push,
             defaults={
                 'from_push': from_push,
@@ -462,8 +521,44 @@ class WagoSkillDiffMonitor(BaseScan):
         fallback_status = ''
         fallback_error = ''
         try:
-            report = self._generate_hotfix_full_report(branch, current_build, from_push, latest_push, locale=hotfix_locale)
+            hotfix_rows = self._collect_hotfix_interval_rows(
+                from_push, latest_push, region_id=region_id, locale=hotfix_locale,
+            )
+            if not hotfix_rows:
+                raise WagoDiffUnavailable('Hotfix interval has no verified rows for selected region')
+            if backfill_interval is not None and expected_source_count is not None:
+                ids = [int(row['id']) for row in hotfix_rows]
+                digest = source_ids_sha256(hotfix_rows)
+                if len(ids) != int(expected_source_count) or digest != expected_source_sha256:
+                    raise WagoDiffUnavailable(
+                        f'Hotfix interval source identity mismatch: count={len(ids)} sha256={digest}'
+                    )
+            facts = self._resolve_hotfix_facts(hotfix_rows, db2_build=current_build)
+            class_report = self._generate_hotfix_class_report(
+                branch, current_build, from_push, latest_push,
+                region_id=region_id, facts=facts, locale=hotfix_locale,
+                stage_for_publication=True,
+            )
+            report = self._generate_hotfix_full_report(
+                branch, current_build, from_push, latest_push, locale=hotfix_locale,
+                region_id=region_id, hotfix_rows=hotfix_rows, facts=facts,
+                stage_for_publication=True,
+            )
+            if not report or not report.get('content_html_path') or int(report.get('entry_count') or 0) != len(hotfix_rows):
+                raise WagoDiffUnavailable('Hotfix full report incomplete after verified collection')
+            report.update({
+                'class_content_html_path': class_report['content_html_path'],
+                'class_spell_count': class_report['spell_count'],
+                'class_class_count': class_report['class_count'],
+                'class_unresolved_count': class_report['unresolved_count'],
+            })
         except Exception as e:
+            self._discard_hotfix_staging(report, class_report)
+            if backfill_interval is not None:
+                # A manual historical replay must not publish a placeholder
+                # or alter the committed cursor when Wago is incomplete.
+                self._mark_event(hotfix_event, status='generate_failed', error_message=e)
+                return False
             fallback_status = 'generate_failed_fallback_report'
             fallback_error = str(e)
             report = self._build_hotfix_fallback_report(
@@ -472,10 +567,14 @@ class WagoSkillDiffMonitor(BaseScan):
                 from_push=from_push,
                 to_push=latest_push,
                 locale=hotfix_locale,
+                region_id=region_id,
                 reason=f'Hotfix 明细报告生成失败，已生成 fallback 报告：{e}',
             )
 
         if not report or int(report.get('entry_count') or 0) <= 0:
+            if backfill_interval is not None:
+                self._mark_event(hotfix_event, status='no_data', error_message='Verified interval has no reportable rows')
+                return False
             fallback_status = fallback_status or 'no_data_fallback_report'
             report = self._build_hotfix_fallback_report(
                 branch=branch,
@@ -483,15 +582,41 @@ class WagoSkillDiffMonitor(BaseScan):
                 from_push=from_push,
                 to_push=latest_push,
                 locale=hotfix_locale,
+                region_id=region_id,
                 reason='Wago 已检测到新的 hotfix push，但明细接口暂未返回可汇总数据，已生成 fallback 报告。',
                 source_report=report,
             )
+
+        if fallback_status and WowHotfixReport.objects.filter(
+            branch=branch, locale=hotfix_locale, region_id=region_id,
+            to_push=latest_push, collection_complete=True,
+        ).first():
+            # A failed retry must never downgrade an already verified report.
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'source_unavailable_preserved'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            self._mark_event(hotfix_event, status='source_unavailable_preserved', error_message=fallback_error)
+            return False
+
+        if not fallback_status and WowHotfixReport.objects.filter(
+            branch=branch, locale=hotfix_locale, region_id=region_id,
+            to_push=latest_push, collection_complete=True,
+        ).first():
+            # A committed report might predate a state-write failure. Never
+            # replace its frozen facts or publish over its existing HTML.
+            self._discard_hotfix_staging(report, class_report)
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'complete_report_preserved'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            self._mark_event(hotfix_event, status='complete_report_preserved')
+            return False
 
         row = None
         try:
             row, _ = WowHotfixReport.objects.update_or_create(
                 branch=branch,
                 locale=hotfix_locale,
+                region_id=region_id,
                 to_push=int(report.get('to_push') or latest_push),
                 defaults={
                     'from_push': int(report.get('from_push') or from_push),
@@ -505,9 +630,18 @@ class WagoSkillDiffMonitor(BaseScan):
                     'changed_tables_json': report.get('changed_tables_json') or '',
                     'table_count': int(report.get('table_count') or 0),
                     'entry_count': int(report.get('entry_count') or 0),
+                    'source_facts_json': report.get('source_facts_json') or '',
+                    # Do not expose a complete row before both staged HTML
+                    # files have been published.
+                    'collection_complete': False,
+                    'class_content_html_path': report.get('class_content_html_path') or '',
+                    'class_spell_count': int(report.get('class_spell_count') or 0),
+                    'class_class_count': int(report.get('class_class_count') or 0),
+                    'class_unresolved_count': int(report.get('class_unresolved_count') or 0),
                 }
             )
         except Exception as e:
+            self._discard_hotfix_staging(report, class_report)
             self._mark_event(hotfix_event, status='save_report_failed', report=None, error_message=e)
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
@@ -529,6 +663,27 @@ class WagoSkillDiffMonitor(BaseScan):
             )
             return False
 
+        if not fallback_status:
+            published = []
+            try:
+                published = self._publish_staged_hotfix_reports(report, class_report) or []
+                row.collection_complete = True
+                row.save(update_fields=['collection_complete'])
+            except Exception as e:
+                for path in published:
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        logger.exception('[WagoSkillDiffMonitor] failed to remove unpublished Hotfix file %s', path)
+                self._discard_hotfix_staging(report, class_report)
+                row.collection_complete = False
+                row.save(update_fields=['collection_complete'])
+                self._mark_event(hotfix_event, status='publish_failed', report=None, error_message=e)
+                st.hotfix_last_run_status = 'failed'
+                st.hotfix_last_event_status = 'publish_failed'
+                st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+                return False
+
         self._mark_event(
             hotfix_event,
             status=fallback_status or 'report_generated',
@@ -542,9 +697,7 @@ class WagoSkillDiffMonitor(BaseScan):
             error_message=fallback_error,
         )
 
-        # 完整报告成功落库后才推进 push 游标；fallback 报告只保证 Dashboard 有可追溯报告，
-        # 但保留下一轮自动重试完整明细报告的机会。WowHotfixReport 使用 update_or_create，
-        # 因此重复 fallback/retry 会覆盖同一个 to_push 报告，不会堆重复记录。
+        # Only verified complete source facts may advance this region's cursor.
         state_update_fields = [
             'hotfix_last_event_at',
             'hotfix_last_event_status',
@@ -554,20 +707,24 @@ class WagoSkillDiffMonitor(BaseScan):
             'hotfix_class_count',
             'hotfix_summary_title',
         ]
-        if not fallback_status:
+        if not fallback_status and backfill_interval is None:
             st.hotfix_push_id = latest_push
-            state_update_fields.insert(0, 'hotfix_push_id')
+            st.hotfix_region_id = region_id
+            state_update_fields[:0] = ['hotfix_push_id', 'hotfix_region_id']
+        else:
+            st.hotfix_last_run_status = 'failed'
+            state_update_fields.append('hotfix_last_run_status')
         st.hotfix_last_event_at = now
         st.hotfix_last_event_status = (
             ('init_has_update_fallback' if is_init else 'has_update_fallback')
             if fallback_status else
-            ('init_has_update' if is_init else 'has_update')
+            ('has_class_change' if int(report.get('class_spell_count') or 0) > 0 else
+             ('init_has_update' if is_init else 'has_update'))
         )
         st.hotfix_report_url = (report.get('report_url') or '') if report else ''
         st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
-        # 兼容旧字段：保留 0，避免误导（全量信息请看 WowHotfixReport 表）
-        st.hotfix_spell_count = 0
-        st.hotfix_class_count = 0
+        st.hotfix_spell_count = int(report.get('class_spell_count') or 0)
+        st.hotfix_class_count = int(report.get('class_class_count') or 0)
         st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
         st.save(update_fields=state_update_fields)
         return True
@@ -601,15 +758,8 @@ class WagoSkillDiffMonitor(BaseScan):
     def _hotfix_url(self, build_num='', push_id=0, locale=''):
         locale = (locale or '').strip()
         build_num = str(build_num or '').strip()
-        params = []
-        if build_num:
-            params.append(f"filter%5Bbuild%5D={build_num}")
-        if push_id:
-            params.append(f"filter%5Bpush_id%5D={int(push_id)}")
-        if locale:
-            params.append(f"filter%5Blocale%5D={locale}")
-        qs = '&'.join(params)
-        return f"https://wago.tools/hotfixes?{qs}" if qs else 'https://wago.tools/hotfixes'
+        search = f'{locale} {int(push_id)}'.strip() if push_id else build_num or locale
+        return f'https://wago.tools/hotfixes?{urlencode({"search": search})}' if search else 'https://wago.tools/hotfixes'
 
     def _build_hotfix_fallback_report(
         self,
@@ -619,6 +769,7 @@ class WagoSkillDiffMonitor(BaseScan):
         from_push,
         to_push,
         locale='',
+        region_id=0,
         reason='',
         source_report=None,
     ):
@@ -634,7 +785,8 @@ class WagoSkillDiffMonitor(BaseScan):
         current_build = str(current_build or '').strip()
         source_report = source_report if isinstance(source_report, dict) else {}
         wago_url = self._hotfix_url(push_id=to_push, locale=locale)
-        summary_title = f"Hotfix 更新已检测：push {from_push}→{to_push}（fallback 报告）"
+        region_title = f'{wago_region_name(region_id)} · ' if region_id else ''
+        summary_title = f"{region_title}Hotfix 更新已检测：push {from_push}→{to_push}（fallback 报告）"
         reason = str(reason or '').strip() or 'Wago 已检测到新的 hotfix push，但暂时无法生成完整明细报告。'
         now_text = timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S %Z')
         table_count = int(source_report.get('table_count') or 0)
@@ -659,7 +811,8 @@ class WagoSkillDiffMonitor(BaseScan):
         ]
         content_md = "\n".join(md_lines).strip() + "\n"
 
-        rel_path = f"portal/reports/wow_hotfix_fallback_{branch}_{locale}_{to_push}.html"
+        region_part = f'_r{int(region_id)}' if region_id else ''
+        rel_path = f"portal/reports/wow_hotfix_fallback_{branch}_{locale}{region_part}_{to_push}.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
         static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
         full_path = os.path.join(static_dir, rel_path)
@@ -723,6 +876,13 @@ class WagoSkillDiffMonitor(BaseScan):
             'changed_tables_json': changed_tables_json,
             'table_count': table_count,
             'entry_count': entry_count,
+            'region_id': int(region_id or 0),
+            'collection_complete': False,
+            'source_facts_json': '',
+            'class_content_html_path': '',
+            'class_spell_count': 0,
+            'class_class_count': 0,
+            'class_unresolved_count': 0,
         }
 
     def _extract_build_number(self, build_str):
@@ -751,54 +911,90 @@ class WagoSkillDiffMonitor(BaseScan):
             return {}
         return obj if isinstance(obj, dict) else {}
 
-    def _fetch_latest_hotfix_push_id(self, *, locale=''):
+    def _fetch_latest_hotfix_push_id(self, *, locale='', region_id=0, current_build=''):
+        if current_build:
+            build_num = self._extract_build_number(current_build)
+            if not build_num:
+                raise WagoDiffUnavailable(f'Hotfix discovery requires exact current build: {current_build}')
+            # Wago's created_at sort is not unique: its wide search cannot be
+            # completely paginated. These pages only supply an observed upper
+            # candidate; every intervening push is collected separately below.
+            max_pages = max(1, min(200, int(getattr(settings, 'WAGO_HOTFIX_DISCOVERY_MAX_PAGES', 200) or 200)))
+            candidate = 0
+            expected_total = None
+            source_ids = {}
+            for page in range(1, max_pages + 1):
+                url = 'https://wago.tools/hotfixes?' + urlencode({'search': build_num, 'page': page})
+                props = self._extract_inertia_props(self._http_get_text(url, timeout=max(60, self.http_timeout)))
+                payload = props.get('hotfixes') if isinstance(props, dict) else None
+                try:
+                    total = int(payload['total'])
+                    current = int(payload['current_page'])
+                    last = int(payload['last_page'])
+                    per_page = int(payload['per_page'])
+                    data = payload['data']
+                except (KeyError, ValueError, TypeError):
+                    raise WagoDiffUnavailable(f'Hotfix candidate page {page} missing metadata')
+                if (not isinstance(data, list) or current != page or last < page or per_page < 1
+                        or len(data) > per_page or (expected_total is not None and expected_total != total)):
+                    raise WagoDiffUnavailable(f'Hotfix candidate page {page} inconsistent')
+                expected_total = total
+                for row in data:
+                    if not isinstance(row, dict) or self._to_int(row.get('id')) <= 0:
+                        raise WagoDiffUnavailable(f'Hotfix candidate page {page} invalid source ID')
+                    rid = int(row['id'])
+                    if rid in source_ids and source_ids[rid] != row:
+                        raise WagoDiffUnavailable(f'Hotfix candidate duplicate source ID={rid}')
+                    source_ids[rid] = row
+                    if (self._to_int(row.get('region_id')) == int(region_id)
+                            and str(row.get('locale') or '') == locale
+                            and str(row.get('build') or '') == build_num):
+                        candidate = max(candidate, self._to_int(row.get('push_id')))
+                if page == last:
+                    break
+            if candidate <= 0:
+                raise WagoDiffUnavailable(f'Hotfix candidate not observed in bounded build search: {build_num} region={region_id}')
+            return candidate
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         locale = (locale or '').strip()
-        search = locale
+        region_id = self._to_int(region_id or 0)
         latest = 0
-        page = 1
-        while page <= max_pages:
-            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
+        for page in range(1, max_pages + 1):
+            raw = self._fetch_hotfix_page_data(page=page, search=locale) or []
             if not raw:
                 break
             for row in raw:
-                pid = self._to_int((row or {}).get('push_id') or 0)
-                if pid > latest:
-                    latest = pid
-            if latest > 0:
-                break
-            page += 1
+                if region_id and self._to_int((row or {}).get('region_id') or 0) != region_id:
+                    continue
+                if locale and str((row or {}).get('locale') or '') != locale:
+                    continue
+                latest = max(latest, self._to_int((row or {}).get('push_id') or 0))
         return latest
 
-    def _fetch_prev_hotfix_push_id(self, latest_push, *, locale=''):
+    def _fetch_prev_hotfix_push_id(self, latest_push, *, locale='', region_id=0):
         latest_push = self._to_int(latest_push or 0)
         if latest_push <= 0:
             return 0
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         locale = (locale or '').strip()
-        search = locale
+        region_id = self._to_int(region_id or 0)
         seen = set()
         found = []
-        page = 1
-        while page <= max_pages and len(found) < 2:
-            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
+        for page in range(1, max_pages + 1):
+            raw = self._fetch_hotfix_page_data(page=page, search=locale) or []
             if not raw:
                 break
             for r in raw:
+                if region_id and self._to_int((r or {}).get('region_id') or 0) != region_id:
+                    continue
+                if locale and str((r or {}).get('locale') or '') != locale:
+                    continue
                 pid = self._to_int((r or {}).get('push_id') or 0)
                 if pid <= 0 or pid in seen:
                     continue
                 seen.add(pid)
                 found.append(pid)
-                if len(found) >= 2:
-                    break
-            page += 1
-        if not found:
-            return 0
-        found = sorted(set(found), reverse=True)
-        if len(found) >= 2 and found[0] == latest_push:
-            return found[1]
-        for pid in found:
+        for pid in sorted(found, reverse=True):
             if pid < latest_push:
                 return pid
         return 0
@@ -974,6 +1170,99 @@ class WagoSkillDiffMonitor(BaseScan):
                 continue
             out.append(r)
         return out
+
+    def _fetch_hotfix_push_rows(self, push_id, *, region_id, locale):
+        try:
+            return collect_hotfix_push_rows(
+                self._http_get_text, self._extract_inertia_props, push_id,
+                region_id=region_id, locale=locale,
+                max_pages=int(getattr(settings, 'WAGO_HOTFIX_PUSH_MAX_PAGES', 40) or 40),
+                timeout=max(60, self.http_timeout),
+            )
+        except HotfixSourceIncomplete as exc:
+            raise WagoDiffUnavailable(str(exc)) from exc
+
+    def _full_hotfix_source_build(self, source, current_build):
+        short = str((source or {}).get('build') or '').strip()
+        if not short.isdigit():
+            return ''
+        if short == self._extract_build_number(current_build):
+            return current_build
+        cache = getattr(self, '_build_versions_cache', None) or {}
+        versions = cache.get('versions') or []
+        if not versions:
+            text = self._http_get_text('https://wago.tools/builds-diff', timeout=max(60, self.http_timeout))
+            versions = (self._extract_inertia_props(text or '') or {}).get('versions') or []
+            if isinstance(versions, list) and versions:
+                self._build_versions_cache = {'ts': timezone.now().timestamp(), 'versions': versions}
+        matches = {str(version) for version in versions if self._extract_build_number(version) == short}
+        return next(iter(matches)) if len(matches) == 1 else ''
+
+    def _resolve_hotfix_facts(self, rows, *, db2_build):
+        schema_cache = {}
+
+        def schema_for(source):
+            version = self._full_hotfix_source_build(source, db2_build)
+            if not version:
+                return None
+            key = (source['table_name'].lower(), version)
+            if key not in schema_cache:
+                candidate = self._fetch_db2_row_by_id(
+                    source['table_name'], version, int(source['record_id']),
+                )
+                if not candidate and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', source['table_name']):
+                    url = f"https://wago.tools/db2/{source['table_name']}?" + urlencode({
+                        'build': version, 'locale': source['locale'],
+                    })
+                    props = self._extract_inertia_props(self._http_get_text(url, timeout=max(60, self.http_timeout)))
+                    filters = props.get('filters') or {} if isinstance(props, dict) else {}
+                    payload = props.get('data') or props.get('entries') or {} if isinstance(props, dict) else {}
+                    records = payload.get('data') if isinstance(payload, dict) else payload
+                    if (isinstance(records, list) and records and isinstance(records[0], dict)
+                            and str(filters.get('build') or '') == version
+                            and str(filters.get('locale') or '') == source['locale']):
+                        candidate = records[0]
+                schema_cache[key] = candidate if isinstance(candidate, dict) and list(candidate)[:1] == ['ID'] else None
+            return schema_cache[key]
+
+        def previous_for(source):
+            key = (int(source['region_id']), source['locale'], source['table_name'].lower(), int(source['record_id']))
+            if key not in self._hotfix_history_cache:
+                try:
+                    self._hotfix_history_cache[key] = collect_hotfix_record_history(
+                        self._http_get_text, self._extract_inertia_props, key[3],
+                        table_name=key[2], region_id=key[0], locale=key[1],
+                        max_pages=int(getattr(settings, 'WAGO_HOTFIX_HISTORY_MAX_PAGES', 40) or 40),
+                        timeout=max(60, self.http_timeout),
+                    )
+                except (HotfixSourceIncomplete, OSError, requests.RequestException) as exc:
+                    logger.warning('[WagoSkillDiffMonitor] Hotfix predecessor unresolved: %s', exc)
+                    self._hotfix_history_cache[key] = []
+            return previous_hotfix_row(self._hotfix_history_cache[key], source)
+
+        facts = build_hotfix_facts(rows, schema_for=schema_for, previous_for=previous_for)
+        for fact in facts:
+            if fact['after_verified']:
+                version = self._full_hotfix_source_build(fact['source'], db2_build)
+                if not version:
+                    raise WagoDiffUnavailable('Hotfix decoded source build lost its verified identity')
+                fact['source_build'] = version
+        return facts
+
+    def _collect_hotfix_interval_rows(self, from_push, to_push, *, region_id, locale):
+        from_push, to_push = int(from_push), int(to_push)
+        if to_push <= from_push:
+            return []
+        max_span = max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSH_SPAN', 512) or 512))
+        if to_push - from_push > max_span:
+            raise WagoDiffUnavailable(f'Hotfix push span limit: {from_push}→{to_push} > {max_span}')
+        max_entries = max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 4000) or 4000))
+        rows = []
+        for push_id in range(from_push + 1, to_push + 1):
+            rows.extend(self._fetch_hotfix_push_rows(push_id, region_id=region_id, locale=locale))
+            if len(rows) > max_entries:
+                raise WagoDiffUnavailable(f'Hotfix entry limit: {len(rows)} > {max_entries}')
+        return sorted(rows, key=lambda row: (int(row['push_id']), int(row['id'])))
 
     def _load_hotfix_daily_state(self, branch, day_key):
         p = self._hotfix_daily_state_fullpath(branch, day_key)
@@ -2344,7 +2633,126 @@ class WagoSkillDiffMonitor(BaseScan):
             'class_count': class_count,
         }
 
-    def _generate_hotfix_full_report(self, branch, current_build, from_push, to_push, *, locale=''):
+    def _generate_hotfix_class_report(self, branch, current_build, from_push, to_push, *, region_id, facts, locale='', stage_for_publication=False):
+        unresolved_spell_sources = [
+            fact.get('source') or {} for fact in facts
+            if str((fact.get('source') or {}).get('table_name') or '').lower().startswith('spell')
+            and not fact.get('after_verified')
+        ]
+        invalidations = [source for source in unresolved_spell_sources
+                         if source.get('data') is None and self._to_int(source.get('status')) in (2, 3, 4)]
+        if len(invalidations) != len(unresolved_spell_sources):
+            raise WagoDiffUnavailable(
+                f'Hotfix unresolved Spell payloads: {len(unresolved_spell_sources) - len(invalidations)}; '
+                'class projection withheld'
+            )
+        for fact in facts:
+            source = fact.get('source') or {}
+            if not fact.get('after_verified') or not str(source.get('table_name') or '').lower().startswith('spell'):
+                continue
+            version = fact.get('source_build') or self._full_hotfix_source_build(source, current_build)
+            if not version or self._extract_build_number(version) != str(source.get('build') or ''):
+                raise WagoDiffUnavailable(f'Hotfix class source build unresolved: {source.get("build")}')
+            fact['source_build'] = version
+        class_names = dict(self._load_chr_classes(current_build) or {})
+        spec_meta = dict(self._load_chr_specialization_meta(current_build) or {})
+        spec_to_class = {sid: meta['class_id'] for sid, meta in spec_meta.items() if meta.get('class_id')}
+        spell_to_specs = {}
+        source_spec_variants = {}
+        source_class_variants = {}
+        by_build = {}
+
+        def source_class_ids(sid, source):
+            version = self._full_hotfix_source_build(source, current_build)
+            if not version:
+                raise WagoDiffUnavailable(f'Hotfix class source build unresolved: {source.get("build")}')
+            if version not in by_build:
+                names = self._load_chr_classes(version)
+                metas = self._load_chr_specialization_meta(version)
+                mappings = self._load_specialization_spells(version)
+                classes = {key: item['class_id'] for key, item in (metas or {}).items() if item.get('class_id')}
+                if not names or not classes or not mappings:
+                    raise WagoDiffUnavailable(f'Hotfix class attribution incomplete for {version}')
+                by_build[version] = (names, metas, mappings, classes)
+                class_names.update({cid: value for cid, value in names.items() if cid not in class_names})
+            _names, metas, mappings, classes = by_build[version]
+            class_ids = self._spell_class_ids(sid, mappings, classes, version)
+            source_specs = set()
+            for cid in class_ids:
+                matching = {spec for spec in mappings.get(sid, set()) if classes.get(spec) == cid}
+                if not matching:
+                    # A class-owned spell need not have a SpecializationSpells
+                    # row (e.g. Hammer of Light); keep it in its class section.
+                    synthetic_spec = -int(cid)
+                    matching = {synthetic_spec}
+                    spec_meta[synthetic_spec] = {'name': '职业通用', 'class_id': cid}
+                    spec_to_class[synthetic_spec] = cid
+                for spec in matching:
+                    if spec not in spec_meta and spec in metas:
+                        spec_meta[spec] = metas[spec]
+                    spec_to_class[spec] = cid
+                spell_to_specs.setdefault(sid, set()).update(matching)
+                source_specs.update(matching)
+            if source_specs:
+                source_spec_variants.setdefault(sid, set()).add(frozenset(source_specs))
+                source_class_variants.setdefault(sid, set()).add(frozenset(class_ids))
+            return bool(class_ids)
+
+        changes = project_class_spell_changes(facts, is_class_spell=source_class_ids)
+        for sid in changes:
+            variants = source_spec_variants.get(sid) or set()
+            owners = {cid for group in source_class_variants.get(sid, ()) for cid in group}
+            if len(owners) != 1:
+                raise WagoDiffUnavailable(f'Hotfix cross-build class identity conflicts for SpellID={sid}')
+            if len(variants) <= 1:
+                continue
+            cid = owners.pop()
+            common = -int(cid)
+            spec_to_class[common] = cid
+            spec_meta[common] = {'name': '职业通用（跨版本专精归属不同）', 'class_id': cid}
+            spell_to_specs[sid] = {common}
+        if not changes:
+            return {'spell_count': 0, 'class_count': 0, 'content_html_path': '',
+                    'unresolved_count': len(invalidations)}
+        source_builds = sorted({item['meta']['SourceBuild'] for spell in changes.values()
+                                for table_items in spell['diffs'].values() for item in table_items},
+                               key=lambda version: tuple(int(part) for part in version.split('.')))
+        name = wago_region_name(region_id) or f'region {int(region_id)}'
+        html_meta = self._write_html_report(
+            branch=branch,
+            server_title=f'{self._branch_title(branch)} {name} Hotfix',
+            from_build=current_build,
+            to_build=current_build,
+            display_from_build=f'push {int(from_push)}',
+            display_to_build=f'push {int(to_push)}',
+            source_build_label=' / '.join(source_builds),
+            class_names=class_names,
+            spec_meta=spec_meta,
+            spell_to_specs=spell_to_specs,
+            spec_to_class=spec_to_class,
+            spell_changes=changes,
+            data_build=current_build,
+            effect_record_ids=True,
+            report_key=f'hotfix_r{int(region_id)}_p{int(to_push)}',
+            assess_tone=False,
+            stage_for_publication=stage_for_publication,
+            source_uncertainty_note=(
+                f'{len(invalidations)} 条 Spell* 删除/失效/未公开来源无新 payload，职业归属未核实；'
+                '以下技能数仅为已解析部分。'
+                if invalidations else ''
+            ),
+        )
+        if not html_meta or not html_meta.get('path') or not html_meta.get('class_count'):
+            raise WagoDiffUnavailable('Hotfix class report rendering incomplete')
+        return {
+            'spell_count': len(changes),
+            'class_count': int(html_meta['class_count']),
+            'content_html_path': html_meta['path'],
+            'staging_path': html_meta.get('staging_path') or '',
+            'unresolved_count': len(invalidations),
+        }
+
+    def _generate_hotfix_full_report(self, branch, current_build, from_push, to_push, *, locale='', region_id=0, hotfix_rows=None, facts=None, stage_for_publication=False):
         """
         Hotfix 全量更新报告：覆盖所有表的变更（不仅职业/技能）。
 
@@ -2362,30 +2770,27 @@ class WagoSkillDiffMonitor(BaseScan):
         locale = (locale or '').strip() or self.locale
         search = locale
 
-        hotfix_rows = []
-        page = 1
-        while page <= max_pages and len(hotfix_rows) < max_entries:
-            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
-            if not raw:
-                break
-            for r in raw:
-                pid = self._to_int((r or {}).get('push_id') or 0)
-                if pid <= 0:
-                    continue
-                if locale and (str((r or {}).get('locale') or '').strip() or '') != locale:
-                    continue
-                # (from_push, to_push]
-                if pid <= int(from_push or 0):
-                    continue
-                if int(to_push or 0) > 0 and pid > int(to_push or 0):
-                    continue
-                hotfix_rows.append(r)
-                if len(hotfix_rows) >= max_entries:
+        if hotfix_rows is None:
+            # Compatibility for isolated legacy callers only. The live scanner
+            # supplies a fully verified, region-scoped interval instead.
+            hotfix_rows = []
+            page = 1
+            while page <= max_pages and len(hotfix_rows) < max_entries:
+                raw = self._fetch_hotfix_page_data(page=page, search=search) or []
+                if not raw:
                     break
-            # Wago hotfix pages are not reliably monotonic when filtered/searched by locale:
-            # later pages can still contain rows for a newer push after an older push appears
-            # on page 1. Do not stop early based on min push; scan the bounded page window.
-            page += 1
+                for r in raw:
+                    pid = self._to_int((r or {}).get('push_id') or 0)
+                    if pid <= int(from_push or 0) or pid > int(to_push or 0):
+                        continue
+                    if locale and str((r or {}).get('locale') or '').strip() != locale:
+                        continue
+                    hotfix_rows.append(r)
+                    if len(hotfix_rows) >= max_entries:
+                        break
+                page += 1
+        else:
+            hotfix_rows = list(hotfix_rows)
 
         if not hotfix_rows:
             return None
@@ -2400,9 +2805,7 @@ class WagoSkillDiffMonitor(BaseScan):
             if not b:
                 continue
             build_counts[b] = int(build_counts.get(b) or 0) + 1
-        build_num = ''
-        if build_counts:
-            build_num = sorted(build_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+        build_num = ' / '.join(sorted(build_counts, key=lambda value: (0, int(value)) if value.isdigit() else (1, value)))
         db2_build = str(current_build or '').strip() or build_num
 
         # group by table
@@ -2420,7 +2823,8 @@ class WagoSkillDiffMonitor(BaseScan):
         entry_count = sum(c for _, c in table_stats)
         table_count = len(table_stats)
         wago_url = self._hotfix_url(push_id=int(to_push or 0), locale=locale)
-        summary_title = f"Hotfix 全量更新：{table_count} 张表 / {entry_count} 项（push {from_push}→{to_push}）"
+        region_title = f"{wago_region_name(region_id)} · " if region_id else ''
+        summary_title = f"{region_title}Hotfix 全量更新：{table_count} 张表 / {entry_count} 项（push {from_push}→{to_push}）"
 
         # 生成 markdown（用于存档）
         md_lines = [
@@ -2428,7 +2832,8 @@ class WagoSkillDiffMonitor(BaseScan):
             "",
             f"- 分支：{branch}",
             f"- 区域/语言：{locale}",
-            f"- Build：{build_num or current_build}",
+            f"- 来源 Build：{build_num or '未核实'}",
+            f"- DB2 基表关系参考 Build：{db2_build}",
             f"- Push：{from_push} → {to_push}",
             f"- Wago：{wago_url}",
             "",
@@ -2517,6 +2922,9 @@ class WagoSkillDiffMonitor(BaseScan):
             by_table=by_table,
             sample_per_table=max_sample_per_table,
             enrich_max=max_enrich,
+            region_id=region_id,
+            facts=facts,
+            stage_for_publication=stage_for_publication,
         )
         report_url = f"/portal/reports/{html_rel_path[len('portal/reports/'):] if html_rel_path.startswith('portal/reports/') else html_rel_path}" if html_rel_path else ""
 
@@ -2530,12 +2938,69 @@ class WagoSkillDiffMonitor(BaseScan):
             "summary_title": summary_title,
             "content_md": content_md,
             "content_html_path": html_rel_path or "",
+            "staging_path": html_path if stage_for_publication else '',
             "report_url": report_url,
             "wago_url": wago_url,
             "changed_tables_json": json.dumps([t for t, _ in table_stats], ensure_ascii=False),
             "table_count": table_count,
             "entry_count": entry_count,
+            "region_id": int(region_id or 0),
+            "source_facts_json": json.dumps(facts, ensure_ascii=False, separators=(',', ':')) if facts is not None else '',
+            "collection_complete": hotfix_rows is not None and facts is not None,
         }
+
+    def _discard_hotfix_staging(self, *reports):
+        root = os.path.realpath(os.path.join(str(settings.BASE_DIR), 'tmp', 'wago-hotfix-staging'))
+        for report in reports:
+            source = str((report or {}).get('staging_path') or '')
+            if not source:
+                continue
+            try:
+                if os.path.commonpath((root, os.path.realpath(source))) == root:
+                    os.unlink(source)
+            except (OSError, ValueError):
+                pass
+
+    def _publish_staged_hotfix_reports(self, full_report, class_report):
+        root = os.path.realpath(os.path.join(str(settings.BASE_DIR), 'tmp', 'wago-hotfix-staging'))
+        public_root = os.path.realpath(os.path.join(str(settings.BASE_DIR), 'static', 'portal', 'reports'))
+        pending = []
+        for report in (full_report, class_report):
+            if not report or not report.get('content_html_path'):
+                continue
+            source = str(report.get('staging_path') or '')
+            relative = str(report['content_html_path'])
+            destination = os.path.realpath(os.path.join(str(settings.BASE_DIR), 'static', relative))
+            if (not source or not os.path.isfile(source)
+                    or os.path.commonpath((root, os.path.realpath(source))) != root
+                    or not relative.startswith('portal/reports/') or not relative.endswith('.html')
+                    or os.path.commonpath((public_root, destination)) != public_root
+                    or os.path.exists(destination)):
+                raise WagoDiffUnavailable('Hotfix staged report publication path is incomplete or already exists')
+            pending.append((source, destination))
+        if not pending or (class_report and class_report.get('content_html_path') and len(pending) != 2):
+            raise WagoDiffUnavailable('Hotfix staged report files missing')
+        os.makedirs(public_root, exist_ok=True)
+        published = []
+        try:
+            for source, destination in pending:
+                os.replace(source, destination)
+                published.append(destination)
+        except OSError:
+            for path in published:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            raise
+        return published
+
+    def _hotfix_report_private_path(self):
+        root = os.path.join(str(settings.BASE_DIR), 'tmp', 'wago-hotfix-staging')
+        os.makedirs(root, exist_ok=True)
+        fd, path = tempfile.mkstemp(prefix='report-', suffix='.html', dir=root)
+        os.close(fd)
+        return path
 
     def _write_hotfix_full_html(
         self,
@@ -2552,6 +3017,9 @@ class WagoSkillDiffMonitor(BaseScan):
         sample_per_table: int,
         enrich_max: int,
         db2_build: str = '',
+        region_id: int = 0,
+        facts: list | None = None,
+        stage_for_publication: bool = False,
     ):
         """
         生成 Hotfix 全量静态 HTML 报告（不依赖前端/Portal）。
@@ -2561,16 +3029,24 @@ class WagoSkillDiffMonitor(BaseScan):
         所有表的名称/描述/ID/关联字段/原始字段快照、技能类表的额外技能名摘要和 Wago 原链。
         返回：(full_path, rel_path)
         """
-        rel_path = f"portal/reports/wow_hotfix_full_{branch}_{locale}_{to_push}.html"
+        region_part = f'_r{int(region_id)}' if region_id else ''
+        rel_path = f"portal/reports/wow_hotfix_full_{branch}_{locale}{region_part}_{to_push}.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
         static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
-        full_path = os.path.join(static_dir, rel_path)
+        full_path = (self._hotfix_report_private_path() if stage_for_publication
+                     else os.path.join(static_dir, rel_path))
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         build_num = str(build_num or '').strip()
         db2_build = str(db2_build or '').strip() or build_num
         table_stats = list(table_stats or [])
         by_table = by_table or {}
+        fact_lookup = {
+            (int(f['source']['push_id']), str(f['source']['table_name']).lower(), int(f['source']['record_id'])): f
+            for f in (facts or []) if isinstance(f, dict) and isinstance(f.get('source'), dict)
+        }
+        if facts is not None:
+            sample_per_table = max(int(sample_per_table or 20), *(int(count or 0) for _, count in table_stats), 1)
         entry_count = sum(int(c or 0) for _, c in table_stats)
         table_count = len(table_stats)
         sample_per_table = max(1, int(sample_per_table or 20))
@@ -2717,14 +3193,9 @@ class WagoSkillDiffMonitor(BaseScan):
             return category_impacts.get(impact_category(value), category_impacts['其他 DB2'])
 
         def hotfix_table_url(table_name='', push_id=0):
-            params = []
-            if push_id:
-                params.append(f"filter%5Bpush_id%5D={int(push_id)}")
-            if locale:
-                params.append(f"filter%5Blocale%5D={locale}")
-            if table_name:
-                params.append(f"filter%5Btable_name%5D={html.escape(str(table_name), quote=True)}")
-            return 'https://wago.tools/hotfixes?' + '&'.join(params) if params else 'https://wago.tools/hotfixes'
+            # Wago currently ignores filter[push_id]/filter[table_name]; its
+            # locale+push search is the smallest proven working source link.
+            return self._hotfix_url(push_id=push_id, locale=locale)
 
         def fetch_row(table_name, record_id):
             nonlocal enrich_left
@@ -2938,7 +3409,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 if raw_count < sum(1 for _k, _v in row.items() if _v is not None and str(_v).strip() != ''):
                     raw_chips.append("<div class='field raw'><span>更多字段</span><strong>超过 120 个原始字段未展开</strong></div>")
                 raw_html = (
-                    "<details class='raw-fields'><summary>查看完整 DB2 原始字段（含 0 / 默认值 / 内部字段）</summary>"
+                    "<details class='raw-fields'><summary>查看 DB2 基表参考字段（最多前 120 个，含 0 / 默认值 / 内部字段；非热修生效值）</summary>"
                     "<div class='fields raw-grid'>" + ''.join(raw_chips) + "</div></details>"
                 )
             else:
@@ -3021,10 +3492,14 @@ class WagoSkillDiffMonitor(BaseScan):
             seen_rids = set()
             for raw_row in raw_rows:
                 rid = self._to_int((raw_row or {}).get('record_id') or 0)
-                if rid <= 0 or rid in seen_rids:
+                pid = self._to_int((raw_row or {}).get('push_id') or to_push)
+                key = (pid, tkey(table_name), rid)
+                identity = (pid, rid) if facts is not None else rid
+                if rid <= 0 or identity in seen_rids:
                     continue
-                seen_rids.add(rid)
-                hotfix_sample_rows.append(raw_row)
+                seen_rids.add(identity)
+                fact = fact_lookup.get(key)
+                hotfix_sample_rows.append({**raw_row, 'decoded_after': fact.get('after') or {}} if fact is not None else raw_row)
                 if len(seen_rids) >= sample_per_table:
                     break
 
@@ -3077,7 +3552,31 @@ class WagoSkillDiffMonitor(BaseScan):
             object_id = self._to_int(row.get('ID') or record_id)
             return f"record:{key}:{object_id}", category, first_text(row) or f"{table_label(table_name)} #{object_id}", table_category(table_name)
 
-        def reader_facts(table_name, record_id, row):
+        def reader_facts(table_name, record_id, row, fact=None):
+            if fact is not None:
+                if not fact.get('after_verified'):
+                    source = fact.get('source') or {}
+                    status = self._to_int(source.get('status'))
+                    if source.get('data') is None and status in (2, 3, 4):
+                        action = {2: '删除', 3: '失效', 4: '未公开'}[status]
+                        return [f'Wago 来源状态：{action}（data=null，无可解码新值）；旧值与职业归属未核实，不能推断具体数值变化。']
+                    return ['本次 Wago Hotfix 未提供可解码的新字段；旧值与具体数值变化均未核实。']
+                changes = fact.get('changes') or []
+                if changes:
+                    return [
+                        f"{field_label(item['field'])}：{item['before']} → {item['after']}"
+                        for item in changes
+                    ]
+                if fact.get('before_verified'):
+                    return ['已核对同区域前后 payload，本记录未发现字段值变化。']
+                after = fact.get('after') or {}
+                chosen = [field for field in (
+                    'SpellID', 'EffectIndex', 'EffectBasePointsF', 'EffectBonusCoefficient',
+                    'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'EffectAura',
+                ) if field in after and str(after[field]) not in ('', '0', '0.0')]
+                return ['旧值未核实；以下仅为本次 Hotfix payload 中的新值。'] + [
+                    f"{field_label(field)}：{after[field]}（旧值未知）" for field in chosen
+                ]
             key = tkey(table_name)
             if not isinstance(row, dict) or not row:
                 return [f"已确认 {table_label(table_name)} 记录发生热修，但当前 build 暂未还原出可读字段。"]
@@ -3101,7 +3600,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     if current and f"{label} {current}" not in values:
                         values.append(f"{label} {current}")
                 if values:
-                    facts.append(f"第 {index} 个技能效果的当前记录：{'，'.join(values)}。")
+                    facts.append(f"第 {index} 个技能效果的客户端 DB2 基表记录（非热修生效值）：{'，'.join(values)}。")
                 else:
                     facts.append(f"第 {index} 个技能效果配置发生热修。")
             elif key == 'spellscaling':
@@ -3166,10 +3665,14 @@ class WagoSkillDiffMonitor(BaseScan):
                 if value is None or str(value) == '':
                     continue
                 chips.append(f"<div class='field primary'><span>{esc(label)}</span><strong>{esc(value)}</strong></div>")
-            return "<div class='fields'>" + ''.join(chips) + "</div>" if chips else ""
+            return (
+                "<p class='muted'>DB2 基表上下文：仅用于关联游戏对象，不代表热修前态或生效值。</p>"
+                + "<div class='fields'>" + ''.join(chips) + "</div>"
+            ) if chips else ""
 
         object_cards = []
-        for obj in list(getattr(object_graph, 'objects', []) or [])[:120]:
+        graph_objects = list(getattr(object_graph, 'objects', []) or [])
+        for obj in graph_objects[:120]:
             obj_kind = clean_report_text(obj.kind)
             obj_category = clean_report_text(obj.category)
             obj_title = clean_report_text(obj.title or obj.object_id)
@@ -3198,7 +3701,7 @@ class WagoSkillDiffMonitor(BaseScan):
             object_graph_section = (
                 "<section class='object-section table-section' id='object-graph' data-search='具体游戏对象 字段关系'>"
                 "<div class='table-head'><div><span class='section-kicker'>还原后的阅读视图</span><h2>具体游戏对象</h2>"
-                f"<p>按 DB2 关系还原到技能、任务、物品、坐骑、宠物、载具等对象；已还原 {len(object_cards)} 个对象，未识别 {unresolved_count} 条样例。</p></div>"
+                f"<p>按 DB2 基表关系辅助定位技能、任务、物品等对象；共识别 {len(graph_objects)} 个，展示 {len(object_cards)} 个，未识别 {unresolved_count} 条；此处基表属性并非热修生效值。全部源行见下方 DB2 表明细。</p></div>"
                 "<a href='#table-list'>继续看 DB2 表明细</a></div>"
                 + ''.join(object_cards)
                 + "</section>"
@@ -3214,20 +3717,28 @@ class WagoSkillDiffMonitor(BaseScan):
             seen = set()
             for r in raw_rows:
                 rid = self._to_int((r or {}).get('record_id') or 0)
-                if rid <= 0 or rid in seen:
-                    continue
-                seen.add(rid)
                 pid = self._to_int((r or {}).get('push_id') or to_push)
-                row = fetch_row(t, rid)
+                identity = (pid, rid) if facts is not None else rid
+                if rid <= 0 or identity in seen:
+                    continue
+                seen.add(identity)
+                fact = fact_lookup.get((pid, key, rid))
+                row = (fact.get('after') or {}) if fact is not None else fetch_row(t, rid)
                 summary = summarize_row(t, rid, row)
                 records.append({
                     'record_id': rid,
                     'push_id': pid,
+                    'source_build': str((r or {}).get('build') or ''),
                     'summary': summary,
                     'row': row,
+                    'fact': fact,
                 })
                 if len(records) >= sample_per_table:
                     break
+            if facts is not None and len(records) != int(c or 0):
+                raise WagoDiffUnavailable(
+                    f'Hotfix full HTML omitted source records from {t}: rendered={len(records)} expected={c}'
+                )
             if not records:
                 continue
             cards = []
@@ -3236,6 +3747,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 pid = rec['push_id']
                 summary = rec.get('summary') or ''
                 row = rec.get('row')
+                fact = rec.get('fact')
                 reader_key, reader_category, reader_title, reader_kind = reader_identity(t, rid, row)
                 reader_group = reader_groups.setdefault(reader_key, {
                     'category': reader_category,
@@ -3244,15 +3756,16 @@ class WagoSkillDiffMonitor(BaseScan):
                     'items': [],
                     'search': [],
                 })
-                facts = reader_facts(t, rid, row)
+                record_facts = reader_facts(t, rid, row, fact)
                 reader_group['items'].append({
                     'table': table_label(t),
                     'record_id': rid,
                     'push_id': pid,
-                    'facts': facts,
+                    'source_build': rec.get('source_build') or '',
+                    'facts': record_facts,
                     'url': hotfix_table_url(t, pid),
                 })
-                reader_group['search'].extend([reader_category, reader_title, reader_kind, table_label(t), ' '.join(facts)])
+                reader_group['search'].extend([reader_category, reader_title, reader_kind, table_label(t), ' '.join(record_facts)])
                 search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid), summary, first_text(row)]).lower()
                 row_title = summary or f"record_id {rid}"
                 wago_rec_url = hotfix_table_url(t, pid)
@@ -3267,7 +3780,7 @@ class WagoSkillDiffMonitor(BaseScan):
             section_class = 'table-section'
             detail_sections.append(
                 f"<section class='{section_class}' id='table-{esc(key)}' data-category='{esc(category)}' data-search='{esc((norm_table(t)+' '+table_label(t)+' '+category).lower())}'>"
-                f"<div class='table-head'><div><span class='section-kicker'>{esc(category)} · 可能影响 {esc(impact_title)}</span><h2>{esc(table_label(t))}</h2><p>{esc(impact_description)} 本表共 {int(c or 0)} 项 hotfix 记录，展开 {len(records)} 项可读样例。</p></div><a href='{esc(hotfix_table_url(t, to_push))}' target='_blank' rel='noreferrer'>Wago 表筛选</a></div>"
+                f"<div class='table-head'><div><span class='section-kicker'>{esc(category)} · 可能影响 {esc(impact_title)}</span><h2>{esc(table_label(t))}</h2><p>{esc(impact_description)} 本表共 {int(c or 0)} 项 hotfix 记录，{'逐条列出' if facts is not None else '展开可读样例'} {len(records)} 项。</p></div><a href='{esc(hotfix_table_url(t, to_push))}' target='_blank' rel='noreferrer'>Wago 表筛选</a></div>"
                 + ''.join(cards)
                 + more_html
                 + "</section>"
@@ -3281,7 +3794,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 facts_html = ''.join(f"<li>{esc(fact)}</li>" for fact in item['facts'])
                 items.append(
                     "<div class='reader-evidence'>"
-                    f"<div><strong>{esc(item['table'])}</strong><ul>{facts_html}</ul></div>"
+                    f"<div><strong>{esc(item['table'])} #{int(item['record_id'])} · push {int(item['push_id'])}"
+                    f"{' · ' + esc(wago_region_name(region_id)) if region_id else ''}"
+                    f"{' · build ' + esc(item['source_build']) if item['source_build'] else ''}</strong><ul>{facts_html}</ul></div>"
                     f"<a href='{esc(item['url'])}' target='_blank' rel='noreferrer' aria-label='在 Wago 核对 {esc(item['table'])} 记录 {int(item['record_id'])}'>核对来源</a>"
                     "</div>"
                 )
@@ -3294,7 +3809,10 @@ class WagoSkillDiffMonitor(BaseScan):
         reader_digest_section = (
             "<section class='reader-digest' aria-labelledby='readerDigestTitle'>"
             "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>这次具体改了什么</h2>"
-            f"<p>已从 {entry_count} 条底层记录整理出 {len(reader_cards)} 个对象。Wago 不提供修改前的值，因此这里只陈述当前能确认的事实，不判断增强或削弱。</p></div>"
+            f"<p>已从 {entry_count} 条底层记录整理出 {len(reader_cards)} 个对象。"
+            + ("已逐项核对 Wago Hotfix payload；有可信同区域前态时展示字段旧→新，缺失则只列新值并标注。" if facts is not None
+               else "旧报告未冻结热修 payload；所列客户端 DB2 基表仅供对象关联，不能作为热修生效值或变化幅度。")
+            + "不根据枚举或单条系数擅自判断整技能强弱。</p></div>"
             f"<span id='readerCount'>显示 {len(reader_cards)} 个对象</span></div>"
             f"<div class='impact-filters' role='group' aria-label='按影响范围筛选'><button type='button' class='impact-filter' data-hotfix-category='all' aria-pressed='true'><span>全部</span><strong>{entry_count}</strong></button>{''.join(category_cards)}</div>"
             + ''.join(reader_cards)
@@ -3352,7 +3870,7 @@ class WagoSkillDiffMonitor(BaseScan):
     <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 记录</span><span><strong>{len(reader_cards)}</strong> 个可读对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
     {reader_digest_section}
     <details class="technical-report">
-      <summary><span>查看技术明细与完整 DB2 字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
+      <summary><span>查看技术明细与 DB2 基表参考字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
       <div class="technical-body">
         <div class="controls"><input id="hotfixFilter" type="search" placeholder="筛选表名、record_id、字段值…" autocomplete="off"><span class="count" id="filterCount">全部显示</span></div>
         <details class="toc"><summary class="toc-title">DB2 表目录（按类别分组，覆盖全部表）<small>{table_count} 张表 · 技术索引</small></summary><nav class="toc-grid" aria-label="DB2 表目录">{''.join(toc_items)}</nav></details>
@@ -4390,6 +4908,9 @@ class WagoSkillDiffMonitor(BaseScan):
         if not text:
             return {}
         props = self._extract_inertia_props(text)
+        returned_build = (props.get('filters') or {}).get('build') if isinstance(props, dict) else None
+        if returned_build and str(returned_build) != str(build):
+            return {}
         data = []
         if 'entries' in props:
             entries = props.get('entries') or {}
@@ -4809,7 +5330,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 name = (self._fetch_spell_name_wowhead_cn(sid, branch=branch) or '').strip()
                 if name:
                     fetched[sid] = name
-        if fetched:
+        if fetched and not getattr(self, '_hotfix_report_only', False):
             now = timezone.now()
             objs = []
             for sid, name in fetched.items():
@@ -5566,12 +6087,14 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             return {}
         return {'path': rel_path, 'class_count': 0}
 
-    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build='', effect_record_ids=False):
+    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build='', effect_record_ids=False, report_key='', assess_tone=True, source_uncertainty_note='', source_build_label='', stage_for_publication=False):
         data_build = (data_build or '').strip() or to_build
-        rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{to_build.replace('.', '_')}.html"
+        slug = re.sub(r'[^A-Za-z0-9_-]', '_', report_key) if report_key else to_build.replace('.', '_')
+        rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{slug}.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
         static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
-        full_path = os.path.join(static_dir, rel_path)
+        full_path = (self._hotfix_report_private_path() if stage_for_publication
+                     else os.path.join(static_dir, rel_path))
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         name_cache = {}
@@ -5656,7 +6179,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                 changed_table_counts[tkey] = int(changed_table_counts.get(tkey) or 0) + 1
 
         spell_tones = {
-            int(spell_id): self._report_spell_tone((entry or {}).get('diffs') or {})
+            int(spell_id): self._report_spell_tone((entry or {}).get('diffs') or {}) if assess_tone else 'mechanic'
             for spell_id, entry in (spell_changes or {}).items()
         }
         tone_counts = {
@@ -5696,12 +6219,19 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         parts.append('<main class="skill-report">')
         parts.append('<div class="report-hero">')
         parts.append(f"<div><h1>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</h1>")
-        parts.append(f"<div class='meta'><span>语言：{html.escape(self.locale)}</span><span>数据版本：{html.escape(from_build)} → {html.escape(to_build)}</span></div></div>")
+        if source_build_label:
+            parts.append(f"<div class='meta'><span>语言：{html.escape(self.locale)}</span><span>热修来源 build：{html.escape(source_build_label)}</span><span>DB2 名称/图标参考 build：{html.escape(data_build)}</span></div></div>")
+        else:
+            parts.append(f"<div class='meta'><span>语言：{html.escape(self.locale)}</span><span>数据版本：{html.escape(from_build)} → {html.escape(to_build)}</span></div></div>")
         if wowhead_url:
             parts.append(f"<div class='meta'><a href='{html.escape(wowhead_url)}' target='_blank' rel='noopener noreferrer'>Wowhead 参考链接</a></div>")
         parts.append('</div>')
+        if source_uncertainty_note:
+            parts.append(f"<aside role='note' style='margin:14px 0;padding:12px 16px;border:1px solid #eab308;border-radius:10px;background:#fff7dc;color:#713f12;font-weight:650'>{html.escape(source_uncertainty_note)}</aside>")
         parts.append('<div class="summary">')
-        parts.append(f"<div class='metric'><span>改动来源</span><strong>{len(spell_changes)}</strong></div>")
+        source_count_label = f'{len(spell_changes)}+' if source_uncertainty_note else str(len(spell_changes))
+        source_count_title = '改动来源（已解析）' if source_uncertainty_note else '改动来源'
+        parts.append(f"<div class='metric'><span>{source_count_title}</span><strong>{source_count_label}</strong></div>")
         parts.append("<div class='metric affected-metric'><span>受影响技能</span><strong>—</strong></div>")
         parts.append(f"<div class='metric'><span>涉及职业</span><strong>{class_count}</strong></div>")
         parts.append(f"<div class='metric'><span>涉及专精</span><strong>{sum(class_spec_counts.values())}</strong></div>")
@@ -5711,7 +6241,9 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             table_summary = '、'.join([f"{k} {v}" for k, v in sorted(changed_table_counts.items(), key=lambda x: (-x[1], x[0]))[:8]])
             parts.append(f"<div class='meta'><span>主要变更表：{html.escape(table_summary)}</span></div>")
         parts.append("<section class='impact-overview' aria-labelledby='impactOverviewTitle'>")
-        parts.append("<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>影响评估（独立于改动事实）</div><div class='impact-note'>仅对可直接判读的数值、系数与消耗字段评估方向；枚举与机制参数不等于伤害百分比。</div></div>")
+        impact_note = ('仅对可直接判读的数值、系数与消耗字段评估方向；枚举与机制参数不等于伤害百分比。'
+                       if assess_tone else 'Hotfix 的数值与条件可能相互影响，强弱暂不推断；以下字段变化属于事实，不是影响结论。')
+        parts.append(f"<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>影响评估（独立于改动事实）</div><div class='impact-note'>{impact_note}</div></div>")
         parts.append("<div class='tone-tabs' role='group' aria-label='按改动方向筛选'>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='all' aria-pressed='true'>全部<span class='tab-count'>{len(spell_changes)}</span></button>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='buff' aria-pressed='false'>增强<span class='tab-count'>{tone_counts.get('buff', 0)}</span></button>")
@@ -5959,6 +6491,15 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                         raw_id = (it.get('meta') or {}).get('EffectIndex', raw_id)
                                     identity = 'SpellEffect.ID' if effect_record_ids else 'EffectIndex'
                                     record_label = html.escape(f"{identity} {raw_id if raw_id is not None and raw_id != '' else '?'}")
+                                    push_id = (it.get('meta') or {}).get('PushID')
+                                    if push_id is not None:
+                                        try:
+                                            record_label += f" · Hotfix push {int(push_id)}"
+                                        except (TypeError, ValueError):
+                                            pass
+                                    source_build = (it.get('meta') or {}).get('SourceBuild') if effect_record_ids else ''
+                                    if source_build:
+                                        record_label += f" · 来源 build {html.escape(str(source_build))}"
                                     effect_index = (it.get('meta') or {}).get('EffectIndex')
                                     if effect_index is None and not effect_record_ids:
                                         effect_index = it.get('id')
@@ -5972,9 +6513,13 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                             f"<span class='mono'>{record_label}</span> {effect_marker}（{'，'.join(technical_changes)}）</div>"
                                         )
                                     index_attr = f" data-effect-index='{int(effect_index)}'" if effect_marker else ''
+                                    if source_build:
+                                        index_attr += f" data-source-build='{html.escape(str(source_build), quote=True)}'"
+                                    if push_id is not None and effect_record_ids:
+                                        index_attr += f" data-source-push='{int(push_id)}'"
                                     fact_lines.append(
                                         f"<div class='impact-row'{index_attr}><div><span class='impact-label'>{html.escape(table_change_label(tkey))} {effect_marker}</span>"
-                                        f"<span class='impact-evidence'>{record_label}</span></div>"
+                                        f"<span class='impact-evidence'>{record_label} · {effect_marker}</span></div>"
                                         f"<div class='fact-values'>{'<br>'.join(record_changes)}</div></div>"
                                     )
                             continue
@@ -6102,4 +6647,5 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(html_text)
 
-        return {'path': rel_path, 'class_count': class_count}
+        return {'path': rel_path, 'class_count': class_count,
+                'staging_path': full_path if stage_for_publication else ''}

@@ -134,14 +134,19 @@ def report_spell_entries(html_text):
     return entries
 
 
-def build_report_spell_metadata(html_text, branch, build):
-    entries = report_spell_entries(html_text)
+def build_report_spell_metadata(html_text, branch, build, *, entries_override=None, effect_rows_override=None):
+    entries = report_spell_entries(html_text) if entries_override is None else entries_override
     if not entries or not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
         return {}
     ids = list(entries)
     # 远程关系按不可变 build 缓存，数据库图标每次重读，补齐后无需重跑报告。
     candidates = [sid for sid in ids if entries[sid]['indices']]
-    effects = _parallel(candidates, lambda sid: _db2_rows('SpellEffect', build, 'SpellID', sid)) if candidates else {}
+    if effect_rows_override is not None:
+        if any(sid not in effect_rows_override for sid in candidates):
+            raise ValueError('Hotfix effect source payload missing for a reported effect')
+        effects = {sid: effect_rows_override[sid] for sid in candidates}
+    else:
+        effects = _parallel(candidates, lambda sid: _db2_rows('SpellEffect', build, 'SpellID', sid)) if candidates else {}
     relations = {}
     for sid, rows in effects.items():
         for row in rows:
@@ -153,11 +158,17 @@ def build_report_spell_metadata(html_text, branch, build):
             if idx not in entries[sid]['indices']:
                 continue
             if aura in (648, 649) and label > 0:
-                relations.setdefault(sid, []).append({'index': idx, 'aura': aura, 'label': label, 'relation': 'label'})
+                relation = {'index': idx, 'aura': aura, 'label': label, 'relation': 'label'}
+                if row.get('__source_push'):
+                    relation['push_id'] = int(row['__source_push'])
+                relations.setdefault(sid, []).append(relation)
             elif aura in (646, 647):
                 mask = [int(row.get(f'EffectSpellClassMask_{i}') or 0) for i in range(4)]
                 if any(mask):
-                    relations.setdefault(sid, []).append({'index': idx, 'aura': aura, 'mask': mask, 'relation': 'class_mask'})
+                    relation = {'index': idx, 'aura': aura, 'mask': mask, 'relation': 'class_mask'}
+                    if row.get('__source_push'):
+                        relation['push_id'] = int(row['__source_push'])
+                    relations.setdefault(sid, []).append(relation)
     labels = sorted({r['label'] for rows in relations.values() for r in rows if r['relation'] == 'label'})
     label_rows = _parallel(labels, lambda label: _db2_rows('SpellLabel', build, 'LabelID', label)) if labels else {}
     masked_ids = [sid for sid, rows in relations.items() if any(r['relation'] == 'class_mask' for r in rows)]
@@ -208,4 +219,74 @@ def build_report_spell_metadata(html_text, branch, build):
         result[str(sid)] = {**item(sid), 'effects': [
             {**r, 'targets': [item(target) for target in r['spell_ids']]} for r in relations.get(sid, [])
         ]}
+    return result
+
+
+def build_hotfix_report_spell_metadata(html_text, branch, facts):
+    """Resolve each reported Hotfix effect using its frozen source build."""
+    entries = report_spell_entries(html_text)
+    if not entries:
+        return {}
+    grouped = {}
+    effect_rows = {}
+    direct_indices = {}
+    for fact in facts:
+        if not isinstance(fact, dict) or not fact.get('after_verified'):
+            continue
+        source, after = fact.get('source') or {}, fact.get('after') or {}
+        table = str(source.get('table_name') or '').lower()
+        if not table.startswith('spell') or not isinstance(after, dict):
+            continue
+        try:
+            spell_id = int(after.get('SpellID') or (after.get('ID') if table in ('spell', 'spellname', 'spelldescription', 'spellmisc') else 0) or 0)
+        except (TypeError, ValueError):
+            continue
+        if spell_id not in entries:
+            continue
+        index = None
+        if table == 'spelleffect':
+            try:
+                index = int(after['EffectIndex'])
+            except (KeyError, TypeError, ValueError):
+                raise ValueError(f'Hotfix SpellEffect {source.get("record_id")} has no effect index')
+            if index not in entries[spell_id]['indices']:
+                continue
+        build = str(fact.get('source_build') or '')
+        if not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
+            raise ValueError(f'Hotfix source build is unverified for {table} {source.get("record_id")}')
+        subset = grouped.setdefault(build, {})
+        subset.setdefault(spell_id, {'name': entries[spell_id]['name'], 'indices': set()})
+        if index is not None:
+            subset[spell_id]['indices'].add(index)
+            effect_rows.setdefault(build, {}).setdefault(spell_id, []).append({
+                **after, '__source_push': source.get('push_id'),
+            })
+            try:
+                aura = int(after.get('EffectAura') or 0)
+            except (TypeError, ValueError):
+                raise ValueError(f'Hotfix SpellEffect {source.get("record_id")} has invalid aura')
+            # Direct effect changes affect their owning spell; relation auras are
+            # counted only after their target spells have been resolved.
+            if aura not in (646, 647, 648, 649):
+                direct_indices.setdefault(spell_id, set()).add(index)
+    if set(entries) != {sid for group in grouped.values() for sid in group}:
+        raise ValueError('Hotfix class report has spells without verified source builds')
+    result = {}
+    for build in sorted(grouped, key=_build_parts):
+        for sid, item in build_report_spell_metadata(
+            html_text, branch, build, entries_override=grouped[build],
+            effect_rows_override=effect_rows.get(build) or {},
+        ).items():
+            effects = [{**effect, 'source_build': build} for effect in item['effects']]
+            if sid in result:
+                prior = result[sid]
+                item = {**item, 'effects': prior['effects'] + effects,
+                        'source_builds': prior['source_builds'] + [build]}
+                if not item.get('icon_url') and prior.get('icon_url'):
+                    item.update(icon_url=prior['icon_url'], icon_source=prior['icon_source'])
+            else:
+                item = {**item, 'effects': effects, 'source_builds': [build]}
+            result[sid] = item
+    for sid, item in result.items():
+        item['direct_indices'] = sorted(direct_indices.get(int(sid), ()))
     return result

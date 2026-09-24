@@ -32,6 +32,7 @@ class WagoDB2GraphService:
                 push_id=self._to_int((row or {}).get('push_id') or 0),
                 build=str((row or {}).get('build') or self.build),
                 locale=str((row or {}).get('locale') or self.locale),
+                row=(row.get('decoded_after') if 'decoded_after' in row else None),
                 source='hotfix',
             ))
         return self.resolve_record_refs(refs)

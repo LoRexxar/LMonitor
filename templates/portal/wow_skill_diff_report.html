@@ -9,23 +9,28 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
-    <link rel="stylesheet" href="{% static 'portal/css/wow-skill-report-metadata.css' %}?v=20260923_2">
+    <link rel="stylesheet" href="{% static 'portal/css/wow-skill-report-metadata.css' %}?v=20260924_hotfix_source">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
 
     <div class="max-w-[1240px] mx-auto px-4 py-6">
-        <main class="wow-skill-diff-page" data-report-branch="{{ report.branch }}" data-skill-report-metadata="{% url 'portal_wow_skill_diff_metadata' report.id %}">
+        <main class="wow-skill-diff-page" data-report-branch="{{ report.branch }}" data-skill-report-metadata="{{ metadata_url }}">
             <header class="wow-skill-diff-page-head">
                 <div class="wow-skill-diff-page-head-main">
-                    <div class="wow-skill-diff-kicker">Wago 版本更新 · 职业改动报告</div>
+                    <div class="wow-skill-diff-kicker">Wago {% if is_hotfix %}Hotfix{% else %}版本更新{% endif %} · 职业改动报告</div>
                     <h1>{{ page_title }}</h1>
                     <div class="wow-skill-diff-meta" aria-label="报告元数据">
+                        {% if is_hotfix %}
+                            <span><b>热修推送</b>push {{ report.from_push }} → {{ report.to_push }}</span>
+                            <span><b>数据版本</b>{{ report.build_str }}</span>
+                        {% else %}
                         {% if report.display_from_build or report.display_to_build %}
                             <span><b>游戏版本</b>{{ report.display_from_build|default:report.from_build }} → {{ report.display_to_build|default:report.to_build }}</span>
                             <span><b>数据版本</b>{{ report.from_build }} → {{ report.to_build }}</span>
                         {% else %}
                             <span><b>版本</b>{{ report.from_build }} → {{ report.to_build }}</span>
+                        {% endif %}
                         {% endif %}
                         <span><b>服务器</b>{{ server_title }}</span>
                         <span><b>生成时间</b>{{ report.created_at|date:"Y-m-d H:i:s" }}</span>
@@ -35,6 +40,11 @@
                     <a class="wow-skill-diff-standalone-link" href="{{ report_file_url }}" target="_blank" rel="noopener noreferrer">打开独立报告</a>
                 {% endif %}
             </header>
+            {% if is_hotfix and report.class_unresolved_count %}
+                <aside role="note" class="mt-4 rounded-lg border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    {{ report.class_unresolved_count }} 条 Spell* 删除/失效来源无可核实的职业归属；下方技能数为已解析部分，不代表全部受影响技能。
+                </aside>
+            {% endif %}
             {% if html_exists %}
                 <div class="mt-5">
                     <div class="wow-skill-diff-embedded-html">
@@ -52,6 +62,6 @@
         </main>
     </div>
     <script src="{% static 'portal/js/wow-skill-diff-report.js' %}?v=20260831_impact_v1"></script>
-    <script src="{% static 'portal/js/wow-skill-report-metadata.js' %}?v=20260923_2"></script>
+    <script src="{% static 'portal/js/wow-skill-report-metadata.js' %}?v=20260924_hotfix_direct_effect"></script>
 </body>
 </html>

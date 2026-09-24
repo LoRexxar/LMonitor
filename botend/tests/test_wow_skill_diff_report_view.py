@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from pathlib import Path
 from io import BytesIO
 import html
@@ -10,6 +10,9 @@ from django.test import RequestFactory, SimpleTestCase, override_settings
 
 from botend.portal.views import (
     PortalReportFileView,
+    PortalWowHotfixReportView,
+    PortalWowHotfixClassReportView,
+    PortalWowHotfixClassMetadataAPIView,
     PortalWowSkillDiffReportView,
     _resolve_portal_report_html_path,
     portal_report_url,
@@ -524,6 +527,183 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.addCleanup(self.tmpdir.cleanup)
         self.base_dir = Path(self.tmpdir.name)
 
+    def test_class_report_writes_values_and_effect_marker_for_metadata(self):
+        from botend.services.wow_skill_report_metadata import report_spell_entries
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._load_chr_classes = lambda build, locale_override=None: {2: 'Paladin'}
+        monitor._load_chr_specialization_meta = lambda build, locale_override=None: {
+            70: {'name': 'Retribution', 'class_id': 2},
+        }
+        monitor._load_specialization_spells = lambda build: {427453: {70}}
+        monitor._ensure_spell_names_zh = lambda branch, build, ids: {427453: 'Hammer of Light'}
+        monitor._fetch_spell_names_concurrent = lambda build, ids, locale_override=None: {427453: 'Hammer of Light'}
+        monitor._render_spell_primary_description = lambda *args, **kwargs: ''
+        fact = {'source': {'id': 27226894621, 'table_name': 'SpellEffect', 'record_id': 1106904, 'push_id': 112185, 'build': 69933},
+                'after': {'ID': '1106904', 'SpellID': '427453', 'EffectIndex': '0',
+                          'BonusCoefficientFromAP': '10.451600074768', 'PvpMultiplier': '0.5440000295639'},
+                'before_verified': True, 'after_verified': True, 'changes': [
+                    {'field': 'BonusCoefficientFromAP', 'before': '6.9677400588989', 'after': '10.451600074768'},
+                    {'field': 'PvpMultiplier', 'before': '0.68000000715256', 'after': '0.5440000295639'},
+                ]}
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects.filter') as snapshot, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.database_spell_metadata', return_value={}):
+            snapshot.return_value.values.return_value = []
+            report = monitor._generate_hotfix_class_report(
+                'wow', '12.1.0.69933', 112181, 112185, region_id=1, facts=[fact], locale='enUS',
+            )
+            staged = monitor._generate_hotfix_class_report(
+                'wow', '12.1.0.69933', 112181, 112186, region_id=1, facts=[fact], locale='enUS',
+                stage_for_publication=True,
+            )
+        body = (self.base_dir / 'static' / report['content_html_path']).read_text(encoding='utf-8')
+        self.assertEqual(report['spell_count'], 1)
+        self.assertEqual(report['class_count'], 1)
+        self.assertIn('6.9677400588989', body)
+        self.assertIn('10.451600074768', body)
+        self.assertIn('0.5440000295639', body)
+        self.assertEqual(report_spell_entries(body)[427453]['indices'], {0})
+        self.assertTrue(Path(staged['staging_path']).is_file())
+        self.assertFalse((self.base_dir / 'static' / staged['content_html_path']).exists())
+        self.assertEqual(report_spell_entries(Path(staged['staging_path']).read_text(encoding='utf-8'))[427453]['indices'], {0})
+
+    def test_hotfix_source_link_uses_working_locale_push_search(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        url = monitor._hotfix_url(push_id=112185, locale='enUS')
+        self.assertIn('search=enUS+112185', url)
+        self.assertNotIn('filter%5Bpush_id%5D', url)
+
+    def test_hotfix_full_html_stages_outside_public_static_directory(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 1, 'region_id': 3, 'locale': 'enUS', 'table_name': 'Spell',
+                  'record_id': 123, 'push_id': 112185, 'build': 69933, 'status': 1}
+        fact = {'source': source, 'after': {'ID': '123', 'OtherField': 'value-not-in-summary'}, 'after_verified': True,
+                'before_verified': False, 'changes': []}
+        monitor._fetch_db2_row_by_id = lambda *args: {}
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            physical, relative = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, to_push=112185,
+                summary_title='热修', wago_url='https://wago.tools/hotfixes?search=enUS+112185',
+                build_num='69933', db2_build='12.1.0.69933', from_push=112181,
+                table_stats=[('Spell', 1)], by_table={'Spell': [source]},
+                sample_per_table=1, enrich_max=0, facts=[fact], stage_for_publication=True,
+            )
+        self.assertTrue(Path(physical).is_file())
+        self.assertIn('value-not-in-summary', Path(physical).read_text(encoding='utf-8'))
+        self.assertIn('wago-hotfix-staging', physical)
+        self.assertFalse((self.base_dir / 'static' / relative).exists())
+
+    def test_full_report_explains_null_payload_invalidation_without_inventing_values(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 2, 'region_id': 3, 'locale': 'enUS', 'table_name': 'SpellScriptText',
+                  'record_id': 26959, 'push_id': 112194, 'build': 69875, 'status': 3, 'data': None}
+        fact = {'source': source, 'after': None, 'before': None, 'after_verified': False,
+                'before_verified': False, 'changes': []}
+        monitor._fetch_db2_row_by_id = lambda *args: {}
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, to_push=112208,
+                summary_title='Hotfix interval', wago_url='https://wago.tools/hotfixes?search=enUS+112208',
+                build_num='69875 / 69933', db2_build='12.1.0.69933', from_push=112181,
+                table_stats=[('SpellScriptText', 1)], by_table={'SpellScriptText': [source]},
+                sample_per_table=1, enrich_max=0, facts=[fact],
+            )
+        body = Path(path).read_text(encoding='utf-8')
+        self.assertIn('失效', body)
+        self.assertIn('职业归属未核实', body)
+        self.assertIn('build 69875', body)
+        self.assertNotIn('当前记录：', body)
+
+    def test_unattributed_spell_invalidation_is_marked_partial_not_silently_lost(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._load_chr_classes = lambda build: {2: 'Paladin'}
+        monitor._load_chr_specialization_meta = lambda build: {70: {'name': 'Retribution', 'class_id': 2}}
+        monitor._load_specialization_spells = lambda build: {427453: {70}}
+        known = {'source': {'id': 1, 'table_name': 'SpellEffect', 'record_id': 1106904,
+                            'push_id': 112185, 'build': 69933},
+                 'after': {'ID': '1106904', 'SpellID': '427453', 'EffectIndex': '0',
+                           'BonusCoefficientFromAP': '10.45'},
+                 'after_verified': True, 'before_verified': True,
+                 'changes': [{'field': 'BonusCoefficientFromAP', 'before': '6.97', 'after': '10.45'}]}
+        invalidated = {'source': {'id': 2, 'table_name': 'SpellScriptText', 'record_id': 26959,
+                                  'push_id': 112194, 'build': 69875, 'status': 3, 'data': None},
+                       'after': None, 'after_verified': False, 'before_verified': False, 'changes': []}
+        with patch.object(monitor, '_write_html_report', return_value={'path': 'portal/reports/class.html', 'class_count': 1}) as writer:
+            result = monitor._generate_hotfix_class_report(
+                'wow', '12.1.0.69933', 112181, 112208, region_id=3, facts=[known, invalidated],
+            )
+        self.assertEqual(result['spell_count'], 1)
+        self.assertEqual(result['unresolved_count'], 1)
+        self.assertIn('1 条', writer.call_args.kwargs['source_uncertainty_note'])
+
+    def test_unresolved_spell_payload_cannot_publish_empty_class_projection(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._load_chr_classes = lambda build: {2: 'Paladin'}
+        monitor._load_chr_specialization_meta = lambda build: {70: {'name': 'Retribution', 'class_id': 2}}
+        monitor._load_specialization_spells = lambda build: {427453: {70}}
+        fact = {'source': {'table_name': 'SpellEffect', 'record_id': 1106904, 'push_id': 112185, 'build': 69933},
+                'after': None, 'after_verified': False, 'before_verified': False, 'changes': []}
+        with self.assertRaisesRegex(WagoDiffUnavailable, 'unresolved Spell'):
+            monitor._generate_hotfix_class_report(
+                'wow', '12.1.0.69933', 112181, 112185, region_id=1, facts=[fact], locale='enUS',
+            )
+
+    def test_class_projection_uses_separate_push_identity_and_build_style(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._load_chr_classes = lambda build: {2: 'Paladin'}
+        monitor._load_chr_specialization_meta = lambda build: {70: {'name': 'Retribution', 'class_id': 2}}
+        monitor._load_specialization_spells = lambda build: {427453: {70}}
+        monitor._spell_has_class = lambda sid, *args: sid == 427453
+        fact = {'source': {'id': 9, 'table_name': 'SpellEffect', 'record_id': 1106904, 'push_id': 112185, 'build': 69933},
+                'after': {'ID': '1106904', 'SpellID': '427453', 'EffectIndex': '0', 'BonusCoefficientFromAP': '10.451600074768'},
+                'after_verified': True, 'before_verified': True, 'changes': [
+                    {'field': 'BonusCoefficientFromAP', 'before': '6.9677400589', 'after': '10.451600074768'},
+                ]}
+        with patch.object(monitor, '_write_html_report', return_value={'path': 'portal/reports/wow_skill_diff_wow_enUS_hotfix_r1_p112185.html', 'class_count': 1}) as writer:
+            result = monitor._generate_hotfix_class_report(
+                'wow', '12.1.0.69933', 112181, 112185, region_id=1, facts=[fact], locale='enUS',
+            )
+        self.assertEqual(result['spell_count'], 1)
+        self.assertEqual(result['class_count'], 1)
+        self.assertEqual(writer.call_args.kwargs['report_key'], 'hotfix_r1_p112185')
+        self.assertEqual(writer.call_args.kwargs['data_build'], '12.1.0.69933')
+        self.assertTrue(writer.call_args.kwargs['effect_record_ids'])
+        self.assertEqual(writer.call_args.kwargs['spell_changes'][427453]['diffs']['spelleffect'][0]['id'], 1106904)
+
+    def test_full_report_reads_hotfix_payload_values_not_base_row(self):
+        from bs4 import BeautifulSoup
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 9, 'push_id': 112185, 'region_id': 1, 'locale': 'enUS',
+                  'table_name': 'SpellEffect', 'record_id': 1106904, 'status': 1}
+        before = {'ID': '1106904', 'SpellID': '427453', 'EffectIndex': '0',
+                  'BonusCoefficientFromAP': '6.9677400589', 'PvpMultiplier': '0.68000000715'}
+        after = {**before, 'BonusCoefficientFromAP': '10.451600074768', 'PvpMultiplier': '0.5440000295639'}
+        facts = [{'source': source, 'before': before, 'after': after, 'before_verified': True,
+                  'after_verified': True, 'changes': [
+                      {'field': 'BonusCoefficientFromAP', 'before': before['BonusCoefficientFromAP'], 'after': after['BonusCoefficientFromAP']},
+                      {'field': 'PvpMultiplier', 'before': before['PvpMultiplier'], 'after': after['PvpMultiplier']},
+                  ]}]
+        def base_row(table, build, rid):
+            return {'ID': rid, 'Name_lang': 'Hammer of Light'} if table.lower() == 'spellname' else before
+        monitor._fetch_db2_row_by_id = base_row
+        monitor._fetch_spell_names_concurrent = lambda build, ids, locale_override=None: {427453: 'Hammer of Light'}
+        with override_settings(BASE_DIR=str(self.base_dir)):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=1, to_push=112185,
+                summary_title='Hotfix push 112185', wago_url='https://wago.tools/hotfixes?search=enUS+112185',
+                build_num='69933', db2_build='12.1.0.69933', from_push=112181,
+                table_stats=[('SpellEffect', 1)], by_table={'SpellEffect': [source]},
+                sample_per_table=20, enrich_max=20, facts=facts,
+            )
+        soup = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        card = soup.select_one('.reader-card')
+        self.assertIn('Hammer of Light', card.get_text(' ', strip=True))
+        self.assertIn('BonusCoefficientFromAP', card.get_text(' ', strip=True))
+        self.assertIn('6.9677400589', card.get_text(' ', strip=True))
+        self.assertIn('10.451600074768', card.get_text(' ', strip=True))
+        self.assertIn('0.5440000295639', card.get_text(' ', strip=True))
+        self.assertNotIn('当前记录：攻击强度系数 6.9677400589', card.get_text(' ', strip=True))
+
     def test_hotfix_fallback_html_uses_the_same_impact_report_hierarchy(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         monitor.locale = 'zhCN'
@@ -651,14 +831,14 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn("aria-label='按影响范围筛选'", html)
         self.assertIn("data-hotfix-category='all'", html)
         self.assertIn("data-hotfix-category='技能/法术'", html)
-        self.assertIn('不判断增强或削弱', html)
+        self.assertIn('不能作为热修生效值或变化幅度', html)
         self.assertIn('这次具体改了什么', html)
-        self.assertIn('第 1 个技能效果的当前记录：基础值 15，法术强度系数 0.42，PvP 倍率 0.8', html)
+        self.assertIn('第 1 个技能效果的客户端 DB2 基表记录（非热修生效值）：基础值 15，法术强度系数 0.42，PvP 倍率 0.8', html)
         self.assertIn('当前设置为随物品等级缩放', html)
-        self.assertIn('查看技术明细与完整 DB2 字段', html)
+        self.assertIn('查看技术明细与 DB2 基表参考字段', html)
         self.assertIn('先看对象和字段', html)
         self.assertIn('字段关系', html)
-        self.assertIn('查看完整 DB2 原始字段（含 0 / 默认值 / 内部字段）', html)
+        self.assertIn('DB2 基表参考字段（最多前 120 个', html)
         self.assertIn('class=\'fields important-fields\'', html)
         self.assertNotIn("<div class='field primary'><span>标志位</span><strong>0</strong></div>", html)
         self.assertNotIn("<div class='field primary'><span>进入相机延迟</span><strong>0</strong></div>", html)
@@ -892,9 +1072,9 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('生物外观 ID', html)
         self.assertIn('Mount.ID = MountID', html)
         self.assertNotIn('可读解释', html)
-        self.assertIn('查看技术明细与完整 DB2 字段', html)
+        self.assertIn('查看技术明细与 DB2 基表参考字段', html)
         self.assertIn('坐骑获取与展示', html)
-        self.assertIn('不判断增强或削弱', html)
+        self.assertIn('不能作为热修生效值或变化幅度', html)
 
     def test_hotfix_full_report_scans_bounded_pages_even_when_pushes_are_not_monotonic(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
@@ -954,6 +1134,39 @@ class PortalReportFileViewTests(SimpleTestCase):
         (nested_dir / 'ok.html').write_text('<h1>nested report</h1>', encoding='utf-8')
         (self.base_dir / 'static' / 'secret.html').write_text('secret', encoding='utf-8')
 
+    def test_legacy_hotfix_route_warns_that_base_values_are_not_hotfix_facts(self):
+        path = self.base_dir / 'static' / 'portal' / 'reports' / 'legacy.html'
+        path.write_text('<html><body><h1>旧 Hotfix 报告</h1></body></html>', encoding='utf-8')
+        row = SimpleNamespace(id=123, content_html_path='portal/reports/legacy.html', collection_complete=False)
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.portal.views.WowHotfixReport.objects', _FakeManager(row)):
+            response = PortalWowHotfixReportView.as_view()(
+                self.factory.get('/portal/wow-hotfix-report/123/'), report_id=123,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('历史数值未核实', response.content.decode('utf-8'))
+        self.assertIn('旧 Hotfix 报告', response.content.decode('utf-8'))
+        row.collection_complete = True
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.portal.views.WowHotfixReport.objects', _FakeManager(row)):
+            verified = PortalWowHotfixReportView.as_view()(
+                self.factory.get('/portal/wow-hotfix-report/123/'), report_id=123,
+            )
+        self.assertNotIn('历史数值未核实', verified.content.decode('utf-8'))
+
+    def test_standalone_legacy_hotfix_html_also_warns(self):
+        name = 'wow_hotfix_full_wow_enUS_112208.html'
+        (self.base_dir / 'static' / 'portal' / 'reports' / name).write_text(
+            '<html><body><h1>旧 Hotfix 报告</h1></body></html>', encoding='utf-8',
+        )
+        row = SimpleNamespace(id=123, content_html_path='portal/reports/' + name, collection_complete=False)
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.portal.views.WowHotfixReport.objects', _FakeManager(row)):
+            response = PortalReportFileView.as_view()(
+                self.factory.get('/portal/reports/' + name), report_path=name,
+            )
+        self.assertIn('历史数值未核实', response.content.decode('utf-8'))
+
     def test_report_url_maps_content_html_path_to_portal_endpoint(self):
         self.assertEqual(
             portal_report_url('portal/reports/wow_hotfix_full_wow_zhCN_109505.html'),
@@ -1002,6 +1215,35 @@ class PortalReportFileViewTests(SimpleTestCase):
         self.assertIn('/portal/api/wow-skill-diff/27/metadata/', body)
         self.assertIn('wow-skill-report-metadata.js', body)
 
+    def test_uncommitted_hotfix_class_standalone_file_is_not_public(self):
+        name = 'wow_skill_diff_wow_enUS_hotfix_r3_p112208.html'
+        (self.base_dir / 'static' / 'portal' / 'reports' / name).write_text(
+            '<html><body><h1>尚未提交的职业报告</h1></body></html>', encoding='utf-8',
+        )
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.portal.views.WowHotfixReport.objects', _FakeManager(None)):
+            response = PortalReportFileView.as_view()(
+                self.factory.get('/portal/reports/' + name), report_path=name,
+            )
+        self.assertEqual(response.status_code, 404)
+
+    def test_standalone_hotfix_class_report_uses_hotfix_metadata_not_build_id(self):
+        name = 'wow_skill_diff_wow_enUS_hotfix_r1_p112185.html'
+        (self.base_dir / 'static' / 'portal' / 'reports' / name).write_text(
+            "<html><body><article class='spell' id='spell-123'></article></body></html>", encoding='utf-8',
+        )
+        row = SimpleNamespace(id=81, branch='wow', collection_complete=True, class_spell_count=1)
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.portal.views.WowHotfixReport.objects.filter') as lookup:
+            lookup.return_value.first.return_value = row
+            response = PortalReportFileView.as_view()(
+                self.factory.get(f'/portal/reports/{name}'), report_path=name,
+            )
+        body = response.content.decode('utf-8')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('/portal/api/wow-hotfix-class/81/metadata/', body)
+        self.assertNotIn('/portal/api/wow-skill-diff/81/metadata/', body)
+
     def test_report_file_view_rejects_path_traversal(self):
         blocked_paths = [
             '../secret.html',
@@ -1017,7 +1259,332 @@ class PortalReportFileViewTests(SimpleTestCase):
                 response = PortalReportFileView.as_view()(request, report_path=report_path)
                 self.assertEqual(response.status_code, 404, report_path)
 
+@override_settings(ALLOWED_HOSTS=['testserver'])
+class PortalWowHotfixClassReportViewTests(SimpleTestCase):
+    def setUp(self):
+        self.tmpdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmpdir.cleanup)
+        self.base_dir = Path(self.tmpdir.name)
+        report_dir = self.base_dir / 'static' / 'portal' / 'reports'
+        report_dir.mkdir(parents=True)
+        self.content = '<html><body><section class="spell" id="spell-123">效果(#0)</section></body></html>'
+        (report_dir / 'wow_skill_diff_hotfix_r1_p112185.html').write_text(self.content, encoding='utf-8')
+        self.row = SimpleNamespace(
+            id=81, branch='wow', region_id=1, from_push=112181, to_push=112185,
+            build_str='12.1.0.69933', created_at=None, collection_complete=True,
+            class_spell_count=1, class_class_count=1,
+            class_unresolved_count=8,
+            source_facts_json=json.dumps([{'source_build': '12.1.0.69814',
+                                           'source': {'table_name': 'SpellEffect', 'record_id': 456},
+                                           'after_verified': True,
+                                           'after': {'SpellID': '123', 'EffectIndex': '0'}}]),
+            class_content_html_path='portal/reports/wow_skill_diff_hotfix_r1_p112185.html',
+        )
+
+    def test_hotfix_class_detail_and_metadata_use_frozen_source_build_and_typed_route(self):
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.portal.views.WowHotfixReport.objects', _FakeManager(self.row)), \
+             patch('botend.portal.views.build_hotfix_report_spell_metadata', return_value={123: {'id': 123}}) as build:
+            response = PortalWowHotfixClassReportView.as_view()(
+                RequestFactory().get('/portal/wow-hotfix-class/81/'), report_id=81,
+            )
+            metadata = PortalWowHotfixClassMetadataAPIView.as_view()(
+                RequestFactory().get('/portal/api/wow-hotfix-class/81/metadata/'), report_id=81,
+            )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('data-skill-report-metadata="/portal/api/wow-hotfix-class/81/metadata/"', response.content.decode())
+        self.assertIn('push 112181', response.content.decode())
+        self.assertEqual(json.loads(metadata.content)['spells']['123']['id'], 123)
+        self.assertEqual(json.loads(metadata.content)['unresolved_count'], 8)
+        build.assert_called_once_with(self.content, 'wow', json.loads(self.row.source_facts_json))
+
+    def test_unverified_class_projection_is_not_public(self):
+        self.row.collection_complete = False
+        with patch('botend.portal.views.WowHotfixReport.objects', _FakeManager(self.row)):
+            response = PortalWowHotfixClassReportView.as_view()(
+                RequestFactory().get('/portal/wow-hotfix-class/81/'), report_id=81,
+            )
+        self.assertEqual(response.status_code, 404)
+
 class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
+    def test_hotfix_complete_flag_save_failure_removes_published_files(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        with tempfile.TemporaryDirectory() as folder:
+            public = Path(folder) / 'published.html'
+            public.write_text('staged result', encoding='utf-8')
+            state = SimpleNamespace(hotfix_region_id=3, hotfix_push_id=112181,
+                                    save=lambda update_fields: None)
+            source = {'id': 1, 'push_id': 112185, 'region_id': 3, 'locale': 'enUS',
+                      'table_name': 'SpellEffect', 'record_id': 1106904}
+            fact = {'source': source, 'after_verified': True, 'after': {'SpellID': '427453'}}
+            full = {'entry_count': 1, 'content_html_path': 'portal/reports/full.html',
+                    'staging_path': '/tmp/private-full.html', 'collection_complete': True}
+            cls = {'spell_count': 1, 'class_count': 1, 'unresolved_count': 0,
+                   'content_html_path': 'portal/reports/class.html', 'staging_path': '/tmp/private-class.html'}
+            saved = SimpleNamespace(collection_complete=False,
+                                    save=Mock(side_effect=[OSError('commit failed'), None]))
+            with patch.object(monitor, '_fetch_latest_hotfix_push_id', return_value=112185), \
+                 patch.object(monitor, '_collect_hotfix_interval_rows', return_value=[source]), \
+                 patch.object(monitor, '_resolve_hotfix_facts', return_value=[fact]), \
+                 patch.object(monitor, '_generate_hotfix_full_report', return_value=full), \
+                 patch.object(monitor, '_generate_hotfix_class_report', return_value=cls), \
+                 patch.object(monitor, '_publish_staged_hotfix_reports', return_value=[str(public)]), \
+                 patch.object(monitor, '_mark_event'), \
+                 patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create', return_value=(SimpleNamespace(), True)), \
+                 patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.filter') as existing, \
+                 patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.update_or_create', return_value=(saved, True)):
+                existing.return_value.first.return_value = None
+                self.assertFalse(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
+            self.assertFalse(public.exists())
+            self.assertFalse(saved.collection_complete)
+            self.assertEqual(state.hotfix_push_id, 112181)
+
+    def test_successful_retry_preserves_already_complete_hotfix_report(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        state = SimpleNamespace(hotfix_region_id=3, hotfix_push_id=112181,
+                                save=lambda update_fields: None)
+        source = {'id': 1, 'push_id': 112185, 'region_id': 3, 'locale': 'enUS',
+                  'table_name': 'SpellEffect', 'record_id': 1106904}
+        fact = {'source': source, 'after_verified': True, 'after': {'SpellID': '427453'}}
+        full = {'entry_count': 1, 'content_html_path': 'portal/reports/full.html',
+                'staging_path': '/tmp/private-full.html', 'collection_complete': True}
+        cls = {'spell_count': 1, 'class_count': 1, 'unresolved_count': 0,
+               'content_html_path': 'portal/reports/class.html', 'staging_path': '/tmp/private-class.html'}
+        with patch.object(monitor, '_fetch_latest_hotfix_push_id', return_value=112185), \
+             patch.object(monitor, '_collect_hotfix_interval_rows', return_value=[source]), \
+             patch.object(monitor, '_resolve_hotfix_facts', return_value=[fact]), \
+             patch.object(monitor, '_generate_hotfix_full_report', return_value=full), \
+             patch.object(monitor, '_generate_hotfix_class_report', return_value=cls), \
+             patch.object(monitor, '_discard_hotfix_staging') as discard, \
+             patch.object(monitor, '_mark_event'), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create', return_value=(SimpleNamespace(), True)), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.filter') as existing, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.update_or_create') as overwrite:
+            existing.return_value.first.return_value = SimpleNamespace(collection_complete=True)
+            self.assertFalse(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
+        overwrite.assert_not_called()
+        discard.assert_called_once_with(full, cls)
+        self.assertEqual(state.hotfix_push_id, 112181)
+
+    def test_hotfix_publication_failure_marks_row_incomplete_and_keeps_cursor(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        state = SimpleNamespace(hotfix_region_id=3, hotfix_push_id=112181,
+                                save=lambda update_fields: None)
+        source = {'id': 1, 'push_id': 112185, 'region_id': 3, 'locale': 'enUS',
+                  'table_name': 'SpellEffect', 'record_id': 1106904}
+        fact = {'source': source, 'after_verified': True, 'after': {'SpellID': '427453'}}
+        full = {'entry_count': 1, 'content_html_path': 'portal/reports/full.html',
+                'staging_path': '/tmp/private-full.html', 'collection_complete': True}
+        cls = {'spell_count': 1, 'class_count': 1, 'unresolved_count': 0,
+               'content_html_path': 'portal/reports/class.html', 'staging_path': '/tmp/private-class.html'}
+        row = SimpleNamespace(collection_complete=True, save=lambda update_fields: None)
+        with patch.object(monitor, '_fetch_latest_hotfix_push_id', return_value=112185), \
+             patch.object(monitor, '_collect_hotfix_interval_rows', return_value=[source]), \
+             patch.object(monitor, '_resolve_hotfix_facts', return_value=[fact]), \
+             patch.object(monitor, '_generate_hotfix_full_report', return_value=full), \
+             patch.object(monitor, '_generate_hotfix_class_report', return_value=cls), \
+             patch.object(monitor, '_publish_staged_hotfix_reports', side_effect=OSError('disk full')), \
+             patch.object(monitor, '_mark_event') as event, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create', return_value=(SimpleNamespace(), True)), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.filter') as existing, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.update_or_create', return_value=(row, True)):
+            existing.return_value.first.return_value = None
+            self.assertFalse(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
+        self.assertEqual(state.hotfix_push_id, 112181)
+        self.assertFalse(row.collection_complete)
+        self.assertEqual(state.hotfix_last_event_status, 'publish_failed')
+        self.assertEqual(event.call_args.kwargs['status'], 'publish_failed')
+
+    def test_staged_hotfix_publication_is_bounded_and_rolls_back_partial_move(self):
+        import os
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        with tempfile.TemporaryDirectory() as folder, override_settings(BASE_DIR=folder):
+            def reports(push):
+                a, b = monitor._hotfix_report_private_path(), monitor._hotfix_report_private_path()
+                Path(a).write_text('全量事实', encoding='utf-8')
+                Path(b).write_text('职业事实', encoding='utf-8')
+                return ({'content_html_path': f'portal/reports/wow_hotfix_full_wow_enUS_r3_{push}.html',
+                         'staging_path': a},
+                        {'content_html_path': f'portal/reports/wow_skill_diff_wow_enUS_hotfix_r3_p{push}.html',
+                         'staging_path': b})
+            full, cls = reports(112185)
+            monitor._publish_staged_hotfix_reports(full, cls)
+            for item in (full, cls):
+                self.assertFalse(Path(item['staging_path']).exists())
+                self.assertTrue((Path(folder) / 'static' / item['content_html_path']).is_file())
+            full, cls = reports(112208)
+            original = os.replace
+            def fail_second(source, dest):
+                if source == cls['staging_path']:
+                    raise OSError('second move failed')
+                return original(source, dest)
+            with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.os.replace', side_effect=fail_second):
+                with self.assertRaisesRegex(OSError, 'second move failed'):
+                    monitor._publish_staged_hotfix_reports(full, cls)
+            for item in (full, cls):
+                self.assertFalse((Path(folder) / 'static' / item['content_html_path']).exists())
+            monitor._discard_hotfix_staging(full, cls)
+            self.assertFalse(Path(cls['staging_path']).exists())
+
+    def test_unknown_legacy_region_never_reuses_unscoped_cursor(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        state = SimpleNamespace(hotfix_region_id=0, hotfix_push_id=112208, save=lambda update_fields: None)
+        with patch.object(monitor, '_fetch_latest_hotfix_push_id', return_value=112185) as fetch:
+            self.assertFalse(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
+        fetch.assert_not_called()
+        self.assertEqual(state.hotfix_push_id, 112208)
+        self.assertEqual(state.hotfix_last_event_status, 'hotfix_region_unverified')
+
+    def test_failed_hotfix_retry_does_not_overwrite_previously_complete_report(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        class State:
+            hotfix_push_id = 112181
+            hotfix_region_id = 3
+            def save(self, update_fields):
+                pass
+        state = State()
+        existing = SimpleNamespace(id=55, collection_complete=True)
+        with patch.object(monitor, '_fetch_latest_hotfix_push_id', return_value=112185), \
+             patch.object(monitor, '_collect_hotfix_interval_rows', side_effect=WagoDiffUnavailable('source incomplete')), \
+             patch.object(monitor, '_build_hotfix_fallback_report', return_value={
+                 'content_html_path': 'portal/reports/incomplete.html', 'entry_count': 0,
+             }), patch.object(monitor, '_mark_event'), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create', return_value=(SimpleNamespace(), True)), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects') as reports:
+            reports.filter.return_value.first.return_value = existing
+            self.assertFalse(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
+        reports.update_or_create.assert_not_called()
+        self.assertEqual(state.hotfix_push_id, 112181)
+
+    def test_hotfix_scan_publishes_two_views_from_one_complete_region_fact_set(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+
+        class State:
+            hotfix_push_id = 112181
+            hotfix_region_id = 1
+            def save(self, update_fields):
+                pass
+
+        state = State()
+        source = {'id': 9, 'push_id': 112185, 'region_id': 1, 'locale': 'enUS',
+                  'table_name': 'SpellEffect', 'record_id': 1106904, 'data': [1106904]}
+        fact = {'source': source, 'after': {'ID': '1106904', 'SpellID': '427453'},
+                'before': None, 'changes': [], 'before_verified': False}
+        full = {'to_push': 112185, 'from_push': 112181, 'build_str': '12.1.0.69933',
+                'summary_title': 'Hotfix 全量更新', 'content_html_path': 'portal/reports/all.html',
+                'report_url': '/portal/reports/all.html', 'entry_count': 1, 'table_count': 1,
+                'changed_tables_json': '["SpellEffect"]', 'source_facts_json': json.dumps([fact]),
+                'collection_complete': True, 'staging_path': '/tmp/staged-all.html'}
+        cls = {'spell_count': 1, 'class_count': 1,
+               'content_html_path': 'portal/reports/class.html', 'unresolved_count': 0,
+               'staging_path': '/tmp/staged-class.html'}
+        saved_row = SimpleNamespace(id=55, collection_complete=False, save=Mock())
+        with patch.object(monitor, '_fetch_latest_hotfix_push_id', return_value=112185) as latest, \
+             patch.object(monitor, '_collect_hotfix_interval_rows', return_value=[source]) as collect, \
+             patch.object(monitor, '_resolve_hotfix_facts', return_value=[fact]) as resolve, \
+             patch.object(monitor, '_generate_hotfix_full_report', return_value=full) as full_writer, \
+             patch.object(monitor, '_generate_hotfix_class_report', return_value=cls) as class_writer, \
+             patch.object(monitor, '_publish_staged_hotfix_reports') as publish, \
+             patch.object(monitor, '_mark_event'), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create', return_value=(SimpleNamespace(), True)) as events, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.filter') as existing, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.update_or_create', return_value=(saved_row, True)) as reports:
+            existing.return_value.first.return_value = None
+            self.assertTrue(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
+        latest.assert_called_once_with(locale='enUS', region_id=1, current_build='12.1.0.69933')
+        collect.assert_called_once_with(112181, 112185, region_id=1, locale='enUS')
+        resolve.assert_called_once_with([source], db2_build='12.1.0.69933')
+        self.assertIs(full_writer.call_args.kwargs['facts'], class_writer.call_args.kwargs['facts'])
+        self.assertTrue(full_writer.call_args.kwargs['stage_for_publication'])
+        self.assertTrue(class_writer.call_args.kwargs['stage_for_publication'])
+        publish.assert_called_once_with(full, cls)
+        self.assertEqual(events.call_args.kwargs['region_id'], 1)
+        self.assertEqual(reports.call_args.kwargs['region_id'], 1)
+        self.assertEqual(reports.call_args.kwargs['defaults']['class_content_html_path'], cls['content_html_path'])
+        self.assertEqual(reports.call_args.kwargs['defaults']['class_unresolved_count'], 0)
+        self.assertEqual(reports.call_args.kwargs['defaults']['source_facts_json'], full['source_facts_json'])
+        self.assertFalse(reports.call_args.kwargs['defaults']['collection_complete'])
+        self.assertTrue(saved_row.collection_complete)
+        saved_row.save.assert_called_once_with(update_fields=['collection_complete'])
+        self.assertEqual(state.hotfix_push_id, 112185)
+
+    def test_hotfix_interval_reuses_exact_push_rows_and_rejects_excess(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        expected = [
+            {'id': 1, 'push_id': 112183, 'record_id': 891602},
+            {'id': 2, 'push_id': 112185, 'record_id': 1106904},
+        ]
+        def fetch(push_id, **kwargs):
+            self.assertEqual(kwargs, {'region_id': 1, 'locale': 'enUS'})
+            return [r for r in expected if r['push_id'] == push_id]
+        with patch.object(monitor, '_fetch_hotfix_push_rows', side_effect=fetch) as lookup:
+            self.assertEqual(monitor._collect_hotfix_interval_rows(112181, 112185, region_id=1, locale='enUS'), expected)
+        self.assertEqual(lookup.call_count, 4)
+        with override_settings(WAGO_HOTFIX_MAX_ENTRIES=1), patch.object(monitor, '_fetch_hotfix_push_rows', side_effect=fetch):
+            with self.assertRaisesRegex(WagoDiffUnavailable, 'Hotfix.*limit'):
+                monitor._collect_hotfix_interval_rows(112181, 112185, region_id=1, locale='enUS')
+
+    def test_hotfix_discovery_uses_exact_region_and_checks_more_than_first_page(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        pages = {
+            1: [{'push_id': 111863, 'region_id': 3, 'locale': 'enUS'},
+                {'push_id': 112208, 'region_id': 1, 'locale': 'enUS'}],
+            2: [{'push_id': 112185, 'region_id': 3, 'locale': 'enUS'}],
+            3: [],
+        }
+        with override_settings(WAGO_HOTFIX_MAX_PAGES=3), \
+             patch.object(monitor, '_fetch_hotfix_page_data', side_effect=lambda page, search: pages[page]):
+            self.assertEqual(monitor._fetch_latest_hotfix_push_id(locale='enUS', region_id=3), 112185)
+
+    def test_hotfix_push_collection_verifies_pages_and_region_before_reporting(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+
+        def inertia(page, rows, *, total=3, last_page=2):
+            payload = {'props': {'filters': {'search': 'enUS 112185'}, 'hotfixes': {
+                'total': total, 'current_page': page, 'last_page': last_page,
+                'per_page': 2, 'data': rows,
+            }}}
+            return '<div data-page="' + html.escape(json.dumps(payload), quote=True) + '"></div>'
+
+        us = {'id': 101, 'push_id': 112185, 'region_id': 1, 'locale': 'enUS',
+              'table_name': 'SpellEffect', 'record_id': 1106904, 'status': 1,
+              'data': [1106904, '10.451600074768']}
+        eu = {**us, 'id': 102, 'region_id': 3}
+        another = {**us, 'id': 103, 'push_id': 112181}
+
+        def page_for(url, **kwargs):
+            self.assertIn('search=enUS+112185', url)
+            return inertia(2, [another]) if 'page=2' in url else inertia(1, [us, eu])
+
+        with patch.object(monitor, '_http_get_text', side_effect=page_for):
+            rows = monitor._fetch_hotfix_push_rows(112185, region_id=1, locale='enUS')
+        self.assertEqual(rows, [us])
+        with patch.object(monitor, '_http_get_text', side_effect=lambda url, **kwargs: inertia(1, [us, eu])):
+            with self.assertRaisesRegex(WagoDiffUnavailable, 'Hotfix.*incomplete'):
+                monitor._fetch_hotfix_push_rows(112185, region_id=1, locale='enUS')
+        with patch.object(monitor, '_http_get_text', side_effect=lambda url, **kwargs: inertia(1, [us, us], total=2, last_page=1)):
+            with self.assertRaisesRegex(WagoDiffUnavailable, 'Hotfix.*duplicate'):
+                monitor._fetch_hotfix_push_rows(112185, region_id=1, locale='enUS')
+
+    def test_late_seen_older_hotfix_push_never_resets_cursor_or_replaces_report(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+
+        class State:
+            hotfix_push_id = 112208
+            hotfix_region_id = 3
+            hotfix_last_event_status = 'has_update'
+            def save(self, update_fields):
+                pass
+
+        state = State()
+        with patch.object(monitor, '_fetch_latest_hotfix_push_id', return_value=111863), \
+             patch.object(monitor, '_fetch_prev_hotfix_push_id', side_effect=AssertionError('no predecessor lookup')), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create', side_effect=AssertionError('no event write')), \
+             patch.object(monitor, '_generate_hotfix_full_report', side_effect=AssertionError('no replay')):
+            self.assertTrue(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
+        self.assertEqual(state.hotfix_push_id, 112208)
+        self.assertEqual(state.hotfix_last_event_status, 'hotfix_source_behind_cursor')
+
     @override_settings(WAGO_SKILL_DIFF_MAX_DIFF_ROWS=3)
     def test_oversized_diff_compares_complete_exact_build_csv_instead_of_first_page(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
@@ -1222,4 +1789,241 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
             ('process_pending', '12.1.0.68301', 1),
             ('record_event', '12.1.0.68412', '12.1.0.68500', False),
         ])
+    def test_build_scoped_hotfix_candidate_is_not_claimed_as_complete_search(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        def payload(page):
+            rows = (
+                [{'id': 91, 'region_id': 1, 'locale': 'enUS', 'build': 69933, 'push_id': 112300},
+                 {'id': 92, 'region_id': 3, 'locale': 'enUS', 'build': 69933, 'push_id': 112218}]
+                if page == 1 else
+                [{'id': 93, 'region_id': 3, 'locale': 'enUS', 'build': 69933, 'push_id': 112215}]
+            )
+            return {'hotfixes': {'current_page': page, 'last_page': 163, 'total': 4075,
+                                 'per_page': 25, 'data': rows}}
+        with override_settings(WAGO_HOTFIX_DISCOVERY_MAX_PAGES=2), \
+             patch.object(monitor, '_http_get_text', side_effect=lambda url, **kw: payload(int(url.rsplit('page=', 1)[1]))), \
+             patch.object(monitor, '_extract_inertia_props', side_effect=lambda value: value):
+            self.assertEqual(monitor._fetch_latest_hotfix_push_id(
+                locale='enUS', region_id=3, current_build='12.1.0.69933',
+            ), 112218)
+    def test_hotfix_facts_use_each_source_builds_schema_not_current_build_for_all(self):
+        from collections import OrderedDict
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._build_versions_cache = {'versions': ['12.1.0.69875', '12.1.0.69933']}
+        old = {'id': 1, 'region_id': 3, 'locale': 'enUS', 'table_name': 'SpellEffect',
+               'record_id': 100, 'push_id': 112206, 'build': 69875, 'data': [100, 427453]}
+        new = {'id': 2, 'region_id': 3, 'locale': 'enUS', 'table_name': 'SpellEffect',
+               'record_id': 101, 'push_id': 112208, 'build': 69933, 'data': [101, 427453, '0.544']}
+        def fetch(table, build, rid):
+            fields = [('ID', rid), ('SpellID', 427453)]
+            if build == '12.1.0.69933':
+                fields.append(('PvpMultiplier', '1'))
+            return OrderedDict(fields)
+        with patch.object(monitor, '_fetch_db2_row_by_id', side_effect=fetch) as lookup, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.collect_hotfix_record_history', return_value=[]):
+            facts = monitor._resolve_hotfix_facts([old, new], db2_build='12.1.0.69933')
+        self.assertTrue(all(fact['after_verified'] for fact in facts))
+        self.assertEqual(facts[0]['after']['SpellID'], '427453')
+        self.assertEqual(facts[1]['after']['PvpMultiplier'], '0.544')
+        self.assertEqual([fact['source_build'] for fact in facts], ['12.1.0.69875', '12.1.0.69933'])
+        self.assertEqual([call.args[1] for call in lookup.call_args_list], ['12.1.0.69875', '12.1.0.69933'])
+    def test_old_build_class_spell_keeps_its_historical_specialization(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._build_versions_cache = {'versions': ['12.1.0.69875', '12.1.0.69933']}
+        monitor._load_chr_classes = lambda build: {2: 'Paladin'}
+        monitor._load_chr_specialization_meta = lambda build: {70: {'name': 'Retribution', 'class_id': 2}}
+        monitor._load_specialization_spells = lambda build: ({427453: {70}} if build.endswith('69875') else {123: {70}})
+        monitor._spell_has_class = lambda sid, _mapping, _classes, build: sid == 427453 and build.endswith('69875')
+        fact = {'source': {'id': 5, 'table_name': 'SpellEffect', 'record_id': 1106904,
+                           'push_id': 112206, 'build': 69875},
+                'after': {'ID': '1106904', 'SpellID': '427453', 'EffectIndex': '0', 'PvpMultiplier': '0.68'},
+                'before_verified': True, 'after_verified': True,
+                'changes': [{'field': 'PvpMultiplier', 'before': '0.8', 'after': '0.68'}]}
+        with patch.object(monitor, '_write_html_report', return_value={'path': 'portal/reports/class.html', 'class_count': 1}) as writer:
+            result = monitor._generate_hotfix_class_report(
+                'wow', '12.1.0.69933', 112181, 112208, region_id=3, facts=[fact], locale='enUS',
+            )
+        self.assertEqual(result['spell_count'], 1)
+        self.assertEqual(writer.call_args.kwargs['spell_to_specs'][427453], {70})
+        self.assertEqual(fact['source_build'], '12.1.0.69875')
+        self.assertEqual(writer.call_args.kwargs['spell_changes'][427453]['diffs']['spelleffect'][0]['meta']['SourceBuild'], '12.1.0.69875')
+        self.assertEqual(writer.call_args.kwargs['source_build_label'], '12.1.0.69875')
+        self.assertEqual(writer.call_args.kwargs['display_from_build'], 'push 112181')
+    def test_interval_report_lists_all_source_builds_not_only_majority_build(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        rows = [
+            {'id': 1, 'region_id': 3, 'locale': 'enUS', 'push_id': 112206,
+             'table_name': 'SpellEffect', 'record_id': 101, 'build': 69875},
+            {'id': 2, 'region_id': 3, 'locale': 'enUS', 'push_id': 112208,
+             'table_name': 'SpellEffect', 'record_id': 102, 'build': 69933},
+        ]
+        facts = [{'source': row, 'after': {'ID': str(row['record_id']), 'SpellID': '427453'},
+                  'after_verified': True, 'before_verified': False, 'changes': []} for row in rows]
+        with override_settings(WAGO_HOTFIX_REPORT_ENRICH_MAX=0), \
+             patch.object(monitor, '_write_hotfix_full_html', return_value=('/tmp/report.html', 'portal/reports/report.html')) as writer:
+            result = monitor._generate_hotfix_full_report(
+                'wow', '12.1.0.69933', 112181, 112208, locale='enUS', region_id=3,
+                hotfix_rows=rows, facts=facts,
+            )
+        self.assertIn('69875', result['content_md'])
+        self.assertIn('69933', result['content_md'])
+        self.assertEqual(result['build_num'], '69875 / 69933')
+        self.assertEqual(writer.call_args.kwargs['build_num'], '69875 / 69933')
+    def test_added_hotfix_record_decodes_from_same_build_table_schema_when_base_id_missing(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 3, 'region_id': 3, 'locale': 'enUS', 'table_name': 'SpellTargetRestrictions',
+                  'record_id': 346822, 'push_id': 112207, 'build': 69875, 'status': 1,
+                  'data': [346822, 0, '30', 0, 0, 0, 0, '0', 1264379]}
+        sample = {'ID': 1, 'DifficultyID': 0, 'ConeDegrees': 0, 'MaxTargets': 0,
+                  'MaxTargetLevel': 0, 'TargetCreatureType': 0, 'Targets': 0, 'Width': 0, 'SpellID': 1}
+        props = {'filters': {'build': '12.1.0.69875', 'locale': 'enUS'},
+                 'data': {'data': [sample]}}
+        with patch.object(monitor, '_fetch_db2_row_by_id', return_value={}), \
+             patch.object(monitor, '_http_get_text', return_value='table-response') as fetch, \
+             patch.object(monitor, '_extract_inertia_props', return_value=props), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.collect_hotfix_record_history', return_value=[]):
+            fact = monitor._resolve_hotfix_facts([source], db2_build='12.1.0.69875')[0]
+        self.assertTrue(fact['after_verified'])
+        self.assertEqual(fact['after']['SpellID'], '1264379')
+        self.assertIn('build=12.1.0.69875', fetch.call_args.args[0])
+    def test_manual_hotfix_interval_uses_given_bounds_without_discovery(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        state = SimpleNamespace(hotfix_region_id=3, hotfix_push_id=111863,
+                                save=lambda **kwargs: None)
+        class StopAtCollection(BaseException):
+            pass
+        with patch.object(monitor, '_fetch_latest_hotfix_push_id') as discover, \
+             patch.object(monitor, '_collect_hotfix_interval_rows', side_effect=StopAtCollection) as collect, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create',
+                   return_value=(SimpleNamespace(), True)):
+            with self.assertRaises(StopAtCollection):
+                monitor._scan_hotfix_if_needed(
+                    state, 'wow', '12.1.0.69933', backfill_interval=(111863, 112236))
+        discover.assert_not_called()
+        collect.assert_called_once_with(111863, 112236, region_id=3, locale='enUS')
+
+    def test_manual_backfill_source_failure_does_not_publish_fallback(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        state = SimpleNamespace(hotfix_region_id=3, hotfix_push_id=111863,
+                                save=lambda **kwargs: None)
+        with patch.object(monitor, '_collect_hotfix_interval_rows', side_effect=WagoDiffUnavailable('missing page')), \
+             patch.object(monitor, '_build_hotfix_fallback_report') as fallback, \
+             patch.object(monitor, '_mark_event'), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.filter') as reports, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create',
+                   return_value=(SimpleNamespace(), True)):
+            reports.return_value.first.return_value = None
+            self.assertFalse(monitor._scan_hotfix_if_needed(
+                state, 'wow', '12.1.0.69933', backfill_interval=(111863, 112236)))
+        fallback.assert_not_called()
+
+    def test_manual_backfill_success_cannot_advance_real_state_cursor(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        state = SimpleNamespace(hotfix_region_id=3, hotfix_push_id=111863,
+                                save=lambda **kwargs: None)
+        # Even a caller that passes a persisted state must not let a manual
+        # replay rewrite its cursor.
+        source = {'id': 1, 'region_id': 3, 'locale': 'enUS', 'push_id': 112236,
+                  'table_name': 'SpellEffect', 'record_id': 1}
+        fact = {'source': source, 'after_verified': True, 'after': {'SpellID': '12345'}}
+        full = {'entry_count': 1, 'content_html_path': 'portal/reports/full.html',
+                'staging_path': '/tmp/full.html'}
+        cls = {'spell_count': 1, 'class_count': 1, 'unresolved_count': 0,
+               'content_html_path': 'portal/reports/class.html', 'staging_path': '/tmp/class.html'}
+        row = SimpleNamespace(collection_complete=False, save=Mock())
+        with patch.object(monitor, '_fetch_latest_hotfix_push_id') as discover, \
+             patch.object(monitor, '_collect_hotfix_interval_rows', return_value=[source]), \
+             patch.object(monitor, '_resolve_hotfix_facts', return_value=[fact]), \
+             patch.object(monitor, '_generate_hotfix_class_report', return_value=cls), \
+             patch.object(monitor, '_generate_hotfix_full_report', return_value=full), \
+             patch.object(monitor, '_publish_staged_hotfix_reports', return_value=['/tmp/published.html']), \
+             patch.object(monitor, '_mark_event'), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create',
+                   return_value=(SimpleNamespace(), True)), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.filter') as reports, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.update_or_create',
+                   return_value=(row, True)):
+            reports.return_value.first.return_value = None
+            self.assertTrue(monitor._scan_hotfix_if_needed(
+                state, 'wow', '12.1.0.69933', backfill_interval=(111863, 112236)))
+        discover.assert_not_called()
+        self.assertEqual(state.hotfix_push_id, 111863)
+    def test_not_public_spell_rows_are_unresolved_not_a_report_failure(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        facts = [
+            {'source': {'id': sid, 'push_id': 111926, 'region_id': 3,
+                        'locale': 'enUS', 'table_name': table, 'record_id': 1309109,
+                        'build': 69587, 'status': 4, 'data': None},
+             'after_verified': False, 'after': None, 'changes': []}
+            for sid, table in ((26432887223, 'SpellName'), (26432887224, 'Spell'))
+        ]
+        with patch.object(monitor, '_load_chr_classes', return_value={2: 'Paladin'}), \
+             patch.object(monitor, '_load_chr_specialization_meta', return_value={70: {'class_id': 2}}):
+            result = monitor._generate_hotfix_class_report(
+                'wow', '12.1.0.69933', 111863, 112236,
+                region_id=3, facts=facts, locale='enUS', stage_for_publication=True)
+        self.assertEqual(result['unresolved_count'], 2)
+        self.assertEqual(result['spell_count'], 0)
+    def test_manual_report_names_do_not_upsert_spell_snapshots(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._hotfix_report_only = True
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects.filter') as snapshots, \
+             patch.object(monitor, '_fetch_spell_names_concurrent', return_value={427453: '光明之锤'}), \
+             patch.object(monitor, '_bulk_upsert_snapshots') as upsert:
+            snapshots.return_value.exclude.return_value.values.return_value = []
+            names = monitor._ensure_spell_names_zh('wow', '12.1.0.69933', [427453])
+        self.assertEqual(names[427453], '光明之锤')
+        upsert.assert_not_called()
+    def test_manual_backfill_rejects_source_id_mismatch_before_generating_report(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        state = SimpleNamespace(hotfix_region_id=3, hotfix_push_id=111863,
+                                save=lambda **kwargs: None)
+        source = {'id': 1, 'push_id': 112236, 'region_id': 3, 'locale': 'enUS',
+                  'table_name': 'SpellEffect', 'record_id': 10}
+        with patch.object(monitor, '_collect_hotfix_interval_rows', return_value=[source]), \
+             patch.object(monitor, '_resolve_hotfix_facts') as resolve, \
+             patch.object(monitor, '_mark_event'), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowWagoHotfixEvent.objects.update_or_create',
+                   return_value=(SimpleNamespace(), True)):
+            self.assertFalse(monitor._scan_hotfix_if_needed(
+                state, 'wow', '12.1.0.69933', backfill_interval=(111863, 112236),
+                expected_source_count=2244, expected_source_sha256='0' * 64))
+        resolve.assert_not_called()
+    def test_concurrent_hotfix_scan_cannot_publish_over_same_region(self):
+        import fcntl
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        state = SimpleNamespace(hotfix_region_id=3, hotfix_push_id=111863)
+        with tempfile.TemporaryDirectory() as folder, override_settings(BASE_DIR=folder):
+            lock = Path(folder) / 'tmp' / 'wago-hotfix-scan-r3.lock'
+            lock.parent.mkdir(parents=True)
+            with lock.open('a+') as held:
+                fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                with patch.object(monitor, '_scan_hotfix_locked') as work:
+                    self.assertFalse(monitor._scan_hotfix_if_needed(
+                        state, 'wow', '12.1.0.69933', backfill_interval=(111863, 112236)))
+                    work.assert_not_called()
+    def test_cross_build_spec_reassignment_is_not_labeled_as_both_specs(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._full_hotfix_source_build = lambda source, current: f"12.1.0.{source['build']}"
+        monitor._load_chr_classes = lambda build, locale_override=None: {2: 'Paladin'}
+        monitor._load_chr_specialization_meta = lambda build, locale_override=None: {
+            70: {'name': 'Retribution', 'class_id': 2},
+            71: {'name': 'Holy', 'class_id': 2},
+        }
+        monitor._load_specialization_spells = lambda build: {427453: {70 if build.endswith('69875') else 71}}
+        monitor._spell_class_ids = lambda sid, mappings, classes, version: {2}
+        facts = [
+            {'source': {'id': i, 'build': build, 'push_id': push, 'region_id': 3,
+                        'locale': 'enUS', 'table_name': 'SpellEffect', 'record_id': i},
+             'after': {'ID': str(i), 'SpellID': '427453', 'EffectIndex': '0', 'PvpMultiplier': str(i)},
+             'after_verified': True, 'before_verified': True,
+             'changes': [{'field': 'PvpMultiplier', 'before': '1', 'after': str(i)}]}
+            for i, build, push in ((101, 69875, 112185), (102, 69933, 112208))
+        ]
+        with patch.object(monitor, '_write_html_report', return_value={
+                'path': 'portal/reports/class.html', 'class_count': 1}) as writer:
+            monitor._generate_hotfix_class_report(
+                'wow', '12.1.0.69933', 111863, 112236,
+                region_id=3, facts=facts, locale='enUS')
+        self.assertEqual(writer.call_args.kwargs['spell_to_specs'][427453], {-2})
 

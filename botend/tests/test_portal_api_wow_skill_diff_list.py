@@ -4,7 +4,7 @@ from django.test import TestCase, override_settings
 from django.utils import timezone
 from django.test import RequestFactory
 
-from botend.models import WowSkillDiffReport
+from botend.models import WowHotfixReport, WowSkillDiffReport
 from botend.portal.api import PortalWowSkillDiffListAPIView
 
 
@@ -13,6 +13,32 @@ class PortalWowSkillDiffListAPIViewTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
         self.view = PortalWowSkillDiffListAPIView.as_view()
+
+    def test_build_and_verified_hotfix_class_reports_keep_distinct_typed_urls(self):
+        build = WowSkillDiffReport.objects.create(
+            branch='wow', locale='enUS', from_build='12.1.0.69814', to_build='12.1.0.69875',
+        )
+        hotfix = WowHotfixReport.objects.create(
+            branch='wow', locale='enUS', region_id=1, from_push=112181, to_push=112185,
+            build_str='12.1.0.69933', collection_complete=True,
+            class_content_html_path='portal/reports/wow_skill_diff_wow_enUS_hotfix_r1_p112185.html',
+            class_spell_count=2, class_class_count=1, class_unresolved_count=2,
+        )
+        incomplete = WowHotfixReport.objects.create(
+            branch='wow', locale='enUS', region_id=3, to_push=112185,
+            class_content_html_path='portal/reports/unverified.html', class_spell_count=1,
+        )
+        response = self.view(self.factory.get('/portal/api/wow-skill-diffs/?page_size=10'))
+        payload = json.loads(response.content)
+        self.assertEqual(payload['meta']['total'], 2)
+        self.assertEqual({entry['url'] for entry in payload['data']}, {
+            f'/portal/wow-skill-diff/{build.id}/', f'/portal/wow-hotfix-class/{hotfix.id}/',
+        })
+        self.assertEqual({entry['type'] for entry in payload['data']}, {'build', 'hotfix'})
+        hotfix_entry = next(entry for entry in payload['data'] if entry['type'] == 'hotfix')
+        self.assertEqual(hotfix_entry['unresolved_count'], 2)
+        self.assertIn('2 条失效来源归属未核实', hotfix_entry['title'])
+        self.assertNotIn(f'/portal/wow-hotfix-class/{incomplete.id}/', [entry['url'] for entry in payload['data']])
 
     def test_filters_reports_older_than_two_months(self):
         """Only reports created within the last 2 months should be returned"""
