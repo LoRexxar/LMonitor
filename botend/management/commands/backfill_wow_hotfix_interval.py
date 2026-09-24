@@ -1,5 +1,6 @@
 """Rebuild one verified Wago Hotfix interval without rewinding the live cursor."""
 
+import hashlib
 import json
 import re
 from pathlib import Path
@@ -22,6 +23,8 @@ class Command(BaseCommand):
         parser.add_argument('--region-id', type=int, required=True)
         parser.add_argument('--expected-count', type=int, required=True)
         parser.add_argument('--expected-id-sha256', required=True)
+        parser.add_argument('--verified-source-json', help='Previously verified Wago rows for only this interval')
+        parser.add_argument('--verified-file-sha256', help='SHA-256 of the exact source file, including payloads')
 
     def handle(self, *args, **options):
         from_push, to_push, region_id = (options[key] for key in ('from_push', 'to_push', 'region_id'))
@@ -31,6 +34,46 @@ class Command(BaseCommand):
             raise CommandError('Specify a positive region and increasing exact push interval')
         if expected_count <= 0 or not re.fullmatch(r'[0-9a-f]{64}', expected_digest):
             raise CommandError('Specify independently verified source count and SHA-256')
+        if bool(options.get('verified_source_json')) != bool(options.get('verified_file_sha256')):
+            raise CommandError('Verified source file and file SHA-256 must be provided together')
+        frozen_rows = None
+        if options.get('verified_source_json'):
+            path = Path(options['verified_source_json'])
+            if not path.is_file() or path.stat().st_size > 64 * 1024 * 1024:
+                raise CommandError('Verified source file missing or oversized')
+            file_digest = options.get('verified_file_sha256') or ''
+            if not re.fullmatch(r'[0-9a-f]{64}', file_digest):
+                raise CommandError('Verified source requires exact file SHA-256')
+            try:
+                source_bytes = path.read_bytes()
+                if hashlib.sha256(source_bytes).hexdigest() != file_digest:
+                    raise CommandError('Verified source file SHA-256 mismatch')
+                frozen_rows = json.loads(source_bytes.decode('utf-8'))
+            except (OSError, ValueError, UnicodeError) as exc:
+                raise CommandError('Verified source JSON unreadable') from exc
+            if not isinstance(frozen_rows, list) or len(frozen_rows) != expected_count:
+                raise CommandError('Verified source identity count mismatch')
+            ids, identities = set(), set()
+            for row in frozen_rows:
+                if not isinstance(row, dict):
+                    raise CommandError('Verified source identity contains a non-object row')
+                try:
+                    sid, push, row_region, record_id = (int(row[key]) for key in ('id', 'push_id', 'region_id', 'record_id'))
+                    build, status = int(row['build']), int(row['status'])
+                    table = row['table_name']
+                    identity = (push, table.lower(), record_id)
+                    valid = (sid > 0 and from_push < push <= to_push and row_region == region_id
+                             and record_id > 0 and build > 0 and isinstance(table, str)
+                             and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', table)
+                             and row['locale'] == 'enUS' and (row['data'] is None or isinstance(row['data'], list)))
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    valid = False
+                if not valid or sid in ids or identity in identities:
+                    raise CommandError('Verified source identity outside interval, duplicated or malformed')
+                ids.add(sid)
+                identities.add(identity)
+            if source_ids_sha256(frozen_rows) != expected_digest:
+                raise CommandError('Verified source identity SHA-256 mismatch')
         try:
             live = WowWagoMonitorState.objects.get(branch='wow', locale='enUS')
         except WowWagoMonitorState.DoesNotExist as exc:
@@ -49,6 +92,10 @@ class Command(BaseCommand):
                                  save=lambda **kwargs: None)
         monitor = WagoSkillDiffMonitor(None, None)
         monitor._hotfix_report_only = True
+        if frozen_rows is not None:
+            # These are Wago rows, not substitute DB2 facts: the normal
+            # decoder/renderer and publication chain still validate them.
+            monitor._collect_hotfix_interval_rows = lambda *_args, **_kwargs: frozen_rows
         if not monitor._scan_hotfix_if_needed(
                 replay, 'wow', live.build, backfill_interval=(from_push, to_push),
                 expected_source_count=expected_count, expected_source_sha256=expected_digest):

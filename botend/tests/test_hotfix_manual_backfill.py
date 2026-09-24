@@ -1,3 +1,4 @@
+import hashlib
 import json
 import tempfile
 from pathlib import Path
@@ -10,6 +11,45 @@ from botend.services.wago_hotfix_source import source_ids_sha256
 
 
 class HotfixManualBackfillTests(SimpleTestCase):
+    def test_frozen_wago_source_must_match_interval_before_collection(self):
+        with tempfile.TemporaryDirectory() as root:
+            source_path = Path(root) / 'wago.json'
+            rows = [{'id': 91, 'region_id': 3, 'locale': 'enUS', 'push_id': 111864,
+                     'table_name': 'SpellEffect', 'record_id': 7, 'build': 69933,
+                     'status': 1, 'data': [7]}]
+            source_path.write_text(json.dumps(rows), encoding='utf-8')
+            digest = source_ids_sha256(rows)
+            file_digest = hashlib.sha256(source_path.read_bytes()).hexdigest()
+            live = SimpleNamespace(branch='wow', locale='enUS', build='12.1.0.69933',
+                                   hotfix_region_id=3, hotfix_push_id=112236,
+                                   refresh_from_db=lambda: None)
+            with self.assertRaisesMessage(Exception, 'must be provided together'):
+                call_command('backfill_wow_hotfix_interval', from_push=111863, to_push=112236,
+                             region_id=3, expected_count=1, expected_id_sha256=digest,
+                             verified_file_sha256=file_digest)
+            with patch('botend.management.commands.backfill_wow_hotfix_interval.WowWagoMonitorState.objects.get', return_value=live), \
+                 patch('botend.management.commands.backfill_wow_hotfix_interval.WowHotfixReport.objects.filter') as reports, \
+                 patch('botend.management.commands.backfill_wow_hotfix_interval.WagoSkillDiffMonitor') as monitor_class:
+                reports.return_value.first.return_value = None
+                monitor_class.return_value._scan_hotfix_if_needed.return_value = False
+                with self.assertRaisesMessage(Exception, 'did not complete'):
+                    call_command('backfill_wow_hotfix_interval', from_push=111863, to_push=112236,
+                                 region_id=3, expected_count=1, expected_id_sha256=digest,
+                                 verified_source_json=str(source_path), verified_file_sha256=file_digest)
+                collector = monitor_class.return_value._collect_hotfix_interval_rows
+                self.assertEqual(collector(111863, 112236, region_id=3, locale='enUS'), rows)
+                rows[0]['region_id'] = 1
+                source_path.write_text(json.dumps(rows), encoding='utf-8')
+                with self.assertRaisesMessage(Exception, 'file SHA-256'):
+                    call_command('backfill_wow_hotfix_interval', from_push=111863, to_push=112236,
+                                 region_id=3, expected_count=1, expected_id_sha256=digest,
+                                 verified_source_json=str(source_path), verified_file_sha256=file_digest)
+                with self.assertRaisesMessage(Exception, 'source identity'):
+                    call_command('backfill_wow_hotfix_interval', from_push=111863, to_push=112236,
+                                 region_id=3, expected_count=1, expected_id_sha256=digest,
+                                 verified_source_json=str(source_path),
+                                 verified_file_sha256=hashlib.sha256(source_path.read_bytes()).hexdigest())
+
     def test_exact_interval_uses_existing_monitor_and_does_not_save_live_cursor(self):
         with tempfile.TemporaryDirectory() as root:
             path = Path(root) / 'static' / 'portal' / 'reports' / 'manual.html'

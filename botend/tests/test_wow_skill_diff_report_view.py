@@ -535,8 +535,8 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
             70: {'name': 'Retribution', 'class_id': 2},
         }
         monitor._load_specialization_spells = lambda build: {427453: {70}}
-        monitor._ensure_spell_names_zh = lambda branch, build, ids: {427453: 'Hammer of Light'}
-        monitor._fetch_spell_names_concurrent = lambda build, ids, locale_override=None: {427453: 'Hammer of Light'}
+        monitor._ensure_spell_names_zh = Mock(side_effect=AssertionError('out-of-interval names queried'))
+        monitor._fetch_spell_names_concurrent = Mock(side_effect=AssertionError('out-of-interval names queried'))
         monitor._render_spell_primary_description = lambda *args, **kwargs: ''
         fact = {'source': {'id': 27226894621, 'table_name': 'SpellEffect', 'record_id': 1106904, 'push_id': 112185, 'build': 69933},
                 'after': {'ID': '1106904', 'SpellID': '427453', 'EffectIndex': '0',
@@ -545,15 +545,19 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
                     {'field': 'BonusCoefficientFromAP', 'before': '6.9677400588989', 'after': '10.451600074768'},
                     {'field': 'PvpMultiplier', 'before': '0.68000000715256', 'after': '0.5440000295639'},
                 ]}
+        name_fact = {'source': {'id': 27226894622, 'table_name': 'SpellName', 'record_id': 427453,
+                                'push_id': 112185, 'build': 69933},
+                     'after': {'ID': '427453', 'Name_lang': 'Hammer of Light'},
+                     'before_verified': False, 'after_verified': True, 'changes': []}
         with override_settings(BASE_DIR=str(self.base_dir)), \
              patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects.filter') as snapshot, \
              patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.database_spell_metadata', return_value={}):
-            snapshot.return_value.values.return_value = []
+            snapshot.return_value.values.return_value = [{'spell_id': 427453, 'name': 'Old Name', 'name_zh': '旧名'}]
             report = monitor._generate_hotfix_class_report(
-                'wow', '12.1.0.69933', 112181, 112185, region_id=1, facts=[fact], locale='enUS',
+                'wow', '12.1.0.69933', 112181, 112185, region_id=1, facts=[fact, name_fact], locale='enUS',
             )
             staged = monitor._generate_hotfix_class_report(
-                'wow', '12.1.0.69933', 112181, 112186, region_id=1, facts=[fact], locale='enUS',
+                'wow', '12.1.0.69933', 112181, 112186, region_id=1, facts=[fact, name_fact], locale='enUS',
                 stage_for_publication=True,
             )
         body = (self.base_dir / 'static' / report['content_html_path']).read_text(encoding='utf-8')
@@ -562,6 +566,10 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn('6.9677400588989', body)
         self.assertIn('10.451600074768', body)
         self.assertIn('0.5440000295639', body)
+        self.assertIn('Hammer of Light', body)
+        self.assertNotIn('旧名', body)
+        monitor._ensure_spell_names_zh.assert_not_called()
+        monitor._fetch_spell_names_concurrent.assert_not_called()
         self.assertEqual(report_spell_entries(body)[427453]['indices'], {0})
         self.assertTrue(Path(staged['staging_path']).is_file())
         self.assertFalse((self.base_dir / 'static' / staged['content_html_path']).exists())
@@ -1493,7 +1501,7 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
             self.assertTrue(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
         latest.assert_called_once_with(locale='enUS', region_id=1, current_build='12.1.0.69933')
         collect.assert_called_once_with(112181, 112185, region_id=1, locale='enUS')
-        resolve.assert_called_once_with([source], db2_build='12.1.0.69933')
+        resolve.assert_called_once_with([source], db2_build='12.1.0.69933', interval_only=False)
         self.assertIs(full_writer.call_args.kwargs['facts'], class_writer.call_args.kwargs['facts'])
         self.assertTrue(full_writer.call_args.kwargs['stage_for_publication'])
         self.assertTrue(class_writer.call_args.kwargs['stage_for_publication'])
@@ -2026,4 +2034,41 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
                 'wow', '12.1.0.69933', 111863, 112236,
                 region_id=3, facts=facts, locale='enUS')
         self.assertEqual(writer.call_args.kwargs['spell_to_specs'][427453], {-2})
+    def test_interval_only_facts_use_previous_push_without_historical_requests(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._full_hotfix_source_build = lambda source, current: '12.1.0.69933'
+        monitor._fetch_db2_row_by_id = lambda table, build, rid: {'ID': rid, 'Value': '0'}
+        rows = [
+            {'id': sid, 'push_id': push, 'region_id': 3, 'locale': 'enUS',
+             'table_name': 'SpellEffect', 'record_id': 7, 'build': 69933,
+             'status': 1, 'data': [7, value]}
+            for sid, push, value in [(1, 111864, '10'), (2, 112236, '20')]
+        ]
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.collect_hotfix_record_history',
+                   side_effect=AssertionError('out-of-interval Wago history queried')):
+            facts = monitor._resolve_hotfix_facts(rows, db2_build='12.1.0.69933', interval_only=True)
+        self.assertFalse(facts[0]['before_verified'])
+        self.assertTrue(facts[1]['before_verified'])
+        self.assertEqual(facts[1]['changes'], [{'field': 'Value', 'before': '10', 'after': '20'}])
+    def test_verified_facts_use_snapshot_name_labels_without_unbounded_wago_lookups(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 5, 'region_id': 3, 'locale': 'enUS', 'table_name': 'SpellEffect',
+                  'record_id': 1106904, 'push_id': 112185, 'build': 69933, 'status': 1}
+        fact = {'source': source, 'after': {'ID': '1106904', 'SpellID': '427453',
+                'EffectIndex': '0', 'BonusCoefficientFromAP': '10.45'},
+                'after_verified': True, 'before_verified': False, 'changes': []}
+        with tempfile.TemporaryDirectory() as root, override_settings(BASE_DIR=root), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects.filter') as snapshots, \
+             patch.object(monitor, '_fetch_spell_names_concurrent') as network_names:
+            snapshots.return_value.values.return_value = [{'spell_id': 427453, 'name': 'Hammer of Light'}]
+            monitor._fetch_db2_row_by_id = lambda *args: {}
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, to_push=112185,
+                summary_title='Hotfix interval', wago_url='https://wago.tools/hotfixes?search=enUS+112185',
+                build_num='69933', db2_build='12.1.0.69933', from_push=111863,
+                table_stats=[('SpellEffect', 1)], by_table={'SpellEffect': [source]},
+                sample_per_table=1, enrich_max=0, facts=[fact],
+            )
+            network_names.assert_not_called()
+            self.assertIn('Hammer of Light', Path(path).read_text(encoding='utf-8'))
 

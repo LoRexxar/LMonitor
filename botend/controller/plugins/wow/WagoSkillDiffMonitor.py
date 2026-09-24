@@ -533,7 +533,10 @@ class WagoSkillDiffMonitor(BaseScan):
                     raise WagoDiffUnavailable(
                         f'Hotfix interval source identity mismatch: count={len(ids)} sha256={digest}'
                     )
-            facts = self._resolve_hotfix_facts(hotfix_rows, db2_build=current_build)
+            facts = self._resolve_hotfix_facts(
+                hotfix_rows, db2_build=current_build,
+                interval_only=backfill_interval is not None,
+            )
             class_report = self._generate_hotfix_class_report(
                 branch, current_build, from_push, latest_push,
                 region_id=region_id, facts=facts, locale=hotfix_locale,
@@ -1198,8 +1201,13 @@ class WagoSkillDiffMonitor(BaseScan):
         matches = {str(version) for version in versions if self._extract_build_number(version) == short}
         return next(iter(matches)) if len(matches) == 1 else ''
 
-    def _resolve_hotfix_facts(self, rows, *, db2_build):
+    def _resolve_hotfix_facts(self, rows, *, db2_build, interval_only=False):
         schema_cache = {}
+        interval_history = {}
+        if interval_only:
+            for row in rows:
+                key = (int(row['region_id']), row['locale'], row['table_name'].lower(), int(row['record_id']))
+                interval_history.setdefault(key, []).append(row)
 
         def schema_for(source):
             version = self._full_hotfix_source_build(source, db2_build)
@@ -1227,6 +1235,10 @@ class WagoSkillDiffMonitor(BaseScan):
 
         def previous_for(source):
             key = (int(source['region_id']), source['locale'], source['table_name'].lower(), int(source['record_id']))
+            if interval_only:
+                # Only previous pushes inside the explicitly requested range
+                # can establish old values; don't trace unrelated history.
+                return previous_hotfix_row(interval_history.get(key, []), source)
             if key not in self._hotfix_history_cache:
                 try:
                     self._hotfix_history_cache[key] = collect_hotfix_record_history(
@@ -2714,6 +2726,16 @@ class WagoSkillDiffMonitor(BaseScan):
         if not changes:
             return {'spell_count': 0, 'class_count': 0, 'content_html_path': '',
                     'unresolved_count': len(invalidations)}
+        source_name_labels = {}
+        for fact in sorted(facts, key=lambda item: int((item.get('source') or {}).get('push_id') or 0)):
+            source = fact.get('source') or {}
+            row = fact.get('after') or {}
+            if str(source.get('table_name') or '').lower() != 'spellname' or not isinstance(row, dict):
+                continue
+            sid = self._to_int(row.get('ID') or 0)
+            name = self._clean_external_text(row.get('Name_lang') or row.get('Name') or '')
+            if sid > 0 and name:
+                source_name_labels[sid] = name
         source_builds = sorted({item['meta']['SourceBuild'] for spell in changes.values()
                                 for table_items in spell['diffs'].values() for item in table_items},
                                key=lambda version: tuple(int(part) for part in version.split('.')))
@@ -2736,6 +2758,7 @@ class WagoSkillDiffMonitor(BaseScan):
             report_key=f'hotfix_r{int(region_id)}_p{int(to_push)}',
             assess_tone=False,
             stage_for_publication=stage_for_publication,
+            source_names_override=source_name_labels,
             source_uncertainty_note=(
                 f'{len(invalidations)} 条 Spell* 删除/失效/未公开来源无新 payload，职业归属未核实；'
                 '以下技能数仅为已解析部分。'
@@ -3053,6 +3076,42 @@ class WagoSkillDiffMonitor(BaseScan):
         enrich_left = max(0, int(enrich_max or 0))
         row_cache = {}
         spell_name_cache = {}
+        if facts is not None:
+            # A verified interval already freezes all numeric facts. Names
+            # for its cards are labels, not a reason to issue an unbounded
+            # one-request-per-spell Wago lookup while rendering 2k+ rows.
+            spell_ids = set()
+            for fact in facts:
+                source = fact.get('source') or {}
+                row = fact.get('after') or {}
+                table = str(source.get('table_name') or '').lower()
+                if not table.startswith('spell') or not isinstance(row, dict):
+                    continue
+                sid = self._to_int(row.get('SpellID') or (
+                    row.get('ID') if table in ('spell', 'spellname', 'spelldescription', 'spellmisc') else 0
+                ) or 0)
+                if sid > 0:
+                    spell_ids.add(sid)
+            if spell_ids:
+                try:
+                    snapshots = WowSpellSnapshot.objects.filter(
+                        branch=branch, locale=locale, spell_id__in=spell_ids,
+                    ).values('spell_id', 'name')
+                    for snap in snapshots:
+                        name = self._clean_external_text(snap.get('name') or '')
+                        if name:
+                            spell_name_cache[int(snap['spell_id'])] = name
+                except Exception as exc:
+                    logger.warning('[WagoSkillDiffMonitor] optional Hotfix name labels unavailable: %s', exc)
+            for fact in sorted(facts, key=lambda item: int((item.get('source') or {}).get('push_id') or 0)):
+                source = fact.get('source') or {}
+                row = fact.get('after') or {}
+                if str(source.get('table_name') or '').lower() != 'spellname' or not isinstance(row, dict):
+                    continue
+                sid = self._to_int(row.get('ID') or 0)
+                name = self._clean_external_text(row.get('Name_lang') or row.get('Name') or '')
+                if sid > 0 and name:
+                    spell_name_cache[sid] = name
 
         category_rules = [
             ('spell', '技能/法术'), ('talent', '天赋'), ('trait', '天赋树'),
@@ -3245,7 +3304,7 @@ class WagoSkillDiffMonitor(BaseScan):
             row = fetch_row('SpellName', spell_id)
             if isinstance(row, dict):
                 name = self._clean_external_text(row.get('Name_lang') or row.get('Name') or '')
-            if not name:
+            if not name and facts is None:
                 try:
                     fetched = self._fetch_spell_names_concurrent(db2_build, [spell_id]) if db2_build else {}
                     name = self._clean_external_text((fetched or {}).get(spell_id))
@@ -6087,7 +6146,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             return {}
         return {'path': rel_path, 'class_count': 0}
 
-    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build='', effect_record_ids=False, report_key='', assess_tone=True, source_uncertainty_note='', source_build_label='', stage_for_publication=False):
+    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build='', effect_record_ids=False, report_key='', assess_tone=True, source_uncertainty_note='', source_build_label='', stage_for_publication=False, source_names_override=None):
         data_build = (data_build or '').strip() or to_build
         slug = re.sub(r'[^A-Za-z0-9_-]', '_', report_key) if report_key else to_build.replace('.', '_')
         rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{slug}.html"
@@ -6102,7 +6161,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         spell_ids = sorted(set(int(x) for x in spell_changes.keys()))
         snapshot_rows = list(
             WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
-            .values('spell_id', 'name', 'description', 'aura_description', 'icon')
+            .values('spell_id', 'name', 'name_zh', 'description', 'aura_description', 'icon')
         )
         snap_names = {
             int(r['spell_id']): (r.get('name') or '')
@@ -6121,13 +6180,22 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             if metadata.get('icon'):
                 context['icon'] = metadata['icon']
         name_cache.update(snap_names)
-        missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
-        if missing:
-            fetched = self._repair_utf8_mojibake_obj(self._fetch_spell_names_concurrent(data_build, missing))
-            name_cache.update(fetched)
-
+        if source_names_override is not None:
+            name_cache.update(source_names_override)
+        else:
+            missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
+            if missing:
+                fetched = self._repair_utf8_mojibake_obj(self._fetch_spell_names_concurrent(data_build, missing))
+                name_cache.update(fetched)
         name_cache = self._repair_utf8_mojibake_obj(name_cache)
-        zh_name_cache = self._repair_utf8_mojibake_obj(self._ensure_spell_names_zh(branch, data_build, spell_ids))
+        if source_names_override is not None:
+            # Snapshot Chinese names are labels only; don't fetch unrelated
+            # Wago/Wowhead names or update snapshots during manual backfill.
+            zh_name_cache = {int(r['spell_id']): r['name_zh'] for r in snapshot_rows
+                             if r.get('name_zh') and int(r['spell_id']) not in source_names_override}
+        else:
+            zh_name_cache = self._ensure_spell_names_zh(branch, data_build, spell_ids)
+        zh_name_cache = self._repair_utf8_mojibake_obj(zh_name_cache)
         zh_class_names = self._repair_utf8_mojibake_obj(self._load_chr_classes(data_build, locale_override=self.name_locale))
         zh_spec_meta = self._repair_utf8_mojibake_obj(self._load_chr_specialization_meta(data_build, locale_override=self.name_locale))
         display_class_names = dict(class_names or {})
