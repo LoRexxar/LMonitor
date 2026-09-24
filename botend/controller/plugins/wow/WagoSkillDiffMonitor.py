@@ -4401,13 +4401,25 @@ class WagoSkillDiffMonitor(BaseScan):
             pid = self._to_int(source.get('push_id'))
             version = source_version(fact)
             name = db2_identity_names.get((table, version, rid), '')
-            if not name or rid <= 0 or pid <= 0:
+            raw = source.get('data')
+            source_text = ''
+            if (not name and table == 'TraitDefinition' and isinstance(raw, list)
+                    and raw and isinstance(raw[0], str)):
+                text = clean_report_text(raw[0])
+                if text and len(text) <= 160 and not text.isdecimal():
+                    source_text = text
+            if (not name and not source_text) or rid <= 0 or pid <= 0:
                 continue
             category = table_category(table)
+            card_class = 'reader-db2-name-card' if name else 'reader-source-text-card'
+            card_title = (f'{name}（{table_label(table)} #{rid}）' if name else
+                          f'{table_label(table)} #{rid} · 来源文本：{source_text}')
+            card_note = ('来源 build ' + version + ' 的 DB2 名称；热修字段未解码，改动未知'
+                         if name else '冻结 payload 首列的原始文本；列名未核对，改动未知')
             db2_context_cards.append(
-                f"<article class='reader-db2-name-card' data-category='{esc(category)}' data-search='{esc((name + ' ' + table + ' ' + str(rid) + ' ' + str(pid)).lower())}'>"
-                f"<strong>{esc(name)}（{esc(table_label(table))} #{rid}）</strong>"
-                f"<span>来源 build {esc(version)} 的 DB2 名称；热修字段未解码，改动未知</span>"
+                f"<article class='{card_class}' data-category='{esc(category)}' data-search='{esc(((name or source_text) + ' ' + table + ' ' + str(rid) + ' ' + str(pid)).lower())}'>"
+                f"<strong>{esc(card_title)}</strong>"
+                f"<span>{esc(card_note)}</span>"
                 f" <a href='{esc(hotfix_table_url(table, pid))}' target='_blank' rel='noreferrer'>来源</a>"
                 "</article>"
             )
@@ -4515,7 +4527,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .reader-impact-summary {{ margin:9px 0 12px; padding:10px 13px; border-left:3px solid var(--accent); border-radius:6px; background:var(--accent-soft); font-size:14px; overflow-wrap:anywhere; }}
     .reader-impact-more {{ margin:12px 0; padding:0 10px 10px; border:1px solid var(--line); border-radius:10px; background:var(--soft); }} .reader-impact-more>summary {{ min-height:45px; display:flex; align-items:center; font-size:13px; font-weight:750; cursor:pointer; }}
     .reader-confirmed {{ margin:12px 0; }} .reader-confirmed>h3 {{ margin:0 0 7px; font-size:18px; }} .reader-confirmed>h3 span {{ color:var(--accent); font-variant-numeric:tabular-nums; }} .reader-confirmed-card {{ padding:9px 11px; margin:6px 0; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-confirmed-card h4 {{ margin:0; font-size:14px; }} .reader-confirmed-card ul {{ margin:3px 0; padding-left:19px; font-size:13px; }} .reader-confirmed-card small,.reader-confirmed-empty {{ color:var(--muted); font-size:11px; }}
-    .reader-db2-names {{ margin:12px 0; }} .reader-db2-names h3 {{ margin:0 0 7px; font-size:16px; }} .reader-db2-name-card {{ margin:5px 0; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; }} .reader-db2-name-card span {{ display:block; color:var(--muted); font-size:11px; }} .reader-db2-name-card a {{ font-size:11px; }}
+    .reader-db2-names {{ margin:12px 0; }} .reader-db2-names h3 {{ margin:0 0 7px; font-size:16px; }} .reader-db2-name-card, .reader-source-text-card {{ margin:5px 0; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; }} .reader-db2-name-card span, .reader-source-text-card span {{ display:block; color:var(--muted); font-size:11px; }} .reader-db2-name-card a, .reader-source-text-card a {{ font-size:11px; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
     .reader-readable {{ margin:16px 0; padding:0 13px 10px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .reader-readable>summary {{ min-height:48px; display:flex; align-items:center; font-size:14px; font-weight:750; cursor:pointer; }} .reader-guide {{ margin:4px 0 14px; color:var(--muted); font-size:12px; }}
     .reader-summary {{ margin:6px 0 4px; padding:10px 12px; background:var(--accent-soft); border-left:3px solid var(--accent); border-radius:6px; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }}
@@ -4628,7 +4640,7 @@ class WagoSkillDiffMonitor(BaseScan):
     }});
     if(impactGroup){{impactGroup.classList.toggle('hidden', impactVisible===0 && impactSummaryVisible===0);}}
     var db2NameVisible=0;
-    document.querySelectorAll('.reader-db2-name-card').forEach(function(el){{
+    document.querySelectorAll('.reader-db2-name-card, .reader-source-text-card').forEach(function(el){{
       var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
       el.classList.toggle('hidden', !ok);
       if(ok){{db2NameVisible++;}}

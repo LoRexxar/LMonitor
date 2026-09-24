@@ -199,6 +199,32 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertIn('改动未知', label.get_text(' ', strip=True))
         self.assertIsNone(doc.select_one('.reader-confirmed-card'))
 
+    def test_unresolved_trait_keeps_literal_source_text_when_db2_lookup_fails(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 3, 'push_id': 112059, 'table_name': 'TraitDefinition',
+                  'record_id': 136970, 'region_id': 3, 'locale': 'enUS',
+                  'build': 69587, 'status': 1, 'data': ['Reuse', 136970]}
+        fact = {'source': source, 'after': None, 'before': None,
+                'after_verified': False, 'before_verified': False, 'changes': []}
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_READER_NAME_LOOKUPS=1), \
+             patch.object(monitor, '_fetch_hotfix_db2_identity_row', return_value={}):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, from_push=112058,
+                to_push=112059, summary_title='来源文本回退',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933', table_stats=[('TraitDefinition', 1)],
+                by_table={'TraitDefinition': [source]}, sample_per_table=1,
+                enrich_max=0, facts=[fact],
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        card = doc.select_one('.reader-source-text-card')
+        self.assertIsNotNone(card)
+        self.assertIn('来源文本：Reuse', card.get_text(' ', strip=True))
+        self.assertIn('列名未核对', card.get_text(' ', strip=True))
+        self.assertIsNone(doc.select_one('.reader-db2-name-card'))
+        self.assertIsNone(doc.select_one('.reader-confirmed-card'))
+
     def test_item_relation_title_uses_previous_frozen_itemsparse_name(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         def source(table, rid, push):
