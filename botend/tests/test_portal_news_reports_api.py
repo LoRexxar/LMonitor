@@ -79,6 +79,32 @@ class PortalNewsReportsAPIViewTests(TestCase):
         self.assertEqual(payload['meta']['total_pages'], 2)
         self.assertNotIn(old.id, {item['id'] for item in payload['data']})
 
+    def test_hotfix_archive_filters_all_history_before_pagination(self):
+        now = timezone.now()
+        older = WowHotfixReport.objects.create(
+            branch='wow', locale='enUS', build_num='69933',
+            from_push=112181, to_push=112208, summary_title='圣骑士 热修',
+            changed_tables_json='["SpellEffect", "SpellMisc"]', table_count=2, entry_count=15,
+        )
+        self._set_created_at(WowHotfixReport, older, now - timedelta(days=120))
+        another = WowHotfixReport.objects.create(
+            branch='wowt', locale='enUS', build_num='69933',
+            from_push=112182, to_push=112209, summary_title='PTR 热修',
+        )
+        self._set_created_at(WowHotfixReport, another, now - timedelta(days=100))
+        response = PortalHotfixReportsAPIView.as_view()(
+            self.factory.get('/portal/api/hotfix-reports/?scope=all&branch=wow&q=112208&page_size=1')
+        )
+        payload = json.loads(response.content)
+        self.assertEqual(payload['meta']['total'], 1)
+        self.assertEqual([item['id'] for item in payload['data']], [older.id])
+        self.assertEqual(payload['data'][0]['entry_count'], 15)
+        for query in ('69933', 'SpellEffect', '圣骑士'):
+            response = PortalHotfixReportsAPIView.as_view()(
+                self.factory.get('/portal/api/hotfix-reports/', {'scope': 'all', 'branch': 'wow', 'q': query})
+            )
+            self.assertEqual([item['id'] for item in json.loads(response.content)['data']], [older.id])
+
     def test_news_page_defaults_to_news_and_declares_lazy_report_tabs(self):
         response = self.client.get('/portal/news/')
         self.assertEqual(response.status_code, 200)
@@ -88,3 +114,17 @@ class PortalNewsReportsAPIViewTests(TestCase):
         self.assertIn('data-news-tab="hotfix"', html)
         self.assertIn('aria-selected="true"', html)
         self.assertIn('新闻资讯', html)
+
+    def test_archive_distinguishes_verified_source_facts_from_legacy_report(self):
+        legacy = WowHotfixReport.objects.create(
+            branch='wow', locale='enUS', from_push=112181, to_push=112208,
+        )
+        verified = WowHotfixReport.objects.create(
+            branch='wow', locale='enUS', region_id=3, from_push=112181, to_push=112208,
+            collection_complete=True, source_facts_json='[]',
+        )
+        response = PortalHotfixReportsAPIView.as_view()(
+            self.factory.get('/portal/api/hotfix-reports/?scope=all&page_size=20')
+        )
+        flags = {row['id']: row['verified'] for row in json.loads(response.content)['data']}
+        self.assertEqual(flags, {legacy.id: False, verified.id: True})

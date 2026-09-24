@@ -3531,6 +3531,37 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual({row.pk for row in rows}, {common.pk, slayer.pk, mountain_thane.pk})
 
+    def test_mapping_refresh_creates_new_identity_and_keeps_old_snapshot_published(self):
+        SimcBackendBinary.objects.update_or_create(
+            identifier='production', defaults={
+                'name': '正式服', 'is_active': True,
+                'current_version': 'f' * 40, 'latest_version': 'f' * 40,
+                'game_build': '12.1.0.69814', 'simc_path': sys.executable,
+            },
+        )
+        old = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='f' * 40, game_build='12.1.0.69814',
+            schema_revision=42, status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            generated_spec_count=1, completed_at=timezone.now(),
+            payload={
+                'payload_format': 'skill_damage_product_v1',
+                'wire_schema_revision': 1,
+                'storage_format': 'per_spec_actor_rows_v1',
+                'total_spec_count': 1,
+            },
+        )
+        SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=old, ordinal=0, class_name='warrior', specialization='fury',
+            actor_payload={'class': 'warrior', 'specialization': 'fury', 'actions': []},
+            unresolved_payload=[], raw_action_count=0, display_action_count=0,
+        )
+        self.assertEqual(SimcSkillDamageSnapshotService.latest_display_snapshot().pk, old.pk)
+        service = SimcSkillDamageSnapshotService.create_for_current_backend(claim=True)
+        self.assertEqual(service.snapshot.schema_revision, 43)
+        self.assertNotEqual(service.snapshot.pk, old.pk)
+        self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_RUNNING)
+        self.assertEqual(SimcSkillDamageSnapshotService.latest_display_snapshot().pk, old.pk)
+
     def test_existing_schema_thirteen_snapshot_creates_new_schema_eighteen_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production',

@@ -437,13 +437,13 @@ class Command(BaseCommand):
             spell_id = self._coerce_int(row.get('SpellID'))
             if not spell_id:
                 continue
-            # 与游戏 Spell fallback 保持一致：活动态图标优先，其次普通图标。
-            for field in ('ActiveIconFileDataID', 'SpellIconFileDataID'):
-                file_data_id = self._coerce_int(row.get(field))
-                icon = fdid_to_icon.get(file_data_id, '')
-                if icon:
-                    result[spell_id] = icon
-                    break
+            # 天赋树展示普通图标；若标准 FileDataID 存在但缺名称，
+            # 保留 unresolved，不能用活动态贴图伪装成该技能图标。
+            normal_id = self._coerce_int(row.get('SpellIconFileDataID'))
+            file_data_id = normal_id or self._coerce_int(row.get('ActiveIconFileDataID'))
+            icon = fdid_to_icon.get(file_data_id, '')
+            if icon:
+                result[spell_id] = icon
         return result
 
     def _expected_for_row(self, row, db2, resolver_zh=None, resolver_en=None, context=None):

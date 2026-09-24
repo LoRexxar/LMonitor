@@ -18,6 +18,9 @@ class PortalWowUpdatesPageTests(SimpleTestCase):
         self.assertTemplateUsed(response, 'portal/wow_updates.html')
         for text in ('魔兽世界更新数据挖掘', 'wow-skill-diff-states', 'wow-skill-diff-list', 'wow-updates-search'):
             self.assertContains(response, text)
+        for text in ('data-updates-tab="build"', 'data-updates-tab="hotfix"',
+                     'id="wow-hotfix-list"', 'id="wow-hotfix-search"', 'id="wow-hotfix-branch"'):
+            self.assertContains(response, text)
         self.assertNotContains(response, "portal/js/main.js")
 
     def test_home_removes_section_and_requests_but_keeps_legacy_redirect(self):

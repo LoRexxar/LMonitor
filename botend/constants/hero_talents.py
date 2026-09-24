@@ -203,3 +203,9 @@ def spec_hero_subtree_names(class_name, spec_name):
         ):
             return names
     return ()
+
+
+def spec_hero_subtree_ids(class_name, spec_name):
+    """The two physical DB2 hero subtree IDs allowed for this specialization."""
+    names = set(spec_hero_subtree_names(class_name, spec_name))
+    return frozenset(subtree_id for subtree_id, name in HERO_SUBTREE_ID_TO_NAME.items() if name in names)

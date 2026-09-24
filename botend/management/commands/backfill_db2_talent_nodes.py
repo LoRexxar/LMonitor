@@ -114,8 +114,23 @@ class Command(BaseCommand):
 
         # 4.2 SpellID → FileDataID 映射（图标兜底）
         spell_to_fdid = {}
+        spell_misc_path = os.path.join(dump_dir, 'SpellMisc.csv')
         spell_icon_path = os.path.join(dump_dir, 'spell_icon_map.csv')
-        if os.path.exists(spell_icon_path):
+        if os.path.exists(spell_misc_path):
+            relevant_spells = {
+                sid for definition in defs.values()
+                for sid in (definition['visible_spell_id'], definition['spell_id'], definition['override_spell_id'])
+                if sid
+            }
+            with open(spell_misc_path) as f:
+                for row in csv.DictReader(f):
+                    sid = int(row.get('SpellID') or 0)
+                    if sid not in relevant_spells:
+                        continue
+                    icon_id = int(row.get('SpellIconFileDataID') or 0) or int(row.get('ActiveIconFileDataID') or 0)
+                    if icon_id:
+                        spell_to_fdid[sid] = icon_id
+        elif os.path.exists(spell_icon_path):
             with open(spell_icon_path) as f:
                 for row in csv.DictReader(f):
                     spell_to_fdid[int(row['SpellID'])] = int(row['FileDataID'])

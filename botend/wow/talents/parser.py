@@ -9,8 +9,6 @@ WoW 天赋解析模块
 
 from __future__ import annotations
 
-from botend.constants.granted_talents import is_granted_talent_for_spec
-
 
 def normalize_talent_payload(talents, class_name='', spec_name=''):
     """统一不同来源的天赋输入结构。"""
@@ -46,15 +44,14 @@ def normalize_talent_payload(talents, class_name='', spec_name=''):
         tree_type = raw.get('tree_type') or raw.get('treeType') or 'spec'
         name = raw.get('name') or (f'技能ID {spell_id}' if spell_id else '未命名天赋')
         flags = raw.get('flags', 0)
-        
-        # 判断是否为赠送天赋（职业树 + flags=8 + 无父节点 + 匹配当前专精）
         parents = raw.get('parents') or raw.get('parents_json') or []
-        is_granted = (
-            tree_type == 'class' 
-            and flags == 8 
-            and len(parents) == 0
-            and is_granted_talent_for_spec(spell_id, class_name, spec_name)
-        )
+        # The versioned TraitCond starter map is keyed by TraitNodeEntry.ID.
+        # A decoded import's explicit purchase state remains authoritative.
+        is_granted = tree_type == 'class' and raw.get('granted') is True
+        purchased = raw.get('purchased')
+        if is_granted and purchased is None:
+            points = max(1, points)
+            purchased = False
 
         nodes.append({
             'tree_type': tree_type,
@@ -69,8 +66,8 @@ def normalize_talent_payload(talents, class_name='', spec_name=''):
             'max_points': raw.get('max_points') or raw.get('maxPoints'),
             'row': raw.get('row') if raw.get('row') is not None else raw.get('tier'),
             'column': raw.get('column'),
-            'selected': is_granted or bool(raw.get('selected', points > 0)),
-            'purchased': False if is_granted else raw.get('purchased'),
+            'selected': bool(raw.get('selected') or points > 0),
+            'purchased': purchased,
             'is_choice_node': (
                 raw.get('is_choice_node')
                 if 'is_choice_node' in raw
@@ -81,6 +78,7 @@ def normalize_talent_payload(talents, class_name='', spec_name=''):
             'choice_selection': raw.get('choice_selection') if raw.get('choice_selection') is not None else raw.get('choiceSelection'),
             'choice_options': [dict(option) for option in (raw.get('choice_options') or raw.get('choiceOptions') or []) if isinstance(option, dict)],
             'parents': list(parents),
+            'node_aliases': list(raw.get('node_aliases') or []),
             'layout_row': raw.get('layout_row'),
             'layout_column': raw.get('layout_column'),
             'db2_subtree_id': raw.get('db2_subtree_id') or 0,

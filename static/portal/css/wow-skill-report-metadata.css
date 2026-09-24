@@ -2,6 +2,14 @@
 .spell-affected-skills { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; margin-top: 9px; color: #475569; font-size: 12px; }
 .spell-affected-skills a { display: inline-flex; align-items: center; gap: 5px; color: #4338ca; font-weight: 650; }
 .spell-affected-icon { width: 24px; height: 24px; object-fit: cover; border-radius: 4px; }
+.spell-effect-change { flex: 0 0 100%; min-width: 0; }
+.spell-effect-change .impact-row { margin-top: 4px; }
+.skill-report .fact-values { display: block; line-height: 1.65; }
+.spell-effect-change .fact-values { white-space: normal; }
+.source-facts { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.source-facts > summary { cursor: pointer; color: var(--muted); font-size: 12px; font-weight: 750; min-height: 32px; }
+.source-facts .impact-block { margin-top: 4px; }
+@media (max-width: 720px) { .skill-report .fact-values { text-align: left; } }
 .spell-head-main, .spell-title { min-width: 0; overflow-wrap: anywhere; }
 html.portal-theme-dark .spell-adjustment-source, html.portal-theme-dark .spell-affected-skills { color: #aab7ca; }
 html.portal-theme-dark .spell-affected-skills a { color: #bcb5ff; }

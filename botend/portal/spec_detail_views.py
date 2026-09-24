@@ -21,6 +21,7 @@ from botend.services.spec_overview_service import SpecOverviewService
 from botend.services.simc_player_config import build_player_config_detail
 from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE
 from botend.wow.talents.build_code import TalentBuildCodeDecoder
+from botend.constants.hero_talents import spec_hero_subtree_ids
 
 
 AGGREGATED_DIR = os.path.join('media', 'aggregated')
@@ -65,6 +66,14 @@ def _talent_tree_has_hero(detail):
     return any(t.get('tree_type') == 'hero' and (t.get('nodes') or []) for t in trees)
 
 
+def _talent_tree_matches_spec(detail, class_name, spec_name):
+    """Reject cached hero panels outside the target's two physical DB2 trees."""
+    allowed = spec_hero_subtree_ids(class_name, spec_name)
+    trees = (((detail or {}).get('talent_popularity_tree') or {}).get('render_model') or {}).get('trees') or []
+    hero_ids = {tree.get('subtree_id') for tree in trees if tree.get('tree_type') == 'hero'}
+    return bool(allowed) and hero_ids == allowed
+
+
 def _talent_usage_has_point_statistics(detail):
     """判断聚合结果是否已经包含多级天赋的点数口径。"""
     talent_tree = (detail or {}).get('talent_popularity_tree') or {}
@@ -90,8 +99,14 @@ def _talent_build_popularity_has_builds(detail, class_name='', spec_name=''):
         if not isinstance(build, dict) or 'top_players' not in build:
             return False
         identity = TalentBuildCodeDecoder.resolve_spec_identity(build.get('code'))
-        if identity and identity != (class_name, spec_name):
+        if identity != (class_name, spec_name):
             return False
+    allowed = spec_hero_subtree_ids(class_name, spec_name)
+    for group in popularity.get('hero_groups') or []:
+        for hero in group.get('hero_talent_summary') or []:
+            subtree_id = hero.get('subtree_id')
+            if subtree_id and subtree_id not in allowed:
+                return False
     return True
 
 
@@ -286,6 +301,7 @@ class SpecDetailDungeonView(View):
                 if (
                     not detail
                     or not _talent_tree_has_hero(detail)
+                    or not _talent_tree_matches_spec(detail, class_name, spec_name)
                     or not _talent_usage_has_point_statistics(detail)
                     or 'secondary_stats' not in detail
                     or not _talent_build_popularity_has_builds(detail, class_name, spec_name)
@@ -352,6 +368,7 @@ class SpecDetailRaidView(View):
                         # 兼容旧聚合 JSON：若天赋树缺英雄天赋、新维度缺失或天赋字符串为空，则实时重算该详情对象
                         if (
                             (not _talent_tree_has_hero(detail))
+                            or (not _talent_tree_matches_spec(detail, class_name, spec_name))
                             or (not _talent_usage_has_point_statistics(detail))
                             or ('secondary_stats' not in detail)
                             or (not _talent_build_popularity_has_builds(detail, class_name, spec_name))

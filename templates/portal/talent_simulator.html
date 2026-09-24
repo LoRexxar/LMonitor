@@ -15,7 +15,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
-    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260817_thumbnail_mode">
+    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260923_choice_source">
     {% endif %}
 </head>
 <body class="{% if mini_mode %}talent-mini-body{% else %}portal-bg font-sans{% endif %}">
@@ -105,7 +105,7 @@
     {% endif %}
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
     {% if not mini_mode %}
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=37"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=39"></script>
     {% endif %}
 </body>
 </html>

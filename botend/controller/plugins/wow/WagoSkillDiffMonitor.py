@@ -1,11 +1,18 @@
 import csv
+import fcntl
 import html
 import io
 import json
 import os
 import re
+import shutil
+import sqlite3
+import tempfile
 import time
+from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal, InvalidOperation
+from urllib.parse import urlencode
 
 import requests
 from django.conf import settings
@@ -20,6 +27,8 @@ from botend.controller.plugins.wow.wago_regions import wago_region_id, wago_regi
 from botend.services.wago_db2.client import WagoDB2Client
 from botend.services.wago_db2.graph import WagoDB2GraphService
 from botend.services.wow_skill_report_metadata import database_spell_metadata, wowhead_spell_url as report_spell_url
+from botend.services.wago_hotfix_source import collect_hotfix_push_rows, collect_hotfix_record_history, collect_hotfix_build_rows, source_ids_sha256, HotfixSourceIncomplete
+from botend.services.wago_hotfix_facts import build_hotfix_facts, previous_hotfix_row, project_class_spell_changes
 
 try:
     from core.glm import GLMClient
@@ -56,6 +65,7 @@ class WagoSkillDiffMonitor(BaseScan):
             'User-Agent': 'Mozilla/5.0',
             'Connection': 'close',
         })
+        self._hotfix_history_cache = {}
         self.core_tables = {
             'spell',
             'spelleffect',
@@ -406,13 +416,65 @@ class WagoSkillDiffMonitor(BaseScan):
             count += 1
         return ok if count else True
 
-    def _scan_hotfix_if_needed(self, st, branch, current_build):
+    def _scan_hotfix_if_needed(self, st, branch, current_build, *, backfill_interval=None,
+                               expected_source_count=None, expected_source_sha256=None):
         if (branch or '').strip().lower() != 'wow':
             return True
+        # Serialize both scheduled scans and explicit backfills for the same
+        # region across worker processes, including file publication and DB
+        # completion. A second run must not demote the first published row.
+        region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
+        lock_dir = os.path.join(str(settings.BASE_DIR), 'tmp')
+        os.makedirs(lock_dir, exist_ok=True)
+        lock_path = os.path.join(lock_dir, f'wago-hotfix-scan-r{region_id}.lock')
+        with open(lock_path, 'a+') as lock_file:
+            try:
+                fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                logger.warning('[WagoSkillDiffMonitor] region %s Hotfix scan already running', region_id)
+                return False
+            try:
+                return self._scan_hotfix_locked(
+                    st, branch, current_build, backfill_interval=backfill_interval,
+                    expected_source_count=expected_source_count,
+                    expected_source_sha256=expected_source_sha256,
+                )
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def _scan_hotfix_locked(self, st, branch, current_build, *, backfill_interval=None,
+                            expected_source_count=None, expected_source_sha256=None):
         now = timezone.now()
         hotfix_locale = 'enUS'
+        region_id = self._to_int(getattr(st, 'hotfix_region_id', 0) or 0)
         last_push = self._to_int(getattr(st, 'hotfix_push_id', 0) or 0)
-        latest_push = self._fetch_latest_hotfix_push_id(locale=hotfix_locale)
+        if region_id <= 0:
+            logger.warning(
+                '[WagoSkillDiffMonitor] Hotfix region is unverified; preserve legacy cursor %s',
+                last_push,
+            )
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'hotfix_region_unverified'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            return False
+        if backfill_interval is not None:
+            try:
+                requested_from, latest_push = map(int, backfill_interval)
+            except (TypeError, ValueError):
+                raise ValueError('Hotfix backfill requires an exact (from_push, to_push) interval')
+            if requested_from != last_push or latest_push <= last_push:
+                raise ValueError('Hotfix backfill interval must start at the supplied state cursor')
+        else:
+            try:
+                latest_push = self._fetch_latest_hotfix_push_id(
+                    locale=hotfix_locale, region_id=region_id, current_build=current_build,
+                )
+            except (HotfixSourceIncomplete, WagoDiffUnavailable) as exc:
+                logger.warning('[WagoSkillDiffMonitor] Hotfix discovery incomplete: %s', exc)
+                st.hotfix_last_run_status = 'failed'
+                st.hotfix_last_event_status = 'source_incomplete'
+                st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+                return False
         st.hotfix_last_run_at = now
         st.hotfix_last_run_status = 'success' if latest_push > 0 else 'no_data'
         st.save(update_fields=['hotfix_last_run_at', 'hotfix_last_run_status'])
@@ -420,31 +482,33 @@ class WagoSkillDiffMonitor(BaseScan):
             return True
         if last_push > latest_push:
             logger.warning(
-                "[WagoSkillDiffMonitor] hotfix cursor is ahead of Wago latest push, "
-                "recover as initial scan: branch=%s locale=%s last_push=%s latest_push=%s",
+                "[WagoSkillDiffMonitor] Wago hotfix candidate is behind committed cursor; "
+                "keep cursor/report and retry later: branch=%s locale=%s last_push=%s latest_push=%s",
                 branch,
                 hotfix_locale,
                 last_push,
                 latest_push,
             )
-            st.hotfix_push_id = 0
-            st.hotfix_last_event_status = 'hotfix_cursor_recovered'
-            st.save(update_fields=['hotfix_push_id', 'hotfix_last_event_status'])
-            last_push = 0
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'hotfix_source_behind_cursor'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            return True
         if latest_push <= last_push:
             return True
 
         report = None
+        class_report = None
         is_init = last_push <= 0
         from_push = last_push
         if is_init:
-            prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale)
+            prev_push = self._fetch_prev_hotfix_push_id(latest_push, locale=hotfix_locale, region_id=region_id)
             from_push = prev_push if prev_push > 0 else max(0, latest_push - 1)
 
         hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
         hotfix_event, _ = WowWagoHotfixEvent.objects.update_or_create(
             branch=branch,
             locale=hotfix_locale,
+            region_id=region_id,
             to_push=latest_push,
             defaults={
                 'from_push': from_push,
@@ -458,8 +522,47 @@ class WagoSkillDiffMonitor(BaseScan):
         fallback_status = ''
         fallback_error = ''
         try:
-            report = self._generate_hotfix_full_report(branch, current_build, from_push, latest_push, locale=hotfix_locale)
+            hotfix_rows = self._collect_hotfix_interval_rows(
+                from_push, latest_push, region_id=region_id, locale=hotfix_locale,
+            )
+            if not hotfix_rows:
+                raise WagoDiffUnavailable('Hotfix interval has no verified rows for selected region')
+            if backfill_interval is not None and expected_source_count is not None:
+                ids = [int(row['id']) for row in hotfix_rows]
+                digest = source_ids_sha256(hotfix_rows)
+                if len(ids) != int(expected_source_count) or digest != expected_source_sha256:
+                    raise WagoDiffUnavailable(
+                        f'Hotfix interval source identity mismatch: count={len(ids)} sha256={digest}'
+                    )
+            facts = self._resolve_hotfix_facts(
+                hotfix_rows, db2_build=current_build,
+                interval_only=backfill_interval is not None,
+            )
+            class_report = self._generate_hotfix_class_report(
+                branch, current_build, from_push, latest_push,
+                region_id=region_id, facts=facts, locale=hotfix_locale,
+                stage_for_publication=True,
+            )
+            report = self._generate_hotfix_full_report(
+                branch, current_build, from_push, latest_push, locale=hotfix_locale,
+                region_id=region_id, hotfix_rows=hotfix_rows, facts=facts,
+                stage_for_publication=True,
+            )
+            if not report or not report.get('content_html_path') or int(report.get('entry_count') or 0) != len(hotfix_rows):
+                raise WagoDiffUnavailable('Hotfix full report incomplete after verified collection')
+            report.update({
+                'class_content_html_path': class_report['content_html_path'],
+                'class_spell_count': class_report['spell_count'],
+                'class_class_count': class_report['class_count'],
+                'class_unresolved_count': class_report['unresolved_count'],
+            })
         except Exception as e:
+            self._discard_hotfix_staging(report, class_report)
+            if backfill_interval is not None:
+                # A manual historical replay must not publish a placeholder
+                # or alter the committed cursor when Wago is incomplete.
+                self._mark_event(hotfix_event, status='generate_failed', error_message=e)
+                return False
             fallback_status = 'generate_failed_fallback_report'
             fallback_error = str(e)
             report = self._build_hotfix_fallback_report(
@@ -468,10 +571,14 @@ class WagoSkillDiffMonitor(BaseScan):
                 from_push=from_push,
                 to_push=latest_push,
                 locale=hotfix_locale,
+                region_id=region_id,
                 reason=f'Hotfix 明细报告生成失败，已生成 fallback 报告：{e}',
             )
 
         if not report or int(report.get('entry_count') or 0) <= 0:
+            if backfill_interval is not None:
+                self._mark_event(hotfix_event, status='no_data', error_message='Verified interval has no reportable rows')
+                return False
             fallback_status = fallback_status or 'no_data_fallback_report'
             report = self._build_hotfix_fallback_report(
                 branch=branch,
@@ -479,15 +586,41 @@ class WagoSkillDiffMonitor(BaseScan):
                 from_push=from_push,
                 to_push=latest_push,
                 locale=hotfix_locale,
+                region_id=region_id,
                 reason='Wago 已检测到新的 hotfix push，但明细接口暂未返回可汇总数据，已生成 fallback 报告。',
                 source_report=report,
             )
+
+        if fallback_status and WowHotfixReport.objects.filter(
+            branch=branch, locale=hotfix_locale, region_id=region_id,
+            to_push=latest_push, collection_complete=True,
+        ).first():
+            # A failed retry must never downgrade an already verified report.
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'source_unavailable_preserved'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            self._mark_event(hotfix_event, status='source_unavailable_preserved', error_message=fallback_error)
+            return False
+
+        if not fallback_status and WowHotfixReport.objects.filter(
+            branch=branch, locale=hotfix_locale, region_id=region_id,
+            to_push=latest_push, collection_complete=True,
+        ).first():
+            # A committed report might predate a state-write failure. Never
+            # replace its frozen facts or publish over its existing HTML.
+            self._discard_hotfix_staging(report, class_report)
+            st.hotfix_last_run_status = 'failed'
+            st.hotfix_last_event_status = 'complete_report_preserved'
+            st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+            self._mark_event(hotfix_event, status='complete_report_preserved')
+            return False
 
         row = None
         try:
             row, _ = WowHotfixReport.objects.update_or_create(
                 branch=branch,
                 locale=hotfix_locale,
+                region_id=region_id,
                 to_push=int(report.get('to_push') or latest_push),
                 defaults={
                     'from_push': int(report.get('from_push') or from_push),
@@ -501,9 +634,18 @@ class WagoSkillDiffMonitor(BaseScan):
                     'changed_tables_json': report.get('changed_tables_json') or '',
                     'table_count': int(report.get('table_count') or 0),
                     'entry_count': int(report.get('entry_count') or 0),
+                    'source_facts_json': report.get('source_facts_json') or '',
+                    # Do not expose a complete row before both staged HTML
+                    # files have been published.
+                    'collection_complete': False,
+                    'class_content_html_path': report.get('class_content_html_path') or '',
+                    'class_spell_count': int(report.get('class_spell_count') or 0),
+                    'class_class_count': int(report.get('class_class_count') or 0),
+                    'class_unresolved_count': int(report.get('class_unresolved_count') or 0),
                 }
             )
         except Exception as e:
+            self._discard_hotfix_staging(report, class_report)
             self._mark_event(hotfix_event, status='save_report_failed', report=None, error_message=e)
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
@@ -525,6 +667,27 @@ class WagoSkillDiffMonitor(BaseScan):
             )
             return False
 
+        if not fallback_status:
+            published = []
+            try:
+                published = self._publish_staged_hotfix_reports(report, class_report) or []
+                row.collection_complete = True
+                row.save(update_fields=['collection_complete'])
+            except Exception as e:
+                for path in published:
+                    try:
+                        os.unlink(path)
+                    except OSError:
+                        logger.exception('[WagoSkillDiffMonitor] failed to remove unpublished Hotfix file %s', path)
+                self._discard_hotfix_staging(report, class_report)
+                row.collection_complete = False
+                row.save(update_fields=['collection_complete'])
+                self._mark_event(hotfix_event, status='publish_failed', report=None, error_message=e)
+                st.hotfix_last_run_status = 'failed'
+                st.hotfix_last_event_status = 'publish_failed'
+                st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
+                return False
+
         self._mark_event(
             hotfix_event,
             status=fallback_status or 'report_generated',
@@ -538,9 +701,7 @@ class WagoSkillDiffMonitor(BaseScan):
             error_message=fallback_error,
         )
 
-        # 完整报告成功落库后才推进 push 游标；fallback 报告只保证 Dashboard 有可追溯报告，
-        # 但保留下一轮自动重试完整明细报告的机会。WowHotfixReport 使用 update_or_create，
-        # 因此重复 fallback/retry 会覆盖同一个 to_push 报告，不会堆重复记录。
+        # Only verified complete source facts may advance this region's cursor.
         state_update_fields = [
             'hotfix_last_event_at',
             'hotfix_last_event_status',
@@ -550,20 +711,24 @@ class WagoSkillDiffMonitor(BaseScan):
             'hotfix_class_count',
             'hotfix_summary_title',
         ]
-        if not fallback_status:
+        if not fallback_status and backfill_interval is None:
             st.hotfix_push_id = latest_push
-            state_update_fields.insert(0, 'hotfix_push_id')
+            st.hotfix_region_id = region_id
+            state_update_fields[:0] = ['hotfix_push_id', 'hotfix_region_id']
+        else:
+            st.hotfix_last_run_status = 'failed'
+            state_update_fields.append('hotfix_last_run_status')
         st.hotfix_last_event_at = now
         st.hotfix_last_event_status = (
             ('init_has_update_fallback' if is_init else 'has_update_fallback')
             if fallback_status else
-            ('init_has_update' if is_init else 'has_update')
+            ('has_class_change' if int(report.get('class_spell_count') or 0) > 0 else
+             ('init_has_update' if is_init else 'has_update'))
         )
         st.hotfix_report_url = (report.get('report_url') or '') if report else ''
         st.hotfix_wago_url = self._hotfix_url(push_id=latest_push, locale=hotfix_locale)
-        # 兼容旧字段：保留 0，避免误导（全量信息请看 WowHotfixReport 表）
-        st.hotfix_spell_count = 0
-        st.hotfix_class_count = 0
+        st.hotfix_spell_count = int(report.get('class_spell_count') or 0)
+        st.hotfix_class_count = int(report.get('class_class_count') or 0)
         st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
         st.save(update_fields=state_update_fields)
         return True
@@ -597,15 +762,8 @@ class WagoSkillDiffMonitor(BaseScan):
     def _hotfix_url(self, build_num='', push_id=0, locale=''):
         locale = (locale or '').strip()
         build_num = str(build_num or '').strip()
-        params = []
-        if build_num:
-            params.append(f"filter%5Bbuild%5D={build_num}")
-        if push_id:
-            params.append(f"filter%5Bpush_id%5D={int(push_id)}")
-        if locale:
-            params.append(f"filter%5Blocale%5D={locale}")
-        qs = '&'.join(params)
-        return f"https://wago.tools/hotfixes?{qs}" if qs else 'https://wago.tools/hotfixes'
+        search = f'{locale} {int(push_id)}'.strip() if push_id else build_num or locale
+        return f'https://wago.tools/hotfixes?{urlencode({"search": search})}' if search else 'https://wago.tools/hotfixes'
 
     def _build_hotfix_fallback_report(
         self,
@@ -615,6 +773,7 @@ class WagoSkillDiffMonitor(BaseScan):
         from_push,
         to_push,
         locale='',
+        region_id=0,
         reason='',
         source_report=None,
     ):
@@ -630,7 +789,8 @@ class WagoSkillDiffMonitor(BaseScan):
         current_build = str(current_build or '').strip()
         source_report = source_report if isinstance(source_report, dict) else {}
         wago_url = self._hotfix_url(push_id=to_push, locale=locale)
-        summary_title = f"Hotfix 更新已检测：push {from_push}→{to_push}（fallback 报告）"
+        region_title = f'{wago_region_name(region_id)} · ' if region_id else ''
+        summary_title = f"{region_title}Hotfix 更新已检测：push {from_push}→{to_push}（fallback 报告）"
         reason = str(reason or '').strip() or 'Wago 已检测到新的 hotfix push，但暂时无法生成完整明细报告。'
         now_text = timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S %Z')
         table_count = int(source_report.get('table_count') or 0)
@@ -655,7 +815,8 @@ class WagoSkillDiffMonitor(BaseScan):
         ]
         content_md = "\n".join(md_lines).strip() + "\n"
 
-        rel_path = f"portal/reports/wow_hotfix_fallback_{branch}_{locale}_{to_push}.html"
+        region_part = f'_r{int(region_id)}' if region_id else ''
+        rel_path = f"portal/reports/wow_hotfix_fallback_{branch}_{locale}{region_part}_{to_push}.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
         static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
         full_path = os.path.join(static_dir, rel_path)
@@ -719,6 +880,13 @@ class WagoSkillDiffMonitor(BaseScan):
             'changed_tables_json': changed_tables_json,
             'table_count': table_count,
             'entry_count': entry_count,
+            'region_id': int(region_id or 0),
+            'collection_complete': False,
+            'source_facts_json': '',
+            'class_content_html_path': '',
+            'class_spell_count': 0,
+            'class_class_count': 0,
+            'class_unresolved_count': 0,
         }
 
     def _extract_build_number(self, build_str):
@@ -747,54 +915,90 @@ class WagoSkillDiffMonitor(BaseScan):
             return {}
         return obj if isinstance(obj, dict) else {}
 
-    def _fetch_latest_hotfix_push_id(self, *, locale=''):
+    def _fetch_latest_hotfix_push_id(self, *, locale='', region_id=0, current_build=''):
+        if current_build:
+            build_num = self._extract_build_number(current_build)
+            if not build_num:
+                raise WagoDiffUnavailable(f'Hotfix discovery requires exact current build: {current_build}')
+            # Wago's created_at sort is not unique: its wide search cannot be
+            # completely paginated. These pages only supply an observed upper
+            # candidate; every intervening push is collected separately below.
+            max_pages = max(1, min(200, int(getattr(settings, 'WAGO_HOTFIX_DISCOVERY_MAX_PAGES', 200) or 200)))
+            candidate = 0
+            expected_total = None
+            source_ids = {}
+            for page in range(1, max_pages + 1):
+                url = 'https://wago.tools/hotfixes?' + urlencode({'search': build_num, 'page': page})
+                props = self._extract_inertia_props(self._http_get_text(url, timeout=max(60, self.http_timeout)))
+                payload = props.get('hotfixes') if isinstance(props, dict) else None
+                try:
+                    total = int(payload['total'])
+                    current = int(payload['current_page'])
+                    last = int(payload['last_page'])
+                    per_page = int(payload['per_page'])
+                    data = payload['data']
+                except (KeyError, ValueError, TypeError):
+                    raise WagoDiffUnavailable(f'Hotfix candidate page {page} missing metadata')
+                if (not isinstance(data, list) or current != page or last < page or per_page < 1
+                        or len(data) > per_page or (expected_total is not None and expected_total != total)):
+                    raise WagoDiffUnavailable(f'Hotfix candidate page {page} inconsistent')
+                expected_total = total
+                for row in data:
+                    if not isinstance(row, dict) or self._to_int(row.get('id')) <= 0:
+                        raise WagoDiffUnavailable(f'Hotfix candidate page {page} invalid source ID')
+                    rid = int(row['id'])
+                    if rid in source_ids and source_ids[rid] != row:
+                        raise WagoDiffUnavailable(f'Hotfix candidate duplicate source ID={rid}')
+                    source_ids[rid] = row
+                    if (self._to_int(row.get('region_id')) == int(region_id)
+                            and str(row.get('locale') or '') == locale
+                            and str(row.get('build') or '') == build_num):
+                        candidate = max(candidate, self._to_int(row.get('push_id')))
+                if page == last:
+                    break
+            if candidate <= 0:
+                raise WagoDiffUnavailable(f'Hotfix candidate not observed in bounded build search: {build_num} region={region_id}')
+            return candidate
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         locale = (locale or '').strip()
-        search = locale
+        region_id = self._to_int(region_id or 0)
         latest = 0
-        page = 1
-        while page <= max_pages:
-            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
+        for page in range(1, max_pages + 1):
+            raw = self._fetch_hotfix_page_data(page=page, search=locale) or []
             if not raw:
                 break
             for row in raw:
-                pid = self._to_int((row or {}).get('push_id') or 0)
-                if pid > latest:
-                    latest = pid
-            if latest > 0:
-                break
-            page += 1
+                if region_id and self._to_int((row or {}).get('region_id') or 0) != region_id:
+                    continue
+                if locale and str((row or {}).get('locale') or '') != locale:
+                    continue
+                latest = max(latest, self._to_int((row or {}).get('push_id') or 0))
         return latest
 
-    def _fetch_prev_hotfix_push_id(self, latest_push, *, locale=''):
+    def _fetch_prev_hotfix_push_id(self, latest_push, *, locale='', region_id=0):
         latest_push = self._to_int(latest_push or 0)
         if latest_push <= 0:
             return 0
         max_pages = int(getattr(settings, 'WAGO_HOTFIX_MAX_PAGES', 8) or 8)
         locale = (locale or '').strip()
-        search = locale
+        region_id = self._to_int(region_id or 0)
         seen = set()
         found = []
-        page = 1
-        while page <= max_pages and len(found) < 2:
-            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
+        for page in range(1, max_pages + 1):
+            raw = self._fetch_hotfix_page_data(page=page, search=locale) or []
             if not raw:
                 break
             for r in raw:
+                if region_id and self._to_int((r or {}).get('region_id') or 0) != region_id:
+                    continue
+                if locale and str((r or {}).get('locale') or '') != locale:
+                    continue
                 pid = self._to_int((r or {}).get('push_id') or 0)
                 if pid <= 0 or pid in seen:
                     continue
                 seen.add(pid)
                 found.append(pid)
-                if len(found) >= 2:
-                    break
-            page += 1
-        if not found:
-            return 0
-        found = sorted(set(found), reverse=True)
-        if len(found) >= 2 and found[0] == latest_push:
-            return found[1]
-        for pid in found:
+        for pid in sorted(found, reverse=True):
             if pid < latest_push:
                 return pid
         return 0
@@ -970,6 +1174,108 @@ class WagoSkillDiffMonitor(BaseScan):
                 continue
             out.append(r)
         return out
+
+    def _fetch_hotfix_push_rows(self, push_id, *, region_id, locale):
+        try:
+            return collect_hotfix_push_rows(
+                self._http_get_text, self._extract_inertia_props, push_id,
+                region_id=region_id, locale=locale,
+                max_pages=int(getattr(settings, 'WAGO_HOTFIX_PUSH_MAX_PAGES', 40) or 40),
+                timeout=max(60, self.http_timeout),
+            )
+        except HotfixSourceIncomplete as exc:
+            raise WagoDiffUnavailable(str(exc)) from exc
+
+    def _full_hotfix_source_build(self, source, current_build):
+        short = str((source or {}).get('build') or '').strip()
+        if not short.isdigit():
+            return ''
+        if short == self._extract_build_number(current_build):
+            return current_build
+        cache = getattr(self, '_build_versions_cache', None) or {}
+        versions = cache.get('versions') or []
+        if not versions:
+            text = self._http_get_text('https://wago.tools/builds-diff', timeout=max(60, self.http_timeout))
+            versions = (self._extract_inertia_props(text or '') or {}).get('versions') or []
+            if isinstance(versions, list) and versions:
+                self._build_versions_cache = {'ts': timezone.now().timestamp(), 'versions': versions}
+        matches = {str(version) for version in versions if self._extract_build_number(version) == short}
+        return next(iter(matches)) if len(matches) == 1 else ''
+
+    def _resolve_hotfix_facts(self, rows, *, db2_build, interval_only=False):
+        schema_cache = {}
+        interval_history = {}
+        if interval_only:
+            for row in rows:
+                key = (int(row['region_id']), row['locale'], row['table_name'].lower(), int(row['record_id']))
+                interval_history.setdefault(key, []).append(row)
+
+        def schema_for(source):
+            version = self._full_hotfix_source_build(source, db2_build)
+            if not version:
+                return None
+            key = (source['table_name'].lower(), version)
+            if key not in schema_cache:
+                candidate = self._fetch_db2_row_by_id(
+                    source['table_name'], version, int(source['record_id']),
+                )
+                if not candidate and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', source['table_name']):
+                    url = f"https://wago.tools/db2/{source['table_name']}?" + urlencode({
+                        'build': version, 'locale': source['locale'],
+                    })
+                    props = self._extract_inertia_props(self._http_get_text(url, timeout=max(60, self.http_timeout)))
+                    filters = props.get('filters') or {} if isinstance(props, dict) else {}
+                    payload = props.get('data') or props.get('entries') or {} if isinstance(props, dict) else {}
+                    records = payload.get('data') if isinstance(payload, dict) else payload
+                    if (isinstance(records, list) and records and isinstance(records[0], dict)
+                            and str(filters.get('build') or '') == version
+                            and str(filters.get('locale') or '') == source['locale']):
+                        candidate = records[0]
+                schema_cache[key] = candidate if isinstance(candidate, dict) and list(candidate)[:1] == ['ID'] else None
+            return schema_cache[key]
+
+        def previous_for(source):
+            key = (int(source['region_id']), source['locale'], source['table_name'].lower(), int(source['record_id']))
+            if interval_only:
+                # Only previous pushes inside the explicitly requested range
+                # can establish old values; don't trace unrelated history.
+                return previous_hotfix_row(interval_history.get(key, []), source)
+            if key not in self._hotfix_history_cache:
+                try:
+                    self._hotfix_history_cache[key] = collect_hotfix_record_history(
+                        self._http_get_text, self._extract_inertia_props, key[3],
+                        table_name=key[2], region_id=key[0], locale=key[1],
+                        max_pages=int(getattr(settings, 'WAGO_HOTFIX_HISTORY_MAX_PAGES', 40) or 40),
+                        timeout=max(60, self.http_timeout),
+                    )
+                except (HotfixSourceIncomplete, OSError, requests.RequestException) as exc:
+                    logger.warning('[WagoSkillDiffMonitor] Hotfix predecessor unresolved: %s', exc)
+                    self._hotfix_history_cache[key] = []
+            return previous_hotfix_row(self._hotfix_history_cache[key], source)
+
+        facts = build_hotfix_facts(rows, schema_for=schema_for, previous_for=previous_for)
+        for fact in facts:
+            if fact['after_verified']:
+                version = self._full_hotfix_source_build(fact['source'], db2_build)
+                if not version:
+                    raise WagoDiffUnavailable('Hotfix decoded source build lost its verified identity')
+                fact['source_build'] = version
+        return facts
+
+    def _collect_hotfix_interval_rows(self, from_push, to_push, *, region_id, locale):
+        from_push, to_push = int(from_push), int(to_push)
+        if to_push <= from_push:
+            return []
+        max_span = max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_PUSH_SPAN', 512) or 512))
+        if to_push - from_push > max_span:
+            raise WagoDiffUnavailable(f'Hotfix push span limit: {from_push}→{to_push} > {max_span}')
+        max_entries = max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 4000) or 4000))
+        rows = []
+        for push_id in range(from_push + 1, to_push + 1):
+            rows.extend(self._fetch_hotfix_push_rows(push_id, region_id=region_id, locale=locale))
+            if len(rows) > max_entries:
+                raise WagoDiffUnavailable(f'Hotfix entry limit: {len(rows)} > {max_entries}')
+        return sorted(rows, key=lambda row: (int(row['push_id']), int(row['id'])))
 
     def _load_hotfix_daily_state(self, branch, day_key):
         p = self._hotfix_daily_state_fullpath(branch, day_key)
@@ -1496,7 +1802,8 @@ class WagoSkillDiffMonitor(BaseScan):
         to_build = (event.to_build or '').strip()
         wago_diff_url = (event.wago_diff_url or '').strip() or f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
 
-        self._mark_event(event, last_attempt_at=now, error_message='')
+        # Keep the last failure visible until the retry reaches a terminal outcome.
+        self._mark_event(event, last_attempt_at=now)
 
         report = None
         try:
@@ -2016,9 +2323,23 @@ class WagoSkillDiffMonitor(BaseScan):
         class_names = self._load_chr_classes(to_build)
         spec_meta = self._load_chr_specialization_meta(to_build)
         spec_to_class = {sid: meta.get('class_id') for sid, meta in (spec_meta or {}).items() if meta.get('class_id')}
-        spell_to_specs = self._load_specialization_spells(to_build)
-        if not spec_to_class or not spell_to_specs:
-            return None
+        current_spell_to_specs = self._load_specialization_spells(to_build)
+        if not spec_to_class or not current_spell_to_specs:
+            raise WagoDiffUnavailable(
+                f'Wago DB2 class attribution unavailable for {branch} {to_build}: '
+                f'specs={len(spec_to_class)} mapped_spells={len(current_spell_to_specs)}'
+            )
+        old_spec_meta = self._load_chr_specialization_meta(from_build)
+        old_spell_to_specs = self._load_specialization_spells(from_build)
+        if not old_spec_meta or not old_spell_to_specs:
+            raise WagoDiffUnavailable(f'Wago DB2 class attribution unavailable for {branch} {from_build}')
+        spec_meta = {**old_spec_meta, **spec_meta}
+        for sid, meta in old_spec_meta.items():
+            if meta.get('class_id'):
+                spec_to_class.setdefault(sid, meta['class_id'])
+        spell_to_specs = {spell_id: set(spec_ids) for spell_id, spec_ids in current_spell_to_specs.items()}
+        for spell_id, spec_ids in old_spell_to_specs.items():
+            spell_to_specs.setdefault(spell_id, set()).update(spec_ids)
 
         whitelist = self._field_whitelist()
         spell_changes = {}
@@ -2035,6 +2356,8 @@ class WagoSkillDiffMonitor(BaseScan):
             tkey = t.lower()
             for row in diff_rows:
                 spell_id = self._extract_spell_id(tkey, row)
+                if not spell_id and row.get('Action') == 'removed' and isinstance(row.get('oldData'), dict):
+                    spell_id = self._extract_spell_id(tkey, row['oldData'])
                 if not spell_id:
                     continue
                 if wowhead_spell_ids and spell_id not in wowhead_spell_ids:
@@ -2048,9 +2371,12 @@ class WagoSkillDiffMonitor(BaseScan):
                     continue
                 action = (row.get('Action') or '').strip()
                 old_data = row.get('oldData')
-                if action in ('changed', 'removed') and isinstance(old_data, dict):
+                if action == 'changed' and isinstance(old_data, dict):
                     before = old_data
                     after = {k: v for k, v in row.items() if k not in ('oldData',)}
+                elif action == 'removed' and isinstance(old_data, dict):
+                    before = old_data
+                    after = {}
                 elif action == 'added':
                     before = {}
                     after = {k: v for k, v in row.items() if k not in ('oldData',)}
@@ -2130,8 +2456,9 @@ class WagoSkillDiffMonitor(BaseScan):
                     snap_effects[key] = e
                 elif tkey == 'specializationspells':
                     spec_id = 0
+                    spec_row = old_data if action == 'removed' and isinstance(old_data, dict) else row
                     for k in ('SpecID', 'ChrSpecializationID', 'SpecializationID'):
-                        v = row.get(k)
+                        v = spec_row.get(k)
                         if v is None:
                             continue
                         try:
@@ -2161,7 +2488,7 @@ class WagoSkillDiffMonitor(BaseScan):
         spell_changes = filtered_spell_changes
 
         for spell_id in spell_changes.keys():
-            specs = spell_to_specs.get(spell_id) or set()
+            specs = current_spell_to_specs.get(spell_id) or set()
             for spec_id in specs:
                 snap_map_add.add((spec_id, spell_id))
             snap_spells.setdefault(spell_id, {})
@@ -2304,6 +2631,7 @@ class WagoSkillDiffMonitor(BaseScan):
             spec_to_class=spec_to_class,
             spell_changes=spell_changes,
             wowhead_url=wowhead_url,
+            effect_record_ids=True,
         )
         content_html_path = (html_meta or {}).get('path') or ''
         class_count = int((html_meta or {}).get('class_count') or 0)
@@ -2318,7 +2646,137 @@ class WagoSkillDiffMonitor(BaseScan):
             'class_count': class_count,
         }
 
-    def _generate_hotfix_full_report(self, branch, current_build, from_push, to_push, *, locale=''):
+    def _generate_hotfix_class_report(self, branch, current_build, from_push, to_push, *, region_id, facts, locale='', stage_for_publication=False):
+        unresolved_spell_sources = [
+            fact.get('source') or {} for fact in facts
+            if str((fact.get('source') or {}).get('table_name') or '').lower().startswith('spell')
+            and not fact.get('after_verified')
+        ]
+        invalidations = [source for source in unresolved_spell_sources
+                         if source.get('data') is None and self._to_int(source.get('status')) in (2, 3, 4)]
+        if len(invalidations) != len(unresolved_spell_sources):
+            raise WagoDiffUnavailable(
+                f'Hotfix unresolved Spell payloads: {len(unresolved_spell_sources) - len(invalidations)}; '
+                'class projection withheld'
+            )
+        for fact in facts:
+            source = fact.get('source') or {}
+            if not fact.get('after_verified') or not str(source.get('table_name') or '').lower().startswith('spell'):
+                continue
+            version = fact.get('source_build') or self._full_hotfix_source_build(source, current_build)
+            if not version or self._extract_build_number(version) != str(source.get('build') or ''):
+                raise WagoDiffUnavailable(f'Hotfix class source build unresolved: {source.get("build")}')
+            fact['source_build'] = version
+        class_names = dict(self._load_chr_classes(current_build) or {})
+        spec_meta = dict(self._load_chr_specialization_meta(current_build) or {})
+        spec_to_class = {sid: meta['class_id'] for sid, meta in spec_meta.items() if meta.get('class_id')}
+        spell_to_specs = {}
+        source_spec_variants = {}
+        source_class_variants = {}
+        by_build = {}
+
+        def source_class_ids(sid, source):
+            version = self._full_hotfix_source_build(source, current_build)
+            if not version:
+                raise WagoDiffUnavailable(f'Hotfix class source build unresolved: {source.get("build")}')
+            if version not in by_build:
+                names = self._load_chr_classes(version)
+                metas = self._load_chr_specialization_meta(version)
+                mappings = self._load_specialization_spells(version)
+                classes = {key: item['class_id'] for key, item in (metas or {}).items() if item.get('class_id')}
+                if not names or not classes or not mappings:
+                    raise WagoDiffUnavailable(f'Hotfix class attribution incomplete for {version}')
+                by_build[version] = (names, metas, mappings, classes)
+                class_names.update({cid: value for cid, value in names.items() if cid not in class_names})
+            _names, metas, mappings, classes = by_build[version]
+            class_ids = self._spell_class_ids(sid, mappings, classes, version)
+            source_specs = set()
+            for cid in class_ids:
+                matching = {spec for spec in mappings.get(sid, set()) if classes.get(spec) == cid}
+                if not matching:
+                    # A class-owned spell need not have a SpecializationSpells
+                    # row (e.g. Hammer of Light); keep it in its class section.
+                    synthetic_spec = -int(cid)
+                    matching = {synthetic_spec}
+                    spec_meta[synthetic_spec] = {'name': '职业通用', 'class_id': cid}
+                    spec_to_class[synthetic_spec] = cid
+                for spec in matching:
+                    if spec not in spec_meta and spec in metas:
+                        spec_meta[spec] = metas[spec]
+                    spec_to_class[spec] = cid
+                spell_to_specs.setdefault(sid, set()).update(matching)
+                source_specs.update(matching)
+            if source_specs:
+                source_spec_variants.setdefault(sid, set()).add(frozenset(source_specs))
+                source_class_variants.setdefault(sid, set()).add(frozenset(class_ids))
+            return bool(class_ids)
+
+        changes = project_class_spell_changes(facts, is_class_spell=source_class_ids)
+        for sid in changes:
+            variants = source_spec_variants.get(sid) or set()
+            owners = {cid for group in source_class_variants.get(sid, ()) for cid in group}
+            if len(owners) != 1:
+                raise WagoDiffUnavailable(f'Hotfix cross-build class identity conflicts for SpellID={sid}')
+            if len(variants) <= 1:
+                continue
+            cid = owners.pop()
+            common = -int(cid)
+            spec_to_class[common] = cid
+            spec_meta[common] = {'name': '职业通用（跨版本专精归属不同）', 'class_id': cid}
+            spell_to_specs[sid] = {common}
+        if not changes:
+            return {'spell_count': 0, 'class_count': 0, 'content_html_path': '',
+                    'unresolved_count': len(invalidations)}
+        source_name_labels = {}
+        for fact in sorted(facts, key=lambda item: int((item.get('source') or {}).get('push_id') or 0)):
+            source = fact.get('source') or {}
+            row = fact.get('after') or {}
+            if str(source.get('table_name') or '').lower() != 'spellname' or not isinstance(row, dict):
+                continue
+            sid = self._to_int(row.get('ID') or 0)
+            name = self._clean_external_text(row.get('Name_lang') or row.get('Name') or '')
+            if sid > 0 and name:
+                source_name_labels[sid] = name
+        source_builds = sorted({item['meta']['SourceBuild'] for spell in changes.values()
+                                for table_items in spell['diffs'].values() for item in table_items},
+                               key=lambda version: tuple(int(part) for part in version.split('.')))
+        name = wago_region_name(region_id) or f'region {int(region_id)}'
+        html_meta = self._write_html_report(
+            branch=branch,
+            server_title=f'{self._branch_title(branch)} {name} Hotfix',
+            from_build=current_build,
+            to_build=current_build,
+            display_from_build=f'push {int(from_push)}',
+            display_to_build=f'push {int(to_push)}',
+            source_build_label=' / '.join(source_builds),
+            class_names=class_names,
+            spec_meta=spec_meta,
+            spell_to_specs=spell_to_specs,
+            spec_to_class=spec_to_class,
+            spell_changes=changes,
+            data_build=current_build,
+            effect_record_ids=True,
+            report_key=f'hotfix_r{int(region_id)}_p{int(to_push)}',
+            assess_tone=False,
+            stage_for_publication=stage_for_publication,
+            source_names_override=source_name_labels,
+            source_uncertainty_note=(
+                f'{len(invalidations)} 条 Spell* 删除/失效/未公开来源无新 payload，职业归属未核实；'
+                '以下技能数仅为已解析部分。'
+                if invalidations else ''
+            ),
+        )
+        if not html_meta or not html_meta.get('path') or not html_meta.get('class_count'):
+            raise WagoDiffUnavailable('Hotfix class report rendering incomplete')
+        return {
+            'spell_count': len(changes),
+            'class_count': int(html_meta['class_count']),
+            'content_html_path': html_meta['path'],
+            'staging_path': html_meta.get('staging_path') or '',
+            'unresolved_count': len(invalidations),
+        }
+
+    def _generate_hotfix_full_report(self, branch, current_build, from_push, to_push, *, locale='', region_id=0, hotfix_rows=None, facts=None, stage_for_publication=False):
         """
         Hotfix 全量更新报告：覆盖所有表的变更（不仅职业/技能）。
 
@@ -2336,30 +2794,27 @@ class WagoSkillDiffMonitor(BaseScan):
         locale = (locale or '').strip() or self.locale
         search = locale
 
-        hotfix_rows = []
-        page = 1
-        while page <= max_pages and len(hotfix_rows) < max_entries:
-            raw = self._fetch_hotfix_page_data(page=page, search=search) or []
-            if not raw:
-                break
-            for r in raw:
-                pid = self._to_int((r or {}).get('push_id') or 0)
-                if pid <= 0:
-                    continue
-                if locale and (str((r or {}).get('locale') or '').strip() or '') != locale:
-                    continue
-                # (from_push, to_push]
-                if pid <= int(from_push or 0):
-                    continue
-                if int(to_push or 0) > 0 and pid > int(to_push or 0):
-                    continue
-                hotfix_rows.append(r)
-                if len(hotfix_rows) >= max_entries:
+        if hotfix_rows is None:
+            # Compatibility for isolated legacy callers only. The live scanner
+            # supplies a fully verified, region-scoped interval instead.
+            hotfix_rows = []
+            page = 1
+            while page <= max_pages and len(hotfix_rows) < max_entries:
+                raw = self._fetch_hotfix_page_data(page=page, search=search) or []
+                if not raw:
                     break
-            # Wago hotfix pages are not reliably monotonic when filtered/searched by locale:
-            # later pages can still contain rows for a newer push after an older push appears
-            # on page 1. Do not stop early based on min push; scan the bounded page window.
-            page += 1
+                for r in raw:
+                    pid = self._to_int((r or {}).get('push_id') or 0)
+                    if pid <= int(from_push or 0) or pid > int(to_push or 0):
+                        continue
+                    if locale and str((r or {}).get('locale') or '').strip() != locale:
+                        continue
+                    hotfix_rows.append(r)
+                    if len(hotfix_rows) >= max_entries:
+                        break
+                page += 1
+        else:
+            hotfix_rows = list(hotfix_rows)
 
         if not hotfix_rows:
             return None
@@ -2374,9 +2829,7 @@ class WagoSkillDiffMonitor(BaseScan):
             if not b:
                 continue
             build_counts[b] = int(build_counts.get(b) or 0) + 1
-        build_num = ''
-        if build_counts:
-            build_num = sorted(build_counts.items(), key=lambda x: (-x[1], x[0]))[0][0]
+        build_num = ' / '.join(sorted(build_counts, key=lambda value: (0, int(value)) if value.isdigit() else (1, value)))
         db2_build = str(current_build or '').strip() or build_num
 
         # group by table
@@ -2394,7 +2847,8 @@ class WagoSkillDiffMonitor(BaseScan):
         entry_count = sum(c for _, c in table_stats)
         table_count = len(table_stats)
         wago_url = self._hotfix_url(push_id=int(to_push or 0), locale=locale)
-        summary_title = f"Hotfix 全量更新：{table_count} 张表 / {entry_count} 项（push {from_push}→{to_push}）"
+        region_title = f"{wago_region_name(region_id)} · " if region_id else ''
+        summary_title = f"{region_title}Hotfix 全量更新：{table_count} 张表 / {entry_count} 项（push {from_push}→{to_push}）"
 
         # 生成 markdown（用于存档）
         md_lines = [
@@ -2402,7 +2856,8 @@ class WagoSkillDiffMonitor(BaseScan):
             "",
             f"- 分支：{branch}",
             f"- 区域/语言：{locale}",
-            f"- Build：{build_num or current_build}",
+            f"- 来源 Build：{build_num or '未核实'}",
+            f"- DB2 基表关系参考 Build：{db2_build}",
             f"- Push：{from_push} → {to_push}",
             f"- Wago：{wago_url}",
             "",
@@ -2491,6 +2946,9 @@ class WagoSkillDiffMonitor(BaseScan):
             by_table=by_table,
             sample_per_table=max_sample_per_table,
             enrich_max=max_enrich,
+            region_id=region_id,
+            facts=facts,
+            stage_for_publication=stage_for_publication,
         )
         report_url = f"/portal/reports/{html_rel_path[len('portal/reports/'):] if html_rel_path.startswith('portal/reports/') else html_rel_path}" if html_rel_path else ""
 
@@ -2504,12 +2962,69 @@ class WagoSkillDiffMonitor(BaseScan):
             "summary_title": summary_title,
             "content_md": content_md,
             "content_html_path": html_rel_path or "",
+            "staging_path": html_path if stage_for_publication else '',
             "report_url": report_url,
             "wago_url": wago_url,
             "changed_tables_json": json.dumps([t for t, _ in table_stats], ensure_ascii=False),
             "table_count": table_count,
             "entry_count": entry_count,
+            "region_id": int(region_id or 0),
+            "source_facts_json": json.dumps(facts, ensure_ascii=False, separators=(',', ':')) if facts is not None else '',
+            "collection_complete": hotfix_rows is not None and facts is not None,
         }
+
+    def _discard_hotfix_staging(self, *reports):
+        root = os.path.realpath(os.path.join(str(settings.BASE_DIR), 'tmp', 'wago-hotfix-staging'))
+        for report in reports:
+            source = str((report or {}).get('staging_path') or '')
+            if not source:
+                continue
+            try:
+                if os.path.commonpath((root, os.path.realpath(source))) == root:
+                    os.unlink(source)
+            except (OSError, ValueError):
+                pass
+
+    def _publish_staged_hotfix_reports(self, full_report, class_report):
+        root = os.path.realpath(os.path.join(str(settings.BASE_DIR), 'tmp', 'wago-hotfix-staging'))
+        public_root = os.path.realpath(os.path.join(str(settings.BASE_DIR), 'static', 'portal', 'reports'))
+        pending = []
+        for report in (full_report, class_report):
+            if not report or not report.get('content_html_path'):
+                continue
+            source = str(report.get('staging_path') or '')
+            relative = str(report['content_html_path'])
+            destination = os.path.realpath(os.path.join(str(settings.BASE_DIR), 'static', relative))
+            if (not source or not os.path.isfile(source)
+                    or os.path.commonpath((root, os.path.realpath(source))) != root
+                    or not relative.startswith('portal/reports/') or not relative.endswith('.html')
+                    or os.path.commonpath((public_root, destination)) != public_root
+                    or os.path.exists(destination)):
+                raise WagoDiffUnavailable('Hotfix staged report publication path is incomplete or already exists')
+            pending.append((source, destination))
+        if not pending or (class_report and class_report.get('content_html_path') and len(pending) != 2):
+            raise WagoDiffUnavailable('Hotfix staged report files missing')
+        os.makedirs(public_root, exist_ok=True)
+        published = []
+        try:
+            for source, destination in pending:
+                os.replace(source, destination)
+                published.append(destination)
+        except OSError:
+            for path in published:
+                try:
+                    os.unlink(path)
+                except OSError:
+                    pass
+            raise
+        return published
+
+    def _hotfix_report_private_path(self):
+        root = os.path.join(str(settings.BASE_DIR), 'tmp', 'wago-hotfix-staging')
+        os.makedirs(root, exist_ok=True)
+        fd, path = tempfile.mkstemp(prefix='report-', suffix='.html', dir=root)
+        os.close(fd)
+        return path
 
     def _write_hotfix_full_html(
         self,
@@ -2526,6 +3041,9 @@ class WagoSkillDiffMonitor(BaseScan):
         sample_per_table: int,
         enrich_max: int,
         db2_build: str = '',
+        region_id: int = 0,
+        facts: list | None = None,
+        stage_for_publication: bool = False,
     ):
         """
         生成 Hotfix 全量静态 HTML 报告（不依赖前端/Portal）。
@@ -2535,24 +3053,68 @@ class WagoSkillDiffMonitor(BaseScan):
         所有表的名称/描述/ID/关联字段/原始字段快照、技能类表的额外技能名摘要和 Wago 原链。
         返回：(full_path, rel_path)
         """
-        rel_path = f"portal/reports/wow_hotfix_full_{branch}_{locale}_{to_push}.html"
+        region_part = f'_r{int(region_id)}' if region_id else ''
+        rel_path = f"portal/reports/wow_hotfix_full_{branch}_{locale}{region_part}_{to_push}.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
         static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
-        full_path = os.path.join(static_dir, rel_path)
+        full_path = (self._hotfix_report_private_path() if stage_for_publication
+                     else os.path.join(static_dir, rel_path))
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         build_num = str(build_num or '').strip()
         db2_build = str(db2_build or '').strip() or build_num
         table_stats = list(table_stats or [])
         by_table = by_table or {}
+        fact_lookup = {
+            (int(f['source']['push_id']), str(f['source']['table_name']).lower(), int(f['source']['record_id'])): f
+            for f in (facts or []) if isinstance(f, dict) and isinstance(f.get('source'), dict)
+        }
+        if facts is not None:
+            sample_per_table = max(int(sample_per_table or 20), *(int(count or 0) for _, count in table_stats), 1)
         entry_count = sum(int(c or 0) for _, c in table_stats)
         table_count = len(table_stats)
+
         sample_per_table = max(1, int(sample_per_table or 20))
         enrich_left = max(0, int(enrich_max or 0))
         row_cache = {}
         spell_name_cache = {}
+        if facts is not None:
+            # A verified interval already freezes all numeric facts. Names
+            # for its cards are labels, not a reason to issue an unbounded
+            # one-request-per-spell Wago lookup while rendering 2k+ rows.
+            spell_ids = set()
+            for fact in facts:
+                source = fact.get('source') or {}
+                row = fact.get('after') or {}
+                table = str(source.get('table_name') or '').lower()
+                if not table.startswith('spell') or not isinstance(row, dict):
+                    continue
+                sid = self._to_int(row.get('SpellID') or (
+                    row.get('ID') if table in ('spell', 'spellname', 'spelldescription', 'spellmisc') else 0
+                ) or 0)
+                if sid > 0:
+                    spell_ids.add(sid)
+            if spell_ids:
+                try:
+                    for sid, metadata in database_spell_metadata(
+                            spell_ids, branch, db2_build, allow_compatible_name=True).items():
+                        name = self._clean_external_text(metadata.get('name') or '')
+                        if name:
+                            spell_name_cache[int(sid)] = name
+                except Exception as exc:
+                    logger.warning('[WagoSkillDiffMonitor] optional Hotfix name labels unavailable: %s', exc)
+            for fact in sorted(facts, key=lambda item: int((item.get('source') or {}).get('push_id') or 0)):
+                source = fact.get('source') or {}
+                row = fact.get('after') or {}
+                if str(source.get('table_name') or '').lower() != 'spellname' or not isinstance(row, dict):
+                    continue
+                sid = self._to_int(row.get('ID') or 0)
+                name = self._clean_external_text(row.get('Name_lang') or row.get('Name') or '')
+                if sid > 0 and name:
+                    spell_name_cache[sid] = name
 
         category_rules = [
+            ('gameobjects', '世界交互物'),
             ('spell', '技能/法术'), ('talent', '天赋'), ('trait', '天赋树'),
             ('item', '物品/装备'), ('journal', '地下城手册'), ('quest', '任务'),
             ('creature', '生物/NPC'), ('map', '地图/区域'), ('area', '区域'),
@@ -2576,7 +3138,10 @@ class WagoSkillDiffMonitor(BaseScan):
         ]
         field_labels = {
             'ID': '记录 ID', 'Name_lang': '名称', 'Name': '名称', 'DisplayName_lang': '显示名', 'Title_lang': '标题',
-            'Description_lang': '描述', 'AuraDescription_lang': '光环描述', 'Text_lang': '文本',
+            'Display_lang': '显示名', 'Description_lang': '描述', 'AuraDescription_lang': '光环描述',
+            'ObjectiveText_lang': '目标文本', 'Text_lang': '文本', 'ItemLevel': '物品等级',
+            'InventoryType': '装备栏位类型', 'OrderIndex': '排序', 'CriteriaID': '条件 ID',
+            'Parent': '父节点 ID', 'CooldownSetID': '冷却组 ID',
             'VerifiedBuild': '数据 build', 'SpellID': '技能 ID', 'EffectIndex': '效果序号',
             'Effect': '效果类型', 'EffectAura': '光环类型', 'EffectBasePointsF': '基础数值F',
             'EffectBasePoints': '基础数值', 'EffectBonusCoefficient': '法强系数',
@@ -2602,7 +3167,8 @@ class WagoSkillDiffMonitor(BaseScan):
             'chrspecialization': '专精', 'skilllineability': '技能线关联', 'talent': '天赋',
             'traitnode': '天赋节点', 'traitnodeentry': '天赋节点条目', 'traitdefinition': '天赋定义',
             'modifiertree': '条件/规则树', 'item': '物品', 'itemsparse': '物品文本', 'itemeffect': '物品效果',
-            'itemxitemeffect': '物品-效果关联', 'journalencounter': '地下城/团本首领',
+            'itemxitemeffect': '物品-效果关联', 'gameobjects': '世界交互物',
+            'journalencounter': '地下城/团本首领',
             'journalencountersection': '地下城手册文本', 'questv2': '任务', 'questline': '任务线',
             'creature': '生物/NPC', 'creaturedisplayinfo': '生物模型', 'map': '地图', 'areatable': '区域',
             'currencytypes': '货币', 'achievement': '成就', 'mount': '坐骑', 'vehicleseat': '载具座位',
@@ -2630,6 +3196,7 @@ class WagoSkillDiffMonitor(BaseScan):
             '天赋': ('天赋选择与构筑', '可能改变天赋收益、选择优先级或与其他技能的联动。'),
             '天赋树': ('天赋路径与节点关系', '可能改变节点收益、前置关系或构筑路径。'),
             '物品/装备': ('装备表现与物品效果', '可能涉及属性、特效、使用效果、掉落或装备限制。'),
+            '世界交互物': ('地图交互对象', '来源记录涉及世界物件；只有状态或 ID 时不能推断具体玩法影响。'),
             '地下城手册': ('副本机制说明', '可能涉及首领、技能说明、阶段提示或手册展示。'),
             '任务': ('任务流程与目标', '可能涉及接取条件、目标文本、进度或奖励关联。'),
             '生物/NPC': ('NPC 行为与外观', '可能涉及生物配置、交互、模型或关联技能。'),
@@ -2691,14 +3258,9 @@ class WagoSkillDiffMonitor(BaseScan):
             return category_impacts.get(impact_category(value), category_impacts['其他 DB2'])
 
         def hotfix_table_url(table_name='', push_id=0):
-            params = []
-            if push_id:
-                params.append(f"filter%5Bpush_id%5D={int(push_id)}")
-            if locale:
-                params.append(f"filter%5Blocale%5D={locale}")
-            if table_name:
-                params.append(f"filter%5Btable_name%5D={html.escape(str(table_name), quote=True)}")
-            return 'https://wago.tools/hotfixes?' + '&'.join(params) if params else 'https://wago.tools/hotfixes'
+            # Wago currently ignores filter[push_id]/filter[table_name]; its
+            # locale+push search is the smallest proven working source link.
+            return self._hotfix_url(push_id=push_id, locale=locale)
 
         def fetch_row(table_name, record_id):
             nonlocal enrich_left
@@ -2725,15 +3287,18 @@ class WagoSkillDiffMonitor(BaseScan):
         def first_text(row):
             if not isinstance(row, dict):
                 return ''
-            for k in ('Name_lang', 'Name', 'DisplayName_lang', 'Title_lang'):
+            for k in ('Name_lang', 'Name', 'DisplayName_lang', 'Display_lang', 'Title_lang'):
                 v = row.get(k)
                 if isinstance(v, str) and v.strip():
                     return self._cleanup_unresolved_tooltip_tokens(v.strip())
             for k in ('Description_lang', 'AuraDescription_lang', 'Text_lang'):
                 v = row.get(k)
                 if isinstance(v, str) and v.strip():
-                    sid = self._to_int(row.get('SpellID') or row.get('ID') or 0)
-                    txt, _removed = self._render_spell_text_plain(db2_build, sid, v.strip())
+                    if facts is not None:
+                        txt = self._cleanup_unresolved_tooltip_tokens(v.strip())
+                    else:
+                        sid = self._to_int(row.get('SpellID') or row.get('ID') or 0)
+                        txt, _removed = self._render_spell_text_plain(db2_build, sid, v.strip())
                     txt = re.sub(r'\s+', ' ', txt.strip())
                     return txt[:220] + ('…' if len(txt) > 220 else '')
             return ''
@@ -2748,7 +3313,7 @@ class WagoSkillDiffMonitor(BaseScan):
             row = fetch_row('SpellName', spell_id)
             if isinstance(row, dict):
                 name = self._clean_external_text(row.get('Name_lang') or row.get('Name') or '')
-            if not name:
+            if not name and facts is None:
                 try:
                     fetched = self._fetch_spell_names_concurrent(db2_build, [spell_id]) if db2_build else {}
                     name = self._clean_external_text((fetched or {}).get(spell_id))
@@ -2770,7 +3335,8 @@ class WagoSkillDiffMonitor(BaseScan):
                     v = row.get(k)
                     if v is not None and str(v) != '':
                         bits.append(f"{field_label(k)}={v}")
-                title = f"{sname or ('Spell ' + str(sid))} / 效果#{idx}" if sid else f"效果记录 {record_id}"
+                index_label = str(self._to_int(idx) + 1) if idx is not None and str(idx).strip() else '未标明'
+                title = f"{sname or ('Spell ' + str(sid))} / 效果#{index_label}" if sid else f"效果记录 {record_id}"
                 return title + ("：" + '，'.join(bits[:6]) if bits else '')
             if key in ('spellname', 'spelldescription'):
                 sid = record_id
@@ -2784,7 +3350,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 return f"{sname or ('Spell ' + str(sid))}" + (f"：{brief}" if brief else '')
             return first_text(row)
 
-        def row_fields_html(table_name, record_id, row):
+        def row_fields_html(table_name, record_id, row, fact=None):
             impact_title, impact_description = impact_copy(table_name)
             semantic_html = (
                 "<div class='semantic-fallback'>"
@@ -2815,7 +3381,7 @@ class WagoSkillDiffMonitor(BaseScan):
 
             def compact_value(v, max_len=260, field_name=''):
                 text = str(v).strip()
-                if field_name in text_fields:
+                if field_name in text_fields and fact is None:
                     text, _removed = self._render_spell_text_plain(db2_build, record_id, text)
                 else:
                     text = self._cleanup_unresolved_tooltip_tokens(text)
@@ -2911,8 +3477,13 @@ class WagoSkillDiffMonitor(BaseScan):
             if raw_chips:
                 if raw_count < sum(1 for _k, _v in row.items() if _v is not None and str(_v).strip() != ''):
                     raw_chips.append("<div class='field raw'><span>更多字段</span><strong>超过 120 个原始字段未展开</strong></div>")
+                raw_description = (
+                    '查看本次 Hotfix payload 原始字段（最多前 120 个；仅为新值，不代表每个字段都发生变化）'
+                    if fact is not None and fact.get('after_verified') else
+                    '查看 DB2 基表参考字段（最多前 120 个，含 0 / 默认值 / 内部字段；非热修生效值）'
+                )
                 raw_html = (
-                    "<details class='raw-fields'><summary>查看完整 DB2 原始字段（含 0 / 默认值 / 内部字段）</summary>"
+                    f"<details class='raw-fields'><summary>{raw_description}</summary>"
                     "<div class='fields raw-grid'>" + ''.join(raw_chips) + "</div></details>"
                 )
             else:
@@ -2995,10 +3566,14 @@ class WagoSkillDiffMonitor(BaseScan):
             seen_rids = set()
             for raw_row in raw_rows:
                 rid = self._to_int((raw_row or {}).get('record_id') or 0)
-                if rid <= 0 or rid in seen_rids:
+                pid = self._to_int((raw_row or {}).get('push_id') or to_push)
+                key = (pid, tkey(table_name), rid)
+                identity = (pid, rid) if facts is not None else rid
+                if rid <= 0 or identity in seen_rids:
                     continue
-                seen_rids.add(rid)
-                hotfix_sample_rows.append(raw_row)
+                seen_rids.add(identity)
+                fact = fact_lookup.get(key)
+                hotfix_sample_rows.append({**raw_row, 'decoded_after': fact.get('after') or {}} if fact is not None else raw_row)
                 if len(seen_rids) >= sample_per_table:
                     break
 
@@ -3016,6 +3591,15 @@ class WagoSkillDiffMonitor(BaseScan):
         def clean_report_text(value):
             return self._cleanup_unresolved_tooltip_tokens(str(value or ''))
 
+        def frozen_display_name(row):
+            return next((clean_report_text(row[k]) for k in (
+                'Name_lang', 'Display_lang', 'Title_lang', 'DisplayName_lang', 'Name',
+            ) if isinstance(row.get(k), str) and row[k].strip()), '')
+
+        def placeholder_object_title(title, obj_kind, object_id):
+            generic = rf'(?:{re.escape(str(obj_kind))}|Item|Quest|Spell|Object|Record|Talent|物品|任务|技能|对象|记录|天赋对象)?\s*#?{re.escape(str(object_id))}'
+            return bool(re.fullmatch(generic, str(title or ''), flags=re.I))
+
         resolved_objects_by_source = {}
         for resolved_obj in list(getattr(object_graph, 'objects', []) or []):
             for source_ref in resolved_obj.source_records or []:
@@ -3030,6 +3614,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 obj_kind = clean_report_text(resolved_obj.kind) or 'object'
                 obj_category = impact_category(clean_report_text(resolved_obj.category) or category)
                 obj_title = clean_report_text(resolved_obj.title or resolved_obj.object_id)
+                payload_name = frozen_display_name(row) if facts is not None else ''
+                if payload_name and (not obj_title or placeholder_object_title(obj_title, obj_kind, resolved_obj.object_id)):
+                    obj_title = payload_name
                 kind_label = clean_report_text(resolved_obj.category) or obj_category
                 return f"{obj_kind}:{resolved_obj.object_id}", obj_category, obj_title, kind_label
             if key.startswith('spell'):
@@ -3051,7 +3638,67 @@ class WagoSkillDiffMonitor(BaseScan):
             object_id = self._to_int(row.get('ID') or record_id)
             return f"record:{key}:{object_id}", category, first_text(row) or f"{table_label(table_name)} #{object_id}", table_category(table_name)
 
-        def reader_facts(table_name, record_id, row):
+        def reader_facts(table_name, record_id, row, fact=None):
+            if fact is not None:
+                if not fact.get('after_verified'):
+                    source = fact.get('source') or {}
+                    status = self._to_int(source.get('status'))
+                    if source.get('data') is None and status in (2, 3, 4):
+                        action = {2: '删除', 3: '失效', 4: '未公开'}[status]
+                        return [f'Wago 来源状态：{action}（data=null，无可解码新值）；具体字段未核实。']
+                    return ['本次 Wago Hotfix 未提供可解码的新字段；具体内容未核实。']
+                changes = fact.get('changes') or []
+                if fact.get('before_verified') and not changes:
+                    return ['同区域前后 payload 已核对，本记录没有可核实的字段值变化。']
+                after = fact.get('after') or {}
+                text_keys = (
+                    'Name_lang', 'Display_lang', 'Title_lang', 'DisplayName_lang', 'Name',
+                    'Description_lang', 'AuraDescription_lang', 'ObjectiveText_lang',
+                    'Text_lang', 'OverrideName_lang',
+                )
+                relation_keys = (
+                    'SpellID', 'ItemID', 'QuestID', 'CreatureID', 'SourceSpellID',
+                    'EffectIndex', 'TraitNodeID', 'TraitNodeEntryID', 'CriteriaID',
+                    'Parent', 'CooldownSetID', 'JournalEncounterID', 'ItemDisplayInfoID',
+                )
+                value_keys = (
+                    'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient',
+                    'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'ItemLevel',
+                    'MaxTargets', 'InventoryType', 'OrderIndex', 'Amount',
+                    'RecoveryTime', 'CategoryRecoveryTime', 'Operator', 'Type', 'Asset',
+                )
+                if fact.get('before_verified'):
+                    # A normal report shows the verified *new* values only; the
+                    # dedicated class projection owns before/after comparison.
+                    context = ['SpellID', 'EffectIndex'] if tkey(table_name) == 'spelleffect' else []
+                    chosen = list(dict.fromkeys(
+                        [field for field in context if field in after]
+                        + [item['field'] for item in changes if item.get('field') in after]
+                    ))
+                else:
+                    useful = [k for k, v in after.items() if k not in ('ID', 'VerifiedBuild')
+                              and v is not None and (str(v).strip() not in ('', '0', '0.0')
+                                  or (k == 'EffectIndex' and tkey(table_name) == 'spelleffect'))]
+                    priority = text_keys + relation_keys + value_keys
+                    semantic = [k for k in priority if k in useful]
+                    # Opaque flags and masks are not user-facing interpretations;
+                    # show one raw key only when no clearer payload field exists.
+                    extra = [k for k in useful if k not in semantic]
+                    chosen = semantic + ([] if semantic else extra[:2])
+                lines = []
+                for field in chosen[:6]:
+                    value = after.get(field)
+                    if value is None or str(value).strip() == '':
+                        continue
+                    if field == 'EffectIndex' and tkey(table_name) == 'spelleffect':
+                        value = f'{value}（第 {self._to_int(value) + 1} 个效果）'
+                    value = re.sub(r'\s+', ' ', clean_report_text(value)).strip()
+                    if not value:
+                        continue
+                    if len(value) > 220:
+                        value = value[:220] + '…'
+                    lines.append(f'{field_label(field)}：{value}')
+                return lines or ['新 payload 已解码；除记录 ID 外没有可读的新值字段，完整内容见技术明细。']
             key = tkey(table_name)
             if not isinstance(row, dict) or not row:
                 return [f"已确认 {table_label(table_name)} 记录发生热修，但当前 build 暂未还原出可读字段。"]
@@ -3075,7 +3722,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     if current and f"{label} {current}" not in values:
                         values.append(f"{label} {current}")
                 if values:
-                    facts.append(f"第 {index} 个技能效果的当前记录：{'，'.join(values)}。")
+                    facts.append(f"第 {index} 个技能效果的客户端 DB2 基表记录（非热修生效值）：{'，'.join(values)}。")
                 else:
                     facts.append(f"第 {index} 个技能效果配置发生热修。")
             elif key == 'spellscaling':
@@ -3132,6 +3779,68 @@ class WagoSkillDiffMonitor(BaseScan):
                 facts.append(f"{('“' + title + '”的') if title else ''}{table_category(table_name)}配置发生热修。")
             return facts[:3]
 
+        def readable_payload_lines(table_name, row, fact):
+            """Short, literal new-value highlights; opaque IDs and enums stay in evidence."""
+            if not fact or not fact.get('after_verified') or not isinstance(row, dict):
+                return []
+            verified_fields = ({item.get('field') for item in fact.get('changes') or []}
+                               if fact.get('before_verified') else None)
+            table = tkey(table_name)
+            text_labels = (
+                ('Description_lang', '物品说明' if table == 'itemsparse' else
+                 '条件描述' if table == 'criteriatree' else
+                 '技能描述' if table.startswith('spell') else '说明'),
+                ('AuraDescription_lang', '光环说明'), ('ObjectiveText_lang', '任务目标'),
+                ('Text_lang', '文本'), ('Title_lang', '标题'),
+                ('Display_lang', '名称'), ('Name_lang', '名称'),
+                ('DisplayName_lang', '名称'), ('Name', '名称'),
+            )
+            number_labels = (
+                ('EffectBasePointsF', '基础数值'), ('EffectBasePoints', '基础数值'),
+                ('EffectBonusCoefficient', '法强系数'), ('BonusCoefficientFromAP', '攻强系数'),
+                ('Coefficient', '系数'), ('PvpMultiplier', 'PvP 系数'),
+                ('ItemLevel', '物品等级'), ('MaxTargets', '最大目标数'),
+                ('RecoveryTime', '冷却时长（毫秒）'),
+                ('CategoryRecoveryTime', '分类冷却（毫秒）'),
+            )
+            lines = []
+            for field, label in text_labels + number_labels:
+                if verified_fields is not None and field not in verified_fields:
+                    continue
+                value = row.get(field)
+                if value is None:
+                    continue
+                text = re.sub(r'\s+', ' ', clean_report_text(value)).strip()
+                if (not text or text in ('技能描述', 'x', '[DNT]')
+                        or text.startswith('[DNT]')):
+                    continue
+                if field not in dict(text_labels) and verified_fields is None and text in ('0', '0.0'):
+                    continue
+                if field == 'PvpMultiplier' and verified_fields is None and text in ('1', '1.0'):
+                    continue
+                if field == 'ItemLevel' and verified_fields is None and text in ('0', '1'):
+                    continue
+                if field == 'EffectBasePoints' and any(part.startswith('基础数值 ') for part in lines):
+                    continue
+                if field in dict(text_labels):
+                    text = text[:180] + ('…' if len(text) > 180 else '')
+                    lines.append(f'{label}：{text}')
+                elif table == 'spellcooldowns' and field in ('RecoveryTime', 'CategoryRecoveryTime'):
+                    try:
+                        seconds = (Decimal(text) / Decimal(1000)).normalize()
+                    except InvalidOperation:
+                        lines.append(f'{label} {text}')
+                    else:
+                        kind = '冷却记录' if field == 'RecoveryTime' else '分类冷却记录'
+                        lines.append(f'{kind} {seconds:f} 秒')
+                else:
+                    lines.append(f'{label} {text}')
+                if len(lines) >= 4:
+                    break
+            if lines and table == 'spelleffect' and row.get('EffectIndex') is not None:
+                lines[0] = f"第 {self._to_int(row['EffectIndex']) + 1} 个效果：{lines[0]}"
+            return lines
+
         def object_fields_html(fields):
             chips = []
             for item in fields or []:
@@ -3140,10 +3849,14 @@ class WagoSkillDiffMonitor(BaseScan):
                 if value is None or str(value) == '':
                     continue
                 chips.append(f"<div class='field primary'><span>{esc(label)}</span><strong>{esc(value)}</strong></div>")
-            return "<div class='fields'>" + ''.join(chips) + "</div>" if chips else ""
+            return (
+                "<p class='muted'>DB2 基表上下文：仅用于关联游戏对象，不代表热修前态或生效值。</p>"
+                + "<div class='fields'>" + ''.join(chips) + "</div>"
+            ) if chips else ""
 
         object_cards = []
-        for obj in list(getattr(object_graph, 'objects', []) or [])[:120]:
+        graph_objects = list(getattr(object_graph, 'objects', []) or [])
+        for obj in graph_objects[:120]:
             obj_kind = clean_report_text(obj.kind)
             obj_category = clean_report_text(obj.category)
             obj_title = clean_report_text(obj.title or obj.object_id)
@@ -3172,7 +3885,7 @@ class WagoSkillDiffMonitor(BaseScan):
             object_graph_section = (
                 "<section class='object-section table-section' id='object-graph' data-search='具体游戏对象 字段关系'>"
                 "<div class='table-head'><div><span class='section-kicker'>还原后的阅读视图</span><h2>具体游戏对象</h2>"
-                f"<p>按 DB2 关系还原到技能、任务、物品、坐骑、宠物、载具等对象；已还原 {len(object_cards)} 个对象，未识别 {unresolved_count} 条样例。</p></div>"
+                f"<p>按 DB2 基表关系辅助定位技能、任务、物品等对象；共识别 {len(graph_objects)} 个，展示 {len(object_cards)} 个，未识别 {unresolved_count} 条；此处基表属性并非热修生效值。全部源行见下方 DB2 表明细。</p></div>"
                 "<a href='#table-list'>继续看 DB2 表明细</a></div>"
                 + ''.join(object_cards)
                 + "</section>"
@@ -3188,20 +3901,28 @@ class WagoSkillDiffMonitor(BaseScan):
             seen = set()
             for r in raw_rows:
                 rid = self._to_int((r or {}).get('record_id') or 0)
-                if rid <= 0 or rid in seen:
-                    continue
-                seen.add(rid)
                 pid = self._to_int((r or {}).get('push_id') or to_push)
-                row = fetch_row(t, rid)
+                identity = (pid, rid) if facts is not None else rid
+                if rid <= 0 or identity in seen:
+                    continue
+                seen.add(identity)
+                fact = fact_lookup.get((pid, key, rid))
+                row = (fact.get('after') or {}) if fact is not None else fetch_row(t, rid)
                 summary = summarize_row(t, rid, row)
                 records.append({
                     'record_id': rid,
                     'push_id': pid,
+                    'source_build': str((r or {}).get('build') or ''),
                     'summary': summary,
                     'row': row,
+                    'fact': fact,
                 })
                 if len(records) >= sample_per_table:
                     break
+            if facts is not None and len(records) != int(c or 0):
+                raise WagoDiffUnavailable(
+                    f'Hotfix full HTML omitted source records from {t}: rendered={len(records)} expected={c}'
+                )
             if not records:
                 continue
             cards = []
@@ -3210,30 +3931,58 @@ class WagoSkillDiffMonitor(BaseScan):
                 pid = rec['push_id']
                 summary = rec.get('summary') or ''
                 row = rec.get('row')
+                fact = rec.get('fact')
                 reader_key, reader_category, reader_title, reader_kind = reader_identity(t, rid, row)
                 reader_group = reader_groups.setdefault(reader_key, {
-                    'category': reader_category,
+                    'identity': reader_key,
                     'title': reader_title,
                     'kind': reader_kind,
                     'items': [],
-                    'search': [],
                 })
-                facts = reader_facts(t, rid, row)
+                if (fact is not None and fact.get('after_verified')
+                        and reader_title == frozen_display_name(row)
+                        and placeholder_object_title(reader_group['title'], reader_key.split(':', 1)[0], reader_key.rsplit(':', 1)[-1])):
+                    reader_group['title'] = reader_title
+                record_facts = reader_facts(t, rid, row, fact)
                 reader_group['items'].append({
+                    'category': category,
                     'table': table_label(t),
                     'record_id': rid,
                     'push_id': pid,
-                    'facts': facts,
+                    'source_build': rec.get('source_build') or '',
+                    'facts': record_facts,
+                    'human': readable_payload_lines(t, row, fact),
+                    'verified_change': bool(fact and fact.get('before_verified') and fact.get('changes')),
+                    'readable': bool(fact.get('after_verified')) if fact is not None else True,
                     'url': hotfix_table_url(t, pid),
                 })
-                reader_group['search'].extend([reader_category, reader_title, reader_kind, table_label(t), ' '.join(facts)])
+
                 search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid), summary, first_text(row)]).lower()
                 row_title = summary or f"record_id {rid}"
                 wago_rec_url = hotfix_table_url(t, pid)
+                if fact is None:
+                    evidence_state = ''
+                elif not fact.get('after_verified'):
+                    source = fact.get('source') or {}
+                    status = self._to_int(source.get('status'))
+                    if source.get('data') is None and status in (2, 3, 4):
+                        action = {2: '删除', 3: '失效', 4: '未公开'}[status]
+                        evidence_state = f'Wago 来源状态：{action}（data=null）；无可解码新值，旧值与职业归属未核实'
+                    else:
+                        evidence_state = '无可解码新 payload，具体字段未核实'
+                elif not fact.get('before_verified'):
+                    evidence_state = '仅新值；旧值未核实，不代表字段变化'
+                elif fact.get('changes'):
+                    evidence_state = f"已核实其中 {len(fact['changes'])} 个字段的新值（正文仅展示新值）"
+                else:
+                    evidence_state = '已核实前后值相同；无字段变化'
                 cards.append(
                     "<article class='record' data-category='{}' data-search='{}'>".format(esc(category), esc(search_text))
-                    + f"<div class='record-head'><div><span class='record-id'>#{rid}</span><strong>{esc(row_title)}</strong></div><a href='{esc(wago_rec_url)}' target='_blank' rel='noreferrer'>Wago push {pid}</a></div>"
-                    + row_fields_html(t, rid, row)
+                    + f"<div class='record-head'><div><span class='record-id'>#{rid}</span><strong>{esc(row_title)}</strong>"
+                    + (f"<small class='muted'>来源 build {esc(rec['source_build'])}</small>" if rec.get('source_build') else '')
+                    + f"</div><a href='{esc(wago_rec_url)}' target='_blank' rel='noreferrer'>Wago push {pid}</a></div>"
+                    + (f"<p class='muted evidence-state'>{esc(evidence_state)}</p>" if evidence_state else '')
+                    + row_fields_html(t, rid, row, fact)
                     + "</article>"
                 )
             more = max(0, int(c or 0) - len(records))
@@ -3241,37 +3990,166 @@ class WagoSkillDiffMonitor(BaseScan):
             section_class = 'table-section'
             detail_sections.append(
                 f"<section class='{section_class}' id='table-{esc(key)}' data-category='{esc(category)}' data-search='{esc((norm_table(t)+' '+table_label(t)+' '+category).lower())}'>"
-                f"<div class='table-head'><div><span class='section-kicker'>{esc(category)} · 可能影响 {esc(impact_title)}</span><h2>{esc(table_label(t))}</h2><p>{esc(impact_description)} 本表共 {int(c or 0)} 项 hotfix 记录，展开 {len(records)} 项可读样例。</p></div><a href='{esc(hotfix_table_url(t, to_push))}' target='_blank' rel='noreferrer'>Wago 表筛选</a></div>"
+                f"<div class='table-head'><div><span class='section-kicker'>{esc(category)} · 可能影响 {esc(impact_title)}</span><h2>{esc(table_label(t))}</h2><p>{esc(impact_description)} 本表共 {int(c or 0)} 项 hotfix 记录，{'逐条列出' if facts is not None else '展开可读样例'} {len(records)} 项。</p></div><a href='{esc(hotfix_table_url(t, to_push))}' target='_blank' rel='noreferrer'>Wago 表筛选</a></div>"
                 + ''.join(cards)
                 + more_html
                 + "</section>"
             )
 
-        reader_cards = []
+        readable_cards = []
+        raw_cards = []
         for group in reader_groups.values():
+            visible_items = [item for item in group['items'] if item['readable']]
+            if not visible_items:
+                continue
             items = []
-            source_count = len(group['items'])
-            for item in group['items']:
+            source_count = len(visible_items)
+            for item in visible_items:
                 facts_html = ''.join(f"<li>{esc(fact)}</li>" for fact in item['facts'])
                 items.append(
                     "<div class='reader-evidence'>"
-                    f"<div><strong>{esc(item['table'])}</strong><ul>{facts_html}</ul></div>"
+                    f"<div><strong>{esc(item['table'])} #{int(item['record_id'])} · push {int(item['push_id'])}"
+                    f"{' · ' + esc(wago_region_name(region_id)) if region_id else ''}"
+                    f"{' · build ' + esc(item['source_build']) if item['source_build'] else ''}</strong><ul>{facts_html}</ul></div>"
                     f"<a href='{esc(item['url'])}' target='_blank' rel='noreferrer' aria-label='在 Wago 核对 {esc(item['table'])} 记录 {int(item['record_id'])}'>核对来源</a>"
                     "</div>"
                 )
-            reader_cards.append(
-                f"<article class='reader-card' data-category='{esc(group['category'])}' data-search='{esc(' '.join(group['search']).lower())}'>"
-                f"<header><div><span>{esc(group['kind'])}</span><h3>{esc(group['title'])}</h3></div><small>{source_count} 处底层记录</small></header>"
-                + ''.join(items)
-                + "</article>"
+            visible_categories = '|'.join(sorted({item['category'] for item in visible_items}))
+            visible_search = ' '.join([group['title'], group['kind']] + [
+                f"{item['record_id']} {item['push_id']} {item['table']} {' '.join(item['facts'])}"
+                for item in visible_items
+            ]).lower()
+            human_parts = list(dict.fromkeys(
+                line for item in visible_items for line in item['human']
+            ))[:3]
+            if len(human_parts) > 1:
+                human_parts = [part for part in human_parts
+                               if part != f"名称：{group['title']}"]
+            internal_spell = (group['identity'].startswith('spell:') and
+                              group['title'].strip().lower().startswith('[dnt]'))
+            has_verified_change = any(item['verified_change'] for item in visible_items)
+            card_title = (f"内部技能 #{group['identity'].rsplit(':', 1)[-1]}"
+                          if internal_spell else group['title'])
+            summary_html = (
+                f"<p class='reader-summary'>来源记录的新值：{esc('；'.join(human_parts))}。"
+                + ("本对象有可核实字段变化；其他新值不必然变化。" if has_verified_change else
+                   "旧值未核实，不能判断这些字段是否或如何变化。")
+                + "</p>"
+                if human_parts else ''
             )
+            card = (
+                f"<article class='reader-card' data-category='{esc(visible_categories)}' data-search='{esc(visible_search)}'>"
+                f"<header><div><span>{esc(group['kind'])}</span><h3>{esc(card_title)}</h3></div><small>{source_count} 处底层记录</small></header>"
+                + summary_html
+                + f"<details class='reader-sources'><summary>查看 {source_count} 条 Wago 来源与 DB2 字段</summary>"
+                + ''.join(items)
+                + "</details></article>"
+            )
+            if human_parts and (not internal_spell or has_verified_change):
+                priority = min((0 if item['category'] == '物品/装备' else
+                                1 if item['category'] == '技能/法术' else
+                                2 if item['category'] == '地下城手册' else 3)
+                               for item in visible_items)
+                detail_score = sum(3 if any(token in part for token in ('说明：', '描述：', '目标：', '文本：'))
+                                   else 1 if part.startswith('名称：') else 2 for part in human_parts)
+                readable_cards.append((detail_score <= 1, priority, -detail_score, card))
+            else:
+                raw_cards.append(card)
+        readable_cards.sort(key=lambda value: (value[0], value[1], value[2]))
+        reader_cards = [card for _name_only, _priority, _score, card in readable_cards] + raw_cards
+        readable_count = sum(bool(f.get('after_verified')) for f in facts) if facts is not None else 0
+        status_only_count = entry_count - readable_count if facts is not None else 0
+        verified_change_count = sum(bool(f.get('before_verified') and f.get('changes'))
+                                    for f in facts) if facts is not None else 0
+        world_status_cards = []
+        for fact in facts or []:
+            source = fact.get('source') or {}
+            if (tkey(source.get('table_name')) != 'gameobjects' or fact.get('after_verified')
+                    or source.get('data') is not None):
+                continue
+            status = self._to_int(source.get('status'))
+            state = {2: '删除', 3: '失效', 4: '未公开'}.get(status)
+            record_id = self._to_int(source.get('record_id'))
+            push_id = self._to_int(source.get('push_id'))
+            if not state or record_id <= 0 or push_id <= 0:
+                continue
+            world_status_cards.append(
+                f"<article class='reader-world-status' data-category='世界交互物' data-search='gameobjects 世界交互物 {record_id} {push_id} {esc(state)}'>"
+                f"<h3>世界交互物 #{record_id}</h3>"
+                f"<p>Wago 来源状态：{esc(state)}；本条没有可解码的新值，具体游戏表现未核实。"
+                "不能仅凭同一个 push 把它与技能或物品记录合并。</p>"
+                f"<a href='https://www.wowhead.com/object={record_id}' target='_blank' rel='noreferrer'>核对地图物件名称</a>"
+                f" <a href='{esc(hotfix_table_url('GameObjects', push_id))}' target='_blank' rel='noreferrer'>核对 Wago push {push_id}</a>"
+                "</article>"
+            )
+        world_status_section = (
+            "<section class='reader-world-statuses' id='readerWorldStatuses'><h3>世界交互物来源状态</h3>"
+            "<p class='reader-guide'>来源状态不等于物件在游戏中被移除；对象名称需单独核对。</p>"
+            + ''.join(world_status_cards) + "</section>"
+        ) if world_status_cards else ''
+        verdict = ''
+        if facts is not None:
+            if verified_change_count:
+                verdict = (f"本批有 {verified_change_count} 条来源能核实字段变化；其他来源只有新值或状态，"
+                           "不能从新值推断调整方向或幅度。")
+            else:
+                verdict = '本批没有可核实的字段变化：只有新值或来源状态，不能说明游戏内具体改了什么。'
+            if world_status_cards and not verified_change_count:
+                statuses = {self._to_int((f.get('source') or {}).get('status')) for f in facts
+                            if tkey((f.get('source') or {}).get('table_name')) == 'gameobjects'
+                            and not f.get('after_verified') and (f.get('source') or {}).get('data') is None}
+                world_state = '失效' if statuses == {3} else '仅有来源状态'
+                verdict = (f"本批有 {len(world_status_cards)} 条世界交互物的 Wago 来源状态为{world_state}；"
+                           "这不等于游戏内物件被移除。")
+                cooldowns = []
+                for f in facts:
+                    source = f.get('source') or {}
+                    if tkey(source.get('table_name')) != 'spellcooldowns' or not f.get('after_verified'):
+                        continue
+                    try:
+                        seconds = (Decimal((f.get('after') or {}).get('RecoveryTime')) / Decimal(1000)).normalize()
+                    except (InvalidOperation, TypeError):
+                        continue
+                    value = f'{seconds:f} 秒'
+                    if value not in cooldowns:
+                        cooldowns.append(value)
+                if cooldowns:
+                    examples = '、'.join(cooldowns[:3]) + ('等' if len(cooldowns) > 3 else '')
+                    verdict += f'同批技能的冷却记录新值包括 {examples}，但并未证实它属于该世界物件。'
+                item_links = any(tkey((f.get('source') or {}).get('table_name')) in
+                                 ('itemeffect', 'itemxitemeffect') for f in facts)
+                if not item_links:
+                    verdict += '本次冻结事实没有可核实的物品/装备—技能关联；'
+                verdict += '缺少可信旧值，无法判断物件交互、装备或冷却实际改变了什么。'
         reader_digest_section = (
             "<section class='reader-digest' aria-labelledby='readerDigestTitle'>"
-            "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>这次具体改了什么</h2>"
-            f"<p>已从 {entry_count} 条底层记录整理出 {len(reader_cards)} 个对象。Wago 不提供修改前的值，因此这里只陈述当前能确认的事实，不判断增强或削弱。</p></div>"
-            f"<span id='readerCount'>显示 {len(reader_cards)} 个对象</span></div>"
-            f"<div class='impact-filters' role='group' aria-label='按影响范围筛选'><button type='button' class='impact-filter' data-hotfix-category='all' aria-pressed='true'><span>全部</span><strong>{entry_count}</strong></button>{''.join(category_cards)}</div>"
-            + ''.join(reader_cards)
+            "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>本次热修涉及的对象与新值</h2>"
+            f"<p>共 {entry_count} 条来源记录；"
+            + (f"{verified_change_count} 条来源有可核实的字段变化；"
+               f"{readable_count} 条可读取本次 Hotfix payload 的新值，{status_only_count} 条仅有来源或状态，未列入下方新值卡片（可在技术明细查阅）。"
+               "新值不等于这些字段全部发生变化；枚举、标志位与单条系数不用于推断游戏效果。"
+               if facts is not None else
+               "旧报告未冻结热修 payload；所列 DB2 基表仅供对象关联，不能作为热修生效值或变化幅度。")
+            + "</p></div>"
+            f"<span id='readerCount'>可读 {len(readable_cards)} · 底层 {len(raw_cards)} 个对象</span></div>"
+            + (f"<p class='reader-verdict'><strong>这次究竟知道什么：</strong>{esc(verdict)}</p>" if verdict else '')
+            + "<div class='controls'><input id='hotfixFilter' type='search' placeholder='搜索对象、来源 ID、新值或 DB2 表…' autocomplete='off' aria-label='搜索热修对象和新值'>"
+            "<span class='count' id='filterCount'>技术明细</span></div>"
+            + f"<details class='reader-filter-drawer' id='readerFilterDrawer'><summary>按内容分类查看 <small>{len(category_counts)} 类 · 数字为来源记录数</small></summary>"
+            + f"<div class='impact-filters' role='group' aria-label='按影响范围筛选'><button type='button' class='impact-filter' data-hotfix-category='all' aria-pressed='true'><span>全部</span><strong>{entry_count}</strong></button>{''.join(category_cards)}</div>"
+            + "</details>"
+            + (world_status_section if not readable_cards else '')
+            + f"<section class='reader-readable' id='readerReadable'><h3>先看能直接读懂的记录 <small>{len(readable_cards)} 个对象</small></h3>"
+            + ("<p class='reader-guide'>只提取热修 payload 中的名称、说明和有明确字段含义的数值；这是记录的新值，不表示每个字段都发生变化。</p>" if readable_cards else
+               "<p class='reader-guide'>这批没有可直接说明的玩家玩法改动；世界物件仅有状态，内部技能参数仅供核对，不能推断实际影响。</p>")
+            + ''.join(card for _name_only, _priority, _score, card in readable_cards)
+            + "</section>"
+            + (world_status_section if readable_cards else '')
+            + f"<details class='reader-raw-only' id='readerRawOnly'><summary>其余 {len(raw_cards)} 个对象仅有底层或内部记录，无法判断具体游戏表现 · 展开核对</summary>"
+            + "<p class='reader-guide'>这些记录可能只有关系 ID、枚举、内部名称或孤立的新值；不把它们翻译成未经证实的游戏改动。</p>"
+            + ''.join(raw_cards)
+            + "</details>"
+            + "<p class='reader-empty hidden' id='readerEmpty' role='status'></p>"
             + "</section>"
         )
 
@@ -3292,8 +4170,15 @@ class WagoSkillDiffMonitor(BaseScan):
     .meta {{ color:var(--muted); font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:7px 13px; }} .source-link {{ min-height:40px; display:inline-flex; align-items:center; border:1px solid var(--line); border-radius:10px; padding:7px 11px; font-weight:750; background:var(--surface); }}
     .quick-facts {{ display:flex; flex-wrap:wrap; gap:7px 16px; margin:13px 0; color:var(--muted); font-size:12px; }} .quick-facts span {{ display:inline-flex; align-items:baseline; gap:4px; }} .quick-facts strong {{ color:var(--ink); font-size:14px; font-variant-numeric:tabular-nums; }}
     .impact-filters {{ display:flex; flex-wrap:wrap; gap:7px; margin:11px 0 4px; }} .impact-filter {{ min-height:40px; text-align:left; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); padding:6px 9px; cursor:pointer; }} .impact-filter:hover {{ border-color:#b8b0ed; }} .impact-filter[aria-pressed='true'] {{ border-color:var(--accent); background:var(--accent-soft); }} .impact-filter span {{ color:#475467; font-size:12px; font-weight:800; }} .impact-filter strong {{ margin-left:7px; font-size:12px; font-variant-numeric:tabular-nums; }} .impact-filter em {{ display:none; }}
+    .reader-filter-drawer {{ margin:8px 0 12px; padding:0 9px 9px; border:1px solid var(--line); border-radius:10px; }} .reader-filter-drawer>summary {{ min-height:43px; display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; font-weight:800; }} .reader-filter-drawer>summary small {{ color:var(--muted); font-size:11px; font-weight:500; }}
     .reader-digest {{ margin:20px 0 16px; }} .reader-digest-head {{ display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:4px; }} .reader-digest h2 {{ margin:0; font-size:21px; }} .reader-digest-head p {{ max-width:74ch; margin:3px 0 0; color:var(--muted); font-size:12px; text-wrap:pretty; }} .reader-digest-head>span {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
+    .reader-verdict {{ margin:12px 0; padding:12px 14px; border:1px solid #d8d3ff; border-radius:10px; background:var(--accent-soft); font-size:14px; line-height:1.75; overflow-wrap:anywhere; }} .reader-verdict strong {{ display:block; font-size:14px; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
+    .reader-readable>h3 {{ margin:22px 0 3px; font-size:19px; }} .reader-readable>h3 small {{ color:var(--muted); font-size:12px; font-weight:600; }} .reader-guide {{ margin:4px 0 14px; color:var(--muted); font-size:12px; }}
+    .reader-summary {{ margin:6px 0 4px; padding:10px 12px; background:var(--accent-soft); border-left:3px solid var(--accent); border-radius:6px; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }}
+    .reader-world-statuses {{ margin:15px 0; }} .reader-world-statuses>h3 {{ margin:0; font-size:18px; }} .reader-world-status {{ padding:12px 14px; margin:9px 0; background:var(--soft); border:1px solid var(--line); border-radius:10px; }} .reader-world-status h3 {{ margin:0; font-size:16px; }} .reader-world-status p {{ margin:5px 0; font-size:13px; overflow-wrap:anywhere; }} .reader-world-status a {{ display:inline-flex; align-items:center; min-height:38px; margin-right:10px; font-size:12px; }}
+    .reader-sources {{ margin-top:7px; }} .reader-sources>summary {{ min-height:38px; display:inline-flex; align-items:center; color:var(--accent); font-size:12px; font-weight:750; cursor:pointer; }} .reader-raw-only {{ margin-top:20px; padding:0 13px 13px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .reader-raw-only>summary {{ min-height:52px; display:flex; align-items:center; cursor:pointer; font-weight:750; }}
+    .reader-empty {{ padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--soft); color:var(--muted); font-size:13px; }}
     .technical-report {{ margin-top:18px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .technical-report>summary {{ min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; cursor:pointer; font-weight:850; }} .technical-report>summary small {{ color:var(--muted); font-size:11px; font-weight:650; }} .technical-body {{ padding:0 12px 12px; }}
     .controls {{ position:sticky; top:8px; z-index:5; margin:12px 0; padding:8px; background:rgba(255,255,255,.95); backdrop-filter:blur(8px); border:1px solid var(--line); border-radius:12px; display:flex; gap:10px; align-items:center; }} .controls input {{ width:100%; min-height:42px; border:1px solid #cbd1dc; border-radius:9px; padding:8px 11px; font:inherit; font-size:13px; color:var(--ink); background:var(--surface); }} .controls .count {{ white-space:nowrap; color:var(--muted); font-size:12px; }}
     .toc {{ margin:12px 0; padding:0 12px; background:var(--soft); border:1px solid var(--line); border-radius:12px; }} .toc-title {{ min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; font-weight:850; }} .toc-title small {{ color:var(--muted); font-size:11px; font-weight:650; }} .toc-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:7px; padding:0 0 12px; }} .toc-cat {{ grid-column:1/-1; margin-top:6px; color:var(--muted); font-size:11px; font-weight:850; }} .toc a {{ min-height:40px; display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:7px 9px; }} .toc span {{ color:var(--muted); font-size:11px; }}
@@ -3323,12 +4208,12 @@ class WagoSkillDiffMonitor(BaseScan):
       </div>
       <a class="source-link" href="{esc(wago_url)}" target="_blank" rel="noreferrer">核对 Wago 原始列表</a>
     </header>
-    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 记录</span><span><strong>{len(reader_cards)}</strong> 个可读对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
+    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 来源记录</span>{(f'<span><strong>{readable_count}</strong> 条有新值</span><span><strong>{status_only_count}</strong> 条仅来源或状态</span>' if facts is not None else '')}<span><strong>{len(readable_cards)}</strong> 个内容摘要</span><span><strong>{len(raw_cards)}</strong> 个仅底层对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
     {reader_digest_section}
     <details class="technical-report">
-      <summary><span>查看技术明细与完整 DB2 字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
+      <summary><span>查看技术明细与 DB2 基表参考字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
       <div class="technical-body">
-        <div class="controls"><input id="hotfixFilter" type="search" placeholder="筛选表名、record_id、字段值…" autocomplete="off"><span class="count" id="filterCount">全部显示</span></div>
+
         <details class="toc"><summary class="toc-title">DB2 表目录（按类别分组，覆盖全部表）<small>{table_count} 张表 · 技术索引</small></summary><nav class="toc-grid" aria-label="DB2 表目录">{''.join(toc_items)}</nav></details>
         <div class="layout">
           <aside class="stats" id="table-list"><table><thead><tr><th>DB2 表</th><th class="num">数量</th></tr></thead><tbody>{''.join(stats_rows)}</tbody></table></aside>
@@ -3342,21 +4227,41 @@ class WagoSkillDiffMonitor(BaseScan):
   var input=document.getElementById('hotfixFilter');
   var count=document.getElementById('filterCount');
   var readerCount=document.getElementById('readerCount');
+  var empty=document.getElementById('readerEmpty');
+  var rawGroup=document.getElementById('readerRawOnly');
+  var worldGroup=document.getElementById('readerWorldStatuses');
+  var filterDrawer=document.getElementById('readerFilterDrawer');
   var category='all';
   if(!input){{return;}}
+  if(filterDrawer && window.matchMedia('(min-width: 800px)').matches){{filterDrawer.open=true;}}
   function categoryMatches(el){{
-    return category==='all' || (el.getAttribute('data-category')||'')===category;
+    return category==='all' || (el.getAttribute('data-category')||'').split('|').indexOf(category)>=0;
   }}
   function apply(){{
     var q=(input.value||'').trim().toLowerCase();
     var total=0, visible=0;
     var readerTotal=0, readerVisible=0;
+    var humanTotal=0, humanVisible=0, rawTotal=0, rawVisible=0;
     document.querySelectorAll('.reader-card').forEach(function(el){{
       readerTotal++;
-      var ok=categoryMatches(el);
+      var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0;
+      var ok=categoryMatches(el) && textOk;
       el.classList.toggle('hidden', !ok);
       if(ok){{readerVisible++;}}
+      if(rawGroup && rawGroup.contains(el)){{rawTotal++; if(ok){{rawVisible++;}}}}
+      else{{humanTotal++; if(ok){{humanVisible++;}}}}
     }});
+    if(rawGroup){{
+      rawGroup.classList.toggle('hidden', rawVisible===0);
+      if(rawVisible && (q || humanVisible===0)){{rawGroup.open=true;}}
+    }}
+    var worldVisible=0;
+    document.querySelectorAll('.reader-world-status').forEach(function(el){{
+      var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
+      el.classList.toggle('hidden', !ok);
+      if(ok){{worldVisible++;}}
+    }});
+    if(worldGroup){{worldGroup.classList.toggle('hidden', worldVisible===0);}}
     document.querySelectorAll('.record').forEach(function(el){{
       total++;
       var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
@@ -3375,8 +4280,15 @@ class WagoSkillDiffMonitor(BaseScan):
     }});
     var systems=document.querySelector('.systems-overview');
     if(systems){{systems.classList.toggle('hidden', !systems.querySelector('.system-card:not(.hidden)'));}}
-    if(count){{count.textContent=(q || category!=='all') ? ('显示 '+visible+' / '+total+' 条记录') : ('全部 '+total+' 条展开记录');}}
-    if(readerCount){{readerCount.textContent='显示 '+readerVisible+' 个对象';}}
+    if(count){{count.textContent='技术明细 '+visible+' / '+total+' 条';}}
+    if(readerCount){{readerCount.textContent='可读 '+humanVisible+' / '+humanTotal+' · 底层 '+rawVisible+' / '+rawTotal+' 个对象';}}
+    if(empty){{
+      empty.textContent=worldVisible ? '世界交互物只有来源状态，尚不能确认实际游戏内改动；内部技能参数见下方底层记录。'
+        : rawVisible ? '当前筛选只有底层配置，无法判断具体游戏表现；已展开下方原始字段。'
+        : (q ? '没有匹配的对象；可展开技术明细核对来源记录。'
+        : '此类来源没有可解码的新值；原始来源和状态仍保留在技术明细。');
+      empty.classList.toggle('hidden', humanVisible!==0);
+    }}
   }}
   input.addEventListener('input', apply);
   document.querySelectorAll('[data-hotfix-category]').forEach(function(button){{
@@ -3837,7 +4749,12 @@ class WagoSkillDiffMonitor(BaseScan):
         next_url = url
         visited = set()
         tables = set()
-        while next_url and next_url not in visited:
+        seen_files = set()
+        expected_total = None
+        page = 1
+        while next_url:
+            if next_url in visited:
+                raise WagoDiffUnavailable(f'Wago builds-diff pagination loop for {from_build} -> {to_build}')
             visited.add(next_url)
             text = self._http_get_text(next_url)
             if not text:
@@ -3846,10 +4763,23 @@ class WagoSkillDiffMonitor(BaseScan):
                 )
             props = self._extract_inertia_props(text)
             payload = props.get('items') or {}
-            items = payload.get('data') if isinstance(payload, dict) else payload
-            for it in items if isinstance(items, list) else []:
+            if not isinstance(payload, dict) or not isinstance(payload.get('data'), list):
+                raise WagoDiffUnavailable(f'Wago builds-diff lacks paginated items: {next_url}')
+            try:
+                total = int(payload['total'])
+                current_page = int(payload['current_page'])
+            except (KeyError, TypeError, ValueError):
+                raise WagoDiffUnavailable(f'Wago builds-diff lacks pagination metadata: {next_url}')
+            if current_page != page or (expected_total is not None and total != expected_total):
+                raise WagoDiffUnavailable(f'Wago builds-diff pagination changed for {from_build} -> {to_build}')
+            expected_total = total
+            for it in payload['data']:
                 if not isinstance(it, dict):
-                    continue
+                    raise WagoDiffUnavailable(f'Wago builds-diff malformed item: {next_url}')
+                identity = (it.get('Type'), it.get('Filename'), it.get('FDID'), it.get('Action'))
+                if identity in seen_files:
+                    raise WagoDiffUnavailable(f'Wago builds-diff duplicate item: {identity}')
+                seen_files.add(identity)
                 if (it.get('Type') or '').strip() != 'db2':
                     continue
                 filename = (it.get('Filename') or '').strip()
@@ -3858,12 +4788,15 @@ class WagoSkillDiffMonitor(BaseScan):
                 table = filename.split('/')[-1][:-4]
                 if table:
                     tables.add(table)
-            next_url = payload.get('next_page_url') if isinstance(payload, dict) else None
+            next_url = payload.get('next_page_url')
             if next_url and next_url.startswith('/'):
                 next_url = "https://wago.tools" + next_url
             if next_url and 'from=' not in next_url and 'to=' not in next_url:
                 sep = '&' if '?' in next_url else '?'
                 next_url = f"{next_url}{sep}from={from_build}&to={to_build}"
+            page += 1
+        if len(seen_files) != expected_total:
+            raise WagoDiffUnavailable(f'Wago builds-diff incomplete: {len(seen_files)}/{expected_total}')
         return tables
 
     def _fetch_db2_diff_rows(self, table, from_build, to_build):
@@ -3871,8 +4804,13 @@ class WagoSkillDiffMonitor(BaseScan):
         rows = []
         next_url = url
         visited = set()
+        seen_ids = set()
         max_rows = int(getattr(settings, 'WAGO_SKILL_DIFF_MAX_DIFF_ROWS', 10000) or 10000)
-        while next_url and next_url not in visited and len(rows) < max_rows:
+        expected_total = None
+        page = 1
+        while next_url:
+            if next_url in visited:
+                raise WagoDiffUnavailable(f'Wago DB2 diff pagination loop for {table} {from_build} -> {to_build}')
             visited.add(next_url)
             text = self._http_get_text(next_url)
             if not text:
@@ -3881,23 +4819,180 @@ class WagoSkillDiffMonitor(BaseScan):
                 )
             props = self._extract_inertia_props(text)
             entries = props.get('entries') or {}
-            data = []
-            if isinstance(entries, dict):
-                data = entries.get('data') or []
-                next_url = entries.get('next_page_url')
-            elif isinstance(entries, list):
-                data = entries
-                next_url = None
-            else:
-                next_url = None
-            if isinstance(data, list) and data:
-                rows.extend(data)
+            if not isinstance(entries, dict) or not isinstance(entries.get('data'), list):
+                raise WagoDiffUnavailable(f'Wago DB2 diff lacks paginated entries for {table}: {next_url}')
+            try:
+                total = int(entries['total'])
+                current_page = int(entries['current_page'])
+            except (KeyError, TypeError, ValueError):
+                raise WagoDiffUnavailable(f'Wago DB2 diff lacks pagination metadata for {table}: {next_url}')
+            if current_page != page:
+                raise WagoDiffUnavailable(f'Wago DB2 diff page sequence changed for {table}: {next_url}')
+            if expected_total is None:
+                expected_total = total
+                if total > max_rows:
+                    return self._fetch_db2_diff_rows_from_csv(table, from_build, to_build, max_rows)
+            if total != expected_total:
+                raise WagoDiffUnavailable(f'Wago DB2 diff total changed during pagination for {table}')
+            data = entries['data']
+            if not data and total > len(rows):
+                raise WagoDiffUnavailable(f'Wago DB2 diff page empty before total for {table}: {next_url}')
+            for row in data:
+                if not isinstance(row, dict) or not str(row.get('ID') or '').strip():
+                    raise WagoDiffUnavailable(f'Wago DB2 diff invalid ID for {table}: {next_url}')
+                identity = str(row['ID']).strip()
+                if identity in seen_ids:
+                    raise WagoDiffUnavailable(f'Wago DB2 diff duplicate ID for {table}: {identity}')
+                seen_ids.add(identity)
+            rows.extend(data)
+            next_url = entries.get('next_page_url')
             if next_url and next_url.startswith('/'):
                 next_url = "https://wago.tools" + next_url
             if next_url and 'from=' not in next_url and 'to=' not in next_url:
                 sep = '&' if '?' in next_url else '?'
                 next_url = f"{next_url}{sep}from={from_build}&to={to_build}"
+            page += 1
+        if len(rows) != expected_total:
+            raise WagoDiffUnavailable(f'Wago DB2 diff incomplete for {table}: {len(rows)}/{expected_total}')
         return rows
+
+    def _fetch_db2_table_count(self, table, build):
+        url = f'https://wago.tools/db2/{table}?build={build}&locale={self.locale}'
+        text = self._http_get_text(url)
+        props = self._extract_inertia_props(text or '')
+        filters = props.get('filters') or {}
+        data = props.get('data') or {}
+        try:
+            if filters.get('build') != build or filters.get('locale') != self.locale:
+                raise ValueError('build/locale mismatch')
+            total = int(data['total'])
+            if total < 0:
+                raise ValueError('negative row count')
+        except (AttributeError, KeyError, TypeError, ValueError) as exc:
+            raise WagoDiffUnavailable(f'Wago DB2 table count unavailable for {table} {build}: {exc}') from exc
+        return total
+
+    def _iter_db2_csv_rows(self, table, build):
+        url = f'https://wago.tools/db2/{table}/csv?build={build}&locale={self.locale}'
+        try:
+            with closing(self._http_session.get(url, stream=True, timeout=max(60, self.http_timeout))) as response:
+                if response.status_code != 200 or 'text/csv' not in response.headers.get('Content-Type', '').lower():
+                    raise WagoDiffUnavailable(f'Wago DB2 CSV unavailable for {table} {build}: HTTP {response.status_code}')
+                disposition = response.headers.get('Content-Disposition', '')
+                if f'{table}.{build}.csv'.lower() not in disposition.lower():
+                    raise WagoDiffUnavailable(f'Wago DB2 CSV identity unavailable for {table} {build}')
+                # urllib3 can auto-close response.raw after its last bytes. Split the
+                # response bytes ourselves: iter_lines can emit an extra empty segment
+                # at a chunk boundary, corrupting quoted multiline CSV values.
+                def physical_lines():
+                    pending = b''
+                    first = True
+                    for chunk in response.iter_content(chunk_size=65536):
+                        if not chunk:
+                            continue
+                        pending += chunk
+                        while True:
+                            cr = pending.find(b'\r')
+                            lf = pending.find(b'\n')
+                            ends = [position for position in (cr, lf) if position >= 0]
+                            if not ends:
+                                break
+                            position = min(ends)
+                            if pending[position] == 13 and position + 1 == len(pending):
+                                break  # A CRLF may straddle two HTTP chunks.
+                            end = position + (2 if pending[position:position + 2] == b'\r\n' else 1)
+                            line, pending = pending[:end], pending[end:]
+                            yield line.decode('utf-8-sig' if first else 'utf-8')
+                            first = False
+                        if len(pending) > 8 * 1024 * 1024:
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV physical line too large for {table} {build}')
+                    if pending:
+                        yield pending.decode('utf-8-sig' if first else 'utf-8')
+
+                reader = csv.DictReader(physical_lines())
+                fields = reader.fieldnames or []
+                if 'ID' not in fields or len(fields) != len(set(fields)):
+                    raise WagoDiffUnavailable(f'Wago DB2 CSV missing unique ID/header for {table} {build}')
+                for row in reader:
+                    if None in row or any(value is None for value in row.values()) or not (row.get('ID') or '').strip():
+                        raise WagoDiffUnavailable(f'Wago DB2 CSV malformed row for {table} {build}')
+                    yield row
+        except (OSError, ValueError, UnicodeError, csv.Error, requests.RequestException) as exc:
+            raise WagoDiffUnavailable(f'Wago DB2 CSV interrupted for {table} {build}: {exc}') from exc
+
+    def _fetch_db2_diff_rows_from_csv(self, table, from_build, to_build, max_rows):
+        """Compare exact-build exports on disk; never publish a capped prefix of a diff."""
+        old_total = self._fetch_db2_table_count(table, from_build)
+        new_total = self._fetch_db2_table_count(table, to_build)
+        max_temp_bytes = int(getattr(settings, 'WAGO_SKILL_DIFF_MAX_TEMP_BYTES', 2 * 1024**3))
+        min_free_bytes = int(getattr(settings, 'WAGO_SKILL_DIFF_MIN_FREE_BYTES', 1024**3))
+        try:
+            with tempfile.TemporaryDirectory(prefix='wago_db2_diff_') as folder:
+                path = os.path.join(folder, 'rows.sqlite3')
+
+                def check_storage():
+                    size = os.path.getsize(path) if os.path.exists(path) else 0
+                    free = shutil.disk_usage(folder).free
+                    if size > max_temp_bytes or free < min_free_bytes:
+                        raise WagoDiffUnavailable(
+                            f'Wago DB2 temporary storage limit for {table}: size={size} free={free}'
+                        )
+
+                check_storage()
+                conn = sqlite3.connect(path)
+                try:
+                    conn.execute('PRAGMA journal_mode=OFF')
+                    conn.execute('PRAGMA synchronous=OFF')
+                    conn.execute('CREATE TABLE old_rows (id TEXT PRIMARY KEY, payload TEXT NOT NULL, seen INTEGER NOT NULL DEFAULT 0)')
+                    conn.execute('CREATE TABLE added_ids (id TEXT PRIMARY KEY)')
+                    old_count = 0
+                    for row in self._iter_db2_csv_rows(table, from_build):
+                        conn.execute('INSERT INTO old_rows (id, payload) VALUES (?, ?)',
+                                     (row['ID'], json.dumps(row, ensure_ascii=False)))
+                        old_count += 1
+                        if old_count % 2000 == 0:
+                            check_storage()
+                    check_storage()
+                    if old_count != old_total:
+                        raise WagoDiffUnavailable(f'Wago DB2 CSV incomplete for {table} {from_build}: {old_count}/{old_total}')
+
+                    rows = []
+                    new_count = 0
+                    for row in self._iter_db2_csv_rows(table, to_build):
+                        record_id = row['ID']
+                        original = conn.execute('SELECT payload, seen FROM old_rows WHERE id=?', (record_id,)).fetchone()
+                        if original:
+                            if original[1]:
+                                raise WagoDiffUnavailable(f'Wago DB2 CSV duplicate ID for {table} {to_build}: {record_id}')
+                            before = json.loads(original[0])
+                            conn.execute('UPDATE old_rows SET seen=1 WHERE id=?', (record_id,))
+                            fields = (set(before) | set(row)) - {'ID'}
+                            if any(before.get(field, '') != row.get(field, '') for field in fields):
+                                rows.append({**row, 'Action': 'changed', 'oldData': before})
+                        else:
+                            try:
+                                conn.execute('INSERT INTO added_ids (id) VALUES (?)', (record_id,))
+                            except sqlite3.IntegrityError as exc:
+                                raise WagoDiffUnavailable(f'Wago DB2 CSV duplicate ID for {table} {to_build}: {record_id}') from exc
+                            rows.append({**row, 'Action': 'added'})
+                        new_count += 1
+                        if new_count % 2000 == 0:
+                            check_storage()
+                        if len(rows) > max_rows:
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV real diff exceeds {max_rows} rows for {table}')
+                    if new_count != new_total:
+                        raise WagoDiffUnavailable(f'Wago DB2 CSV incomplete for {table} {to_build}: {new_count}/{new_total}')
+                    for record_id, payload in conn.execute('SELECT id, payload FROM old_rows WHERE seen=0'):
+                        rows.append({'ID': record_id, 'Action': 'removed', 'oldData': json.loads(payload)})
+                        if len(rows) > max_rows:
+                            raise WagoDiffUnavailable(f'Wago DB2 CSV real diff exceeds {max_rows} rows for {table}')
+                    check_storage()
+                    logger.info(f'[WagoSkillDiffMonitor] exact-build CSV diff {table} {from_build}->{to_build}: old={old_count} new={new_count} real={len(rows)}')
+                    return rows
+                finally:
+                    conn.close()
+        except (sqlite3.Error, OSError) as exc:
+            raise WagoDiffUnavailable(f'Wago DB2 CSV comparison failed for {table}: {exc}') from exc
 
     def _load_skilllineability_spell_classmask(self, build):
         build = (build or '').strip()
@@ -4181,6 +5276,9 @@ class WagoSkillDiffMonitor(BaseScan):
         if not text:
             return {}
         props = self._extract_inertia_props(text)
+        returned_build = (props.get('filters') or {}).get('build') if isinstance(props, dict) else None
+        if returned_build and str(returned_build) != str(build):
+            return {}
         data = []
         if 'entries' in props:
             entries = props.get('entries') or {}
@@ -4600,7 +5698,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 name = (self._fetch_spell_name_wowhead_cn(sid, branch=branch) or '').strip()
                 if name:
                     fetched[sid] = name
-        if fetched:
+        if fetched and not getattr(self, '_hotfix_report_only', False):
             now = timezone.now()
             objs = []
             for sid, name in fetched.items():
@@ -5357,12 +6455,14 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             return {}
         return {'path': rel_path, 'class_count': 0}
 
-    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build=''):
+    def _write_html_report(self, branch, server_title, from_build, to_build, display_from_build, display_to_build, class_names, spec_meta, spell_to_specs, spec_to_class, spell_changes, wowhead_url='', data_build='', effect_record_ids=False, report_key='', assess_tone=True, source_uncertainty_note='', source_build_label='', stage_for_publication=False, source_names_override=None):
         data_build = (data_build or '').strip() or to_build
-        rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{to_build.replace('.', '_')}.html"
+        slug = re.sub(r'[^A-Za-z0-9_-]', '_', report_key) if report_key else to_build.replace('.', '_')
+        rel_path = f"portal/reports/wow_skill_diff_{branch}_{self.locale}_{slug}.html"
         base_dir = str(getattr(settings, 'BASE_DIR', '') or '')
         static_dir = os.path.join(base_dir, 'static') if base_dir else os.path.join(os.getcwd(), 'static')
-        full_path = os.path.join(static_dir, rel_path)
+        full_path = (self._hotfix_report_private_path() if stage_for_publication
+                     else os.path.join(static_dir, rel_path))
         os.makedirs(os.path.dirname(full_path), exist_ok=True)
 
         name_cache = {}
@@ -5370,7 +6470,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         spell_ids = sorted(set(int(x) for x in spell_changes.keys()))
         snapshot_rows = list(
             WowSpellSnapshot.objects.filter(branch=branch, locale=self.locale, spell_id__in=spell_ids)
-            .values('spell_id', 'name', 'description', 'aura_description', 'icon')
+            .values('spell_id', 'name', 'name_zh', 'description', 'aura_description', 'icon')
         )
         snap_names = {
             int(r['spell_id']): (r.get('name') or '')
@@ -5384,18 +6484,36 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             }
             for r in snapshot_rows
         }
-        for sid, metadata in database_spell_metadata(spell_ids, branch, data_build).items():
+        names_and_icons = database_spell_metadata(
+            spell_ids, branch, data_build,
+            **({'allow_compatible_name': True} if source_names_override is not None else {}),
+        )
+        for sid, metadata in names_and_icons.items():
             context = spell_context.setdefault(sid, {})
             if metadata.get('icon'):
                 context['icon'] = metadata['icon']
         name_cache.update(snap_names)
-        missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
-        if missing:
-            fetched = self._repair_utf8_mojibake_obj(self._fetch_spell_names_concurrent(data_build, missing))
-            name_cache.update(fetched)
-
+        if source_names_override is not None:
+            for sid, metadata in names_and_icons.items():
+                name = self._clean_external_text(metadata.get('name') or '')
+                if name:
+                    name_cache[sid] = name
+        if source_names_override is not None:
+            name_cache.update(source_names_override)
+        else:
+            missing = [sid for sid in spell_ids if not (name_cache.get(sid) or '').strip()]
+            if missing:
+                fetched = self._repair_utf8_mojibake_obj(self._fetch_spell_names_concurrent(data_build, missing))
+                name_cache.update(fetched)
         name_cache = self._repair_utf8_mojibake_obj(name_cache)
-        zh_name_cache = self._repair_utf8_mojibake_obj(self._ensure_spell_names_zh(branch, data_build, spell_ids))
+        if source_names_override is not None:
+            # Snapshot Chinese names are labels only; don't fetch unrelated
+            # Wago/Wowhead names or update snapshots during manual backfill.
+            zh_name_cache = {int(r['spell_id']): r['name_zh'] for r in snapshot_rows
+                             if r.get('name_zh') and int(r['spell_id']) not in source_names_override}
+        else:
+            zh_name_cache = self._ensure_spell_names_zh(branch, data_build, spell_ids)
+        zh_name_cache = self._repair_utf8_mojibake_obj(zh_name_cache)
         zh_class_names = self._repair_utf8_mojibake_obj(self._load_chr_classes(data_build, locale_override=self.name_locale))
         zh_spec_meta = self._repair_utf8_mojibake_obj(self._load_chr_specialization_meta(data_build, locale_override=self.name_locale))
         display_class_names = dict(class_names or {})
@@ -5447,7 +6565,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                 changed_table_counts[tkey] = int(changed_table_counts.get(tkey) or 0) + 1
 
         spell_tones = {
-            int(spell_id): self._report_spell_tone((entry or {}).get('diffs') or {})
+            int(spell_id): self._report_spell_tone((entry or {}).get('diffs') or {}) if assess_tone else 'mechanic'
             for spell_id, entry in (spell_changes or {}).items()
         }
         tone_counts = {
@@ -5477,6 +6595,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         parts.append('.spell{margin-top:12px;padding:16px 17px;background:var(--surface);border:1px solid var(--line);border-radius:12px;box-shadow:0 2px 8px rgba(28,36,52,.035)}.spell[data-tone="buff"]{border-color:rgba(8,127,91,.38)}.spell[data-tone="nerf"]{border-color:rgba(180,35,24,.36)}.spell[data-tone="mixed"]{border-color:rgba(121,80,178,.38)}.spell[data-tone="mechanic"]{border-color:rgba(154,103,0,.34)}')
         parts.append('.spell-head{display:flex;gap:12px;align-items:flex-start}.spell-icon,.spell-icon-fallback{width:44px;height:44px;border-radius:9px;flex:0 0 auto;border:1px solid rgba(23,32,51,.15);background:#eef0f4}.spell-icon{object-fit:cover}.spell-icon-fallback{display:grid;place-items:center;color:#667085;font-weight:850;font-size:15px}.spell-head-main{min-width:0;flex:1}.spell-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.spell-title{font-size:16px;font-weight:850;color:var(--ink)}.spell-id{color:var(--muted);font-size:12px;font-weight:650}.spell-desc{margin-top:8px;max-width:75ch;color:#475467;font-size:13px;line-height:1.7;text-wrap:pretty}.tone-badge,.delta-badge{display:inline-flex;align-items:center;border-radius:999px;padding:2px 8px;font-size:12px;font-weight:800;white-space:nowrap}.tone-badge.buff,.delta-badge.buff{color:var(--buff);background:var(--buff-bg)}.tone-badge.nerf,.delta-badge.nerf{color:var(--nerf);background:var(--nerf-bg)}.tone-badge.mixed{color:#6941c6;background:#f4f0ff}.tone-badge.mechanic,.delta-badge.mechanic{color:var(--mechanic);background:var(--mechanic-bg)}')
         parts.append('.impact-block{margin-top:13px}.impact-block-title{font-size:12px;font-weight:850;color:#344054;margin-bottom:7px}.impact-list{display:flex;flex-direction:column;gap:6px}.impact-row{display:grid;grid-template-columns:minmax(150px,1fr) auto;gap:14px;align-items:center;padding:9px 11px;border-radius:9px;background:var(--soft);border:1px solid #e7e9ee}.impact-label{font-size:13px;font-weight:780;color:#344054}.impact-evidence{display:block;color:var(--muted);font-size:11px;margin-top:1px}.value-flow{display:flex;align-items:center;justify-content:flex-end;gap:7px;font-size:13px;font-variant-numeric:tabular-nums}.old-value{color:#8a3029;text-decoration:line-through}.new-value{color:#067647;font-weight:800}.change-arrow{color:#98a2b3}')
+        parts.append('.fact-values{display:block;line-height:1.65;text-align:right;font-size:12px;font-variant-numeric:tabular-nums}.impact-assessment{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin-top:12px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--soft);font-size:12px}.impact-assessment strong{color:var(--ink)}')
         parts.append('.tech-details{margin-top:12px;border-top:1px solid var(--line);padding-top:9px}.tech-details summary{cursor:pointer;color:var(--muted);font-size:12px;font-weight:750;min-height:32px;display:flex;align-items:center}.tech-details[open] summary{color:#344054}.line{margin-top:7px;color:#475467;font-size:12px;padding:8px 10px;border-radius:8px;background:var(--soft);overflow-wrap:anywhere}.hash{color:#5145b7;font-weight:800;margin-right:4px}.k{color:#344054;font-weight:800}.ins{color:#067647;font-weight:800}.del{color:#b42318;font-weight:750;text-decoration:line-through}.subtle{color:var(--muted);font-size:12px;font-weight:500}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}.hidden{display:none!important}')
         parts.append('.portal-theme-dark .skill-report{--ink:#f4f1ed;--muted:#b8afa6;--line:rgba(154,141,128,.42);--surface:#302b26;--soft:#27231f;--accent:#b6adff;--buff:#77d9b6;--buff-bg:rgba(31,123,91,.24);--nerf:#ff9b94;--nerf-bg:rgba(180,53,44,.22);--mechanic:#f4cc72;--mechanic-bg:rgba(154,103,0,.24);box-shadow:none}.portal-theme-dark .skill-report .impact-row,.portal-theme-dark .skill-report .line{border-color:var(--line)}.portal-theme-dark .skill-report .impact-label,.portal-theme-dark .skill-report h3,.portal-theme-dark .skill-report .tech-details[open] summary{color:var(--ink)}.portal-theme-dark .skill-report .old-value{color:#ffaaa3}.portal-theme-dark .skill-report .new-value{color:#83dfbf}.portal-theme-dark .skill-report .tone-tab[aria-pressed="true"]{background:rgba(91,79,196,.25);color:#d8d3ff}.portal-theme-dark .skill-report .controls{background:rgba(48,43,38,.96)}')
         parts.append('@media(max-width:720px){.skill-report-page{padding:8px}.skill-report{padding:14px;border-radius:12px}.report-hero{display:block}.impact-overview-head{display:block}.impact-note{margin-top:4px}.controls{top:6px;align-items:stretch}.controls .count{display:none}.tone-tab{min-height:44px}.impact-row{grid-template-columns:1fr;gap:6px}.value-flow{justify-content:flex-start;flex-wrap:wrap}.spell{padding:14px 12px}.spell-head{gap:10px}.spell-icon,.spell-icon-fallback{width:40px;height:40px}.class-head{display:block}.class-head .subtle{display:block;margin-top:3px}}@media(prefers-reduced-motion:reduce){.skill-report *{scroll-behavior:auto!important;transition:none!important}}')
@@ -5486,12 +6605,20 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         parts.append('<main class="skill-report">')
         parts.append('<div class="report-hero">')
         parts.append(f"<div><h1>{html.escape(server_title)} 职业技能变更报告：{html.escape(title_from)} → {html.escape(title_to)}</h1>")
-        parts.append(f"<div class='meta'><span>语言：{html.escape(self.locale)}</span><span>数据版本：{html.escape(from_build)} → {html.escape(to_build)}</span></div></div>")
+        if source_build_label:
+            parts.append(f"<div class='meta'><span>语言：{html.escape(self.locale)}</span><span>热修来源 build：{html.escape(source_build_label)}</span><span>DB2 名称/图标参考 build：{html.escape(data_build)}</span></div></div>")
+        else:
+            parts.append(f"<div class='meta'><span>语言：{html.escape(self.locale)}</span><span>数据版本：{html.escape(from_build)} → {html.escape(to_build)}</span></div></div>")
         if wowhead_url:
             parts.append(f"<div class='meta'><a href='{html.escape(wowhead_url)}' target='_blank' rel='noopener noreferrer'>Wowhead 参考链接</a></div>")
         parts.append('</div>')
+        if source_uncertainty_note:
+            parts.append(f"<aside role='note' style='margin:14px 0;padding:12px 16px;border:1px solid #eab308;border-radius:10px;background:#fff7dc;color:#713f12;font-weight:650'>{html.escape(source_uncertainty_note)}</aside>")
         parts.append('<div class="summary">')
-        parts.append(f"<div class='metric'><span>变更技能</span><strong>{len(spell_changes)}</strong></div>")
+        source_count_label = f'{len(spell_changes)}+' if source_uncertainty_note else str(len(spell_changes))
+        source_count_title = '改动来源（已解析）' if source_uncertainty_note else '改动来源'
+        parts.append(f"<div class='metric'><span>{source_count_title}</span><strong>{source_count_label}</strong></div>")
+        parts.append("<div class='metric affected-metric'><span>受影响技能</span><strong>—</strong></div>")
         parts.append(f"<div class='metric'><span>涉及职业</span><strong>{class_count}</strong></div>")
         parts.append(f"<div class='metric'><span>涉及专精</span><strong>{sum(class_spec_counts.values())}</strong></div>")
         parts.append(f"<div class='metric'><span>DB2 表</span><strong>{len(changed_table_counts)}</strong></div>")
@@ -5500,12 +6627,14 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             table_summary = '、'.join([f"{k} {v}" for k, v in sorted(changed_table_counts.items(), key=lambda x: (-x[1], x[0]))[:8]])
             parts.append(f"<div class='meta'><span>主要变更表：{html.escape(table_summary)}</span></div>")
         parts.append("<section class='impact-overview' aria-labelledby='impactOverviewTitle'>")
-        parts.append("<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>改动影响概览</div><div class='impact-note'>增强/削弱依据可直接判断的数值、系数和冷却字段归类；机制与联动仍需结合实战验证。</div></div>")
+        impact_note = ('仅对可直接判读的数值、系数与消耗字段评估方向；枚举与机制参数不等于伤害百分比。'
+                       if assess_tone else '只有已核实前态的旧→新值才证明字段变化；其余只是本次 payload 观察值，不能据此判断强弱。')
+        parts.append(f"<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>影响评估（独立于改动事实）</div><div class='impact-note'>{impact_note}</div></div>")
         parts.append("<div class='tone-tabs' role='group' aria-label='按改动方向筛选'>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='all' aria-pressed='true'>全部<span class='tab-count'>{len(spell_changes)}</span></button>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='buff' aria-pressed='false'>增强<span class='tab-count'>{tone_counts.get('buff', 0)}</span></button>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='nerf' aria-pressed='false'>削弱<span class='tab-count'>{tone_counts.get('nerf', 0)}</span></button>")
-        parts.append(f"<button class='tone-tab' type='button' data-filter-tone='other' aria-pressed='false'>机制 / 混合<span class='tab-count'>{tone_counts.get('mechanic', 0) + tone_counts.get('mixed', 0)}</span></button>")
+        parts.append(f"<button class='tone-tab' type='button' data-filter-tone='other' aria-pressed='false'>待评估 / 混合<span class='tab-count'>{tone_counts.get('mechanic', 0) + tone_counts.get('mixed', 0)}</span></button>")
         parts.append("</div></section>")
         parts.append("<div class='controls'><input id='spellFilter' type='search' aria-label='筛选职业改动' placeholder='搜索技能名、ID、职业或专精…' autocomplete='off'><span class='count' id='filterCount'>全部显示</span></div>")
         parts.append("<div class='filter-empty hidden' id='filterEmpty'>没有符合当前筛选条件的技能改动。</div>")
@@ -5513,7 +6642,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         parts.append("<div class='toc'><div class='toc-title'>目录</div>")
         for cid in sorted(class_to_spec_to_spells.keys()):
             cname = (display_class_names or {}).get(cid) or str(cid)
-            parts.append(f"<div class='toc-item'><a href='#class-{cid}'>{html.escape(cname)}</a> <span class='subtle'>{class_spell_counts.get(cid, 0)} 技能 / {class_spec_counts.get(cid, 0)} 专精</span>")
+            parts.append(f"<div class='toc-item'><a href='#class-{cid}'>{html.escape(cname)}</a> <span class='subtle'>{class_spell_counts.get(cid, 0)} 条改动来源 / {class_spec_counts.get(cid, 0)} 专精</span>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
@@ -5561,6 +6690,9 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             'PvpMultiplier': 'PvP系数',
             'EffectAmplitude': '周期',
             'EffectAuraPeriod': '周期',
+            'EffectAura': '效果光环类型',
+            'EffectMiscValue_0': '效果杂项值0',
+            'EffectMiscValue_1': '效果杂项值1',
             'SpellID': '技能ID',
             'DifficultyID': '难度ID',
             'RangeIndex': '距离索引',
@@ -5609,6 +6741,8 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         def fmt_change(b, a):
             b = '' if b is None else str(b)
             a = '' if a is None else str(a)
+            if effect_record_ids and b == '旧值未核实':
+                return f"观察值 <span class='ins'>{html.escape(a)}</span>（旧值未核实，不能判断是否变化）"
             if b == a:
                 return html.escape(a)
             return f"<span class='del'>{html.escape(b)}</span> → <span class='ins'>{html.escape(a)}</span>"
@@ -5627,36 +6761,33 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             }
             if field in technical_only:
                 return ''
-            dimension = self._report_impact_dimension(table_key, field)
-            tone, direction, delta_label = self._report_change_tone(field, before, after)
             evidence_html = f"<span class='impact-evidence'>{html.escape(evidence)}</span>" if evidence else ''
-            if 'Flags' in field or field == 'InterruptFlags':
-                value_html = "<span class='delta-badge mechanic'>规则调整</span>"
-            else:
-                old_value = '空' if before is None or str(before).strip() == '' else str(before).strip()
-                new_value = '空' if after is None or str(after).strip() == '' else str(after).strip()
-                delta_html = f"<span class='delta-badge {tone}'>{html.escape(delta_label or direction)}</span>"
-                value_html = (
-                    f"<span class='old-value'>{html.escape(old_value)}</span>"
-                    "<span class='change-arrow'>→</span>"
-                    f"<span class='new-value'>{html.escape(new_value)}</span>{delta_html}"
-                )
+            old_value = '空' if before is None or str(before).strip() == '' else str(before).strip()
+            new_value = '空' if after is None or str(after).strip() == '' else str(after).strip()
+            value_html = (
+                f"<span class='new-value'>观察值 {html.escape(new_value)}</span>"
+                "<span class='subtle'>旧值未核实，不代表字段变化</span>"
+                if effect_record_ids and old_value == '旧值未核实' else
+                f"<span class='old-value'>{html.escape(old_value)}</span>"
+                "<span class='change-arrow'>→</span>"
+                f"<span class='new-value'>{html.escape(new_value)}</span>"
+            )
             return (
-                f"<div class='impact-row {tone}'><div><span class='impact-label'>{html.escape(dimension)}</span>"
+                f"<div class='impact-row'><div><span class='impact-label'>{html.escape(field_change_label(field))}</span>"
                 f"{evidence_html}</div><div class='value-flow'>{value_html}</div></div>"
             )
 
         for cid in sorted(class_to_spec_to_spells.keys()):
             cname = self._clean_external_text((display_class_names or {}).get(cid) or str(cid))
             parts.append(f"<section class='class-section' id='class-{cid}' data-class='{html.escape(str(cname).lower())}'>")
-            parts.append(f"<div class='class-head'><h2>{html.escape(cname)}</h2><span class='subtle'>职业 {cid} ｜ {class_spell_counts.get(cid, 0)} 技能</span></div>")
+            parts.append(f"<div class='class-head'><h2>{html.escape(cname)}</h2><span class='subtle'>职业 {cid} ｜ {class_spell_counts.get(cid, 0)} 条改动来源</span></div>")
             spec_map = class_to_spec_to_spells.get(cid) or {}
             for spec_id in sorted(spec_map.keys()):
                 if spec_id == 0:
                     spec_name = '通用'
                 else:
                     spec_name = self._clean_external_text(((display_spec_meta or {}).get(spec_id) or {}).get('name') or str(spec_id))
-                parts.append(f"<section class='spec-section' id='class-{cid}-spec-{spec_id}'><h3>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id} ｜ {len(spec_map.get(spec_id) or [])} 技能</span></h3>")
+                parts.append(f"<section class='spec-section' id='class-{cid}-spec-{spec_id}'><h3>{html.escape(spec_name)} <span class='subtle'>专精 {spec_id} ｜ {len(spec_map.get(spec_id) or [])} 条改动来源</span></h3>")
                 for spell_id in sorted(spec_map.get(spec_id) or []):
                     sname = self._clean_external_text((zh_name_cache.get(spell_id) or '') or (name_cache.get(spell_id) or '') or str(spell_id))
                     wowhead_spell_url = report_spell_url(branch, spell_id)
@@ -5666,6 +6797,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     desc_primary = ''
                     lines = []
                     impact_lines = []
+                    fact_lines = []
                     impact_seen = set()
 
                     for tkey in sorted(diffs_by_table.keys()):
@@ -5680,6 +6812,11 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                             continue
 
                         if tkey == 'spelleffect':
+                            numeric_fields = (
+                                'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient',
+                                'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier',
+                                'EffectAuraPeriod', 'EffectAmplitude',
+                            )
                             effects = {}
                             for it in filtered_items:
                                 kv = {}
@@ -5717,46 +6854,91 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                     eff_cn = '触发法术'
                                 idx_part = f"(#{effect_idx})" if effect_idx != '' else ''
                                 changes = []
-                                for fk in ('EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient', 'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'EffectAuraPeriod', 'EffectAmplitude'):
+                                for fk in numeric_fields:
                                     if fk not in merged:
                                         continue
                                     b, a = merged.get(fk) or ('', '')
                                     if str(b) == str(a):
                                         continue
                                     changes.append(f"{field_change_label(fk)}：{fmt_change(b, a)}")
-                                    impact_key = (self._report_impact_dimension(tkey, fk), str(b), str(a))
-                                    if impact_key not in impact_seen:
-                                        impact_seen.add(impact_key)
-                                        impact_html = render_impact_change(
-                                            tkey, fk, b, a,
-                                            evidence=f"{eff_cn or '技能效果'}{idx_part}",
-                                        )
-                                        if impact_html:
-                                            impact_lines.append(impact_html)
                                 if changes:
                                     label = f"{eff_cn}{idx_part}" if eff_cn else f"技能效果{idx_part}"
                                     lines.append(f"<div class='line'><span class='hash'>#</span>{html.escape(label)}（{'，'.join(changes)}）</div>")
+                            for it in filtered_items:
+                                technical_changes = []
+                                record_changes = []
+                                for fd in it.get('fields') or []:
+                                    field = fd.get('field') or ''
+                                    before, after = fd.get('before'), fd.get('after')
+                                    if str(before) == str(after):
+                                        continue
+                                    change = f"{html.escape(field_change_label(field))}：{fmt_change(before, after)}"
+                                    record_changes.append(change)
+                                    if field not in numeric_fields:
+                                        technical_changes.append(change)
+                                if record_changes:
+                                    raw_id = it.get('id')
+                                    if not effect_record_ids:
+                                        raw_id = (it.get('meta') or {}).get('EffectIndex', raw_id)
+                                    identity = 'SpellEffect.ID' if effect_record_ids else 'EffectIndex'
+                                    record_label = html.escape(f"{identity} {raw_id if raw_id is not None and raw_id != '' else '?'}")
+                                    push_id = (it.get('meta') or {}).get('PushID')
+                                    if push_id is not None:
+                                        try:
+                                            record_label += f" · Hotfix push {int(push_id)}"
+                                        except (TypeError, ValueError):
+                                            pass
+                                    source_build = (it.get('meta') or {}).get('SourceBuild') if effect_record_ids else ''
+                                    if source_build:
+                                        record_label += f" · 来源 build {html.escape(str(source_build))}"
+                                    effect_index = (it.get('meta') or {}).get('EffectIndex')
+                                    if effect_index is None and not effect_record_ids:
+                                        effect_index = it.get('id')
+                                    try:
+                                        effect_marker = f"效果(#{int(effect_index)})" if int(effect_index) >= 0 else ''
+                                    except (TypeError, ValueError):
+                                        effect_marker = ''
+                                    if technical_changes:
+                                        lines.append(
+                                            f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> "
+                                            f"<span class='mono'>{record_label}</span> {effect_marker}（{'，'.join(technical_changes)}）</div>"
+                                        )
+                                    index_attr = f" data-effect-index='{int(effect_index)}'" if effect_marker else ''
+                                    if source_build:
+                                        index_attr += f" data-source-build='{html.escape(str(source_build), quote=True)}'"
+                                    if push_id is not None and effect_record_ids:
+                                        index_attr += f" data-source-push='{int(push_id)}'"
+                                    fact_lines.append(
+                                        f"<div class='impact-row'{index_attr}><div><span class='impact-label'>{html.escape(table_change_label(tkey))} {effect_marker}</span>"
+                                        f"<span class='impact-evidence'>{record_label} · {effect_marker}</span></div>"
+                                        f"<div class='fact-values'>{'<br>'.join(record_changes)}</div></div>"
+                                    )
                             continue
 
                         if tkey in ('spell', 'spelldescription'):
                             for it in filtered_items:
                                 for fd in it.get('fields') or []:
-                                    btxt, b_removed = self._render_spell_text_plain(from_build, spell_id, fd.get('before'))
                                     atxt, a_removed = self._render_spell_text_plain(to_build, spell_id, fd.get('after'))
-                                    merged = self._inline_diff_html(btxt, atxt) + fmt_removed(a_removed)
+                                    observed = effect_record_ids and it.get('action') == 'observed'
+                                    if observed:
+                                        merged = f"观察文本：{html.escape(atxt)}（旧值未核实）" + fmt_removed(a_removed)
+                                    else:
+                                        btxt, b_removed = self._render_spell_text_plain(from_build, spell_id, fd.get('before'))
+                                        merged = self._inline_diff_html(btxt, atxt) + fmt_removed(a_removed)
                                     f = fd.get('field') or ''
                                     title = field_change_label(f) or '描述'
                                     if not desc_primary and f in ('Description_lang', 'AuraDescription_lang'):
                                         desc_primary = merged
                                     else:
                                         lines.append(f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> {html.escape(title)}：{merged}</div>")
-                                    impact_key = (self._report_impact_dimension(tkey, f), '文本更新')
+                                    evidence_label = '观察文本，旧值未核实' if observed else '文本更新'
+                                    impact_key = (self._report_impact_dimension(tkey, f), evidence_label)
                                     if impact_key not in impact_seen:
                                         impact_seen.add(impact_key)
                                         impact_lines.append(
                                             "<div class='impact-row mechanic'><div><span class='impact-label'>技能说明与机制</span>"
-                                            f"<span class='impact-evidence'>{html.escape(title)}发生变化</span></div>"
-                                            "<div class='value-flow'><span class='delta-badge mechanic'>文本更新</span></div></div>"
+                                            f"<span class='impact-evidence'>{html.escape(title)}{'仅观察到本次值' if observed else '发生变化'}</span></div>"
+                                            f"<div class='value-flow'><span class='delta-badge mechanic'>{evidence_label}</span></div></div>"
                                         )
                             continue
 
@@ -5777,9 +6959,11 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     search_text = ' '.join([str(sname), str(spell_id), str(cname), str(spec_name), ' '.join(diffs_by_table.keys())]).lower()
                     context = spell_context.get(int(spell_id)) or {}
                     if not desc_primary and context.get('description'):
-                        desc_primary = self._render_spell_text_html(to_build, spell_id, context.get('description'))
+                        reference = self._render_spell_text_html(to_build, spell_id, context.get('description'))
+                        desc_primary = ('<span class="subtle">快照参考描述（非本次 Hotfix payload）：</span>' + reference
+                                        if effect_record_ids else reference)
                     tone = spell_tones.get(int(spell_id)) or 'mechanic'
-                    tone_label = {'buff': '增强', 'nerf': '削弱', 'mixed': '有增有减', 'mechanic': '机制调整'}.get(tone, '机制调整')
+                    tone_label = {'buff': '增强', 'nerf': '削弱', 'mixed': '有增有减', 'mechanic': '强弱待评估'}.get(tone, '强弱待评估')
                     icon_url = self._report_spell_icon_url(context.get('icon'))
                     if icon_url:
                         icon_html = f"<img class='spell-icon' src='{html.escape(icon_url, quote=True)}' alt='' loading='lazy'>"
@@ -5791,18 +6975,21 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     parts.append("<div class='spell-head-main'>")
                     parts.append(
                         f"<div class='spell-title-row'><span class='spell-title'>{html.escape(sname)}</span>"
-                        f"<span class='spell-id mono'>#{spell_id}</span><span class='tone-badge {tone}'>{tone_label}</span>"
+                        f"<span class='spell-id mono'>#{spell_id}</span>"
                         f"<a class='subtle' href='{html.escape(wowhead_spell_url)}' target='_blank' rel='noopener noreferrer'>Wowhead</a></div>"
                     )
                     if desc_primary:
                         parts.append(f"<div class='spell-desc'>{desc_primary}</div>")
                     parts.append("</div></div>")
-                    parts.append("<div class='impact-block'><div class='impact-block-title'>这条改动可能影响</div><div class='impact-list'>")
-                    if impact_lines:
+                    heading = '本次热修来源事实（已核实变化 / 前态未核实的观察值）' if effect_record_ids else '本次字段与数值变化'
+                    parts.append(f"<div class='impact-block'><div class='impact-block-title'>{heading}</div><div class='impact-list'>")
+                    if impact_lines or fact_lines:
                         parts.extend(impact_lines)
+                        parts.extend(fact_lines)
                     else:
-                        parts.append("<div class='impact-row mechanic'><div><span class='impact-label'>技能机制</span><span class='impact-evidence'>当前字段无法可靠换算为直接强弱</span></div><div class='value-flow'><span class='delta-badge mechanic'>需实战验证</span></div></div>")
+                        parts.append("<div class='impact-row'><div><span class='impact-label'>字段变化见下方 DB2 明细</span></div></div>")
                     parts.append("</div></div>")
+                    parts.append(f"<div class='impact-assessment'><strong>影响评估</strong><span class='tone-badge {tone}'>{tone_label}</span><span class='subtle'>判断独立于上方原始字段值；机制参数不直接代表强弱。</span></div>")
                     if lines:
                         parts.append(f"<details class='tech-details'><summary>查看 DB2 字段细节（{len(lines)}）</summary>")
                         parts.extend(lines)
@@ -5859,4 +7046,5 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         with open(full_path, 'w', encoding='utf-8') as f:
             f.write(html_text)
 
-        return {'path': rel_path, 'class_count': class_count}
+        return {'path': rel_path, 'class_count': class_count,
+                'staging_path': full_path if stage_for_publication else ''}

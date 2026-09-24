@@ -18,7 +18,7 @@ import re
 from typing import Any
 
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
-from botend.constants.wow import SPEC_ACTIVE_AURA_IDS, SPEC_CONDITION_INDEX
+from botend.constants.wow import SPEC_ACTIVE_AURA_IDS, SPEC_CONDITION_INDEX, SPEC_IDENTITY_MAP
 from botend.wow.spell_text import SpellTextResolver
 from botend.wow.talents.versioning import TalentVersionResolver
 
@@ -246,6 +246,12 @@ class TalentMetadataProvider:
         version = self.resolved_version
         if not version:
             return []
+        grant_snapshot = getattr(version, 'granted_entries_json', None) or {}
+        spec_id = next((key for key, identity in SPEC_IDENTITY_MAP.items()
+                        if identity == (class_name, spec_name)), None)
+        grant_ids = set()
+        if grant_snapshot.get('build') and grant_snapshot.get('build') == getattr(version, 'current_build', None) and spec_id is not None:
+            grant_ids = set(grant_snapshot.get('specs', {}).get(str(spec_id), ()))
         cache_key = (self.version_cache_key, class_name or '', spec_name or '', 'full_nodes')
         if cache_key in self._spec_cache:
             return [dict(node) for node in self._spec_cache[cache_key]]
@@ -258,39 +264,80 @@ class TalentMetadataProvider:
         ).exclude(tree_type='hero_anchor').order_by('tree_type', 'row', 'column', 'node_id', 'spell_id', 'talent_id')
 
         grouped_by_node = {}
-        seen_spell_ids = set()
+        spell_groups = {}
+        entry_aliases = {}
+        parent_ids = {}
+        collapsed_candidates = {}
         for row in rows.iterator():
             row_data = self._as_dict(row)
-            # Deduplicate by spell_id first - some nodes have different talent_id
-            # but the same spell_id (e.g., multiple Battle Stance entries)
-            spell_id = row_data.get('spell_id')
-            if spell_id and spell_id in seen_spell_ids:
-                continue
-            if spell_id:
-                seen_spell_ids.add(spell_id)
-            # Use talent_id (DB2 TraitNode ID) as grouping key.
-            # Choice nodes have multiple entries with different node_id/spell_id
-            # but the same talent_id. Using node_id would split them into separate groups.
+            # TraitNode (not SpellID) groups selectable entries. A spell can
+            # appear in another slot or hero subtree without being the same node.
             node_key = (
                 row_data.get('tree_type') or 'spec',
                 row_data.get('talent_id') or row_data.get('node_id') or row_data.get('spell_id'),
             )
+            entry_id = row_data.get('node_id')
             current = grouped_by_node.get(node_key)
-            if not current:
+            if current:
+                if entry_id:
+                    entry_aliases.setdefault(node_key, set()).add(int(entry_id))
+                parent_ids.setdefault(node_key, set()).update(row_data.get('parents') or [])
+                current_options = current.setdefault('choice_options', [])
+                current['is_choice_node'] = True
+                if row_data not in current_options:
+                    current_options.append(row_data)
+            else:
+                # Separate TraitNodes with the same spell at the same DB2 slot
+                # share one visible icon, but their entry IDs remain valid edge
+                # targets. Do not deduplicate across subtrees or different slots.
+                spell_id = row_data.get('spell_id')
+                spell_key = (
+                    node_key[0], row_data.get('db2_subtree_id') or 0, spell_id,
+                )
+                same_slot = next((
+                    key for key, other in spell_groups.get(spell_key, ())
+                    if row_data.get('row') is not None
+                    and row_data.get('column') is not None
+                    and other.get('row') is not None
+                    and other.get('column') is not None
+                    and abs(row_data['row'] - other['row']) <= 10
+                    and abs(row_data['column'] - other['column']) <= 10
+                ), None) if spell_id else None
+                if same_slot is not None:
+                    collapsed_candidates.setdefault(same_slot, []).append(row_data)
+                    if entry_id:
+                        entry_aliases.setdefault(same_slot, set()).add(int(entry_id))
+                    parent_ids.setdefault(same_slot, set()).update(row_data.get('parents') or [])
+                    continue
                 grouped_by_node[node_key] = row_data
-                continue
-
-            current_options = current.setdefault('choice_options', [])
-            current['is_choice_node'] = True
-            if row_data not in current_options:
-                current_options.append(row_data)
+                if entry_id:
+                    entry_aliases.setdefault(node_key, set()).add(int(entry_id))
+                parent_ids.setdefault(node_key, set()).update(row_data.get('parents') or [])
+            spell_id = row_data.get('spell_id')
+            if spell_id:
+                spell_key = (
+                    node_key[0], row_data.get('db2_subtree_id') or 0, spell_id,
+                )
+                spell_groups.setdefault(spell_key, []).append((node_key, row_data))
 
         nodes = []
-        for node in grouped_by_node.values():
+        for group_key, node in grouped_by_node.items():
+            # Same-slot duplicate spell entries share a visual card, but each
+            # specialization has its own canonical granted Entry ID. Keep the
+            # current spec's starter as the visible representative.
+            if node.get('tree_type') == 'class' and node.get('node_id') not in grant_ids:
+                node = next((candidate for candidate in collapsed_candidates.get(group_key, ())
+                             if candidate.get('node_id') in grant_ids), node)
             choice_nodes = self._order_choice_nodes(dedupe_talent_option_nodes([node] + [
                 option for option in node.get('choice_options', []) if option
             ]))
             node = dict(choice_nodes[0]) if choice_nodes else node
+            node['node_aliases'] = sorted(entry_aliases.get(group_key, ()))
+            node['parents'] = sorted(parent_ids.get(group_key, ()))
+            node['granted'] = (
+                node.get('tree_type') == 'class'
+                and bool(grant_ids.intersection(node['node_aliases']))
+            )
             if len(choice_nodes) > 1:
                 options = [
                     self._build_choice_option(option) for option in choice_nodes
@@ -571,6 +618,13 @@ class TalentMetadataProvider:
         option_key = node.get('talent_id') or spell_id
         if not option_key:
             return {}
+        # Some same-build TraitDefinitions are all zero. Keep their physical
+        # choice slot for code decoding, but never invent a skill/icon for UI.
+        is_unresolved = (
+            not (node.get('name') or node.get('name_zh') or node.get('icon')
+                 or node.get('description') or node.get('description_zh'))
+            and spell_id == node.get('node_id')
+        )
         resolver_en = self._spell_resolver('enUS')
         resolver_zh = self._spell_resolver('zhCN')
         return {
@@ -583,6 +637,7 @@ class TalentMetadataProvider:
             'name': node.get('name') or '',
             'name_zh': node.get('name_zh') or '',
             'icon': node.get('icon') or '',
+            'is_unresolved': is_unresolved,
             'description': resolver_en.resolve(node.get('description') or '', spell_id),
             'description_zh': resolver_zh.resolve(node.get('description_zh') or '', spell_id),
         }

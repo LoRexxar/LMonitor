@@ -292,12 +292,11 @@ class WowSkillDiffReport(models.Model):
 
 
 class WowHotfixReport(models.Model):
-    """
-    Wago Hotfix 全量更新报告（面向 Dashboard 列表展示，Portal 暂不接入）。
-    """
+    """Wago Hotfix 原始事实与全量/职业阅读投影。"""
     id = models.BigAutoField(primary_key=True)
     branch = models.CharField(max_length=32, default="wow")
     locale = models.CharField(max_length=8, default="enUS")
+    region_id = models.IntegerField(default=0)
 
     # 当前 build（Wago hotfix 列表返回的是 build number，例如 68016）
     build_num = models.CharField(max_length=32, default="", blank=True)
@@ -316,13 +315,19 @@ class WowHotfixReport(models.Model):
     changed_tables_json = models.TextField(default="", blank=True)
     table_count = models.IntegerField(default=0)
     entry_count = models.IntegerField(default=0)
+    source_facts_json = models.TextField(default="", blank=True)
+    collection_complete = models.BooleanField(default=False)
+    class_content_html_path = models.CharField(max_length=500, default="", blank=True)
+    class_spell_count = models.IntegerField(default=0)
+    class_class_count = models.IntegerField(default=0)
+    class_unresolved_count = models.IntegerField(default=0)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = 'wow_hotfix_report'
-        unique_together = (('branch', 'locale', 'to_push'),)
+        unique_together = (('branch', 'locale', 'region_id', 'to_push'),)
         indexes = [
             models.Index(fields=['branch', 'locale'], name='wow_hot__branch__8ad3c7_idx'),
             models.Index(fields=['to_push'], name='wow_hot__to_pus_9a4f12_idx'),
@@ -548,6 +553,7 @@ class WowWagoHotfixEvent(models.Model):
     id = models.BigAutoField(primary_key=True)
     branch = models.CharField(max_length=32, default="wow")
     locale = models.CharField(max_length=8, default="enUS")
+    region_id = models.IntegerField(default=0)
     from_push = models.BigIntegerField(default=0)
     to_push = models.BigIntegerField(default=0)
     push_id = models.BigIntegerField(default=0)
@@ -569,7 +575,7 @@ class WowWagoHotfixEvent(models.Model):
 
     class Meta:
         db_table = 'wow_wago_hotfix_event'
-        unique_together = (('branch', 'locale', 'to_push'),)
+        unique_together = (('branch', 'locale', 'region_id', 'to_push'),)
         indexes = [
             models.Index(fields=['branch', 'locale']),
             models.Index(fields=['to_push']),
@@ -2632,6 +2638,7 @@ class WowTalentVersion(models.Model):
     branch = models.CharField(max_length=16, default='retail', blank=True)
     major_version = models.CharField(max_length=32, default='', blank=True)
     current_build = models.CharField(max_length=32, default='', blank=True)
+    granted_entries_json = models.JSONField(default=dict, blank=True, help_text='同 build TraitCond 赠送天赋：spec ID → TraitNodeEntry.ID 列表')
     is_active = models.BooleanField(default=False)
     is_default_simulator = models.BooleanField(default=False)
     is_default_player_tree = models.BooleanField(default=False)

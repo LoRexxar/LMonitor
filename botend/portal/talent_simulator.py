@@ -147,8 +147,11 @@ def _decorate_render_model(render_model):
             node['display_name'] = node.get('name_zh') or node.get('name') or '未命名天赋'
             node['display_desc'] = node.get('description_zh') or node.get('description') or ''
             for option in node.get('choice_options') or []:
-                option['icon_url'] = wow_icon(option.get('icon'), 'small') if option.get('icon') else wow_icon('', 'small')
-                option['display_name'] = option.get('name_zh') or option.get('name') or '未命名'
+                option['icon_url'] = '' if option.get('is_unresolved') else wow_icon(option.get('icon'), 'small')
+                option['display_name'] = (
+                    '来源缺失（不可选）' if option.get('is_unresolved')
+                    else option.get('name_zh') or option.get('name') or '未命名'
+                )
                 option['display_desc'] = option.get('description_zh') or option.get('description') or ''
     return render_model
 
