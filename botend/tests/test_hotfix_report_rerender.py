@@ -34,6 +34,8 @@ class HotfixReportRerenderTests(SimpleTestCase):
         self.row = SimpleNamespace(
             pk=126, branch='wow', locale='enUS', region_id=3, from_push=111863, to_push=112236,
             build_str='12.1.0.69933', entry_count=1, table_count=1,
+            build_num='69933', summary_title='Verified Hotfix',
+            wago_url='https://wago.tools/hotfixes?search=enUS+112236',
             class_spell_count=1, class_class_count=1, class_unresolved_count=0,
             collection_complete=True,
             source_facts_json=json.dumps([{'source': self.source, 'after_verified': True, 'after': {'ID': '99'},
@@ -50,10 +52,7 @@ class HotfixReportRerenderTests(SimpleTestCase):
             'content_html_path': self.row.class_content_html_path, 'staging_path': str(self.staged_class),
             'spell_count': 1, 'class_count': 1, 'unresolved_count': 0,
         }
-        self.monitor._generate_hotfix_full_report.return_value = {
-            'content_html_path': self.row.content_html_path, 'staging_path': str(self.staged_full),
-            'entry_count': 1, 'table_count': 1,
-        }
+        self.monitor._write_hotfix_full_html.return_value = (str(self.staged_full), self.row.content_html_path)
 
     def invoke(self, digest=None, facts_digest=None):
         return call_command('rerender_wow_hotfix_report', report_id=126,
@@ -71,6 +70,12 @@ class HotfixReportRerenderTests(SimpleTestCase):
         self.assertIn('可核实旧→新 0 个字段', self.full.read_text(encoding='utf-8'))
         self.assertIn("class='spell'", self.cls.read_text(encoding='utf-8'))
         self.row.save.assert_not_called()
+        self.monitor._generate_hotfix_full_report.assert_not_called()
+        kwargs = self.monitor._write_hotfix_full_html.call_args.kwargs
+        self.assertTrue(kwargs['stage_for_publication'])
+        self.assertEqual(kwargs['facts'][0]['source'], self.source)
+        self.assertEqual(kwargs['table_stats'], [('SpellEffect', 1)])
+        self.assertEqual(kwargs['db2_build'], self.row.build_str)
         self.assertFalse(self.staged_full.exists())
         self.assertFalse(self.staged_class.exists())
 
@@ -82,7 +87,7 @@ class HotfixReportRerenderTests(SimpleTestCase):
                    return_value=self.monitor):
             with self.assertRaises(CommandError):
                 self.invoke('0' * 64)
-        self.monitor._generate_hotfix_full_report.assert_not_called()
+        self.monitor._write_hotfix_full_html.assert_not_called()
         self.assertEqual(self.full.read_text(encoding='utf-8'), 'old full')
 
     def test_wrong_frozen_fact_payload_fingerprint_never_renders(self):
@@ -93,7 +98,7 @@ class HotfixReportRerenderTests(SimpleTestCase):
                    return_value=self.monitor):
             with self.assertRaises(CommandError):
                 self.invoke(facts_digest='0' * 64)
-        self.monitor._generate_hotfix_full_report.assert_not_called()
+        self.monitor._write_hotfix_full_html.assert_not_called()
         self.assertEqual(self.full.read_text(encoding='utf-8'), 'old full')
 
     def test_failed_second_publication_restores_first_and_leaves_facts_untouched(self):

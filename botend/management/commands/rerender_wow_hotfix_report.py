@@ -39,7 +39,8 @@ class Command(BaseCommand):
             raise CommandError('Hotfix report not found') from exc
         if (not row.collection_complete or row.branch != 'wow' or row.locale != 'enUS'
                 or row.region_id <= 0 or row.from_push <= 0 or row.to_push <= row.from_push
-                or row.entry_count != expected_count or not row.class_spell_count or not row.build_str):
+                or row.entry_count != expected_count or not row.class_spell_count or not row.build_str
+                or not row.build_num or not row.summary_title or not row.wago_url):
             raise CommandError('Complete region-scoped Hotfix report with class projection required')
         if hashlib.sha256(row.source_facts_json.encode('utf-8')).hexdigest() != facts_digest:
             raise CommandError('Saved Hotfix fact payload SHA-256 mismatch')
@@ -89,10 +90,29 @@ class Command(BaseCommand):
                     facts=facts, locale=row.locale, stage_for_publication=True,
                 )
                 staged.append(cls)
-                full = monitor._generate_hotfix_full_report(
-                    row.branch, row.build_str, row.from_push, row.to_push, region_id=row.region_id,
-                    locale=row.locale, hotfix_rows=sources, facts=facts, stage_for_publication=True,
+                # content_md is already stored and is not being changed here.
+                # Re-render the same HTML generator directly, avoiding its
+                # separate, unused Markdown DB2 enrichment round-trip.
+                by_table = {}
+                for source in sources:
+                    by_table.setdefault(source['table_name'], []).append(source)
+                table_stats = sorted(
+                    ((name, len(items)) for name, items in by_table.items()),
+                    key=lambda item: (-item[1], item[0].lower()),
                 )
+                max_enrich_setting = getattr(settings, 'WAGO_HOTFIX_REPORT_ENRICH_MAX', 50)
+                max_enrich = 50 if max_enrich_setting is None else int(max_enrich_setting)
+                full_path, full_relative = monitor._write_hotfix_full_html(
+                    branch=row.branch, locale=row.locale, to_push=row.to_push,
+                    summary_title=row.summary_title, wago_url=row.wago_url,
+                    build_num=row.build_num, from_push=row.from_push,
+                    table_stats=table_stats, by_table=by_table,
+                    sample_per_table=int(getattr(settings, 'WAGO_HOTFIX_REPORT_SAMPLE_PER_TABLE', 20) or 20),
+                    enrich_max=max_enrich, db2_build=row.build_str, region_id=row.region_id,
+                    facts=facts, stage_for_publication=True,
+                )
+                full = {'content_html_path': full_relative, 'staging_path': full_path,
+                        'entry_count': len(sources), 'table_count': len(table_stats)}
                 staged.append(full)
                 if (not full or not cls or full.get('entry_count') != row.entry_count
                         or full.get('table_count') != row.table_count
