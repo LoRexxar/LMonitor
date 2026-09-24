@@ -54,11 +54,53 @@ class HotfixReportRerenderTests(SimpleTestCase):
         }
         self.monitor._write_hotfix_full_html.return_value = (str(self.staged_full), self.row.content_html_path)
 
-    def invoke(self, digest=None, facts_digest=None):
+    def invoke(self, digest=None, facts_digest=None, **options):
         return call_command('rerender_wow_hotfix_report', report_id=126,
                             expected_count=1, expected_id_sha256=digest or self.digest,
                             expected_facts_sha256=facts_digest or hashlib.sha256(
-                                self.row.source_facts_json.encode('utf-8')).hexdigest())
+                                self.row.source_facts_json.encode('utf-8')).hexdigest(), **options)
+
+    def test_full_only_replaces_normal_report_without_touching_class_report(self):
+        old_class_sha256 = hashlib.sha256(self.cls.read_bytes()).hexdigest()
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get',
+                   return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor',
+                   return_value=self.monitor):
+            self.invoke(full_only=True)
+        self.assertIn("class='record'", self.full.read_text(encoding='utf-8'))
+        self.assertEqual(hashlib.sha256(self.cls.read_bytes()).hexdigest(), old_class_sha256)
+        self.monitor._generate_hotfix_class_report.assert_not_called()
+        self.row.save.assert_not_called()
+        self.assertFalse(self.staged_full.exists())
+        self.assertTrue(self.staged_class.exists())
+
+    def test_full_only_failed_publication_preserves_both_originals(self):
+        before_class = hashlib.sha256(self.cls.read_bytes()).hexdigest()
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get',
+                   return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor',
+                   return_value=self.monitor), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.os.replace',
+                   side_effect=OSError('publish blocked')):
+            with self.assertRaises(CommandError):
+                self.invoke(full_only=True)
+        self.assertEqual(self.full.read_text(encoding='utf-8'), 'old full')
+        self.assertEqual(hashlib.sha256(self.cls.read_bytes()).hexdigest(), before_class)
+        self.row.save.assert_not_called()
+
+    def test_full_only_rejects_shared_class_and_full_file(self):
+        self.row.class_content_html_path = self.row.content_html_path
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get',
+                   return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor',
+                   return_value=self.monitor):
+            with self.assertRaisesRegex(CommandError, 'share its path'):
+                self.invoke(full_only=True)
+        self.monitor._write_hotfix_full_html.assert_not_called()
+        self.assertEqual(self.full.read_text(encoding='utf-8'), 'old full')
 
     def test_only_verified_saved_facts_replace_both_files_not_database(self):
         with override_settings(BASE_DIR=str(self.root)), \

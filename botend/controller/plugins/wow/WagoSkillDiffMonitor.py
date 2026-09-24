@@ -3072,8 +3072,7 @@ class WagoSkillDiffMonitor(BaseScan):
             sample_per_table = max(int(sample_per_table or 20), *(int(count or 0) for _, count in table_stats), 1)
         entry_count = sum(int(c or 0) for _, c in table_stats)
         table_count = len(table_stats)
-        compared_records = sum(bool(f.get('before_verified')) for f in (facts or []))
-        proven_field_changes = sum(len(f.get('changes') or []) for f in (facts or []) if f.get('before_verified'))
+
         sample_per_table = max(1, int(sample_per_table or 20))
         enrich_left = max(0, int(enrich_max or 0))
         row_cache = {}
@@ -3137,7 +3136,10 @@ class WagoSkillDiffMonitor(BaseScan):
         ]
         field_labels = {
             'ID': '记录 ID', 'Name_lang': '名称', 'Name': '名称', 'DisplayName_lang': '显示名', 'Title_lang': '标题',
-            'Description_lang': '描述', 'AuraDescription_lang': '光环描述', 'Text_lang': '文本',
+            'Display_lang': '显示名', 'Description_lang': '描述', 'AuraDescription_lang': '光环描述',
+            'ObjectiveText_lang': '目标文本', 'Text_lang': '文本', 'ItemLevel': '物品等级',
+            'InventoryType': '装备栏位类型', 'OrderIndex': '排序', 'CriteriaID': '条件 ID',
+            'Parent': '父节点 ID', 'CooldownSetID': '冷却组 ID',
             'VerifiedBuild': '数据 build', 'SpellID': '技能 ID', 'EffectIndex': '效果序号',
             'Effect': '效果类型', 'EffectAura': '光环类型', 'EffectBasePointsF': '基础数值F',
             'EffectBasePoints': '基础数值', 'EffectBonusCoefficient': '法强系数',
@@ -3281,15 +3283,18 @@ class WagoSkillDiffMonitor(BaseScan):
         def first_text(row):
             if not isinstance(row, dict):
                 return ''
-            for k in ('Name_lang', 'Name', 'DisplayName_lang', 'Title_lang'):
+            for k in ('Name_lang', 'Name', 'DisplayName_lang', 'Display_lang', 'Title_lang'):
                 v = row.get(k)
                 if isinstance(v, str) and v.strip():
                     return self._cleanup_unresolved_tooltip_tokens(v.strip())
             for k in ('Description_lang', 'AuraDescription_lang', 'Text_lang'):
                 v = row.get(k)
                 if isinstance(v, str) and v.strip():
-                    sid = self._to_int(row.get('SpellID') or row.get('ID') or 0)
-                    txt, _removed = self._render_spell_text_plain(db2_build, sid, v.strip())
+                    if facts is not None:
+                        txt = self._cleanup_unresolved_tooltip_tokens(v.strip())
+                    else:
+                        sid = self._to_int(row.get('SpellID') or row.get('ID') or 0)
+                        txt, _removed = self._render_spell_text_plain(db2_build, sid, v.strip())
                     txt = re.sub(r'\s+', ' ', txt.strip())
                     return txt[:220] + ('…' if len(txt) > 220 else '')
             return ''
@@ -3326,7 +3331,8 @@ class WagoSkillDiffMonitor(BaseScan):
                     v = row.get(k)
                     if v is not None and str(v) != '':
                         bits.append(f"{field_label(k)}={v}")
-                title = f"{sname or ('Spell ' + str(sid))} / 效果#{idx}" if sid else f"效果记录 {record_id}"
+                index_label = str(self._to_int(idx) + 1) if idx is not None and str(idx).strip() else '未标明'
+                title = f"{sname or ('Spell ' + str(sid))} / 效果#{index_label}" if sid else f"效果记录 {record_id}"
                 return title + ("：" + '，'.join(bits[:6]) if bits else '')
             if key in ('spellname', 'spelldescription'):
                 sid = record_id
@@ -3371,7 +3377,7 @@ class WagoSkillDiffMonitor(BaseScan):
 
             def compact_value(v, max_len=260, field_name=''):
                 text = str(v).strip()
-                if field_name in text_fields:
+                if field_name in text_fields and fact is None:
                     text, _removed = self._render_spell_text_plain(db2_build, record_id, text)
                 else:
                     text = self._cleanup_unresolved_tooltip_tokens(text)
@@ -3581,6 +3587,15 @@ class WagoSkillDiffMonitor(BaseScan):
         def clean_report_text(value):
             return self._cleanup_unresolved_tooltip_tokens(str(value or ''))
 
+        def frozen_display_name(row):
+            return next((clean_report_text(row[k]) for k in (
+                'Name_lang', 'Display_lang', 'Title_lang', 'DisplayName_lang', 'Name',
+            ) if isinstance(row.get(k), str) and row[k].strip()), '')
+
+        def placeholder_object_title(title, obj_kind, object_id):
+            generic = rf'(?:{re.escape(str(obj_kind))}|Item|Quest|Spell|Object|Record|Talent|物品|任务|技能|对象|记录|天赋对象)?\s*#?{re.escape(str(object_id))}'
+            return bool(re.fullmatch(generic, str(title or ''), flags=re.I))
+
         resolved_objects_by_source = {}
         for resolved_obj in list(getattr(object_graph, 'objects', []) or []):
             for source_ref in resolved_obj.source_records or []:
@@ -3595,6 +3610,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 obj_kind = clean_report_text(resolved_obj.kind) or 'object'
                 obj_category = impact_category(clean_report_text(resolved_obj.category) or category)
                 obj_title = clean_report_text(resolved_obj.title or resolved_obj.object_id)
+                payload_name = frozen_display_name(row) if facts is not None else ''
+                if payload_name and (not obj_title or placeholder_object_title(obj_title, obj_kind, resolved_obj.object_id)):
+                    obj_title = payload_name
                 kind_label = clean_report_text(resolved_obj.category) or obj_category
                 return f"{obj_kind}:{resolved_obj.object_id}", obj_category, obj_title, kind_label
             if key.startswith('spell'):
@@ -3623,24 +3641,60 @@ class WagoSkillDiffMonitor(BaseScan):
                     status = self._to_int(source.get('status'))
                     if source.get('data') is None and status in (2, 3, 4):
                         action = {2: '删除', 3: '失效', 4: '未公开'}[status]
-                        return [f'Wago 来源状态：{action}（data=null，无可解码新值）；旧值与职业归属未核实，不能推断具体数值变化。']
-                    return ['本次 Wago Hotfix 未提供可解码的新字段；旧值与具体数值变化均未核实。']
+                        return [f'Wago 来源状态：{action}（data=null，无可解码新值）；具体字段未核实。']
+                    return ['本次 Wago Hotfix 未提供可解码的新字段；具体内容未核实。']
                 changes = fact.get('changes') or []
-                if changes:
-                    return [
-                        f"{field_label(item['field'])}：{item['before']} → {item['after']}"
-                        for item in changes
-                    ]
-                if fact.get('before_verified'):
-                    return ['已核对同区域前后 payload，本记录未发现字段值变化。']
+                if fact.get('before_verified') and not changes:
+                    return ['同区域前后 payload 已核对，本记录没有可核实的字段值变化。']
                 after = fact.get('after') or {}
-                chosen = [field for field in (
-                    'SpellID', 'EffectIndex', 'EffectBasePointsF', 'EffectBonusCoefficient',
-                    'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'EffectAura',
-                ) if field in after and str(after[field]) not in ('', '0', '0.0')]
-                return ['旧值未核实；以下仅为本次 Hotfix payload 中的新值。'] + [
-                    f"{field_label(field)}：{after[field]}（旧值未知）" for field in chosen
-                ]
+                text_keys = (
+                    'Name_lang', 'Display_lang', 'Title_lang', 'DisplayName_lang', 'Name',
+                    'Description_lang', 'AuraDescription_lang', 'ObjectiveText_lang',
+                    'Text_lang', 'OverrideName_lang',
+                )
+                relation_keys = (
+                    'SpellID', 'ItemID', 'QuestID', 'CreatureID', 'SourceSpellID',
+                    'EffectIndex', 'TraitNodeID', 'TraitNodeEntryID', 'CriteriaID',
+                    'Parent', 'CooldownSetID', 'JournalEncounterID', 'ItemDisplayInfoID',
+                )
+                value_keys = (
+                    'EffectBasePointsF', 'EffectBasePoints', 'EffectBonusCoefficient',
+                    'BonusCoefficientFromAP', 'Coefficient', 'PvpMultiplier', 'ItemLevel',
+                    'MaxTargets', 'InventoryType', 'OrderIndex', 'Amount',
+                    'RecoveryTime', 'CategoryRecoveryTime', 'Operator', 'Type', 'Asset',
+                )
+                if fact.get('before_verified'):
+                    # A normal report shows the verified *new* values only; the
+                    # dedicated class projection owns before/after comparison.
+                    context = ['SpellID', 'EffectIndex'] if tkey(table_name) == 'spelleffect' else []
+                    chosen = list(dict.fromkeys(
+                        [field for field in context if field in after]
+                        + [item['field'] for item in changes if item.get('field') in after]
+                    ))
+                else:
+                    useful = [k for k, v in after.items() if k not in ('ID', 'VerifiedBuild')
+                              and v is not None and (str(v).strip() not in ('', '0', '0.0')
+                                  or (k == 'EffectIndex' and tkey(table_name) == 'spelleffect'))]
+                    priority = text_keys + relation_keys + value_keys
+                    semantic = [k for k in priority if k in useful]
+                    # Opaque flags and masks are not user-facing interpretations;
+                    # show one raw key only when no clearer payload field exists.
+                    extra = [k for k in useful if k not in semantic]
+                    chosen = semantic + ([] if semantic else extra[:2])
+                lines = []
+                for field in chosen[:6]:
+                    value = after.get(field)
+                    if value is None or str(value).strip() == '':
+                        continue
+                    if field == 'EffectIndex' and tkey(table_name) == 'spelleffect':
+                        value = f'{value}（第 {self._to_int(value) + 1} 个效果）'
+                    value = re.sub(r'\s+', ' ', clean_report_text(value)).strip()
+                    if not value:
+                        continue
+                    if len(value) > 220:
+                        value = value[:220] + '…'
+                    lines.append(f'{field_label(field)}：{value}')
+                return lines or ['新 payload 已解码；除记录 ID 外没有可读的新值字段，完整内容见技术明细。']
             key = tkey(table_name)
             if not isinstance(row, dict) or not row:
                 return [f"已确认 {table_label(table_name)} 记录发生热修，但当前 build 暂未还原出可读字段。"]
@@ -3814,38 +3868,50 @@ class WagoSkillDiffMonitor(BaseScan):
                 fact = rec.get('fact')
                 reader_key, reader_category, reader_title, reader_kind = reader_identity(t, rid, row)
                 reader_group = reader_groups.setdefault(reader_key, {
-                    'category': reader_category,
                     'title': reader_title,
                     'kind': reader_kind,
                     'items': [],
-                    'search': [],
                 })
+                if (fact is not None and fact.get('after_verified')
+                        and reader_title == frozen_display_name(row)
+                        and placeholder_object_title(reader_group['title'], reader_key.split(':', 1)[0], reader_key.rsplit(':', 1)[-1])):
+                    reader_group['title'] = reader_title
                 record_facts = reader_facts(t, rid, row, fact)
                 reader_group['items'].append({
+                    'category': category,
                     'table': table_label(t),
                     'record_id': rid,
                     'push_id': pid,
                     'source_build': rec.get('source_build') or '',
                     'facts': record_facts,
+                    'readable': bool(fact.get('after_verified')) if fact is not None else True,
                     'url': hotfix_table_url(t, pid),
                 })
-                reader_group['search'].extend([reader_category, reader_title, reader_kind, table_label(t), ' '.join(record_facts)])
+
                 search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid), summary, first_text(row)]).lower()
                 row_title = summary or f"record_id {rid}"
                 wago_rec_url = hotfix_table_url(t, pid)
                 if fact is None:
                     evidence_state = ''
                 elif not fact.get('after_verified'):
-                    evidence_state = '无可解码新 payload，变化未核实'
+                    source = fact.get('source') or {}
+                    status = self._to_int(source.get('status'))
+                    if source.get('data') is None and status in (2, 3, 4):
+                        action = {2: '删除', 3: '失效', 4: '未公开'}[status]
+                        evidence_state = f'Wago 来源状态：{action}（data=null）；无可解码新值，旧值与职业归属未核实'
+                    else:
+                        evidence_state = '无可解码新 payload，具体字段未核实'
                 elif not fact.get('before_verified'):
                     evidence_state = '仅新值；旧值未核实，不代表字段变化'
                 elif fact.get('changes'):
-                    evidence_state = f"已核实旧→新：{len(fact['changes'])} 个字段"
+                    evidence_state = f"已核实其中 {len(fact['changes'])} 个字段的新值（正文仅展示新值）"
                 else:
                     evidence_state = '已核实前后值相同；无字段变化'
                 cards.append(
                     "<article class='record' data-category='{}' data-search='{}'>".format(esc(category), esc(search_text))
-                    + f"<div class='record-head'><div><span class='record-id'>#{rid}</span><strong>{esc(row_title)}</strong></div><a href='{esc(wago_rec_url)}' target='_blank' rel='noreferrer'>Wago push {pid}</a></div>"
+                    + f"<div class='record-head'><div><span class='record-id'>#{rid}</span><strong>{esc(row_title)}</strong>"
+                    + (f"<small class='muted'>来源 build {esc(rec['source_build'])}</small>" if rec.get('source_build') else '')
+                    + f"</div><a href='{esc(wago_rec_url)}' target='_blank' rel='noreferrer'>Wago push {pid}</a></div>"
                     + (f"<p class='muted evidence-state'>{esc(evidence_state)}</p>" if evidence_state else '')
                     + row_fields_html(t, rid, row, fact)
                     + "</article>"
@@ -3863,9 +3929,12 @@ class WagoSkillDiffMonitor(BaseScan):
 
         reader_cards = []
         for group in reader_groups.values():
+            visible_items = [item for item in group['items'] if item['readable']]
+            if not visible_items:
+                continue
             items = []
-            source_count = len(group['items'])
-            for item in group['items']:
+            source_count = len(visible_items)
+            for item in visible_items:
                 facts_html = ''.join(f"<li>{esc(fact)}</li>" for fact in item['facts'])
                 items.append(
                     "<div class='reader-evidence'>"
@@ -3875,23 +3944,34 @@ class WagoSkillDiffMonitor(BaseScan):
                     f"<a href='{esc(item['url'])}' target='_blank' rel='noreferrer' aria-label='在 Wago 核对 {esc(item['table'])} 记录 {int(item['record_id'])}'>核对来源</a>"
                     "</div>"
                 )
+            visible_categories = '|'.join(sorted({item['category'] for item in visible_items}))
+            visible_search = ' '.join([group['title'], group['kind']] + [
+                f"{item['record_id']} {item['push_id']} {item['table']} {' '.join(item['facts'])}"
+                for item in visible_items
+            ]).lower()
             reader_cards.append(
-                f"<article class='reader-card' data-category='{esc(group['category'])}' data-search='{esc(' '.join(group['search']).lower())}'>"
+                f"<article class='reader-card' data-category='{esc(visible_categories)}' data-search='{esc(visible_search)}'>"
                 f"<header><div><span>{esc(group['kind'])}</span><h3>{esc(group['title'])}</h3></div><small>{source_count} 处底层记录</small></header>"
                 + ''.join(items)
                 + "</article>"
             )
+        readable_count = sum(bool(f.get('after_verified')) for f in facts) if facts is not None else 0
+        status_only_count = entry_count - readable_count if facts is not None else 0
         reader_digest_section = (
             "<section class='reader-digest' aria-labelledby='readerDigestTitle'>"
-            "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>本区间来源事实与可核实变化</h2>"
-            f"<p>已从 {entry_count} 条底层记录整理出 {len(reader_cards)} 个对象。"
-            + (f"其中 {compared_records} 条记录有可核实前态，可核实旧→新 {proven_field_changes} 个字段；"
-               '其余仅列新 payload 观察值，不能据此判断字段变化。' if facts is not None
-               else "旧报告未冻结热修 payload；所列客户端 DB2 基表仅供对象关联，不能作为热修生效值或变化幅度。")
-            + "不根据枚举或单条系数擅自判断整技能强弱。</p></div>"
+            "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>本次热修涉及的对象与新值</h2>"
+            f"<p>共 {entry_count} 条来源记录；"
+            + (f"{readable_count} 条可读取本次 Hotfix payload 的新值，{status_only_count} 条仅有来源或状态，未列入下方新值卡片（可在技术明细查阅）。"
+               "新值不等于这些字段全部发生变化；枚举、标志位与单条系数不用于推断游戏效果。"
+               if facts is not None else
+               "旧报告未冻结热修 payload；所列 DB2 基表仅供对象关联，不能作为热修生效值或变化幅度。")
+            + "</p></div>"
             f"<span id='readerCount'>显示 {len(reader_cards)} 个对象</span></div>"
+            "<div class='controls'><input id='hotfixFilter' type='search' placeholder='搜索对象、来源 ID、新值或 DB2 表…' autocomplete='off' aria-label='搜索热修对象和新值'>"
+            "<span class='count' id='filterCount'>技术明细</span></div>"
             f"<div class='impact-filters' role='group' aria-label='按影响范围筛选'><button type='button' class='impact-filter' data-hotfix-category='all' aria-pressed='true'><span>全部</span><strong>{entry_count}</strong></button>{''.join(category_cards)}</div>"
             + ''.join(reader_cards)
+            + "<p class='reader-empty hidden' id='readerEmpty' role='status'></p>"
             + "</section>"
         )
 
@@ -3914,6 +3994,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .impact-filters {{ display:flex; flex-wrap:wrap; gap:7px; margin:11px 0 4px; }} .impact-filter {{ min-height:40px; text-align:left; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); padding:6px 9px; cursor:pointer; }} .impact-filter:hover {{ border-color:#b8b0ed; }} .impact-filter[aria-pressed='true'] {{ border-color:var(--accent); background:var(--accent-soft); }} .impact-filter span {{ color:#475467; font-size:12px; font-weight:800; }} .impact-filter strong {{ margin-left:7px; font-size:12px; font-variant-numeric:tabular-nums; }} .impact-filter em {{ display:none; }}
     .reader-digest {{ margin:20px 0 16px; }} .reader-digest-head {{ display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:4px; }} .reader-digest h2 {{ margin:0; font-size:21px; }} .reader-digest-head p {{ max-width:74ch; margin:3px 0 0; color:var(--muted); font-size:12px; text-wrap:pretty; }} .reader-digest-head>span {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
+    .reader-empty {{ padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--soft); color:var(--muted); font-size:13px; }}
     .technical-report {{ margin-top:18px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .technical-report>summary {{ min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; cursor:pointer; font-weight:850; }} .technical-report>summary small {{ color:var(--muted); font-size:11px; font-weight:650; }} .technical-body {{ padding:0 12px 12px; }}
     .controls {{ position:sticky; top:8px; z-index:5; margin:12px 0; padding:8px; background:rgba(255,255,255,.95); backdrop-filter:blur(8px); border:1px solid var(--line); border-radius:12px; display:flex; gap:10px; align-items:center; }} .controls input {{ width:100%; min-height:42px; border:1px solid #cbd1dc; border-radius:9px; padding:8px 11px; font:inherit; font-size:13px; color:var(--ink); background:var(--surface); }} .controls .count {{ white-space:nowrap; color:var(--muted); font-size:12px; }}
     .toc {{ margin:12px 0; padding:0 12px; background:var(--soft); border:1px solid var(--line); border-radius:12px; }} .toc-title {{ min-height:44px; display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; font-weight:850; }} .toc-title small {{ color:var(--muted); font-size:11px; font-weight:650; }} .toc-grid {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:7px; padding:0 0 12px; }} .toc-cat {{ grid-column:1/-1; margin-top:6px; color:var(--muted); font-size:11px; font-weight:850; }} .toc a {{ min-height:40px; display:flex; align-items:center; justify-content:space-between; gap:8px; color:var(--ink); background:var(--surface); border:1px solid var(--line); border-radius:9px; padding:7px 9px; }} .toc span {{ color:var(--muted); font-size:11px; }}
@@ -3943,12 +4024,12 @@ class WagoSkillDiffMonitor(BaseScan):
       </div>
       <a class="source-link" href="{esc(wago_url)}" target="_blank" rel="noreferrer">核对 Wago 原始列表</a>
     </header>
-    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 来源记录</span><span><strong>{compared_records}</strong> 条记录有前态</span><span><strong>{proven_field_changes}</strong> 个字段可核实旧→新</span><span><strong>{len(reader_cards)}</strong> 个可读对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
+    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 来源记录</span>{(f'<span><strong>{readable_count}</strong> 条有新值</span><span><strong>{status_only_count}</strong> 条仅来源或状态</span>' if facts is not None else '')}<span><strong>{len(reader_cards)}</strong> 个可读对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
     {reader_digest_section}
     <details class="technical-report">
       <summary><span>查看技术明细与 DB2 基表参考字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
       <div class="technical-body">
-        <div class="controls"><input id="hotfixFilter" type="search" placeholder="筛选表名、record_id、字段值…" autocomplete="off"><span class="count" id="filterCount">全部显示</span></div>
+
         <details class="toc"><summary class="toc-title">DB2 表目录（按类别分组，覆盖全部表）<small>{table_count} 张表 · 技术索引</small></summary><nav class="toc-grid" aria-label="DB2 表目录">{''.join(toc_items)}</nav></details>
         <div class="layout">
           <aside class="stats" id="table-list"><table><thead><tr><th>DB2 表</th><th class="num">数量</th></tr></thead><tbody>{''.join(stats_rows)}</tbody></table></aside>
@@ -3962,10 +4043,11 @@ class WagoSkillDiffMonitor(BaseScan):
   var input=document.getElementById('hotfixFilter');
   var count=document.getElementById('filterCount');
   var readerCount=document.getElementById('readerCount');
+  var empty=document.getElementById('readerEmpty');
   var category='all';
   if(!input){{return;}}
   function categoryMatches(el){{
-    return category==='all' || (el.getAttribute('data-category')||'')===category;
+    return category==='all' || (el.getAttribute('data-category')||'').split('|').indexOf(category)>=0;
   }}
   function apply(){{
     var q=(input.value||'').trim().toLowerCase();
@@ -3973,7 +4055,8 @@ class WagoSkillDiffMonitor(BaseScan):
     var readerTotal=0, readerVisible=0;
     document.querySelectorAll('.reader-card').forEach(function(el){{
       readerTotal++;
-      var ok=categoryMatches(el);
+      var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0;
+      var ok=categoryMatches(el) && textOk;
       el.classList.toggle('hidden', !ok);
       if(ok){{readerVisible++;}}
     }});
@@ -3995,8 +4078,12 @@ class WagoSkillDiffMonitor(BaseScan):
     }});
     var systems=document.querySelector('.systems-overview');
     if(systems){{systems.classList.toggle('hidden', !systems.querySelector('.system-card:not(.hidden)'));}}
-    if(count){{count.textContent=(q || category!=='all') ? ('显示 '+visible+' / '+total+' 条记录') : ('全部 '+total+' 条展开记录');}}
-    if(readerCount){{readerCount.textContent='显示 '+readerVisible+' 个对象';}}
+    if(count){{count.textContent='技术明细 '+visible+' / '+total+' 条';}}
+    if(readerCount){{readerCount.textContent='显示 '+readerVisible+' / '+readerTotal+' 个对象';}}
+    if(empty){{
+      empty.textContent=q ? '没有匹配的可读新值对象；可展开技术明细核对来源记录。' : '此类来源没有可解码的新值；原始来源和状态仍保留在技术明细。';
+      empty.classList.toggle('hidden', readerVisible!==0);
+    }}
   }}
   input.addEventListener('input', apply);
   document.querySelectorAll('[data-hotfix-category]').forEach(function(button){{
