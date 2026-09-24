@@ -3775,6 +3775,60 @@ class WagoSkillDiffMonitor(BaseScan):
                 facts.append(f"{('“' + title + '”的') if title else ''}{table_category(table_name)}配置发生热修。")
             return facts[:3]
 
+        def readable_payload_lines(table_name, row, fact):
+            """Short, literal new-value highlights; opaque IDs and enums stay in evidence."""
+            if not fact or not fact.get('after_verified') or not isinstance(row, dict):
+                return []
+            verified_fields = ({item.get('field') for item in fact.get('changes') or []}
+                               if fact.get('before_verified') else None)
+            table = tkey(table_name)
+            text_labels = (
+                ('Description_lang', '物品说明' if table == 'itemsparse' else
+                 '条件描述' if table == 'criteriatree' else
+                 '技能描述' if table.startswith('spell') else '说明'),
+                ('AuraDescription_lang', '光环说明'), ('ObjectiveText_lang', '任务目标'),
+                ('Text_lang', '文本'), ('Title_lang', '标题'),
+                ('Display_lang', '名称'), ('Name_lang', '名称'),
+                ('DisplayName_lang', '名称'), ('Name', '名称'),
+            )
+            number_labels = (
+                ('EffectBasePointsF', '基础数值'), ('EffectBasePoints', '基础数值'),
+                ('EffectBonusCoefficient', '法强系数'), ('BonusCoefficientFromAP', '攻强系数'),
+                ('Coefficient', '系数'), ('PvpMultiplier', 'PvP 系数'),
+                ('ItemLevel', '物品等级'), ('MaxTargets', '最大目标数'),
+                ('RecoveryTime', '冷却时长（毫秒）'),
+                ('CategoryRecoveryTime', '分类冷却（毫秒）'),
+            )
+            lines = []
+            for field, label in text_labels + number_labels:
+                if verified_fields is not None and field not in verified_fields:
+                    continue
+                value = row.get(field)
+                if value is None:
+                    continue
+                text = re.sub(r'\s+', ' ', clean_report_text(value)).strip()
+                if (not text or text in ('技能描述', 'x', '[DNT]')
+                        or text.startswith('[DNT]')):
+                    continue
+                if field not in dict(text_labels) and verified_fields is None and text in ('0', '0.0'):
+                    continue
+                if field == 'PvpMultiplier' and verified_fields is None and text in ('1', '1.0'):
+                    continue
+                if field == 'ItemLevel' and verified_fields is None and text in ('0', '1'):
+                    continue
+                if field == 'EffectBasePoints' and any(part.startswith('基础数值 ') for part in lines):
+                    continue
+                if field in dict(text_labels):
+                    text = text[:180] + ('…' if len(text) > 180 else '')
+                    lines.append(f'{label}：{text}')
+                else:
+                    lines.append(f'{label} {text}')
+                if len(lines) >= 4:
+                    break
+            if lines and table == 'spelleffect' and row.get('EffectIndex') is not None:
+                lines[0] = f"第 {self._to_int(row['EffectIndex']) + 1} 个效果：{lines[0]}"
+            return lines
+
         def object_fields_html(fields):
             chips = []
             for item in fields or []:
@@ -3884,6 +3938,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     'push_id': pid,
                     'source_build': rec.get('source_build') or '',
                     'facts': record_facts,
+                    'human': readable_payload_lines(t, row, fact),
                     'readable': bool(fact.get('after_verified')) if fact is not None else True,
                     'url': hotfix_table_url(t, pid),
                 })
@@ -3927,7 +3982,8 @@ class WagoSkillDiffMonitor(BaseScan):
                 + "</section>"
             )
 
-        reader_cards = []
+        readable_cards = []
+        raw_cards = []
         for group in reader_groups.values():
             visible_items = [item for item in group['items'] if item['readable']]
             if not visible_items:
@@ -3949,12 +4005,36 @@ class WagoSkillDiffMonitor(BaseScan):
                 f"{item['record_id']} {item['push_id']} {item['table']} {' '.join(item['facts'])}"
                 for item in visible_items
             ]).lower()
-            reader_cards.append(
+            human_parts = list(dict.fromkeys(
+                line for item in visible_items for line in item['human']
+            ))[:3]
+            if len(human_parts) > 1:
+                human_parts = [part for part in human_parts
+                               if part != f"名称：{group['title']}"]
+            summary_html = (
+                f"<p class='reader-summary'>本次热修记录：{esc('；'.join(human_parts))}。</p>"
+                if human_parts else ''
+            )
+            card = (
                 f"<article class='reader-card' data-category='{esc(visible_categories)}' data-search='{esc(visible_search)}'>"
                 f"<header><div><span>{esc(group['kind'])}</span><h3>{esc(group['title'])}</h3></div><small>{source_count} 处底层记录</small></header>"
+                + summary_html
+                + f"<details class='reader-sources'><summary>查看 {source_count} 条 Wago 来源与 DB2 字段</summary>"
                 + ''.join(items)
-                + "</article>"
+                + "</details></article>"
             )
+            if human_parts:
+                priority = min((0 if item['category'] == '物品/装备' else
+                                1 if item['category'] == '技能/法术' else
+                                2 if item['category'] == '地下城手册' else 3)
+                               for item in visible_items)
+                detail_score = sum(3 if any(token in part for token in ('说明：', '描述：', '目标：', '文本：'))
+                                   else 1 if part.startswith('名称：') else 2 for part in human_parts)
+                readable_cards.append((detail_score <= 1, priority, -detail_score, card))
+            else:
+                raw_cards.append(card)
+        readable_cards.sort(key=lambda value: (value[0], value[1], value[2]))
+        reader_cards = [card for _name_only, _priority, _score, card in readable_cards] + raw_cards
         readable_count = sum(bool(f.get('after_verified')) for f in facts) if facts is not None else 0
         status_only_count = entry_count - readable_count if facts is not None else 0
         reader_digest_section = (
@@ -3966,11 +4046,20 @@ class WagoSkillDiffMonitor(BaseScan):
                if facts is not None else
                "旧报告未冻结热修 payload；所列 DB2 基表仅供对象关联，不能作为热修生效值或变化幅度。")
             + "</p></div>"
-            f"<span id='readerCount'>显示 {len(reader_cards)} 个对象</span></div>"
+            f"<span id='readerCount'>可读 {len(readable_cards)} · 底层 {len(raw_cards)} 个对象</span></div>"
             "<div class='controls'><input id='hotfixFilter' type='search' placeholder='搜索对象、来源 ID、新值或 DB2 表…' autocomplete='off' aria-label='搜索热修对象和新值'>"
             "<span class='count' id='filterCount'>技术明细</span></div>"
-            f"<div class='impact-filters' role='group' aria-label='按影响范围筛选'><button type='button' class='impact-filter' data-hotfix-category='all' aria-pressed='true'><span>全部</span><strong>{entry_count}</strong></button>{''.join(category_cards)}</div>"
-            + ''.join(reader_cards)
+            + f"<details class='reader-filter-drawer' id='readerFilterDrawer'><summary>按内容分类查看 <small>{len(category_counts)} 类 · 数字为来源记录数</small></summary>"
+            + f"<div class='impact-filters' role='group' aria-label='按影响范围筛选'><button type='button' class='impact-filter' data-hotfix-category='all' aria-pressed='true'><span>全部</span><strong>{entry_count}</strong></button>{''.join(category_cards)}</div>"
+            + "</details>"
+            + f"<section class='reader-readable' id='readerReadable'><h3>先看能直接读懂的记录 <small>{len(readable_cards)} 个对象</small></h3>"
+            + "<p class='reader-guide'>只提取热修 payload 中的名称、说明和有明确字段含义的数值；这是记录的新值，不表示每个字段都发生变化。</p>"
+            + ''.join(card for _name_only, _priority, _score, card in readable_cards)
+            + "</section>"
+            + f"<details class='reader-raw-only' id='readerRawOnly'><summary>其余 {len(raw_cards)} 个对象仅有底层字段，无法判断具体游戏表现 · 展开核对</summary>"
+            + "<p class='reader-guide'>这些记录有可解码字段，但只有关系 ID、枚举或标志位；不把代码翻译成未经证实的游戏改动。</p>"
+            + ''.join(raw_cards)
+            + "</details>"
             + "<p class='reader-empty hidden' id='readerEmpty' role='status'></p>"
             + "</section>"
         )
@@ -3992,8 +4081,12 @@ class WagoSkillDiffMonitor(BaseScan):
     .meta {{ color:var(--muted); font-size:12px; margin-top:8px; display:flex; flex-wrap:wrap; gap:7px 13px; }} .source-link {{ min-height:40px; display:inline-flex; align-items:center; border:1px solid var(--line); border-radius:10px; padding:7px 11px; font-weight:750; background:var(--surface); }}
     .quick-facts {{ display:flex; flex-wrap:wrap; gap:7px 16px; margin:13px 0; color:var(--muted); font-size:12px; }} .quick-facts span {{ display:inline-flex; align-items:baseline; gap:4px; }} .quick-facts strong {{ color:var(--ink); font-size:14px; font-variant-numeric:tabular-nums; }}
     .impact-filters {{ display:flex; flex-wrap:wrap; gap:7px; margin:11px 0 4px; }} .impact-filter {{ min-height:40px; text-align:left; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); padding:6px 9px; cursor:pointer; }} .impact-filter:hover {{ border-color:#b8b0ed; }} .impact-filter[aria-pressed='true'] {{ border-color:var(--accent); background:var(--accent-soft); }} .impact-filter span {{ color:#475467; font-size:12px; font-weight:800; }} .impact-filter strong {{ margin-left:7px; font-size:12px; font-variant-numeric:tabular-nums; }} .impact-filter em {{ display:none; }}
+    .reader-filter-drawer {{ margin:8px 0 12px; padding:0 9px 9px; border:1px solid var(--line); border-radius:10px; }} .reader-filter-drawer>summary {{ min-height:43px; display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; font-weight:800; }} .reader-filter-drawer>summary small {{ color:var(--muted); font-size:11px; font-weight:500; }}
     .reader-digest {{ margin:20px 0 16px; }} .reader-digest-head {{ display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:4px; }} .reader-digest h2 {{ margin:0; font-size:21px; }} .reader-digest-head p {{ max-width:74ch; margin:3px 0 0; color:var(--muted); font-size:12px; text-wrap:pretty; }} .reader-digest-head>span {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
+    .reader-readable>h3 {{ margin:22px 0 3px; font-size:19px; }} .reader-readable>h3 small {{ color:var(--muted); font-size:12px; font-weight:600; }} .reader-guide {{ margin:4px 0 14px; color:var(--muted); font-size:12px; }}
+    .reader-summary {{ margin:6px 0 4px; padding:10px 12px; background:var(--accent-soft); border-left:3px solid var(--accent); border-radius:6px; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }}
+    .reader-sources {{ margin-top:7px; }} .reader-sources>summary {{ min-height:38px; display:inline-flex; align-items:center; color:var(--accent); font-size:12px; font-weight:750; cursor:pointer; }} .reader-raw-only {{ margin-top:20px; padding:0 13px 13px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .reader-raw-only>summary {{ min-height:52px; display:flex; align-items:center; cursor:pointer; font-weight:750; }}
     .reader-empty {{ padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--soft); color:var(--muted); font-size:13px; }}
     .technical-report {{ margin-top:18px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .technical-report>summary {{ min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; cursor:pointer; font-weight:850; }} .technical-report>summary small {{ color:var(--muted); font-size:11px; font-weight:650; }} .technical-body {{ padding:0 12px 12px; }}
     .controls {{ position:sticky; top:8px; z-index:5; margin:12px 0; padding:8px; background:rgba(255,255,255,.95); backdrop-filter:blur(8px); border:1px solid var(--line); border-radius:12px; display:flex; gap:10px; align-items:center; }} .controls input {{ width:100%; min-height:42px; border:1px solid #cbd1dc; border-radius:9px; padding:8px 11px; font:inherit; font-size:13px; color:var(--ink); background:var(--surface); }} .controls .count {{ white-space:nowrap; color:var(--muted); font-size:12px; }}
@@ -4024,7 +4117,7 @@ class WagoSkillDiffMonitor(BaseScan):
       </div>
       <a class="source-link" href="{esc(wago_url)}" target="_blank" rel="noreferrer">核对 Wago 原始列表</a>
     </header>
-    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 来源记录</span>{(f'<span><strong>{readable_count}</strong> 条有新值</span><span><strong>{status_only_count}</strong> 条仅来源或状态</span>' if facts is not None else '')}<span><strong>{len(reader_cards)}</strong> 个可读对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
+    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 来源记录</span>{(f'<span><strong>{readable_count}</strong> 条有新值</span><span><strong>{status_only_count}</strong> 条仅来源或状态</span>' if facts is not None else '')}<span><strong>{len(readable_cards)}</strong> 个内容摘要</span><span><strong>{len(raw_cards)}</strong> 个仅底层对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
     {reader_digest_section}
     <details class="technical-report">
       <summary><span>查看技术明细与 DB2 基表参考字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
@@ -4044,8 +4137,11 @@ class WagoSkillDiffMonitor(BaseScan):
   var count=document.getElementById('filterCount');
   var readerCount=document.getElementById('readerCount');
   var empty=document.getElementById('readerEmpty');
+  var rawGroup=document.getElementById('readerRawOnly');
+  var filterDrawer=document.getElementById('readerFilterDrawer');
   var category='all';
   if(!input){{return;}}
+  if(filterDrawer && window.matchMedia('(min-width: 800px)').matches){{filterDrawer.open=true;}}
   function categoryMatches(el){{
     return category==='all' || (el.getAttribute('data-category')||'').split('|').indexOf(category)>=0;
   }}
@@ -4053,13 +4149,20 @@ class WagoSkillDiffMonitor(BaseScan):
     var q=(input.value||'').trim().toLowerCase();
     var total=0, visible=0;
     var readerTotal=0, readerVisible=0;
+    var humanTotal=0, humanVisible=0, rawTotal=0, rawVisible=0;
     document.querySelectorAll('.reader-card').forEach(function(el){{
       readerTotal++;
       var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0;
       var ok=categoryMatches(el) && textOk;
       el.classList.toggle('hidden', !ok);
       if(ok){{readerVisible++;}}
+      if(rawGroup && rawGroup.contains(el)){{rawTotal++; if(ok){{rawVisible++;}}}}
+      else{{humanTotal++; if(ok){{humanVisible++;}}}}
     }});
+    if(rawGroup){{
+      rawGroup.classList.toggle('hidden', rawVisible===0);
+      if(rawVisible && (q || humanVisible===0)){{rawGroup.open=true;}}
+    }}
     document.querySelectorAll('.record').forEach(function(el){{
       total++;
       var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
@@ -4079,10 +4182,12 @@ class WagoSkillDiffMonitor(BaseScan):
     var systems=document.querySelector('.systems-overview');
     if(systems){{systems.classList.toggle('hidden', !systems.querySelector('.system-card:not(.hidden)'));}}
     if(count){{count.textContent='技术明细 '+visible+' / '+total+' 条';}}
-    if(readerCount){{readerCount.textContent='显示 '+readerVisible+' / '+readerTotal+' 个对象';}}
+    if(readerCount){{readerCount.textContent='可读 '+humanVisible+' / '+humanTotal+' · 底层 '+rawVisible+' / '+rawTotal+' 个对象';}}
     if(empty){{
-      empty.textContent=q ? '没有匹配的可读新值对象；可展开技术明细核对来源记录。' : '此类来源没有可解码的新值；原始来源和状态仍保留在技术明细。';
-      empty.classList.toggle('hidden', readerVisible!==0);
+      empty.textContent=rawVisible ? '当前筛选只有底层配置，无法判断具体游戏表现；已展开下方原始字段。'
+        : (q ? '没有匹配的对象；可展开技术明细核对来源记录。'
+        : '此类来源没有可解码的新值；原始来源和状态仍保留在技术明细。');
+      empty.classList.toggle('hidden', humanVisible!==0);
     }}
   }}
   input.addEventListener('input', apply);
