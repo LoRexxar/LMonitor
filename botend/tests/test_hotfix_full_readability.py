@@ -11,6 +11,59 @@ from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMoni
 
 
 class FullHotfixNewValueReaderTests(SimpleTestCase):
+    def test_internal_spell_and_world_object_status_are_not_equipment_change_claims(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        sources = [
+            {'id': 1, 'push_id': 112236, 'table_name': table, 'record_id': rid,
+             'region_id': 3, 'locale': 'enUS', 'build': 69933, 'status': status, 'data': None}
+            for table, rid, status in (
+                ('GameObjects', 653515, 3), ('SpellName', 1322323, 1),
+                ('SpellCooldowns', 101894, 1),
+            )
+        ]
+        facts = [
+            {'source': sources[0], 'after': None, 'before': None,
+             'after_verified': False, 'before_verified': False, 'changes': []},
+            {'source': sources[1], 'after': {'ID': '1322323', 'Name_lang': "[DNT] Head Mason's Tablet"},
+             'before': None, 'after_verified': True, 'before_verified': False, 'changes': []},
+            {'source': sources[2], 'after': {'ID': '101894', 'SpellID': '1322323',
+                                            'RecoveryTime': '20000'},
+             'before': None, 'after_verified': True, 'before_verified': False, 'changes': []},
+        ]
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112235, to_push=112236,
+                summary_title='单次热修阅读检验', wago_url='https://wago.tools/hotfixes',
+                build_num='69933', db2_build='12.1.0.69933',
+                table_stats=[(s['table_name'], 1) for s in sources],
+                by_table={s['table_name']: [s] for s in sources},
+                sample_per_table=1, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        reader = doc.select_one('.reader-digest')
+        self.assertIn('0 条来源有可核实的字段变化', reader.get_text(' ', strip=True))
+        verdict = reader.select_one('.reader-verdict')
+        self.assertIsNotNone(verdict)
+        self.assertIn('世界交互物', verdict.get_text(' ', strip=True))
+        self.assertIn('20 秒', verdict.get_text(' ', strip=True))
+        self.assertIn('没有可核实的物品/装备—技能关联', verdict.get_text(' ', strip=True))
+        self.assertIn('无法判断', verdict.get_text(' ', strip=True))
+        self.assertEqual(len(reader.select('.reader-readable .reader-card')), 0)
+        status = reader.select_one('.reader-world-status')
+        self.assertIsNotNone(status)
+        self.assertIn('世界交互物 #653515', status.get_text(' ', strip=True))
+        self.assertIn('Wago 来源状态：失效', status.get_text(' ', strip=True))
+        self.assertIn('具体游戏表现未核实', status.get_text(' ', strip=True))
+        self.assertIn('https://www.wowhead.com/object=653515', status.select_one('a')['href'])
+        raw = reader.select_one('.reader-raw-only')
+        self.assertIn('内部技能 #1322323', raw.get_text(' ', strip=True))
+        self.assertIn('冷却记录 20 秒', raw.get_text(' ', strip=True))
+        self.assertIn('旧值未核实', raw.get_text(' ', strip=True))
+        self.assertNotIn('装备', status.get_text(' ', strip=True))
+        self.assertEqual(len(reader.select('.reader-evidence')), 2)
+        self.assertEqual(len(doc.select('.technical-report article.record')), 3)
+
     def test_later_named_itemsparse_upgrades_earlier_generic_item_group_title(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         sources = [

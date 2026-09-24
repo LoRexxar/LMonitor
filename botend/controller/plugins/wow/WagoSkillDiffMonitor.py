@@ -11,6 +11,7 @@ import tempfile
 import time
 from contextlib import closing
 from concurrent.futures import ThreadPoolExecutor
+from decimal import Decimal, InvalidOperation
 from urllib.parse import urlencode
 
 import requests
@@ -3113,6 +3114,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     spell_name_cache[sid] = name
 
         category_rules = [
+            ('gameobjects', '世界交互物'),
             ('spell', '技能/法术'), ('talent', '天赋'), ('trait', '天赋树'),
             ('item', '物品/装备'), ('journal', '地下城手册'), ('quest', '任务'),
             ('creature', '生物/NPC'), ('map', '地图/区域'), ('area', '区域'),
@@ -3165,7 +3167,8 @@ class WagoSkillDiffMonitor(BaseScan):
             'chrspecialization': '专精', 'skilllineability': '技能线关联', 'talent': '天赋',
             'traitnode': '天赋节点', 'traitnodeentry': '天赋节点条目', 'traitdefinition': '天赋定义',
             'modifiertree': '条件/规则树', 'item': '物品', 'itemsparse': '物品文本', 'itemeffect': '物品效果',
-            'itemxitemeffect': '物品-效果关联', 'journalencounter': '地下城/团本首领',
+            'itemxitemeffect': '物品-效果关联', 'gameobjects': '世界交互物',
+            'journalencounter': '地下城/团本首领',
             'journalencountersection': '地下城手册文本', 'questv2': '任务', 'questline': '任务线',
             'creature': '生物/NPC', 'creaturedisplayinfo': '生物模型', 'map': '地图', 'areatable': '区域',
             'currencytypes': '货币', 'achievement': '成就', 'mount': '坐骑', 'vehicleseat': '载具座位',
@@ -3193,6 +3196,7 @@ class WagoSkillDiffMonitor(BaseScan):
             '天赋': ('天赋选择与构筑', '可能改变天赋收益、选择优先级或与其他技能的联动。'),
             '天赋树': ('天赋路径与节点关系', '可能改变节点收益、前置关系或构筑路径。'),
             '物品/装备': ('装备表现与物品效果', '可能涉及属性、特效、使用效果、掉落或装备限制。'),
+            '世界交互物': ('地图交互对象', '来源记录涉及世界物件；只有状态或 ID 时不能推断具体玩法影响。'),
             '地下城手册': ('副本机制说明', '可能涉及首领、技能说明、阶段提示或手册展示。'),
             '任务': ('任务流程与目标', '可能涉及接取条件、目标文本、进度或奖励关联。'),
             '生物/NPC': ('NPC 行为与外观', '可能涉及生物配置、交互、模型或关联技能。'),
@@ -3821,6 +3825,14 @@ class WagoSkillDiffMonitor(BaseScan):
                 if field in dict(text_labels):
                     text = text[:180] + ('…' if len(text) > 180 else '')
                     lines.append(f'{label}：{text}')
+                elif table == 'spellcooldowns' and field in ('RecoveryTime', 'CategoryRecoveryTime'):
+                    try:
+                        seconds = (Decimal(text) / Decimal(1000)).normalize()
+                    except InvalidOperation:
+                        lines.append(f'{label} {text}')
+                    else:
+                        kind = '冷却记录' if field == 'RecoveryTime' else '分类冷却记录'
+                        lines.append(f'{kind} {seconds:f} 秒')
                 else:
                     lines.append(f'{label} {text}')
                 if len(lines) >= 4:
@@ -3922,6 +3934,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 fact = rec.get('fact')
                 reader_key, reader_category, reader_title, reader_kind = reader_identity(t, rid, row)
                 reader_group = reader_groups.setdefault(reader_key, {
+                    'identity': reader_key,
                     'title': reader_title,
                     'kind': reader_kind,
                     'items': [],
@@ -3939,6 +3952,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     'source_build': rec.get('source_build') or '',
                     'facts': record_facts,
                     'human': readable_payload_lines(t, row, fact),
+                    'verified_change': bool(fact and fact.get('before_verified') and fact.get('changes')),
                     'readable': bool(fact.get('after_verified')) if fact is not None else True,
                     'url': hotfix_table_url(t, pid),
                 })
@@ -4011,19 +4025,27 @@ class WagoSkillDiffMonitor(BaseScan):
             if len(human_parts) > 1:
                 human_parts = [part for part in human_parts
                                if part != f"名称：{group['title']}"]
+            internal_spell = (group['identity'].startswith('spell:') and
+                              group['title'].strip().lower().startswith('[dnt]'))
+            has_verified_change = any(item['verified_change'] for item in visible_items)
+            card_title = (f"内部技能 #{group['identity'].rsplit(':', 1)[-1]}"
+                          if internal_spell else group['title'])
             summary_html = (
-                f"<p class='reader-summary'>本次热修记录：{esc('；'.join(human_parts))}。</p>"
+                f"<p class='reader-summary'>来源记录的新值：{esc('；'.join(human_parts))}。"
+                + ("本对象有可核实字段变化；其他新值不必然变化。" if has_verified_change else
+                   "旧值未核实，不能判断这些字段是否或如何变化。")
+                + "</p>"
                 if human_parts else ''
             )
             card = (
                 f"<article class='reader-card' data-category='{esc(visible_categories)}' data-search='{esc(visible_search)}'>"
-                f"<header><div><span>{esc(group['kind'])}</span><h3>{esc(group['title'])}</h3></div><small>{source_count} 处底层记录</small></header>"
+                f"<header><div><span>{esc(group['kind'])}</span><h3>{esc(card_title)}</h3></div><small>{source_count} 处底层记录</small></header>"
                 + summary_html
                 + f"<details class='reader-sources'><summary>查看 {source_count} 条 Wago 来源与 DB2 字段</summary>"
                 + ''.join(items)
                 + "</details></article>"
             )
-            if human_parts:
+            if human_parts and (not internal_spell or has_verified_change):
                 priority = min((0 if item['category'] == '物品/装备' else
                                 1 if item['category'] == '技能/法术' else
                                 2 if item['category'] == '地下城手册' else 3)
@@ -4037,27 +4059,94 @@ class WagoSkillDiffMonitor(BaseScan):
         reader_cards = [card for _name_only, _priority, _score, card in readable_cards] + raw_cards
         readable_count = sum(bool(f.get('after_verified')) for f in facts) if facts is not None else 0
         status_only_count = entry_count - readable_count if facts is not None else 0
+        verified_change_count = sum(bool(f.get('before_verified') and f.get('changes'))
+                                    for f in facts) if facts is not None else 0
+        world_status_cards = []
+        for fact in facts or []:
+            source = fact.get('source') or {}
+            if (tkey(source.get('table_name')) != 'gameobjects' or fact.get('after_verified')
+                    or source.get('data') is not None):
+                continue
+            status = self._to_int(source.get('status'))
+            state = {2: '删除', 3: '失效', 4: '未公开'}.get(status)
+            record_id = self._to_int(source.get('record_id'))
+            push_id = self._to_int(source.get('push_id'))
+            if not state or record_id <= 0 or push_id <= 0:
+                continue
+            world_status_cards.append(
+                f"<article class='reader-world-status' data-category='世界交互物' data-search='gameobjects 世界交互物 {record_id} {push_id} {esc(state)}'>"
+                f"<h3>世界交互物 #{record_id}</h3>"
+                f"<p>Wago 来源状态：{esc(state)}；本条没有可解码的新值，具体游戏表现未核实。"
+                "不能仅凭同一个 push 把它与技能或物品记录合并。</p>"
+                f"<a href='https://www.wowhead.com/object={record_id}' target='_blank' rel='noreferrer'>核对地图物件名称</a>"
+                f" <a href='{esc(hotfix_table_url('GameObjects', push_id))}' target='_blank' rel='noreferrer'>核对 Wago push {push_id}</a>"
+                "</article>"
+            )
+        world_status_section = (
+            "<section class='reader-world-statuses' id='readerWorldStatuses'><h3>世界交互物来源状态</h3>"
+            "<p class='reader-guide'>来源状态不等于物件在游戏中被移除；对象名称需单独核对。</p>"
+            + ''.join(world_status_cards) + "</section>"
+        ) if world_status_cards else ''
+        verdict = ''
+        if facts is not None:
+            if verified_change_count:
+                verdict = (f"本批有 {verified_change_count} 条来源能核实字段变化；其他来源只有新值或状态，"
+                           "不能从新值推断调整方向或幅度。")
+            else:
+                verdict = '本批没有可核实的字段变化：只有新值或来源状态，不能说明游戏内具体改了什么。'
+            if world_status_cards and not verified_change_count:
+                statuses = {self._to_int((f.get('source') or {}).get('status')) for f in facts
+                            if tkey((f.get('source') or {}).get('table_name')) == 'gameobjects'
+                            and not f.get('after_verified') and (f.get('source') or {}).get('data') is None}
+                world_state = '失效' if statuses == {3} else '仅有来源状态'
+                verdict = (f"本批有 {len(world_status_cards)} 条世界交互物的 Wago 来源状态为{world_state}；"
+                           "这不等于游戏内物件被移除。")
+                cooldowns = []
+                for f in facts:
+                    source = f.get('source') or {}
+                    if tkey(source.get('table_name')) != 'spellcooldowns' or not f.get('after_verified'):
+                        continue
+                    try:
+                        seconds = (Decimal((f.get('after') or {}).get('RecoveryTime')) / Decimal(1000)).normalize()
+                    except (InvalidOperation, TypeError):
+                        continue
+                    value = f'{seconds:f} 秒'
+                    if value not in cooldowns:
+                        cooldowns.append(value)
+                if cooldowns:
+                    examples = '、'.join(cooldowns[:3]) + ('等' if len(cooldowns) > 3 else '')
+                    verdict += f'同批技能的冷却记录新值包括 {examples}，但并未证实它属于该世界物件。'
+                item_links = any(tkey((f.get('source') or {}).get('table_name')) in
+                                 ('itemeffect', 'itemxitemeffect') for f in facts)
+                if not item_links:
+                    verdict += '本次冻结事实没有可核实的物品/装备—技能关联；'
+                verdict += '缺少可信旧值，无法判断物件交互、装备或冷却实际改变了什么。'
         reader_digest_section = (
             "<section class='reader-digest' aria-labelledby='readerDigestTitle'>"
             "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>本次热修涉及的对象与新值</h2>"
             f"<p>共 {entry_count} 条来源记录；"
-            + (f"{readable_count} 条可读取本次 Hotfix payload 的新值，{status_only_count} 条仅有来源或状态，未列入下方新值卡片（可在技术明细查阅）。"
+            + (f"{verified_change_count} 条来源有可核实的字段变化；"
+               f"{readable_count} 条可读取本次 Hotfix payload 的新值，{status_only_count} 条仅有来源或状态，未列入下方新值卡片（可在技术明细查阅）。"
                "新值不等于这些字段全部发生变化；枚举、标志位与单条系数不用于推断游戏效果。"
                if facts is not None else
                "旧报告未冻结热修 payload；所列 DB2 基表仅供对象关联，不能作为热修生效值或变化幅度。")
             + "</p></div>"
             f"<span id='readerCount'>可读 {len(readable_cards)} · 底层 {len(raw_cards)} 个对象</span></div>"
-            "<div class='controls'><input id='hotfixFilter' type='search' placeholder='搜索对象、来源 ID、新值或 DB2 表…' autocomplete='off' aria-label='搜索热修对象和新值'>"
+            + (f"<p class='reader-verdict'><strong>这次究竟知道什么：</strong>{esc(verdict)}</p>" if verdict else '')
+            + "<div class='controls'><input id='hotfixFilter' type='search' placeholder='搜索对象、来源 ID、新值或 DB2 表…' autocomplete='off' aria-label='搜索热修对象和新值'>"
             "<span class='count' id='filterCount'>技术明细</span></div>"
             + f"<details class='reader-filter-drawer' id='readerFilterDrawer'><summary>按内容分类查看 <small>{len(category_counts)} 类 · 数字为来源记录数</small></summary>"
             + f"<div class='impact-filters' role='group' aria-label='按影响范围筛选'><button type='button' class='impact-filter' data-hotfix-category='all' aria-pressed='true'><span>全部</span><strong>{entry_count}</strong></button>{''.join(category_cards)}</div>"
             + "</details>"
+            + (world_status_section if not readable_cards else '')
             + f"<section class='reader-readable' id='readerReadable'><h3>先看能直接读懂的记录 <small>{len(readable_cards)} 个对象</small></h3>"
-            + "<p class='reader-guide'>只提取热修 payload 中的名称、说明和有明确字段含义的数值；这是记录的新值，不表示每个字段都发生变化。</p>"
+            + ("<p class='reader-guide'>只提取热修 payload 中的名称、说明和有明确字段含义的数值；这是记录的新值，不表示每个字段都发生变化。</p>" if readable_cards else
+               "<p class='reader-guide'>这批没有可直接说明的玩家玩法改动；世界物件仅有状态，内部技能参数仅供核对，不能推断实际影响。</p>")
             + ''.join(card for _name_only, _priority, _score, card in readable_cards)
             + "</section>"
-            + f"<details class='reader-raw-only' id='readerRawOnly'><summary>其余 {len(raw_cards)} 个对象仅有底层字段，无法判断具体游戏表现 · 展开核对</summary>"
-            + "<p class='reader-guide'>这些记录有可解码字段，但只有关系 ID、枚举或标志位；不把代码翻译成未经证实的游戏改动。</p>"
+            + (world_status_section if readable_cards else '')
+            + f"<details class='reader-raw-only' id='readerRawOnly'><summary>其余 {len(raw_cards)} 个对象仅有底层或内部记录，无法判断具体游戏表现 · 展开核对</summary>"
+            + "<p class='reader-guide'>这些记录可能只有关系 ID、枚举、内部名称或孤立的新值；不把它们翻译成未经证实的游戏改动。</p>"
             + ''.join(raw_cards)
             + "</details>"
             + "<p class='reader-empty hidden' id='readerEmpty' role='status'></p>"
@@ -4083,9 +4172,11 @@ class WagoSkillDiffMonitor(BaseScan):
     .impact-filters {{ display:flex; flex-wrap:wrap; gap:7px; margin:11px 0 4px; }} .impact-filter {{ min-height:40px; text-align:left; border:1px solid var(--line); border-radius:8px; background:var(--surface); color:var(--ink); padding:6px 9px; cursor:pointer; }} .impact-filter:hover {{ border-color:#b8b0ed; }} .impact-filter[aria-pressed='true'] {{ border-color:var(--accent); background:var(--accent-soft); }} .impact-filter span {{ color:#475467; font-size:12px; font-weight:800; }} .impact-filter strong {{ margin-left:7px; font-size:12px; font-variant-numeric:tabular-nums; }} .impact-filter em {{ display:none; }}
     .reader-filter-drawer {{ margin:8px 0 12px; padding:0 9px 9px; border:1px solid var(--line); border-radius:10px; }} .reader-filter-drawer>summary {{ min-height:43px; display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px; font-weight:800; }} .reader-filter-drawer>summary small {{ color:var(--muted); font-size:11px; font-weight:500; }}
     .reader-digest {{ margin:20px 0 16px; }} .reader-digest-head {{ display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:4px; }} .reader-digest h2 {{ margin:0; font-size:21px; }} .reader-digest-head p {{ max-width:74ch; margin:3px 0 0; color:var(--muted); font-size:12px; text-wrap:pretty; }} .reader-digest-head>span {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
+    .reader-verdict {{ margin:12px 0; padding:12px 14px; border:1px solid #d8d3ff; border-radius:10px; background:var(--accent-soft); font-size:14px; line-height:1.75; overflow-wrap:anywhere; }} .reader-verdict strong {{ display:block; font-size:14px; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
     .reader-readable>h3 {{ margin:22px 0 3px; font-size:19px; }} .reader-readable>h3 small {{ color:var(--muted); font-size:12px; font-weight:600; }} .reader-guide {{ margin:4px 0 14px; color:var(--muted); font-size:12px; }}
     .reader-summary {{ margin:6px 0 4px; padding:10px 12px; background:var(--accent-soft); border-left:3px solid var(--accent); border-radius:6px; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }}
+    .reader-world-statuses {{ margin:15px 0; }} .reader-world-statuses>h3 {{ margin:0; font-size:18px; }} .reader-world-status {{ padding:12px 14px; margin:9px 0; background:var(--soft); border:1px solid var(--line); border-radius:10px; }} .reader-world-status h3 {{ margin:0; font-size:16px; }} .reader-world-status p {{ margin:5px 0; font-size:13px; overflow-wrap:anywhere; }} .reader-world-status a {{ display:inline-flex; align-items:center; min-height:38px; margin-right:10px; font-size:12px; }}
     .reader-sources {{ margin-top:7px; }} .reader-sources>summary {{ min-height:38px; display:inline-flex; align-items:center; color:var(--accent); font-size:12px; font-weight:750; cursor:pointer; }} .reader-raw-only {{ margin-top:20px; padding:0 13px 13px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .reader-raw-only>summary {{ min-height:52px; display:flex; align-items:center; cursor:pointer; font-weight:750; }}
     .reader-empty {{ padding:14px; border:1px solid var(--line); border-radius:10px; background:var(--soft); color:var(--muted); font-size:13px; }}
     .technical-report {{ margin-top:18px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .technical-report>summary {{ min-height:52px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:8px 12px; cursor:pointer; font-weight:850; }} .technical-report>summary small {{ color:var(--muted); font-size:11px; font-weight:650; }} .technical-body {{ padding:0 12px 12px; }}
@@ -4138,6 +4229,7 @@ class WagoSkillDiffMonitor(BaseScan):
   var readerCount=document.getElementById('readerCount');
   var empty=document.getElementById('readerEmpty');
   var rawGroup=document.getElementById('readerRawOnly');
+  var worldGroup=document.getElementById('readerWorldStatuses');
   var filterDrawer=document.getElementById('readerFilterDrawer');
   var category='all';
   if(!input){{return;}}
@@ -4163,6 +4255,13 @@ class WagoSkillDiffMonitor(BaseScan):
       rawGroup.classList.toggle('hidden', rawVisible===0);
       if(rawVisible && (q || humanVisible===0)){{rawGroup.open=true;}}
     }}
+    var worldVisible=0;
+    document.querySelectorAll('.reader-world-status').forEach(function(el){{
+      var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
+      el.classList.toggle('hidden', !ok);
+      if(ok){{worldVisible++;}}
+    }});
+    if(worldGroup){{worldGroup.classList.toggle('hidden', worldVisible===0);}}
     document.querySelectorAll('.record').forEach(function(el){{
       total++;
       var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
@@ -4184,7 +4283,8 @@ class WagoSkillDiffMonitor(BaseScan):
     if(count){{count.textContent='技术明细 '+visible+' / '+total+' 条';}}
     if(readerCount){{readerCount.textContent='可读 '+humanVisible+' / '+humanTotal+' · 底层 '+rawVisible+' / '+rawTotal+' 个对象';}}
     if(empty){{
-      empty.textContent=rawVisible ? '当前筛选只有底层配置，无法判断具体游戏表现；已展开下方原始字段。'
+      empty.textContent=worldVisible ? '世界交互物只有来源状态，尚不能确认实际游戏内改动；内部技能参数见下方底层记录。'
+        : rawVisible ? '当前筛选只有底层配置，无法判断具体游戏表现；已展开下方原始字段。'
         : (q ? '没有匹配的对象；可展开技术明细核对来源记录。'
         : '此类来源没有可解码的新值；原始来源和状态仍保留在技术明细。');
       empty.classList.toggle('hidden', humanVisible!==0);
