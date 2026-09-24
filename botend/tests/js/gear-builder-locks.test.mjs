@@ -124,6 +124,23 @@ assert.match(element.innerHTML, /力量<\/span><span>189<\/span>/, '右侧详情
 assert.match(element.innerHTML, /耐力<\/span><span>3,910<\/span>/, '右侧详情显示耐力');
 assert.match(element.innerHTML, /护甲<\/span><span>326<\/span>/, '右侧详情显示护甲');
 
+const staleDescription = '升级：勇士 6/6\n腕部 板甲\n静态属性说明：183护甲\n+83 [力量 or 智力]\n耐久: 50\n50 需要等级 90';
+api.state.equipment.head.item.description = staleDescription;
+api.state.equipment.head.item.text_schema_version = 2;
+api.state.equipment.head.variant.text_schema_version = 2;
+const previousStats = plain(api.state.equipment.head.variant.stats);
+const previousGems = plain(api.state.equipment.head.gems);
+const cleanVariant = {...freshVariant, text_schema_version: 2, effects: [], tooltip: '当前装等属性提示'};
+assert.equal(api.refreshCachedEquipmentStats([{...item, description: '', text_schema_version: 2, variants: [cleanVariant]}]), true,
+    '已标记为规范化的旧配装也必须清除脏描述');
+assert.equal(api.state.equipment.head.item.description, '');
+assert.deepEqual(plain(api.state.equipment.head.variant.stats), previousStats);
+assert.deepEqual(plain(api.state.equipment.head.gems), previousGems);
+assert.deepEqual(plain(api.state.lockedSlots), ['head']);
+api.renderCachedDetail();
+assert.doesNotMatch(element.innerHTML, /装备描述|静态属性说明/, '无真正说明的装备隐藏描述区');
+assert.match(element.innerHTML, /力量<\/span><span>189<\/span>/, '描述清理不影响属性区');
+
 console.log('配装回归验证通过：锁定限制、属性拆分与旧配装基础属性补齐。');
 api.setState({lockedSlots: ['head'], equipment: {head: {...entry(), gems: [{
     item: {item_id: 3, name: '旧宝石', description: '旧的整段提示'},

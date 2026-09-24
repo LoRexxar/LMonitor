@@ -248,6 +248,24 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(conversion['versatility_per_percent'], 54)
         self.assertEqual(conversion['mastery_coefficient'], 1.4)
 
+    def test_bootstrap_recovers_socket_rules_lost_by_old_tooltip_repair(self):
+        self.season.gear_sync_report = {'tooltip_repair': {'failed': 0}}
+        self.season.save(update_fields=['gear_sync_report'])
+        payload = self.client.get('/portal/api/gear-builder/bootstrap/').json()
+        self.assertEqual(payload['rules']['socket_additions'], [
+            {'slot': slot, 'max_additional': 1, 'source': 'socket_item'}
+            for slot in ('head', 'wrists', 'waist')
+        ])
+
+    def test_bootstrap_respects_explicitly_disabled_socket_rules_and_unknown_builds(self):
+        self.season.gear_sync_report = {'catalog_rules': {'socket_additions': []}}
+        self.season.save(update_fields=['gear_sync_report'])
+        self.assertEqual(self.client.get('/portal/api/gear-builder/bootstrap/').json()['rules']['socket_additions'], [])
+        self.season.gear_sync_report = {}
+        self.season.game_build = '13.0.0.99999'
+        self.season.save(update_fields=['gear_sync_report', 'game_build'])
+        self.assertEqual(self.client.get('/portal/api/gear-builder/bootstrap/').json()['rules']['socket_additions'], [])
+
     def test_catalog_selection_ignores_newer_active_season_without_real_batch(self):
         staged = SeasonMeta.objects.create(
             season_key='mn-s2-staged', season_name='错误的重复活跃赛季',
@@ -853,6 +871,7 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
 
 class GearBuilderTooltipRepairCommandTests(GearBuilderTestDataMixin, TestCase):
     def test_repair_command_fills_missing_variant_data_and_refreshes_audit(self):
+        original_rules = self.season.gear_sync_report['catalog_rules']
         self.hero.stats_json = {}
         self.hero.effects_json = []
         self.hero.save(update_fields=['stats_json', 'effects_json'])
@@ -873,6 +892,7 @@ class GearBuilderTooltipRepairCommandTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(self.hero.stats_json, {'strength': 999, 'crit': 333})
         self.assertEqual(self.hero.effects_json, [{'description_zh': '装备：补齐后的效果。'}])
         self.assertGreaterEqual(self.season.gear_sync_report['tooltip_repair']['updated_variants'], 1)
+        self.assertEqual(self.season.gear_sync_report['catalog_rules'], original_rules)
         self.assertIn('活动装备目录 Tooltip 补齐与审计已完成', output.getvalue())
 
     def test_repair_command_adds_missing_benchmark_candidate_variant(self):
@@ -1545,7 +1565,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260917_tooltip_order", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260924_socket_embellishment", template)
         self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)

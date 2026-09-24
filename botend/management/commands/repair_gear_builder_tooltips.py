@@ -262,7 +262,11 @@ class Command(BaseCommand):
                         item.save(update_fields=tuple(dict.fromkeys(item_fields)))
                         updated_items.add(item.pk)
 
-            audit = SyncCommand()._audit_batch(season, season.gear_batch_key)
+            # 补齐只刷新审计结果，目录规则等同步信息必须保留。
+            audit = {
+                **(season.gear_sync_report if isinstance(season.gear_sync_report, dict) else {}),
+                **SyncCommand()._audit_batch(season, season.gear_batch_key),
+            }
             audit['tooltip_repair'] = {
                 'requested': len(requested_keys),
                 'benchmark_requested': len(benchmark_targets),

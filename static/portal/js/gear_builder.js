@@ -161,6 +161,7 @@
   }
 
   function tooltipText(item, variant) {
+    if (variant?.type === "embellishment") return embellishmentDescription(variant);
     if (variant?.type === "gem" && !(variant.text_schema_version >= 2)) return gemDescription(item, variant);
     const canonicalTooltip = String(variant?.tooltip || "").trim();
     if (canonicalTooltip) {
@@ -678,8 +679,8 @@
     const selectedCount = kind === "gem"
       ? (entry?.gems || []).filter((row) => Number(row.variant?.id) === Number(variant?.id)).length
       : Number(entry?.[kind]?.variant?.id) === Number(variant?.id) ? 1 : 0;
-    const description = gemDescription(item, variant);
-    const itemDescription = item.text_schema_version >= 2 ? item.description : "";
+    const description = kind === "embellishment" ? embellishmentDescription(variant) : gemDescription(item, variant);
+    const itemDescription = kind !== "embellishment" && item.text_schema_version >= 2 ? item.description : "";
     return `<label class="gear-option-row"${tooltipAttrs(item, variant)}>
       <input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>
       <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small>${itemDescription ? `<small class="gear-option-description">${escapeHtml(itemDescription)}</small>` : ""}</span>
@@ -689,6 +690,12 @@
   function statMarkupText(stats) {
     return sortedStatEntries(stats).filter(([, value]) => number(value)).slice(0, 2)
       .map(([key, value]) => `${STAT_LABELS[key] || key} ${formatNumber(value)}`).join(" · ");
+  }
+
+  function embellishmentDescription(variant) {
+    // 美化只展示结构化特效；制作说明和旧版完整 Tooltip 不能作为特效回退。
+    const effects = (variant?.effects || []).map(effectText).map((text) => String(text).trim()).filter(Boolean);
+    return [...new Set(effects)].join("\n") || "特效数据待补全";
   }
 
   function cleanGemDescription(text, item) {

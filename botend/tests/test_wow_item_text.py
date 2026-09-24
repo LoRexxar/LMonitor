@@ -12,6 +12,57 @@ from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
 
 class ItemTextSeparationTests(SimpleTestCase):
+    def test_delve_description_discards_other_level_stats_and_tooltip_metadata(self):
+        description = '\n'.join([
+            '升级：勇士 6/6', '腕部 板甲', '静态属性说明：183护甲',
+            '+83 [力量 or 智力]', '静态属性说明：+1629 耐力',
+            '静态属性说明：+ 41暴击', '静态属性说明：+ 60急速',
+            '耐久: 50', '50 需要等级 90',
+        ])
+        stats = {'armor': 199, 'strength': 94, 'stamina': 1895, 'crit': 43, 'haste': 64}
+        before = deepcopy(stats)
+        data = separate_item_text(description_zh=description, stats=stats)
+        self.assertEqual(data, {'description': '', 'description_zh': '', 'effects': []})
+        self.assertEqual(stats, before)
+
+    def test_crafted_description_keeps_flavor_without_random_stats_or_requirements(self):
+        description = '\n'.join([
+            '板甲', '静态属性说明：15护甲', '+5 [力量 or 智力]',
+            '静态属性说明：+8 耐力', '+ 5 随机属性1', '+ 5 随机属性2', '耐久: 55 / 55',
+            '拾取后绑定', '需要等级 90', '掉落于: 测试首领', '掉落几率: 4.13%',
+            '“锻造者在护腕内侧刻下了自己的名字。”',
+        ])
+        effect = {'spell_id': 99, 'description_zh': '装备：攻击有几率使力量提高500，持续10秒。'}
+        data = separate_item_text(description_zh=description, effects=[effect], stats={'strength': 103})
+        self.assertEqual(data['description_zh'], '“锻造者在护腕内侧刻下了自己的名字。”')
+        self.assertEqual(data['effects'], [effect])
+
+    def test_english_tooltip_stats_are_not_equipment_flavor(self):
+        data = separate_item_text(description='\n'.join([
+            'Epic', 'Upgrade: Champion 6/6', 'Wrist Plate', '183 Armor',
+            '+83 [Strength or Intellect]', '+1,629 Stamina', '+41 Critical Strike',
+            '+60 Haste', '+5 Random Stat 1', 'Durability: 50 / 50', 'Requires Level 90',
+            'Binds when equipped', 'An old promise, forged in steel.',
+        ]))
+        self.assertEqual(data['description'], 'An old promise, forged in steel.')
+
+    def test_equipment_normalization_is_idempotent_and_preserves_raw_values(self):
+        raw = '板甲\n183护甲\n+83 [力量 or 智力]\n+1629 耐力\n耐久: 50 / 50'
+        item = {'catalog_type': 'equipment', 'description_zh': raw, 'variants': [
+            {'stats': {'armor': 199, 'strength': 94, 'stamina': 1895}, 'effects': []},
+            {'stats': {'armor': 183, 'strength': 83, 'stamina': 1629}, 'effects': []},
+        ]}
+        before = deepcopy(item['variants'])
+        normalize_catalog_text(item)
+        self.assertEqual(item['description_zh'], '')
+        self.assertEqual(item['metadata']['raw_item_descriptions']['description_zh'], raw)
+        for variant, original in zip(item['variants'], before):
+            self.assertEqual(variant['stats'], original['stats'])
+            self.assertEqual(variant['effects'], original['effects'])
+        normalized = deepcopy(item)
+        normalize_catalog_text(item)
+        self.assertEqual(item, normalized)
+
     def test_plain_stats_are_not_effects_or_description(self):
         data = separate_item_text(description_zh='无瑕迅捷榄石 榄石 物品等级：295 +17 急速 使用: 最大叠加:200 售价:3 10',
             effects=[{'description': '17 Haste'}], stats={'haste': 17}, names=['无瑕迅捷榄石'], enhancement=True)
@@ -75,6 +126,20 @@ class ItemTextSeparationTests(SimpleTestCase):
 
 
 class ItemTextStorageTests(GearBuilderTestDataMixin, TestCase):
+    def test_catalog_projects_clean_description_without_changing_stored_stats(self):
+        raw = '升级：勇士 6/6\n腕部 板甲\n183护甲\n+83 [力量 or 智力]\n+1629 耐力\n耐久: 50 / 50 需要等级 90'
+        self.helm.description_zh = raw
+        self.helm.save(update_fields=['description_zh'])
+        before = deepcopy(self.hero.stats_json)
+        data = serialize_item(self.helm, [self.hero], 'Warrior', 'Fury')
+        self.assertEqual(data['description'], '')
+        self.assertIn('升级：勇士 6/6', data['variants'][0]['tooltip'])
+        self.assertNotIn('+83 [力量 or 智力]', data['variants'][0]['tooltip'])
+        self.helm.refresh_from_db()
+        self.hero.refresh_from_db()
+        self.assertEqual(self.helm.description_zh, raw)
+        self.assertEqual(self.hero.stats_json, before)
+
     def test_shared_api_keeps_flavor_and_effect_fields_distinct(self):
         self.helm.description_zh = '古老的头盔。\n装备：攻击有几率开启裂隙。'
         self.helm.save(update_fields=['description_zh'])

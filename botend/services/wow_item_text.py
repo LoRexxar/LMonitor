@@ -1,6 +1,7 @@
 """分离历史物品提示中的描述、静态属性与特效，不推断或改写属性数值。"""
 import re
 import unicodedata
+from functools import lru_cache
 
 
 ENHANCEMENTS = {'gem', 'enchant', 'embellishment'}
@@ -14,6 +15,56 @@ STAT_NAMES = {
     'avoidance': ('闪避', '躲闪', 'Avoidance'),
 }
 EFFECT_PREFIX = re.compile(r'^(?:(?:装备|使用|被动|效果|提供下列属性|Equip|Use|Passive|Effect)\s*[:：]|\([24]\)\s*(?:组合|套装|Set))', re.I)
+
+
+@lru_cache(maxsize=2048)
+def _equipment_description_lines(text):
+    """排除旧装备 Tooltip 的结构行，不按当前变体数值判断是否为描述。"""
+    labels = sorted({label for values in STAT_NAMES.values() for label in values} | {
+        '额外护甲', 'Bonus Armor', '武器秒伤', 'Damage Per Second', '每秒伤害',
+    }, key=len, reverse=True)
+    equipment_types = (
+        '头部', '颈部', '肩部', '背部', '胸部', '腕部', '手部', '腰部', '腿部', '脚部',
+        '手指', '戒指', '饰品', '单手', '双手', '主手', '副手', '远程',
+        '布甲', '皮甲', '锁甲', '板甲', '盾牌', '斧', '剑', '锤', '匕首', '法杖',
+        '长柄武器', '战刃', '拳套', '弓', '弩', '枪械', '魔杖', '持在副手',
+        'Head', 'Neck', 'Shoulder', 'Back', 'Chest', 'Wrist', 'Hands', 'Waist', 'Legs',
+        'Feet', 'Finger', 'Trinket', 'One-Hand', 'Two-Hand', 'Main Hand', 'Off Hand',
+        'Held In Off-hand', 'Ranged', 'Cloth', 'Leather', 'Mail', 'Plate', 'Shield',
+        'Axe', 'Sword', 'Mace', 'Dagger', 'Staff', 'Polearm', 'Warglaives', 'Fist Weapon',
+        'Bow', 'Crossbow', 'Gun', 'Wand',
+    )
+    type_row = re.compile(r'(?:(?:' + '|'.join(map(re.escape, equipment_types)) + r')\s*)+', re.I)
+    metadata_row = re.compile(
+        r'^(?:(?:升级|Upgrade|耐久|Durability|掉落于|Dropped by|掉落几率|Drop Chance|'
+        r'来源|Source|职业|Classes?|种族|Races?|装备唯一|Unique-Equipped)\s*[:：]|'
+        r'(?:需要等级|Requires Level)\s*\d|'
+        r'(?:拾取后绑定|装备后绑定|战团绑定|Binds when picked up|Binds when equipped)\s*$)', re.I,
+    )
+    lines = []
+    for raw in str(text or '').replace('\r\n', '\n').replace('\r', '\n').split('\n'):
+        line = raw.strip()
+        value = unicodedata.normalize('NFKC', line)
+        value = re.sub(r'^静态属性说明\s*:\s*', '', value)
+        if metadata_row.match(value) or type_row.fullmatch(value):
+            continue
+        if re.fullmatch(r'(?:史诗钥石|史诗|稀有|精良|优秀|普通|Mythic Keystone|Epic|Rare|Uncommon|Common)', value, re.I):
+            continue
+        # 旧规范化文本把“耐久 50 / 50”拆成两行，第二行可能还带等级要求。
+        if re.fullmatch(r'\d+(?:\s+(?:需要等级|Requires Level)\s*\d+)?', value, re.I):
+            continue
+        stat = re.fullmatch(r'\+?\s*[\d,.]+\s*(.+)', value)
+        if stat:
+            remainder = re.sub(r'随机属性\s*\d+|Random (?:Stat|Enchantment)\s*\d*', '', stat[1], flags=re.I)
+            for label in labels:
+                remainder = re.sub(re.escape(label), '', remainder, flags=re.I)
+            remainder = re.sub(r'\b(?:or|and)\b|[\s\[\]()或和与及、,/&+点]+', '', remainder, flags=re.I)
+            if not remainder:
+                continue
+        if re.fullmatch(r'[\d,.]+\s*-\s*[\d,.]+\s*(?:伤害|Damage)', value, re.I):
+            continue
+        lines.append(line)
+    return tuple(lines)
 
 
 def clean_text(text, names=()):
@@ -107,6 +158,8 @@ def separate_item_text(*, description='', description_zh='', effects=(), stats=N
     recovered = {'description': [], 'description_zh': []}
     for field, raw in [('description', description), ('description_zh', description_zh)]:
         descriptions = []
+        if not enhancement:
+            raw = '\n'.join(_equipment_description_lines(raw))
         if enhancement:
             usage[field].extend(re.findall(r'(?:不能|无法)对物品等级低于\d+的物品使用[。.]?', str(raw)))
         application = bool(re.match(r'(?:使用\s*[:：]\s*)?永久性?地?为', clean_text(raw, names)))

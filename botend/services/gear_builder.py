@@ -374,6 +374,16 @@ def bootstrap_payload():
     season = active_season()
     sync_report = season.gear_sync_report if season and isinstance(season.gear_sync_report, dict) else {}
     catalog_rules = sync_report.get('catalog_rules') if isinstance(sync_report.get('catalog_rules'), dict) else {}
+    # 旧版 Tooltip 补齐命令会覆盖 catalog_rules；仅恢复当前已知版本的规则。
+    # 显式配置的空列表仍表示禁用，不能被默认值覆盖。
+    if 'socket_additions' not in catalog_rules and season and str(season.game_build or '').startswith('12.1.'):
+        catalog_rules = {
+            **catalog_rules,
+            'socket_additions': [
+                {'slot': slot, 'max_additional': 1, 'source': 'socket_item'}
+                for slot in ('head', 'wrists', 'waist')
+            ],
+        }
     catalog_rules = {
         **catalog_rules,
         'socket_additions': [
