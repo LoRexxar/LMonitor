@@ -401,7 +401,7 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         report = BeautifulSoup(html, 'html.parser')
         self.assertIn('改动来源', report.select_one('.summary').get_text())
         self.assertEqual(report.select_one('.affected-metric strong').get_text(strip=True), '—')
-        self.assertEqual(report.select_one('.impact-block-title').get_text(strip=True), '本次字段与数值变化')
+        self.assertEqual(report.select_one('.impact-block-title').get_text(strip=True), '本次热修来源事实（已核实变化 / 前态未核实的观察值）')
         facts = report.select('.impact-block [data-effect-index]')
         self.assertEqual([row['data-effect-index'] for row in facts], ['9', '10', '11', '12'])
         self.assertIn('EffectAura', facts[0].get_text())
@@ -575,6 +575,38 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertFalse((self.base_dir / 'static' / staged['content_html_path']).exists())
         self.assertEqual(report_spell_entries(Path(staged['staging_path']).read_text(encoding='utf-8'))[427453]['indices'], {0})
 
+    def test_hotfix_class_uses_central_label_and_never_draws_delta_for_observed_value(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._load_chr_classes = lambda build, locale_override=None: {1: 'Warrior'}
+        monitor._load_chr_specialization_meta = lambda build, locale_override=None: {
+            71: {'name': 'Arms', 'class_id': 1},
+        }
+        change = {46924: {'tables': {'spelleffect'}, 'diffs': {'spelleffect': [{
+            'id': 99, 'action': 'observed',
+            'meta': {'EffectIndex': 0, 'PushID': 112185, 'SourceBuild': '12.1.0.69933'},
+            'fields': [{'field': 'BonusCoefficientFromAP', 'before': '旧值未核实', 'after': '10.45'}],
+        }]}}}
+        with override_settings(BASE_DIR=str(self.base_dir)), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects.filter') as snapshot, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.database_spell_metadata',
+                   return_value={46924: {'name': '剑刃风暴', 'icon': '', 'icon_source': ''}}) as metadata, \
+             patch.object(monitor, '_fetch_spell_names_concurrent',
+                          side_effect=AssertionError('unbounded name request')):
+            snapshot.return_value.values.return_value = []
+            result = monitor._write_html_report(
+                branch='wow', server_title='Hotfix', from_build='12.1.0.69933', to_build='12.1.0.69933',
+                display_from_build='push 111863', display_to_build='push 112236',
+                class_names={1: 'Warrior'}, spec_meta={71: {'name': 'Arms', 'class_id': 1}},
+                spell_to_specs={46924: {71}}, spec_to_class={71: 1}, spell_changes=change,
+                data_build='12.1.0.69933', effect_record_ids=True,
+                source_names_override={}, report_key='hotfix_r3_p112236',
+            )
+            body = (self.base_dir / 'static' / result['path']).read_text(encoding='utf-8')
+        self.assertIn("class='spell-title'>剑刃风暴", body)
+        self.assertIn('观察值', body)
+        self.assertNotIn('旧值未核实</span><span class=\'change-arrow\'>→', body)
+        metadata.assert_called_once_with([46924], 'wow', '12.1.0.69933', allow_compatible_name=True)
+
     def test_hotfix_source_link_uses_working_locale_push_search(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         url = monitor._hotfix_url(push_id=112185, locale='enUS')
@@ -598,6 +630,7 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
             )
         self.assertTrue(Path(physical).is_file())
         self.assertIn('value-not-in-summary', Path(physical).read_text(encoding='utf-8'))
+        self.assertIn('可核实旧→新 0 个字段', Path(physical).read_text(encoding='utf-8'))
         self.assertIn('wago-hotfix-staging', physical)
         self.assertFalse((self.base_dir / 'static' / relative).exists())
 
@@ -840,7 +873,7 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
         self.assertIn("data-hotfix-category='all'", html)
         self.assertIn("data-hotfix-category='技能/法术'", html)
         self.assertIn('不能作为热修生效值或变化幅度', html)
-        self.assertIn('这次具体改了什么', html)
+        self.assertIn('本区间来源事实与可核实变化', html)
         self.assertIn('第 1 个技能效果的客户端 DB2 基表记录（非热修生效值）：基础值 15，法术强度系数 0.42，PvP 倍率 0.8', html)
         self.assertIn('当前设置为随物品等级缩放', html)
         self.assertIn('查看技术明细与 DB2 基表参考字段', html)
@@ -987,7 +1020,7 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
 
         html = Path(full_path).read_text(encoding='utf-8')
         self.assertEqual(rel_path, 'portal/reports/wow_hotfix_full_wow_zhCN_109505.html')
-        self.assertIn('这次具体改了什么', html)
+        self.assertIn('本区间来源事实与可核实变化', html)
         self.assertIn('奥术涌动', html)
         self.assertIn('修复信标', html)
         self.assertIn('奥术饰品', html)
@@ -1073,7 +1106,7 @@ class WagoHotfixFullHtmlReportTests(SimpleTestCase):
             )
 
         html = Path(full_path).read_text(encoding='utf-8')
-        self.assertIn('这次具体改了什么', html)
+        self.assertIn('本区间来源事实与可核实变化', html)
         self.assertIn('<h3>星界水母</h3>', html)
         self.assertIn('来源技能', html)
         self.assertIn('召唤星界水母 #2222', html)
@@ -2060,9 +2093,9 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
                 'EffectIndex': '0', 'BonusCoefficientFromAP': '10.45'},
                 'after_verified': True, 'before_verified': False, 'changes': []}
         with tempfile.TemporaryDirectory() as root, override_settings(BASE_DIR=root), \
-             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects.filter') as snapshots, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.database_spell_metadata',
+                   return_value={427453: {'name': 'Hammer of Light', 'icon': '', 'icon_source': ''}}) as names, \
              patch.object(monitor, '_fetch_spell_names_concurrent') as network_names:
-            snapshots.return_value.values.return_value = [{'spell_id': 427453, 'name': 'Hammer of Light'}]
             monitor._fetch_db2_row_by_id = lambda *args: {}
             path, _ = monitor._write_hotfix_full_html(
                 branch='wow', locale='enUS', region_id=3, to_push=112185,
@@ -2072,5 +2105,6 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
                 sample_per_table=1, enrich_max=0, facts=[fact],
             )
             network_names.assert_not_called()
+            names.assert_called_once_with({427453}, 'wow', '12.1.0.69933', allow_compatible_name=True)
             self.assertIn('Hammer of Light', Path(path).read_text(encoding='utf-8'))
 

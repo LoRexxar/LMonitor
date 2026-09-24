@@ -47,6 +47,19 @@ class ReportDatabaseMetadataTests(TestCase):
         self.assertEqual(result[101]['name'], '')
         self.assertEqual(result[102]['icon'], '')
 
+    def test_hotfix_labels_reuse_same_branch_compatible_chinese_snapshot_only(self):
+        WowSpellSnapshot.objects.create(branch='wow', locale='zhCN', spell_id=46924,
+                                        snapshot_build='12.1.0.69404', name='Bladestorm', name_zh='剑刃风暴')
+        WowSpellSnapshot.objects.create(branch='wowt', locale='zhCN', spell_id=46924,
+                                        snapshot_build='12.1.0.69933', name_zh='其他分支')
+        WowSpellSnapshot.objects.create(branch='wow', locale='zhCN', spell_id=46925,
+                                        snapshot_build='12.1.0.70001', name_zh='未来数据')
+        self.assertEqual(database_spell_metadata([46924], 'wow', '12.1.0.69933')[46924]['name'], '')
+        labels = database_spell_metadata([46924, 46925], 'wow', '12.1.0.69933',
+                                         allow_compatible_name=True)
+        self.assertEqual(labels[46924]['name'], '剑刃风暴')
+        self.assertEqual(labels[46925]['name'], '')
+
 
 class ReportRelationshipTests(SimpleTestCase):
     html = """<article class='spell' id='spell-1256919'><span class='spell-title'>武器战士</span>
@@ -208,3 +221,13 @@ class ReportRelationshipTests(SimpleTestCase):
         }])
         self.assertEqual(item['direct_indices'], [])
         self.assertEqual(item['name'], '技能')
+
+    def test_hotfix_frozen_name_is_not_overwritten_by_older_snapshot_label(self):
+        html = "<article class='spell' id='spell-123'><span class='spell-title'>New Source Name</span></article>"
+        fact = {'source': {'table_name': 'SpellName', 'record_id': 123, 'push_id': 112185},
+                'source_build': '12.1.0.69933', 'after_verified': True,
+                'after': {'ID': '123', 'Name_lang': 'New Source Name'}}
+        with patch('botend.services.wow_skill_report_metadata.database_spell_metadata',
+                   return_value={123: {'name': 'Old Snapshot Name', 'icon': '', 'icon_source': ''}}):
+            item = build_hotfix_report_spell_metadata(html, 'wow', [fact], resolve_remote=False)['123']
+        self.assertEqual(item['name'], 'New Source Name')

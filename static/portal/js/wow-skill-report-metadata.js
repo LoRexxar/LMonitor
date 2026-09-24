@@ -79,6 +79,7 @@
         });
         const returnedIndices = new Set(effects.map(effect => Number(effect.index)));
         const allExpectedReturned = [...expectedIndices].every(index => returnedIndices.has(index) || directIndices.has(index));
+        const canCollapseSourceFacts = allExpectedReturned && effects.every(effect => effect.targets.length && !effect.truncated);
         if (!allExpectedReturned) complete = false;
         if (!effects.length) {
           if (!expectedIndices.size) affectedIds.add(id);
@@ -129,12 +130,19 @@
           const detailRows = Array.from(article.querySelectorAll('.tech-details .line')).filter(row =>
             row.textContent.includes(`(#${effect.index})`));
           const evidenceRows = factRows.length ? factRows : (effect.source_build ? [] : detailRows);
-          if (evidenceRows.length) {
+          if (evidenceRows.length && canCollapseSourceFacts) {
             const facts = document.createElement('div');
             facts.className = 'spell-effect-change';
             evidenceRows.forEach(row => facts.append(row.cloneNode(true)));
             group.append(facts);
             copiedFacts++;
+          } else if (evidenceRows.length) {
+            // With unresolved targets the original fact block stays visible.
+            // Cloning it here rendered the same Hotfix evidence twice.
+            const reference = document.createElement('div');
+            reference.className = 'spell-effect-change';
+            reference.textContent = '字段事实见本卡片下方热修来源记录（不重复列出）';
+            group.append(reference);
           } else {
             const unavailable = document.createElement('div');
             unavailable.className = 'spell-effect-change';
@@ -144,7 +152,7 @@
           previousGroup.after(group);
           previousGroup = group;
         });
-        if (allExpectedReturned && copiedFacts === effects.length && effects.every(effect => effect.targets.length && !effect.truncated)) {
+        if (canCollapseSourceFacts && copiedFacts === effects.length) {
           const sourceFacts = article.querySelector(':scope > .impact-block');
           if (sourceFacts) {
             const details = document.createElement('details');

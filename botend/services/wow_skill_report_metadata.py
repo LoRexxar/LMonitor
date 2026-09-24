@@ -28,7 +28,7 @@ def _compatible_build(candidate, target):
     return len(old) == 4 and len(new) == 4 and old[:2] == new[:2] and old <= new
 
 
-def database_spell_metadata(spell_ids, branch, build):
+def database_spell_metadata(spell_ids, branch, build, *, allow_compatible_name=False):
     """优先同分支图标，兼容版本的同 ID 图标无冲突时跨分支复用。"""
     ids = set(spell_ids)
     result = {sid: {'icon': '', 'name': '', 'icon_source': ''} for sid in ids}
@@ -39,7 +39,9 @@ def database_spell_metadata(spell_ids, branch, build):
     shared_icons = {sid: set() for sid in ids}
     for row in rows:
         value = result[row['spell_id']]
-        if row['branch'] == branch and row['snapshot_build'] == build and not value['name']:
+        if (row['branch'] == branch and not value['name']
+                and (row['snapshot_build'] == build or (
+                    allow_compatible_name and _compatible_build(row['snapshot_build'], build)))):
             value['name'] = row['name_zh'] or (row['name'] if row['locale'] == 'zhCN' else '')
         if _compatible_build(row['snapshot_build'], build) and row['icon']:
             shared_icons[row['spell_id']].add(row['icon'])
@@ -195,7 +197,10 @@ def build_report_spell_metadata(html_text, branch, build, *, entries_override=No
             relation['truncated'] = len(matched_ids) > 50
             relation['spell_ids'] = matched_ids[:50]
             target_ids.update(relation['spell_ids'])
-    metadata = database_spell_metadata(set(ids) | target_ids, branch, build)
+    metadata = database_spell_metadata(
+        set(ids) | target_ids, branch, build,
+        **({'allow_compatible_name': True} if not resolve_remote else {}),
+    )
     missing_names = sorted(sid for sid in target_ids if not metadata[sid]['name'])
     names = _parallel(missing_names, lambda sid: _db2_rows('SpellName', build, 'ID', sid, 'zhCN')) if missing_names and resolve_remote else {}
     for sid, rows in names.items():
@@ -215,7 +220,10 @@ def build_report_spell_metadata(html_text, branch, build, *, entries_override=No
         source = value['icon_source']
         basename = re.sub(r'\.(?:jpg|png|blp)$', '', str(icon).rsplit('/', 1)[-1], flags=re.I)
         fallback = f'https://wow.zamimg.com/images/wow/icons/large/{basename}.jpg' if re.fullmatch(r'[a-zA-Z0-9_-]+', basename) else ''
-        return {'id': sid, 'name': value['name'] or entries.get(sid, {}).get('name') or f'技能 #{sid}',
+        report_name = entries.get(sid, {}).get('name') or ''
+        frozen_label = (report_name if not resolve_remote and not re.fullmatch(
+            r'(?:Spell|技能)?\s*#?\d+', report_name.strip(), flags=re.I) else '')
+        return {'id': sid, 'name': frozen_label or value['name'] or report_name or f'技能 #{sid}',
                 'url': wowhead_spell_url(branch, sid), 'icon_source': source,
                 'icon_fallback_url': fallback,
                 'icon_url': (f'https://wow.zamimg.com/images/wow/icons/large/{icon}.jpg' if source == 'wowhead' else wow_icon_oss_url(icon)) if icon else ''}

@@ -3072,6 +3072,8 @@ class WagoSkillDiffMonitor(BaseScan):
             sample_per_table = max(int(sample_per_table or 20), *(int(count or 0) for _, count in table_stats), 1)
         entry_count = sum(int(c or 0) for _, c in table_stats)
         table_count = len(table_stats)
+        compared_records = sum(bool(f.get('before_verified')) for f in (facts or []))
+        proven_field_changes = sum(len(f.get('changes') or []) for f in (facts or []) if f.get('before_verified'))
         sample_per_table = max(1, int(sample_per_table or 20))
         enrich_left = max(0, int(enrich_max or 0))
         row_cache = {}
@@ -3094,13 +3096,11 @@ class WagoSkillDiffMonitor(BaseScan):
                     spell_ids.add(sid)
             if spell_ids:
                 try:
-                    snapshots = WowSpellSnapshot.objects.filter(
-                        branch=branch, locale=locale, spell_id__in=spell_ids,
-                    ).values('spell_id', 'name')
-                    for snap in snapshots:
-                        name = self._clean_external_text(snap.get('name') or '')
+                    for sid, metadata in database_spell_metadata(
+                            spell_ids, branch, db2_build, allow_compatible_name=True).items():
+                        name = self._clean_external_text(metadata.get('name') or '')
                         if name:
-                            spell_name_cache[int(snap['spell_id'])] = name
+                            spell_name_cache[int(sid)] = name
                 except Exception as exc:
                     logger.warning('[WagoSkillDiffMonitor] optional Hotfix name labels unavailable: %s', exc)
             for fact in sorted(facts, key=lambda item: int((item.get('source') or {}).get('push_id') or 0)):
@@ -3340,7 +3340,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 return f"{sname or ('Spell ' + str(sid))}" + (f"：{brief}" if brief else '')
             return first_text(row)
 
-        def row_fields_html(table_name, record_id, row):
+        def row_fields_html(table_name, record_id, row, fact=None):
             impact_title, impact_description = impact_copy(table_name)
             semantic_html = (
                 "<div class='semantic-fallback'>"
@@ -3467,8 +3467,13 @@ class WagoSkillDiffMonitor(BaseScan):
             if raw_chips:
                 if raw_count < sum(1 for _k, _v in row.items() if _v is not None and str(_v).strip() != ''):
                     raw_chips.append("<div class='field raw'><span>更多字段</span><strong>超过 120 个原始字段未展开</strong></div>")
+                raw_description = (
+                    '查看本次 Hotfix payload 原始字段（最多前 120 个；仅为新值，不代表每个字段都发生变化）'
+                    if fact is not None and fact.get('after_verified') else
+                    '查看 DB2 基表参考字段（最多前 120 个，含 0 / 默认值 / 内部字段；非热修生效值）'
+                )
                 raw_html = (
-                    "<details class='raw-fields'><summary>查看 DB2 基表参考字段（最多前 120 个，含 0 / 默认值 / 内部字段；非热修生效值）</summary>"
+                    f"<details class='raw-fields'><summary>{raw_description}</summary>"
                     "<div class='fields raw-grid'>" + ''.join(raw_chips) + "</div></details>"
                 )
             else:
@@ -3828,10 +3833,21 @@ class WagoSkillDiffMonitor(BaseScan):
                 search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid), summary, first_text(row)]).lower()
                 row_title = summary or f"record_id {rid}"
                 wago_rec_url = hotfix_table_url(t, pid)
+                if fact is None:
+                    evidence_state = ''
+                elif not fact.get('after_verified'):
+                    evidence_state = '无可解码新 payload，变化未核实'
+                elif not fact.get('before_verified'):
+                    evidence_state = '仅新值；旧值未核实，不代表字段变化'
+                elif fact.get('changes'):
+                    evidence_state = f"已核实旧→新：{len(fact['changes'])} 个字段"
+                else:
+                    evidence_state = '已核实前后值相同；无字段变化'
                 cards.append(
                     "<article class='record' data-category='{}' data-search='{}'>".format(esc(category), esc(search_text))
                     + f"<div class='record-head'><div><span class='record-id'>#{rid}</span><strong>{esc(row_title)}</strong></div><a href='{esc(wago_rec_url)}' target='_blank' rel='noreferrer'>Wago push {pid}</a></div>"
-                    + row_fields_html(t, rid, row)
+                    + (f"<p class='muted evidence-state'>{esc(evidence_state)}</p>" if evidence_state else '')
+                    + row_fields_html(t, rid, row, fact)
                     + "</article>"
                 )
             more = max(0, int(c or 0) - len(records))
@@ -3867,9 +3883,10 @@ class WagoSkillDiffMonitor(BaseScan):
             )
         reader_digest_section = (
             "<section class='reader-digest' aria-labelledby='readerDigestTitle'>"
-            "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>这次具体改了什么</h2>"
+            "<div class='reader-digest-head'><div><h2 id='readerDigestTitle'>本区间来源事实与可核实变化</h2>"
             f"<p>已从 {entry_count} 条底层记录整理出 {len(reader_cards)} 个对象。"
-            + ("已逐项核对 Wago Hotfix payload；有可信同区域前态时展示字段旧→新，缺失则只列新值并标注。" if facts is not None
+            + (f"其中 {compared_records} 条记录有可核实前态，可核实旧→新 {proven_field_changes} 个字段；"
+               '其余仅列新 payload 观察值，不能据此判断字段变化。' if facts is not None
                else "旧报告未冻结热修 payload；所列客户端 DB2 基表仅供对象关联，不能作为热修生效值或变化幅度。")
             + "不根据枚举或单条系数擅自判断整技能强弱。</p></div>"
             f"<span id='readerCount'>显示 {len(reader_cards)} 个对象</span></div>"
@@ -3926,7 +3943,7 @@ class WagoSkillDiffMonitor(BaseScan):
       </div>
       <a class="source-link" href="{esc(wago_url)}" target="_blank" rel="noreferrer">核对 Wago 原始列表</a>
     </header>
-    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 记录</span><span><strong>{len(reader_cards)}</strong> 个可读对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
+    <div class="quick-facts" aria-label="报告摘要"><span><strong>{entry_count}</strong> 条 Hotfix 来源记录</span><span><strong>{compared_records}</strong> 条记录有前态</span><span><strong>{proven_field_changes}</strong> 个字段可核实旧→新</span><span><strong>{len(reader_cards)}</strong> 个可读对象</span><span><strong>{len(category_counts)}</strong> 个影响范围</span><span>{table_count} 张 DB2 表已收进技术明细</span></div>
     {reader_digest_section}
     <details class="technical-report">
       <summary><span>查看技术明细与 DB2 基表参考字段</span><small>{table_count} 张表 · {entry_count} 条记录</small></summary>
@@ -6175,11 +6192,20 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             }
             for r in snapshot_rows
         }
-        for sid, metadata in database_spell_metadata(spell_ids, branch, data_build).items():
+        names_and_icons = database_spell_metadata(
+            spell_ids, branch, data_build,
+            **({'allow_compatible_name': True} if source_names_override is not None else {}),
+        )
+        for sid, metadata in names_and_icons.items():
             context = spell_context.setdefault(sid, {})
             if metadata.get('icon'):
                 context['icon'] = metadata['icon']
         name_cache.update(snap_names)
+        if source_names_override is not None:
+            for sid, metadata in names_and_icons.items():
+                name = self._clean_external_text(metadata.get('name') or '')
+                if name:
+                    name_cache[sid] = name
         if source_names_override is not None:
             name_cache.update(source_names_override)
         else:
@@ -6310,7 +6336,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             parts.append(f"<div class='meta'><span>主要变更表：{html.escape(table_summary)}</span></div>")
         parts.append("<section class='impact-overview' aria-labelledby='impactOverviewTitle'>")
         impact_note = ('仅对可直接判读的数值、系数与消耗字段评估方向；枚举与机制参数不等于伤害百分比。'
-                       if assess_tone else 'Hotfix 的数值与条件可能相互影响，强弱暂不推断；以下字段变化属于事实，不是影响结论。')
+                       if assess_tone else '只有已核实前态的旧→新值才证明字段变化；其余只是本次 payload 观察值，不能据此判断强弱。')
         parts.append(f"<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>影响评估（独立于改动事实）</div><div class='impact-note'>{impact_note}</div></div>")
         parts.append("<div class='tone-tabs' role='group' aria-label='按改动方向筛选'>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='all' aria-pressed='true'>全部<span class='tab-count'>{len(spell_changes)}</span></button>")
@@ -6423,6 +6449,8 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
         def fmt_change(b, a):
             b = '' if b is None else str(b)
             a = '' if a is None else str(a)
+            if effect_record_ids and b == '旧值未核实':
+                return f"观察值 <span class='ins'>{html.escape(a)}</span>（旧值未核实，不能判断是否变化）"
             if b == a:
                 return html.escape(a)
             return f"<span class='del'>{html.escape(b)}</span> → <span class='ins'>{html.escape(a)}</span>"
@@ -6445,6 +6473,9 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             old_value = '空' if before is None or str(before).strip() == '' else str(before).strip()
             new_value = '空' if after is None or str(after).strip() == '' else str(after).strip()
             value_html = (
+                f"<span class='new-value'>观察值 {html.escape(new_value)}</span>"
+                "<span class='subtle'>旧值未核实，不代表字段变化</span>"
+                if effect_record_ids and old_value == '旧值未核实' else
                 f"<span class='old-value'>{html.escape(old_value)}</span>"
                 "<span class='change-arrow'>→</span>"
                 f"<span class='new-value'>{html.escape(new_value)}</span>"
@@ -6595,22 +6626,27 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                         if tkey in ('spell', 'spelldescription'):
                             for it in filtered_items:
                                 for fd in it.get('fields') or []:
-                                    btxt, b_removed = self._render_spell_text_plain(from_build, spell_id, fd.get('before'))
                                     atxt, a_removed = self._render_spell_text_plain(to_build, spell_id, fd.get('after'))
-                                    merged = self._inline_diff_html(btxt, atxt) + fmt_removed(a_removed)
+                                    observed = effect_record_ids and it.get('action') == 'observed'
+                                    if observed:
+                                        merged = f"观察文本：{html.escape(atxt)}（旧值未核实）" + fmt_removed(a_removed)
+                                    else:
+                                        btxt, b_removed = self._render_spell_text_plain(from_build, spell_id, fd.get('before'))
+                                        merged = self._inline_diff_html(btxt, atxt) + fmt_removed(a_removed)
                                     f = fd.get('field') or ''
                                     title = field_change_label(f) or '描述'
                                     if not desc_primary and f in ('Description_lang', 'AuraDescription_lang'):
                                         desc_primary = merged
                                     else:
                                         lines.append(f"<div class='line'><span class='k'>{html.escape(table_change_label(tkey))}</span> {html.escape(title)}：{merged}</div>")
-                                    impact_key = (self._report_impact_dimension(tkey, f), '文本更新')
+                                    evidence_label = '观察文本，旧值未核实' if observed else '文本更新'
+                                    impact_key = (self._report_impact_dimension(tkey, f), evidence_label)
                                     if impact_key not in impact_seen:
                                         impact_seen.add(impact_key)
                                         impact_lines.append(
                                             "<div class='impact-row mechanic'><div><span class='impact-label'>技能说明与机制</span>"
-                                            f"<span class='impact-evidence'>{html.escape(title)}发生变化</span></div>"
-                                            "<div class='value-flow'><span class='delta-badge mechanic'>文本更新</span></div></div>"
+                                            f"<span class='impact-evidence'>{html.escape(title)}{'仅观察到本次值' if observed else '发生变化'}</span></div>"
+                                            f"<div class='value-flow'><span class='delta-badge mechanic'>{evidence_label}</span></div></div>"
                                         )
                             continue
 
@@ -6631,7 +6667,9 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     search_text = ' '.join([str(sname), str(spell_id), str(cname), str(spec_name), ' '.join(diffs_by_table.keys())]).lower()
                     context = spell_context.get(int(spell_id)) or {}
                     if not desc_primary and context.get('description'):
-                        desc_primary = self._render_spell_text_html(to_build, spell_id, context.get('description'))
+                        reference = self._render_spell_text_html(to_build, spell_id, context.get('description'))
+                        desc_primary = ('<span class="subtle">快照参考描述（非本次 Hotfix payload）：</span>' + reference
+                                        if effect_record_ids else reference)
                     tone = spell_tones.get(int(spell_id)) or 'mechanic'
                     tone_label = {'buff': '增强', 'nerf': '削弱', 'mixed': '有增有减', 'mechanic': '强弱待评估'}.get(tone, '强弱待评估')
                     icon_url = self._report_spell_icon_url(context.get('icon'))
@@ -6651,7 +6689,8 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     if desc_primary:
                         parts.append(f"<div class='spell-desc'>{desc_primary}</div>")
                     parts.append("</div></div>")
-                    parts.append("<div class='impact-block'><div class='impact-block-title'>本次字段与数值变化</div><div class='impact-list'>")
+                    heading = '本次热修来源事实（已核实变化 / 前态未核实的观察值）' if effect_record_ids else '本次字段与数值变化'
+                    parts.append(f"<div class='impact-block'><div class='impact-block-title'>{heading}</div><div class='impact-list'>")
                     if impact_lines or fact_lines:
                         parts.extend(impact_lines)
                         parts.extend(fact_lines)
