@@ -1,4 +1,6 @@
 """Full Hotfix reader must describe frozen new values, not imply field deltas."""
+import html
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -11,6 +13,168 @@ from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMoni
 
 
 class FullHotfixNewValueReaderTests(SimpleTestCase):
+    def test_exact_build_db2_identity_lookup_rejects_wrong_build_and_id(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        def response(build, rid, locale='enUS', selector='exact:136970'):
+            props = {'filters': {'build': build, 'locale': locale,
+                                 'filter': {'ID': selector}},
+                     'entries': {'data': [{'ID': rid, 'OverrideName_lang': 'Reuse'}]}}
+            return SimpleNamespace(status_code=200,
+                                   text='<div data-page="' + html.escape(json.dumps({'props': props}), quote=True) + '"></div>')
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.requests.get',
+                   return_value=response('12.1.0.69587', 136970)):
+            row = monitor._fetch_hotfix_db2_identity_row('TraitDefinition', '12.1.0.69587', 136970, 'enUS')
+            self.assertEqual(row.get('OverrideName_lang'), 'Reuse')
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.requests.get',
+                   return_value=response('12.1.0.69933', 136970)):
+            self.assertEqual(monitor._fetch_hotfix_db2_identity_row('TraitDefinition', '12.1.0.69587', 136970, 'enUS'), {})
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.requests.get',
+                   return_value=response('12.1.0.69587', 136971)):
+            self.assertEqual(monitor._fetch_hotfix_db2_identity_row('TraitDefinition', '12.1.0.69587', 136970, 'enUS'), {})
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.requests.get',
+                   return_value=response('12.1.0.69587', 136970, locale='zhCN')):
+            self.assertEqual(monitor._fetch_hotfix_db2_identity_row('TraitDefinition', '12.1.0.69587', 136970, 'enUS'), {})
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.requests.get',
+                   return_value=response('12.1.0.69587', 136970, selector='exact:136971')):
+            self.assertEqual(monitor._fetch_hotfix_db2_identity_row('TraitDefinition', '12.1.0.69587', 136970, 'enUS'), {})
+
+    def test_unresolved_trait_uses_exact_build_db2_name_only_as_identity(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 3, 'push_id': 112059, 'table_name': 'TraitDefinition',
+                  'record_id': 136970, 'region_id': 3, 'locale': 'enUS',
+                  'build': 69587, 'status': 1, 'data': ['Reuse', 136970]}
+        sibling = {'id': 4, 'push_id': 112058, 'table_name': 'SpellName',
+                   'record_id': 77, 'region_id': 3, 'locale': 'enUS',
+                   'build': 69587, 'status': 1}
+        facts = [
+            {'source': source, 'after': None, 'before': None,
+             'after_verified': False, 'before_verified': False, 'changes': []},
+            {'source': sibling, 'source_build': '12.1.0.69587',
+             'after': {'ID': '77', 'Name_lang': '早期名称'},
+             'after_verified': True, 'before_verified': False, 'changes': []},
+        ]
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_READER_NAME_LOOKUPS=1), \
+             patch.object(monitor, '_fetch_hotfix_db2_identity_row',
+                          return_value={'ID': '136970', 'OverrideName_lang': 'Reuse'}) as lookup:
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, from_push=112057,
+                to_push=112059, summary_title='未解码天赋身份',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933',
+                table_stats=[('TraitDefinition', 1), ('SpellName', 1)],
+                by_table={'TraitDefinition': [source], 'SpellName': [sibling]},
+                sample_per_table=1, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        lookup.assert_called_once_with('TraitDefinition', '12.1.0.69587', 136970, 'enUS')
+        record = doc.select_one('#table-traitdefinition article.record')
+        self.assertIn('Reuse', record.select_one('.record-head').get_text(' ', strip=True))
+        self.assertIn('未解码', record.get_text(' ', strip=True))
+        label = doc.select_one('.reader-db2-name-card')
+        self.assertIsNotNone(label)
+        self.assertIn('Reuse', label.get_text(' ', strip=True))
+        self.assertIn('136970', label.get_text(' ', strip=True))
+        self.assertIn('改动未知', label.get_text(' ', strip=True))
+        self.assertNotIn('Reuse', doc.select_one('.reader-confirmed').get_text(' ', strip=True))
+
+    def test_item_relation_title_uses_previous_frozen_itemsparse_name(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        def source(table, rid, push):
+            return {'id': rid * 100 + push, 'push_id': push, 'table_name': table,
+                    'record_id': rid, 'region_id': 3, 'locale': 'enUS',
+                    'build': 69814, 'status': 1}
+        spec = source('ItemSpecOverride', 160122, 112055)
+        before = source('ItemSparse', 270845, 112054)
+        future = source('ItemSparse', 270845, 112056)
+        facts = [
+            {'source': spec, 'source_build': '12.1.0.69814',
+             'after': {'ID': '160122', 'ItemID': '270845', 'ChrSpecializationID': '267'},
+             'before': {'ID': '160122', 'ItemID': '270845', 'ChrSpecializationID': '62'},
+             'after_verified': True, 'before_verified': True,
+             'changes': [{'field': 'ChrSpecializationID', 'before': '62', 'after': '267'}]},
+            {'source': before, 'source_build': '12.1.0.69814',
+             'after': {'ID': '270845', 'Display_lang': '烈毒角斗士的法杖'},
+             'after_verified': True, 'before_verified': False, 'changes': []},
+            {'source': future, 'source_build': '12.1.0.69814',
+             'after': {'ID': '270845', 'Display_lang': '未来改名'},
+             'after_verified': True, 'before_verified': False, 'changes': []},
+        ]
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, from_push=112053,
+                to_push=112056, summary_title='物品外键查名',
+                wago_url='https://wago.tools/hotfixes', build_num='69814',
+                db2_build='12.1.0.69814',
+                table_stats=[('ItemSpecOverride', 1), ('ItemSparse', 2)],
+                by_table={'ItemSpecOverride': [spec], 'ItemSparse': [before, future]},
+                sample_per_table=2, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        title = doc.select_one('.reader-confirmed-card h4').get_text(' ', strip=True)
+        self.assertIn('烈毒角斗士的法杖', title)
+        self.assertIn('270845', title)
+        self.assertNotIn('未来改名', title)
+
+    def test_verified_spell_title_uses_db2_name_at_source_build_not_report_end_build(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 1, 'push_id': 112208, 'table_name': 'SpellEffect',
+                  'record_id': 1322073, 'region_id': 3, 'locale': 'enUS',
+                  'build': 69933, 'status': 1}
+        fact = {'source': source, 'source_build': '12.1.0.69933',
+                'after': {'ID': '1322073', 'SpellID': '1298418', 'EffectIndex': '0',
+                          'EffectBasePointsF': '2.55'},
+                'before': {'ID': '1322073', 'SpellID': '1298418', 'EffectIndex': '0',
+                           'EffectBasePointsF': '4.25'},
+                'after_verified': True, 'before_verified': True,
+                'changes': [{'field': 'EffectBasePointsF', 'before': '4.25', 'after': '2.55'}]}
+        queries = []
+        def names(ids, branch, build, **kwargs):
+            queries.append(build)
+            return {1298418: {'name': '岩石剧毒' if build == '12.1.0.69933' else '未来名称'}}
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.database_spell_metadata', side_effect=names):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, from_push=112207,
+                to_push=112208, summary_title='按来源 build 查名',
+                wago_url='https://wago.tools/hotfixes', build_num='70000',
+                db2_build='12.1.0.70000', table_stats=[('SpellEffect', 1)],
+                by_table={'SpellEffect': [source]}, sample_per_table=1,
+                enrich_max=0, facts=[fact],
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        title = doc.select_one('.reader-confirmed-card h4').get_text(' ', strip=True)
+        self.assertIn('岩石剧毒', title)
+        self.assertIn('1298418', title)
+        self.assertNotIn('未来名称', title)
+        self.assertIn('12.1.0.69933', queries)
+        self.assertEqual(doc.select_one('.reader-confirmed-card')['data-search'].count('1322073'), 1)
+
+    def test_trait_definition_frozen_override_name_is_title_not_generic_id(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 2, 'push_id': 112059, 'table_name': 'TraitDefinition',
+                  'record_id': 136970, 'region_id': 3, 'locale': 'enUS',
+                  'build': 69587, 'status': 1}
+        fact = {'source': source, 'source_build': '12.1.0.69587',
+                'after': {'ID': '136970', 'OverrideName_lang': 'Reuse', 'SpellID': '0'},
+                'before': {'ID': '136970', 'OverrideName_lang': 'Old', 'SpellID': '0'},
+                'after_verified': True, 'before_verified': True,
+                'changes': [{'field': 'OverrideName_lang', 'before': 'Old', 'after': 'Reuse'}]}
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, from_push=112058,
+                to_push=112059, summary_title='天赋冻结名',
+                wago_url='https://wago.tools/hotfixes', build_num='69587',
+                db2_build='12.1.0.69587', table_stats=[('TraitDefinition', 1)],
+                by_table={'TraitDefinition': [source]}, sample_per_table=1,
+                enrich_max=0, facts=[fact],
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        title = doc.select_one('.reader-confirmed-card h4').get_text(' ', strip=True)
+        self.assertIn('Reuse', title)
+        self.assertIn('136970', title)
+        self.assertNotIn('技能 #0', title)
+
     def test_same_spell_effect_change_groups_effect_positions_without_losing_sources(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         sources = [{'id': rid, 'push_id': 112233, 'table_name': 'SpellEffect',

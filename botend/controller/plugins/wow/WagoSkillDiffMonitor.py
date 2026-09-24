@@ -3078,6 +3078,7 @@ class WagoSkillDiffMonitor(BaseScan):
         enrich_left = max(0, int(enrich_max or 0))
         row_cache = {}
         spell_name_cache = {}
+        snapshot_metadata_by_build = {}
         if facts is not None:
             # A verified interval already freezes all numeric facts. Names
             # for its cards are labels, not a reason to issue an unbounded
@@ -3096,8 +3097,11 @@ class WagoSkillDiffMonitor(BaseScan):
                     spell_ids.add(sid)
             if spell_ids:
                 try:
-                    for sid, metadata in database_spell_metadata(
-                            spell_ids, branch, db2_build, allow_compatible_name=True).items():
+                    metadata_for_build = database_spell_metadata(
+                        spell_ids, branch, db2_build, allow_compatible_name=True,
+                    )
+                    snapshot_metadata_by_build[db2_build] = metadata_for_build
+                    for sid, metadata in metadata_for_build.items():
                         name = self._clean_external_text(metadata.get('name') or '')
                         if name:
                             spell_name_cache[int(sid)] = name
@@ -3593,7 +3597,7 @@ class WagoSkillDiffMonitor(BaseScan):
 
         def frozen_display_name(row):
             return next((clean_report_text(row[k]) for k in (
-                'Name_lang', 'Display_lang', 'Title_lang', 'DisplayName_lang', 'Name',
+                'Name_lang', 'Display_lang', 'Title_lang', 'DisplayName_lang', 'OverrideName_lang', 'Name',
             ) if isinstance(row.get(k), str) and row[k].strip()), '')
 
         def placeholder_object_title(title, obj_kind, object_id):
@@ -3605,7 +3609,119 @@ class WagoSkillDiffMonitor(BaseScan):
             for source_ref in resolved_obj.source_records or []:
                 resolved_objects_by_source[(tkey(source_ref.table), int(source_ref.record_id or 0))] = resolved_obj
 
-        def reader_identity(table_name, record_id, row):
+        known_build_versions = {}
+        for fact in facts or []:
+            short = str((fact.get('source') or {}).get('build') or '').strip()
+            full = str(fact.get('source_build') or '').strip()
+            if short.isdigit() and full and self._extract_build_number(full) == short:
+                known_build_versions.setdefault(short, set()).add(full)
+
+        def source_version(fact):
+            if not fact:
+                return ''
+            version = str(fact.get('source_build') or '').strip()
+            short = str((fact.get('source') or {}).get('build') or '').strip()
+            if version:
+                return version if not short.isdigit() or self._extract_build_number(version) == short else ''
+            versions = known_build_versions.get(short) or set()
+            if len(versions) == 1:
+                return next(iter(versions))
+            return db2_build if short and short == self._extract_build_number(db2_build) else ''
+
+        # Identity labels are build-scoped, unlike the report-end generic graph
+        # title. One database query per source build, not one Wago request per ID.
+        source_spell_ids = {}
+        frozen_name_history = {'spell': {}, 'item': {}, 'trait': {}}
+        for fact in facts or []:
+            if not fact.get('after_verified'):
+                continue
+            source = fact.get('source') or {}
+            row = fact.get('after') or {}
+            if not isinstance(row, dict):
+                continue
+            version = source_version(fact)
+            if not version:
+                continue
+            table = tkey(source.get('table_name'))
+            rid = self._to_int(source.get('record_id'))
+            push = self._to_int(source.get('push_id'))
+            sid = self._to_int(row.get('SpellID') or (row.get('ID') if table in (
+                'spell', 'spellname', 'spelldescription', 'spellmisc') else 0))
+            if sid > 0 and (table.startswith('spell') or table == 'traitdefinition'):
+                source_spell_ids.setdefault(version, set()).add(sid)
+            if table == 'spellname' and sid > 0:
+                name = clean_report_text(row.get('Name_lang') or row.get('Name') or '').strip()
+                if name:
+                    frozen_name_history['spell'].setdefault((version, sid), []).append((push, name))
+            if table == 'itemsparse' and rid > 0:
+                name = clean_report_text(row.get('Display_lang') or row.get('Name_lang') or '').strip()
+                if name:
+                    frozen_name_history['item'].setdefault((version, rid), []).append((push, name))
+            if table == 'traitdefinition' and rid > 0:
+                name = clean_report_text(row.get('OverrideName_lang') or row.get('Name_lang') or '').strip()
+                if name:
+                    frozen_name_history['trait'].setdefault((version, rid), []).append((push, name))
+        # A few status=1 rows have no decoded Hotfix payload. Resolve only their
+        # object label from the exact client DB2 build, never their changed value.
+        lookup_limit = max(0, min(6, int(getattr(settings, 'WAGO_HOTFIX_READER_NAME_LOOKUPS', 6) or 0)))
+        name_candidates = {}
+        if lookup_limit and facts is not None:
+            for fact in facts:
+                source = fact.get('source') or {}
+                table = tkey(source.get('table_name'))
+                version = source_version(fact)
+                if (table not in ('traitdefinition', 'itemsparse') or not version or
+                        fact.get('after_verified') or source.get('data') is None or
+                        self._to_int(source.get('status')) != 1):
+                    continue
+                rid = self._to_int(source.get('record_id'))
+                if rid > 0:
+                    name_candidates[(('TraitDefinition' if table == 'traitdefinition' else 'ItemSparse'), version, rid)] = None
+            for fact in facts:
+                source = fact.get('source') or {}
+                if tkey(source.get('table_name')) != 'itemspecoverride' or not fact.get('after_verified'):
+                    continue
+                version = source_version(fact)
+                item_id = self._to_int((fact.get('after') or {}).get('ItemID'))
+                push = self._to_int(source.get('push_id'))
+                existing = frozen_name_history['item'].get((version, item_id)) or []
+                if version and item_id > 0 and not any(pid <= push for pid, _name in existing):
+                    name_candidates[('ItemSparse', version, item_id)] = None
+        db2_identity_names = {}
+        for table, version, rid in sorted(name_candidates,
+                                         key=lambda key: (0 if key[0] == 'TraitDefinition' else 1,
+                                                          key[1], key[2]))[:lookup_limit]:
+            row = self._fetch_hotfix_db2_identity_row(table, version, rid, locale)
+            key = 'OverrideName_lang' if table == 'TraitDefinition' else 'Display_lang'
+            name = clean_report_text((row or {}).get(key) or (row or {}).get('Name_lang') or '').strip()
+            if name:
+                db2_identity_names[(table, version, rid)] = name
+        scoped_spell_names = {}
+        for version, ids in source_spell_ids.items():
+            try:
+                cached = snapshot_metadata_by_build.get(version) or {}
+                metadata_for_source = (cached if ids.issubset(cached) else
+                                       database_spell_metadata(ids, branch, version, allow_compatible_name=True))
+                for sid, metadata in metadata_for_source.items():
+                    name = self._clean_external_text((metadata or {}).get('name') or '').strip()
+                    if name:
+                        scoped_spell_names[(version, self._to_int(sid))] = name
+            except Exception as exc:
+                logger.warning('[WagoSkillDiffMonitor] Hotfix build-scoped names unavailable: %s', exc)
+
+        def scoped_name(kind, record_id, version, push):
+            if not version or not record_id:
+                return ''
+            history = frozen_name_history[kind].get((version, record_id)) or []
+            previous = [(pid, name) for pid, name in history if pid <= push]
+            if previous:
+                return max(previous, key=lambda pair: pair[0])[1]
+            if kind == 'spell':
+                return scoped_spell_names.get((version, record_id), '')
+            table = 'ItemSparse' if kind == 'item' else 'TraitDefinition'
+            return db2_identity_names.get((table, version, record_id), '')
+
+        def reader_identity(table_name, record_id, row, source_build='', source_push=0):
             key = tkey(table_name)
             row = row if isinstance(row, dict) else {}
             category = table_category(table_name)
@@ -3615,17 +3731,33 @@ class WagoSkillDiffMonitor(BaseScan):
                 obj_category = impact_category(clean_report_text(resolved_obj.category) or category)
                 obj_title = clean_report_text(resolved_obj.title or resolved_obj.object_id)
                 payload_name = frozen_display_name(row) if facts is not None else ''
-                if payload_name and (not obj_title or placeholder_object_title(obj_title, obj_kind, resolved_obj.object_id)):
+                object_id = self._to_int(resolved_obj.object_id)
+                name = ''
+                if facts is not None and obj_kind in ('spell', 'item', 'trait'):
+                    if obj_kind == 'spell':
+                        name = payload_name if key == 'spellname' else scoped_name('spell', object_id, source_build, source_push)
+                    elif obj_kind == 'item':
+                        name = (payload_name if key == 'itemsparse' else
+                                scoped_name('item', object_id, source_build, source_push))
+                    else:
+                        definition_id = self._to_int(row.get('TraitDefinitionID') or object_id)
+                        name = payload_name or scoped_name('trait', definition_id, source_build, source_push)
+                    obj_title = (name or (obj_title if not source_build else '') or
+                                 {'spell': f'技能 #{object_id}', 'item': f'物品 #{object_id}',
+                                  'trait': f'天赋对象 #{object_id}'}[obj_kind])
+                elif payload_name and (not obj_title or placeholder_object_title(obj_title, obj_kind, resolved_obj.object_id)):
                     obj_title = payload_name
                 kind_label = clean_report_text(resolved_obj.category) or obj_category
                 return f"{obj_kind}:{resolved_obj.object_id}", obj_category, obj_title, kind_label
             if key.startswith('spell'):
                 spell_id = self._extract_spell_id(key, row) or (record_id if key in ('spellname', 'spelldescription') else 0)
-                name = spell_name(spell_id) if spell_id else first_text(row)
+                name = ((scoped_name('spell', spell_id, source_build, source_push) if facts is not None else spell_name(spell_id))
+                        if spell_id else first_text(row))
                 return f"spell:{spell_id or record_id}", category, name or f"技能 #{spell_id or record_id}", '技能'
             if 'item' in key:
                 object_id = self._to_int(row.get('ItemID') or row.get('ID') or record_id)
-                return f"item:{object_id}", category, first_text(row) or f"物品 #{object_id}", '物品'
+                name = first_text(row) if key == 'itemsparse' else scoped_name('item', object_id, source_build, source_push)
+                return f"item:{object_id}", category, name or f"物品 #{object_id}", '物品'
             if 'quest' in key:
                 object_id = self._to_int(row.get('QuestID') or row.get('ID') or record_id)
                 return f"quest:{object_id}", category, first_text(row) or f"任务 #{object_id}", '任务'
@@ -3932,7 +4064,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 summary = rec.get('summary') or ''
                 row = rec.get('row')
                 fact = rec.get('fact')
-                reader_key, reader_category, reader_title, reader_kind = reader_identity(t, rid, row)
+                reader_key, reader_category, reader_title, reader_kind = reader_identity(
+                    t, rid, row, source_version(fact), pid,
+                )
                 reader_group = reader_groups.setdefault(reader_key, {
                     'identity': reader_key,
                     'title': reader_title,
@@ -3957,15 +4091,21 @@ class WagoSkillDiffMonitor(BaseScan):
                     'url': hotfix_table_url(t, pid),
                 })
 
-                search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid), summary, first_text(row)]).lower()
+                identity_name = db2_identity_names.get((norm_table(t), source_version(fact), rid), '')
                 row_title = summary or f"record_id {rid}"
+                if fact is not None and not fact.get('after_verified') and identity_name:
+                    row_title = f'{identity_name}（{table_label(t)} #{rid}；DB2 基表名称）'
+                search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid),
+                                        row_title, first_text(row)]).lower()
                 wago_rec_url = hotfix_table_url(t, pid)
                 if fact is None:
                     evidence_state = ''
                 elif not fact.get('after_verified'):
                     source = fact.get('source') or {}
                     status = self._to_int(source.get('status'))
-                    if source.get('data') is None and status in (2, 3, 4):
+                    if identity_name:
+                        evidence_state = '同 build DB2 基表名称仅识别对象；本次热修字段未解码，具体改动未知'
+                    elif source.get('data') is None and status in (2, 3, 4):
                         action = {2: '删除', 3: '失效', 4: '未公开'}[status]
                         evidence_state = f'Wago 来源状态：{action}（data=null）；无可解码新值，旧值与职业归属未核实'
                     else:
@@ -4067,7 +4207,14 @@ class WagoSkillDiffMonitor(BaseScan):
             rid = self._to_int(source.get('record_id'))
             pid = self._to_int(source.get('push_id'))
             row = fact.get('after') or {}
-            identity, category, title, _kind = reader_identity(table, rid, row)
+            identity, category, title, _kind = reader_identity(
+                table, rid, row, source_version(fact), pid,
+            )
+            obj_id = self._to_int(identity.rsplit(':', 1)[-1])
+            obj_kind = identity.split(':', 1)[0]
+            if obj_id > 0 and obj_kind in ('spell', 'item', 'trait') and not re.search(rf'(?<!\d){obj_id}(?!\d)', title):
+                noun = {'spell': '技能', 'item': '物品', 'trait': '天赋定义'}[obj_kind]
+                title = f'{title}（{noun} #{obj_id}）'
             if title.strip().lower().startswith('[dnt]'):
                 title = f'内部技能 #{self._to_int(row.get("SpellID") or row.get("ID"))}'
             title = title or f'{table_label(table)} #{rid}'
@@ -4118,6 +4265,31 @@ class WagoSkillDiffMonitor(BaseScan):
                "<h3>已核实改动：无</h3>")
             + "</section>"
         ) if facts is not None else ''
+        db2_context_cards = []
+        for fact in facts or []:
+            source = fact.get('source') or {}
+            table = norm_table(source.get('table_name'))
+            if (fact.get('after_verified') or table not in ('TraitDefinition', 'ItemSparse') or
+                    self._to_int(source.get('status')) != 1):
+                continue
+            rid = self._to_int(source.get('record_id'))
+            pid = self._to_int(source.get('push_id'))
+            version = source_version(fact)
+            name = db2_identity_names.get((table, version, rid), '')
+            if not name or rid <= 0 or pid <= 0:
+                continue
+            category = table_category(table)
+            db2_context_cards.append(
+                f"<article class='reader-db2-name-card' data-category='{esc(category)}' data-search='{esc((name + ' ' + table + ' ' + str(rid) + ' ' + str(pid)).lower())}'>"
+                f"<strong>{esc(name)}（{esc(table_label(table))} #{rid}）</strong>"
+                f"<span>来源 build {esc(version)} 的 DB2 名称；热修字段未解码，改动未知</span>"
+                f" <a href='{esc(hotfix_table_url(table, pid))}' target='_blank' rel='noreferrer'>来源</a>"
+                "</article>"
+            )
+        db2_context_section = (
+            "<section class='reader-db2-names' id='readerDB2Names'><h3>仅辨认对象</h3>"
+            + ''.join(db2_context_cards) + "</section>"
+        ) if db2_context_cards else ''
         world_status_cards = []
         for fact in facts or []:
             source = fact.get('source') or {}
@@ -4168,6 +4340,7 @@ class WagoSkillDiffMonitor(BaseScan):
                if facts is None else '')
             + confirmed_section
             + (f"<p class='reader-verdict'>{esc(verdict)}</p>" if verdict else '')
+            + db2_context_section
             + (world_status_section if not readable_cards and not confirmed_cards else '')
             + "<div class='controls'><input id='hotfixFilter' type='search' placeholder='搜索对象、ID、字段…' autocomplete='off' aria-label='搜索热修对象和新值'>"
             "<span class='count' id='filterCount'>技术明细</span></div>"
@@ -4206,6 +4379,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .reader-digest {{ margin:20px 0 16px; }} .reader-digest-head {{ display:flex; justify-content:space-between; align-items:flex-end; gap:16px; margin-bottom:4px; }} .reader-digest h2 {{ margin:0; font-size:21px; }} .reader-digest-head p {{ max-width:74ch; margin:3px 0 0; color:var(--muted); font-size:12px; text-wrap:pretty; }} .reader-digest-head>span {{ color:var(--muted); font-size:12px; white-space:nowrap; }}
     .reader-verdict {{ margin:10px 0; padding:8px 11px; border-left:3px solid var(--accent); background:var(--soft); font-size:13px; overflow-wrap:anywhere; }}
     .reader-confirmed {{ margin:12px 0; }} .reader-confirmed>h3 {{ margin:0 0 7px; font-size:18px; }} .reader-confirmed>h3 span {{ color:var(--accent); font-variant-numeric:tabular-nums; }} .reader-confirmed-card {{ padding:9px 11px; margin:6px 0; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-confirmed-card h4 {{ margin:0; font-size:14px; }} .reader-confirmed-card ul {{ margin:3px 0; padding-left:19px; font-size:13px; }} .reader-confirmed-card small,.reader-confirmed-empty {{ color:var(--muted); font-size:11px; }}
+    .reader-db2-names {{ margin:12px 0; }} .reader-db2-names h3 {{ margin:0 0 7px; font-size:16px; }} .reader-db2-name-card {{ margin:5px 0; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; }} .reader-db2-name-card span {{ display:block; color:var(--muted); font-size:11px; }} .reader-db2-name-card a {{ font-size:11px; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
     .reader-readable {{ margin:16px 0; padding:0 13px 10px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .reader-readable>summary {{ min-height:48px; display:flex; align-items:center; font-size:14px; font-weight:750; cursor:pointer; }} .reader-guide {{ margin:4px 0 14px; color:var(--muted); font-size:12px; }}
     .reader-summary {{ margin:6px 0 4px; padding:10px 12px; background:var(--accent-soft); border-left:3px solid var(--accent); border-radius:6px; font-size:14px; line-height:1.65; overflow-wrap:anywhere; }}
@@ -4264,6 +4438,7 @@ class WagoSkillDiffMonitor(BaseScan):
   var rawGroup=document.getElementById('readerRawOnly');
   var readableGroup=document.getElementById('readerReadable');
   var confirmedGroup=document.getElementById('readerConfirmed');
+  var db2NameGroup=document.getElementById('readerDB2Names');
   var worldGroup=document.getElementById('readerWorldStatuses');
   var filterDrawer=document.getElementById('readerFilterDrawer');
   var category='all';
@@ -4296,6 +4471,13 @@ class WagoSkillDiffMonitor(BaseScan):
     }});
     if(confirmedGroup){{confirmedGroup.classList.toggle('hidden',
       (q || category!=='all') && confirmedVisible===0);}}
+    var db2NameVisible=0;
+    document.querySelectorAll('.reader-db2-name-card').forEach(function(el){{
+      var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
+      el.classList.toggle('hidden', !ok);
+      if(ok){{db2NameVisible++;}}
+    }});
+    if(db2NameGroup){{db2NameGroup.classList.toggle('hidden', db2NameVisible===0);}}
     if(rawGroup){{
       rawGroup.classList.toggle('hidden', rawVisible===0);
       if(rawVisible && (q || humanVisible===0)){{rawGroup.open=true;}}
@@ -4332,7 +4514,7 @@ class WagoSkillDiffMonitor(BaseScan):
     }}
     if(empty){{
       empty.textContent=rawVisible ? '具体改动未知；下方列出底层记录。' : '无匹配记录；来源详见技术明细。';
-      empty.classList.toggle('hidden', confirmedVisible!==0 || humanVisible!==0 || worldVisible!==0);
+      empty.classList.toggle('hidden', confirmedVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0);
     }}
   }}
   input.addEventListener('input', apply);
@@ -5311,6 +5493,39 @@ class WagoSkillDiffMonitor(BaseScan):
             if name:
                 return name
         return ''
+
+    def _fetch_hotfix_db2_identity_row(self, table, build, record_id, locale):
+        """One bounded name-only lookup; reject Wago's mismatched/ignored filters."""
+        if table not in ('TraitDefinition', 'ItemSparse'):
+            return {}
+        rid = self._to_int(record_id)
+        if rid <= 0 or not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', str(build or '')):
+            return {}
+        if not re.fullmatch(r'[A-Za-z]{2,6}', str(locale or '')):
+            return {}
+        try:
+            response = requests.get(
+                f'https://wago.tools/db2/{table}',
+                params={'build': build, 'locale': locale, 'filter[ID]': f'exact:{rid}'},
+                headers={'User-Agent': 'Mozilla/5.0'}, timeout=(4, 8),
+            )
+            if response.status_code != 200:
+                return {}
+            props = self._extract_inertia_props(response.text or '')
+            filters = props.get('filters') or {}
+            if not isinstance(filters, dict) or not isinstance(filters.get('filter'), dict):
+                return {}
+            if (str(filters.get('build') or '') != build or
+                    str(filters.get('locale') or '') != locale or
+                    str((filters.get('filter') or {}).get('ID') or '') != f'exact:{rid}'):
+                return {}
+            entries = props.get('entries') or props.get('data') or {}
+            rows = entries.get('data') if isinstance(entries, dict) else entries
+            if not isinstance(rows, list) or len(rows) != 1 or not isinstance(rows[0], dict):
+                return {}
+            return rows[0] if self._to_int(rows[0].get('ID')) == rid else {}
+        except (requests.RequestException, ValueError, TypeError):
+            return {}
 
     def _fetch_db2_row_by_id(self, table, build, record_id):
         record_id = str(record_id).strip()
