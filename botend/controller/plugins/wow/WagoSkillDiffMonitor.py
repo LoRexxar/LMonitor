@@ -4249,6 +4249,8 @@ class WagoSkillDiffMonitor(BaseScan):
             search_value = ' '.join([
                 group['title'], table, str(pid), group['category'], group['field'],
                 group['before'], group['after'],
+                display_hotfix_value(group['field'], group['before']),
+                display_hotfix_value(group['field'], group['after']),
                 *[f'{rid} {index}' for rid, index in group['members']],
             ]).lower()
             confirmed_cards.append(
@@ -4276,7 +4278,8 @@ class WagoSkillDiffMonitor(BaseScan):
                                    key=lambda f: (self._to_int((f.get('source') or {}).get('push_id')),
                                                   self._to_int((f.get('source') or {}).get('record_id'))),
                                    reverse=True)[:impact_scan_limit if impact_limit else 0]
-        impact_cards = []
+        comparison_cards = []
+        configuration_cards = []
         context_limit = max(0, min(8, int(getattr(settings, 'WAGO_HOTFIX_READER_CONTEXT_LOOKUPS', 4) or 0)))
         context_cache = {}
         for position, fact in enumerate(impact_candidates):
@@ -4332,7 +4335,7 @@ class WagoSkillDiffMonitor(BaseScan):
                             ' '.join(f"{field['field']} {field['text']}" for field in fields)).lower()
             comparison_key = (f'{tkey(table)}:{version}:{locale}:{rid}:{pid}'
                               if isinstance(baseline, dict) and baseline else '')
-            impact_cards.append(
+            card_html = (
                 f"<article class='reader-impact-card' data-category='{esc(category)}' data-search='{esc(search_value)}'"
                 + (f" data-baseline-key='{esc(comparison_key)}'" if comparison_key else '') + ">"
                 f"<header><strong>{esc(title)}</strong><small>{esc(badge)}</small></header>"
@@ -4344,6 +4347,8 @@ class WagoSkillDiffMonitor(BaseScan):
                    if baseline is not None and version else '')
                 + "</small></details></article>"
             )
+            (comparison_cards if comparison_key else configuration_cards).append(card_html)
+        impact_cards = comparison_cards + configuration_cards
         impact_summaries = {}
         for fact in impact_candidates:
             source = fact.get('source') or {}
@@ -4383,14 +4388,16 @@ class WagoSkillDiffMonitor(BaseScan):
             )
         impact_section = (
             "<section class='reader-impacts' id='readerImpacts'>"
-            f"<h3>单条配置与影响 <small>{len(impact_cards)} 条</small></h3>"
             + ''.join(summary_cards)
-            + ''.join(impact_cards[:impact_limit])
-            + (f"<details class='reader-impact-more' id='readerImpactMore'><summary>其余 {len(impact_cards) - impact_limit} 条单行配置 · 展开</summary>"
-               + ''.join(impact_cards[impact_limit:]) + "</details>"
-               if len(impact_cards) > impact_limit else '')
+            + (f"<h3>同 build 基表→本次值 <small>{len(comparison_cards)} 条 · 非线上前态</small></h3>"
+               + ''.join(comparison_cards) if comparison_cards else '')
             + "</section>"
-        ) if impact_cards else ''
+        ) if summary_cards or comparison_cards else ''
+        config_section = (
+            "<section class='reader-configs' id='readerConfigs'>"
+            f"<details class='reader-impact-more' id='readerImpactMore'><summary>仅本次配置 · {len(configuration_cards)} 条记录（非改动数） · 展开</summary>"
+            + ''.join(configuration_cards) + "</details></section>"
+        ) if configuration_cards else ''
         if impact_cards and not confirmed_cards:
             confirmed_section = ''
         db2_context_cards = []
@@ -4480,6 +4487,7 @@ class WagoSkillDiffMonitor(BaseScan):
                if facts is None else '')
             + impact_section
             + confirmed_section
+            + config_section
             + (f"<p class='reader-verdict'>{esc(verdict)}</p>" if verdict and not impact_cards else '')
             + db2_context_section
             + (world_status_section if not readable_cards and not confirmed_cards else '')
@@ -4501,9 +4509,11 @@ class WagoSkillDiffMonitor(BaseScan):
 
         quick_counts = ''
         if facts is not None:
-            quick_counts = f'<span><strong>{len(impact_cards)}</strong> 条单行配置</span>'
+            quick_counts = f'<span><strong>{len(comparison_cards)}</strong> 条同 build 基表对照</span>'
             if confirmed_cards:
-                quick_counts += f'<span><strong>{len(confirmed_cards)}</strong> 项热修前态对照</span>'
+                quick_counts += f'<span><strong>{len(confirmed_cards)}</strong> 项热修历史变化</span>'
+            if configuration_cards:
+                quick_counts += f'<span><strong>{len(configuration_cards)}</strong> 条仅本次配置（非改动数）</span>'
             quick_counts += (f'<span><strong>{readable_count}</strong> 条有新值</span>'
                              f'<span><strong>{status_only_count}</strong> 条仅状态/来源</span>')
         html_text = f"""<!doctype html>
@@ -4528,7 +4538,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .reader-verdict {{ margin:10px 0; padding:8px 11px; border-left:3px solid var(--accent); background:var(--soft); font-size:13px; overflow-wrap:anywhere; }}
     .reader-impacts {{ margin:14px 0; }} .reader-impacts>h3 {{ margin:0 0 8px; font-size:18px; }} .reader-impacts>h3 small {{ color:var(--muted); font-size:12px; }} .reader-impact-card {{ display:grid; grid-template-columns:minmax(185px,.9fr) minmax(0,2fr); gap:3px 14px; align-items:start; padding:11px 12px; margin:6px 0; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-impact-card header strong {{ display:block; font-size:14px; overflow-wrap:anywhere; }} .reader-impact-card header small {{ color:var(--accent); font-size:11px; font-weight:750; }} .reader-impact-card ul {{ margin:0; padding-left:17px; font-size:13px; }} .reader-impact-card li+li {{ margin-top:3px; }} .reader-impact-card li span {{ color:var(--muted); }} .reader-impact-card li strong {{ font-weight:750; overflow-wrap:anywhere; }} .reader-impact-source {{ grid-column:2; }} .reader-impact-source>summary {{ display:inline-flex; align-items:center; min-height:30px; color:var(--accent); font-size:11px; cursor:pointer; }} .reader-impact-source small {{ display:block; color:var(--muted); overflow-wrap:anywhere; }}
     .reader-impact-summary {{ margin:9px 0 12px; padding:10px 13px; border-left:3px solid var(--accent); border-radius:6px; background:var(--accent-soft); font-size:14px; overflow-wrap:anywhere; }}
-    .reader-impact-more {{ margin:12px 0; padding:0 10px 10px; border:1px solid var(--line); border-radius:10px; background:var(--soft); }} .reader-impact-more>summary {{ min-height:45px; display:flex; align-items:center; font-size:13px; font-weight:750; cursor:pointer; }}
+    .reader-configs {{ margin:13px 0; }} .reader-impact-more {{ margin:12px 0; padding:0 10px 10px; border:1px solid var(--line); border-radius:10px; background:var(--soft); }} .reader-impact-more>summary {{ min-height:45px; display:flex; align-items:center; font-size:13px; font-weight:750; cursor:pointer; }}
     .reader-confirmed {{ margin:12px 0; }} .reader-confirmed>h3 {{ margin:0 0 7px; font-size:18px; }} .reader-confirmed>h3 span {{ color:var(--accent); font-variant-numeric:tabular-nums; }} .reader-confirmed-card {{ padding:9px 11px; margin:6px 0; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-confirmed-card h4 {{ margin:0; font-size:14px; }} .reader-confirmed-card ul {{ margin:3px 0; padding-left:19px; font-size:13px; }} .reader-confirmed-card small,.reader-confirmed-empty {{ color:var(--muted); font-size:11px; }}
     .reader-db2-names {{ margin:12px 0; }} .reader-db2-names h3 {{ margin:0 0 7px; font-size:16px; }} .reader-db2-name-card, .reader-source-text-card {{ margin:5px 0; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; }} .reader-db2-name-card span, .reader-source-text-card span {{ display:block; color:var(--muted); font-size:11px; }} .reader-db2-name-card a, .reader-source-text-card a {{ font-size:11px; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
@@ -4590,6 +4600,7 @@ class WagoSkillDiffMonitor(BaseScan):
   var readableGroup=document.getElementById('readerReadable');
   var confirmedGroup=document.getElementById('readerConfirmed');
   var impactGroup=document.getElementById('readerImpacts');
+  var configGroup=document.getElementById('readerConfigs');
   var impactMore=document.getElementById('readerImpactMore');
   var db2NameGroup=document.getElementById('readerDB2Names');
   var worldGroup=document.getElementById('readerWorldStatuses');
@@ -4624,11 +4635,11 @@ class WagoSkillDiffMonitor(BaseScan):
     }});
     if(confirmedGroup){{confirmedGroup.classList.toggle('hidden',
       (q || category!=='all') && confirmedVisible===0);}}
-    var impactVisible=0;
+    var impactVisible=0, configVisible=0;
     document.querySelectorAll('.reader-impact-card').forEach(function(el){{
       var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
       el.classList.toggle('hidden', !ok);
-      if(ok){{impactVisible++;}}
+      if(ok){{if(configGroup && configGroup.contains(el)){{configVisible++;}}else{{impactVisible++;}}}}
     }});
     if(impactMore){{
       var moreVisible=impactMore.querySelectorAll('.reader-impact-card:not(.hidden)').length;
@@ -4642,6 +4653,7 @@ class WagoSkillDiffMonitor(BaseScan):
       if(ok){{impactSummaryVisible++;}}
     }});
     if(impactGroup){{impactGroup.classList.toggle('hidden', impactVisible===0 && impactSummaryVisible===0);}}
+    if(configGroup){{configGroup.classList.toggle('hidden', configVisible===0);}}
     var db2NameVisible=0;
     document.querySelectorAll('.reader-db2-name-card, .reader-source-text-card').forEach(function(el){{
       var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
@@ -4685,7 +4697,7 @@ class WagoSkillDiffMonitor(BaseScan):
     }}
     if(empty){{
       empty.textContent=rawVisible ? '具体改动未知；下方列出底层记录。' : '无匹配记录；来源详见技术明细。';
-      empty.classList.toggle('hidden', confirmedVisible!==0 || impactVisible!==0 || impactSummaryVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0);
+      empty.classList.toggle('hidden', confirmedVisible!==0 || impactVisible!==0 || configVisible!==0 || impactSummaryVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0);
     }}
   }}
   input.addEventListener('input', apply);

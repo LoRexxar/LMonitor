@@ -11,10 +11,23 @@ from bs4 import BeautifulSoup
 from django.test import SimpleTestCase, override_settings
 
 from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
-from botend.services.wago_hotfix_reader_fields import project_hotfix_columns
+from botend.services.wago_hotfix_reader_fields import display_hotfix_value, project_hotfix_columns
 
 
 class FullHotfixNewValueReaderTests(SimpleTestCase):
+    def test_display_rounds_float_noise_without_changing_comparison_or_raw_value(self):
+        after = {'EffectBasePointsF': '2.549999952316284',
+                 'PvpMultiplier': '0.69999998807907',
+                 'BonusCoefficientFromAP': '0.52135998010635'}
+        baseline = {'EffectBasePointsF': '4.25'}
+        fields = project_hotfix_columns('SpellEffect', after, baseline)
+        text = ' '.join(field['text'] for field in fields)
+        self.assertIn('4.25 → 2.55', text)
+        self.assertIn('70%', text)
+        self.assertIn('52.14%', text)
+        self.assertEqual(display_hotfix_value('EffectBasePointsF', '2.549999952316284'), '2.55')
+        self.assertEqual(after['EffectBasePointsF'], '2.549999952316284')
+
     def test_identical_client_row_is_not_a_change_and_request_failure_is_not_new(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
         source = {'id': 99, 'push_id': 112236, 'table_name': 'SpellEffect',
@@ -120,6 +133,9 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertIn('spellname:12.1.0.69933:enUS:1271622:112236',
                       {card.get('data-baseline-key') for card in cards})
         self.assertEqual(len(doc.select('.reader-impact-more .reader-impact-card')), 4)
+        self.assertEqual(len(doc.select('.reader-impacts > .reader-impact-card')), 2)
+        self.assertEqual(len(doc.select('.reader-configs .reader-impact-more .reader-impact-card')), 4)
+        self.assertIn('非改动数', doc.select_one('.reader-configs summary').get_text(' ', strip=True))
         text = ' '.join(card.get_text(' ', strip=True) for card in cards)
         self.assertIn('拾取', text)
         self.assertIn('施法者', text)
@@ -448,7 +464,7 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         reader = doc.select_one('.reader-digest')
         self.assertIsNone(reader.select_one('.reader-confirmed'))
         self.assertIsNone(reader.select_one('.reader-verdict'))
-        self.assertIn('20 秒', reader.select_one('.reader-impacts').get_text(' ', strip=True))
+        self.assertIn('20 秒', reader.select_one('.reader-configs').get_text(' ', strip=True))
         self.assertNotIn('这次究竟知道什么', reader.get_text(' ', strip=True))
         self.assertIn('状态：失效', reader.select_one('.reader-world-status').get_text(' ', strip=True))
         self.assertEqual(len(reader.select('.reader-readable .reader-card')), 0)
@@ -580,7 +596,7 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertIn('Hotfix 改动', reader.get_text(' ', strip=True))
         self.assertIn('已核实改动 1', reader.get_text(' ', strip=True))
         self.assertEqual(len(reader.select('.reader-evidence')), 3)
-        self.assertIn('1 项热修前态对照', doc.select_one('.quick-facts').get_text(' ', strip=True))
+        self.assertIn('1 项热修历史变化', doc.select_one('.quick-facts').get_text(' ', strip=True))
         self.assertIn('1 条仅状态/来源', doc.select_one('.quick-facts').get_text(' ', strip=True))
         self.assertIn('勇士徽记包', [heading.get_text(strip=True) for heading in reader.select('.reader-card h3')])
         primary = reader.select_one('.reader-readable')
@@ -601,6 +617,8 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertIn('排序 / OrderIndex：0', reader.get_text(' ', strip=True))
         self.assertIn('UniqueBitFlag', reader.get_text(' ', strip=True))
         self.assertIn('59 → 0', reader.select_one('.reader-confirmed').get_text(' ', strip=True))
+        self.assertLess(str(reader).index('class="reader-confirmed"'),
+                        str(reader).index('class="reader-configs"'))
         self.assertNotIn('旧值未知', reader.get_text(' ', strip=True))
         self.assertNotIn('坐骑 #3107', reader.get_text(' ', strip=True))
         self.assertIsNotNone(reader.select_one('#hotfixFilter'))

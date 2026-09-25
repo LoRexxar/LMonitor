@@ -1,5 +1,5 @@
 """Reader-facing Hotfix columns; DB2 client rows are context, not live predecessors."""
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 
 FIELDS = {
@@ -51,6 +51,12 @@ def _same(left, right):
 
 def _value(field, raw):
     text = str(raw).strip()
+    def readable_number(number, *, places='0.01'):
+        if not number.is_finite():
+            return text
+        rounded = number.quantize(Decimal(places), rounding=ROUND_HALF_UP)
+        return f'{rounded.normalize():f}'
+
     if field == 'Effect':
         return EFFECT_LABELS.get(text, text)
     if field == 'ImplicitTarget_0':
@@ -64,7 +70,18 @@ def _value(field, raw):
             return text
     if field == 'PvpMultiplier':
         try:
-            return f'{(Decimal(text) * Decimal(100)).normalize():f}%'
+            return f'{readable_number(Decimal(text) * Decimal(100))}%'
+        except (InvalidOperation, ValueError, TypeError):
+            return text
+    if field in ('EffectBonusCoefficient', 'BonusCoefficientFromAP'):
+        try:
+            return f'{readable_number(Decimal(text) * Decimal(100))}%'
+        except (InvalidOperation, ValueError, TypeError):
+            return text
+    if field in ('EffectBasePointsF', 'EffectBasePoints'):
+        try:
+            number = Decimal(text)
+            return readable_number(number, places='0.0001' if abs(number) < Decimal('0.01') else '0.01')
         except (InvalidOperation, ValueError, TypeError):
             return text
     if field == 'SchoolMask' and text == '1':
