@@ -90,6 +90,34 @@ class HotfixReportRerenderTests(SimpleTestCase):
         self.assertEqual(hashlib.sha256(self.cls.read_bytes()).hexdigest(), before_class)
         self.row.save.assert_not_called()
 
+    def test_full_only_refuses_to_erase_verified_client_comparisons(self):
+        marker = "data-baseline-key='spelleffect:12.1.0.69933:enUS:1284426:112236'"
+        verified_name = "<article class='reader-db2-name-card'>Reuse</article>"
+        old = "<article class='reader-impact-card' " + marker + "></article>" + verified_name
+        self.full.write_text(old, encoding='utf-8')
+        old_class_sha256 = hashlib.sha256(self.cls.read_bytes()).hexdigest()
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get',
+                   return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor',
+                   return_value=self.monitor):
+            with self.assertRaisesRegex(CommandError, 'verified client DB2'):
+                self.invoke(full_only=True)
+        self.assertEqual(self.full.read_text(encoding='utf-8'), old)
+        self.assertEqual(hashlib.sha256(self.cls.read_bytes()).hexdigest(), old_class_sha256)
+        self.row.save.assert_not_called()
+        self.staged_full.write_text(
+            "<article class='record'></article>" + old, encoding='utf-8')
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get',
+                   return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor',
+                   return_value=self.monitor):
+            self.invoke(full_only=True)
+        self.assertIn(marker, self.full.read_text(encoding='utf-8'))
+        self.assertIn(verified_name, self.full.read_text(encoding='utf-8'))
+        self.assertEqual(hashlib.sha256(self.cls.read_bytes()).hexdigest(), old_class_sha256)
+
     def test_full_only_rejects_shared_class_and_full_file(self):
         self.row.class_content_html_path = self.row.content_html_path
         with override_settings(BASE_DIR=str(self.root)), \

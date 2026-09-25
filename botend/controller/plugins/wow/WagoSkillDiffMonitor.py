@@ -4330,8 +4330,11 @@ class WagoSkillDiffMonitor(BaseScan):
             )
             search_value = (f'{title} {table} {rid} {pid} {category} ' +
                             ' '.join(f"{field['field']} {field['text']}" for field in fields)).lower()
+            comparison_key = (f'{tkey(table)}:{version}:{locale}:{rid}:{pid}'
+                              if isinstance(baseline, dict) and baseline else '')
             impact_cards.append(
-                f"<article class='reader-impact-card' data-category='{esc(category)}' data-search='{esc(search_value)}'>"
+                f"<article class='reader-impact-card' data-category='{esc(category)}' data-search='{esc(search_value)}'"
+                + (f" data-baseline-key='{esc(comparison_key)}'" if comparison_key else '') + ">"
                 f"<header><strong>{esc(title)}</strong><small>{esc(badge)}</small></header>"
                 f"<ul>{field_html}</ul>"
                 f"<details class='reader-impact-source'><summary>来源</summary><small>"
@@ -5684,14 +5687,27 @@ class WagoSkillDiffMonitor(BaseScan):
             return None
         if not re.fullmatch(r'[A-Za-z]{2,6}', str(locale or '')):
             return None
-        try:
-            response = requests.get(
-                f'https://wago.tools/db2/{table}',
-                params={'build': build, 'locale': locale, 'filter[ID]': f'exact:{rid}'},
-                headers={'User-Agent': 'Mozilla/5.0'}, timeout=(4, 8),
-            )
-            if response.status_code != 200:
+        # Retry one transient failure only for the few high-signal identity/effect
+        # tables. Other lookups retain the original fixed request budget.
+        attempts = 2 if table in ('SpellName', 'SpellEffect', 'TraitDefinition') else 1
+        response = None
+        for attempt in range(attempts):
+            try:
+                response = requests.get(
+                    f'https://wago.tools/db2/{table}',
+                    params={'build': build, 'locale': locale, 'filter[ID]': f'exact:{rid}'},
+                    headers={'User-Agent': 'Mozilla/5.0'}, timeout=(4, 8),
+                )
+            except requests.RequestException:
+                if attempt + 1 < attempts:
+                    continue
                 return None
+            if response.status_code == 200:
+                break
+            if response.status_code >= 500 and attempt + 1 < attempts:
+                continue
+            return None
+        try:
             props = self._extract_inertia_props(response.text or '')
             filters = props.get('filters') or {}
             if not isinstance(filters, dict) or not isinstance(filters.get('filter'), dict):

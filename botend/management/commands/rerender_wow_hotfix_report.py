@@ -141,6 +141,18 @@ class Command(BaseCommand):
                 if (full_text.count("<article class='record'") != expected_count
                         or (not full_only and class_text.count("<article class='spell'") != row.class_spell_count)):
                     raise CommandError('Re-rendered HTML omitted frozen source records or class spells')
+                previous_full = targets[0].read_text(encoding='utf-8')
+                old_comparisons = set(re.findall(r"data-baseline-key='([^']+)'", previous_full))
+                new_comparisons = set(re.findall(r"data-baseline-key='([^']+)'", full_text))
+                lost = old_comparisons - new_comparisons
+                old_names = previous_full.count("class='reader-db2-name-card'")
+                new_names = full_text.count("class='reader-db2-name-card'")
+                if lost or new_names < old_names:
+                    raise CommandError(
+                        f'Re-rendered HTML lost verified client DB2 context: '
+                        f'{len(lost)} baseline comparisons, '
+                        f'{old_names - min(old_names, new_names)} names; original kept'
+                    )
                 expected_hashes = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
                 for target in targets:
                     fd, backup = tempfile.mkstemp(prefix='hotfix-backup-', suffix='.html', dir=private)

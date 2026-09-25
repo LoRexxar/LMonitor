@@ -1,6 +1,7 @@
 """Full Hotfix reader must describe frozen new values, not imply field deltas."""
 import html
 import json
+import requests
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
@@ -114,6 +115,10 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
             doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
         cards = doc.select('.reader-impact-card')
         self.assertEqual(len(cards), 6)
+        self.assertIn('spelleffect:12.1.0.69933:enUS:1284426:112236',
+                      {card.get('data-baseline-key') for card in cards})
+        self.assertIn('spellname:12.1.0.69933:enUS:1271622:112236',
+                      {card.get('data-baseline-key') for card in cards})
         self.assertEqual(len(doc.select('.reader-impact-more .reader-impact-card')), 4)
         text = ' '.join(card.get_text(' ', strip=True) for card in cards)
         self.assertIn('拾取', text)
@@ -158,6 +163,26 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.requests.get',
                    return_value=response('12.1.0.69587', 136970, selector='exact:136971')):
             self.assertEqual(monitor._fetch_hotfix_db2_identity_row('TraitDefinition', '12.1.0.69587', 136970, 'enUS'), {})
+
+    def test_exact_build_high_value_row_retries_one_transient_timeout(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        for table, build, rid, field, value in (
+                ('SpellEffect', '12.1.0.69933', 1284426, 'EffectMiscValue_0', '142879'),
+                ('TraitDefinition', '12.1.0.69587', 136970, 'OverrideName_lang', 'Reuse')):
+            props = {'filters': {'build': build, 'locale': 'enUS',
+                                 'filter': {'ID': f'exact:{rid}'}},
+                     'entries': {'data': [{'ID': rid, field: value}]}}
+            response = SimpleNamespace(status_code=200,
+                text='<div data-page="' + html.escape(json.dumps({'props': props}), quote=True) + '"></div>')
+            with self.subTest(table=table), patch(
+                    'botend.controller.plugins.wow.WagoSkillDiffMonitor.requests.get',
+                    side_effect=[requests.ReadTimeout('transient'), response]) as get:
+                if table == 'TraitDefinition':
+                    row = monitor._fetch_hotfix_db2_identity_row(table, build, rid, 'enUS')
+                else:
+                    row = monitor._fetch_hotfix_db2_baseline_row(table, build, rid, 'enUS')
+                self.assertEqual(row.get(field), value)
+                self.assertEqual(get.call_count, 2)
 
     def test_unresolved_trait_uses_exact_build_db2_name_only_as_identity(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
