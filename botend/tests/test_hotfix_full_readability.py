@@ -15,6 +15,78 @@ from botend.services.wago_hotfix_reader_fields import display_hotfix_value, proj
 
 
 class FullHotfixNewValueReaderTests(SimpleTestCase):
+    def test_spell_misc_removed_cast_permissions_need_verified_same_build_base(self):
+        after = {'ID': '842998', 'SpellID': '1295610',
+                 'Attributes_0': '539230208', 'Attributes_1': '1160',
+                 'Attributes_2': '272629764', 'Attributes_4': '8388608',
+                 'Attributes_5': '540928', 'Attributes_6': '0', 'Attributes_9': '0'}
+        base = {'ID': '842998', 'SpellID': '1295610',
+                'Attributes_0': '690225152', 'Attributes_1': '1192',
+                'Attributes_2': '273170436', 'Attributes_4': '8388736',
+                'Attributes_5': '934152', 'Attributes_6': '4096',
+                'Attributes_9': '1048576'}
+        fields = project_hotfix_columns('SpellMisc', after, base)
+        text = ' '.join(field['text'] for field in fields)
+        self.assertIn('移除', text)
+        self.assertIn('引导中施放', text)
+        self.assertIn('骑乘时施放', text)
+        self.assertIn('乘坐载具时施放', text)
+        self.assertIn('昏迷时施放', text)
+        self.assertTrue(any(field['base_changed'] for field in fields))
+        self.assertFalse(any(field['field'] == 'Attributes' for field in
+                             project_hotfix_columns('SpellMisc', after, None)))
+        self.assertEqual(after['Attributes_9'], '0')
+
+    def test_spell_misc_cast_permission_changes_explain_the_named_spell(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        misc = {'id': 1, 'push_id': 112218, 'table_name': 'SpellMisc',
+                'record_id': 842998, 'region_id': 3, 'locale': 'enUS',
+                'build': 69875, 'status': 1}
+        name = {'id': 2, 'push_id': 112218, 'table_name': 'SpellName',
+                'record_id': 1295610, 'region_id': 3, 'locale': 'enUS',
+                'build': 69875, 'status': 1}
+        after = {'ID': '842998', 'SpellID': '1295610',
+                 'Attributes_0': '539230208', 'Attributes_1': '1160',
+                 'Attributes_2': '272629764', 'Attributes_4': '8388608',
+                 'Attributes_5': '540928', 'Attributes_6': '0', 'Attributes_9': '0'}
+        base = {'ID': '842998', 'SpellID': '1295610',
+                'Attributes_0': '690225152', 'Attributes_1': '1192',
+                'Attributes_2': '273170436', 'Attributes_4': '8388736',
+                'Attributes_5': '934152', 'Attributes_6': '4096',
+                'Attributes_9': '1048576'}
+        facts = [
+            {'source': misc, 'source_build': '12.1.0.69875', 'after': after,
+             'before': None, 'after_verified': True, 'before_verified': False, 'changes': []},
+            {'source': name, 'source_build': '12.1.0.69875',
+             'after': {'ID': '1295610', 'Name_lang': '蜿蜒打击'},
+             'before': None, 'after_verified': True, 'before_verified': False, 'changes': []},
+        ]
+        monitor._fetch_hotfix_db2_baseline_row = (
+            lambda table, build, rid, locale: base if table == 'SpellMisc' else {})
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=2):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112217, to_push=112218, summary_title='施放条件变化',
+                wago_url='https://wago.tools/hotfixes', build_num='69875',
+                db2_build='12.1.0.69875', table_stats=[('SpellMisc', 1), ('SpellName', 1)],
+                by_table={'SpellMisc': [misc], 'SpellName': [name]},
+                sample_per_table=1, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        story = doc.select_one('.reader-impact-summary')
+        self.assertIsNotNone(story)
+        self.assertIn('蜿蜒打击', story.get_text(' ', strip=True))
+        self.assertIn('移除', story.get_text(' ', strip=True))
+        self.assertIn('施法/引导中', story.get_text(' ', strip=True))
+        self.assertIn('逐位见下方', story.get_text(' ', strip=True))
+        self.assertNotIn('不能施放', story.get_text(' ', strip=True))
+        card = doc.select_one('.reader-impact-card[data-baseline-key*="spellmisc"]')
+        self.assertIsNotNone(card)
+        self.assertIn('Attributes', card.get_text(' ', strip=True))
+        self.assertIn('引导中施放', card.get_text(' ', strip=True))
+        self.assertEqual(len(doc.select('.technical-report article.record')), 2)
+
     def test_display_rounds_float_noise_without_changing_comparison_or_raw_value(self):
         after = {'EffectBasePointsF': '2.549999952316284',
                  'PvpMultiplier': '0.69999998807907',
@@ -326,8 +398,10 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
                   'build': 69933, 'status': 1}
         fact = {'source': source, 'source_build': '12.1.0.69933',
                 'after': {'ID': '1322073', 'SpellID': '1298418', 'EffectIndex': '0',
+                          'Effect': '2',
                           'EffectBasePointsF': '2.55'},
                 'before': {'ID': '1322073', 'SpellID': '1298418', 'EffectIndex': '0',
+                           'Effect': '2',
                            'EffectBasePointsF': '4.25'},
                 'after_verified': True, 'before_verified': True,
                 'changes': [{'field': 'EffectBasePointsF', 'before': '4.25', 'after': '2.55'}]}
@@ -348,6 +422,7 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
             doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
         title = doc.select_one('.reader-confirmed-card h4').get_text(' ', strip=True)
         self.assertIn('岩石剧毒', title)
+        self.assertIn('作用：造成伤害', doc.select_one('.reader-confirmed-card').get_text(' ', strip=True))
         self.assertIn('1298418', title)
         self.assertNotIn('未来名称', title)
         self.assertIn('12.1.0.69933', queries)
@@ -386,9 +461,9 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         facts = [
             {'source': source,
              'after': {'ID': str(source['record_id']), 'SpellID': '1222923',
-                       'EffectIndex': str(index), 'EffectAura': '649'},
+                       'EffectIndex': str(index), 'Effect': '6', 'EffectAura': '649'},
              'before': {'ID': str(source['record_id']), 'SpellID': '1222923',
-                        'EffectIndex': str(index), 'EffectAura': '218'},
+                        'EffectIndex': str(index), 'Effect': '6', 'EffectAura': '218'},
              'after_verified': True, 'before_verified': True,
              'changes': [{'field': 'EffectAura', 'before': '218', 'after': '649'}]}
             for source, index in zip(sources, (7, 8, 9))
@@ -410,6 +485,7 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertEqual(card.get_text(' ', strip=True).count('→'), 1)
         self.assertIn('218（标签百分比修正）', card.get_text(' ', strip=True))
         self.assertIn('649（标签 PvP 倍率百分比修正）', card.get_text(' ', strip=True))
+        self.assertEqual(card.get_text(' ', strip=True).count('作用：施加光环'), 1)
         for effect in ('#8', '#9', '#10'):
             self.assertIn(effect, card.get_text(' ', strip=True))
         for source in sources:
