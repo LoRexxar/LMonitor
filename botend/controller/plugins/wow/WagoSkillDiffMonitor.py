@@ -4280,6 +4280,7 @@ class WagoSkillDiffMonitor(BaseScan):
                                    reverse=True)[:impact_scan_limit if impact_limit else 0]
         comparison_cards = []
         configuration_cards = []
+        spell_stories = {}
         context_limit = max(0, min(8, int(getattr(settings, 'WAGO_HOTFIX_READER_CONTEXT_LOOKUPS', 4) or 0)))
         context_cache = {}
         for position, fact in enumerate(impact_candidates):
@@ -4318,6 +4319,39 @@ class WagoSkillDiffMonitor(BaseScan):
                 continue
             if isinstance(baseline, dict) and baseline and not any(field['base_changed'] for field in fields):
                 continue
+            sid = self._to_int(after.get('SpellID') or (rid if tkey(table) == 'spellname' else 0))
+            if sid > 0 and tkey(table) in ('spellname', 'spelleffect', 'spellmisc', 'spellcooldowns'):
+                story = spell_stories.setdefault((pid, version, sid), {
+                    'name': '', 'effect': '', 'target': '', 'changes': [],
+                    'cooldown': '', 'range': '', 'cast': '', 'new_effect': False,
+                    'sources': [],
+                })
+                story['sources'].append(f'{table} #{rid}')
+                if tkey(table) == 'spellname':
+                    story['name'] = clean_report_text(after.get('Name_lang') or '').strip()
+                elif tkey(table) == 'spelleffect':
+                    effect_label = display_hotfix_value('Effect', after.get('Effect'))
+                    if effect_label and not effect_label.isdecimal():
+                        story['effect'] = effect_label
+                        story['target'] = (display_hotfix_value('ImplicitTarget_0', after.get('ImplicitTarget_0'))
+                                           if self._to_int(after.get('ImplicitTarget_0')) else '')
+                    story['new_effect'] = story['new_effect'] or baseline == {}
+                for field in fields:
+                    if field['base_changed']:
+                        if field['field'] == 'EffectMiscValue_0':
+                            label = ((story.get('effect') or '技能') + '效果附加参数')
+                            story['changes'].append((1, f"{label}：{field['text']}（具体指向未核实）"))
+                        else:
+                            story['changes'].append((
+                                0 if field['field'] == 'Name_lang' else 2,
+                                f"{field['label'].split(' / ', 1)[0]}：{field['text']}",
+                            ))
+                    elif field['field'] == 'RecoveryTime':
+                        story['cooldown'] = field['text']
+                    elif field['field'] == 'RangeIndex' and field['text'].endswith('码'):
+                        story['range'] = field['text']
+                    elif field['field'] == 'CastingTimeIndex' and field['text'] == '瞬发':
+                        story['cast'] = field['text']
             identity, category, title, _kind = reader_identity(table, rid, after, version, pid)
             object_id = self._to_int(identity.rsplit(':', 1)[-1])
             object_kind = identity.split(':', 1)[0]
@@ -4349,41 +4383,33 @@ class WagoSkillDiffMonitor(BaseScan):
             )
             (comparison_cards if comparison_key else configuration_cards).append(card_html)
         impact_cards = comparison_cards + configuration_cards
-        impact_summaries = {}
-        for fact in impact_candidates:
-            source = fact.get('source') or {}
-            table = tkey(source.get('table_name'))
-            after = fact.get('after') or {}
-            sid = self._to_int(after.get('SpellID') or (after.get('ID') if table == 'spellname' else 0))
-            if sid <= 0:
-                continue
-            pid = self._to_int(source.get('push_id'))
-            version = source_version(fact)
-            item = impact_summaries.setdefault((pid, version, sid), {})
-            if table == 'spelleffect' and str(after.get('Effect')) == '189':
-                item['effect'] = '拾取'
-                item['target'] = '施法者' if str(after.get('ImplicitTarget_0')) == '1' else ''
-            elif table == 'spellcooldowns':
-                try:
-                    recovery = Decimal(str(after.get('RecoveryTime') or '0'))
-                    if recovery > 0:
-                        item['cooldown'] = f'{(recovery / Decimal(1000)).normalize():f} 秒'
-                except (InvalidOperation, ValueError, TypeError):
-                    pass
-            elif table == 'spellname':
-                item['name'] = clean_report_text(after.get('Name_lang') or '').strip()
         summary_cards = []
-        for (pid, version, sid), values in impact_summaries.items():
-            if not (values.get('effect') and values.get('cooldown')):
+        for (pid, version, sid), values in sorted(
+                spell_stories.items(), key=lambda pair: (
+                    -pair[0][0], not bool(pair[1]['changes']), -pair[0][2])):
+            if not (values['changes'] or (values['effect'] and values['cooldown'])):
                 continue
             name = values.get('name') or scoped_name('spell', sid, version, pid)
             title = (('内部技能 ' if name.lower().startswith('[dnt]') else '') + name
                      if name else '技能') + f'（#{sid}）'
-            target = f"，目标{values['target']}" if values.get('target') else ''
+            purpose = f"作用：{values['effect']}。" if values['effect'] else ''
+            if values['changes']:
+                action = '相对同 build 客户端基表：' + '；'.join(
+                    text for _priority, text in sorted(dict.fromkeys(values['changes']))) + '。'
+            else:
+                parts = []
+                if values['new_effect']:
+                    parts.append('客户端基表无该效果行')
+                if values['target']:
+                    parts.append(f"目标{values['target']}")
+                parts.append(f"冷却记录 {values['cooldown']}")
+                if values['range'] or values['cast']:
+                    parts.append('、'.join(part for part in (values['range'], values['cast']) if part))
+                action = '本次记录：' + '；'.join(parts) + '。'
+            search_text = ' '.join([title, str(sid), purpose, action, *values['sources']]).lower()
             summary_cards.append(
-                f"<p class='reader-impact-summary' data-category='技能/法术' data-search='{esc((title + ' ' + str(sid) + ' 拾取 冷却 ' + values['cooldown']).lower())}'>"
-                f"<strong>{esc(title)}</strong>：本次配置{esc(values['effect'])}效果{esc(target)}；"
-                f"冷却记录 {esc(values['cooldown'])}。"
+                f"<p class='reader-impact-summary' data-category='技能/法术' data-search='{esc(search_text)}'>"
+                f"<strong>{esc(title)}</strong>：{esc(purpose)}{esc(action)}"
                 "</p>"
             )
         impact_section = (
