@@ -13,11 +13,13 @@ FIELDS = {
         ('EffectAura', '光环类型'),
     ],
     'spellcooldowns': [('RecoveryTime', '冷却时间'), ('CategoryRecoveryTime', '共享冷却')],
+    'spellinterrupts': [('AuraInterruptFlags_0', '光环打断[0]'),
+                        ('AuraInterruptFlags_1', '光环打断[1]')],
     'spellmisc': [('RangeIndex', '范围索引'), ('CastingTimeIndex', '施法时间索引'),
                   ('SchoolMask', '法术类型')],
     'itemsparse': [('Display_lang', '物品名称'), ('ItemLevel', '物品等级'),
                    ('InventoryType', '装备栏位类型'), ('SellPrice', '售出价格'),
-                   ('BuyPrice', '购买价格')],
+                   ('BuyPrice', '购买价格'), ('Flags_3', '物品标志[3]')],
     'traitdefinition': [('OverrideName_lang', '天赋名称'), ('SpellID', '关联技能ID'),
                         ('Description_lang', '天赋说明')],
     'spelltargetrestrictions': [('MaxTargets', '最大目标数'),
@@ -49,6 +51,14 @@ CAST_PERMISSION_FLAGS = {
     (5, 18): '混乱时施放',
     (6, 12): '乘坐载具时施放',
     (9, 20): '引导中施放',
+}
+
+# https://github.com/wowdev/WoWDBDefs/tree/master/meta/flags
+AURA_INTERRUPT_LABELS = {
+    'AuraInterruptFlags_0': {0x80000: '离开世界时中断',
+                             0x400000: '进入世界时中断'},
+    'AuraInterruptFlags_1': {0x400: '断线时中断',
+                             0x800: '进入副本时中断'},
 }
 
 
@@ -117,6 +127,19 @@ def _same(left, right):
 
 def _value(field, raw):
     text = str(raw).strip()
+    if field in AURA_INTERRUPT_LABELS:
+        try:
+            mask = int(text)
+        except (ValueError, TypeError):
+            return text
+        if not 0 <= mask <= 0xFFFFFFFF:
+            return text
+        labels = AURA_INTERRUPT_LABELS[field]
+        interpreted = [name for bit, name in labels.items() if mask & bit]
+        extra = mask & ~sum(labels)
+        if extra:
+            interpreted.append(f'其他位 0x{extra:X}（未释义）')
+        return '、'.join(interpreted) if interpreted else '0'
     if field in ('SellPrice', 'BuyPrice') and text.isdecimal():
         amount = int(text)
         gold, remainder = divmod(amount, 10000)
@@ -185,6 +208,8 @@ def project_hotfix_columns(table, after, baseline=None, *, max_fields=6):
         old = baseline.get(field) if isinstance(baseline, dict) else None
         comparable = old is not None and str(old).strip() != ''
         changed = comparable and not _same(old, raw)
+        if field == 'Flags_3' and not changed:
+            continue
         if comparable and not changed and field not in ('Effect', 'ImplicitTarget_0'):
             continue
         if not changed and str(raw).strip() in ('0', '0.0') and field not in (

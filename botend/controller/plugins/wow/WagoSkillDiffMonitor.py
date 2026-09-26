@@ -4242,6 +4242,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     group['effect_roles'].add(role if role != str(raw_effect) and role != '虚拟效果' else '')
         confirmed_cards = []
         confirmed_range_cache = {}
+        confirmed_range_text = {}
         confirmed_range_limit = max(0, min(8, int(getattr(
             settings, 'WAGO_HOTFIX_READER_CONTEXT_LOOKUPS', 4) or 0)))
         for group in confirmed_groups.values():
@@ -4284,6 +4285,8 @@ class WagoSkillDiffMonitor(BaseScan):
                     refs.append(f'{ref_id}（{name}；记录上限 {upper.normalize():f} 码）')
                 if len(refs) == 2:
                     before_display, after_display = refs
+                    confirmed_range_text[(group['version'], locale,
+                                          group['before'], group['after'])] = tuple(refs)
                     rid = group['members'][0][0]
                     range_key = ':'.join(('spellmisc', group['version'], locale, str(rid),
                                           str(pid), group['before'], group['after']))
@@ -4315,6 +4318,15 @@ class WagoSkillDiffMonitor(BaseScan):
         impact_limit = max(0, min(80, int(getattr(settings, 'WAGO_HOTFIX_READER_IMPACT_MAX', 32) or 0)))
         impact_scan_limit = max(impact_limit, min(600, int(getattr(settings, 'WAGO_HOTFIX_READER_SCAN_MAX', 600) or 0)))
         baseline_limit = max(0, min(32, int(getattr(settings, 'WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS', 24) or 0)))
+        sibling_limit = max(0, min(8, int(getattr(settings, 'WAGO_HOTFIX_READER_SIBLING_LOOKUPS', 2) or 0)))
+        verified_range_siblings = {
+            (self._to_int((f.get('source') or {}).get('push_id')),
+             source_version(f), self._to_int((f.get('after') or {}).get('SpellID')))
+            for f in facts or []
+            if tkey((f.get('source') or {}).get('table_name')) == 'spellmisc'
+            and f.get('before_verified') and f.get('after_verified')
+            and any(change.get('field') == 'RangeIndex' for change in f.get('changes') or [])
+        }
         impact_candidates = sorted((f for f in facts or []
                                     if f.get('after_verified')
                                     and not (f.get('before_verified') and f.get('changes'))
@@ -4327,7 +4339,9 @@ class WagoSkillDiffMonitor(BaseScan):
         spell_stories = {}
         context_limit = max(0, min(8, int(getattr(settings, 'WAGO_HOTFIX_READER_CONTEXT_LOOKUPS', 4) or 0)))
         context_cache = {}
-        for position, fact in enumerate(impact_candidates):
+        baseline_position = 0
+        sibling_lookups = 0
+        for fact in impact_candidates:
             source = fact.get('source') or {}
             table = norm_table(source.get('table_name'))
             rid = self._to_int(source.get('record_id'))
@@ -4335,10 +4349,26 @@ class WagoSkillDiffMonitor(BaseScan):
             version = source_version(fact)
             after = fact.get('after') or {}
             baseline = None
-            if position < baseline_limit and version and rid > 0:
+            baseline_eligible = tkey(table) != 'spellinterrupts'
+            if baseline_eligible and baseline_position < baseline_limit and version and rid > 0:
                 baseline = self._fetch_hotfix_db2_baseline_row(table, version, rid, locale)
+            elif (tkey(table) == 'spellmisc' and sibling_lookups < sibling_limit
+                  and (pid, version, self._to_int(after.get('SpellID'))) in verified_range_siblings
+                  and 'RangeIndex' in after and version and rid > 0):
+                sibling_lookups += 1
+                baseline = self._fetch_hotfix_db2_baseline_row(table, version, rid, locale)
+            if baseline_eligible:
+                baseline_position += 1
             fields = project_hotfix_columns(table, after, baseline)
             if tkey(table) == 'spellmisc' and version:
+                if isinstance(baseline, dict):
+                    labels = confirmed_range_text.get((version, locale,
+                        str(baseline.get('RangeIndex')), str(after.get('RangeIndex'))))
+                    if labels:
+                        for field in fields:
+                            if field['field'] == 'RangeIndex' and field['base_changed']:
+                                field['label'] = '范围配置 / RangeIndex'
+                                field['text'] = ' → '.join(labels)
                 for field in fields:
                     context_table = {'RangeIndex': 'SpellRange',
                                      'CastingTimeIndex': 'SpellCastTimes'}.get(field['field'])
@@ -4346,6 +4376,9 @@ class WagoSkillDiffMonitor(BaseScan):
                     if not context_table or ref_id <= 0:
                         continue
                     context_key = (context_table, version, ref_id)
+                    if (context_table == 'SpellRange' and context_key not in context_cache
+                            and (version, locale, ref_id) in confirmed_range_cache):
+                        context_cache[context_key] = confirmed_range_cache[(version, locale, ref_id)]
                     if context_key not in context_cache and len(context_cache) < context_limit:
                         context_cache[context_key] = self._fetch_hotfix_db2_baseline_row(
                             context_table, version, ref_id, locale)
@@ -4364,11 +4397,11 @@ class WagoSkillDiffMonitor(BaseScan):
             if isinstance(baseline, dict) and baseline and not any(field['base_changed'] for field in fields):
                 continue
             sid = self._to_int(after.get('SpellID') or (rid if tkey(table) == 'spellname' else 0))
-            if sid > 0 and tkey(table) in ('spellname', 'spelleffect', 'spellmisc', 'spellcooldowns'):
+            if sid > 0 and tkey(table) in ('spellname', 'spelleffect', 'spellmisc', 'spellcooldowns', 'spellinterrupts'):
                 story = spell_stories.setdefault((pid, version, sid), {
                     'name': '', 'effect': '', 'target': '', 'changes': [],
                     'cooldown': '', 'range': '', 'cast': '', 'new_effect': False,
-                    'sources': [],
+                    'interrupts': [], 'sources': [],
                 })
                 story['sources'].append(f'{table} #{rid}')
                 if tkey(table) == 'spellname':
@@ -4398,6 +4431,8 @@ class WagoSkillDiffMonitor(BaseScan):
                         story['range'] = field['text']
                     elif field['field'] == 'CastingTimeIndex' and field['text'] == '瞬发':
                         story['cast'] = field['text']
+                    elif field['field'] in ('AuraInterruptFlags_0', 'AuraInterruptFlags_1') and field['text'] != '0':
+                        story['interrupts'].append(field['text'])
             identity, category, title, _kind = reader_identity(table, rid, after, version, pid)
             object_id = self._to_int(identity.rsplit(':', 1)[-1])
             object_kind = identity.split(':', 1)[0]
@@ -4436,12 +4471,13 @@ class WagoSkillDiffMonitor(BaseScan):
         for (pid, version, sid), values in sorted(
                 spell_stories.items(), key=lambda pair: (
                     -pair[0][0], not bool(pair[1]['changes']), -pair[0][2])):
-            if not (values['changes'] or (values['effect'] and values['cooldown'])):
+            if not (values['changes'] or (values['effect'] and values['cooldown']) or values['interrupts']):
                 continue
             name = values.get('name') or scoped_name('spell', sid, version, pid)
             title = (('内部技能 ' if name.lower().startswith('[dnt]') else '') + name
                      if name else '技能') + f'（#{sid}）'
-            purpose = f"作用：{values['effect']}。" if values['effect'] else ''
+            purpose = (f"作用：{values['effect']}。" if values['effect'] else
+                       '作用：光环打断条件。' if values['interrupts'] else '')
             if values['changes']:
                 action = '相对同 build 客户端基表：' + '；'.join(
                     text for _priority, text in sorted(dict.fromkeys(values['changes']))) + '。'
@@ -4451,9 +4487,12 @@ class WagoSkillDiffMonitor(BaseScan):
                     parts.append('客户端基表无该效果行')
                 if values['target']:
                     parts.append(f"目标{values['target']}")
-                parts.append(f"冷却记录 {values['cooldown']}")
+                if values['cooldown']:
+                    parts.append(f"冷却记录 {values['cooldown']}")
                 if values['range'] or values['cast']:
                     parts.append('、'.join(part for part in (values['range'], values['cast']) if part))
+                if values['interrupts']:
+                    parts.append('光环打断：' + '、'.join(dict.fromkeys(values['interrupts'])) + '（旧值未核实）')
                 action = '本次记录：' + '；'.join(parts) + '。'
             search_text = ' '.join([title, str(sid), purpose, action, *values['sources']]).lower()
             (comparison_summaries if values['changes'] else configuration_summaries).append(

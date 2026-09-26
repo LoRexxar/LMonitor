@@ -15,6 +15,29 @@ from botend.services.wago_hotfix_reader_fields import display_hotfix_value, proj
 
 
 class FullHotfixNewValueReaderTests(SimpleTestCase):
+    def test_item_flags_changed_only_against_same_locale_client_base(self):
+        after = {'ID': '171692', 'Display_lang': 'Flickering Shoulderpads',
+                 'Flags_3': '4', 'SellPrice': '125023'}
+        en_base = {'ID': '171692', 'Display_lang': 'Flickering Shoulderpads',
+                   'Flags_3': '0', 'SellPrice': '562279'}
+        fields = {field['field']: field for field in
+                  project_hotfix_columns('ItemSparse', after, en_base)}
+        self.assertEqual(fields['Flags_3']['text'], '0 → 4')
+        self.assertTrue(fields['Flags_3']['base_changed'])
+        self.assertNotIn('Display_lang', fields)
+        self.assertNotIn('Flags_3', {field['field'] for field in
+                         project_hotfix_columns('ItemSparse', after, None)})
+
+    def test_interrupt_flags_decode_new_values_without_inventing_old_values(self):
+        after = {'ID': '250202', 'SpellID': '1281745',
+                 'AuraInterruptFlags_0': '4718592', 'AuraInterruptFlags_1': '3072'}
+        fields = project_hotfix_columns('SpellInterrupts', after)
+        text = ' '.join(field['text'] for field in fields)
+        for label in ('离开世界时中断', '进入世界时中断', '断线时中断', '进入副本时中断'):
+            self.assertIn(label, text)
+        self.assertFalse(any(field['base_changed'] for field in fields))
+        self.assertEqual(after['AuraInterruptFlags_0'], '4718592')
+
     def test_item_price_changes_show_currency_without_discarding_copper_facts(self):
         after = {'ID': '171692', 'SellPrice': '125023', 'BuyPrice': '625117'}
         base = {'ID': '171692', 'SellPrice': '562279', 'BuyPrice': '2811399'}
@@ -299,6 +322,190 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
                         str(reader).index('id="readerImpacts"'))
         self.assertIn('30 → 10', reader.select_one('.reader-confirmed').get_text(' ', strip=True))
         self.assertIn('旧名字 → 新名字', reader.select_one('.reader-impacts').get_text(' ', strip=True))
+        self.assertEqual(len(doc.select('.technical-report article.record')), 2)
+
+    def test_interrupt_new_values_do_not_evict_existing_item_baseline_budget(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        interrupt = {'id': 1, 'push_id': 112215, 'table_name': 'SpellInterrupts',
+                     'record_id': 250202, 'region_id': 3, 'locale': 'enUS',
+                     'build': 69875, 'status': 1}
+        item = {'id': 2, 'push_id': 112212, 'table_name': 'ItemSparse',
+                'record_id': 171692, 'region_id': 3, 'locale': 'enUS',
+                'build': 69875, 'status': 1}
+        facts = [
+            {'source': interrupt, 'source_build': '12.1.0.69875',
+             'after': {'ID': '250202', 'SpellID': '1281745',
+                       'AuraInterruptFlags_0': '4718592', 'AuraInterruptFlags_1': '3072'},
+             'before': None, 'after_verified': True, 'before_verified': False, 'changes': []},
+            {'source': item, 'source_build': '12.1.0.69875',
+             'after': {'ID': '171692', 'Display_lang': 'Flickering Shoulderpads',
+                       'Flags_3': '4', 'SellPrice': '125023'},
+             'before': None, 'after_verified': True, 'before_verified': False, 'changes': []},
+        ]
+        base = {'ID': '171692', 'Display_lang': 'Flickering Shoulderpads',
+                'Flags_3': 0, 'SellPrice': 562279}
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=1), \
+             patch.object(monitor, '_fetch_hotfix_db2_baseline_row',
+                          return_value=base) as fetch:
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112211, to_push=112215, summary_title='预留价格基表预算',
+                wago_url='https://wago.tools/hotfixes', build_num='69875',
+                db2_build='12.1.0.69875', table_stats=[('SpellInterrupts', 1), ('ItemSparse', 1)],
+                by_table={'SpellInterrupts': [interrupt], 'ItemSparse': [item]},
+                sample_per_table=1, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        fetch.assert_called_once_with('ItemSparse', '12.1.0.69875', 171692, 'enUS')
+        card = doc.select_one('[data-baseline-key*="itemsparse:12.1.0.69875:enUS:171692"]')
+        self.assertIsNotNone(card)
+        self.assertIn('Flags_3', card.get_text(' ', strip=True))
+        self.assertIn('0 → 4', card.get_text(' ', strip=True))
+
+    def test_sibling_spell_misc_fetches_own_client_base_with_a_small_budget(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        rows = [
+            (865878, 112186, 1298417, True),
+            (845754, 112186, 1298417, False),
+            (845755, 112186, 1298418, False),
+            (845756, 112185, 1298417, False),
+        ]
+        sources = [{'id': i, 'push_id': push, 'table_name': 'SpellMisc',
+                    'record_id': rid, 'build': 69814, 'region_id': 3,
+                    'locale': 'enUS', 'status': 1}
+                   for i, (rid, push, _sid, _verified) in enumerate(rows, 1)]
+        facts = []
+        for source, (rid, _push, sid, verified) in zip(sources, rows):
+            facts.append({'source': source, 'source_build': '12.1.0.69814',
+                          'after': {'ID': str(rid), 'SpellID': str(sid), 'RangeIndex': '13'},
+                          'before': {'ID': str(rid), 'SpellID': str(sid), 'RangeIndex': '6'} if verified else None,
+                          'after_verified': True, 'before_verified': verified,
+                          'changes': [{'field': 'RangeIndex', 'before': '6', 'after': '13'}] if verified else []})
+        base = {'ID': '845754', 'SpellID': '1298417', 'RangeIndex': '6'}
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=0,
+                     WAGO_HOTFIX_READER_CONTEXT_LOOKUPS=0,
+                     WAGO_HOTFIX_READER_SIBLING_LOOKUPS=1), \
+             patch.object(monitor, '_fetch_hotfix_db2_baseline_row',
+                          return_value=base) as fetch:
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112184, to_push=112186, summary_title='兄弟记录有界补读',
+                wago_url='https://wago.tools/hotfixes', build_num='69814',
+                db2_build='12.1.0.69814', table_stats=[('SpellMisc', 4)],
+                by_table={'SpellMisc': sources}, sample_per_table=4,
+                enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        self.assertEqual(fetch.call_count, 1)
+        fetch.assert_called_once_with('SpellMisc', '12.1.0.69814', 845754, 'enUS')
+        card = doc.select_one('[data-baseline-key="spellmisc:12.1.0.69814:enUS:845754:112186"]')
+        self.assertIsNotNone(card)
+        self.assertIn('6 → 13', card.get_text(' ', strip=True))
+        self.assertIsNone(doc.select_one('[data-baseline-key*="845755"]'))
+        self.assertIsNone(doc.select_one('[data-baseline-key*="845756"]'))
+        self.assertEqual(len(doc.select('.reader-confirmed-card')), 1)
+        self.assertEqual(len(doc.select('.technical-report article.record')), 4)
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=0,
+                     WAGO_HOTFIX_READER_CONTEXT_LOOKUPS=0,
+                     WAGO_HOTFIX_READER_SIBLING_LOOKUPS=1), \
+             patch.object(monitor, '_fetch_hotfix_db2_baseline_row', return_value=None) as failed:
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112184, to_push=112186, summary_title='兄弟缺基表不伪造',
+                wago_url='https://wago.tools/hotfixes', build_num='69814',
+                db2_build='12.1.0.69814', table_stats=[('SpellMisc', 4)],
+                by_table={'SpellMisc': sources}, sample_per_table=4,
+                enrich_max=0, facts=facts,
+            )
+            degraded = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        failed.assert_called_once_with('SpellMisc', '12.1.0.69814', 845754, 'enUS')
+        self.assertIsNone(degraded.select_one('[data-baseline-key*="845754"]'))
+        config = degraded.select_one('.reader-configs .reader-impact-card[data-search*="845754"]')
+        self.assertIsNotNone(config)
+        self.assertNotIn('6 → 13', config.get_text(' ', strip=True))
+
+    def test_verified_range_reference_is_reused_only_for_matching_sibling_values(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        confirmed = {'id': 1, 'push_id': 112186, 'table_name': 'SpellMisc',
+                     'record_id': 865878, 'region_id': 3, 'locale': 'enUS',
+                     'build': 69814, 'status': 1}
+        sibling = {**confirmed, 'id': 2, 'record_id': 845754}
+        facts = [
+            {'source': confirmed, 'source_build': '12.1.0.69814',
+             'after': {'ID': '865878', 'SpellID': '1298417', 'RangeIndex': '13'},
+             'before': {'ID': '865878', 'SpellID': '1298417', 'RangeIndex': '6'},
+             'after_verified': True, 'before_verified': True,
+             'changes': [{'field': 'RangeIndex', 'before': '6', 'after': '13'}]},
+            {'source': sibling, 'source_build': '12.1.0.69814',
+             'after': {'ID': '845754', 'SpellID': '1298417', 'RangeIndex': '13'},
+             'before': None, 'after_verified': True, 'before_verified': False,
+             'changes': []},
+        ]
+        rows = {('SpellRange', 6): {'ID': 6, 'DisplayNameShort_lang': 'Vision',
+                                   'RangeMax_0': 100, 'RangeMax_1': 100},
+                ('SpellRange', 13): {'ID': 13, 'DisplayNameShort_lang': 'Anywhere - Unlimited',
+                                    'RangeMax_0': 50000, 'RangeMax_1': 50000},
+                ('SpellMisc', 845754): {'ID': 845754, 'SpellID': 1298417, 'RangeIndex': 6}}
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=0,
+                     WAGO_HOTFIX_READER_CONTEXT_LOOKUPS=2,
+                     WAGO_HOTFIX_READER_SIBLING_LOOKUPS=1), \
+             patch.object(monitor, '_fetch_hotfix_db2_baseline_row',
+                          side_effect=lambda table, build, rid, locale: rows.get((table, rid))) as fetch:
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112185, to_push=112186, summary_title='同 build 引用复用',
+                wago_url='https://wago.tools/hotfixes', build_num='69814',
+                db2_build='12.1.0.69814', table_stats=[('SpellMisc', 2)],
+                by_table={'SpellMisc': [confirmed, sibling]},
+                sample_per_table=2, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        card = doc.select_one('[data-baseline-key*="845754"]')
+        self.assertIsNotNone(card)
+        self.assertIn('6（Vision；记录上限 100 码）', card.get_text(' ', strip=True))
+        self.assertIn('13（Anywhere - Unlimited；记录上限 50000 码）',
+                      card.get_text(' ', strip=True))
+        self.assertEqual(len([c for c in fetch.call_args_list if c.args[0] == 'SpellRange']), 2)
+        self.assertEqual(len(doc.select('.technical-report article.record')), 2)
+
+    def test_interrupt_config_keeps_new_value_label_and_searchable_spell(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        sources = [{'id': i, 'push_id': 112215, 'table_name': table,
+                    'record_id': rid, 'region_id': 3, 'locale': 'enUS',
+                    'build': 69875, 'status': 1}
+                   for i, (table, rid) in enumerate((('SpellName', 1281745),
+                                                     ('SpellInterrupts', 250202)), 1)]
+        facts = [{'source': sources[0], 'source_build': '12.1.0.69875',
+                  'after': {'ID': '1281745', 'Name_lang': 'Crash Landing'},
+                  'before': None, 'after_verified': True, 'before_verified': False, 'changes': []},
+                 {'source': sources[1], 'source_build': '12.1.0.69875',
+                  'after': {'ID': '250202', 'SpellID': '1281745',
+                            'AuraInterruptFlags_0': '4718592', 'AuraInterruptFlags_1': '3072'},
+                  'before': None, 'after_verified': True, 'before_verified': False, 'changes': []}]
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=0):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112214, to_push=112215, summary_title='打断条件新值',
+                wago_url='https://wago.tools/hotfixes', build_num='69875',
+                db2_build='12.1.0.69875', table_stats=[('SpellName', 1), ('SpellInterrupts', 1)],
+                by_table={'SpellName': [sources[0]], 'SpellInterrupts': [sources[1]]},
+                sample_per_table=1, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        story = doc.select_one('#readerImpactMore .reader-impact-summary')
+        self.assertIsNotNone(story)
+        self.assertIn('Crash Landing', story.get_text(' ', strip=True))
+        self.assertIn('本次记录', story.get_text(' ', strip=True))
+        self.assertIn('断线时中断', story.get_text(' ', strip=True))
+        self.assertNotIn('→', story.get_text(' ', strip=True))
+        card = doc.select_one('.reader-configs .reader-impact-card[data-search*="250202"]')
+        self.assertIsNotNone(card)
+        self.assertIn('进入副本时中断', card.get_text(' ', strip=True))
         self.assertEqual(len(doc.select('.technical-report article.record')), 2)
 
     def test_verified_range_index_uses_only_its_source_build_reference_pair(self):
