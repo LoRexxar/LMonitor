@@ -118,6 +118,27 @@ class HotfixReportRerenderTests(SimpleTestCase):
         self.assertIn(verified_name, self.full.read_text(encoding='utf-8'))
         self.assertEqual(hashlib.sha256(self.cls.read_bytes()).hexdigest(), old_class_sha256)
 
+    def test_full_only_refuses_to_erase_verified_range_reference(self):
+        marker = "data-range-context='spellmisc:12.1.0.69814:enUS:865878:112186:6:13'"
+        old = "<article class='reader-confirmed-card' " + marker + "></article>"
+        self.full.write_text(old, encoding='utf-8')
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get',
+                   return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor',
+                   return_value=self.monitor):
+            with self.assertRaisesRegex(CommandError, 'range references'):
+                self.invoke(full_only=True)
+        self.assertEqual(self.full.read_text(encoding='utf-8'), old)
+        self.staged_full.write_text("<article class='record'></article>" + old, encoding='utf-8')
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get',
+                   return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor',
+                   return_value=self.monitor):
+            self.invoke(full_only=True)
+        self.assertIn(marker, self.full.read_text(encoding='utf-8'))
+
     def test_full_only_rejects_shared_class_and_full_file(self):
         self.row.class_content_html_path = self.row.content_html_path
         with override_settings(BASE_DIR=str(self.root)), \

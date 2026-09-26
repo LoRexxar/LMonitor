@@ -117,6 +117,11 @@ def _same(left, right):
 
 def _value(field, raw):
     text = str(raw).strip()
+    if field in ('SellPrice', 'BuyPrice') and text.isdecimal():
+        amount = int(text)
+        gold, remainder = divmod(amount, 10000)
+        silver, copper = divmod(remainder, 100)
+        return (f'{gold}金' if gold else '') + (f'{silver}银' if silver else '') + (f'{copper}铜' if copper else '') or '0铜'
     def readable_number(number, *, places='0.01'):
         if not number.is_finite():
             return text

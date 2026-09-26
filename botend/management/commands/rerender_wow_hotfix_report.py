@@ -147,11 +147,15 @@ class Command(BaseCommand):
                 lost = old_comparisons - new_comparisons
                 old_names = previous_full.count("class='reader-db2-name-card'")
                 new_names = full_text.count("class='reader-db2-name-card'")
-                if lost or new_names < old_names:
+                old_range_refs = set(re.findall(r"data-range-context='([^']+)'", previous_full))
+                new_range_refs = set(re.findall(r"data-range-context='([^']+)'", full_text))
+                lost_range_refs = old_range_refs - new_range_refs
+                if lost or new_names < old_names or lost_range_refs:
                     raise CommandError(
                         f'Re-rendered HTML lost verified client DB2 context: '
                         f'{len(lost)} baseline comparisons, '
-                        f'{old_names - min(old_names, new_names)} names; original kept'
+                        f'{old_names - min(old_names, new_names)} names, '
+                        f'{len(lost_range_refs)} range references; original kept'
                     )
                 expected_hashes = [hashlib.sha256(path.read_bytes()).hexdigest() for path in paths]
                 for target in targets:

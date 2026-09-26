@@ -15,6 +15,19 @@ from botend.services.wago_hotfix_reader_fields import display_hotfix_value, proj
 
 
 class FullHotfixNewValueReaderTests(SimpleTestCase):
+    def test_item_price_changes_show_currency_without_discarding_copper_facts(self):
+        after = {'ID': '171692', 'SellPrice': '125023', 'BuyPrice': '625117'}
+        base = {'ID': '171692', 'SellPrice': '562279', 'BuyPrice': '2811399'}
+        fields = {field['field']: field for field in
+                  project_hotfix_columns('ItemSparse', after, base)}
+        self.assertEqual(fields['SellPrice']['text'], '56金22银79铜 → 12金50银23铜')
+        self.assertEqual(fields['BuyPrice']['text'], '281金13银99铜 → 62金51银17铜')
+        self.assertTrue(fields['SellPrice']['base_changed'])
+        self.assertEqual(after['SellPrice'], '125023')
+        self.assertEqual(display_hotfix_value('SellPrice', '10000'), '1金')
+        self.assertEqual(display_hotfix_value('SellPrice', '0'), '0铜')
+        self.assertEqual(display_hotfix_value('SellPrice', 'invalid'), 'invalid')
+
     def test_spell_misc_removed_cast_permissions_need_verified_same_build_base(self):
         after = {'ID': '842998', 'SpellID': '1295610',
                  'Attributes_0': '539230208', 'Attributes_1': '1160',
@@ -239,8 +252,108 @@ class FullHotfixNewValueReaderTests(SimpleTestCase):
         self.assertIn('瞬发', configured.get_text(' ', strip=True))
         self.assertIn('作用：拾取', configured.get_text(' ', strip=True))
         self.assertNotIn('拾取类施法效果', configured.get_text(' ', strip=True))
+        self.assertIsNotNone(renamed.find_parent(class_='reader-impacts'))
+        self.assertIsNotNone(configured.find_parent('details', id='readerImpactMore'))
+        self.assertIsNone(doc.select_one('#readerImpactMore').get('open'))
         self.assertNotIn('装备', ' '.join(card.get_text(' ', strip=True) for card in stories))
         self.assertEqual(len(doc.select('.technical-report article.record')), 6)
+
+    def test_verified_history_precedes_later_client_baseline(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        changed = {'id': 1, 'push_id': 112200, 'table_name': 'SpellEffect',
+                   'record_id': 70, 'region_id': 3, 'locale': 'enUS',
+                   'build': 69875, 'status': 1}
+        baseline = {'id': 2, 'push_id': 112236, 'table_name': 'SpellName',
+                    'record_id': 99, 'region_id': 3, 'locale': 'enUS',
+                    'build': 69933, 'status': 1}
+        facts = [
+            {'source': changed, 'source_build': '12.1.0.69875',
+             'after': {'ID': '70', 'SpellID': '700', 'Effect': '2',
+                       'EffectBasePointsF': '10'},
+             'before': {'ID': '70', 'SpellID': '700', 'Effect': '2',
+                        'EffectBasePointsF': '30'},
+             'after_verified': True, 'before_verified': True,
+             'changes': [{'field': 'EffectBasePointsF', 'before': '30', 'after': '10'}]},
+            {'source': baseline, 'source_build': '12.1.0.69933',
+             'after': {'ID': '99', 'Name_lang': '新名字'},
+             'before': None, 'after_verified': True,
+             'before_verified': False, 'changes': []},
+        ]
+        monitor._fetch_hotfix_db2_baseline_row = (
+            lambda table, build, rid, locale:
+            {'ID': '99', 'Name_lang': '旧名字'} if table == 'SpellName' else None)
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=2):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112199, to_push=112236, summary_title='历史优先',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933',
+                table_stats=[('SpellEffect', 1), ('SpellName', 1)],
+                by_table={'SpellEffect': [changed], 'SpellName': [baseline]},
+                sample_per_table=1, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        reader = doc.select_one('.reader-digest')
+        self.assertLess(str(reader).index('id="readerConfirmed"'),
+                        str(reader).index('id="readerImpacts"'))
+        self.assertIn('30 → 10', reader.select_one('.reader-confirmed').get_text(' ', strip=True))
+        self.assertIn('旧名字 → 新名字', reader.select_one('.reader-impacts').get_text(' ', strip=True))
+        self.assertEqual(len(doc.select('.technical-report article.record')), 2)
+
+    def test_verified_range_index_uses_only_its_source_build_reference_pair(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        source = {'id': 1, 'push_id': 112186, 'table_name': 'SpellMisc',
+                  'record_id': 865878, 'region_id': 3, 'locale': 'enUS',
+                  'build': 69814, 'status': 1}
+        fact = {'source': source, 'source_build': '12.1.0.69814',
+                'after': {'ID': '865878', 'SpellID': '1298417', 'RangeIndex': '13'},
+                'before': {'ID': '865878', 'SpellID': '1298417', 'RangeIndex': '6'},
+                'after_verified': True, 'before_verified': True,
+                'changes': [{'field': 'RangeIndex', 'before': '6', 'after': '13'}]}
+        rows = {6: {'ID': 6, 'DisplayNameShort_lang': 'Vision', 'RangeMax_0': 100,
+                    'RangeMax_1': 100},
+                13: {'ID': 13, 'DisplayNameShort_lang': 'Anywhere - Unlimited',
+                     'RangeMax_0': 50000, 'RangeMax_1': 50000}}
+        lookup = lambda table, build, rid, locale: rows.get(rid) if (
+            table == 'SpellRange' and build == '12.1.0.69814' and locale == 'enUS') else None
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_READER_CONTEXT_LOOKUPS=2), \
+             patch.object(monitor, '_fetch_hotfix_db2_baseline_row', side_effect=lookup) as fetch:
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112185, to_push=112186, summary_title='范围引用',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933', table_stats=[('SpellMisc', 1)],
+                by_table={'SpellMisc': [source]}, sample_per_table=1,
+                enrich_max=0, facts=[fact],
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        card = doc.select_one('.reader-confirmed-card')
+        text = card.get_text(' ', strip=True)
+        self.assertIn('6（Vision；记录上限 100 码）', text)
+        self.assertIn('13（Anywhere - Unlimited；记录上限 50000 码）', text)
+        self.assertNotIn('实际射程', text)
+        self.assertIn('spellmisc:12.1.0.69814:enUS:865878:112186:6:13',
+                      card['data-range-context'])
+        self.assertEqual([(c.args[0], c.args[1], c.args[2]) for c in fetch.call_args_list],
+                         [('SpellRange', '12.1.0.69814', 6),
+                          ('SpellRange', '12.1.0.69814', 13)])
+        monitor._fetch_hotfix_db2_baseline_row = lambda table, build, rid, locale: rows.get(6) if rid == 6 else None
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root,
+                     WAGO_HOTFIX_READER_CONTEXT_LOOKUPS=2):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112185, to_push=112186, summary_title='范围引用降级',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933', table_stats=[('SpellMisc', 1)],
+                by_table={'SpellMisc': [source]}, sample_per_table=1,
+                enrich_max=0, facts=[fact],
+            )
+            degraded = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        fallback = degraded.select_one('.reader-confirmed-card')
+        self.assertIn('6 → 13', fallback.get_text(' ', strip=True))
+        self.assertIsNone(fallback.get('data-range-context'))
 
     def test_exact_build_db2_identity_lookup_rejects_wrong_build_and_id(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())

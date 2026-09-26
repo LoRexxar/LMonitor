@@ -4233,7 +4233,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 group = confirmed_groups.setdefault(group_key, {
                     'table': table, 'title': title, 'category': table_category(table),
                     'pid': pid, 'field': field, 'before': before, 'after': after,
-                    'members': [], 'effect_roles': set(),
+                    'members': [], 'effect_roles': set(), 'version': source_version(fact),
                 })
                 group['members'].append((rid, row.get('EffectIndex')))
                 if tkey(table) == 'spelleffect':
@@ -4241,6 +4241,9 @@ class WagoSkillDiffMonitor(BaseScan):
                     role = display_hotfix_value('Effect', raw_effect) if raw_effect is not None else ''
                     group['effect_roles'].add(role if role != str(raw_effect) and role != '虚拟效果' else '')
         confirmed_cards = []
+        confirmed_range_cache = {}
+        confirmed_range_limit = max(0, min(8, int(getattr(
+            settings, 'WAGO_HOTFIX_READER_CONTEXT_LOOKUPS', 4) or 0)))
         for group in confirmed_groups.values():
             table, pid = group['table'], group['pid']
             effect_table = tkey(table) == 'spelleffect'
@@ -4251,20 +4254,53 @@ class WagoSkillDiffMonitor(BaseScan):
                     ref += f'（效果 #{self._to_int(index) + 1}）'
                 physical_refs.append(ref)
             role = next(iter(group['effect_roles'])) if len(group['effect_roles']) == 1 else ''
+            before_display = display_hotfix_value(group['field'], group['before'])
+            after_display = display_hotfix_value(group['field'], group['after'])
+            range_marker = ''
+            if (tkey(table) == 'spellmisc' and group['field'] == 'RangeIndex'
+                    and group['version'] and confirmed_range_limit >= 2):
+                refs = []
+                for raw_id in (group['before'], group['after']):
+                    ref_id = self._to_int(raw_id)
+                    if ref_id <= 0:
+                        break
+                    key = (group['version'], locale, ref_id)
+                    if key not in confirmed_range_cache and len(confirmed_range_cache) < confirmed_range_limit:
+                        confirmed_range_cache[key] = self._fetch_hotfix_db2_baseline_row(
+                            'SpellRange', group['version'], ref_id, locale)
+                    context = confirmed_range_cache.get(key)
+                    if not isinstance(context, dict) or self._to_int(context.get('ID')) != ref_id:
+                        break
+                    name = clean_report_text(context.get('DisplayNameShort_lang') or
+                                             context.get('DisplayName_lang') or '').strip()[:80]
+                    upper = None
+                    try:
+                        upper = Decimal(str(context['RangeMax_0']))
+                        same_limit = upper == Decimal(str(context['RangeMax_1']))
+                    except (InvalidOperation, ValueError, KeyError, TypeError):
+                        same_limit = False
+                    if not name or not same_limit or upper is None or not upper.is_finite() or upper < 0:
+                        break
+                    refs.append(f'{ref_id}（{name}；记录上限 {upper.normalize():f} 码）')
+                if len(refs) == 2:
+                    before_display, after_display = refs
+                    rid = group['members'][0][0]
+                    range_key = ':'.join(('spellmisc', group['version'], locale, str(rid),
+                                          str(pid), group['before'], group['after']))
+                    range_marker = f" data-range-context='{esc(range_key)}'"
             search_value = ' '.join([
                 group['title'], table, str(pid), group['category'], group['field'],
                 group['before'], group['after'],
                 role,
-                display_hotfix_value(group['field'], group['before']),
-                display_hotfix_value(group['field'], group['after']),
+                before_display, after_display,
                 *[f'{rid} {index}' for rid, index in group['members']],
             ]).lower()
             confirmed_cards.append(
-                f"<article class='reader-confirmed-card' data-category='{esc(group['category'])}' data-search='{esc(search_value)}'>"
+                f"<article class='reader-confirmed-card' data-category='{esc(group['category'])}' data-search='{esc(search_value)}'{range_marker}>"
                 f"<h4>{esc(group['title'])}</h4>"
                 + (f"<p class='reader-effect-role'>作用：{esc(role)}</p>" if role else '')
                 +
-                f"<ul><li><strong>{esc(field_label(group['field']))}</strong>：{esc(display_hotfix_value(group['field'], group['before']))} → {esc(display_hotfix_value(group['field'], group['after']))}</li></ul>"
+                f"<ul><li><strong>{esc('范围配置 / RangeIndex' if range_marker else field_label(group['field']))}</strong>：{esc(before_display)} → {esc(after_display)}</li></ul>"
                 f"<small>{esc(table_label(table))} {' / '.join(esc(ref) for ref in physical_refs)} · push {pid} "
                 f"<a href='{esc(hotfix_table_url(table, pid))}' target='_blank' rel='noreferrer'>来源</a></small>"
                 "</article>"
@@ -4376,7 +4412,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 for field in fields
             )
             search_value = (f'{title} {table} {rid} {pid} {category} ' +
-                            ' '.join(f"{field['field']} {field['text']}" for field in fields)).lower()
+                            ' '.join(f"{field['field']} {field['text']}" for field in fields) + ' ' +
+                            ' '.join(str(value) for key in ('SellPrice', 'BuyPrice') for value in (
+                                after.get(key), (baseline or {}).get(key)) if value is not None)).lower()
             comparison_key = (f'{tkey(table)}:{version}:{locale}:{rid}:{pid}'
                               if isinstance(baseline, dict) and baseline else '')
             card_html = (
@@ -4393,7 +4431,8 @@ class WagoSkillDiffMonitor(BaseScan):
             )
             (comparison_cards if comparison_key else configuration_cards).append(card_html)
         impact_cards = comparison_cards + configuration_cards
-        summary_cards = []
+        comparison_summaries = []
+        configuration_summaries = []
         for (pid, version, sid), values in sorted(
                 spell_stories.items(), key=lambda pair: (
                     -pair[0][0], not bool(pair[1]['changes']), -pair[0][2])):
@@ -4417,23 +4456,24 @@ class WagoSkillDiffMonitor(BaseScan):
                     parts.append('、'.join(part for part in (values['range'], values['cast']) if part))
                 action = '本次记录：' + '；'.join(parts) + '。'
             search_text = ' '.join([title, str(sid), purpose, action, *values['sources']]).lower()
-            summary_cards.append(
+            (comparison_summaries if values['changes'] else configuration_summaries).append(
                 f"<p class='reader-impact-summary' data-category='技能/法术' data-search='{esc(search_text)}'>"
                 f"<strong>{esc(title)}</strong>：{esc(purpose)}{esc(action)}"
                 "</p>"
             )
         impact_section = (
             "<section class='reader-impacts' id='readerImpacts'>"
-            + ''.join(summary_cards)
+            + ''.join(comparison_summaries)
             + (f"<h3>同 build 基表→本次值 <small>{len(comparison_cards)} 条 · 非线上前态</small></h3>"
                + ''.join(comparison_cards) if comparison_cards else '')
             + "</section>"
-        ) if summary_cards or comparison_cards else ''
+        ) if comparison_summaries or comparison_cards else ''
         config_section = (
             "<section class='reader-configs' id='readerConfigs'>"
             f"<details class='reader-impact-more' id='readerImpactMore'><summary>仅本次配置 · {len(configuration_cards)} 条记录（非改动数） · 展开</summary>"
-            + ''.join(configuration_cards) + "</details></section>"
-        ) if configuration_cards else ''
+            + ''.join(configuration_summaries) + ''.join(configuration_cards)
+            + "</details></section>"
+        ) if configuration_summaries or configuration_cards else ''
         if impact_cards and not confirmed_cards:
             confirmed_section = ''
         db2_context_cards = []
@@ -4521,8 +4561,8 @@ class WagoSkillDiffMonitor(BaseScan):
             f"<span id='readerCount' class='hidden'>仅新值 {len(readable_cards)} · 底层 {len(raw_cards)} 个对象</span></div>"
             + ("<p class='reader-verdict'>旧报告仅有 DB2 基表参考，不能作为热修生效值或变化幅度。</p>"
                if facts is None else '')
-            + impact_section
             + confirmed_section
+            + impact_section
             + config_section
             + (f"<p class='reader-verdict'>{esc(verdict)}</p>" if verdict and not impact_cards else '')
             + db2_context_section
@@ -4677,19 +4717,19 @@ class WagoSkillDiffMonitor(BaseScan):
       el.classList.toggle('hidden', !ok);
       if(ok){{if(configGroup && configGroup.contains(el)){{configVisible++;}}else{{impactVisible++;}}}}
     }});
-    if(impactMore){{
-      var moreVisible=impactMore.querySelectorAll('.reader-impact-card:not(.hidden)').length;
-      impactMore.classList.toggle('hidden', moreVisible===0);
-      if(moreVisible && (q || category!=='all')){{impactMore.open=true;}}
-    }}
-    var impactSummaryVisible=0;
+    var impactSummaryVisible=0, configSummaryVisible=0;
     document.querySelectorAll('.reader-impact-summary').forEach(function(el){{
       var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
       el.classList.toggle('hidden', !ok);
-      if(ok){{impactSummaryVisible++;}}
+      if(ok){{if(configGroup && configGroup.contains(el)){{configSummaryVisible++;}}else{{impactSummaryVisible++;}}}}
     }});
+    if(impactMore){{
+      var moreVisible=impactMore.querySelectorAll('.reader-impact-card:not(.hidden),.reader-impact-summary:not(.hidden)').length;
+      impactMore.classList.toggle('hidden', moreVisible===0);
+      if(moreVisible && (q || category!=='all')){{impactMore.open=true;}}
+    }}
     if(impactGroup){{impactGroup.classList.toggle('hidden', impactVisible===0 && impactSummaryVisible===0);}}
-    if(configGroup){{configGroup.classList.toggle('hidden', configVisible===0);}}
+    if(configGroup){{configGroup.classList.toggle('hidden', configVisible===0 && configSummaryVisible===0);}}
     var db2NameVisible=0;
     document.querySelectorAll('.reader-db2-name-card, .reader-source-text-card').forEach(function(el){{
       var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
@@ -4733,7 +4773,7 @@ class WagoSkillDiffMonitor(BaseScan):
     }}
     if(empty){{
       empty.textContent=rawVisible ? '具体改动未知；下方列出底层记录。' : '无匹配记录；来源详见技术明细。';
-      empty.classList.toggle('hidden', confirmedVisible!==0 || impactVisible!==0 || configVisible!==0 || impactSummaryVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0);
+      empty.classList.toggle('hidden', confirmedVisible!==0 || impactVisible!==0 || configVisible!==0 || impactSummaryVisible!==0 || configSummaryVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0);
     }}
   }}
   input.addEventListener('input', apply);
