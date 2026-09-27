@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260907_wow_updates_moved">
-    <link rel="stylesheet" href="{% static 'portal/css/wow-updates.css' %}?v=20260927_hotfix_inline_v1">
+    <link rel="stylesheet" href="{% static 'portal/css/wow-updates.css' %}?v=20260927_hotfix_priority_v1">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -50,18 +50,23 @@
             <div class="wow-updates-search">
                 <div class="wow-hotfix-filter"><label for="wow-hotfix-search">查询 Hotfix</label>
                     <input id="wow-hotfix-search" type="search" placeholder="搜索技能、记录 ID 或字段" autocomplete="off" aria-controls="wow-hotfix-list"></div>
-                <div class="wow-hotfix-filter"><label for="wow-hotfix-branch">分支</label>
-                    <select id="wow-hotfix-branch" aria-controls="wow-hotfix-list">
-                        <option value="">全部分支</option>
-                        <option value="wow">正式服 wow</option>
-                        <option value="wowt">PTR wowt</option>
-                        <option value="wowxptr">PTR X wowxptr</option>
-                        <option value="wow_beta">Beta wow_beta</option>
-                    </select></div>
-                <div class="wow-hotfix-filter"><label for="wow-hotfix-build">构建</label>
-                    <select id="wow-hotfix-build" aria-controls="wow-hotfix-list"><option value="">全部构建</option></select></div>
-                <div class="wow-hotfix-filter"><label for="wow-hotfix-table">DB2 表</label>
-                    <select id="wow-hotfix-table" aria-controls="wow-hotfix-list"><option value="">全部表</option></select></div>
+                <details id="wow-hotfix-advanced" class="wow-hotfix-advanced" open>
+                    <summary id="wow-hotfix-advanced-summary">更多筛选（分支 / 构建 / DB2 表）</summary>
+                    <div class="wow-hotfix-advanced-controls">
+                        <div class="wow-hotfix-filter"><label for="wow-hotfix-branch">分支</label>
+                            <select id="wow-hotfix-branch" aria-controls="wow-hotfix-list">
+                                <option value="">全部分支</option>
+                                <option value="wow">正式服 wow</option>
+                                <option value="wowt">PTR wowt</option>
+                                <option value="wowxptr">PTR X wowxptr</option>
+                                <option value="wow_beta">Beta wow_beta</option>
+                            </select></div>
+                        <div class="wow-hotfix-filter"><label for="wow-hotfix-build">构建</label>
+                            <select id="wow-hotfix-build" aria-controls="wow-hotfix-list"><option value="">全部构建</option></select></div>
+                        <div class="wow-hotfix-filter"><label for="wow-hotfix-table">DB2 表</label>
+                            <select id="wow-hotfix-table" aria-controls="wow-hotfix-list"><option value="">全部表</option></select></div>
+                    </div>
+                </details>
                 <div class="wow-hotfix-filter"><label for="wow-hotfix-mode">类型</label>
                     <select id="wow-hotfix-mode" aria-controls="wow-hotfix-list">
                         <option value="values" selected>有字段值（含变化）</option>
@@ -69,9 +74,15 @@
                         <option value="changes">确证旧→新</option>
                         <option value="status">状态 / 未解析</option>
                     </select></div>
+                <div class="wow-hotfix-filter"><label for="wow-hotfix-sort">排序</label>
+                    <select id="wow-hotfix-sort" aria-controls="wow-hotfix-list">
+                        <option value="changes_first" selected>确证变化优先</option>
+                        <option value="latest">push 新到旧</option>
+                    </select></div>
             </div>
             <section class="wow-updates-section" aria-labelledby="wow-hotfix-reports-title">
                 <div class="wow-updates-section-heading"><h2 id="wow-hotfix-reports-title">Hotfix 来源记录</h2></div>
+                <p id="wow-hotfix-breakdown" class="wow-hotfix-breakdown" aria-live="polite">正在统计来源事实…</p>
                 <div class="wow-hotfix-table-scroll" role="region" aria-label="Hotfix 来源记录表" tabindex="0">
                     <table class="wow-hotfix-table">
                         <thead><tr><th scope="col">对象 / DB2 物理记录 ID</th><th scope="col">原始字段 / 含义</th><th scope="col">来源 push / build / 状态</th></tr></thead>
@@ -82,6 +93,6 @@
             </section>
         </section>
     </main>
-    <script src="{% static 'portal/js/wow-updates.js' %}?v=20260927_hotfix_inline_v1"></script>
+    <script src="{% static 'portal/js/wow-updates.js' %}?v=20260927_hotfix_priority_v1"></script>
 </body>
 </html>

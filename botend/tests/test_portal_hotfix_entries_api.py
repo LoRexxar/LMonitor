@@ -97,6 +97,24 @@ class PortalHotfixEntriesAPITests(TestCase):
         self.assertEqual(self.read(page_size=1000).json()['meta']['page_size'], 50)
         self.assertEqual(self.read(mode='bad').status_code, 400)
 
+    def test_explicit_change_first_sort_preserves_kind_counts_and_push_order(self):
+        original = self.read(mode='values', page_size=2).json()
+        self.assertEqual([(row['push'], row['kind']) for row in original['data']],
+                         [(101, 'new_value'), (100, 'change')])
+        self.assertEqual(original['meta']['sort'], 'latest')
+        prioritized = self.read(mode='values', sort='changes_first', page_size=2).json()
+        self.assertEqual(prioritized['meta']['total'], 3)
+        self.assertEqual(prioritized['meta']['counts'],
+                         {'change': 1, 'new_value': 2, 'status': 0, 'unresolved': 0})
+        self.assertEqual(prioritized['meta']['sort'], 'changes_first')
+        self.assertEqual([(row['push'], row['kind']) for row in prioritized['data']],
+                         [(100, 'change'), (101, 'new_value')])
+        self.assertEqual(prioritized['data'][0]['fields'][0]['text'], '4.25 → 2.55')
+        second = self.read(mode='values', sort='changes_first', page_size=2, page=2).json()
+        self.assertEqual([(row['push'], row['kind']) for row in second['data']],
+                         [(100, 'new_value')])
+        self.assertEqual(self.read(sort='not-allowed').status_code, 400)
+
     def test_noncomplete_and_nonmatching_facts_are_not_mislabeled_as_changes(self):
         self.assertNotIn(999, [r['record_id'] for r in self.read().json()['data']])
         misc = next(r for r in self.read().json()['data'] if r['record_id'] == 901)

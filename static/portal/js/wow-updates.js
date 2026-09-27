@@ -8,6 +8,10 @@
     const hotfixBuild = document.getElementById('wow-hotfix-build');
     const hotfixTable = document.getElementById('wow-hotfix-table');
     const hotfixMode = document.getElementById('wow-hotfix-mode');
+    const hotfixSort = document.getElementById('wow-hotfix-sort');
+    const hotfixBreakdown = document.getElementById('wow-hotfix-breakdown');
+    const hotfixAdvanced = document.getElementById('wow-hotfix-advanced');
+    const hotfixAdvancedSummary = document.getElementById('wow-hotfix-advanced-summary');
     const hotfixList = document.getElementById('wow-hotfix-list');
     const hotfixPagination = document.getElementById('wow-hotfix-pagination');
     const statesSection = document.getElementById('wow-updates-states-section');
@@ -16,6 +20,10 @@
     let hotfixLoaded = false;
     let hotfixRequest = null;
     let hotfixQueryTimer = null;
+    const mobileHotfixFilters = window.matchMedia('(max-width: 760px)');
+    function syncAdvancedFilters() { hotfixAdvanced.open = !mobileHotfixFilters.matches; }
+    syncAdvancedFilters();
+    mobileHotfixFilters.addEventListener('change', syncAdvancedFilters);
     const sections = {
         states: {url: '/portal/api/wow-skill-diff/states/', node: document.getElementById('wow-skill-diff-states'), items: null},
         reports: {url: '/portal/api/wow-skill-diffs/', node: document.getElementById('wow-skill-diff-list'), items: null},
@@ -203,6 +211,15 @@
         const meta = payload.meta;
         updateHotfixOptions(hotfixBuild, meta.builds, '全部构建');
         updateHotfixOptions(hotfixTable, meta.tables, '全部表');
+        const counts = meta.counts || {};
+        hotfixBreakdown.replaceChildren(
+            element('strong', '', `已核实旧→新 ${counts.change || 0} 条`),
+            element('span', '', `仅本次值 ${counts.new_value || 0} 条（旧值未知）`),
+            element('span', '', `仅状态 / 未解析 ${(counts.status || 0) + (counts.unresolved || 0)} 条`),
+            element('span', 'wow-hotfix-sort-note', meta.sort === 'changes_first'
+                ? '当前：确证变化优先；同类按 push 新到旧'
+                : '当前：按 push 新到旧')
+        );
         hotfixList.replaceChildren();
         if (!entries.length) hotfixMessage('没有匹配的 Hotfix 来源记录');
         entries.forEach(item => {
@@ -270,15 +287,19 @@
         }
     }
     async function loadHotfixEntries(page) {
+        hotfixAdvancedSummary.textContent = [hotfixBranch, hotfixBuild, hotfixTable].some(filter => filter.value)
+            ? '更多筛选（已启用）' : '更多筛选（分支 / 构建 / DB2 表）';
         if (hotfixRequest) hotfixRequest.abort();
         const controller = new AbortController();
         hotfixRequest = controller;
-        const params = new URLSearchParams({mode: hotfixMode.value, page: String(page), page_size: '20'});
+        const params = new URLSearchParams({mode: hotfixMode.value, sort: hotfixSort.value,
+            page: String(page), page_size: '20'});
         if (hotfixSearch.value.trim()) params.set('q', hotfixSearch.value.trim());
         if (hotfixBranch.value) params.set('branch', hotfixBranch.value);
         if (hotfixBuild.value) params.set('build', hotfixBuild.value);
         if (hotfixTable.value) params.set('table', hotfixTable.value);
         hotfixList.setAttribute('aria-busy', 'true');
+        hotfixBreakdown.textContent = '正在统计来源事实…';
         hotfixPagination.hidden = true;
         hotfixMessage('正在查询 Hotfix 来源记录…');
         try {
@@ -294,6 +315,7 @@
             renderHotfixEntries(payload);
         } catch (error) {
             if (error.name === 'AbortError' || hotfixRequest !== controller) return;
+            hotfixBreakdown.textContent = '来源事实暂时不可用';
             hotfixMessage('Hotfix 来源记录暂时无法加载。');
             const retry = element('button', '', '重试');
             retry.type = 'button';
@@ -336,7 +358,7 @@
         hotfixQueryTimer = setTimeout(() => loadHotfixEntries(1), 280);
     }
     hotfixSearch.addEventListener('input', hotfixFilterChanged);
-    [hotfixBranch, hotfixBuild, hotfixTable, hotfixMode].forEach(filter => filter.addEventListener('change', () => {
+    [hotfixBranch, hotfixBuild, hotfixTable, hotfixMode, hotfixSort].forEach(filter => filter.addEventListener('change', () => {
         clearTimeout(hotfixQueryTimer);
         loadHotfixEntries(1);
     }));

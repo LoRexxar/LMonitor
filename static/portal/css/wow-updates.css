@@ -10,9 +10,14 @@
 .wow-updates-search input::placeholder { color: var(--portal-text-muted); }
 .wow-updates-search select { background: var(--portal-surface-raised); color: var(--portal-text); border: 1px solid var(--portal-border); border-radius: 8px; font-size: 14px; min-height: 42px; padding: 8px 12px; }
 .wow-updates-search button { color: var(--portal-accent-primary); font-size: 13px; min-height: 40px; cursor: pointer; }
-#wow-updates-panel-hotfix .wow-updates-search { display: grid; grid-template-columns: minmax(270px, 2fr) repeat(4, minmax(130px, 1fr)); gap: 10px 12px; align-items: end; }
+#wow-updates-panel-hotfix .wow-updates-search { display: grid; grid-template-columns: minmax(270px, 2fr) repeat(5, minmax(118px, 1fr)); gap: 10px 12px; align-items: end; }
+.wow-hotfix-advanced { grid-column: span 3; min-width: 0; }
+.wow-hotfix-advanced-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.wow-hotfix-advanced summary { display: none; }
 .wow-hotfix-filter { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
 .wow-hotfix-filter input, .wow-hotfix-filter select { width: 100%; min-width: 0; }
+.wow-hotfix-breakdown { display: flex; flex-wrap: wrap; gap: 3px 8px; margin: 0; padding: 9px 12px; border-bottom: 1px solid var(--portal-border-subtle); color: var(--portal-text-muted); font-size: 12px; line-height: 1.5; }
+.wow-hotfix-breakdown strong { color: var(--portal-text); font-weight: 700; }
 .wow-hotfix-scroll-hint { display: none; }
 .wow-updates-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--portal-border); margin: 0 0 20px; }
 .wow-updates-tabs button { min-height: 44px; padding: 9px 16px; color: var(--portal-text-muted); font-size: 15px; font-weight: 700; border-bottom: 3px solid transparent; cursor: pointer; }
@@ -95,7 +100,12 @@ html.portal-theme-dark .wow-hotfix-field-text { color: #6ee7b7; }
 @media (max-width: 760px) {
     .wow-updates-shell { padding: 24px 12px 36px; }
     #wow-updates-panel-hotfix .wow-updates-search { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .wow-hotfix-filter:first-child { grid-column: 1 / -1; }
+    #wow-updates-panel-hotfix .wow-updates-search > .wow-hotfix-filter:first-child { grid-column: 1 / -1; }
+    .wow-hotfix-advanced { display: block; grid-column: 1 / -1; min-width: 0; }
+    .wow-hotfix-advanced summary { display: block; min-height: 34px; padding: 6px 2px; cursor: pointer; color: var(--portal-accent-primary); font-size: 13px; font-weight: 650; }
+    .wow-hotfix-advanced summary:focus-visible { outline: 2px solid var(--portal-accent-primary); outline-offset: 2px; }
+    .wow-hotfix-advanced-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; padding-top: 8px; }
+    .wow-hotfix-advanced-controls .wow-hotfix-filter:last-child { grid-column: 1 / -1; }
     .wow-hotfix-table-scroll { overflow-x: visible; }
     .wow-hotfix-table, .wow-hotfix-table tbody, .wow-hotfix-table tbody tr, .wow-hotfix-table td { display: block; width: 100%; min-width: 0; }
     .wow-hotfix-table thead { display: none; }

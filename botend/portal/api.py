@@ -651,6 +651,9 @@ class PortalHotfixEntriesAPIView(View):
         mode = (request.GET.get('mode') or 'all').strip()
         if mode not in ('all', 'values', 'changes', 'status'):
             return JsonResponse({'error': '无效筛选模式'}, status=400)
+        order = (request.GET.get('sort') or 'latest').strip()
+        if order not in ('latest', 'changes_first'):
+            return JsonResponse({'error': '无效排序方式'}, status=400)
         try:
             page = max(1, int(request.GET.get('page') or 1))
             page_size = max(1, min(50, int(request.GET.get('page_size') or 25)))
@@ -690,6 +693,12 @@ class PortalHotfixEntriesAPIView(View):
                     *(part for key, value in row.get('_raw_search', {}).items() for part in (key, value)),
                 ]).casefold()
             rows = [row for row in rows if query in searchable(row)]
+        counts = {'change': 0, 'new_value': 0, 'status': 0, 'unresolved': 0}
+        for row in rows:
+            counts[row['kind']] += 1
+        if order == 'changes_first':
+            # Stable sort: within each kind, preserve the established push/time order.
+            rows.sort(key=lambda row: row['kind'] == 'change', reverse=True)
         total = len(rows)
         total_pages = max(1, ceil(total / page_size))
         page = min(page, total_pages)
@@ -700,7 +709,7 @@ class PortalHotfixEntriesAPIView(View):
             'page': page, 'page_size': page_size, 'total': total,
             'total_pages': total_pages, 'has_next': page < total_pages,
             'has_previous': page > 1, 'tables': available_tables,
-            'builds': available_builds,
+            'builds': available_builds, 'sort': order, 'counts': counts,
         }})
 
 

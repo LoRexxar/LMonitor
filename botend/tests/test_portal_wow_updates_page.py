@@ -24,6 +24,29 @@ class PortalWowUpdatesPageTests(SimpleTestCase):
         self.assertIn("element('details', 'wow-hotfix-source-details')", script)
         self.assertNotIn('左右滑动表格', html.get_text(' ', strip=True))
 
+    def test_hotfix_page_declares_explicit_priority_sort_and_verified_counts(self):
+        html = BeautifulSoup(self.client.get(reverse('portal_wow_updates')).content, 'html.parser')
+        sort = html.select_one('#wow-hotfix-sort')
+        self.assertIsNotNone(sort)
+        self.assertEqual(sort.select_one('option[selected]')['value'], 'changes_first')
+        self.assertIsNotNone(html.select_one('#wow-hotfix-breakdown'))
+        script = (ROOT / 'static/portal/js/wow-updates.js').read_text(encoding='utf-8')
+        self.assertIn('sort: hotfixSort.value', script)
+        self.assertIn('counts.change', script)
+
+    def test_advanced_filters_are_grouped_without_hiding_type_or_sort(self):
+        html = BeautifulSoup(self.client.get(reverse('portal_wow_updates')).content, 'html.parser')
+        advanced = html.select_one('#wow-hotfix-advanced')
+        self.assertIsNotNone(advanced)
+        self.assertTrue(advanced.has_attr('open'))
+        self.assertEqual({x['id'] for x in advanced.select('select')},
+                         {'wow-hotfix-branch', 'wow-hotfix-build', 'wow-hotfix-table'})
+        for control in ('wow-hotfix-search', 'wow-hotfix-mode', 'wow-hotfix-sort'):
+            self.assertIsNone(html.select_one(f'#{control}').find_parent(id='wow-hotfix-advanced'))
+        script = (ROOT / 'static/portal/js/wow-updates.js').read_text(encoding='utf-8')
+        self.assertIn("matchMedia('(max-width: 760px)')", script)
+        self.assertIn('更多筛选（已启用）', script)
+
     def test_standalone_page_is_public_and_preserves_content_containers(self):
         response = self.client.get(reverse('portal_wow_updates'))
         self.assertEqual(response.status_code, 200)
