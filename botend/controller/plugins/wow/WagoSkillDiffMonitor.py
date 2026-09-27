@@ -4096,6 +4096,14 @@ class WagoSkillDiffMonitor(BaseScan):
                 row_title = summary or f"record_id {rid}"
                 if fact is not None and not fact.get('after_verified') and identity_name:
                     row_title = f'{identity_name}（{table_label(t)} #{rid}；DB2 基表名称）'
+                elif (fact is not None and not fact.get('after_verified')
+                      and (fact.get('source') or {}).get('data') is None
+                      and self._to_int((fact.get('source') or {}).get('status')) == 3):
+                    status_table = tkey(t)
+                    if status_table in ('creaturedifficulty', 'spellscript'):
+                        label = ('生物难度配置' if status_table == 'creaturedifficulty'
+                                 else '技能脚本记录')
+                        row_title = f'{label} / {norm_table(t)} #{rid}（物理记录 ID）'
                 search_text = ' '.join([norm_table(t), table_label(t), str(rid), str(pid),
                                         row_title, first_text(row)]).lower()
                 wago_rec_url = hotfix_table_url(t, pid)
@@ -4576,6 +4584,60 @@ class WagoSkillDiffMonitor(BaseScan):
             "<section class='reader-world-statuses' id='readerWorldStatuses'><h3>仅有状态</h3>"
             + ''.join(world_status_cards) + "</section>"
         ) if world_status_cards else ''
+        pure_invalidations = bool(facts) and all(
+            not fact.get('after_verified')
+            and (fact.get('source') or {}).get('data') is None
+            and self._to_int((fact.get('source') or {}).get('status')) == 3
+            for fact in facts
+        )
+        status_section = ''
+        if pure_invalidations:
+            confirmed_section = ''
+            status_counts = {}
+            status_ids = {}
+            status_cards = []
+            status_labels = {'creaturedifficulty': '生物难度配置',
+                             'spellscript': '技能脚本记录'}
+            for fact in sorted(facts, key=lambda f: (
+                    0 if tkey((f.get('source') or {}).get('table_name')) == 'creaturedifficulty' else 1,
+                    self._to_int((f.get('source') or {}).get('record_id')))):
+                source = fact['source']
+                table = norm_table(source.get('table_name'))
+                key = tkey(table)
+                rid = self._to_int(source.get('record_id'))
+                pid = self._to_int(source.get('push_id'))
+                status_counts[key] = status_counts.get(key, 0) + 1
+                status_ids.setdefault(key, []).append(rid)
+                label = status_labels.get(key, table_label(table))
+                title = f'{label} / {table} #{rid}'
+                category = table_category(table)
+                search = f'{title} {rid} {pid} {category} invalidate 失效'.lower()
+                status_cards.append(
+                    f"<article class='reader-status-card' data-category='{esc(category)}' data-search='{esc(search)}'>"
+                    f"<strong>{esc(title)}</strong>"
+                    f"<span>物理记录 ID · Wago Invalidate · push {pid} · build {esc(source_version(fact) or source.get('build') or '')}</span>"
+                    f"<a href='{esc(hotfix_table_url(table, pid))}' target='_blank' rel='noreferrer'>核对来源</a>"
+                    "</article>"
+                )
+            groups = '；'.join(
+                f"{status_counts[key]} 条{status_labels.get(key, table_label(key))}"
+                for key in sorted(status_counts, key=lambda k: (k != 'creaturedifficulty', k))
+            )
+            status_overview = ''.join(
+                f"<article><strong>{esc(status_labels.get(key, table_label(key)))} · {status_counts[key]} 条</strong>"
+                f"<p>物理记录 ID：{esc('、'.join('#' + str(rid) for rid in status_ids[key]))}；"
+                f"{esc('CreatureID 未核实' if key == 'creaturedifficulty' else 'SpellID 未核实' if key == 'spellscript' else '对象关系未核实')}</p></article>"
+                for key in sorted(status_counts, key=lambda k: (k != 'creaturedifficulty', k))
+            )
+            status_section = (
+                "<section class='reader-statuses' id='readerStatuses'>"
+                f"<h3>Wago Invalidate · {len(status_cards)} 条来源</h3>"
+                f"<p>{esc(groups)}。来源 data=null；未提供新字段或关联 ID。"
+                "Invalidate 是记录来源状态，不能据此认定怪物或技能被删除、属性改变。</p>"
+                f"<div class='reader-status-overview'>{status_overview}</div>"
+                f"<details id='readerStatusDetails'><summary>查看 {len(status_cards)} 条原始来源与物理 ID</summary>"
+                + ''.join(status_cards) + "</details></section>"
+            )
         verdict = ''
         if facts is not None and world_status_cards and not confirmed_cards:
             cooldowns = []
@@ -4596,10 +4658,11 @@ class WagoSkillDiffMonitor(BaseScan):
             verdict += '具体改动未知。'
         reader_digest_section = (
             "<section class='reader-digest' aria-labelledby='readerDigestTitle'>"
-            "<div class='reader-digest-head'><h2 id='readerDigestTitle'>Hotfix 改动</h2>"
+            f"<div class='reader-digest-head'><h2 id='readerDigestTitle'>{'Hotfix 来源状态' if pure_invalidations else 'Hotfix 改动'}</h2>"
             f"<span id='readerCount' class='hidden'>仅新值 {len(readable_cards)} · 底层 {len(raw_cards)} 个对象</span></div>"
             + ("<p class='reader-verdict'>旧报告仅有 DB2 基表参考，不能作为热修生效值或变化幅度。</p>"
                if facts is None else '')
+            + status_section
             + confirmed_section
             + impact_section
             + config_section
@@ -4624,13 +4687,18 @@ class WagoSkillDiffMonitor(BaseScan):
 
         quick_counts = ''
         if facts is not None:
-            quick_counts = f'<span><strong>{len(comparison_cards)}</strong> 条同 build 基表对照</span>'
-            if confirmed_cards:
-                quick_counts += f'<span><strong>{len(confirmed_cards)}</strong> 项热修历史变化</span>'
-            if configuration_cards:
-                quick_counts += f'<span><strong>{len(configuration_cards)}</strong> 条仅本次配置（非改动数）</span>'
-            quick_counts += (f'<span><strong>{readable_count}</strong> 条有新值</span>'
-                             f'<span><strong>{status_only_count}</strong> 条仅状态/来源</span>')
+            quick_counts = (''.join(
+                f'<span><strong>{status_counts[key]}</strong> 条{esc(status_labels.get(key, table_label(key)))}</span>'
+                for key in sorted(status_counts, key=lambda k: (k != 'creaturedifficulty', k)))
+                            if pure_invalidations else
+                            f'<span><strong>{len(comparison_cards)}</strong> 条同 build 基表对照</span>')
+            if not pure_invalidations:
+                if confirmed_cards:
+                    quick_counts += f'<span><strong>{len(confirmed_cards)}</strong> 项热修历史变化</span>'
+                if configuration_cards:
+                    quick_counts += f'<span><strong>{len(configuration_cards)}</strong> 条仅本次配置（非改动数）</span>'
+                quick_counts += (f'<span><strong>{readable_count}</strong> 条有新值</span>'
+                                 f'<span><strong>{status_only_count}</strong> 条仅状态/来源</span>')
         html_text = f"""<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -4655,6 +4723,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .reader-impact-summary {{ margin:9px 0 12px; padding:10px 13px; border-left:3px solid var(--accent); border-radius:6px; background:var(--accent-soft); font-size:14px; overflow-wrap:anywhere; }}
     .reader-configs {{ margin:13px 0; }} .reader-impact-more {{ margin:12px 0; padding:0 10px 10px; border:1px solid var(--line); border-radius:10px; background:var(--soft); }} .reader-impact-more>summary {{ min-height:45px; display:flex; align-items:center; font-size:13px; font-weight:750; cursor:pointer; }}
     .reader-confirmed {{ margin:12px 0; }} .reader-confirmed>h3 {{ margin:0 0 7px; font-size:18px; }} .reader-confirmed>h3 span {{ color:var(--accent); font-variant-numeric:tabular-nums; }} .reader-confirmed-card {{ padding:9px 11px; margin:6px 0; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-confirmed-card h4 {{ margin:0; font-size:14px; }} .reader-effect-role {{ margin:2px 0; color:var(--muted); font-size:12px; }} .reader-confirmed-card ul {{ margin:3px 0; padding-left:19px; font-size:13px; }} .reader-confirmed-card small,.reader-confirmed-empty {{ color:var(--muted); font-size:11px; }}
+    .reader-statuses {{ margin:12px 0; }} .reader-statuses h3 {{ margin:0 0 4px; font-size:18px; }} .reader-statuses>p {{ margin:0 0 12px; color:var(--muted); font-size:12px; }} .reader-status-overview {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); gap:8px; }} .reader-status-overview article {{ padding:10px 12px; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-status-overview strong {{ font-size:14px; }} .reader-status-overview p {{ margin:3px 0 0; font-size:12px; color:var(--muted); overflow-wrap:anywhere; }} #readerStatusDetails {{ margin-top:11px; padding:0 10px 9px; border:1px solid var(--line); border-radius:10px; }} #readerStatusDetails>summary {{ display:flex; align-items:center; min-height:44px; cursor:pointer; font-size:13px; font-weight:750; }} .reader-status-card {{ display:grid; grid-template-columns:minmax(0,1fr) auto; gap:1px 12px; padding:9px 11px; margin:6px 0; border:1px solid var(--line); border-radius:9px; background:var(--surface); }} .reader-status-card strong {{ display:block; font-size:13px; overflow-wrap:anywhere; }} .reader-status-card span {{ grid-column:1; color:var(--muted); font-size:11px; }} .reader-status-card a {{ grid-column:2; grid-row:1/3; align-self:center; display:inline-flex; align-items:center; min-height:36px; font-size:11px; }}
     .reader-db2-names {{ margin:12px 0; }} .reader-db2-names h3 {{ margin:0 0 7px; font-size:16px; }} .reader-db2-name-card, .reader-source-text-card {{ margin:5px 0; padding:8px 11px; border:1px solid var(--line); border-radius:8px; font-size:13px; }} .reader-db2-name-card span, .reader-source-text-card span {{ display:block; color:var(--muted); font-size:11px; }} .reader-db2-name-card a, .reader-source-text-card a {{ font-size:11px; }}
     .reader-card {{ padding:15px 0; border-top:1px solid var(--line); }} .reader-card:last-child {{ border-bottom:1px solid var(--line); }} .reader-card>header {{ display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:7px; }} .reader-card>header span {{ color:var(--accent); font-size:11px; font-weight:800; }} .reader-card h3 {{ margin:1px 0 0; font-size:17px; line-height:1.35; }} .reader-card>header small {{ color:var(--muted); font-size:11px; white-space:nowrap; }} .reader-evidence {{ display:grid; grid-template-columns:minmax(150px,1fr) auto; gap:14px; align-items:start; padding:8px 0; }} .reader-evidence+.reader-evidence {{ border-top:1px dashed var(--line); }} .reader-evidence strong {{ display:block; margin-bottom:2px; font-size:12px; }} .reader-evidence ul {{ margin:0; padding-left:18px; color:#344054; font-size:13px; }} .reader-evidence li+li {{ margin-top:2px; }} .reader-evidence>a {{ min-height:40px; display:inline-flex; align-items:center; font-size:12px; white-space:nowrap; }}
     .reader-readable {{ margin:16px 0; padding:0 13px 10px; border:1px solid var(--line); border-radius:12px; background:var(--soft); }} .reader-readable>summary {{ min-height:48px; display:flex; align-items:center; font-size:14px; font-weight:750; cursor:pointer; }} .reader-guide {{ margin:4px 0 14px; color:var(--muted); font-size:12px; }}
@@ -4676,7 +4745,7 @@ class WagoSkillDiffMonitor(BaseScan):
     .fields {{ display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:8px; margin-top:9px; }} .important-fields {{ grid-template-columns:repeat(auto-fit,minmax(230px,1fr)); }} .field {{ border:1px solid var(--line); background:var(--soft); border-radius:9px; padding:7px 9px; min-width:0; }} .field.primary {{ border-color:#d8d3ff; background:#f7f5ff; }} .field.important {{ border-color:#e6c85e; background:#fff9df; }} .field span {{ display:block; color:var(--muted); font-size:10px; font-weight:800; }} .field strong {{ display:block; color:var(--ink); font-size:12px; overflow-wrap:anywhere; white-space:pre-wrap; }} .raw-fields {{ margin-top:9px; border:1px dashed #cbd1dc; border-radius:9px; background:var(--soft); padding:7px 9px; }} .raw-fields summary {{ min-height:40px; display:flex; align-items:center; cursor:pointer; color:var(--muted); font-size:11px; font-weight:850; }} .raw-grid {{ grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); }} .raw-grid .field {{ background:var(--surface); opacity:.86; }}
     .hotfix-report code {{ background:var(--soft); padding:1px 6px; border-radius:4px; }} .muted {{ color:var(--muted); font-size:12px; }} .more {{ margin-top:10px; }} .hidden {{ display:none!important; }}
     @media(max-width:920px) {{ .hotfix-report-page{{padding:8px}} .hotfix-report{{padding:14px;border-radius:12px}} .report-hero{{display:block}} .source-link{{margin-top:10px}} .layout{{display:block}} .stats{{position:static;max-height:none;margin-bottom:14px}} .controls{{top:4px}} }}
-    @media(max-width:560px) {{ .hotfix-report h1{{font-size:23px}} .impact-filter{{min-height:44px}} .reader-impact-card{{grid-template-columns:1fr}} .reader-impact-source{{grid-column:1}} .reader-digest-head,.reader-card>header,.reader-evidence,.table-head,.record-head{{display:block}} .reader-digest-head>span,.reader-card>header small{{display:block;margin-top:5px}} .reader-evidence>a,.table-head>a,.record-head>a{{margin-top:6px;min-height:44px}} .impact-callout{{grid-template-columns:1fr}} .impact-callout p{{grid-column:1}} .controls .count{{display:none}} }}
+    @media(max-width:560px) {{ .hotfix-report h1{{font-size:23px}} .impact-filter{{min-height:44px}} .reader-impact-card,.reader-status-card{{grid-template-columns:1fr}} .reader-impact-source,.reader-status-card span{{grid-column:1}} .reader-status-card a{{grid-column:1;grid-row:auto;min-height:40px}} .reader-digest-head,.reader-card>header,.reader-evidence,.table-head,.record-head{{display:block}} .reader-digest-head>span,.reader-card>header small{{display:block;margin-top:5px}} .reader-evidence>a,.table-head>a,.record-head>a{{margin-top:6px;min-height:44px}} .impact-callout{{grid-template-columns:1fr}} .impact-callout p{{grid-column:1}} .controls .count{{display:none}} }}
     @media(prefers-color-scheme:dark) {{ .hotfix-report-page{{background:#211e1b}} .hotfix-report{{--ink:#f4f1ed;--muted:#b8afa6;--line:rgba(154,141,128,.42);--surface:#302b26;--soft:#27231f;--accent:#b6adff;--accent-soft:rgba(91,79,196,.24);box-shadow:none}} .controls{{background:rgba(48,43,38,.95)}} .note,.impact-callout p,.semantic-line small{{color:#d8d3ff}} .impact-filter span,.object-tags span,.system-card span{{color:#d8d3ff}} .object-section{{background:#2b2730}} .field.primary{{background:#2d2938;border-color:#5d557a}} .field.important{{background:#39311f;border-color:#73643b}} }}
     @media(prefers-reduced-motion:reduce) {{ .hotfix-report *{{scroll-behavior:auto!important;transition:none!important}} }}
   </style>
@@ -4719,6 +4788,8 @@ class WagoSkillDiffMonitor(BaseScan):
   var impactMore=document.getElementById('readerImpactMore');
   var db2NameGroup=document.getElementById('readerDB2Names');
   var worldGroup=document.getElementById('readerWorldStatuses');
+  var statusGroup=document.getElementById('readerStatuses');
+  var statusDetails=document.getElementById('readerStatusDetails');
   var filterDrawer=document.getElementById('readerFilterDrawer');
   var category='all';
   if(!input){{return;}}
@@ -4787,6 +4858,18 @@ class WagoSkillDiffMonitor(BaseScan):
       if(ok){{worldVisible++;}}
     }});
     if(worldGroup){{worldGroup.classList.toggle('hidden', worldVisible===0);}}
+    var statusVisible=0;
+    document.querySelectorAll('.reader-status-card').forEach(function(el){{
+      var ok=categoryMatches(el) && (!q || (el.getAttribute('data-search')||'').indexOf(q)>=0);
+      el.classList.toggle('hidden', !ok);
+      if(ok){{statusVisible++;}}
+    }});
+    if(statusGroup){{statusGroup.classList.toggle('hidden', (q || category!=='all') && statusVisible===0);}}
+    if(statusGroup){{
+      var overview=statusGroup.querySelector('.reader-status-overview');
+      if(overview){{overview.classList.toggle('hidden', !!q || category!=='all');}}
+      if(statusDetails && statusVisible && (q || category!=='all')){{statusDetails.open=true;}}
+    }}
     document.querySelectorAll('.record').forEach(function(el){{
       total++;
       var textOk=!q || (el.getAttribute('data-search')||'').indexOf(q)>=0 || (el.textContent||'').toLowerCase().indexOf(q)>=0;
@@ -4808,11 +4891,11 @@ class WagoSkillDiffMonitor(BaseScan):
     if(count){{count.textContent='技术明细 '+visible+' / '+total+' 条';}}
     if(readerCount){{
       readerCount.textContent='仅新值 '+humanVisible+' / '+humanTotal+' · 底层 '+rawVisible+' / '+rawTotal+' 个对象';
-      readerCount.classList.toggle('hidden', !q && category==='all');
+      readerCount.classList.toggle('hidden', !!statusGroup || (!q && category==='all'));
     }}
     if(empty){{
       empty.textContent=rawVisible ? '具体改动未知；下方列出底层记录。' : '无匹配记录；来源详见技术明细。';
-      empty.classList.toggle('hidden', confirmedVisible!==0 || impactVisible!==0 || configVisible!==0 || impactSummaryVisible!==0 || configSummaryVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0);
+      empty.classList.toggle('hidden', confirmedVisible!==0 || impactVisible!==0 || configVisible!==0 || impactSummaryVisible!==0 || configSummaryVisible!==0 || humanVisible!==0 || worldVisible!==0 || db2NameVisible!==0 || statusVisible!==0);
     }}
   }}
   input.addEventListener('input', apply);

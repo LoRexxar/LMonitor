@@ -15,6 +15,58 @@ from botend.services.wago_hotfix_reader_fields import display_hotfix_value, proj
 
 
 class FullHotfixNewValueReaderTests(SimpleTestCase):
+    def test_invalidate_only_report_lists_source_records_not_fake_spell_id(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        rows = [('CreatureDifficulty', rid, 112253)
+                for rid in (140428, 140709, 140738, 141771, 142088, 146250)]
+        rows.append(('SpellScript', 86172, 112250))
+        sources = [{'id': i, 'push_id': push, 'table_name': table, 'record_id': rid,
+                    'region_id': 3, 'locale': 'enUS', 'build': 69933,
+                    'status': 3, 'data': None}
+                   for i, (table, rid, push) in enumerate(rows, 1)]
+        facts = [{'source': source, 'source_build': '12.1.0.69933',
+                  'after': None, 'before': None, 'after_verified': False,
+                  'before_verified': False, 'changes': []}
+                 for source in sources]
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3,
+                from_push=112236, to_push=112253, summary_title='状态-only 报告',
+                wago_url='https://wago.tools/hotfixes', build_num='69933',
+                db2_build='12.1.0.69933',
+                table_stats=[('CreatureDifficulty', 6), ('SpellScript', 1)],
+                by_table={'CreatureDifficulty': sources[:6], 'SpellScript': sources[6:]},
+                sample_per_table=6, enrich_max=0, facts=facts,
+            )
+            doc = BeautifulSoup(Path(path).read_text(encoding='utf-8'), 'html.parser')
+        reader = doc.select_one('.reader-digest')
+        self.assertIn('来源状态', reader.select_one('h2').get_text(' ', strip=True))
+        self.assertIsNone(reader.select_one('.reader-confirmed'))
+        cards = reader.select('.reader-status-card')
+        self.assertEqual(len(cards), 7)
+        details = reader.select_one('#readerStatusDetails')
+        self.assertIsNotNone(details)
+        self.assertIsNone(details.get('open'))
+        self.assertEqual(len(details.select('.reader-status-card')), 7)
+        overview = reader.select('.reader-status-overview article')
+        self.assertEqual(len(overview), 2)
+        self.assertIn('#140428', overview[0].get_text(' ', strip=True))
+        self.assertIn('#146250', overview[0].get_text(' ', strip=True))
+        self.assertIn('#86172', overview[1].get_text(' ', strip=True))
+        self.assertIn('SpellID 未核实', overview[1].get_text(' ', strip=True))
+        self.assertIn('6 条生物难度配置', reader.get_text(' ', strip=True))
+        self.assertIn('1 条技能脚本记录', reader.get_text(' ', strip=True))
+        self.assertIn('Invalidate', reader.get_text(' ', strip=True))
+        self.assertIn('data=null', reader.get_text(' ', strip=True))
+        self.assertIn('CreatureDifficulty #140428', cards[0].get_text(' ', strip=True))
+        self.assertIn('SpellScript #86172', cards[-1].get_text(' ', strip=True))
+        self.assertNotIn('Spell 86172', doc.get_text(' ', strip=True))
+        self.assertNotIn('怪物被删除', reader.get_text(' ', strip=True))
+        self.assertNotIn('无匹配记录', reader.get_text(' ', strip=True))
+        self.assertEqual(len(doc.select('.technical-report article.record')), 7)
+        self.assertIn('技能脚本记录 / SpellScript #86172',
+                      doc.select_one('#table-spellscript .record-head strong').get_text(' ', strip=True))
+
     def test_item_flags_changed_only_against_same_locale_client_base(self):
         after = {'ID': '171692', 'Display_lang': 'Flickering Shoulderpads',
                  'Flags_3': '4', 'SellPrice': '125023'}
