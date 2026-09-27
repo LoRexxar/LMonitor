@@ -3,6 +3,7 @@
 The report's frozen source_facts_json remains the only persisted source of truth.
 """
 import json
+import re
 from pathlib import Path
 from urllib.parse import quote
 
@@ -17,6 +18,10 @@ from botend.services.wago_hotfix_reader_fields import FIELDS, display_hotfix_val
 SCHEMA = WagoDB2Schema()
 SOURCE_STATUSES = {2: 'Delete（仅来源状态）', 3: 'Invalidate（仅来源状态）',
                    4: '未公开（仅来源状态）'}
+BASELINE_CARD = re.compile(
+    r'<article\b(?=[^>]*\bdata-baseline-key\s*=)[^>]*>.*?</article\s*>',
+    flags=re.IGNORECASE | re.DOTALL,
+)
 
 
 def _text(raw):
@@ -140,8 +145,11 @@ def _overlay_published_client_baselines(report, rows):
              row['record_id'], row['push']): row for row in rows if row['kind'] == 'new_value'}
     if not keys:
         return
-    content = BeautifulSoup(path.read_text(encoding='utf-8'), 'html.parser')
-    for card in content.select('.reader-impact-card[data-baseline-key]'):
+    content = path.read_text(encoding='utf-8')
+    for match in BASELINE_CARD.finditer(content):
+        card = BeautifulSoup(match.group(0), 'html.parser').find('article')
+        if not card or 'reader-impact-card' not in (card.get('class') or []):
+            continue
         parts = (card.get('data-baseline-key') or '').split(':')
         if len(parts) != 5:
             continue
@@ -153,6 +161,7 @@ def _overlay_published_client_baselines(report, rows):
         if not row:
             continue
         raw_fields = {field['key']: field for field in row['fields']}
+        raw_values = row.get('_raw_search') or {}
         compared = []
         for item in card.select('ul > li'):
             label, value = item.find('span'), item.find('strong')
@@ -160,9 +169,10 @@ def _overlay_published_client_baselines(report, rows):
                 continue
             name, text = label.get_text(' ', strip=True), value.get_text(' ', strip=True)
             field = name.rsplit('/', 1)[-1].strip()
-            if field not in raw_fields or '→' not in text:
+            if (field not in raw_fields and field not in raw_values) or '→' not in text:
                 continue
-            compared.append({**raw_fields[field], 'label': name,
+            original = raw_fields.get(field) or _field(row['table'], field, raw_values[field])
+            compared.append({**original, 'label': name,
                              'text': text, 'comparison': 'client_baseline'})
         if compared:
             row['fields'] = compared + [field for field in row['fields']

@@ -1,7 +1,9 @@
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
+from bs4 import BeautifulSoup
 from django.test import TestCase, override_settings
 from django.core.cache import cache
 
@@ -109,7 +111,7 @@ class PortalHotfixEntriesAPITests(TestCase):
         with TemporaryDirectory() as root, override_settings(BASE_DIR=root):
             path = Path(root) / 'static' / self.older.content_html_path
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text('''<article class="reader-impact-card"
+            path.write_text('<article class="record">other source</article>' * 600 + '''<article class="reader-impact-card"
                 data-baseline-key="spellmisc:12.1.0.69933:enUS:901:101"><ul><li>
                 <span>范围配置 / RangeIndex</span>
                 <strong>6（100 码） → 13（50000 码）</strong></li></ul></article>
@@ -118,12 +120,33 @@ class PortalHotfixEntriesAPITests(TestCase):
                 <span>其他 / RangeIndex</span><strong>999 → 13</strong></li></ul></article>''',
                 encoding='utf-8')
             cache.clear()
-            row = self.read(q='901').json()['data'][0]
+            with patch('botend.services.wow_hotfix_entries.BeautifulSoup', wraps=BeautifulSoup) as parser:
+                row = self.read(q='901').json()['data'][0]
+            self.assertTrue(parser.call_args_list)
+            self.assertLess(max(len(call.args[0]) for call in parser.call_args_list), 5000)
             self.assertEqual(row['kind'], 'new_value')
             self.assertIn('非线上前态', row['status_label'])
             self.assertIn('6（100 码） → 13（50000 码）', row['fields'][0]['text'])
             self.assertEqual(self.read(mode='changes').json()['meta']['total'], 1)
             self.assertNotIn('999 → 13', json.dumps(self.read(q='901').json()['data'], ensure_ascii=False))
+
+    def test_baseline_card_can_expose_a_field_hidden_in_new_value_preview(self):
+        item = self.fact(20, 101, 'ItemSparse', 171692,
+                         {'ID': '171692', 'Display_lang': 'Shoulderpads', 'Flags_3': '4',
+                          **{f'A_{n:02d}': str(n + 1) for n in range(20)}})
+        self.report(100, 101, [item], branch='wowt')
+        report = WowHotfixReport.objects.get(branch='wowt')
+        with TemporaryDirectory() as root, override_settings(BASE_DIR=root):
+            path = Path(root) / 'static' / report.content_html_path
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('''<article class="reader-impact-card"
+                data-baseline-key="itemsparse:12.1.0.69933:enUS:171692:101"><ul><li>
+                <span>物品标志[3] / Flags_3</span><strong>0 → 4</strong></li></ul></article>''',
+                encoding='utf-8')
+            cache.clear()
+            row = self.read(branch='wowt', q='171692').json()['data'][0]
+        self.assertIn('非线上前态', row['status_label'])
+        self.assertIn(('Flags_3', '0 → 4'), [(field['key'], field['text']) for field in row['fields']])
 
     def test_same_record_on_a_later_push_remains_a_separate_physical_event(self):
         self.report(103, 104, [self.fact(16, 104, 'SpellScript', 86172, None, status=3)])
