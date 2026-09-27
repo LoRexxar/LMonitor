@@ -8,6 +8,7 @@ from django.test import TestCase, override_settings
 from django.core.cache import cache
 
 from botend.models import WowHotfixReport
+from botend.services.wago_db2.schema import WagoDB2Schema
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])
@@ -175,3 +176,18 @@ class PortalHotfixEntriesAPITests(TestCase):
         self.assertIn('Attributes_19', [field['key'] for field in rows[0]['fields']])
         self.assertNotIn('_raw_search', rows[0])
         self.assertLessEqual(len(rows[0]['fields']), 13)
+
+    def test_visual_and_attribute_fields_use_central_labels_with_original_keys(self):
+        self.assertEqual(WagoDB2Schema().field_label('Attributes_9'), '属性位组[9]')
+        visual = self.fact(26, 104, 'SpellXSpellVisual', 536273,
+                           {'ID': '536273', 'SpellID': '500', 'Probability': '1',
+                            'SpellVisualID': '154439'})
+        misc = self.fact(27, 104, 'SpellMisc', 867977,
+                         {'ID': '867977', 'SpellID': '500', 'Attributes_9': '4096'})
+        self.report(103, 104, [visual, misc], branch='wowt')
+        rows = self.read(branch='wowt', page_size=20).json()['data']
+        visual_fields = {f['key']: f for f in next(r for r in rows if r['table'] == 'SpellXSpellVisual')['fields']}
+        misc_fields = {f['key']: f for f in next(r for r in rows if r['table'] == 'SpellMisc')['fields']}
+        self.assertIn('概率 / Probability', visual_fields['Probability']['label'])
+        self.assertIn('技能视觉效果 ID / SpellVisualID', visual_fields['SpellVisualID']['label'])
+        self.assertIn('属性位组[9] / Attributes_9', misc_fields['Attributes_9']['label'])

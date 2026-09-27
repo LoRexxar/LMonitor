@@ -18,6 +18,8 @@ class WagoDB2Schema:
 
     TABLE_LABELS = {
         'spellname': '技能名称',
+        'spellxspellvisual': '技能视觉效果关联',
+        'spellscript': '技能脚本记录',
         'spelldescription': '技能描述',
         'spelleffect': '技能效果',
         'spellmisc': '技能杂项',
@@ -67,6 +69,12 @@ class WagoDB2Schema:
         'Text_lang': '文本',
         'VerifiedBuild': '数据 build',
         'SpellID': '技能 ID',
+        'SpellVisualID': '技能视觉效果 ID',
+        'Probability': '概率',
+        'RangeIndex': '距离索引',
+        'CastingTimeIndex': '施法时间索引',
+        'SchoolMask': '法术派系掩码',
+        'EffectChainAmplitude': '链式幅度',
         'EffectIndex': '效果序号',
         'Effect': '效果类型',
         'EffectAura': '光环类型',
@@ -109,7 +117,10 @@ class WagoDB2Schema:
         return f'{label} / {name}' if label else name
 
     def field_label(self, field: str) -> str:
-        return self.FIELD_LABELS.get(str(field or ''), str(field or ''))
+        key = str(field or '')
+        if key.startswith('Attributes_') and key.removeprefix('Attributes_').isdecimal():
+            return f"属性位组[{key.removeprefix('Attributes_')}]"
+        return self.FIELD_LABELS.get(key, key)
 
     def object_kind_for_table(self, table: str) -> str:
         key = self.table_key(table)

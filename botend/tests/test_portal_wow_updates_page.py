@@ -1,6 +1,7 @@
 from importlib import import_module
 from pathlib import Path
 
+from bs4 import BeautifulSoup
 from django.apps import apps
 from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
@@ -12,6 +13,17 @@ ROOT = Path(__file__).resolve().parents[2]
 
 
 class PortalWowUpdatesPageTests(SimpleTestCase):
+    def test_hotfix_table_uses_three_columns_and_inline_wrapping_fields(self):
+        html = BeautifulSoup(self.client.get(reverse('portal_wow_updates')).content, 'html.parser')
+        self.assertEqual(len(html.select('.wow-hotfix-table thead th')), 3)
+        css = (ROOT / 'static/portal/css/wow-updates.css').read_text(encoding='utf-8')
+        self.assertIn('.wow-hotfix-changes', css)
+        self.assertIn('flex-wrap: wrap', css)
+        self.assertIn('.wow-hotfix-table { width: 100%; min-width: 0;', css)
+        script = (ROOT / 'static/portal/js/wow-updates.js').read_text(encoding='utf-8')
+        self.assertIn("element('details', 'wow-hotfix-source-details')", script)
+        self.assertNotIn('左右滑动表格', html.get_text(' ', strip=True))
+
     def test_standalone_page_is_public_and_preserves_content_containers(self):
         response = self.client.get(reverse('portal_wow_updates'))
         self.assertEqual(response.status_code, 200)
@@ -22,7 +34,7 @@ class PortalWowUpdatesPageTests(SimpleTestCase):
                      'id="wow-hotfix-list"', 'id="wow-hotfix-search"', 'id="wow-hotfix-branch"',
                      'id="wow-hotfix-build"', 'id="wow-hotfix-table"', 'id="wow-hotfix-mode"',
                      'id="wow-hotfix-pagination"', 'id="wow-updates-states-section"',
-                     '<option value="values" selected>', 'wow-hotfix-scroll-hint',
+                     '<option value="values" selected>',
                      '<table', '<tbody id="wow-hotfix-list"',
                      '物理记录 ID', '原始字段 / 含义'):
             self.assertContains(response, text)

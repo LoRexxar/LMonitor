@@ -162,7 +162,7 @@
     function hotfixMessage(text) {
         const row = element('tr');
         const cell = element('td', 'wow-updates-message', text);
-        cell.colSpan = 5;
+        cell.colSpan = 3;
         row.append(cell);
         hotfixList.replaceChildren(row);
         return cell;
@@ -180,13 +180,22 @@
         select.value = selected;
     }
     function hotfixField(field) {
-        const fact = element('div', 'wow-hotfix-field');
+        const fact = element('span', 'wow-hotfix-field');
         const key = String(field.key ?? '-');
         const label = String(field.label || key);
         const identity = element('span', 'wow-hotfix-field-key', label.includes(key) ? label : `${label} / ${key}`);
         fact.append(identity);
-        const value = field.text || field.after || '-';
-        fact.append(element('span', 'wow-hotfix-field-text', String(value)));
+        const value = String(field.text || field.after || '-');
+        const verifiedPair = (field.before !== null && field.before !== undefined && field.before !== '')
+            || field.comparison === 'client_baseline';
+        const arrow = verifiedPair ? value.indexOf(' → ') : -1;
+        if (arrow >= 0) {
+            fact.append(element('span', 'wow-hotfix-field-before', value.slice(0, arrow)),
+                element('span', 'wow-hotfix-field-arrow', '→'),
+                element('span', 'wow-hotfix-field-text', value.slice(arrow + 3)));
+        } else {
+            fact.append(element('span', 'wow-hotfix-field-text', value));
+        }
         return fact;
     }
     function renderHotfixEntries(payload) {
@@ -198,40 +207,51 @@
         if (!entries.length) hotfixMessage('没有匹配的 Hotfix 来源记录');
         entries.forEach(item => {
             const row = element('tr');
-            const identity = element('td');
-            identity.append(element('strong', 'wow-hotfix-table-name', String(item.table ?? '-')),
-                element('span', 'wow-hotfix-record-id', `ID ${item.record_id ?? '-'}`));
             const subject = element('td', 'wow-hotfix-subject');
             subject.append(element('strong', '', String(item.title || '对象未解析')));
+            subject.append(element('span', 'wow-hotfix-record-id',
+                `${item.table || '-'} #${item.record_id ?? '-'}`));
             if (item.spell_id !== null && item.spell_id !== undefined && item.spell_id !== '') {
-                subject.append(element('span', 'wow-hotfix-secondary', `SpellID ${item.spell_id}`));
+                subject.append(element('span', 'wow-hotfix-record-id', ` · SpellID ${item.spell_id}`));
             }
-            const fields = element('td');
+            const fields = element('td', 'wow-hotfix-changes-cell');
+            const flow = element('div', 'wow-hotfix-changes');
+            fields.append(flow);
             const facts = Array.isArray(item.fields) ? item.fields : [];
             if (facts.length && item.kind !== 'status') {
-                facts.slice(0, 3).forEach(field => fields.append(hotfixField(field)));
-                if (facts.length > 3) {
+                facts.slice(0, 5).forEach(field => flow.append(hotfixField(field)));
+                if (facts.length > 5) {
                     const more = element('details', 'wow-hotfix-more');
-                    more.append(element('summary', '', `展开其余 ${facts.length - 3} 个字段`));
-                    facts.slice(3).forEach(field => more.append(hotfixField(field)));
-                    fields.append(more);
+                    more.append(element('summary', '', `展开其余 ${facts.length - 5} 个字段`));
+                    const rest = element('div', 'wow-hotfix-more-changes');
+                    facts.slice(5).forEach(field => rest.append(hotfixField(field)));
+                    more.append(rest);
+                    flow.append(more);
                 }
             }
-            else fields.append(element('span', 'wow-hotfix-secondary', '无可解码 payload'));
-            const source = element('td');
-            source.append(element('strong', '', `#${item.push ?? '-'}`),
-                element('span', 'wow-hotfix-secondary',
-                    `${item.branch || '-'} · ${item.region_name || '区域未核实'} / ${item.locale || '-'} · ${item.build || 'build 未知'}`));
+            else flow.append(element('span', 'wow-hotfix-secondary', 'data=null；无可解码字段'));
+            const source = element('td', 'wow-hotfix-source');
+            const sourceTop = element('div', 'wow-hotfix-source-top');
+            const fullBuild = String(item.build || '').trim();
+            const shortBuild = fullBuild.includes('.') ? fullBuild.slice(fullBuild.lastIndexOf('.') + 1) : fullBuild;
+            const build = element('span', 'wow-hotfix-build', `build ${shortBuild || '未知'}`);
+            if (fullBuild) build.title = fullBuild;
+            sourceTop.append(element('strong', '', `push ${item.push ?? '-'}`), build);
+            source.append(sourceTop, element('span', 'wow-hotfix-secondary',
+                `${item.branch || '-'} · ${item.region_name || '区域未核实'} / ${item.locale || '-'}`));
             if (item.time) source.append(element('time', 'wow-hotfix-secondary', String(item.time)));
-            const status = element('td');
             const kind = ['change', 'new_value', 'status', 'unresolved'].includes(item.kind) ? item.kind : 'unresolved';
             const labels = {change: '确证变化', new_value: '本次配置', status: '来源状态', unresolved: '未解析'};
-            status.append(element('span', `wow-hotfix-kind is-${kind}`, String(item.status_label || labels[kind])));
+            const actions = element('div', 'wow-hotfix-source-actions');
+            actions.append(element('span', `wow-hotfix-kind is-${kind}`, String(item.status_label || labels[kind])));
             const links = element('div', 'wow-hotfix-links');
-            addLink(links, '查看报告', item.report_url, false);
-            addLink(links, '来源记录', item.source_url, true);
-            status.append(links);
-            row.append(identity, subject, fields, source, status);
+            addLink(links, '报告', item.report_url, false);
+            addLink(links, 'Wago', item.source_url, true);
+            const sourceDetails = element('details', 'wow-hotfix-source-details');
+            sourceDetails.append(element('summary', '', '来源'), links);
+            actions.append(sourceDetails);
+            source.append(actions);
+            row.append(subject, fields, source);
             hotfixList.append(row);
         });
         hotfixPagination.replaceChildren();
