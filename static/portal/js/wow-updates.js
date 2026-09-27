@@ -5,8 +5,12 @@
     const clear = document.getElementById('wow-updates-clear');
     const hotfixSearch = document.getElementById('wow-hotfix-search');
     const hotfixBranch = document.getElementById('wow-hotfix-branch');
+    const hotfixBuild = document.getElementById('wow-hotfix-build');
+    const hotfixTable = document.getElementById('wow-hotfix-table');
+    const hotfixMode = document.getElementById('wow-hotfix-mode');
     const hotfixList = document.getElementById('wow-hotfix-list');
     const hotfixPagination = document.getElementById('wow-hotfix-pagination');
+    const statesSection = document.getElementById('wow-updates-states-section');
     const tabs = Array.from(document.querySelectorAll('[data-updates-tab]'));
     let hotfixPage = 1;
     let hotfixLoaded = false;
@@ -155,22 +159,79 @@
         searchChanged();
         search.focus();
     });
-    function renderHotfixReports(payload) {
-        const reports = payload.data;
+    function hotfixMessage(text) {
+        const row = element('tr');
+        const cell = element('td', 'wow-updates-message', text);
+        cell.colSpan = 5;
+        row.append(cell);
+        hotfixList.replaceChildren(row);
+        return cell;
+    }
+    function updateHotfixOptions(select, values, emptyLabel) {
+        if (!Array.isArray(values)) return;
+        const selected = select.value;
+        const options = [new Option(emptyLabel, '')];
+        for (const value of values) {
+            const text = String(value);
+            if (text && !options.some(option => option.value === text)) options.push(new Option(text, text));
+        }
+        if (selected && !options.some(option => option.value === selected)) options.push(new Option(selected, selected));
+        select.replaceChildren(...options);
+        select.value = selected;
+    }
+    function hotfixField(field) {
+        const fact = element('div', 'wow-hotfix-field');
+        const key = String(field.key ?? '-');
+        const label = String(field.label || key);
+        const identity = element('span', 'wow-hotfix-field-key', label.includes(key) ? label : `${label} / ${key}`);
+        fact.append(identity);
+        const value = field.text || field.after || '-';
+        fact.append(element('span', 'wow-hotfix-field-text', String(value)));
+        return fact;
+    }
+    function renderHotfixEntries(payload) {
+        const entries = payload.data;
         const meta = payload.meta;
+        updateHotfixOptions(hotfixBuild, meta.builds, '全部构建');
+        updateHotfixOptions(hotfixTable, meta.tables, '全部表');
         hotfixList.replaceChildren();
-        if (!reports.length) message(hotfixList, '没有匹配的 Hotfix 报告');
-        reports.forEach(item => {
-            const row = element('article', 'wow-updates-report');
-            const content = element('div', 'wow-updates-report-content');
-            const href = safeUrl(item.url);
-            const title = element(href ? 'a' : 'span', '', item.title || `Hotfix push #${item.to_push}`);
-            if (href) title.href = href;
-            const detail = element('span', 'wow-updates-report-meta',
-                `${item.branch || '-'} · ${item.build || 'build 未知'} · ${item.table_count} 张表 / ${item.entry_count} 条记录${item.verified ? '' : ' · 历史数值未核实'}`);
-            content.append(title, detail);
-            row.append(content);
-            if (item.time) row.append(element('time', '', item.time));
+        if (!entries.length) hotfixMessage('没有匹配的 Hotfix 来源记录');
+        entries.forEach(item => {
+            const row = element('tr');
+            const identity = element('td');
+            identity.append(element('strong', 'wow-hotfix-table-name', String(item.table ?? '-')),
+                element('span', 'wow-hotfix-record-id', `ID ${item.record_id ?? '-'}`));
+            const subject = element('td', 'wow-hotfix-subject');
+            subject.append(element('strong', '', String(item.title || '对象未解析')));
+            if (item.spell_id !== null && item.spell_id !== undefined && item.spell_id !== '') {
+                subject.append(element('span', 'wow-hotfix-secondary', `SpellID ${item.spell_id}`));
+            }
+            const fields = element('td');
+            const facts = Array.isArray(item.fields) ? item.fields : [];
+            if (facts.length && item.kind !== 'status') {
+                facts.slice(0, 3).forEach(field => fields.append(hotfixField(field)));
+                if (facts.length > 3) {
+                    const more = element('details', 'wow-hotfix-more');
+                    more.append(element('summary', '', `展开其余 ${facts.length - 3} 个字段`));
+                    facts.slice(3).forEach(field => more.append(hotfixField(field)));
+                    fields.append(more);
+                }
+            }
+            else fields.append(element('span', 'wow-hotfix-secondary', '无可解码 payload'));
+            const source = element('td');
+            source.append(element('strong', '', `#${item.push ?? '-'}`),
+                element('span', 'wow-hotfix-secondary',
+                    `${item.branch || '-'} · ${item.region_name || '区域未核实'} / ${item.locale || '-'} · ${item.build || 'build 未知'}`));
+            if (item.time) source.append(element('time', 'wow-hotfix-secondary', String(item.time)));
+            const status = element('td');
+            const kind = ['change', 'new_value', 'status', 'unresolved'].includes(item.kind) ? item.kind : 'unresolved';
+            const labels = {change: '确证变化', new_value: '本次配置', status: '来源状态', unresolved: '未解析'};
+            status.append(element('span', `wow-hotfix-kind is-${kind}`, String(item.status_label || labels[kind])));
+            const links = element('div', 'wow-hotfix-links');
+            addLink(links, '查看报告', item.report_url, false);
+            addLink(links, '来源记录', item.source_url, true);
+            status.append(links);
+            row.append(identity, subject, fields, source, status);
             hotfixList.append(row);
         });
         hotfixPagination.replaceChildren();
@@ -179,41 +240,45 @@
             const previous = element('button', '', '上一页');
             previous.type = 'button';
             previous.disabled = !meta.has_previous;
-            previous.addEventListener('click', () => loadHotfixReports(meta.page - 1));
+            previous.addEventListener('click', () => loadHotfixEntries(meta.page - 1));
             const next = element('button', '', '下一页');
             next.type = 'button';
             next.disabled = !meta.has_next;
-            next.addEventListener('click', () => loadHotfixReports(meta.page + 1));
+            next.addEventListener('click', () => loadHotfixEntries(meta.page + 1));
             hotfixPagination.append(previous,
-                element('span', '', `第 ${meta.page} / ${meta.total_pages} 页 · 共 ${meta.total} 份报告`), next);
+                element('span', '', `第 ${meta.page} / ${meta.total_pages} 页 · 共 ${meta.total} 条来源记录`), next);
         }
     }
-    async function loadHotfixReports(page) {
+    async function loadHotfixEntries(page) {
         if (hotfixRequest) hotfixRequest.abort();
         const controller = new AbortController();
         hotfixRequest = controller;
-        const params = new URLSearchParams({scope: 'all', page: String(page), page_size: '20'});
+        const params = new URLSearchParams({mode: hotfixMode.value, page: String(page), page_size: '20'});
         if (hotfixSearch.value.trim()) params.set('q', hotfixSearch.value.trim());
         if (hotfixBranch.value) params.set('branch', hotfixBranch.value);
+        if (hotfixBuild.value) params.set('build', hotfixBuild.value);
+        if (hotfixTable.value) params.set('table', hotfixTable.value);
         hotfixList.setAttribute('aria-busy', 'true');
-        message(hotfixList, '正在查询 Hotfix 报告…');
+        hotfixPagination.hidden = true;
+        hotfixMessage('正在查询 Hotfix 来源记录…');
         try {
-            const response = await fetch(`/portal/api/hotfix-reports/?${params}`, {
+            const response = await fetch(`/portal/api/hotfix-entries/?${params}`, {
                 headers: {'Accept': 'application/json'}, signal: controller.signal,
             });
             if (!response.ok) throw new Error('加载失败');
             const payload = await response.json();
+            if (hotfixRequest !== controller) return;
             if (!Array.isArray(payload.data) || !payload.meta) throw new Error('数据格式无效');
             hotfixPage = payload.meta.page;
             hotfixLoaded = true;
-            renderHotfixReports(payload);
+            renderHotfixEntries(payload);
         } catch (error) {
-            if (error.name === 'AbortError') return;
-            message(hotfixList, 'Hotfix 报告暂时无法加载。');
+            if (error.name === 'AbortError' || hotfixRequest !== controller) return;
+            hotfixMessage('Hotfix 来源记录暂时无法加载。');
             const retry = element('button', '', '重试');
             retry.type = 'button';
-            retry.addEventListener('click', () => loadHotfixReports(hotfixPage));
-            hotfixList.firstElementChild.append(retry);
+            retry.addEventListener('click', () => loadHotfixEntries(page));
+            hotfixList.firstElementChild.firstElementChild.append(retry);
         } finally {
             if (hotfixRequest === controller) {
                 hotfixRequest = null;
@@ -222,13 +287,14 @@
         }
     }
     function activateTab(name) {
+        if (statesSection) statesSection.hidden = name === 'hotfix';
         tabs.forEach(tab => {
             const active = tab.dataset.updatesTab === name;
             tab.setAttribute('aria-selected', String(active));
             tab.tabIndex = active ? 0 : -1;
             document.getElementById(tab.getAttribute('aria-controls')).hidden = !active;
         });
-        if (name === 'hotfix' && !hotfixLoaded) loadHotfixReports(hotfixPage);
+        if (name === 'hotfix' && !hotfixLoaded && !hotfixRequest) loadHotfixEntries(hotfixPage);
     }
     tabs.forEach((tab, index) => {
         tab.addEventListener('click', () => activateTab(tab.dataset.updatesTab));
@@ -243,13 +309,17 @@
     });
     function hotfixFilterChanged() {
         clearTimeout(hotfixQueryTimer);
-        hotfixQueryTimer = setTimeout(() => loadHotfixReports(1), 280);
+        if (hotfixRequest) {
+            hotfixRequest.abort();
+            hotfixRequest = null;
+        }
+        hotfixQueryTimer = setTimeout(() => loadHotfixEntries(1), 280);
     }
     hotfixSearch.addEventListener('input', hotfixFilterChanged);
-    hotfixBranch.addEventListener('change', () => {
+    [hotfixBranch, hotfixBuild, hotfixTable, hotfixMode].forEach(filter => filter.addEventListener('change', () => {
         clearTimeout(hotfixQueryTimer);
-        loadHotfixReports(1);
-    });
+        loadHotfixEntries(1);
+    }));
     load('states');
     load('reports');
 }());

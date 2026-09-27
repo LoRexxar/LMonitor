@@ -14,6 +14,7 @@ from datetime import timedelta
 
 from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalNavigationGroup, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
+from botend.services.wow_hotfix_entries import continuous_entries, public_hotfix_entry
 from botend.services.wow_today_service import (
     apply_wow_today_section_settings,
     wow_today_sections_for_snapshot,
@@ -638,6 +639,69 @@ class PortalHotfixReportsAPIView(View):
             _hotfix_report_to_dict,
             all_history=all_history,
         )
+
+
+class PortalHotfixEntriesAPIView(View):
+    """Continuous, bounded view over completed frozen Hotfix source records."""
+
+    def get(self, request):
+        branch = (request.GET.get('branch') or '').strip()
+        if branch and branch not in ('wow', 'wowt', 'wowxptr', 'wow_beta'):
+            return JsonResponse({'error': '无效分支'}, status=400)
+        mode = (request.GET.get('mode') or 'all').strip()
+        if mode not in ('all', 'values', 'changes', 'status'):
+            return JsonResponse({'error': '无效筛选模式'}, status=400)
+        try:
+            page = max(1, int(request.GET.get('page') or 1))
+            page_size = max(1, min(50, int(request.GET.get('page_size') or 25)))
+        except (ValueError, TypeError):
+            return JsonResponse({'error': '页码无效'}, status=400)
+        reports = WowHotfixReport.objects.filter(collection_complete=True).exclude(source_facts_json='')
+        if branch:
+            reports = reports.filter(branch=branch)
+        reports = list(reports.order_by('-to_push', '-id').values(
+            'id', 'branch', 'locale', 'region_id', 'build_str', 'build_num',
+            'entry_count', 'updated_at', 'content_html_path',
+        ))
+        try:
+            rows = continuous_entries(reports)
+        except ValueError as exc:
+            return JsonResponse({'error': str(exc)}, status=503)
+        available_tables = sorted({row['table'] for row in rows}, key=str.lower)
+        available_builds = sorted({row['build'] for row in rows if row['build']}, reverse=True)
+        table = (request.GET.get('table') or '').strip().lower()[:80]
+        build = (request.GET.get('build') or '').strip()[:64]
+        query = (request.GET.get('q') or '').strip().casefold()[:80]
+        if table:
+            rows = [row for row in rows if row['table'].lower() == table]
+        if build:
+            rows = [row for row in rows if row['build'] == build or row['build'].rsplit('.', 1)[-1] == build]
+        if mode != 'all':
+            allowed = {'values': ('change', 'new_value'), 'changes': ('change',),
+                       'status': ('status', 'unresolved')}[mode]
+            rows = [row for row in rows if row['kind'] in allowed]
+        if query:
+            def searchable(row):
+                return ' '.join([
+                    row['table'], str(row['record_id']), str(row['push']), row['build'],
+                    row['title'], str(row['spell_id'] or ''), row['status_label'],
+                    row['region_name'], row['locale'],
+                    *(part for field in row['fields'] for part in (field['key'], field['label'], field['text'])),
+                    *(part for key, value in row.get('_raw_search', {}).items() for part in (key, value)),
+                ]).casefold()
+            rows = [row for row in rows if query in searchable(row)]
+        total = len(rows)
+        total_pages = max(1, ceil(total / page_size))
+        page = min(page, total_pages)
+        start = (page - 1) * page_size
+        return JsonResponse({'status': 'success',
+                             'data': [public_hotfix_entry(row, query) for row in rows[start:start + page_size]],
+                             'meta': {
+            'page': page, 'page_size': page_size, 'total': total,
+            'total_pages': total_pages, 'has_next': page < total_pages,
+            'has_previous': page > 1, 'tables': available_tables,
+            'builds': available_builds,
+        }})
 
 
 class PortalDailyReportLatestAPIView(View):

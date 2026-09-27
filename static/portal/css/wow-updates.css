@@ -10,6 +10,10 @@
 .wow-updates-search input::placeholder { color: var(--portal-text-muted); }
 .wow-updates-search select { background: var(--portal-surface-raised); color: var(--portal-text); border: 1px solid var(--portal-border); border-radius: 8px; font-size: 14px; min-height: 42px; padding: 8px 12px; }
 .wow-updates-search button { color: var(--portal-accent-primary); font-size: 13px; min-height: 40px; cursor: pointer; }
+#wow-updates-panel-hotfix .wow-updates-search { display: grid; grid-template-columns: minmax(270px, 2fr) repeat(4, minmax(130px, 1fr)); gap: 10px 12px; align-items: end; }
+.wow-hotfix-filter { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+.wow-hotfix-filter input, .wow-hotfix-filter select { width: 100%; min-width: 0; }
+.wow-hotfix-scroll-hint { display: none; }
 .wow-updates-tabs { display: flex; gap: 8px; border-bottom: 1px solid var(--portal-border); margin: 0 0 20px; }
 .wow-updates-tabs button { min-height: 44px; padding: 9px 16px; color: var(--portal-text-muted); font-size: 15px; font-weight: 700; border-bottom: 3px solid transparent; cursor: pointer; }
 .wow-updates-tabs button[aria-selected="true"] { color: var(--portal-accent-primary); border-bottom-color: var(--portal-accent-primary); }
@@ -40,18 +44,50 @@
 .wow-updates-report time { color: var(--portal-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; flex: 0 0 auto; }
 .wow-updates-report-content { min-width: 0; }
 .wow-updates-report-meta { display: block; margin-top: 4px; color: var(--portal-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wow-hotfix-table-scroll { max-width: 100%; overflow-x: auto; }
+.wow-hotfix-table { width: 100%; min-width: 870px; border-collapse: collapse; table-layout: fixed; text-align: left; font-size: 13px; }
+.wow-hotfix-table th, .wow-hotfix-table td { padding: 13px 14px; vertical-align: top; overflow-wrap: anywhere; }
+.wow-hotfix-table th { color: var(--portal-text-muted); background: var(--portal-surface-muted); font-size: 12px; font-weight: 700; }
+.wow-hotfix-table th:nth-child(1) { width: 15%; }
+.wow-hotfix-table th:nth-child(2) { width: 19%; }
+.wow-hotfix-table th:nth-child(3) { width: 35%; }
+.wow-hotfix-table th:nth-child(4) { width: 17%; }
+.wow-hotfix-table th:nth-child(5) { width: 14%; }
+.wow-hotfix-table tbody tr { border-top: 1px solid var(--portal-border-subtle); }
+.wow-hotfix-table tbody tr:hover { background: var(--portal-surface-muted); }
+.wow-hotfix-table td strong { font-weight: 700; }
+.wow-hotfix-record-id, .wow-hotfix-secondary { display: block; margin-top: 4px; color: var(--portal-text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.wow-hotfix-field + .wow-hotfix-field { margin-top: 9px; padding-top: 9px; border-top: 1px solid var(--portal-border-subtle); }
+.wow-hotfix-field-key { display: block; font-weight: 650; }
+.wow-hotfix-field-label { color: var(--portal-text-muted); font-weight: 400; }
+.wow-hotfix-field-text { display: block; margin-top: 3px; white-space: pre-wrap; color: var(--portal-text); font-weight: 600; }
+.wow-hotfix-more { margin-top: 7px; }
+.wow-hotfix-more summary { min-height: 32px; cursor: pointer; color: var(--portal-accent-primary); font-size: 12px; }
+.wow-hotfix-more .wow-hotfix-field { padding: 6px 0; }
+.wow-hotfix-kind { display: inline-block; padding: 3px 7px; border-radius: 5px; background: var(--portal-surface-muted); font-size: 12px; font-weight: 650; }
+.wow-hotfix-kind.is-change { color: #166534; background: #dcfce7; }
+.wow-hotfix-kind.is-new_value { color: #1d4ed8; background: #dbeafe; }
+.wow-hotfix-kind.is-status, .wow-hotfix-kind.is-unresolved { color: #92400e; background: #fef3c7; }
+.wow-hotfix-links { display: flex; flex-wrap: wrap; gap: 5px 10px; margin-top: 8px; }
+.wow-hotfix-links a { color: var(--portal-accent-primary); text-decoration: underline; text-underline-offset: 3px; }
 .wow-updates-pagination { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 12px; padding: 16px; border-top: 1px solid var(--portal-border); color: var(--portal-text-muted); font-size: 13px; }
 .wow-updates-pagination button { border: 1px solid var(--portal-border); border-radius: 8px; min-height: 40px; padding: 6px 12px; color: var(--portal-accent-primary); cursor: pointer; }
 .wow-updates-pagination button:disabled { opacity: .45; cursor: not-allowed; }
 .wow-updates-message { color: var(--portal-text-muted); padding: 28px 24px; font-size: 14px; }
 .wow-updates-message button { color: var(--portal-accent-primary); margin-left: 12px; text-decoration: underline; cursor: pointer; }
-.wow-updates-shell :is(a, input, button):focus-visible { outline: 2px solid var(--portal-accent-primary); outline-offset: 3px; }
+.wow-updates-shell :is(a, input, select, button, [tabindex]):focus-visible { outline: 2px solid var(--portal-accent-primary); outline-offset: 3px; }
 .wow-updates-shell [hidden] { display: none; }
 html.portal-theme-dark .wow-updates-badge.is-normal { color: #86efac; background: #183b2d; }
 html.portal-theme-dark .wow-updates-badge.is-error { color: #fca5a5; background: #47252b; }
 html.portal-theme-dark .wow-updates-badge.is-update { color: #d8b4fe; background: #35274f; }
+html.portal-theme-dark .wow-hotfix-kind.is-change { color: #86efac; background: #183b2d; }
+html.portal-theme-dark .wow-hotfix-kind.is-new_value { color: #93c5fd; background: #1e3555; }
+html.portal-theme-dark .wow-hotfix-kind.is-status, html.portal-theme-dark .wow-hotfix-kind.is-unresolved { color: #fcd34d; background: #4b3926; }
 @media (max-width: 760px) {
     .wow-updates-shell { padding: 24px 12px 36px; }
+    #wow-updates-panel-hotfix .wow-updates-search { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .wow-hotfix-filter:first-child { grid-column: 1 / -1; }
+    .wow-hotfix-scroll-hint { display: block; margin: 0; padding: 9px 14px; color: var(--portal-text-muted); font-size: 12px; }
     .wow-updates-heading { align-items: flex-start; }
     .wow-updates-state { grid-template-columns: 112px minmax(0, 1fr); gap: 12px 16px; }
     .wow-updates-actions { grid-column: 2; }

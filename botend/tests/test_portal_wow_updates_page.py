@@ -19,9 +19,26 @@ class PortalWowUpdatesPageTests(SimpleTestCase):
         for text in ('魔兽世界更新数据挖掘', 'wow-skill-diff-states', 'wow-skill-diff-list', 'wow-updates-search'):
             self.assertContains(response, text)
         for text in ('data-updates-tab="build"', 'data-updates-tab="hotfix"',
-                     'id="wow-hotfix-list"', 'id="wow-hotfix-search"', 'id="wow-hotfix-branch"'):
+                     'id="wow-hotfix-list"', 'id="wow-hotfix-search"', 'id="wow-hotfix-branch"',
+                     'id="wow-hotfix-build"', 'id="wow-hotfix-table"', 'id="wow-hotfix-mode"',
+                     'id="wow-hotfix-pagination"', 'id="wow-updates-states-section"',
+                     '<option value="values" selected>', 'wow-hotfix-scroll-hint',
+                     '<table', '<tbody id="wow-hotfix-list"',
+                     '物理记录 ID', '原始字段 / 含义'):
             self.assertContains(response, text)
         self.assertNotContains(response, "portal/js/main.js")
+
+    def test_hotfix_list_uses_record_endpoint_and_safe_text_rendering(self):
+        script = (ROOT / 'static/portal/js/wow-updates.js').read_text(encoding='utf-8')
+        self.assertIn('/portal/api/hotfix-entries/?', script)
+        self.assertNotIn('/portal/api/hotfix-reports/?', script)
+        self.assertIn("mode: hotfixMode.value", script)
+        self.assertIn("statesSection.hidden = name === 'hotfix'", script)
+        self.assertIn("params.set('build'", script)
+        self.assertIn("params.set('table'", script)
+        self.assertIn('AbortController', script)
+        self.assertIn('textContent = text', script)
+        self.assertNotIn('innerHTML', script)
 
     def test_home_removes_section_and_requests_but_keeps_legacy_redirect(self):
         response = self.client.get('/')
