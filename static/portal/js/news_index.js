@@ -351,6 +351,10 @@ function bindTabEvents() {
   document.querySelectorAll("[data-news-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const tab = btn.getAttribute("data-news-tab");
+      if (tab === "hotfix") {
+        window.location.assign('/portal/wow-updates/?tab=hotfix');
+        return;
+      }
       if (tab === NEWS_STATE.activeTab) return;
       NEWS_STATE.activeTab = tab;
       NEWS_STATE.page = 1;
@@ -360,7 +364,11 @@ function bindTabEvents() {
   });
 }
 
-readUrlState();
-bindEvents();
-bindTabEvents();
-loadNews();
+if (new URLSearchParams(window.location.search).get('tab') === 'hotfix') {
+  window.location.replace('/portal/wow-updates/?tab=hotfix');
+} else {
+  readUrlState();
+  bindEvents();
+  bindTabEvents();
+  loadNews();
+}

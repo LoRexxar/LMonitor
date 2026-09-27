@@ -322,4 +322,5 @@
     }));
     load('states');
     load('reports');
+    if (new URLSearchParams(window.location.search).get('tab') === 'hotfix') activateTab('hotfix');
 }());

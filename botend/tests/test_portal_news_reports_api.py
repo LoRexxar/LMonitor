@@ -1,5 +1,6 @@
 import json
 from datetime import timedelta
+from pathlib import Path
 
 from django.test import RequestFactory, TestCase, override_settings
 from django.utils import timezone
@@ -114,6 +115,16 @@ class PortalNewsReportsAPIViewTests(TestCase):
         self.assertIn('data-news-tab="hotfix"', html)
         self.assertIn('aria-selected="true"', html)
         self.assertIn('新闻资讯', html)
+
+    def test_news_hotfix_button_and_legacy_deep_link_use_continuous_table(self):
+        path = Path(__file__).resolve().parents[2] / 'static/portal/js/news_index.js'
+        script = path.read_text(encoding='utf-8')
+        self.assertIn("window.location.assign('/portal/wow-updates/?tab=hotfix')", script)
+        self.assertIn("window.location.replace('/portal/wow-updates/?tab=hotfix')", script)
+        updates = (Path(__file__).resolve().parents[2] /
+                   'static/portal/js/wow-updates.js').read_text(encoding='utf-8')
+        self.assertIn("new URLSearchParams(window.location.search).get('tab')", updates)
+        self.assertIn("activateTab('hotfix')", updates)
 
     def test_archive_distinguishes_verified_source_facts_from_legacy_report(self):
         legacy = WowHotfixReport.objects.create(
