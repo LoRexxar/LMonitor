@@ -11,7 +11,7 @@
 .wow-updates-search select { background: var(--portal-surface-raised); color: var(--portal-text); border: 1px solid var(--portal-border); border-radius: 8px; font-size: 14px; min-height: 42px; padding: 8px 12px; }
 .wow-updates-search button { color: var(--portal-accent-primary); font-size: 13px; min-height: 40px; cursor: pointer; }
 #wow-updates-panel-hotfix { max-width: 1040px; margin-inline: auto; }
-#wow-updates-panel-hotfix .wow-updates-search { display: grid; grid-template-columns: minmax(270px, 2fr) repeat(5, minmax(118px, 1fr)); gap: 10px 12px; align-items: end; }
+#wow-updates-panel-hotfix .wow-updates-search { display: grid; grid-template-columns: minmax(270px, 2fr) repeat(3, minmax(112px, 1fr)) minmax(165px, 1.3fr) minmax(130px, 1fr); gap: 10px 12px; align-items: end; }
 .wow-hotfix-advanced { grid-column: span 3; min-width: 0; }
 .wow-hotfix-advanced-controls { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .wow-hotfix-advanced summary { display: none; }
