@@ -7,8 +7,9 @@ from bs4 import BeautifulSoup
 from django.test import TestCase, override_settings
 from django.core.cache import cache
 
-from botend.models import WowHotfixReport
+from botend.models import WowHotfixReport, WowSpellSnapshot
 from botend.services.wago_db2.schema import WagoDB2Schema
+from botend.services.wow_skill_report_metadata import database_spell_metadata
 
 
 @override_settings(ALLOWED_HOSTS=['testserver'])
@@ -87,7 +88,7 @@ class PortalHotfixEntriesAPITests(TestCase):
         for params, count in [
             ({'mode': 'changes'}, 1), ({'mode': 'values'}, 3), ({'mode': 'status'}, 1),
             ({'table': 'SpellEffect'}, 1), ({'q': 'EffectBasePointsF'}, 1),
-            ({'q': '岩石剧毒'}, 2), ({'q': '86172'}, 1),
+            ({'q': '岩石剧毒'}, 3), ({'q': '86172'}, 1),
             ({'q': '101'}, 1), ({'build': '12.1.0.69933'}, 4),
             ({'build': '12.1.0.1'}, 0), ({'branch': 'wowt'}, 0),
         ]:
@@ -114,6 +115,82 @@ class PortalHotfixEntriesAPITests(TestCase):
         self.assertEqual([(row['push'], row['kind']) for row in second['data']],
                          [(100, 'new_value')])
         self.assertEqual(self.read(sort='not-allowed').status_code, 400)
+
+    def test_first_screen_spell_id_uses_existing_build_scoped_chinese_snapshot_name(self):
+        WowSpellSnapshot.objects.create(branch='wow', locale='zhCN', spell_id=1222923,
+            snapshot_build='12.1.0.69587', name='Windwalker Monk', name_zh='踏风武僧')
+        WowSpellSnapshot.objects.create(branch='wowt', locale='zhCN', spell_id=1222923,
+            snapshot_build='12.1.0.69933', name_zh='错误的其他分支')
+        WowSpellSnapshot.objects.create(branch='wow', locale='enUS', spell_id=1222923,
+            snapshot_build='12.1.0.70001', name_zh='未来名称')
+        effect = self.fact(26, 104, 'SpellEffect', 1357281,
+                           {'ID': '1357281', 'SpellID': '1222923', 'EffectIndex': '0',
+                            'EffectAura': '649'},
+                           before={'ID': '1357281', 'SpellID': '1222923',
+                                   'EffectIndex': '0', 'EffectAura': '218'},
+                           changes=[{'field': 'EffectAura', 'before': '218', 'after': '649'}])
+        self.report(103, 104, [effect])
+        row = self.read(q='1357281', sort='changes_first').json()['data'][0]
+        self.assertEqual(row['title'], '踏风武僧')
+        self.assertEqual(row['spell_id'], 1222923)
+        self.assertEqual(row['record_id'], 1357281)
+        self.assertEqual(row['fields'][0]['before'], '218')
+        self.assertEqual(self.read(q='踏风武僧').json()['meta']['total'], 1)
+
+    def test_frozen_spell_names_use_nearest_prior_push_and_exact_scope(self):
+        effect = self.fact(30, 102, 'SpellEffect', 902,
+                           {'ID': '902', 'SpellID': '620', 'EffectBasePointsF': '9'},
+                           build='12.1.0.69814')
+        effect['source']['build'] = 69814
+        earlier = self.fact(31, 100, 'SpellName', 620,
+                            {'ID': '620', 'Name_lang': '此前名称'},
+                            build='12.1.0.69814')
+        earlier['source']['build'] = 69814
+        future = self.fact(32, 104, 'SpellName', 620,
+                           {'ID': '620', 'Name_lang': '未来改名'},
+                           build='12.1.0.69814')
+        future['source']['build'] = 69814
+        other_build = self.fact(33, 101, 'SpellName', 620,
+                                {'ID': '620', 'Name_lang': '另一构建'},
+                                build='12.1.0.69933')
+        other_branch = self.report(99, 105, [self.fact(34, 101, 'SpellName', 620,
+            {'ID': '620', 'Name_lang': '另一分支'})], branch='wowt')
+        self.report(99, 105, [effect, earlier, future, other_build])
+        self.assertTrue(other_branch.collection_complete)
+        row = self.read(q='902', branch='wow').json()['data'][0]
+        self.assertEqual(row['title'], '此前名称')
+        self.assertEqual(row['build'], '12.1.0.69814')
+        self.assertEqual(row['spell_id'], 620)
+
+    def test_spell_names_are_batched_once_and_reused_across_page_requests(self):
+        WowSpellSnapshot.objects.create(branch='wow', locale='zhCN', spell_id=1222923,
+            snapshot_build='12.1.0.69587', name_zh='踏风武僧')
+        effect = self.fact(36, 104, 'SpellEffect', 1357281,
+                           {'ID': '1357281', 'SpellID': '1222923', 'EffectAura': '649'})
+        self.report(103, 104, [effect])
+        cache.clear()
+        with patch('botend.services.wow_hotfix_entries.database_spell_metadata',
+                   wraps=database_spell_metadata) as lookup:
+            for query in ('1357281', '踏风武僧'):
+                row = self.read(q=query).json()['data'][0]
+                self.assertEqual(row['title'], '踏风武僧')
+        lookup.assert_called_once()
+        self.assertEqual(lookup.call_args.args[1:], ('wow', '12.1.0.69933'))
+        self.assertEqual(lookup.call_args.kwargs, {'allow_compatible_name': True})
+
+    def test_frozen_spell_name_does_not_cross_region_or_locale(self):
+        effect = self.fact(40, 104, 'SpellEffect', 903,
+                           {'ID': '903', 'SpellID': '621', 'EffectBasePointsF': '1'})
+        name = self.fact(41, 103, 'SpellName', 621,
+                         {'ID': '621', 'Name_lang': '其他区域的名字'})
+        name['source']['region_id'] = 2
+        other_region = self.report(102, 106, [name])
+        other_region.region_id = 2
+        other_region.save(update_fields=['region_id'])
+        self.report(103, 104, [effect])
+        row = self.read(q='903').json()['data'][0]
+        self.assertEqual(row['title'], '技能 #621')
+        self.assertEqual(self.read(q='其他区域的名字').json()['meta']['total'], 1)
 
     def test_noncomplete_and_nonmatching_facts_are_not_mislabeled_as_changes(self):
         self.assertNotIn(999, [r['record_id'] for r in self.read().json()['data']])

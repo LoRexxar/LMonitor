@@ -4,6 +4,7 @@ The report's frozen source_facts_json remains the only persisted source of truth
 """
 import json
 import re
+from hashlib import sha256
 from pathlib import Path
 from urllib.parse import quote
 
@@ -14,6 +15,7 @@ from django.core.cache import cache
 from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.services.wago_db2.schema import WagoDB2Schema
 from botend.services.wago_hotfix_reader_fields import FIELDS, display_hotfix_value, project_hotfix_columns
+from botend.services.wow_skill_report_metadata import database_spell_metadata
 
 SCHEMA = WagoDB2Schema()
 SOURCE_STATUSES = {2: 'Delete（仅来源状态）', 3: 'Invalidate（仅来源状态）',
@@ -201,7 +203,7 @@ def frozen_report_entries(report):
 def continuous_entries(reports):
     """Merge report intervals by exact source identity, sorted by physical push."""
     merged = {}
-    names = {}
+    frozen_spell_names = {}
     for report in reports:
         for row in frozen_report_entries(report):
             identity = (row['branch'], row['locale'], row['region_id'],
@@ -210,13 +212,37 @@ def continuous_entries(reports):
             if identity not in merged:
                 merged[identity] = row.copy()
             if row['table'].lower() == 'spellname' and row['kind'] in ('change', 'new_value') and row['spell_id']:
-                names[(row['branch'], row['locale'], row['region_id'], row['push'],
-                       row['build'], row['spell_id'])] = row['title']
+                name = row['title']
+                if name and name != f"技能 #{row['spell_id']}":
+                    key = (row['branch'], row['locale'], row['region_id'], row['build'], row['spell_id'])
+                    frozen_spell_names.setdefault(key, []).append((row['push'], name))
     entries = list(merged.values())
+    # Reuse the report's authoritative same-branch/build metadata lookup in
+    # batches. Missing snapshots never trigger a Wago request per source row.
+    missing_by_build = {}
     for row in entries:
         if row['spell_id'] and row['title'] == f"技能 #{row['spell_id']}":
-            name = names.get((row['branch'], row['locale'], row['region_id'],
-                              row['push'], row['build'], row['spell_id']))
+            build = row['build']
+            if re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
+                missing_by_build.setdefault((row['branch'], build), set()).add(row['spell_id'])
+    snapshot_names = {}
+    for (branch, build), ids in missing_by_build.items():
+        fingerprint = sha256(','.join(map(str, sorted(ids))).encode('ascii')).hexdigest()[:16]
+        key = f'wow-hotfix-spell-names-v1:{branch}:{build}:{fingerprint}'
+        names = cache.get(key)
+        if names is None:
+            names = {sid: metadata['name'] for sid, metadata in database_spell_metadata(
+                ids, branch, build, allow_compatible_name=True).items() if metadata.get('name')}
+            cache.set(key, names, timeout=120)
+        for sid, name in names.items():
+            snapshot_names[(branch, build, sid)] = name
+    for row in entries:
+        if row['spell_id'] and row['title'] == f"技能 #{row['spell_id']}":
+            key = (row['branch'], row['locale'], row['region_id'], row['build'], row['spell_id'])
+            previous = [(push, name) for push, name in frozen_spell_names.get(key, ())
+                        if push <= row['push']]
+            name = (max(previous, key=lambda pair: pair[0])[1] if previous else
+                    snapshot_names.get((row['branch'], row['build'], row['spell_id'])))
             if name:
                 row['title'] = name
     entries.sort(key=lambda row: (row['push'], row['time'], row['source_id'] or 0,
