@@ -71,6 +71,7 @@
             ]},
             {key: 'tools', label: '游戏工具', entries: [section('wow-localization'), section('simc'), section('mythic-planner'), section('gear-builder-management'), section('tools')]},
             {key: 'system', label: '系统管理', entries: [
+                section('site-analytics'),
                 root.querySelector('[data-dashboard-table="MonitorTask"]'),
                 folder('logs', '日志与告警', 'fa-bell', [section('error-logs'), section('log-files')]),
                 folder('access', '用户与权限', 'fa-users-cog', [section('user-management'), section('user-groups')]),

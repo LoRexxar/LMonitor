@@ -1,0 +1,54 @@
+#site-analytics{color:var(--dashboard-text,#182638);max-width:1600px;margin:auto}
+#site-analytics h2{font-size:28px;font-weight:750;letter-spacing:-.6px}
+#site-analytics h3{font-size:16px;font-weight:650;margin:0 0 16px}
+#site-analytics small{font-size:12px;font-weight:400;color:var(--dashboard-muted,#718096);margin-left:6px}
+.sa-heading,.sa-title{display:flex;align-items:center;justify-content:space-between;gap:16px}
+.sa-heading{margin-bottom:20px}
+.sa-heading p,#sa-status{color:var(--dashboard-muted,#64748b);font-size:13px}
+.sa-panel{background:var(--dashboard-surface,#fff);border:1px solid var(--dashboard-border,#e1e7ed);border-radius:12px;padding:20px;margin-bottom:18px;min-width:0}
+.sa-filters{display:flex;align-items:end;gap:12px;flex-wrap:wrap}
+.sa-filters label,.sa-settings label{display:flex;flex-direction:column;gap:6px;font-size:12px;color:var(--dashboard-muted,#596b80)}
+.sa-path{flex:1;min-width:170px}
+#site-analytics input:not([type=checkbox]),#site-analytics select,#site-analytics textarea{border:1px solid #cbd5e1;border-radius:6px;padding:9px 10px;color:var(--dashboard-text,#182638);background:var(--dashboard-surface,#fff);font-size:13px;min-width:0;max-width:100%}
+#site-analytics button{font-size:13px;border-radius:6px;padding:9px 13px;font-weight:550;cursor:pointer}
+#site-analytics button:disabled{opacity:.5;cursor:wait}
+#site-analytics .sa-primary{background:#2563eb;color:#fff}
+.sa-presets{display:flex;gap:4px}
+.sa-presets button{background:#f0f5fb;color:#385272}
+.sa-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:18px}
+.sa-metric{padding:18px 20px;border-radius:10px;background:var(--dashboard-surface,#fff);border:1px solid var(--dashboard-border,#e1e7ed)}
+.sa-metric span{display:block;color:var(--dashboard-muted,#64748b);font-size:12px}
+.sa-metric strong{display:block;font-size:29px;line-height:1.4;margin-top:5px;font-variant-numeric:tabular-nums}
+.sa-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}
+.sa-thirds{grid-template-columns:repeat(3,minmax(0,1fr))}
+.sa-scroll{overflow:auto;max-height:390px}
+.sa-table{width:100%;border-collapse:collapse;font-size:12px}
+.sa-table th{text-align:left;color:var(--dashboard-muted,#64748b);font-weight:500;position:sticky;top:0;background:var(--dashboard-surface,#fff)}
+.sa-table th,.sa-table td{padding:10px 8px;border-bottom:1px solid var(--dashboard-border,#edf1f5)}
+.sa-table td:first-child{overflow-wrap:anywhere;min-width:110px}
+.sa-table td:not(:first-child),.sa-table th:not(:first-child){text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sa-chart{overflow-x:auto;margin:12px 0}
+.sa-bars{display:flex;align-items:end;height:190px;gap:4px;min-width:360px;padding-top:22px}
+.sa-bar-cell{height:100%;flex:1;min-width:5px;display:flex;flex-direction:column;justify-content:end;align-items:center;position:relative}
+.sa-bar{width:75%;background:#4e83dd;border-radius:3px 3px 0 0;min-width:3px}
+.sa-bar-cell:focus .sa-bar,.sa-bar-cell:hover .sa-bar{background:#1647a3}
+.sa-bar-cell span{height:22px;font-size:10px;color:var(--dashboard-muted,#748296);white-space:nowrap;margin-top:6px}
+.sa-empty{padding:32px 8px;text-align:center;color:#7b8797;font-size:13px}
+.sa-error{padding:12px 16px;border-radius:8px;background:#fff0f0;color:#b42318;margin-bottom:16px;font-size:13px}
+.sa-settings summary{cursor:pointer;font-size:14px;font-weight:600}
+.sa-settings form{margin-top:20px}
+.sa-settings .sa-checkbox{flex-direction:row;align-items:center;margin-bottom:18px;gap:8px}
+.sa-settings .sa-grid{margin-bottom:16px}
+.sa-note{font-size:12px;line-height:1.8;color:var(--dashboard-muted,#64748b);margin-top:16px}
+#sa-save-status{font-size:13px;margin-left:12px}
+#site-analytics details>summary{color:#506680;font-size:13px}
+#site-analytics [aria-busy=true]{opacity:.55}
+@media(max-width:760px){.sa-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.sa-grid,.sa-thirds{grid-template-columns:1fr;gap:0}
+.sa-heading{align-items:start;flex-direction:column;gap:6px}
+.sa-panel{padding:14px}
+.sa-metric{padding:14px}
+.sa-metric strong{font-size:24px}
+.sa-filters label{flex:1;min-width:130px}
+.sa-title{align-items:start;flex-direction:column;gap:0}
+}

@@ -17,6 +17,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'reports.hotfix', 'label': 'Hotfix 报告', 'section': 'wago-hotfix-reports', 'parent': '内容'},
     {'code': 'system.alerts', 'label': '系统报警', 'section': 'error-logs', 'parent': '系统'},
     {'code': 'system.logs', 'label': '日志文件', 'section': 'log-files', 'parent': '系统'},
+    {'code': 'system.analytics', 'label': '站内统计', 'section': 'site-analytics', 'parent': '系统'},
     {'code': 'mythic.config', 'label': '规划器设置', 'section': 'mythic-planner-config', 'parent': '大秘境规划器'},
     {'code': 'mythic.positions', 'label': '位置标记', 'section': 'mythic-planner-positions', 'parent': '大秘境规划器'},
     {'code': 'mythic.routes', 'label': '路线管理', 'section': 'mythic-planner-routes', 'parent': '大秘境规划器'},

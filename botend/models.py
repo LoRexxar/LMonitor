@@ -3632,3 +3632,4 @@ from botend.guide_models import (  # noqa: E402,F401
 )
 
 from botend.journal_models import JournalRelease, JournalState, JournalInstance, JournalEncounter  # noqa: E402,F401
+from botend.analytics.models import SiteAnalyticsConfig, SitePageView  # noqa: E402,F401

@@ -1,4 +1,5 @@
 from botend.dashboard.wow_localization import WowLocalizationAPI
+from botend.analytics.views import CollectView, AnalyticsAPIView
 """LMonitor URL Configuration
 
 The `urlpatterns` list routes URLs to views. For more information please see:
@@ -146,6 +147,8 @@ from django.http import HttpResponse, JsonResponse
 from botend.portal.updates import PortalSiteUpdatesAPIView
 
 urlpatterns = [
+    path('api/site-analytics/collect/', CollectView.as_view(), name='site_analytics_collect'),
+    path('api/dashboard/site-analytics/', AnalyticsAPIView.as_view(), name='dashboard_site_analytics'),
     path('auth/bilibili/', BilibiliBindingPage.as_view(), name='bilibili_binding'),
     path('auth/bilibili/api/', BilibiliBindingAPI.as_view(), name='bilibili_binding_api'),
     path('dashboard/bilibili-binding/', BilibiliBindingAdminPage.as_view(), name='bilibili_binding_admin'),

@@ -1,0 +1,31 @@
+<section id="site-analytics" class="content-section hidden" data-api-url="{% url 'dashboard_site_analytics' %}">
+    <div class="sa-heading"><div><h2>站内统计</h2><p>了解访问规模、热门页面与访客习惯</p></div><span id="sa-status" role="status" aria-live="polite">等待加载</span></div>
+    <form id="sa-filters" class="sa-panel sa-filters">
+        <label>开始日期<input id="sa-start" type="date" required></label>
+        <label>结束日期<input id="sa-end" type="date" required></label>
+        <label>站点区域<select id="sa-area"><option value="">全站</option><option>前台</option><option>后台</option><option>账号</option></select></label>
+        <label class="sa-path">页面路径前缀<input id="sa-path" type="text" placeholder="例如 /portal/" maxlength="512"></label>
+        <button type="submit" class="sa-primary">查询</button>
+        <div class="sa-presets"><button type="button" data-days="1">今天</button><button type="button" data-days="7">近 7 天</button><button type="button" data-days="30">近 30 天</button></div>
+    </form>
+    <div id="sa-error" class="sa-error" role="alert" hidden></div>
+    <div id="sa-results" aria-busy="false">
+        <div id="sa-metrics" class="sa-metrics"></div>
+        <div class="sa-panel"><div class="sa-title"><h3>每日趋势</h3><label>趋势指标 <select id="sa-chart-metric"><option value="pv">浏览量 PV</option><option value="uv">访客 UV</option><option value="ips">独立 IP</option><option value="sessions">会话数</option></select></label></div><div id="sa-trend" class="sa-chart"></div><details><summary>查看每日明细</summary><div id="sa-daily"></div></details></div>
+        <div class="sa-grid"><div class="sa-panel"><h3>热门页面 <small>前 50 项</small></h3><div id="sa-pages"></div></div><div class="sa-panel"><h3>访问来源 <small>前 20 项</small></h3><div id="sa-sources"></div></div></div>
+        <div class="sa-grid"><div class="sa-panel"><h3>访客访问频次</h3><div id="sa-visitor-frequency"></div></div><div class="sa-panel"><h3>IP 访问频次</h3><div id="sa-ip-frequency"></div></div></div>
+        <div class="sa-grid sa-thirds"><div class="sa-panel"><h3>设备分布</h3><div id="sa-devices"></div></div><div class="sa-panel"><h3>浏览器</h3><div id="sa-browsers"></div></div><div class="sa-panel"><h3>操作系统</h3><div id="sa-systems"></div></div></div>
+        <div class="sa-grid"><div class="sa-panel"><h3>站点区域</h3><div id="sa-areas"></div></div><div class="sa-panel"><h3>登录状态</h3><div id="sa-authentication"></div></div></div>
+        <div class="sa-panel"><h3>小时分布 <small>所选日期内同一小时的浏览量合计</small></h3><div id="sa-hourly" class="sa-chart"></div></div>
+    </div>
+    <details class="sa-panel sa-settings"><summary>采集管理与统计口径</summary>
+        <form id="sa-config">
+            {% csrf_token %}
+            <label class="sa-checkbox"><input id="sa-enabled" type="checkbox">启用全站访问采集</label>
+            <div class="sa-grid"><label>排除页面路径前缀（每行一项）<textarea id="sa-excluded" rows="3" placeholder="例如 /auth/"></textarea></label><label>可信代理 IP / 网段（每行一项）<textarea id="sa-proxies" rows="3" placeholder="默认不信任转发头；仅填写实际反向代理地址"></textarea></label></div>
+            <button id="sa-save" type="submit" class="sa-primary">保存采集设置</button><span id="sa-save-status" role="status" aria-live="polite"></span>
+        </form>
+        <p class="sa-note">PV 按浏览器页面访问计数；UV 按浏览器本地标识去重；会话在 30 分钟没有新页面访问后重新开始。IP 按脱敏摘要去重，所选范围内跨日去重，不累加每日独立数。访问频次为范围内每位访客或每个 IP 的浏览次数。最近 15 分钟访客数同时受当前筛选条件限制。</p>
+        <p class="sa-note">日期和小时按站点时区统计。统计从启用后开始，不回填历史访问。不记录原始 IP、账号、页面标题或 URL 查询参数（后台栏目除外）。禁用脚本、拦截请求、已识别爬虫、嵌入框架、沙箱报告与下载不计入。清除浏览器存储或更换浏览器会被视为新访客。</p>
+    </details>
+</section>
