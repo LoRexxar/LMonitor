@@ -14,6 +14,121 @@ from simc_native_scope_evidence import (index_native_reads, binding_has_damage, 
 from simc_scope_resolution import ScopeResolver
 from simc_cpp_scope import classify_reads, read_scope, non_damage_read, referenced_dbc_scope
 from simc_native_scope_evidence import source_class, CLASS_FILES
+from botend.constants.wow import SPEC_IDENTITY_MAP
+
+UNSUPPORTED_NATIVE_CONFIGS = {
+    'monk_mistweaver': 'Mistweaver Monk',
+    'paladin_holy': 'Holy Paladin',
+}
+
+def validate_native_audit_manifest(manifest, catalog, *, input_root, frozen_input_dir):
+    """Require a complete two-stage spec matrix; never classify a partial audit."""
+    revision = manifest.get('源码提交')
+    build = manifest.get('客户端版本')
+    if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision) or catalog.get('simc_revision') != revision:
+        raise ValueError('原生审计与 DBC catalog revision 不一致')
+    if not isinstance(build, str) or not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build) or catalog.get('game_build') != build:
+        raise ValueError('原生审计与 DBC catalog build 不一致')
+    expected = {
+        (stage, f'{SPEC_IDENTITY_MAP[spec_id][0].lower()}_{spec}')
+        for stage in ('base', 'talents') for spec_id, spec in SPECS.items()
+    }
+    results = manifest.get('结果')
+    if not isinstance(results, list):
+        raise ValueError('原生审计缺少完整输入结果矩阵')
+    input_root = Path(input_root).resolve()
+    frozen_path = (input_root / frozen_input_dir).resolve()
+    if not frozen_path.is_relative_to(input_root) or frozen_path == input_root:
+        raise ValueError('冻结输入目录不在当前项目范围内')
+    frozen_relative = frozen_path.relative_to(input_root)
+    found = set()
+    successes, unsupported = [], []
+    for row in results:
+        if not isinstance(row, dict) or not isinstance(row.get('输入'), str):
+            raise ValueError('原生审计输入结构无效')
+        path = Path(row['输入'])
+        key = path.parent.name, path.stem
+        if path.suffix != '.simc' or key not in expected or key in found:
+            raise ValueError(f'原生审计输入重复或未列入权威专精目录：{row["输入"]}')
+        if path != frozen_relative / key[0] / f'{key[1]}.simc':
+            raise ValueError(f'原生审计输入不在冻结目录的精确位置：{row["输入"]}')
+        found.add(key)
+        digest = row.get('输入摘要')
+        input_path = (input_root / path).resolve()
+        if (path.is_absolute() or not input_path.is_relative_to(input_root)
+                or not isinstance(digest, str) or not re.fullmatch(r'[0-9a-f]{64}', digest)
+                or not input_path.is_file()
+                or hashlib.sha256(input_path.read_bytes()).hexdigest() != digest):
+            raise ValueError(f'原生审计输入字节或摘要不匹配：{row["输入"]}')
+        status = row.get('退出码')
+        if type(status) is not int:
+            raise ValueError('原生审计退出码结构无效')
+        if status == 0:
+            successes.append(row)
+            continue
+        name = UNSUPPORTED_NATIVE_CONFIGS.get(path.stem)
+        reason = row.get('失败原因')
+        lines = [line for line in str(reason or '').splitlines() if line.strip()]
+        expected_lines = []
+        if path.stem == 'monk_mistweaver':
+            expected_lines.append(
+                "Trivial: Buff 'touch_of_death_ww' (0) initialized with max_stack < 1 (0). Setting max_stack to 1."
+            )
+        if name:
+            expected_lines.extend((
+                f"Trivial: {name} for Player 'audit' is not currently supported.",
+                'Error: No active players in sim!',
+            ))
+        if status != 40 or not name or lines != expected_lines:
+            raise ValueError(f'非预期原生审计失败：{row["输入"]}')
+        unsupported.append(row)
+    if found != expected:
+        missing = sorted(expected - found)
+        raise ValueError(f'原生审计输入不完整：缺少 {missing[:8]}')
+    return successes, unsupported
+
+def validate_native_actor_identity(run, payload):
+    """A successful run contributes exactly the intended spec, never zero/wrong actors."""
+    stem = Path(run['输入']).stem
+    identities = {}
+    for spec_id, spec in SPECS.items():
+        owner, label = SPEC_IDENTITY_MAP[spec_id]
+        split_camel = lambda text: re.sub(r'([a-z])([A-Z])', r'\1 \2', text)
+        identities[f'{owner.lower()}_{spec}'] = (
+            owner.lower(), f'{split_camel(label)} {split_camel(owner)}',
+        )
+    actors = payload.get('actors')
+    if stem not in identities or not isinstance(actors, list) or not actors:
+        raise ValueError(f'原生审计缺少目标专精 actor：{run["输入"]}')
+    matching = [actor for actor in actors if isinstance(actor, dict)
+                and (actor.get('class'), actor.get('spec')) == identities[stem]]
+    if len(matching) != 1:
+        raise ValueError(f'原生审计目标专精 actor 不是唯一：{run["输入"]}')
+    for actor in actors:
+        if actor is matching[0]:
+            continue
+        if (not isinstance(actor, dict)
+                or (actor.get('class'), actor.get('spec')) != ('player_simplified', 'Unknown')
+                or any(actor.get(field) != [] for field in (
+                    'selected_trait_ids', 'bindings', 'target_states', 'source_effects'))
+                or not isinstance(actor.get('damage_actions'), list)
+                or {(action.get('spell_id'), action.get('token'))
+                    for action in actor['damage_actions'] if isinstance(action, dict)}
+                    != {(0, 'simple_spell'), (0, 'simple_proc')}
+                or len(actor['damage_actions']) != 2):
+            raise ValueError(f'原生审计混入非目标专精 actor：{run["输入"]}')
+    return matching[0]
+
+def canonical_scope_evidence(evidence):
+    """Keep hand-written source sites stable without changing the scope verdict."""
+    sites = evidence.get('源码')
+    if sites is None:
+        return evidence
+    if not isinstance(sites, list) or any(not isinstance(site, dict) for site in sites):
+        raise ValueError('原生源码证据结构无效')
+    return {**evidence, '源码': sorted(
+        sites, key=lambda site: json.dumps(site, ensure_ascii=False, sort_keys=True),
+    )}
 
 
 def review_decision(scope):
@@ -37,6 +152,8 @@ def main():
     p.add_argument('--source',type=Path,required=True)
     p.add_argument('--names',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--frozen-input-dir',type=Path,required=True,
+                   help='明确的原始 base/talents 输入根目录，必须属于项目当前目录')
     p.add_argument('--merge-target-review',type=Path,help='保留同版既有复核，仅补充本次实际观察的自身来源目标减益')
     p.add_argument('--merge-conditional-review',type=Path,help='保留同版复核，补充原生条件回调关联的自身状态')
     args=p.parse_args()
@@ -50,11 +167,12 @@ def main():
     if manifest.get('DBC目录摘要')!=hashlib.sha256((args.native/'global-scope-catalog.json').read_bytes()).hexdigest():
         raise ValueError('DBC 目录摘要不匹配')
     catalog=json.loads((args.native/'global-scope-catalog.json').read_text(encoding='utf-8'))
+    successes, unsupported = validate_native_audit_manifest(
+        manifest, catalog, input_root=Path.cwd(), frozen_input_dir=args.frozen_input_dir)
     if manifest.get('本地修改摘要') and hashlib.sha256(subprocess.check_output(['git','-C',str(args.source),'diff','--binary','HEAD'])).hexdigest()!=manifest['本地修改摘要']:
         raise ValueError('原生证据与本地补丁不一致')
-    successes=[r for r in manifest['结果'] if not r['退出码']]
     covered=len({Path(r['输入']).stem for r in successes})
-    coverage=f'当前覆盖 {covered} 个专精、{len(successes)} 份配置；另有 {len(manifest["结果"])-len(successes)} 份配置导出失败。'
+    coverage=f'当前覆盖 {covered} 个专精、{len(successes)} 份配置；另有 {len(unsupported)} 份明确不支持的配置。'
     names=json.loads(args.names.read_text(encoding='utf-8'))
     localized={r[2].casefold():r[3] for r in names if r[2] and r[3]} if isinstance(names,list) else {}
     names_by_id={int(k):v for k,v in names.items() if v} if isinstance(names,dict) else {}
@@ -84,7 +202,8 @@ def main():
             raise ValueError('原生结果摘要不匹配：'+run['结果文件'])
         data=json.loads((args.native/run['结果文件']).read_text(encoding='utf-8'))
         validate_native_payload(data)
-        for actor in data['actors']:
+        actor=validate_native_actor_identity(run,data)
+        for actor in (actor,):
             spec_token=Path(run['输入']).stem.removeprefix(actor['class']+'_')
             spec_label=next((SPEC_LABELS[sid] for sid,token in SPECS.items() if token==spec_token and sid in SPEC_LABELS),actor['spec'])
             for state in actor.get('target_states',[]):
@@ -143,6 +262,7 @@ def main():
                 referenced=referenced_dbc_scope(resolver,e,code)
                 if referenced:
                     decision,reason,scope_evidence=referenced
+        scope_evidence=canonical_scope_evidence(scope_evidence)
         dbc_ids={s['spell_id'] for s in e['affected_spells']}
         native_ids={sid for b in native for sid in b.get('传递到的伤害技能',[]) if sid}
         code_ids=set(scope_evidence.get('完整DBC集合',[])) | set(scope_evidence.get('伤害技能',[]))

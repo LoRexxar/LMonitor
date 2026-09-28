@@ -3531,7 +3531,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual({row.pk for row in rows}, {common.pk, slayer.pk, mountain_thane.pk})
 
-    def test_mapping_refresh_creates_new_identity_and_keeps_old_snapshot_published(self):
+    def test_scope_contract_refresh_creates_new_identity_and_keeps_old_snapshot_published(self):
         SimcBackendBinary.objects.update_or_create(
             identifier='production', defaults={
                 'name': '正式服', 'is_active': True,
@@ -3541,7 +3541,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         old = SimcSkillDamageSnapshot.objects.create(
             simc_revision='f' * 40, game_build='12.1.0.69814',
-            schema_revision=42, status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            schema_revision=43, status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             generated_spec_count=1, completed_at=timezone.now(),
             payload={
                 'payload_format': 'skill_damage_product_v1',
@@ -3557,7 +3557,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         self.assertEqual(SimcSkillDamageSnapshotService.latest_display_snapshot().pk, old.pk)
         service = SimcSkillDamageSnapshotService.create_for_current_backend(claim=True)
-        self.assertEqual(service.snapshot.schema_revision, 43)
+        self.assertEqual(service.snapshot.schema_revision, 44)
         self.assertNotEqual(service.snapshot.pk, old.pk)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_RUNNING)
         self.assertEqual(SimcSkillDamageSnapshotService.latest_display_snapshot().pk, old.pk)
