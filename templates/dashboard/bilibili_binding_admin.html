@@ -1,0 +1,29 @@
+{% load static %}
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="csrf-token" content="{{ csrf_token }}"><title>B 站绑定设置</title><link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}"></head>
+<body class="bb-page"><main class="bb-container bb-wide">
+<nav class="bb-nav"><a href="/dashboard/?section=user-management">返回用户管理</a><a href="/auth/bilibili/">查看个人绑定页</a></nav>
+<header><span class="bb-eyebrow">账号管理</span><h1>B 站绑定设置</h1><p class="bb-muted">配置验证动态，处理人工核验，查看网站账号与 B 站身份的对应关系。</p></header>
+<p id="ba-message" role="status" aria-live="polite">正在加载…</p>
+<form id="ba-settings" class="bb-card">
+    <h2>验证设置</h2>
+    <label class="bb-check-label"><input id="ba-enabled" type="checkbox">开启 B 站评论验证绑定</label>
+    <label class="bb-check-label"><input id="ba-required" type="checkbox">公开注册必须先验证 B 站账号（仍遵循网站原有注册开关）</label>
+    <p class="bb-muted">绑定仅证明账号控制权，不验证舰长资格，不会自动授予用户组权限。</p>
+    <label for="ba-url">福利动态链接</label><input id="ba-url" type="url" maxlength="500" placeholder="https://www.bilibili.com/opus/动态编号">
+    <p class="bb-muted">支持 t.bilibili.com 和 www.bilibili.com/opus 的完整 HTTPS 链接。请使用开放评论的普通文字或图文动态，短链接需先展开。</p>
+    <label for="ba-instructions">用户操作说明</label><textarea id="ba-instructions" maxlength="500" rows="2"></textarea>
+    <div class="bb-grid">
+        <div><label for="ba-minutes">口令有效期（分钟）</label><input id="ba-minutes" type="number" min="5" max="60" required></div>
+        <div><label for="ba-interval">检查间隔（秒）</label><input id="ba-interval" type="number" min="15" max="300" required></div>
+        <div><label for="ba-pages">最多扫描页数</label><input id="ba-pages" type="number" min="1" max="10" required></div>
+    </div>
+    <p class="bb-muted">每页最多读取 20 条最近一级评论。网络或平台风控失败时保持待验证；人工核验申请保留 24 小时。设置变更会使进行中的申请失效，已完成绑定不受影响。</p>
+    <div class="bb-actions"><button type="submit" id="ba-save">保存设置</button><button type="button" id="ba-probe" class="bb-secondary">测试动态和评论读取</button></div>
+</form>
+<section class="bb-card"><h2>绑定记录与核验申请</h2><div class="bb-row"><input id="ba-search" aria-label="搜索账号或 UID" placeholder="按网站用户名或完整 B 站 UID 搜索"><button id="ba-refresh" type="button" class="bb-secondary">查询 / 刷新</button></div><p class="bb-muted">分别显示最近 100 条匹配记录；更多记录请按用户名或 UID 搜索。</p>
+<h2>已关联账号</h2><div class="bb-table-wrap"><table class="bb-table"><thead><tr><th>网站账号</th><th>B 站身份</th><th>状态与时间</th><th>证据 / 操作</th></tr></thead><tbody id="ba-bindings"></tbody></table></div>
+<h2 style="margin-top:28px">验证申请</h2><div class="bb-table-wrap"><table class="bb-table"><thead><tr><th>申请账号 / UID</th><th>验证口令</th><th>状态 / 有效期</th><th>审核记录 / 操作</th></tr></thead><tbody id="ba-challenges"></tbody></table></div>
+</section>
+<dialog id="ba-review-dialog" class="bb-dialog bb-card"><form id="ba-review-form"><h2 id="ba-review-title">人工核验</h2><p id="ba-review-target"></p><p><a id="ba-review-link" target="_blank" rel="noopener noreferrer">打开指定动态核对真实评论</a></p><p id="ba-review-code" class="bb-code-row"></p><label for="ba-comment-id">真实评论编号</label><input id="ba-comment-id" inputmode="numeric" maxlength="20" placeholder="评论分享链接中 reply 后的数字"><label class="bb-check-label"><input type="checkbox" id="ba-checked">已直接核对指定动态的一级评论、作者 UID 和完整口令，未仅凭截图确认</label><label for="ba-review-note">核验说明</label><textarea id="ba-review-note" maxlength="500" rows="3" required></textarea><p id="ba-review-error" class="bb-error" role="alert"></p><div class="bb-actions"><button type="submit">确认通过</button><button type="button" id="ba-reject" class="bb-secondary">驳回申请</button><button type="button" id="ba-review-close" class="bb-secondary">取消</button></div></form></dialog>
+<dialog id="ba-revoke-dialog" class="bb-dialog bb-card"><form id="ba-revoke-form"><h2>撤销绑定</h2><p id="ba-revoke-target"></p><p class="bb-muted">保留身份和历史记录，原账号可以重新验证同一 UID。</p><label for="ba-revoke-note">撤销原因</label><textarea id="ba-revoke-note" maxlength="500" required rows="3"></textarea><p id="ba-revoke-error" class="bb-error" role="alert"></p><div class="bb-actions"><button type="submit">确认撤销</button><button type="button" id="ba-revoke-close" class="bb-secondary">取消</button></div></form></dialog>
+</main><script src="{% static 'dashboard/js/bilibili_binding_admin.js' %}" defer></script></body></html>

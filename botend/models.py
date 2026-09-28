@@ -11,6 +11,64 @@ from django.db import connection, models, transaction
 from django.utils import timezone
 
 
+class BilibiliBindingConfig(models.Model):
+    """全站唯一的 B 站评论验证配置，不保存第三方登录凭据。"""
+
+    enabled = models.BooleanField(default=False)
+    require_for_registration = models.BooleanField(default=False)
+    dynamic_url = models.URLField(max_length=500, blank=True, default='')
+    challenge_minutes = models.PositiveSmallIntegerField(default=15)
+    check_interval_seconds = models.PositiveSmallIntegerField(default=30)
+    max_comment_pages = models.PositiveSmallIntegerField(default=5)
+    instructions = models.CharField(max_length=500, blank=True, default='请在指定动态下发表一级评论，请勿回复其他评论。')
+    revision = models.UUIDField(default=uuid.uuid4)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
+class BilibiliAccountBinding(models.Model):
+    """经过验证的账号关联；撤销后仍保留身份占用和历史。"""
+
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='bilibili_binding')
+    uid = models.CharField(max_length=20, unique=True)
+    nickname = models.CharField(max_length=100, blank=True, default='')
+    verified_at = models.DateTimeField(default=timezone.now)
+    verification_method = models.CharField(max_length=20, default='comment')
+    evidence_url = models.URLField(max_length=600)
+    comment_id = models.CharField(max_length=30)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    revoked_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    revoke_reason = models.CharField(max_length=500, blank=True, default='')
+
+
+class BilibiliBindingChallenge(models.Model):
+    """验证码与网站会话、目标 UID、动态配置版本一同绑定。"""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE, related_name='bilibili_challenges')
+    owner_hash = models.CharField(max_length=64, db_index=True)
+    requester_hash = models.CharField(max_length=64, db_index=True)
+    uid = models.CharField(max_length=20)
+    code = models.CharField(max_length=64, unique=True)
+    dynamic_url = models.URLField(max_length=500)
+    config_revision = models.UUIDField()
+    status = models.CharField(max_length=20, default='pending')
+    created_at = models.DateTimeField(default=timezone.now)
+    expires_at = models.DateTimeField()
+    last_checked_at = models.DateTimeField(null=True, blank=True)
+    check_count = models.PositiveIntegerField(default=0)
+    last_message = models.CharField(max_length=300, blank=True, default='')
+    comment_id = models.CharField(max_length=30, blank=True, default='')
+    nickname = models.CharField(max_length=100, blank=True, default='')
+    verified_at = models.DateTimeField(null=True, blank=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    verification_method = models.CharField(max_length=20, blank=True, default='')
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name='+')
+    review_note = models.CharField(max_length=500, blank=True, default='')
+
+    class Meta:
+        ordering = ('-created_at',)
+
+
 class DashboardUserGroup(models.Model):
     """独立于 Django auth 权限体系的 Dashboard 业务用户组。"""
 

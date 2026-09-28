@@ -52,6 +52,9 @@ from botend.dashboard.api import (
     SimcFightStyleOptionsAPIView, SimcRaidBuffOptionsAPIView, SimcExtraOptionsAPIView, SimcConsumableOptionsAPIView,
 )
 from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, ChangePasswordView
+from botend.dashboard.bilibili_binding import (
+    BilibiliBindingPage, BilibiliBindingAPI, BilibiliBindingAdminPage, BilibiliBindingAdminAPI,
+)
 from botend.dashboard.user_management import (
     DashboardUserDetailAPIView,
     DashboardUserGroupDetailAPIView,
@@ -143,6 +146,10 @@ from django.http import HttpResponse, JsonResponse
 from botend.portal.updates import PortalSiteUpdatesAPIView
 
 urlpatterns = [
+    path('auth/bilibili/', BilibiliBindingPage.as_view(), name='bilibili_binding'),
+    path('auth/bilibili/api/', BilibiliBindingAPI.as_view(), name='bilibili_binding_api'),
+    path('dashboard/bilibili-binding/', BilibiliBindingAdminPage.as_view(), name='bilibili_binding_admin'),
+    path('api/dashboard/bilibili-binding/', BilibiliBindingAdminAPI.as_view(), name='bilibili_binding_admin_api'),
     path('portal/api/site-updates/', PortalSiteUpdatesAPIView.as_view(), name='portal_site_updates'),
     path('portal/adventure-journal/', PortalAdventureJournalView.as_view(), name='portal_adventure_journal'),
     path('portal/adventure-journal/art/<int:file_id>/', PortalAdventureJournalArtView.as_view(), name='portal_adventure_journal_art'),

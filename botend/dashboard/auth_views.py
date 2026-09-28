@@ -19,6 +19,10 @@ from django.contrib.auth.decorators import login_required
 from django.core.validators import validate_email
 from django.core.exceptions import ValidationError
 from django.conf import settings
+from django.db import transaction, IntegrityError
+from botend.services.bilibili_binding import (
+    BindingError, get_config, owned_challenge, require_live, consume_challenge,
+)
 from django.utils.http import url_has_allowed_host_and_scheme
 import json
 
@@ -107,6 +111,8 @@ class RegisterView(View):
     
     def post(self, request):
         """处理注册请求"""
+        if request.user.is_authenticated:
+            return JsonResponse({'status': 'error', 'message': '你已登录，请直接在账号页完成绑定。'}, status=403)
         # 检查是否允许注册
         if not getattr(settings, 'ALLOW_REGISTRATION', True):
             return JsonResponse({
@@ -116,6 +122,8 @@ class RegisterView(View):
         
         try:
             data = json.loads(request.body)
+            if not isinstance(data, dict):
+                return JsonResponse({'status': 'error', 'message': '请求数据必须是对象'}, status=400)
             username = data.get('username')
             email = data.get('email')
             password = data.get('password')
@@ -165,12 +173,21 @@ class RegisterView(View):
                     'message': '邮箱已被注册'
                 })
             
-            # 创建用户
-            user = User.objects.create_user(
-                username=username,
-                email=email,
-                password=password
-            )
+            # 创建账号和消耗身份凭证必须原子完成，防止重复领取和半完成注册。
+            with transaction.atomic():
+                binding_config = get_config(lock=True)
+                challenge_id = data.get('bilibili_challenge_id')
+                challenge = None
+                if binding_config.require_for_registration or challenge_id:
+                    if not challenge_id:
+                        raise BindingError('请先完成 B 站账号验证。', 403)
+                    challenge = owned_challenge(request, challenge_id, lock=True)
+                    require_live(challenge, binding_config)
+                    if challenge.status != 'verified':
+                        raise BindingError('请先完成 B 站账号验证。', 403)
+                user = User.objects.create_user(username=username, email=email, password=password)
+                if challenge:
+                    consume_challenge(challenge, user)
             
             # 自动登录
             login(request, user)
@@ -181,6 +198,10 @@ class RegisterView(View):
                 'redirect_url': '/dashboard/'
             })
             
+        except BindingError as exc:
+            return JsonResponse({'status': 'error', 'message': str(exc)}, status=exc.status)
+        except IntegrityError:
+            return JsonResponse({'status': 'error', 'message': '用户名或 B 站身份已被使用，请刷新后重试。'}, status=409)
         except json.JSONDecodeError:
             return JsonResponse({
                 'status': 'error',

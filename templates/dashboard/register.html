@@ -116,6 +116,7 @@
                 <p class="text-xs text-gray-500 mt-1" id="confirm-password-hint"></p>
             </div>
             
+            {% include 'dashboard/_bilibili_binding_widget.html' with binding_mode='register' %}
             <!-- 错误信息显示 -->
             <div id="error-message" class="hidden bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg">
                 <i class="fas fa-exclamation-circle mr-2"></i>
@@ -279,7 +280,8 @@
                 username: formData.get('username'),
                 email: formData.get('email'),
                 password: formData.get('password'),
-                confirm_password: formData.get('confirm_password')
+                confirm_password: formData.get('confirm_password'),
+                bilibili_challenge_id: formData.get('bilibili_challenge_id') || ''
             };
             
             try {

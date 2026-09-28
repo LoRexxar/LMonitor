@@ -1,0 +1,23 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}">
+<section class="bb-widget" id="bilibili-widget" data-mode="{{ binding_mode|default:'account' }}" aria-label="B 站账号验证">
+    <h2>B 站账号验证</h2>
+    <p id="bb-intro" class="bb-muted">正在读取绑定状态…</p>
+    <div id="bb-binding" class="bb-notice" hidden></div>
+    <div id="bb-start" hidden>
+        <label for="bb-uid">你的 B 站 UID</label>
+        <div class="bb-row"><input id="bb-uid" inputmode="numeric" maxlength="20" autocomplete="off" placeholder="个人空间链接中的数字"><button id="bb-create" type="button">获取验证口令</button></div>
+        <p class="bb-muted">只验证账号归属，不代表舰长资格。一个 B 站账号只能关联一个网站账号。</p>
+    </div>
+    <div id="bb-challenge" hidden>
+        <ol class="bb-steps"><li>用 UID <strong id="bb-target"></strong> 登录 B 站。</li><li>打开 <a id="bb-dynamic" target="_blank" rel="noopener noreferrer">指定福利动态</a>，发表下方完整口令作为一级评论。</li><li>返回此页，点击「我已评论，检查验证」。</li></ol>
+        <div class="bb-code-row"><code id="bb-code"></code><button type="button" id="bb-copy" class="bb-secondary">复制口令</button></div>
+        <p id="bb-expiry" class="bb-muted"></p>
+        <div class="bb-actions"><button id="bb-check" type="button">我已评论，检查验证</button><button id="bb-manual" type="button" class="bb-secondary">申请人工核验</button><button id="bb-confirm" type="button" hidden>确认绑定此账号</button><button id="bb-cancel" type="button" class="bb-secondary">取消本次申请</button></div>
+        <p id="bb-proof" class="bb-notice" hidden></p>
+    </div>
+    <input type="hidden" id="bb-proof-id" name="bilibili_challenge_id" value="">
+    <p id="bb-message" role="status" aria-live="polite"></p>
+    <button id="bb-refresh" type="button" class="bb-secondary">刷新绑定状态</button>
+</section>
+<script src="{% static 'dashboard/js/bilibili_binding.js' %}" defer></script>

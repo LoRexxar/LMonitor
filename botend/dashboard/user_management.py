@@ -15,6 +15,7 @@ from django.shortcuts import get_object_or_404
 from django.utils.decorators import method_decorator
 from django.views import View
 from botend.dashboard.permissions import permission_catalog, validate_permission_codes
+from botend.services.bilibili_binding import serialize_binding
 
 
 User = get_user_model()
@@ -121,6 +122,7 @@ def _serialize_user(user):
         ],
         'date_joined': user.date_joined.isoformat() if user.date_joined else None,
         'last_login': user.last_login.isoformat() if user.last_login else None,
+        'bilibili_binding': serialize_binding(getattr(user, 'bilibili_binding', None)),
     }
 
 
@@ -169,13 +171,14 @@ class DashboardUserListAPIView(View):
         except (TypeError, ValueError):
             return _error('分页参数无效')
 
-        users = User.objects.prefetch_related('dashboard_user_groups').order_by('-id')
+        users = User.objects.select_related('bilibili_binding').prefetch_related('dashboard_user_groups').order_by('-id')
         if search:
             users = users.filter(
                 Q(username__icontains=search)
                 | Q(email__icontains=search)
                 | Q(first_name__icontains=search)
                 | Q(last_name__icontains=search)
+                | Q(bilibili_binding__uid=search)
             )
         total_count = users.count()
         total_pages = max(1, math.ceil(total_count / page_size))

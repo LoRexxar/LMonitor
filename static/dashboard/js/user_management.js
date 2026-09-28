@@ -85,6 +85,15 @@
             email.className = 'text-xs text-gray-500';
             email.textContent = user.email || '—';
             identity.append(username, email);
+            if (user.bilibili_binding) {
+                const bili = document.createElement('a');
+                bili.href = user.bilibili_binding.profile_url;
+                bili.target = '_blank';
+                bili.rel = 'noopener noreferrer';
+                bili.className = 'block text-xs text-blue-600';
+                bili.textContent = `B 站 UID ${user.bilibili_binding.uid} · ${user.bilibili_binding.active ? '已验证' : '已撤销'}`;
+                identity.appendChild(bili);
+            }
             row.appendChild(identity);
 
             row.appendChild(textCell(`${user.last_name || ''}${user.first_name || ''}` || '—'));
