@@ -133,6 +133,8 @@
             margin-top: 1.125rem;
         }
 
+        #sidebar .sidebar-group:first-child { margin-top: 0; }
+
         #sidebar .sidebar-group-label {
             display: flex;
             width: 100%;
@@ -541,7 +543,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20260928_analytics"></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20260929_navigation_groups"></script>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -681,7 +683,7 @@
                         </a>
                     </li>
                     {% if user.is_superuser %}
-                    <li><a href="/dashboard/bilibili-binding/" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50">B 站绑定设置</a></li>
+                    <li data-sidebar-link="bilibili-binding"><a href="/dashboard/bilibili-binding/" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fab fa-bilibili mr-3" aria-hidden="true"></i>B 站绑定设置</a></li>
                     {% endif %}
                     <li class="nav-item" data-section="site-analytics">
                         <a href="?section=site-analytics" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600"><i class="fas fa-chart-line mr-3"></i>站内统计</a>

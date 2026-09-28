@@ -63,18 +63,20 @@
         };
 
         const groups = [
+            {key: 'overview', label: '概览统计', entries: [section('dashboard-home'), section('site-analytics')]},
             {key: 'content', label: '内容运营', entries: [
-                section('class-guides'),
-                section('guide-disclaimers'),
+                section('class-guide-module'),
                 folder('news', '资讯与报告', 'fa-newspaper', [section('news'), section('wow-daily-reports'), section('wago-hotfix-reports')]),
                 folder('site', '站点编排', 'fa-compass', [section('wow-today-settings'), section('portal-navigation')]),
             ]},
-            {key: 'tools', label: '游戏工具', entries: [section('wow-localization'), section('simc'), section('mythic-planner'), section('gear-builder-management'), section('tools')]},
-            {key: 'system', label: '系统管理', entries: [
-                section('site-analytics'),
+            {key: 'tools', label: '游戏工具', entries: [section('simc'), section('mythic-planner'), section('gear-builder-management'), section('tools')]},
+            {key: 'access', label: '账号权限', entries: [
+                section('user-management'), section('user-groups'),
+                root.querySelector('[data-sidebar-link="bilibili-binding"]'),
+            ]},
+            {key: 'operations', label: '运行维护', entries: [
                 root.querySelector('[data-dashboard-table="MonitorTask"]'),
                 folder('logs', '日志与告警', 'fa-bell', [section('error-logs'), section('log-files')]),
-                folder('access', '用户与权限', 'fa-users-cog', [section('user-management'), section('user-groups')]),
                 section('database-tables'),
             ]},
         ];
@@ -109,7 +111,8 @@
             if (!link || link.dataset.submenuBound === '1') return;
             link.dataset.submenuBound = '1';
             link.setAttribute('role', 'button');
-            setOpen(item, true);
+            // Only the active branch is revealed; table catalogs stay compact.
+            setOpen(item, Boolean(item.querySelector('[aria-current="page"]')));
             link.addEventListener('click', event => {
                 event.preventDefault();
                 setOpen(item, !item.classList.contains('open'));
