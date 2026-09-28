@@ -1520,14 +1520,18 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertIn('return canonicalTooltip;', branch)
         self.assertNotIn('sortTooltipStats(canonicalTooltip)', branch)
 
-    def test_detail_description_preserves_source_line_breaks(self):
+    def test_detail_description_uses_tooltip_content_with_sidebar_styles(self):
         root = Path(__file__).resolve().parents[2]
         script = (root / 'static/portal/js/gear_builder.js').read_text(encoding='utf-8')
         styles = (root / 'static/portal/css/gear_builder.css').read_text(encoding='utf-8')
         detail = script[script.index('function renderDetail()'):script.index('function craftingFields(entry)')]
 
-        self.assertIn('class="gear-effect-line gear-detail-description"', detail)
-        self.assertRegex(styles, r'\.gear-detail-description\s*\{[^}]*white-space:\s*pre-line;')
+        self.assertIn('const description = tooltipText(item, variant);', detail)
+        self.assertIn('window.WowItemTooltip.renderContent', detail)
+        self.assertIn('class="gear-detail-description"', detail)
+        self.assertNotIn('class="wow-item-tooltip gear-detail-description"', detail)
+        self.assertRegex(styles, r'\.gear-detail-description\s*\{[^}]*display:\s*grid;')
+        self.assertRegex(styles, r'\.gear-detail-description\s*\{[^}]*color:\s*var\(--gear-text\);')
 
     def test_detail_attributes_use_single_column(self):
         root = Path(__file__).resolve().parents[2]
@@ -1565,15 +1569,15 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260924_socket_embellishment", template)
-        self.assertIn("wow-item-tooltip.js' %}?v=20260902_singleton", template)
+        self.assertIn("portal/js/gear_builder.js' %}?v=20260928_detail_theme", template)
+        self.assertIn("wow-item-tooltip.js' %}?v=20260928_shared_content", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)
         for value in ('tooltipLineIdentity', 'isStandaloneTooltipStatLine', 'isRedundantDescriptionLine', 'variantEffectDescriptions'):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
-        self.assertIn("portal/css/gear_builder.css' %}?v=20260917_detail_vertical_stats", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20260928_detail_theme", template)
         for value in ('gear-owned-add-icon', 'gear-owned-add-label', 'is-saving', 'is-added', '再次点击会增加数量'):
             self.assertIn(value, script)
         self.assertIn('.gear-owned-add:focus-visible', styles)

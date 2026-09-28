@@ -1041,6 +1041,7 @@
     const crafting = variant.type === "crafted_equipment" ? craftingFields(entry) : "";
     const applied = appliedMarkup(entry);
     const effects = entry.resolvedEffects || variant.effects || [];
+    const description = tooltipText(item, variant);
     els.detail_content.innerHTML = `
       <div class="gear-detail-identity"${tooltipAttrs(item, variant)}>${iconMarkup(item)}<div><h3 class="gear-detail-name">${escapeHtml(item.name)}</h3><div class="gear-detail-meta">装等 ${variant.item_level || entry.itemLevel || "-"}<br>${escapeHtml(source)}</div></div></div>
       <div class="gear-detail-fields">
@@ -1049,9 +1050,14 @@
       </div>
       <div class="gear-detail-stats">${sortedStatEntries(stats).filter(([, value]) => number(value)).map(([key, value]) => `<div class="gear-detail-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><span>${formatNumber(value)}</span></div>`).join("") || '<span class="gear-no-effects">该变体没有可直接累加的静态属性。</span>'}</div>
       ${applied}
-      ${item.text_schema_version >= 2 && item.description ? `<div class="gear-detail-effects"><h3>装备描述</h3><div class="gear-effect-line gear-detail-description">${escapeHtml(item.description)}</div></div>` : ""}
+      ${description ? '<div class="gear-detail-effects"><h3>装备描述</h3><div class="gear-detail-description"></div></div>' : ""}
       <div class="gear-detail-effects"><h3>装备特效</h3>${effects.length ? effects.map((effect) => `<div class="gear-effect-line">${escapeHtml(effectText(effect))}</div>`).join("") : '<span class="gear-no-effects">无触发型特效</span>'}</div>
       <div class="gear-detail-actions"><button type="button" class="gear-btn" data-open-enhancements>配置强化</button><button type="button" class="gear-btn gear-btn--danger-quiet" data-remove-item>移除装备</button></div>`;
+    if (description) {
+      window.WowItemTooltip.renderContent(els.detail_content.querySelector('.gear-detail-description'), {
+        name: item.name, description,
+      });
+    }
     syncSlotLocks();
   }
 

@@ -410,6 +410,12 @@ def item_display_metadata(
     name_zh = (snapshot.name_zh if snapshot else "") or ""
     description = (snapshot.description if snapshot else "") or ""
     description_zh = (snapshot.description_zh if snapshot else "") or ""
+    snapshot_metadata = snapshot.metadata if snapshot and isinstance(snapshot.metadata, dict) else {}
+    raw_descriptions = snapshot_metadata.get('raw_item_descriptions')
+    if not description_zh.strip() and isinstance(raw_descriptions, dict):
+        # 旧规范化可能清空展示字段；原始中文仍在数据库中时先按当前规则重新投影。
+        description_zh = str(raw_descriptions.get('description_zh') or '')
+    has_chinese_description = bool(description_zh.strip())
     icon = (snapshot.icon if snapshot else "") or ""
     normalized_stats = _normalize_stats(stats)
     variant_metadata = (
@@ -447,7 +453,8 @@ def item_display_metadata(
     description, description_zh = separated['description'], separated['description_zh']
     normalized_effects = [text for text in (_effect_text(row) for row in separated['effects']) if text]
     normalized_sources = [text for text in (_source_text(row) for row in _rows(sources)) if text]
-    base_description = description_zh.strip() or description.strip()
+    # 语言选择依据源字段，不能把“中文清理后无独立说明”误判成“没有中文”。
+    base_description = description_zh.strip() if has_chinese_description else description.strip()
     projection_layout = tooltip_layout if has_structured_projection else ''
     _layout_rows, ordered_stat_keys = _layout_detail_lines(
         projection_layout, normalized_stats, [], base_description,
@@ -456,7 +463,6 @@ def item_display_metadata(
         f'+{_format_number(normalized_stats[key])} {STAT_LABELS.get(key, key)}'
         for key in ordered_stat_keys
     ]
-    snapshot_metadata = snapshot.metadata if snapshot and isinstance(snapshot.metadata, dict) else {}
     expects_effect = bool(
         snapshot and (
             snapshot.slot_key == 'trinket'
@@ -481,6 +487,7 @@ def item_display_metadata(
         "display_name": name_zh or name or (f"#{normalized_id}" if normalized_id else "未知物品"),
         "description": description,
         "description_zh": description_zh,
+        "localized_description": base_description,
         "display_description": tooltip,
         "tooltip": tooltip,
         "item_level": _positive_int(item_level) or None,

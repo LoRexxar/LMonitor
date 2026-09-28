@@ -31,6 +31,18 @@
     return "wow-item-tooltip__line";
   }
 
+  function renderContent(container, {name, description}) {
+    container.replaceChildren(
+      Object.assign(document.createElement("strong"), {className: "wow-item-tooltip__name", textContent: name}),
+      ...lines(description).map((line) => Object.assign(document.createElement("span"), {
+        className: lineClass(line), textContent: line,
+      })),
+    );
+  }
+
+  // 悬停浮层和页面内的装备说明共用内容与语义标记，各自使用所在区域的配色。
+  window.WowItemTooltip = Object.freeze({renderContent});
+
   function position(trigger) {
     const rect = trigger.getBoundingClientRect();
     const gap = 8;
@@ -46,12 +58,7 @@
     if (!description) return;
     ensureTooltipMounted();
     const name = String(trigger.dataset.wowItemTooltipName || trigger.textContent || "装备").trim();
-    tooltip.replaceChildren(
-      Object.assign(document.createElement("strong"), {className: "wow-item-tooltip__name", textContent: name}),
-      ...lines(description).map((line) => Object.assign(document.createElement("span"), {
-        className: lineClass(line), textContent: line,
-      })),
-    );
+    renderContent(tooltip, {name, description});
     activeTrigger?.removeAttribute("aria-describedby");
     activeTrigger = trigger;
     if (!tooltip.id) tooltip.id = "wow-item-tooltip";

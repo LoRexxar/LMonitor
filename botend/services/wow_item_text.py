@@ -35,24 +35,48 @@ def _equipment_description_lines(text):
         'Bow', 'Crossbow', 'Gun', 'Wand',
     )
     type_row = re.compile(r'(?:(?:' + '|'.join(map(re.escape, equipment_types)) + r')\s*)+', re.I)
+    type_prefix = re.compile(r'^(?:(?:' + '|'.join(map(re.escape, equipment_types)) + r')\s*)+', re.I)
     metadata_row = re.compile(
-        r'^(?:(?:升级|Upgrade|耐久|Durability|掉落于|Dropped by|掉落几率|Drop Chance|'
+        r'^(?:(?:升级|Upgrade(?: Level)?|掉落于|Dropped by|掉落几率|Drop Chance|'
         r'来源|Source|职业|Classes?|种族|Races?|装备唯一|Unique-Equipped)\s*[:：]|'
+        r'(?:耐久|Durability)\s*[:：]?\s*\d|'
         r'(?:需要等级|Requires Level)\s*\d|'
         r'(?:拾取后绑定|装备后绑定|战团绑定|Binds when picked up|Binds when equipped)\s*$)', re.I,
     )
     lines = []
+    in_set_members = False
     for raw in str(text or '').replace('\r\n', '\n').replace('\r', '\n').split('\n'):
         line = raw.strip()
         value = unicodedata.normalize('NFKC', line)
+        # 套装标题及其成员列表不是风味说明，组合效果仍由特效字段处理。
+        if re.fullmatch(r'.+\s+\(\d+/\d+\)', value):
+            in_set_members = True
+            continue
+        if in_set_members:
+            if EFFECT_PREFIX.match(value) or value.startswith(('"', '“')):
+                in_set_members = False
+            else:
+                continue
         value = re.sub(r'^静态属性说明\s*:\s*', '', value)
+        # 上游可能省略绑定与槽位之间的换行，例如 Binds when picked up Wrist。
+        value = re.sub(r'^(?:拾取后绑定|装备后绑定|战团绑定|Binds when picked up|Binds when equipped)\s*', '', value, flags=re.I)
+        if not value:
+            continue
+        if re.match(r'^(?:Unique-Equipped|-Equipped|装备唯一)\s*[:：]', value, re.I):
+            continue
+        value = re.sub(r'^(?:Unique-Equipped|-Equipped|装备唯一)\s*', '', value, flags=re.I)
+        if not value or re.fullmatch(r'(?:掉落于|Dropped by|来源|Source)\s*[:：]?', value, re.I):
+            continue
         if metadata_row.match(value) or type_row.fullmatch(value):
             continue
-        if re.fullmatch(r'(?:史诗钥石|史诗|稀有|精良|优秀|普通|Mythic Keystone|Epic|Rare|Uncommon|Common)', value, re.I):
+        if re.fullmatch(r'(?:棱彩|多彩|红色|蓝色|黄色|Prismatic|Meta|Red|Blue|Yellow)\s*(?:插槽|Socket)', value, re.I):
+            continue
+        if re.fullmatch(r'(?:史诗钥石|史诗|稀有|精良|优秀|普通|Mythic Keystone|Mythic\+?|Epic|Rare|Uncommon|Common)', value, re.I):
             continue
         # 旧规范化文本把“耐久 50 / 50”拆成两行，第二行可能还带等级要求。
         if re.fullmatch(r'\d+(?:\s+(?:需要等级|Requires Level)\s*\d+)?', value, re.I):
             continue
+        value = type_prefix.sub('', value).strip()
         stat = re.fullmatch(r'\+?\s*[\d,.]+\s*(.+)', value)
         if stat:
             remainder = re.sub(r'随机属性\s*\d+|Random (?:Stat|Enchantment)\s*\d*', '', stat[1], flags=re.I)
@@ -61,7 +85,11 @@ def _equipment_description_lines(text):
             remainder = re.sub(r'\b(?:or|and)\b|[\s\[\]()或和与及、,/&+点]+', '', remainder, flags=re.I)
             if not remainder:
                 continue
-        if re.fullmatch(r'[\d,.]+\s*-\s*[\d,.]+\s*(?:伤害|Damage)', value, re.I):
+        if re.fullmatch(r'[\d,.]+\s*-\s*[\d,.]+\s*(?:点?伤害|Damage)(?:\s+(?:速度|Speed)\s*[\d.]+)?', value, re.I):
+            continue
+        if re.fullmatch(r'(?:速度|Speed)\s*[\d.]+', value, re.I):
+            continue
+        if re.fullmatch(r'\(?(?:每秒伤害\s*[\d,.]+点?|[\d,.]+\s*damage per second)\)?(?:\s*(?:需要等级|Requires Level)\s*\d+)?', value, re.I):
             continue
         lines.append(line)
     return tuple(lines)

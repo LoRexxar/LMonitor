@@ -1,12 +1,13 @@
 """装备、宝石、附魔及美化文本分离的回归验证。"""
 from copy import deepcopy
 from io import StringIO
+from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import SimpleTestCase, TestCase
 
 from botend.services.wow_item_text import normalize_catalog_text, separate_item_text
-from botend.services.gear_builder_catalog_source import _tooltip_details
+from botend.services.gear_builder_catalog_source import CatalogSourceError, _tooltip_details
 from botend.services.gear_builder import serialize_item
 from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
@@ -62,6 +63,47 @@ class ItemTextSeparationTests(SimpleTestCase):
         normalized = deepcopy(item)
         normalize_catalog_text(item)
         self.assertEqual(item, normalized)
+
+    def test_live_english_metadata_formats_are_removed_alongside_chinese(self):
+        for english in (
+            'Upgrade Level: Champion 6/6\nDurability 50\n50 Requires Level 90',
+            'Mythic+\nUpgrade Level: Myth 6/6\nBinds when picked up Wrist\nDurability 50\n50',
+            'Mythic\nUpgrade Level: Myth 6/6',
+            'Binds when picked up Head\nDurability 100 / 100',
+            'Binds when equipped Wrist Plate\nDurability: 55 / 55 Requires Level 90',
+        ):
+            with self.subTest(description=english):
+                data = separate_item_text(description=english,
+                    description_zh='升级：勇士 6/6\n腕部 板甲\n耐久: 50 / 50 需要等级 90')
+                self.assertEqual(data['description_zh'], '')
+                self.assertEqual(data['description'], '')
+
+    def test_english_metadata_cleanup_preserves_real_flavor_and_effects(self):
+        effect = {'description': 'Equip: Your spells have a chance to increase Haste.',
+                  'description_zh': '装备：你的法术有几率提高急速。'}
+        data = separate_item_text(
+            description='Mythic+\nUpgrade Level: Myth 6/6\nDurability 50 / 50\nAn old promise, forged in steel.',
+            description_zh='升级：神话 6/6\n“铭刻于钢铁中的古老誓言。”', effects=[effect])
+        self.assertEqual(data['description'], 'An old promise, forged in steel.')
+        self.assertEqual(data['description_zh'], '“铭刻于钢铁中的古老誓言。”')
+        self.assertEqual(data['effects'], [effect])
+
+    def test_live_socket_weapon_and_combined_stat_rows_preserve_flavor(self):
+        data = separate_item_text(description='\n'.join([
+            'Prismatic Socket', '-Equipped Two-Hand Axe', 'Plate 199 Armor',
+            '100 - 200 Damage Speed 3.60', 'Speed 3.60',
+            '(48.5 damage per second) Requires Level 90',
+            '-Equipped: Embellished (2) Feet Plate',
+            '"The aqir fled before her vicious onslaught."',
+        ]), description_zh='棱彩插槽\n双手 斧\n100 - 200点伤害\n（每秒伤害141.8点）\n掉落于\n“亚基虫群败走。”')
+        self.assertEqual(data['description'], '"The aqir fled before her vicious onslaught."')
+        self.assertEqual(data['description_zh'], '“亚基虫群败走。”')
+
+    def test_set_members_do_not_become_flavor(self):
+        data = separate_item_text(description='"A true story."\nWarlord Dominion (0/5)\nWarlord Helm\nWarlord Boots\n(2) Set: More Haste.',
+            description_zh='“真正的说明。”\n督军的统御 (0/5)\n督军头盔\n督军战靴\n(2) 套装：提高急速。')
+        self.assertEqual(data['description'], '"A true story."')
+        self.assertEqual(data['description_zh'], '“真正的说明。”')
 
     def test_plain_stats_are_not_effects_or_description(self):
         data = separate_item_text(description_zh='无瑕迅捷榄石 榄石 物品等级：295 +17 急速 使用: 最大叠加:200 售价:3 10',
@@ -126,6 +168,117 @@ class ItemTextSeparationTests(SimpleTestCase):
 
 
 class ItemTextStorageTests(GearBuilderTestDataMixin, TestCase):
+    def test_sidebar_uses_database_chinese_description_before_english(self):
+        self.helm.description = 'An English item description.'
+        self.helm.description_zh = '数据库已有的中文装备说明。'
+        self.helm.save(update_fields=['description', 'description_zh'])
+        data = serialize_item(self.helm, [self.hero], 'Warrior', 'Fury')
+        self.assertEqual(data['description'], '数据库已有的中文装备说明。')
+
+    def test_sidebar_does_not_switch_language_after_chinese_cleanup(self):
+        self.helm.description = 'An English item description.'
+        self.helm.description_zh = '升级：勇士 6/6\n腕部 板甲\n耐久: 50 / 50'
+        self.helm.save(update_fields=['description', 'description_zh'])
+        data = serialize_item(self.helm, [self.hero], 'Warrior', 'Fury')
+        self.assertEqual(data['description'], '')
+        self.helm.refresh_from_db()
+        self.assertIn('腕部 板甲', self.helm.description_zh)
+
+    def test_sidebar_reuses_preserved_database_chinese_without_fetching(self):
+        self.helm.description = 'An English item description.'
+        self.helm.description_zh = ''
+        self.helm.metadata = {'raw_item_descriptions': {'description_zh':
+            '物品等级：344\n数据库保留的中文装备说明。\n装备：旧装等的特效。'}}
+        self.helm.save(update_fields=['description', 'description_zh', 'metadata'])
+        before = type(self.helm).objects.filter(pk=self.helm.pk).values().get()
+        data = serialize_item(self.helm, [self.hero], 'Warrior', 'Fury')
+        self.assertEqual(data['description'], '数据库保留的中文装备说明。')
+        self.assertEqual(data['variants'][0]['effects'], self.hero.effects_json)
+        self.assertEqual(before, type(self.helm).objects.filter(pk=self.helm.pk).values().get())
+
+    def test_sidebar_uses_english_only_when_chinese_source_is_absent(self):
+        self.helm.description = 'An English item description.'
+        self.helm.description_zh = ''
+        self.assertEqual(serialize_item(self.helm, [self.hero], 'Warrior', 'Fury')['description'],
+            'An English item description.')
+
+    def _prepare_missing_chinese_flavor(self):
+        self.helm.description = 'Prismatic Socket\n"The aqir fled before her vicious onslaught."'
+        self.helm.description_zh = '物品等级：344\n棱彩插槽\n耐久: 50 / 50'
+        self.helm.save(update_fields=['description', 'description_zh'])
+
+    @patch('botend.management.commands.repair_gear_builder_descriptions.CurrentGearCatalogSource')
+    def test_description_repair_audit_is_read_only_without_network(self, source):
+        self._prepare_missing_chinese_flavor()
+        before = type(self.helm).objects.get(pk=self.helm.pk).description_zh
+        output = StringIO()
+        call_command('repair_gear_builder_descriptions', stdout=output)
+        source.assert_not_called()
+        self.helm.refresh_from_db()
+        self.assertEqual(self.helm.description_zh, before)
+        self.assertIn('10001', output.getvalue())
+
+    @patch('botend.management.commands.repair_gear_builder_descriptions.CurrentGearCatalogSource')
+    def test_description_repair_only_updates_chinese_flavor_and_provenance(self, source):
+        self._prepare_missing_chinese_flavor()
+        before_item = type(self.helm).objects.filter(pk=self.helm.pk).values().get()
+        before_variants = list(type(self.hero).objects.filter(item=self.helm).values())
+        source.return_value._wowhead_tooltip.return_value = _tooltip_details({'tooltip':
+            '<span class="q">物品等级：344</span><span class="q">“亚基虫群败走。”</span>'
+            '<span>装备：其他装等的特效。</span>'})
+        call_command('repair_gear_builder_descriptions', apply=True, stdout=StringIO())
+        self.helm.refresh_from_db()
+        self.assertEqual(self.helm.description_zh, '“亚基虫群败走。”')
+        self.assertEqual(self.helm.metadata['raw_item_descriptions']['description'], before_item['description'])
+        self.assertIn('locale=zhcn', self.helm.metadata['description_zh_source']['url'])
+        after_item = type(self.helm).objects.filter(pk=self.helm.pk).values().get()
+        for key in before_item.keys() - {'description_zh', 'metadata'}:
+            self.assertEqual(before_item[key], after_item[key], key)
+        self.assertEqual(before_variants, list(type(self.hero).objects.filter(item=self.helm).values()))
+        self.assertEqual(serialize_item(self.helm, [self.hero], 'Warrior', 'Fury')['description'], '“亚基虫群败走。”')
+        source.return_value._wowhead_tooltip.reset_mock()
+        call_command('repair_gear_builder_descriptions', apply=True, stdout=StringIO())
+        source.return_value._wowhead_tooltip.assert_not_called()
+
+    @patch('botend.management.commands.repair_gear_builder_descriptions.CurrentGearCatalogSource')
+    def test_description_repair_missing_source_preserves_original(self, source):
+        self._prepare_missing_chinese_flavor()
+        before = type(self.helm).objects.filter(pk=self.helm.pk).values().get()
+        source.return_value._wowhead_tooltip.return_value = {'description_zh': 'Item Level: 344'}
+        output = StringIO()
+        call_command('repair_gear_builder_descriptions', apply=True, stdout=output)
+        self.assertEqual(before, type(self.helm).objects.filter(pk=self.helm.pk).values().get())
+        self.assertIn('"源站无中文说明": [10001]', output.getvalue())
+
+    @patch('botend.management.commands.repair_gear_builder_descriptions.CurrentGearCatalogSource')
+    def test_description_repair_respects_item_filter(self, source):
+        self._prepare_missing_chinese_flavor()
+        call_command('repair_gear_builder_descriptions', apply=True, item_id=[99999], stdout=StringIO())
+        source.assert_not_called()
+
+    @patch('botend.management.commands.repair_gear_builder_descriptions.CurrentGearCatalogSource')
+    def test_description_repair_failed_request_keeps_original_and_reports_item(self, source):
+        self._prepare_missing_chinese_flavor()
+        before = type(self.helm).objects.filter(pk=self.helm.pk).values().get()
+        source.return_value._wowhead_tooltip.side_effect = CatalogSourceError('中文源返回 404')
+        output = StringIO()
+        call_command('repair_gear_builder_descriptions', apply=True, stdout=output)
+        self.assertEqual(before, type(self.helm).objects.filter(pk=self.helm.pk).values().get())
+        self.assertIn('"请求失败": [{"物品ID": 10001', output.getvalue())
+        self.assertIn('中文源返回 404', output.getvalue())
+
+    def test_catalog_does_not_fall_back_to_english_tooltip_metadata(self):
+        self.helm.description_zh = '升级：勇士 6/6\n腕部 板甲\n183护甲\n耐久: 50 / 50 需要等级 90'
+        self.helm.description = 'Mythic+\nUpgrade Level: Champion 6/6\nBinds when picked up Wrist\nDurability 50 / 50 Requires Level 90'
+        self.helm.save(update_fields=['description', 'description_zh'])
+        before = deepcopy(self.hero.stats_json)
+        data = serialize_item(self.helm, [self.hero], 'Warrior', 'Fury')
+        self.assertEqual(data['description'], '')
+        self.assertEqual(data['variants'][0]['stats'], before)
+        self.helm.description_zh += '\n“铭刻于钢铁中的古老誓言。”'
+        self.assertEqual(serialize_item(self.helm, [self.hero], 'Warrior', 'Fury')['description'],
+            '“铭刻于钢铁中的古老誓言。”')
+
     def test_catalog_projects_clean_description_without_changing_stored_stats(self):
         raw = '升级：勇士 6/6\n腕部 板甲\n183护甲\n+83 [力量 or 智力]\n+1629 耐力\n耐久: 50 / 50 需要等级 90'
         self.helm.description_zh = raw

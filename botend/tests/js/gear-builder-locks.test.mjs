@@ -7,6 +7,7 @@ const source = fs.readFileSync(new URL('../../../static/portal/js/gear_builder.j
 const element = {querySelector: () => null, querySelectorAll: () => []};
 const context = {
     structuredClone,
+    window: {WowItemTooltip: {renderContent(_container, content) { context.tooltipContent = content; }}},
     document: {querySelector: () => ({dataset: {}}), getElementById: () => element},
 };
 const marker = '  initialize();';
@@ -138,7 +139,9 @@ assert.deepEqual(plain(api.state.equipment.head.variant.stats), previousStats);
 assert.deepEqual(plain(api.state.equipment.head.gems), previousGems);
 assert.deepEqual(plain(api.state.lockedSlots), ['head']);
 api.renderCachedDetail();
-assert.doesNotMatch(element.innerHTML, /装备描述|静态属性说明/, '无真正说明的装备隐藏描述区');
+assert.match(element.innerHTML, /装备描述/, '没有独立风味文字的装备也显示完整 Tooltip');
+assert.equal(context.tooltipContent.description, cleanVariant.tooltip, '右侧描述使用变体 Tooltip，不能使用旧英文说明');
+assert.doesNotMatch(context.tooltipContent.description, /静态属性说明/, '不重复旧属性说明');
 assert.match(element.innerHTML, /力量<\/span><span>189<\/span>/, '描述清理不影响属性区');
 
 console.log('配装回归验证通过：锁定限制、属性拆分与旧配装基础属性补齐。');
