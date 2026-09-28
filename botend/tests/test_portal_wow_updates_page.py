@@ -34,6 +34,17 @@ class PortalWowUpdatesPageTests(SimpleTestCase):
         self.assertIn('sort: hotfixSort.value', script)
         self.assertIn('counts.change', script)
 
+    def test_compact_rows_keep_complete_source_and_spell_identity_on_expand(self):
+        script = (ROOT / 'static/portal/js/wow-updates.js').read_text(encoding='utf-8')
+        for value in ('`build ${item.build', 'item.region_name', 'item.locale',
+                      'item.time', '`SpellID ${item.spell_id}`',
+                      "addLink(links, '报告'", "addLink(links, 'Wago'",
+                      "sourceDetails.append(element('summary', '', '来源详情'), sourceMeta, links)"):
+            self.assertIn(value, script)
+        css = (ROOT / 'static/portal/css/wow-updates.css').read_text(encoding='utf-8')
+        self.assertIn('#wow-updates-panel-hotfix { max-width: 1040px;', css)
+        self.assertIn('.wow-hotfix-source-meta', css)
+
     def test_advanced_filters_are_grouped_without_hiding_type_or_sort(self):
         html = BeautifulSoup(self.client.get(reverse('portal_wow_updates')).content, 'html.parser')
         advanced = html.select_one('#wow-hotfix-advanced')

@@ -212,14 +212,12 @@
         updateHotfixOptions(hotfixBuild, meta.builds, '全部构建');
         updateHotfixOptions(hotfixTable, meta.tables, '全部表');
         const counts = meta.counts || {};
-        hotfixBreakdown.replaceChildren(
-            element('strong', '', `已核实旧→新 ${counts.change || 0} 条`),
-            element('span', '', `仅本次值 ${counts.new_value || 0} 条（旧值未知）`),
-            element('span', '', `仅状态 / 未解析 ${(counts.status || 0) + (counts.unresolved || 0)} 条`),
-            element('span', 'wow-hotfix-sort-note', meta.sort === 'changes_first'
-                ? '当前：确证变化优先；同类按 push 新到旧'
-                : '当前：按 push 新到旧')
-        );
+        const countParts = [];
+        if (counts.change) countParts.push(element('strong', '', `已核实旧→新 ${counts.change} 条`));
+        if (counts.new_value) countParts.push(element('span', '', `仅本次值 ${counts.new_value} 条（旧值未知）`));
+        const pending = (counts.status || 0) + (counts.unresolved || 0);
+        if (pending) countParts.push(element('span', '', `仅状态 / 未解析 ${pending} 条`));
+        hotfixBreakdown.replaceChildren(...(countParts.length ? countParts : [element('span', '', '没有匹配的来源记录')]));
         hotfixList.replaceChildren();
         if (!entries.length) hotfixMessage('没有匹配的 Hotfix 来源记录');
         entries.forEach(item => {
@@ -228,9 +226,6 @@
             subject.append(element('strong', '', String(item.title || '对象未解析')));
             subject.append(element('span', 'wow-hotfix-record-id',
                 `${item.table || '-'} #${item.record_id ?? '-'}`));
-            if (item.spell_id !== null && item.spell_id !== undefined && item.spell_id !== '') {
-                subject.append(element('span', 'wow-hotfix-record-id', ` · SpellID ${item.spell_id}`));
-            }
             const fields = element('td', 'wow-hotfix-changes-cell');
             const flow = element('div', 'wow-hotfix-changes');
             fields.append(flow);
@@ -249,25 +244,23 @@
             else flow.append(element('span', 'wow-hotfix-secondary', 'data=null；无可解码字段'));
             const source = element('td', 'wow-hotfix-source');
             const sourceTop = element('div', 'wow-hotfix-source-top');
-            const fullBuild = String(item.build || '').trim();
-            const shortBuild = fullBuild.includes('.') ? fullBuild.slice(fullBuild.lastIndexOf('.') + 1) : fullBuild;
-            const build = element('span', 'wow-hotfix-build', `build ${shortBuild || '未知'}`);
-            if (fullBuild) build.title = fullBuild;
-            sourceTop.append(element('strong', '', `push ${item.push ?? '-'}`), build);
-            source.append(sourceTop, element('span', 'wow-hotfix-secondary',
-                `${item.branch || '-'} · ${item.region_name || '区域未核实'} / ${item.locale || '-'}`));
-            if (item.time) source.append(element('time', 'wow-hotfix-secondary', String(item.time)));
             const kind = ['change', 'new_value', 'status', 'unresolved'].includes(item.kind) ? item.kind : 'unresolved';
             const labels = {change: '确证变化', new_value: '本次配置', status: '来源状态', unresolved: '未解析'};
-            const actions = element('div', 'wow-hotfix-source-actions');
-            actions.append(element('span', `wow-hotfix-kind is-${kind}`, String(item.status_label || labels[kind])));
+            sourceTop.append(element('strong', '', `push ${item.push ?? '-'}`),
+                element('span', `wow-hotfix-kind is-${kind}`, String(item.status_label || labels[kind])));
+            const sourceMeta = element('div', 'wow-hotfix-source-meta');
+            sourceMeta.append(element('span', '', `build ${item.build || '未知'}`),
+                element('span', '', `${item.branch || '-'} · ${item.region_name || '区域未核实'} / ${item.locale || '-'}`));
+            if (item.time) sourceMeta.append(element('time', '', String(item.time)));
+            if (item.spell_id !== null && item.spell_id !== undefined && item.spell_id !== '') {
+                sourceMeta.append(element('span', '', `SpellID ${item.spell_id}`));
+            }
             const links = element('div', 'wow-hotfix-links');
             addLink(links, '报告', item.report_url, false);
             addLink(links, 'Wago', item.source_url, true);
             const sourceDetails = element('details', 'wow-hotfix-source-details');
-            sourceDetails.append(element('summary', '', '来源'), links);
-            actions.append(sourceDetails);
-            source.append(actions);
+            sourceDetails.append(element('summary', '', '来源详情'), sourceMeta, links);
+            source.append(sourceTop, sourceDetails);
             row.append(subject, fields, source);
             hotfixList.append(row);
         });

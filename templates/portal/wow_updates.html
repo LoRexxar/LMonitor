@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260907_wow_updates_moved">
-    <link rel="stylesheet" href="{% static 'portal/css/wow-updates.css' %}?v=20260927_hotfix_priority_v1">
+    <link rel="stylesheet" href="{% static 'portal/css/wow-updates.css' %}?v=20260928_hotfix_compact_v2">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -85,7 +85,7 @@
                 <p id="wow-hotfix-breakdown" class="wow-hotfix-breakdown" aria-live="polite">正在统计来源事实…</p>
                 <div class="wow-hotfix-table-scroll" role="region" aria-label="Hotfix 来源记录表" tabindex="0">
                     <table class="wow-hotfix-table">
-                        <thead><tr><th scope="col">对象 / DB2 物理记录 ID</th><th scope="col">原始字段 / 含义</th><th scope="col">来源 push / build / 状态</th></tr></thead>
+                        <thead><tr><th scope="col">对象 / DB2 物理记录 ID</th><th scope="col">原始字段 / 含义</th><th scope="col">推送 / 状态</th></tr></thead>
                         <tbody id="wow-hotfix-list" aria-live="polite" aria-busy="false"></tbody>
                     </table>
                 </div>
@@ -93,6 +93,6 @@
             </section>
         </section>
     </main>
-    <script src="{% static 'portal/js/wow-updates.js' %}?v=20260927_hotfix_priority_v1"></script>
+    <script src="{% static 'portal/js/wow-updates.js' %}?v=20260928_hotfix_compact_v1"></script>
 </body>
 </html>
