@@ -72,3 +72,58 @@ class SkillDamageDisplayReadModelTests(TestCase):
             self.assertEqual(presented['product'], original['product'])
         shard.refresh_from_db()
         self.assertEqual(shard.actor_payload, frozen)
+
+    def test_existing_snapshot_conditions_get_exact_chinese_names_without_rewriting_facts(self):
+        from botend.models import WowSpellSnapshot
+
+        build = '12.1.0.69814'
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=77535, snapshot_build=build,
+            name='Blood Shield', name_zh='鲜血护盾', aura_description='吸收物理伤害。',
+        )
+        # A newer PTR row must not displace the retail fact.
+        WowSpellSnapshot.objects.create(
+            branch='wowt', locale='zhCN', spell_id=77535, snapshot_build='12.1.0.70000',
+            name='Other build', name_zh='其他版本名称',
+        )
+        WowSpellSnapshot.objects.create(
+            branch='wow', locale='zhCN', spell_id=1279998, snapshot_build=build,
+            name='Internal [DNT]', name_zh='Internal [DNT]',
+        )
+        conditions = [
+            {'token': 'buff.blood_shield', 'spell_id': 77535, 'scope': 'self'},
+            {'token': 'buff.unknown', 'spell_id': 1279998, 'scope': 'self'},
+        ]
+        actor = {'class': 'deathknight', 'specialization': 'blood',
+                 'global_skill_effects': [{'runtime_conditions': conditions}],
+                 'actions': [{'spell_id': 21, 'variant': {'runtime_conditions': [
+                     {**conditions[0], 'display_name': 'blood_shield', 'stacks': 2},
+                 ]}}]}
+        frozen = copy.deepcopy(actor)
+        snapshot = SimcSkillDamageSnapshot.objects.create(
+            simc_revision='b' * 40, game_build=build, schema_revision=45,
+            status='succeeded', generated_spec_count=1, generated_action_count=1,
+            payload={'payload_format': 'skill_damage_product_v1',
+                     'storage_format': 'per_spec_actor_rows_v1', 'wire_schema_revision': 1,
+                     'total_spec_count': 1},
+        )
+        shard = SimcSkillDamageSnapshotActor.objects.create(
+            snapshot=snapshot, ordinal=0, class_name='deathknight', specialization='blood',
+            actor_payload=actor, unresolved_payload=[], raw_action_count=1, display_action_count=1,
+        )
+        request = RequestFactory().get('/api/simc-skill-damage/', {'actor_id': shard.pk})
+        request.user = get_user_model().objects.create_user(username='condition-viewer')
+        response = SimcSkillDamageSnapshotAPIView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        try:
+            output = json.loads(b''.join(response.streaming_content))['data']['snapshot']['actors'][0]
+        finally:
+            response.close()
+        displayed = output['global_skill_effects'][0]['runtime_conditions']
+        self.assertEqual(displayed[0]['name_zh'], '鲜血护盾')
+        self.assertFalse(displayed[1].get('name_zh'))
+        variant = output['actions'][0]['variant']['runtime_conditions'][0]
+        self.assertEqual(variant['display_name'], '鲜血护盾')
+        self.assertEqual(variant['stacks'], 2)
+        shard.refresh_from_db()
+        self.assertEqual(shard.actor_payload, frozen)
