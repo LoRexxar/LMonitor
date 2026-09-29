@@ -72,7 +72,7 @@
             {key: 'tools', label: '游戏工具', entries: [section('simc'), section('mythic-planner'), section('gear-builder-management'), section('tools')]},
             {key: 'access', label: '账号权限', entries: [
                 section('user-management'), section('user-groups'),
-                root.querySelector('[data-sidebar-link="bilibili-binding"]'),
+                section('bilibili-binding'),
             ]},
             {key: 'operations', label: '运行维护', entries: [
                 root.querySelector('[data-dashboard-table="MonitorTask"]'),

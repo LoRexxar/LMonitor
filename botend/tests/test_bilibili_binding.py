@@ -190,6 +190,28 @@ class BilibiliBindingTests(TestCase):
         self.assertEqual(self.post(self.client, {'action': 'confirm', 'challenge_id': challenge['id']}).status_code, 200)
         self.assertEqual(self.user.bilibili_binding.verification_method, 'manual')
 
+    def test_admin_workspace_is_a_superuser_only_dashboard_section(self):
+        from bs4 import BeautifulSoup
+        target = '/dashboard/?section=bilibili-binding'
+        self.client.force_login(self.admin)
+        response = self.client.get(target)
+        self.assertEqual(response.status_code, 200)
+        soup = BeautifulSoup(response.content, 'html.parser')
+        panel = soup.select_one('.main-content > #bilibili-binding.content-section')
+        self.assertIsNotNone(panel)
+        for element_id in ('ba-settings', 'ba-bindings', 'ba-challenges', 'ba-review-dialog', 'ba-revoke-dialog'):
+            self.assertEqual(len(panel.select('#' + element_id)), 1)
+        self.assertEqual(len(soup.select('html')), 1)
+        self.assertEqual(soup.select_one('#sidebar [data-section="bilibili-binding"] > a')['href'], '?section=bilibili-binding')
+        self.assertRedirects(self.client.get('/dashboard/bilibili-binding/'), target, fetch_redirect_response=False)
+        self.assertEqual(self.client.get(ADMIN).status_code, 200)
+        for user in (self.user, self.staff):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get(target).status_code, 403)
+            self.assertEqual(self.client.get('/dashboard/bilibili-binding/').status_code, 403)
+            self.assertEqual(self.client.get(ADMIN).status_code, 403)
+            self.assertNotContains(self.client.get('/dashboard/'), 'id="ba-settings"')
+
     def test_admin_access_and_config_validation(self):
         for user in (self.user, self.staff):
             self.client.force_login(user)

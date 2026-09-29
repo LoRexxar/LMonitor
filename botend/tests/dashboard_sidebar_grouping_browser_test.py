@@ -38,7 +38,7 @@ class SidebarGroupingBrowserTests(unittest.TestCase):
             ])
             # Three grouping folders add only their own header links; no entry lost.
             self.assertEqual(page.locator('#dashboard-primary-nav a').count(), before + 3)
-            self.assertEqual(page.locator('[data-sidebar-link="bilibili-binding"] > a').get_attribute('href'), '/dashboard/bilibili-binding/')
+            self.assertEqual(page.locator('[data-section="bilibili-binding"] > a').get_attribute('href'), '?section=bilibili-binding')
             self.assertEqual(page.locator('#sidebar .has-submenu > a[aria-expanded="true"]').count(), 0)
             page.evaluate('''DashboardSidebar.reveal(document.querySelector('[data-dashboard-section="class-guides"]'))''')
             self.assertEqual(page.locator('[data-section="class-guide-module"] > a').get_attribute('aria-expanded'), 'true')

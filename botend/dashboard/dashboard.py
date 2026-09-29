@@ -401,8 +401,13 @@ class DashboardView(View):
         try:
             permissions = effective_dashboard_permissions(request.user)
             section = request.GET.get('section', '').strip()
+            # Binding administration retains its dedicated superuser boundary;
+            # embedding it must not make it assignable through ordinary groups.
+            binding_admin_section = section == 'bilibili-binding'
+            if binding_admin_section and not request.user.is_superuser:
+                return JsonResponse({'status': 'error', 'message': '仅超级管理员可以管理 B 站绑定。'}, status=403)
             permission_code = SECTION_PERMISSION_CODES.get(section)
-            if section and not permission_code:
+            if section and not permission_code and not binding_admin_section:
                 return JsonResponse({'status': 'error', 'message': '未知 Dashboard 页面'}, status=404)
             if permission_code and permission_code not in permissions:
                 return JsonResponse({'status': 'error', 'message': '无权访问该 Dashboard 页面'}, status=403)
@@ -415,7 +420,7 @@ class DashboardView(View):
                 '',
             )
             response = render(request, 'dashboard/index.html', context)
-            if permission_code in ('content.class-guides', 'tools.wow-localization'):
+            if binding_admin_section or permission_code in ('content.class-guides', 'tools.wow-localization'):
                 response['Cache-Control'] = 'private, no-store'
                 response['X-Robots-Tag'] = 'noindex, nofollow'
             return response

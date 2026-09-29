@@ -1,6 +1,8 @@
 (() => {
     'use strict';
-    const $ = id => document.getElementById(id);
+    const root = document.getElementById('bilibili-binding');
+    if (!root) return;
+    const $ = id => root.querySelector(`#${id}`);
     const endpoint = '/api/dashboard/bilibili-binding/';
     let reviewing = null;
     let revoking = null;
@@ -63,10 +65,11 @@
     async function run(work, errorId) {
         if (busy) return;
         busy = true;
-        document.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        const buttons = Array.from(root.querySelectorAll('button'), button => [button, button.disabled]);
+        buttons.forEach(([button]) => { button.disabled = true; });
         try { await work(); }
         catch (error) { if (errorId) $(errorId).textContent = error.message; else message(error.message || '网络异常', true); }
-        finally { busy = false; document.querySelectorAll('button').forEach(b => { b.disabled = false; }); }
+        finally { busy = false; buttons.forEach(([button, disabled]) => { button.disabled = disabled; }); }
     }
     $('ba-settings').addEventListener('submit', event => {
         event.preventDefault(); run(async () => {
@@ -95,5 +98,12 @@
         const result = await api({action: 'revoke', binding_id: revoking.id, note: $('ba-revoke-note').value.trim()});
         $('ba-revoke-dialog').close(); await load(); message(result.message);
     }, 'ba-revoke-error'); });
-    run(async () => { await load(true); message('设置与记录已加载。'); });
+    let loaded = false;
+    const show = () => {
+        if (!loaded && !busy && (root.classList.contains('active') || root.style.display === 'block')) {
+            run(async () => { await load(true); loaded = true; message('设置与记录已加载。'); });
+        }
+    };
+    new MutationObserver(show).observe(root, {attributes: true, attributeFilter: ['class', 'style']});
+    show();
 })();
