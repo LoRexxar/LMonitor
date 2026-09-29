@@ -9,8 +9,11 @@ from the fixed action-unlocking context. Missing mapping is not readiness proof.
 def discover_replacement_candidates(catalog, talents):
     """Read the existing scope-export protocol, not a guessed Trigger relation.
 
-    Aura 332 (Override Action Spell) stores original in misc1 and replacement
-    in value. The owner of that aura need not unlock the action: selectors
+    Aura 332 (Override Action Spell) stores replacement in value. A positive
+    misc1 identifies the original; zero leaves it unspecified (e.g. mask-based
+    records). Preserve zero rather than inventing an original SpellID. Readiness
+    is proved against the replacement action, not the optional original ID.
+    The owner of that aura need not unlock the action: selectors
     affecting its driver are candidates too, but must pass runtime readiness.
     """
     rows = catalog.get('talent_catalog')
@@ -24,7 +27,7 @@ def discover_replacement_candidates(catalog, talents):
             if effect.get('type') != 6 or effect.get('subtype') != 332:
                 continue
             original, replacement = effect.get('misc1'), effect.get('value')
-            if (type(original) is not int or original <= 0
+            if (type(original) is not int or original < 0
                     or type(replacement) not in (int, float)
                     or replacement <= 0 or int(replacement) != replacement):
                 raise ValueError('Invalid DBC replacement spell relation.')
