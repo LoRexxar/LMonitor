@@ -26,6 +26,10 @@ from botend.models import (
     WowTalentNodeMetadata,
 )
 from botend.services.simc_composer import SimcComposer
+from botend.services.simc_skill_activation_context import (
+    discover_replacement_candidates, plan_activation_context_pairs,
+    materialize_activation_pair,
+)
 from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOT_ALIASES, EQUIPMENT_SLOTS, canonical_simc_profile_identity,
@@ -373,6 +377,9 @@ def localize_skill_damage_payload(payload):
                 or existing_display_name
                 or str(action.get('name') or action.get('token') or '未命名技能')
             )
+        from .simc_skill_source_context import attach_skill_damage_source_context
+
+        attach_skill_damage_source_context(actor)
         attach_skill_damage_descriptions(actor, game_build=snapshot_build)
     return result
 
@@ -478,6 +485,7 @@ def prune_global_damage_talents(talents, scaffold_talents, talent_prerequisites,
         effect = {
             'effect_id': f'dbc_global_talent:{talent.node_id}',
             'source_type': 'talent', 'talent_id': talent.pk,
+            'trait_entry_id': talent.node_id, 'owner_spell_id': fact['spell_id'],
             'talent_name': str(getattr(talent, 'name', '') or fact.get('name') or ''),
             'talent_name_zh': str(getattr(talent, 'name_zh', '') or ''),
             'talent_description': str(getattr(talent, 'description', '') or ''),
@@ -626,6 +634,18 @@ class _SpoolBackedTalentVariants:
                 'high': high_actor,
                 'low': low_actor,
             }
+
+
+class _ActivationContextVariants:
+    """Reiterable, bounded flatten-only extension; never global scope proof."""
+
+    def __init__(self, ordinary, pairs, spool):
+        self.ordinary, self.pairs, self.spool = ordinary, pairs, spool
+
+    def __iter__(self):
+        yield from self.ordinary
+        for pair in self.pairs:
+            yield materialize_activation_pair(pair, self.spool.load)
 
 
 def _reiterable_variants(variants):
@@ -3252,6 +3272,40 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                     return True
         return False
 
+    def action_has_local_state_evidence(action, effects, identity, amount, comparison):
+        if action_has_explicit_local_binding(action, effects):
+            return True
+        # DBC bindings are positive evidence, not a complete inventory of native
+        # C++ conditionals. A validated exclude-before-probe actor can also prove
+        # locality: its same-action singleton still changes after global values
+        # have been removed. Do not borrow normalization from another actor, an
+        # unrelated state in a combination, or an absent/unresolved reference.
+        actor = actor_context.get(id(action)) or {}
+        if (
+            actor.get('global_damage_policy') != 'exclude_before_probe'
+            or not all(effect.get('excluded_before_probe') is True for effect in effects)
+            or _amount_state(comparison)[0] != 'resolved'
+            or not _effect_changed(comparison, amount)
+        ):
+            return False
+        token, scope, spell_id, _ = identity
+        if not any(
+            state.get('token') == token
+            and state.get('scope') == scope and state.get('spell_id') == spell_id
+            and state.get('partial_state') is True
+            and state.get('excluded_before_probe') is True
+            and state.get('scope_basis') == 'reviewed_dbc_native_effect_scope'
+            for state in actor.get('global_damage_states') or []
+        ):
+            return False
+        baseline = action.get('baseline')
+        singleton = _scenario_amounts(action).get((identity,))
+        return (
+            _amount_state(baseline)[0] == 'resolved'
+            and _amount_state(singleton)[0] == 'resolved'
+            and _effect_changed(baseline, singleton)
+        )
+
     global_runtime_effects_by_scenario = {}
     global_talent_effects_by_owner_scenario = {}
     global_talent_effects_by_owner = {}
@@ -3273,6 +3327,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         else:
             global_runtime_effects_by_scenario.setdefault(scenario_identity, []).append(effect)
 
+    active_activation_context = None
+
     def append_row(
         action, amount, *, talent, condition, comparison, scenario_tokens=(),
         projection_reference=None, preserve_owned_action=False,
@@ -3290,7 +3346,9 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 effect for effect in declared_state_effects.get((identity[1], identity[2]), ())
                 if effect.get('partial_state') is True
             ]
-            if partial_effects and not action_has_explicit_local_binding(action, partial_effects):
+            if partial_effects and not action_has_local_state_evidence(
+                action, partial_effects, identity, amount, comparison,
+            ):
                 return
         candidate_owner = _talent_source_ownership(talent)
         if candidate_owner is not None:
@@ -3387,6 +3445,21 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             ) if scenario_tokens else [],
             'reference_available': reference_state[0] == 'resolved',
         }
+        if active_activation_context:
+            context = copy.deepcopy(active_activation_context)
+            traits = context.get('traits') or []
+            unlock_entries = {e.get('trait_entry_id') for e in context.get('evidence') or []}
+            names = {t.get('trait_entry_id'): str(t.get('name_zh') or t.get('name')
+                                               or f"TraitEntry {t.get('trait_entry_id')}") for t in traits}
+            unlock_names = [names.get(entry, f'TraitEntry {entry}') for entry in sorted(e for e in unlock_entries if e)]
+            context['display_label'] = '技能解锁：' + '、'.join(unlock_names) + '（前置天赋固定）'
+            context['description'] = '固定天赋前提：' + '、'.join(
+                names.get(entry, f'TraitEntry {entry}') for entry in context.get('trait_entry_ids') or []
+            )
+            row['variant']['activation_context'] = context
+            context_heroes = {t.get('hero_subtree_id') for t in traits if t.get('hero_subtree_id')}
+            if context_heroes:
+                row['hero_subtree_ids'] = sorted(set(row.get('hero_subtree_ids') or []) | context_heroes)
         if reference_state[0] == 'absent':
             row['variant']['reference_unavailable_reason'] = 'action_absent_in_reference_actor'
         elif reference_state[0] == 'unresolved':
@@ -3475,8 +3548,14 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                     scenario_tokens=tokens,
                 )
 
+    cast_groups = {}
+    complete_cast_damage_components(rows, cast_sources, grouped=cast_groups, finalize=False)
+    rows = []
+    cast_sources.clear()
+    actor_context.clear()
     for item in variants:
         talent = item.get('talent') or {}
+        active_activation_context = item.get('activation_context')
         actor_context = {id(action):actor for actor in (item.get('high') or {},item.get('low') or {})
                          for action in actor.get('actions') or []}
         reference_high_actions = {
@@ -3588,29 +3667,46 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                     projection_reference=projection_reference,
                     preserve_owned_action=preserve_owned_action,
                 )
-    rows = complete_cast_damage_components(rows, cast_sources)
+        # Materialize cast children while this pair's actors are still live.
+        complete_cast_damage_components(rows, cast_sources, grouped=cast_groups, finalize=False)
+        rows = []
+        cast_sources.clear()
+        actor_context.clear()
+        item = None
+    rows = complete_cast_damage_components([], {}, grouped=cast_groups)
     attach_runtime_product_metrics({'actions': rows})
     return rows
 
 
-def complete_cast_damage_components(rows, cast_sources):
-    """差分只决定是否需要一行；数值必须包含同次施法所有已解析分量。"""
+def complete_cast_damage_components(rows, cast_sources, *, grouped=None, finalize=True):
+    """Complete each pair now; retain only rows, never its source actor.
+
+    Ownership groups can recur (ordinary duplicate contexts included). Keep the
+    first source's projected children separately until all original rows arrive,
+    preserving global group order and allowing later originals to suppress them.
+    """
     def root(action):
         if action.get('reporting_root_component') is not True:
             return _action_identity(action)
         return (action.get('reporting_root_token'),action.get('reporting_root_spell_id'))
-    grouped = {}
+    if grouped is None:
+        grouped = {}
+    current = {}
     for row in rows:
         key = (root(row), _action_variant_ownership_key(row))
-        grouped.setdefault(key,[]).append(row)
-    output = []
-    for (identity,_), group in grouped.items():
+        current.setdefault(key, []).append(row)
+    for key, group in current.items():
+        identity, _ = key
+        state = grouped.setdefault(key, {'rows': [], 'children': [], 'source_found': False})
+        state['rows'].extend(group)
+        if state['source_found']:
+            continue
         source = next((cast_sources.get(id(row)) for row in group if cast_sources.get(id(row))),None)
-        output.extend(group)
         if source is None:
             continue
-        template = group[0]
-        existing = {_action_identity(row) for row in group}
+        state['source_found'] = True
+        template = state['rows'][0]
+        existing = {_action_identity(row) for row in state['rows']}
         scenario = _scenario_identity({'buffs':template.get('variant',{}).get('runtime_conditions',[])})
         for action in source.get('actions') or []:
             if root(action) != identity or _action_identity(action) in existing or action.get('supported') is not True:
@@ -3627,8 +3723,15 @@ def complete_cast_damage_components(rows, cast_sources):
             if template.get('hero_subtree_ids'):
                 added['hero_subtree_ids'] = list(template['hero_subtree_ids'])
             added['cast_component_unchanged'] = True
-            output.append(added)
+            state['children'].append(added)
             existing.add(_action_identity(action))
+    if not finalize:
+        return []
+    output = []
+    for state in grouped.values():
+        output.extend(state['rows'])
+        existing = {_action_identity(row) for row in state['rows']}
+        output.extend(row for row in state['children'] if _action_identity(row) not in existing)
     return output
 
 
@@ -4057,66 +4160,26 @@ def project_skill_damage_product_payload(payload):
 
 
 def reviewed_global_display_effects(actor):
-    """补齐全局效果目录，同时保留已验证的倍率、层数与生效条件。"""
-    spec = actor.get('specialization') or actor.get('spec')
-    class_name = _scope_name_key(actor.get('class'))
-    talent_scopes = {}
-    for fact in actor.get('reviewed_global_effects') or []:
-        if ':天赋:' not in str(fact.get('effect_id', '')):
-            continue
-        for sid in fact.get('source_spell_ids') or []:
-            if not fact.get('specializations'):
-                talent_scopes[sid] = None
-            elif sid not in talent_scopes or talent_scopes[sid] is not None:
-                talent_scopes.setdefault(sid, set()).update(fact['specializations'])
-    merged = {}
-    for fact in actor.get('reviewed_global_effects') or []:
-        if not global_effect_matches_owner(fact, class_name, spec, talent_scopes):
-            continue
-        ids = tuple(fact.get('source_spell_ids') or [])
-        if not ids or not fact.get('global_components'):
-            continue
-        row = merged.setdefault(ids,copy.deepcopy(fact))
-        parts = {(c['spell_id'],c['effect_index']):c for c in row['global_components']}
-        parts.update({(c['spell_id'],c['effect_index']):c for c in fact['global_components']})
-        row['global_components'] = list(parts.values())
-        for field in ('local_components', 'local_skill_bindings'):
-            local_parts = {(json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(',', ':'))): item
-                           for item in row.get(field, []) if isinstance(item, dict)}
-            local_parts.update({json.dumps(item, ensure_ascii=False, sort_keys=True, separators=(',', ':')): item
-                                for item in fact.get(field, []) if isinstance(item, dict)})
-            row[field] = list(local_parts.values())
-        row['lower_skill_policy'] = fact.get('lower_skill_policy') or row.get(
-            'lower_skill_policy', 'exclude_global_keep_explicit_local',
-        )
-        evidence = [row.get('local_scope_evidence'), fact.get('local_scope_evidence')]
-        evidence = [str(value) for value in evidence if value]
-        if evidence:
-            row['local_scope_evidence'] = '；'.join(dict.fromkeys(evidence))
-        row['partial_state'] = row.get('partial_state') is True or fact.get('partial_state') is True
-        details = {(d.get('source_spell_id'), d.get('effect_index')):d for d in row.get('effect_details', [])}
-        details.update({(d.get('source_spell_id'), d.get('effect_index')):d for d in fact.get('effect_details', [])})
-        row['effect_details'] = list(details.values())
-    result = []
-    catalog_ids = {tuple(fact.get('source_spell_ids') or []) for fact in actor.get('reviewed_global_effects') or []}
-    for effect in actor.get('global_skill_effects') or []:
-        if not isinstance(effect, dict) or effect.get('source_type') == 'specialization_passive':
-            continue
-        if not global_effect_matches_owner(effect, class_name, spec, talent_scopes):
-            continue
-        ids = tuple(effect.get('source_spell_ids') or [])
-        if ids in catalog_ids and ids not in merged:
-            continue
-        catalog = merged.get(ids)
-        if catalog:
-            enriched = {**copy.deepcopy(catalog), **copy.deepcopy(effect)}
-            enriched['effect_details'] = catalog.get('effect_details', [])
-            enriched['global_components'] = catalog['global_components']
-            result.append(enriched)
-        else:
-            result.append(copy.deepcopy(effect))
-    covered = {tuple(effect.get('source_spell_ids') or []) for effect in result}
-    result.extend(row for ids,row in merged.items() if ids not in covered)
+    """Frozen-catalog ownership and physical/state identity display projection."""
+    from .simc_global_display import normalize_reviewed_global_effects
+
+    return normalize_reviewed_global_effects(actor, class_name=_scope_name_key(actor.get('class')))
+
+
+def project_global_skill_effects_for_display(payload):
+    """Idempotent read-time projection for immutable stored product payloads.
+
+    Unlike project_skill_damage_product_payload, this accepts already projected
+    actions and never re-runs cast/formula projection. Actor/action graphs are
+    shared read-only; only the actor container and global display list change.
+    """
+    result = dict(payload)
+    result['actors'] = [
+        {**actor, 'global_skill_effects': reviewed_global_display_effects(actor)}
+        if isinstance(actor, dict) and isinstance(actor.get('reviewed_global_effects'), list)
+        else actor
+        for actor in payload.get('actors') or []
+    ]
     return result
 
 
@@ -4124,7 +4187,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 22
-    DATASET_SCHEMA_REVISION = 44
+    DATASET_SCHEMA_REVISION = 45
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
     WIRE_SCHEMA_REVISION = 1
@@ -4621,6 +4684,10 @@ class SimcSkillDamageSnapshotService:
             ):
                 raise ValueError('全局增伤 DBC 组件与自身效果编号不一致。')
             catalog[row['trait_entry_id']] = row
+        native = payload.get('talent_catalog', [])
+        if not isinstance(native, list) or any(not isinstance(row, dict) for row in native):
+            raise ValueError('原生天赋 DBC 目录格式无效。')
+        self._native_talent_catalog = native
         self._global_damage_catalog = catalog
         return catalog
 
@@ -5284,6 +5351,47 @@ class SimcSkillDamageSnapshotService:
                 })
         return unresolved
 
+    def _activation_context_plan(self, talents, scaffold_talents, prerequisites, ordinary, spool, implicit_nodes=()):
+        # Use only already-pruned exact-spec metadata: pure global talents can
+        # neither unlock a context nor be inserted into its prerequisites.
+        candidates = discover_replacement_candidates(
+            {'talent_catalog': getattr(self, '_native_talent_catalog', [])}, talents,
+        )
+        by_entry = {t.node_id: t for t in talents}
+        by_name = {a['name']: a for a in ordinary['actors']}
+        contexts = {}
+        for entry in sorted({c['trait_entry_id'] for c in candidates}):
+            talent = by_entry[entry]
+            logical = f'skill_damage_talent_{talent.pk}_trait_{entry}'
+            name = ordinary['aliases'][logical]['canonical_name']
+            actor = spool.load(100, name)
+            if actor is not None:
+                # Candidate readiness needs only roots/selected identities, not
+                # retention of the full exported action/scenario graph.
+                contexts[entry] = {
+                    'selected_talents': by_name[name]['selected_talents'],
+                    'actor': {'selected_trait_ids': actor.get('selected_trait_ids'),
+                              'actions': [{'spell_id': a.get('reporting_root_spell_id') or a.get('spell_id')}
+                                          for a in actor.get('actions') or []]},
+                }
+        from .simc_skill_activation_context import prove_hero_anchor_selectors
+        baseline = (spool.load(100, 'skill_damage_base') or {}).get('selected_trait_ids') or []
+        baseline_low = (spool.load(34, 'skill_damage_base') or {}).get('selected_trait_ids') or []
+        if set(baseline) != set(baseline_low):
+            raise ValueError('Ordinary baseline selection differs between target-health probes.')
+        hero_anchor_selectors = prove_hero_anchor_selectors(
+            ordinary['actors'], spool.load, implicit_nodes, baseline,
+        )
+        return plan_activation_context_pairs(
+            talents, candidates=candidates, contexts=contexts,
+            scaffold_talents=scaffold_talents, talent_prerequisites=prerequisites,
+            existing_actors=ordinary['actors'],
+            # Only implicit selections proven by this profile's actual baseline
+            # may supplement the explicit, choice-checked planned configuration.
+            implicit_trait_entry_ids=baseline,
+            hero_anchor_selectors=hero_anchor_selectors,
+        )
+
     def _generate_profile_product_actor(self, profile):
         """Generate and compact one profile before the next raw export graph exists."""
         all_talents = self._talent_entries(profile)
@@ -5304,9 +5412,10 @@ class SimcSkillDamageSnapshotService:
             entry_order = TalentMetadataProvider(
                 talent_version=talent_version,
             ).get_choice_entry_order()
+        implicit_nodes = self._implicit_prerequisite_nodes(profile)
         talent_prerequisites = self._talent_prerequisite_map(
             all_talents,
-            metadata_nodes=self._implicit_prerequisite_nodes(profile),
+            metadata_nodes=implicit_nodes,
             entry_order=entry_order,
         )
         all_talents, scaffold_talents, talent_prerequisites, static_global_effects = prune_global_damage_talents(
@@ -5344,6 +5453,37 @@ class SimcSkillDamageSnapshotService:
                 talent_prerequisites=talent_prerequisites, target_health=34,
                 actor_plan=actor_plan, actor_spool=actor_spool,
             )
+            context_plan = self._activation_context_plan(
+                talents, scaffold_talents, talent_prerequisites, actor_plan, actor_spool, implicit_nodes,
+            )
+            for health, unresolved in ((100, high_unresolved), (34, low_unresolved)):
+                if context_plan['actors']:
+                    unresolved.extend(self._run_profile_target_deduplicated(
+                        profile, [], scaffold_talents=scaffold_talents,
+                        talent_prerequisites=talent_prerequisites, target_health=health,
+                        actor_plan={'actors': context_plan['actors'], 'aliases': {}},
+                        actor_spool=actor_spool,
+                    ))
+            # Runtime can auto-select traits beyond DBC choice constraints.
+            # Reject those pairs explicitly without losing valid ordinary or
+            # context results; never attribute a non-marginal comparison.
+            valid_context_pairs = []
+            for pair in context_plan['pairs']:
+                try:
+                    materialize_activation_pair(pair, actor_spool.load)
+                except ValueError as exc:
+                    high_unresolved.append({
+                        'class': str(profile.class_name),
+                        'specialization': canonical_simc_profile_identity(profile.spec, profile.class_name)[1],
+                        'reason': 'activation_context_pair_unresolved',
+                        'talent': {'id': pair['talent'].node_id, 'metadata_id': pair['talent'].pk},
+                        'activation_context': pair['activation_context'],
+                        'reference_name': pair['reference_name'],
+                        'selected_name': pair['selected_name'],
+                        'diagnostic': str(exc),
+                    })
+                else:
+                    valid_context_pairs.append(pair)
             base_high = actor_spool.load(100, 'skill_damage_base')
             base_low = actor_spool.load(34, 'skill_damage_base')
             variants = _SpoolBackedTalentVariants(
@@ -5361,6 +5501,17 @@ class SimcSkillDamageSnapshotService:
             actor['hero_talent_trees'] = hero_talent_trees
             actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
             global_effects = classify_global_skill_effects(base_high, base_low, variants)
+            from .simc_global_display import reviewed_static_source_matches_owner
+
+            # Metadata.spec_name is not TraitEntry eligibility. Validate the
+            # frozen source before adding catalog owner or local-scope fields.
+            if isinstance(base_high.get('reviewed_global_effects'), list):
+                static_global_effects = [
+                    effect for effect in static_global_effects
+                    if reviewed_static_source_matches_owner(
+                        base_high, effect, class_name=_scope_name_key(base_high.get('class')),
+                    )
+                ]
             all_global_effects = [*static_global_effects, *global_effects]
             for effect in all_global_effects:
                 if not isinstance(effect, dict):
@@ -5373,7 +5524,9 @@ class SimcSkillDamageSnapshotService:
                 projection.get('kind') == 'crit_chance' for projection in effect.get('projections') or []
             )]
             actor['actions'] = flatten_single_talent_damage_variants(
-                base_high, base_low, variants, global_effects=global_effects,
+                base_high, base_low,
+                _ActivationContextVariants(variants, valid_context_pairs, actor_spool),
+                global_effects=global_effects,
             )
             raw_action_count = len(actor.get('actions') or [])
             profile_payload = project_skill_damage_product_payload({
@@ -5405,6 +5558,7 @@ class SimcSkillDamageSnapshotService:
                 'simc_revision': self.snapshot.simc_revision,
                 'game_build': self.snapshot.game_build,
                 'talents': list(self._global_damage_talent_catalog().values()),
+                'talent_catalog': getattr(self, '_native_talent_catalog', []),
             }, ensure_ascii=False), encoding='utf-8')
             command = [
                 sys.executable,

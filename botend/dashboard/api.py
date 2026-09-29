@@ -63,7 +63,8 @@ from botend.services.simc_player_config import (
     SUPPORTED_SIMC_SPEC_IDENTITIES,
 )
 from botend.services.simc_composer import SimcComposer, validate_simulation_options
-from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
+from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService, reviewed_global_display_effects
+from botend.services.simc_skill_source_context import attach_skill_damage_source_context
 from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_hero_talents import resolve_hero_talent_names
@@ -8413,6 +8414,10 @@ class SimcSkillDamageSnapshotAPIView(View):
                 actor = display_snapshot.actor_rows.filter(
                     pk=actor_id,
                 ).values_list('actor_payload', flat=True).get()
+                # Project this response-owned copy; stored product facts remain frozen.
+                if isinstance(actor.get('reviewed_global_effects'), list):
+                    actor['global_skill_effects'] = reviewed_global_display_effects(actor)
+                attach_skill_damage_source_context(actor)
                 attach_skill_damage_descriptions(actor, game_build=display_snapshot.game_build)
                 write_chunk(json.dumps(actor, cls=DjangoJSONEncoder).encode('utf-8'))
                 del actor
