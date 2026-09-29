@@ -5359,6 +5359,12 @@ class SimcSkillDamageSnapshotService:
         )
         by_entry = {t.node_id: t for t in talents}
         by_name = {a['name']: a for a in ordinary['actors']}
+        ordinary_reference_configs = {
+            t.pk: by_name[ordinary['aliases'][
+                f'skill_damage_reference_{t.pk}_trait_{t.node_id}'
+            ]['canonical_name']]['selected_talents']
+            for t in talents
+        }
         contexts = {}
         for entry in sorted({c['trait_entry_id'] for c in candidates}):
             talent = by_entry[entry]
@@ -5384,7 +5390,7 @@ class SimcSkillDamageSnapshotService:
         )
         return plan_activation_context_pairs(
             talents, candidates=candidates, contexts=contexts,
-            scaffold_talents=scaffold_talents, talent_prerequisites=prerequisites,
+            ordinary_reference_configs=ordinary_reference_configs,
             existing_actors=ordinary['actors'],
             # Only implicit selections proven by this profile's actual baseline
             # may supplement the explicit, choice-checked planned configuration.

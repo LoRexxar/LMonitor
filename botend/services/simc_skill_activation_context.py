@@ -166,7 +166,7 @@ def prove_hero_anchor_selectors(ordinary_actors, load_actor, implicit_nodes,
 
 
 def plan_activation_context_pairs(talents, *, candidates, contexts,
-                                  scaffold_talents=(), talent_prerequisites=None,
+                                  ordinary_reference_configs=None,
                                   existing_actors=(), implicit_trait_entry_ids=(),
                                   hero_anchor_selectors=None,
                                   max_contexts=16, max_pairs=2048):
@@ -178,7 +178,8 @@ def plan_activation_context_pairs(talents, *, candidates, contexts,
     `pairs` retains the measured talent, explicit context and action allowlist;
     callers must restrict projection to those roots and validate runtime pairs.
     """
-    prerequisites = talent_prerequisites or {}
+    # Configurations are already materialized by the ordinary actor planner.
+    # Reapplying scaffold would restore choice entries it deliberately replaced.
     roots_by_entry, evidence_by_entry = {}, {}
     for candidate in candidates:
         entry = candidate['trait_entry_id']
@@ -197,9 +198,7 @@ def plan_activation_context_pairs(talents, *, candidates, contexts,
         evidence_by_entry.setdefault(entry, []).append(dict(candidate))
     proven = []
     for entry, roots in sorted(roots_by_entry.items()):
-        traits = _union(scaffold_talents, contexts[entry]['selected_talents'])
-        if traits is None:
-            raise ValueError('Conflicting activation context configuration.')
+        traits = list(contexts[entry]['selected_talents'])
         proven.append((traits, roots, evidence_by_entry[entry]))
     # A larger closure bringing no additional roots is unnecessary. Keep
     # incomparable contexts, since they may be compatible with different T.
@@ -232,9 +231,8 @@ def plan_activation_context_pairs(talents, *, candidates, contexts,
         for talent in talents:
             if talent.node_id in context_entries:
                 continue
-            ordinary = _union(scaffold_talents, prerequisites.get(talent.pk) or [])
-            if ordinary is None:
-                raise ValueError('Conflicting ordinary prerequisite configuration.')
+            ordinary = (ordinary_reference_configs[talent.pk]
+                        if ordinary_reference_configs is not None else [])
             if context_entries <= {t.node_id for t in ordinary}:
                 continue  # Already measured by S(T) -> S(T)+T.
             reference = _union(traits, ordinary)
