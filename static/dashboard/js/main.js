@@ -6089,7 +6089,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     const globalEffects = selectedActors.flatMap(actor => (
         Array.isArray(actor.global_skill_effects) ? actor.global_skill_effects : []
     )).filter(effect => effect && typeof effect === 'object'
-        && (effect.hero_subtree_id == null || String(effect.hero_subtree_id) === selectedHeroTree));
+        && (effect.hero_subtree_id == null || Number(effect.hero_subtree_id) === 0 || String(effect.hero_subtree_id) === selectedHeroTree));
     if (globalEffects.length) {
         const items = globalEffects.map(effect => {
             const name = effect.display_name || effect.talent_name_zh || effect.talent_name || effect.source_token || '未知全局效果';
@@ -6164,7 +6164,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             // 使用导出器按完整施法验证的目标数，条件选项与伤害行保持一致。
             if (Array.isArray(action.affected_target_counts)
                 && !action.affected_target_counts.some(count => String(count) === targetCount)) return;
-            if (variant.hero_subtree_id != null && String(variant.hero_subtree_id) !== selectedHeroTree) return;
+            // DB2 uses 0 for ordinary class/spec talents, not a hero tree.
+            if (variant.hero_subtree_id != null && Number(variant.hero_subtree_id) !== 0
+                && String(variant.hero_subtree_id) !== selectedHeroTree) return;
             const heroSubtreeIds = Array.isArray(action.hero_subtree_ids) ? action.hero_subtree_ids : [];
             if (heroSubtreeIds.length && !heroSubtreeIds.some(id => String(id) === selectedHeroTree)) return;
 

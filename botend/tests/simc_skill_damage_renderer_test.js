@@ -48,6 +48,23 @@ payload.actors[0].global_skill_effects = [{display_name:'激怒', source_spell_i
         effect_details:[{label:'自动攻击伤害',value_kind:'percent',base_value:15}]},
     {display_name:'防御姿态',source_spell_ids:[386208],
         projections:[{kind:'damage_multiplier',value:0.9}],runtime_condition:'防御姿态生效时'}];
+// Metadata uses 0 for non-hero talents; these remain visible in either tree.
+for (const treeId of ['60', '61']) {
+    element('simc-skill-damage-hero-tree').value = treeId;
+    for (const unrestricted of [null, 0]) {
+        payload.actors[0].actions[0].variant.hero_subtree_id = unrestricted;
+        payload.actors[0].global_skill_effects[0].hero_subtree_id = unrestricted;
+        assert.match(renderText(), /嗜血/);
+        assert.match(element('simc-skill-damage-global-modifiers').innerHTML, /激怒/);
+    }
+    payload.actors[0].actions[0].variant.hero_subtree_id = Number(treeId);
+    assert.match(renderText(), /嗜血/);
+    payload.actors[0].actions[0].variant.hero_subtree_id = treeId === '60' ? 61 : 60;
+    assert.doesNotMatch(renderText(), /嗜血/);
+}
+payload.actors[0].actions[0].variant = {};
+delete payload.actors[0].global_skill_effects[0].hero_subtree_id;
+element('simc-skill-damage-hero-tree').value = '60';
 render();
 const globalHtml = element('simc-skill-damage-global-modifiers').innerHTML;
 assert.match(element('simc-skill-damage-body').innerHTML, /data-wow-item-tooltip="攻击目标并造成伤害。"/);
