@@ -111,8 +111,8 @@
             if (!link || link.dataset.submenuBound === '1') return;
             link.dataset.submenuBound = '1';
             link.setAttribute('role', 'button');
-            // Only the active branch is revealed; table catalogs stay compact.
-            setOpen(item, Boolean(item.querySelector('[aria-current="page"]')));
+            // Keep all menu entries visible by default; users may collapse them.
+            setOpen(item, true);
             link.addEventListener('click', event => {
                 event.preventDefault();
                 setOpen(item, !item.classList.contains('open'));
