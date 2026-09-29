@@ -5923,7 +5923,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const tokens = [...(Array.isArray(scenarioTokens) ? scenarioTokens : []),
             ...runtimeConditions.map(item => item && item.token).filter(Boolean)];
         const name = String(talentName || '').trim();
-        const parts = condition && (preserveRuntimeCondition || !condition.startsWith('启用 ')) ? [condition] : [];
+        // Legacy scenario markers are rendered below from localized state facts.
+        const parts = condition && !/^启用 (?:buff|debuff)\.[a-z0-9_]+$/.test(condition)
+            && (preserveRuntimeCondition || !condition.startsWith('启用 ')) ? [condition] : [];
         const talentLabel = name.endsWith('天赋') ? name : `${name}天赋`;
         if (!parts.length && tokens.length && name && name !== '基础技能') parts.push(`点出${talentLabel}`);
         [...new Set(tokens.map(token => String(token || '').trim()).filter(Boolean))].forEach(token => {

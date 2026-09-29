@@ -292,6 +292,12 @@ assert.doesNotMatch(categoryHtml, /1\.15×|基础加成：|>全局伤害</);
 assert.match(categoryHtml, /仅战斗中/);
 assert.match(categoryHtml, /测试状态（2层）/);
 assert.match(categoryHtml, /数值未解析：等待同构建证据 &lt;missing>/);
+payload.actors[0].global_skill_effects[0].runtime_condition = '启用 buff.test';
+render();
+const localizedGlobalHtml = element('simc-skill-damage-global-modifiers').innerHTML;
+assert.doesNotMatch(localizedGlobalHtml, /buff\.test/);
+assert.match(localizedGlobalHtml, /自身存在/);
+assert.match(localizedGlobalHtml, /测试状态（2层）/);
 // 即使收到重复事实也不由 UI 静默删除；后端负责唯一化。
 payload.actors[0].global_skill_effects.push(structuredClone(payload.actors[0].global_skill_effects[0]));
 render();
