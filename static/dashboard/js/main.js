@@ -6103,7 +6103,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const effectDescription = effect.description_zh || effect.talent_description_zh
                 || effect.description || effect.talent_description || '';
             const effectTooltipAttrs = renderSimcTooltipAttrs(displayName, effectDescription);
-            const conditionLabel = renderSimcTalentProbeCondition(effect.runtime_condition,
+            const displayCondition = String(effect.runtime_condition || '').split('；')
+                .filter(part => !['全局增伤分量在职业初始化前排除', '生效条件不改变作用域分类', '倍率随天赋等级变化'].includes(part.trim()))
+                .join('；');
+            const conditionLabel = renderSimcTalentProbeCondition(displayCondition,
                 effect.scenario_tokens, effect.talent_name_zh || effect.talent_name, runtimeConditions, true);
             const conditionHtml = conditionLabel
                 ? `<div class="mt-1 text-xs text-indigo-700">${renderSimcConditionDescription(conditionLabel, effect)}</div>` : '';
@@ -6146,7 +6149,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 + projections || `<span class="text-xs text-amber-800" data-value-status="${escapeHtml(effect.value_status || 'unresolved')}">${escapeHtml(effect.value_status_label || '数值未解析')}</span>`;
             return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span${effectTooltipAttrs} class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${valueHtml}</span></div>${conditionHtml}</div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局伤害效果</div><div class="mb-3 text-xs text-indigo-700">列出影响全技能或整个伤害类别的加成；下方技能伤害不含这些公共加成。不同伤害类别分别列示，不重复叠乘。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
+        globalModifiersEl.innerHTML = `<div class="mb-3 text-sm font-bold text-indigo-950">全局伤害效果</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
     }
 
@@ -6293,8 +6296,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const fallbackTalentLabel = talentName.endsWith('天赋') ? talentName : `${talentName}天赋`;
         const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`);
         const context = variant.activation_context || {};
-        const contextHtml = context.display_label
-            ? `<div class="mt-1 text-xs text-stone-600"><span${renderSimcTooltipAttrs(context.display_label, context.description || '')}>${escapeHtml(context.display_label)}</span></div>` : '';
+        const contextLabel = String(context.display_label || '').replace('（前置天赋固定）', '');
+        const contextHtml = contextLabel
+            ? `<div class="mt-1 text-xs text-stone-600"><span${renderSimcTooltipAttrs(contextLabel, context.description || '')}>${escapeHtml(contextLabel)}</span></div>` : '';
         const variantCell = `<div class="text-xs text-amber-800">${renderSimcConditionDescription(variantLabel, variant)}</div>${contextHtml}`;
         const normalizedBase = product.normalized_base_damage;
         const finalDamage = selectedFinalDamage;
