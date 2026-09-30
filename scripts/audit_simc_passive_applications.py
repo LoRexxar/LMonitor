@@ -62,6 +62,9 @@ def export(source, tag, excluded=()):
         "file": str(path),
         "sha256": digest(path),
         "input_sha256": digest(source),
+        "binary_sha256": BINARY_SHA,
+        "target_health_percentage": HEALTH,
+        "command": command,
         "elapsed_seconds": time.monotonic() - start,
         "excluded": [list(x) for x in sorted(excluded)],
     }
@@ -117,6 +120,7 @@ if __name__ == "__main__":
         "input": str(source),
         "scope": "explicit frozen input only; not a published snapshot",
         "binary_sha256": digest(BINARY),
+        "target_health_percentage": HEALTH,
         "baseline": base_record,
         "candidates": [list(x) for x in sorted(candidates)],
         "probes": [],

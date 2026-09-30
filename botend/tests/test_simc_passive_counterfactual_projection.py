@@ -1,6 +1,7 @@
 """Native counterfactual proofs use captured outputs, not applied flags."""
 
 import copy
+from dataclasses import replace
 import gzip
 import json
 from pathlib import Path
@@ -21,7 +22,13 @@ def captured_probes(name="obliterate"):
     data = json.loads(gzip.decompress(path.read_bytes()))
 
     def probe(payload):
-        return PassiveProbeExport(payload, data["input_sha256"], data["binary_sha256"])
+        # Archived fixtures were captured with the CLI default of 100% health.
+        return PassiveProbeExport(
+            payload,
+            data["input_sha256"],
+            data["binary_sha256"],
+            target_health_percentage=100.0,
+        )
 
     return probe(data["ordinary"]), [probe(p) for p in data["counterfactuals"]]
 
@@ -58,7 +65,10 @@ class NativePassiveCounterfactualProofTests(unittest.TestCase):
             Path(__file__).parent
             / "fixtures/simc_passive_frost_fever_exact_joint.json.gz"
         )
-        extra = PassiveProbeExport(**json.loads(gzip.decompress(path.read_bytes())))
+        extra = PassiveProbeExport(
+            **json.loads(gzip.decompress(path.read_bytes())),
+            target_health_percentage=100.0,
+        )
         result = verify_passive_applications(on, off + [extra])
         row = next(r for r in result["components"] if r["scenario"] == "baseline")
         self.assertEqual(row["effects"], [[137006, 1], [137006, 12]])
@@ -68,13 +78,7 @@ class NativePassiveCounterfactualProofTests(unittest.TestCase):
     def test_input_or_binary_identity_mismatch_is_rejected(self):
         for field in ("input_sha256", "binary_sha256"):
             on, off = captured_probes()
-            fields = dict(
-                payload=off[0].payload,
-                input_sha256=off[0].input_sha256,
-                binary_sha256=off[0].binary_sha256,
-            )
-            fields[field] = "0" * 64
-            off[0] = PassiveProbeExport(**fields)
+            off[0] = replace(off[0], **{field: "0" * 64})
             with self.assertRaisesRegex(ValueError, "identity"):
                 verify_passive_applications(on, off)
 

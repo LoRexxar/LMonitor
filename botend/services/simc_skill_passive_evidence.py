@@ -202,7 +202,14 @@ def compare(on, off, excluded):
                 return entries
 
             am, bm = amounts(x), amounts(y)
+            assert am.keys() == bm.keys(), "scenario_identity_set_changed"
             for scenario, (v, metadata) in am.items():
+                other = bm[scenario][0]
+                assert isinstance(v, dict) and isinstance(other, dict), "invalid_amount"
+                assert all(
+                    isinstance(v.get(kind), dict) == isinstance(other.get(kind), dict)
+                    for kind in ("direct", "tick")
+                ), "component_identity_set_changed"
                 pair = bm.get(scenario)
                 w = pair[0] if pair is not None else None
                 for kind in ("direct", "tick"):
@@ -275,6 +282,8 @@ class PassiveProbeExport:
     payload: dict
     input_sha256: str
     binary_sha256: str
+    # None is deliberately not treated as 100: CLI overrides are not in input_sha256.
+    target_health_percentage: float | None = None
 
 
 def payload_signature(payload):
@@ -303,7 +312,15 @@ def _probe_identity(probe):
         not isinstance(v, str) or not re.fullmatch(r"[0-9a-f]{64}", v) for v in values
     ):
         raise ValueError("Invalid native execution identity")
-    return values
+    health = probe.target_health_percentage
+    if (
+        not isinstance(health, (int, float))
+        or isinstance(health, bool)
+        or not math.isfinite(health)
+        or not 0 < health <= 100
+    ):
+        raise ValueError("Missing or invalid native execution target health")
+    return (*values, health)
 
 
 def required_exact_joint_groups(probe_records):
@@ -430,6 +447,7 @@ def verify_passive_applications(ordinary, counterfactuals):
         "method": "initialization_parser_only_exact_joint_v1",
         "input_sha256": identity[0],
         "binary_sha256": identity[1],
+        "target_health_percentage": identity[2],
         "source_payload_sha256": payload_signature(on),
         "counterfactuals": hashes,
         "components": authorized,
