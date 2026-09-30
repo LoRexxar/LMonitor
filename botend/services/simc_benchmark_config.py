@@ -834,7 +834,7 @@ def normalize_panel_payload(payload, user_id, panel=None):
                 continue
             swap = candidate['params'].get('gear_swap', {})
             if swap.get('slot') != 'trinket1':
-                _error(f'专精 {spec_key} 的候选混用了不同 Benchmark Profile 语义')
+                continue
             existing = inherited_profiles.get(candidate['key'])
             if existing is not None and existing != marked[0]:
                 _error(f'候选 {candidate["key"]} 的 Benchmark Profile 推导不一致')
@@ -976,9 +976,13 @@ def _freeze_trinket_benchmark_preset(spec_key, benchmark_profile):
 
 
 def _freeze_case_candidates(spec_key, applicable):
-    profiles = [item.params.get('benchmark_profile') for item in applicable]
+    from simc_equipment_control import SLOTS, control_key
+
+    trinkets = [item for item in applicable
+                if item.params.get('gear_swap', {}).get('slot') in ('trinket1', 'trinket2')]
+    profiles = [item.params.get('benchmark_profile') for item in trinkets]
     marked = [profile for profile in profiles if profile is not None]
-    if marked and len(marked) != len(applicable):
+    if marked and len(marked) != len(trinkets):
         _error(f'专精 {spec_key} 的候选混用了不同 Benchmark Profile 语义')
     if marked and any(profile != marked[0] for profile in marked[1:]):
         _error(f'专精 {spec_key} 的候选 Benchmark Profile 不一致')
@@ -989,15 +993,31 @@ def _freeze_case_candidates(spec_key, applicable):
         'candidate_type': 'base', 'icon_url': '', 'source_label': '',
     }
     candidates = [_candidate_snapshot(item) for item in applicable]
-    if not marked:
-        return [baseline] + candidates
-
-    preset = _freeze_trinket_benchmark_preset(spec_key, marked[0])
-    baseline['candidate_params']['equipment_preset'] = deepcopy(preset)
+    preset = _freeze_trinket_benchmark_preset(spec_key, marked[0]) if marked else None
+    if preset:
+        baseline['candidate_params']['equipment_preset'] = deepcopy(preset)
+    controls = []
     for candidate in candidates:
-        candidate['candidate_params'].pop('benchmark_profile', None)
-        candidate['candidate_params']['equipment_preset'] = deepcopy(preset)
-    return [baseline] + candidates
+        params = candidate['candidate_params']
+        slot = params.get('gear_swap', {}).get('slot')
+        if slot in ('trinket1', 'trinket2'):
+            if preset:
+                params.pop('benchmark_profile', None)
+                params['equipment_preset'] = deepcopy(preset)
+            continue
+        if slot not in SLOTS:
+            _error(f'暂不支持装备槽 {slot} 的同属性特效对照')
+        key = control_key(candidate['candidate_key'])
+        if any(row['candidate_key'] == key for row in candidates):
+            _error('候选标识与系统生成的无特效对照冲突')
+        params['effect_baseline_key'] = key
+        control = deepcopy(candidate)
+        control['candidate_key'] = key
+        control['candidate_label'] = f'{candidate["candidate_label"]}（无特效对照）'[:200]
+        control['candidate_params'].pop('effect_baseline_key')
+        control['candidate_params']['equipment_effect_control'] = True
+        controls.append(control)
+    return [baseline] + candidates + controls
 
 
 def _freeze_option_gain_candidates(option_value):

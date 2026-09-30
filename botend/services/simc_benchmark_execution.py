@@ -179,6 +179,24 @@ def _safe_snapshot(panel, plan, *, execution_mode='supplement'):
         'icon_url': '', 'source_label': '',
         'params': {'candidate_type': 'base', 'is_base': True},
     }] + deepcopy(plan['candidates'])
+    # 内部对照也属于冻结执行定义，但不会成为公开装备列表中的候选。
+    definitions_by_key = {item['key']: item for item in candidate_definitions}
+    for coordinate in plan['cases']:
+        for candidate in coordinate['candidates']:
+            params = candidate.get('candidate_params') or {}
+            if not (params.get('equipment_effect_control') or params.get('effect_baseline_key')):
+                continue
+            definition = definitions_by_key.get(candidate['candidate_key'])
+            if definition is None:
+                definition = {
+                    'key': candidate['candidate_key'], 'label': candidate['candidate_label'],
+                    'candidate_type': candidate['candidate_type'],
+                    'icon_url': '', 'source_label': '', 'params': deepcopy(params),
+                }
+                candidate_definitions.append(definition)
+                definitions_by_key[definition['key']] = definition
+            elif params.get('effect_baseline_key'):
+                definition['params']['effect_baseline_key'] = params['effect_baseline_key']
     for row in plan['cases']:
         resource_key = _canonical_hash({
             'backend_id': row['backend_id'], 'profile_id': row['profile_id'],
@@ -353,6 +371,7 @@ def _candidate_item_variant_key(candidate):
     params = deepcopy(candidate.get('candidate_params'))
     if not isinstance(params, dict):
         return None
+    params.pop('effect_baseline_key', None)
     gear_swap = params.get('gear_swap')
     if not isinstance(gear_swap, dict):
         gear_swap = params
@@ -1945,6 +1964,8 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         rows = []
         coordinate_audit = None
         for candidate in coordinate['candidates']:
+            if (candidate.get('candidate_params') or {}).get('equipment_effect_control'):
+                continue
             match = reusable.get(_candidate_input_identity(candidate))
             if match:
                 result_task = match['task']
@@ -2011,6 +2032,34 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                         'backend_version': manifest.get('backend_version'),
                         'simulation_params': result_task.simulation_params or {},
                     }
+        if not is_option_gain:
+            definitions = {item['candidate_key']: item for item in coordinate['candidates']}
+            paired_rows = []
+            for row in rows:
+                params = definitions[row['key']].get('candidate_params') or {}
+                baseline_key = params.get('effect_baseline_key')
+                if baseline_key:
+                    control = definitions.get(baseline_key)
+                    match = reusable.get(_candidate_input_identity(control)) if control else None
+                    if not match:
+                        continue
+                    normal = reusable[_candidate_input_identity(definitions[row['key']])]
+                    # 补跑可以跨任务复用，但不允许新 APL 与旧配装对照混算收益。
+                    resources = ('profile_version_id', 'apl_version_id', 'template_version_id',
+                                 'talent_version_id', 'backend_id')
+                    if any(getattr(normal['task'], field) != getattr(match['task'], field)
+                           for field in resources):
+                        continue
+                    baseline_dps = float(match['result'].dps)
+                    row.update({
+                        'baseline_key': baseline_key, 'baseline_dps': baseline_dps,
+                        'gain_dps': row['dps'] - baseline_dps,
+                        'gain_percent': ((row['dps'] - baseline_dps) / baseline_dps * 100
+                                         if baseline_dps > 0 else None),
+                        'comparison_mode': 'equipment_effect',
+                    })
+                paired_rows.append(row)
+            rows = paired_rows
         if is_option_gain:
             result_by_key = {row['key']: row for row in rows}
             baseline = result_by_key.get('baseline')
@@ -3323,6 +3372,8 @@ def serialize_public_execution(panel_or_execution):
                 'status': row['status'], 'candidate_key': run['key'],
                 'dps': run['dps'],
             })
+            if candidate['params'].get('equipment_effect_control'):
+                continue
             candidate_row = {
                 'key': run['key'],
                 'label': str(display.get('label') or candidate['label']),
@@ -3331,6 +3382,18 @@ def serialize_public_execution(panel_or_execution):
                 'source_label': candidate['source_label'],
                 'status': run['status'], 'dps': run['dps'],
             }
+            baseline_key = candidate['params'].get('effect_baseline_key')
+            if baseline_key:
+                control = next((item for item in row['runs'] if item['key'] == baseline_key), None)
+                if control is None:
+                    continue
+                baseline_dps = float(control['dps'])
+                gain = float(run['dps']) - baseline_dps
+                candidate_row.update({
+                    'baseline_key': baseline_key, 'baseline_dps': baseline_dps,
+                    'gain_dps': gain, 'gain_percent': gain / baseline_dps * 100 if baseline_dps > 0 else None,
+                    'comparison_mode': 'equipment_effect',
+                })
             effect = str(display.get('effect') or candidate.get('effect') or '')
             if effect:
                 candidate_row['effect'] = effect

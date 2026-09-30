@@ -1581,6 +1581,46 @@ class SimcAgentConsumer:
             with tempfile.TemporaryDirectory(prefix=f'simc-agent-run-{run_id}-') as work:
                 work_path = Path(work)
                 input_path = work_path / f'run-{run_id}.simc'
+                if '# lmonitor_equipment_control_v1=' in input_text:
+                    from simc_equipment_control import prepare_control_input
+                    deadline = time.monotonic() + timeout
+
+                    def renew_probe_lease():
+                        nonlocal lease_deadline
+                        response = self.transport.json(
+                            path=f'/api/simc-agent/v1/jobs/{run_id}/heartbeat/',
+                            payload={'lease_token': lease_token, 'instance_id': self.instance_id},
+                            authorization=self.authorization,
+                        )
+                        lease_deadline = self._lease_deadline(response.get('lease_expires_at'))
+
+                    def execute_probe(command):
+                        renew_probe_lease()
+                        probe = subprocess.Popen(command, cwd=work, stdout=subprocess.PIPE,
+                                                 stderr=subprocess.PIPE, env=os.environ.copy())
+                        stopped = threading.Event()
+                        thread = threading.Thread(
+                            target=self._lease_heartbeat_loop,
+                            args=(job, stopped, lease_lost, probe, lease_deadline), daemon=True,
+                        )
+                        thread.start()
+                        try:
+                            out, err = probe.communicate(timeout=max(0.1, min(60, deadline - time.monotonic())))
+                            if lease_lost.is_set():
+                                raise APIError('装备对照初始化期间任务租约失效')
+                            return subprocess.CompletedProcess(command, probe.returncode, out, err)
+                        finally:
+                            self._stop_process(probe)
+                            stopped.set()
+                            thread.join(timeout=3)
+
+                    input_text = prepare_control_input(
+                        input_text, self.config.simc_path, work_path, execute=execute_probe,
+                    )
+                    renew_probe_lease()
+                    timeout = deadline - time.monotonic()
+                    if timeout <= 0:
+                        raise APIError('装备对照初始化超出任务时限')
                 input_path.write_text(input_text, encoding='utf-8')
                 process = subprocess.Popen(
                     [self.config.simc_path, input_path.name], cwd=work,
@@ -1627,6 +1667,8 @@ class SimcAgentConsumer:
         except Exception as exc:
             stderr = (stderr + f'\nSimC agent error: {exc}').strip()
 
+        if lease_lost.is_set():
+            return
         try:
             self._complete(run_id, lease_token, completion_id, status, stdout, stderr,
                            report_bytes, output_name)

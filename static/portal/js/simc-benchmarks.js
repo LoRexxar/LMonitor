@@ -178,7 +178,8 @@
     const dps = validDps(candidate.dps);
     if (dps === null) return "无有效结果";
     const baseline = candidates.find(isBaseline);
-    const baselineDps = baseline ? validDps(baseline.dps) : null;
+    const baselineDps = candidate.comparison_mode === "equipment_effect"
+      ? validDps(candidate.baseline_dps) : (baseline ? validDps(baseline.dps) : null);
     const highestText = scale.highest > 0 ? `${((dps / scale.highest) * 100).toFixed(1)}% · 最高 DPS` : "—";
     if (baselineDps !== null && baselineDps > 0) {
       const delta = ((dps - baselineDps) / baselineDps) * 100;
@@ -345,7 +346,8 @@
           row.classList.add("is-hovered"); guide.hidden = false; tooltip.hidden = false;
           const plotRect = plot.getBoundingClientRect(); const bodyRect = body.getBoundingClientRect();
           guide.style.left = `${plotRect.left - bodyRect.left + plotRect.width * end / 100}px`;
-          const delta = baselineDps && baselineDps > 0 ? (dps - baselineDps) * 100 / baselineDps : null;
+          const referenceDps = candidate.comparison_mode === "equipment_effect" ? validDps(candidate.baseline_dps) : baselineDps;
+          const delta = referenceDps && referenceDps > 0 ? (dps - referenceDps) * 100 / referenceDps : null;
           tooltip.replaceChildren(node("strong", "", group.label), node("span", "", `${Number.isFinite(level) && level > 0 ? `模拟装等 ${level} · ` : ""}${numberFormat.format(dps)} DPS`), node("span", "", delta === null ? "无基准对比" : `相对基准 ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`));
           moveTooltip(event);
         };

@@ -484,6 +484,13 @@ class SimcMonitor(BaseScan):
                 params['simc_options'], allow_absent=False,
             )
         candidate_type = params.get('candidate_type') or 'base'
+        if 'equipment_effect_control' in params:
+            from simc_equipment_control import SLOTS
+            slot = (params.get('gear_swap') or {}).get('slot')
+            if (params['equipment_effect_control'] is not True
+                    or candidate_type != 'gear_swap' or slot not in SLOTS):
+                raise ValueError('装备特效对照参数无效')
+            request_data['_equipment_effect_control_slot'] = slot
 
         if candidate_type == 'gear_swap':
             swap = params.get('gear_swap') or {}
@@ -714,6 +721,35 @@ class SimcMonitor(BaseScan):
 
                 self.mark_task_failed(simc_task, "SimC 组合失败", Exception(detail))
                 return False
+
+            from simc_equipment_control import prepare_control_input
+
+            def execute_equipment_probe(command):
+                process = subprocess.Popen(
+                    command, cwd=self.result_path, stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE, env=simc_process_env(),
+                )
+                deadline = time.monotonic() + 60
+                try:
+                    while True:
+                        if not self._active_task_claim_is_current(simc_task):
+                            raise RuntimeError('装备对照初始化期间任务已取消或执行权已失效')
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError('装备对照初始化超时')
+                        try:
+                            out, err = process.communicate(timeout=1)
+                            return subprocess.CompletedProcess(command, process.returncode, out, err)
+                        except subprocess.TimeoutExpired:
+                            continue
+                finally:
+                    if process.poll() is None:
+                        process.kill()
+                    process.communicate()
+
+            simc_code = prepare_control_input(
+                simc_code, simc_task.backend.simc_path, self.result_path,
+                execute=execute_equipment_probe,
+            )
 
             # Compute input hash
             input_hash = hashlib.sha256(simc_code.encode('utf-8')).hexdigest()

@@ -392,6 +392,11 @@ class SimcComposer:
         # Step 12: Build manifest with full slot metadata
         self._build_manifest()
 
+        if request_data.get('_equipment_effect_control_slot'):
+            from simc_equipment_control import mark_control_input
+            final_content = mark_control_input(
+                final_content, request_data['_equipment_effect_control_slot'],
+            )
         return final_content, self.manifest, None
 
     def _resolve_player_identity(self, request_data: Dict[str, Any]) -> SlotResolution:

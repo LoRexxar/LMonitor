@@ -9,6 +9,7 @@ Responsibilities:
 """
 import hashlib
 import json
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Optional, Dict, Any
@@ -164,6 +165,7 @@ CANDIDATE_PARAMS_WHITELIST = {
     'candidate_type', 'is_base', 'gear_swap', 'talent_override',
     'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
     'simc_options', 'equipment_preset', 'option_value', 'enabled',
+    'equipment_effect_control', 'effect_baseline_key',
     'simulation_params',
 }
 
@@ -377,6 +379,17 @@ def _normalize_candidates(candidates, round_number=1):
                 )
             except ValueError as exc:
                 raise TaskCreationError(str(exc)) from exc
+        if 'equipment_effect_control' in params or 'effect_baseline_key' in params:
+            from simc_equipment_control import SLOTS
+            if (params.get('candidate_type') != 'gear_swap'
+                    or params.get('gear_swap', {}).get('slot') not in SLOTS
+                    or ('equipment_effect_control' in params
+                        and params['equipment_effect_control'] is not True)
+                    or ('effect_baseline_key' in params and (
+                        not isinstance(params['effect_baseline_key'], str)
+                        or not re.fullmatch(r'effect-control-[0-9a-f]{32}', params['effect_baseline_key'])))
+                    or ('equipment_effect_control' in params and 'effect_baseline_key' in params)):
+                raise TaskCreationError('装备特效对照参数无效')
         if 'equipment_preset' in params:
             preset = params['equipment_preset']
             if not isinstance(preset, dict) or set(preset) != {'trinket1', 'trinket2'}:
