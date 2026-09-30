@@ -5927,7 +5927,15 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const parts = condition && !/^启用 (?:buff|debuff)\.[a-z0-9_]+$/.test(condition)
             && (preserveRuntimeCondition || !condition.startsWith('启用 ')) ? [condition] : [];
         const talentLabel = name.endsWith('天赋') ? name : `${name}天赋`;
-        if (!parts.length && tokens.length && name && name !== '基础技能') parts.push(`点出${talentLabel}`);
+        // Talent selection and runtime state are independent conditions.
+        // A health/Buff label must not suppress the talent whose formula this is.
+        const selectedTalent = `点出${talentLabel}`;
+        if (name && name !== '基础技能' && !preserveRuntimeCondition
+            && !parts.some(part => part.includes(selectedTalent))) {
+            parts.unshift(selectedTalent);
+        } else if (!parts.length && tokens.length && name && name !== '基础技能') {
+            parts.push(selectedTalent);
+        }
         [...new Set(tokens.map(token => String(token || '').trim()).filter(Boolean))].forEach(token => {
             const separatorIndex = token.indexOf('.');
             const scope = separatorIndex >= 0 ? token.slice(0, separatorIndex) : '';
