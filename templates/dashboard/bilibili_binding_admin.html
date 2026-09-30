@@ -1,7 +1,13 @@
-{% load static %}
-<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="csrf-token" content="{{ csrf_token }}"><title>B 站绑定设置</title><link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}"></head>
-<body class="bb-page"><main class="bb-container bb-wide">
-<nav class="bb-nav"><a href="/dashboard/?section=user-management">返回用户管理</a><a href="/auth/bilibili/">查看个人绑定页</a></nav>
+<section id="bilibili-binding" class="content-section bb-page" style="display: none;">
+<style>
+    #bilibili-binding { margin: 0; background: transparent; color: var(--dashboard-text, #1e293b); }
+    #bilibili-binding .bb-card { background: var(--dashboard-surface, #fff); border-color: var(--dashboard-border, #dce3ee); }
+    #bilibili-binding .bb-muted, #bilibili-binding .bb-eyebrow { color: var(--dashboard-muted, #64748b); }
+    #bilibili-binding .bb-card input:not([type=checkbox]), #bilibili-binding .bb-card textarea { background: var(--dashboard-surface, #fff); color: var(--dashboard-text, #1e293b); border-color: var(--dashboard-border, #cbd5e1); }
+    #bilibili-binding .bb-secondary { background: var(--dashboard-surface, #fff); color: var(--dashboard-text, #334155); border-color: var(--dashboard-border, #cbd5e1); }
+    #bilibili-binding .bb-table th { color: var(--dashboard-muted, #64748b); }
+    #bilibili-binding .bb-table th, #bilibili-binding .bb-table td { border-color: var(--dashboard-border, #e2e8f0); }
+</style>
 <header><span class="bb-eyebrow">账号管理</span><h1>B 站绑定设置</h1><p class="bb-muted">配置验证动态，处理人工核验，查看网站账号与 B 站身份的对应关系。</p></header>
 <p id="ba-message" role="status" aria-live="polite">正在加载…</p>
 <form id="ba-settings" class="bb-card">
@@ -26,4 +32,4 @@
 </section>
 <dialog id="ba-review-dialog" class="bb-dialog bb-card"><form id="ba-review-form"><h2 id="ba-review-title">人工核验</h2><p id="ba-review-target"></p><p><a id="ba-review-link" target="_blank" rel="noopener noreferrer">打开指定动态核对真实评论</a></p><p id="ba-review-code" class="bb-code-row"></p><label for="ba-comment-id">真实评论编号</label><input id="ba-comment-id" inputmode="numeric" maxlength="20" placeholder="评论分享链接中 reply 后的数字"><label class="bb-check-label"><input type="checkbox" id="ba-checked">已直接核对指定动态的一级评论、作者 UID 和完整口令，未仅凭截图确认</label><label for="ba-review-note">核验说明</label><textarea id="ba-review-note" maxlength="500" rows="3" required></textarea><p id="ba-review-error" class="bb-error" role="alert"></p><div class="bb-actions"><button type="submit">确认通过</button><button type="button" id="ba-reject" class="bb-secondary">驳回申请</button><button type="button" id="ba-review-close" class="bb-secondary">取消</button></div></form></dialog>
 <dialog id="ba-revoke-dialog" class="bb-dialog bb-card"><form id="ba-revoke-form"><h2>撤销绑定</h2><p id="ba-revoke-target"></p><p class="bb-muted">保留身份和历史记录，原账号可以重新验证同一 UID。</p><label for="ba-revoke-note">撤销原因</label><textarea id="ba-revoke-note" maxlength="500" required rows="3"></textarea><p id="ba-revoke-error" class="bb-error" role="alert"></p><div class="bb-actions"><button type="submit">确认撤销</button><button type="button" id="ba-revoke-close" class="bb-secondary">取消</button></div></form></dialog>
-</main><script src="{% static 'dashboard/js/bilibili_binding_admin.js' %}" defer></script></body></html>
+</section>

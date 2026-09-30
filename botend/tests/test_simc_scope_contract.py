@@ -3,26 +3,36 @@ import copy
 import unittest
 from pathlib import Path
 from scripts.build_simc_scope_contract import compile_contract, render_contract, display_details
+from scripts.simc_scope_resolution import ScopeResolver
 
 
 class ScopeContractTests(unittest.TestCase):
-    def test_project_scope_patch_binds_current_simc_revision(self):
-        patch = (
+    def test_project_scope_patch_preserves_deployed_ledger_prefix(self):
+        import hashlib
+        patch_path = (
+            Path(__file__).resolve().parents[2]
+            / 'simc_patches/0059-refresh-reviewed-scope-contract-ac0f.patch'
+        )
+        patch = patch_path.read_text(encoding='utf-8')
+        self.assertEqual(
+            hashlib.sha256(patch_path.read_bytes()).hexdigest(),
+            'aae132fd139f9fa3023ef65d0cf8b3892db373069c971b57ac01dd866fd1f2d9',
+        )
+        self.assertIn('skill_damage_scope_revision = "ac0f3a3c7ff9e521137c0ca1760d548330c697f3";', patch)
+        self.assertIn('skill_damage_scope_build = "12.1.0.69814";', patch)
+        self.assertNotIn('skill_damage_scope_revision = "9f6eac065914e82578de398c08201dffc2885124";', patch)
+
+    def test_scope_contract_requires_exact_reviewed_revision_and_build(self):
+        # A newer build is a new DBC universe and cannot reuse the frozen review.
+        enabled_patches = {p.name for p in (
+            Path(__file__).resolve().parents[2] / 'simc_patches'
+        ).glob('*.patch')}
+        self.assertNotIn('0060-allow-newer-scope-contract-builds.patch', enabled_patches)
+        old_contract_patch = (
             Path(__file__).resolve().parents[2]
             / 'simc_patches/0059-refresh-reviewed-scope-contract-ac0f.patch'
         ).read_text(encoding='utf-8')
-        self.assertIn('skill_damage_scope_revision = "9f6eac065914e82578de398c08201dffc2885124";', patch)
-        self.assertIn('skill_damage_scope_build = "12.1.0.69875";', patch)
-        self.assertNotIn('skill_damage_scope_revision = "ac0f3a3c7ff9e521137c0ca1760d548330c697f3";', patch)
-
-    def test_scope_contract_uses_minimum_game_build_not_exact_git_revision(self):
-        patch = (
-            Path(__file__).resolve().parents[2]
-            / 'simc_patches/0060-allow-newer-scope-contract-builds.patch'
-        ).read_text(encoding='utf-8')
-        self.assertIn('skill_damage_game_build_at_least', patch)
-        self.assertNotIn('+  if ( sim.skill_damage_revision != skill_damage_scope_revision', patch)
-        self.assertIn('sim.skill_damage_game_build', patch)
+        self.assertIn('skill_damage_scope_revision = "ac0f3a3c7ff9e521137c0ca1760d548330c697f3";', old_contract_patch)
 
     def review(self):
         def part(index, decision):
@@ -124,3 +134,142 @@ class ScopeContractTests(unittest.TestCase):
         details=display_details(row)
         self.assertEqual([d['value_kind'] for d in details],['percentage_points','percent'])
         self.assertEqual([d['base_value'] for d in details],[20,15])
+
+
+class ReviewedScopeIdentityTests(unittest.TestCase):
+    """真实复核签名的完整集合必须先于任何宽松分类通过门禁。"""
+
+    def setUp(self):
+        self.assertTrue(hasattr(ScopeResolver, 'enforce_reviewed_scope'),
+                        '正式复核目前没有 fail-closed exact-set 门禁')
+        import json
+        self.audit = json.loads((Path(__file__).resolve().parents[2] /
+                                 'scripts/simc_scope_reviewed_1d3897.json').read_text())
+        self.resolver = ScopeResolver.__new__(ScopeResolver)
+        self.resolver.revision = self.audit['revision']
+        self.resolver.reviewed_build = self.audit['build']
+
+    def test_reviewed_scope_requires_exact_build_catalog_gate(self):
+        from pathlib import Path
+        with self.assertRaisesRegex(ValueError, 'build'):
+            ScopeResolver(Path('/missing-simc-source'), self.audit['revision'], {
+                'simc_revision': self.audit['revision'], 'game_build': '12.1.0.69875',
+            })
+        with self.assertRaisesRegex(ValueError, 'revision'):
+            ScopeResolver(Path('/missing-simc-source'), self.audit['revision'], {
+                'simc_revision': '0' * 40, 'game_build': self.audit['build'],
+            })
+        dbc, bindings = self.component(341514)
+        del self.resolver.reviewed_build
+        with self.assertRaisesRegex(ValueError, 'build'):
+            self.resolver.enforce_reviewed_scope(dbc, bindings)
+
+    def component(self, effect_id):
+        fact = self.audit['effects'][str(effect_id)]
+        dbc = {k: copy.deepcopy(fact[k]) for k in (
+            'effect_id', 'source_spell_id', 'effect_index', 'class_family',
+            'type', 'subtype', 'misc1', 'misc2', 'method', 'flags',
+            'base_value', 'mastery_coefficient', 'mastery_scaled')}
+        dbc['affected_spells'] = [{'spell_id': sid} for sid in fact['affected']]
+        bindings = [{'target_spell_id': sid, '传递到的伤害技能': []}
+                    for sid in fact['registered']]
+        bindings += [{'target_spell_id': 0, '传递到的伤害技能': [sid]}
+                     for sid in fact['damage']]
+        for binding in bindings:
+            binding.update(layer=fact['layers_fields'][0][0], field=fact['layers_fields'][0][1])
+        return dbc, bindings
+
+    def test_reviewed_revision_and_complete_identity_are_mandatory(self):
+        effect = 341514  # Fury Recklessness, public mask, not a local damage component.
+        dbc, bindings = self.component(effect)
+        self.assertEqual(self.resolver.enforce_reviewed_scope(dbc, bindings),
+                         '已复核公共掩码')
+        for key, value in [('source_spell_id', 1), ('effect_index', 99),
+                           ('class_family', 3), ('type', 35), ('subtype', 108),
+                           ('misc1', 0), ('misc2', 963), ('method', 'dbc.spells_by_label'),
+                           ('flags', [0, 0, 0, 0]), ('base_value', 999),
+                           ('mastery_coefficient', 99), ('mastery_scaled', True)]:
+            changed = copy.deepcopy(dbc)
+            changed[key] = value
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                self.resolver.enforce_reviewed_scope(changed, bindings)
+        for changed_revision in ('ac0f3a3c7ff9e521137c0ca1760d548330c697f3', '0' * 40):
+            self.resolver.revision = changed_revision
+            with self.subTest(revision=changed_revision), self.assertRaises(ValueError):
+                self.resolver.enforce_reviewed_scope(dbc, bindings)
+
+    def test_missing_added_and_wrong_native_sets_cannot_fall_back(self):
+        for effect in (341514, 1015106, 1277870):
+            dbc, bindings = self.component(effect)
+            for target in ([], dbc['affected_spells'][1:],
+                           dbc['affected_spells'] + [{'spell_id': 99999999}]):
+                changed = copy.deepcopy(dbc)
+                changed['affected_spells'] = target
+                with self.subTest(effect=effect, target=target[:1]), self.assertRaises(ValueError):
+                    self.resolver.enforce_reviewed_scope(changed, bindings)
+            for changed_bindings in ([], bindings[:-1],
+                                     bindings + [{'target_spell_id': 99999999,
+                                                  '传递到的伤害技能': [99999999],
+                                                  'layer': 'wrong', 'field': 'wrong'}],
+                                     bindings + [{'target_spell_id': 99999999,
+                                                  '传递到的伤害技能': [],
+                                                  'layer': self.audit['effects'][str(effect)]['layers_fields'][0][0],
+                                                  'field': self.audit['effects'][str(effect)]['layers_fields'][0][1]}],
+                                     bindings + [{'target_spell_id': 0,
+                                                  '传递到的伤害技能': [99999999],
+                                                  'layer': self.audit['effects'][str(effect)]['layers_fields'][0][0],
+                                                  'field': self.audit['effects'][str(effect)]['layers_fields'][0][1]}]):
+                with self.subTest(effect=effect, bindings=len(changed_bindings)), self.assertRaises(ValueError):
+                    self.resolver.enforce_reviewed_scope(dbc, changed_bindings)
+            if bindings:
+                changed = copy.deepcopy(bindings)
+                changed[0]['layer'] = 'wrong'
+                with self.assertRaises(ValueError):
+                    self.resolver.enforce_reviewed_scope(dbc, changed)
+                changed = copy.deepcopy(bindings)
+                changed[0]['field'] = 'wrong'
+                with self.assertRaises(ValueError):
+                    self.resolver.enforce_reviewed_scope(dbc, changed)
+
+    def test_new_or_missing_reviewed_effect_fails_closed(self):
+        dbc, bindings = self.component(341514)
+        dbc['effect_id'] = 99999999
+        with self.assertRaises(ValueError):
+            self.resolver.enforce_reviewed_scope(dbc, bindings)
+        with self.assertRaises(ValueError):
+            self.resolver.resolve(dbc, bindings, '已解析技能应用关系')
+        with self.assertRaises(ValueError):
+            self.resolver.validate_reviewed_inventory(set(self.audit['effects']) - {'341514'})
+
+    def test_conditional_category_mixed_talent_is_preserved_not_called_pure_local(self):
+        unholy, native = self.component(1000040)
+        decision, _, evidence = self.resolver.resolve(unholy, native, '已解析技能应用关系')
+        self.assertEqual(decision, '保留')
+        self.assertEqual(evidence['判定路径'], '已复核混合条件类别保留')
+        self.assertEqual(evidence['条件性类别目标'], 327096)
+        self.assertEqual(evidence['类别伤害类型'], '守护者')
+        changed = copy.deepcopy(native)
+        changed[0]['target_spell_id'] = 326984
+        with self.assertRaisesRegex(ValueError, '身份/集合漂移'):
+            self.resolver.resolve(unholy, changed, '已解析技能应用关系')
+
+    def test_reviewed_identity_cannot_be_reclassified_through_a_different_path(self):
+        dbc, bindings = self.component(341514)
+        with self.assertRaisesRegex(ValueError, '判定路径漂移'):
+            self.resolver.resolve(dbc, bindings, '公共伤害乘区')
+
+    def test_fury_public_component_and_unaffected_local_component_remain_separate(self):
+        dbc, bindings = self.component(341514)
+        self.resolver.spells = {sid: {'_id': sid, '_class_flags_family': 4,
+                                      '_class_flags': [512, 0, 0, 0]}
+                                for sid in self.audit['effects']['341514']['affected']}
+        decision, _, evidence = self.resolver.resolve(dbc, bindings, '已解析技能应用关系')
+        self.assertEqual((decision, evidence['判定路径']), ('应剔除', '已复核公共掩码'))
+        local = {'effect_id': 1218720, 'source_spell_id': 1719, 'effect_index': 13,
+                 'class_family': 4, 'type': 6, 'subtype': 108, 'misc1': 15, 'misc2': 0,
+                 'method': 'dbc.effect_affects_spells', 'flags': [0, 8192, 0, 0],
+                 'affected_spells': [{'spell_id': sid} for sid in (85384, 96103, 335098, 335100)]}
+        self.resolver.damage = {85384, 96103, 335098, 335100, 23881}
+        self.resolver.damage_families = {4: self.resolver.damage}
+        decision, _, evidence = self.resolver.resolve(local, [], '已解析技能应用关系')
+        self.assertEqual((decision, evidence['判定路径']), ('保留', 'DBC 部分技能选择器'))

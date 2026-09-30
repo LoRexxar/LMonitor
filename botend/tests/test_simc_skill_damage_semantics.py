@@ -120,6 +120,29 @@ class SkillDamageSemanticRegressionTests(SimpleTestCase):
         rows = flatten_single_talent_damage_variants(high, high, [], global_effects=[bound])
         self.assertEqual([row['variant']['scenario_tokens'] for row in rows], [[], ['buff.enrage']])
 
+    def test_mixed_global_state_keeps_native_child_action_under_display_root(self):
+        # Exporter emits children separately; Python merges them under reporting_root later.
+        child = damage_action(scenarios=(('buff.enrage', 'self', 184362, 150),))
+        child.update(token='raging_blow_oh', spell_id=85384,
+                     reporting_root_token='raging_blow', reporting_root_spell_id=85288,
+                     parent_token='raging_blow')
+        actor = {'class': 'warrior', 'actions': [child]}
+        effect = {
+            'source_type': 'runtime_state', 'scope_evidence': 'declared_global_damage_state',
+            'partial_state': True, 'lower_skill_policy': 'exclude_global_keep_explicit_local',
+            'runtime_conditions': [{'scope': 'self', 'spell_id': 184362,
+                                    'token': 'buff.enrage'}],
+            'local_skill_bindings': [{'spell_id': 392936, 'effect_index': 2,
+                                      'skill_spell_ids': [85384, 96103]}],
+        }
+        rows = flatten_single_talent_damage_variants(actor, actor, [], global_effects=[effect])
+        self.assertEqual([r['variant']['scenario_tokens'] for r in rows], [[], ['buff.enrage']])
+        unrelated = copy.deepcopy(actor)
+        unrelated['actions'][0].update(token='bloodthirst', spell_id=23881,
+                                       reporting_root_token='bloodthirst', reporting_root_spell_id=23881)
+        rows = flatten_single_talent_damage_variants(unrelated, unrelated, [], global_effects=[effect])
+        self.assertEqual([r['variant']['scenario_tokens'] for r in rows], [[]])
+
     def test_mixed_talent_requires_explicit_local_skill_binding(self):
         reference = {'class': 'warrior', 'actions': [damage_action()]}
         selected = {'class': 'warrior', 'actions': [damage_action()]}

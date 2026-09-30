@@ -3531,7 +3531,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertEqual({row.pk for row in rows}, {common.pk, slayer.pk, mountain_thane.pk})
 
-    def test_mapping_refresh_creates_new_identity_and_keeps_old_snapshot_published(self):
+    def test_scope_contract_refresh_creates_new_identity_and_keeps_old_snapshot_published(self):
         SimcBackendBinary.objects.update_or_create(
             identifier='production', defaults={
                 'name': '正式服', 'is_active': True,
@@ -3541,7 +3541,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         old = SimcSkillDamageSnapshot.objects.create(
             simc_revision='f' * 40, game_build='12.1.0.69814',
-            schema_revision=42, status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+            schema_revision=43, status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             generated_spec_count=1, completed_at=timezone.now(),
             payload={
                 'payload_format': 'skill_damage_product_v1',
@@ -3557,7 +3557,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         )
         self.assertEqual(SimcSkillDamageSnapshotService.latest_display_snapshot().pk, old.pk)
         service = SimcSkillDamageSnapshotService.create_for_current_backend(claim=True)
-        self.assertEqual(service.snapshot.schema_revision, 43)
+        self.assertEqual(service.snapshot.schema_revision, SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION)
         self.assertNotEqual(service.snapshot.pk, old.pk)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_RUNNING)
         self.assertEqual(SimcSkillDamageSnapshotService.latest_display_snapshot().pk, old.pk)
@@ -5532,7 +5532,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         identity_renderer = script.split('function renderSimcSkillIdentity(action) {', 1)[1].split(
-            'function renderSimcSkillDamageSnapshot(snapshot) {', 1,
+            '\nfunction ', 1,
         )[0]
         self.assertIn('action.display_name', identity_renderer)
         self.assertIn('action.spell_id', identity_renderer)
@@ -5582,7 +5582,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('group.baseDamage += baseDamage', renderer)
         self.assertIn('formatSimcSkillDamageFactor(group.baseDamage)', renderer)
         self.assertIn(
-            'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = [])',
+            'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = [],',
             renderer,
         )
         self.assertIn('`点出${talentLabel}`', renderer)
@@ -5596,12 +5596,12 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertNotIn('合并 ${action.component_count} 个施法分量', renderer)
         self.assertIn("const fallbackTalentLabel = talentName.endsWith('天赋') ? talentName : `${talentName}天赋`", renderer)
         self.assertIn("const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`)", renderer)
-        self.assertIn('${escapeHtml(variantLabel)}</div>`', renderer)
+        self.assertIn('${renderSimcConditionDescription(variantLabel, variant)}', renderer)
         self.assertNotIn('const treeLabel =', renderer)
         self.assertNotIn('${escapeHtml(talentName)}</div>${treeLabel', renderer)
 
         identity_renderer = script.split('function renderSimcSkillIdentity(action) {', 1)[1].split(
-            'function renderSimcSkillDamageSnapshot(snapshot) {', 1,
+            '\nfunction ', 1,
         )[0]
         self.assertIn('${escapeHtml(name)}', identity_renderer)
         self.assertIn('技能 ID：${escapeHtml(spellId)}', identity_renderer)
@@ -5642,7 +5642,7 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn("`talent:${variant.talent_id}`", renderer)
         self.assertIn('`state:${JSON.stringify([', renderer)
         self.assertIn("String(condition.scope || '')", renderer)
-        self.assertIn('Number.isInteger(stacks) && stacks > 0 ? stacks : 1', renderer)
+        self.assertIn('Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1', renderer)
         self.assertIn('condition.stack_values', renderer)
         self.assertIn('层等伤害', renderer)
         self.assertIn('rowConditionKeys.some(key => excludedFilterKeys.has(key))', renderer)
@@ -5652,22 +5652,19 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn("filterTabs.forEach(tab => tab.addEventListener('click'", initializer)
         self.assertIn("conditionFilters.addEventListener('change'", initializer)
 
-    def test_global_effects_are_semantically_deduplicated_and_rendered_as_compact_cards(self):
+    def test_backend_canonical_global_effects_render_as_compact_cards_without_client_dedup(self):
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
             'function initSimcSkillDamagePanel()', 1,
         )[0]
 
-        self.assertIn('globalEffectDisplayKey(effect)', renderer)
-        self.assertIn('globalEffectDisplayPriority(effect)', renderer)
-        self.assertIn("String(effect.effect_id || '')", renderer)
-        self.assertIn("String(effect.source_type || '')", renderer)
-        self.assertIn('Number.isInteger(Number(effect.talent_id))', renderer)
-        self.assertIn('Number.isInteger(Number(effect.hero_subtree_id))', renderer)
+        self.assertNotIn('globalEffectDisplayKey', renderer)
+        self.assertNotIn('globalEffectDisplayPriority', renderer)
+        self.assertIn('effect.effect_details', renderer)
         self.assertIn("String(condition.token || '').trim()", renderer)
         self.assertIn("String(condition.scope || '')", renderer)
         self.assertIn('Number.isInteger(spellId) && spellId > 0 ? spellId : 0', renderer)
-        self.assertIn('Number.isInteger(stacks) && stacks > 0 ? stacks : 1', renderer)
+        self.assertIn('Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1', renderer)
         self.assertIn("`${name}（${stackLabels.join('，')}）`", renderer)
         self.assertNotIn(".filter(effect => effect.source_type === 'specialization_passive')", renderer)
         self.assertIn('? actor.global_skill_effects', renderer)

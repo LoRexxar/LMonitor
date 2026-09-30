@@ -9,7 +9,7 @@ from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect, render
 from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.views import View
@@ -107,7 +107,7 @@ class BilibiliAdminBase(BindingViewBase):
 
 class BilibiliBindingAdminPage(BilibiliAdminBase):
     def get(self, request):
-        return render(request, 'dashboard/bilibili_binding_admin.html')
+        return redirect('/dashboard/?section=bilibili-binding')
 
 
 CONFIG_FIELDS = ('enabled', 'require_for_registration', 'dynamic_url', 'challenge_minutes',

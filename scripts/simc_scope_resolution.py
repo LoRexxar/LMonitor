@@ -4,6 +4,7 @@ from collections import defaultdict
 import hashlib
 import json
 import re
+from functools import lru_cache
 from pathlib import Path
 
 # 已在固定版本的 DBC 完整集合及原生注册中复核的公共伤害选择位。
@@ -20,16 +21,8 @@ COMMON_SELECTORS = {
     107: (0, 65536, '恶魔猎手通用伤害技能'),
     224: (0, 1, '唤魔师通用伤害技能'),
 }
-REVIEWED_REVISION = 'ac0f3a3c7ff9e521137c0ca1760d548330c697f3'
-LOCAL_LABEL_SELECTORS = {
-    # Unholy Bond 的 Runeforge label：DBC 与 native evidence 都只指向这两个符文熔铸效果。
-    (15, 218, 23, 963): {
-        'ids': frozenset({326984, 327096}),
-        'registered_targets': frozenset({327096}),
-        'native_damage_targets': frozenset(),
-        'label': '符文熔铸效果',
-    },
-}
+REVIEWED_REVISION = '1d3897ef4adefc8e47a43989eed81b6618ce7bef'
+REVIEWED_SCOPE_FACTS = Path(__file__).with_name('simc_scope_reviewed_1d3897.json')
 LOCAL_SELECTORS = {
     (224, (4096, 0, 0, 0)): {
         'ids': {362969, 1265872}, 'label': '碧蓝打击与碧蓝横扫',
@@ -98,6 +91,70 @@ def load_dbc(source):
 
 
 class ScopeResolver:
+    @staticmethod
+    @lru_cache(maxsize=1)
+    def reviewed_document():
+        facts = json.loads(REVIEWED_SCOPE_FACTS.read_text(encoding='utf-8'))
+        if facts['revision'] != REVIEWED_REVISION:
+            raise ValueError('复核签名与解析器 revision 不一致')
+        return facts
+
+    @staticmethod
+    def reviewed_facts():
+        return ScopeResolver.reviewed_document()['effects']
+
+    def validate_reviewed_inventory(self, present):
+        """缺失的受管 DBC 效果不能因未进入逐项分类而静默消失。"""
+        missing = set(self.reviewed_facts()) - {str(eid) for eid in present}
+        if missing:
+            raise ValueError('已复核效果缺失：' + ','.join(sorted(missing, key=int)))
+
+    def enforce_reviewed_scope(self, e, bindings):
+        """复核身份和三个原生/DBC 集合必须等值，失败不允许后续宽松规则接管。"""
+        if self.revision != REVIEWED_REVISION:
+            raise ValueError('复核作用域 revision 不匹配')
+        if getattr(self, 'reviewed_build', None) != self.reviewed_document()['build']:
+            raise ValueError('复核作用域 catalog build 未通过身份门禁')
+        expected = self.reviewed_facts().get(str(e['effect_id']))
+        if expected is None:
+            raise ValueError('新增未复核选择器效果：' + str(e['effect_id']))
+        actual = {key: e.get(key) for key in (
+            'effect_id', 'source_spell_id', 'effect_index', 'class_family',
+            'type', 'subtype', 'misc1', 'misc2', 'method', 'flags',
+            'base_value', 'mastery_coefficient', 'mastery_scaled')}
+        actual.update(
+            affected=sorted({s['spell_id'] for s in e['affected_spells']}),
+            registered=sorted({b['target_spell_id'] for b in bindings if b.get('target_spell_id')}),
+            damage=sorted({sid for b in bindings for sid in b.get('传递到的伤害技能', []) if sid}),
+            layers_fields=[list(pair) for pair in sorted({(b['layer'], b['field']) for b in bindings})],
+        )
+        for key, value in actual.items():
+            if value != expected[key]:
+                raise ValueError(f'已复核效果 {e["effect_id"]} {key} 身份/集合漂移')
+        if expected['decision'] == '已复核混合条件类别保留':
+            category = expected.get('conditional_category') or {}
+            if category.get('target_spell_id') not in actual['affected'] or (
+                    category.get('target_spell_id') not in actual['registered'] or
+                    category.get('target_effect_index') != 3 or
+                    category.get('target_effect_id') != 1259202 or
+                    category.get('category') != '守护者'):
+                raise ValueError('已复核混合条件类别的间接路径不完整')
+        return expected['decision']
+
+    @staticmethod
+    def reviewed_selector_candidate(e):
+        family, flags = e['class_family'], e['flags']
+        if (family, tuple(flags)) in LOCAL_SELECTORS and e['subtype'] in (107, 108):
+            return True
+        common = COMMON_SELECTORS.get(family)
+        if e['subtype'] in (107, 108, 271) and e['misc1'] in (0, 7, 15, 22):
+            if common and flags[common[0]] & common[1]:
+                return True
+            if family == 10 and flags[1] & 16384 and flags[2] & 2:
+                return True
+        return (e['subtype'] in (107, 108, 218, 219, 271, 537)
+                and any(flags[word] & bit for word, bit, _ in CATEGORY_SELECTORS.get(family, [])))
+
     def own_damage_relations(self, sid):
         """同源法术的伤害本体也属于状态的局部分量，不能随公共修正一起清除。"""
         result=[]
@@ -111,9 +168,19 @@ class ScopeResolver:
 
     def __init__(self, source, revision, catalog):
         self.source, self.revision = source, revision
+        self.reviewed_build = None
+        if revision == REVIEWED_REVISION:
+            reviewed_build = self.reviewed_document()['build']
+            if catalog.get('simc_revision') != revision:
+                raise ValueError('复核作用域 catalog revision 不匹配')
+            if catalog.get('game_build') != reviewed_build:
+                raise ValueError('复核作用域 catalog build 不匹配')
+            self.reviewed_build = reviewed_build
         # 复核记录针对选择器的完整范围，不针对某个天赋名称。
         self.skill_sets = json.loads((Path(__file__).with_name('simc_scope_skill_sets.json')).read_text(encoding='utf-8'))
         self.spells, self.effects = load_dbc(source)
+        if revision == REVIEWED_REVISION:
+            self.validate_reviewed_inventory(self.effects)
         self.by_spell = defaultdict(list)
         for e in self.effects.values(): self.by_spell[e['_spell_id']].append(e)
         self.damage = {sid for sid, effects in self.by_spell.items() if any(
@@ -156,9 +223,24 @@ class ScopeResolver:
                 self.colors[row[3]].add(row[0])
 
     def resolve(self, e, bindings, scope, reads=()):
+        reviewed_decision = None
+        if self.revision == REVIEWED_REVISION and (
+                str(e['effect_id']) in self.reviewed_facts() or self.reviewed_selector_candidate(e)):
+            reviewed_decision = self.enforce_reviewed_scope(e, bindings)
         evidence = {'依据版本': self.revision, '判断输入': 'DBC 类型、选择位、标签、触发关系及原生注册；不使用描述'}
         def result(decision, reason, **facts):
+            if reviewed_decision and facts.get('判定路径') != reviewed_decision:
+                raise ValueError(f'已复核效果 {e["effect_id"]} 判定路径漂移')
             return decision, reason, {**evidence, **facts}
+        if reviewed_decision == '已复核混合条件类别保留':
+            category = self.reviewed_facts()[str(e['effect_id'])]['conditional_category']
+            return result('保留', '条件性修改指定目标的守护者类别伤害；与该天赋其余局部分量一起保留，不误报为全部技能增伤。',
+                          判定路径=reviewed_decision,
+                          条件性类别目标=category['target_spell_id'],
+                          目标效果ID=category['target_effect_id'],
+                          目标效果编号=category['target_effect_index'],
+                          类别伤害类型=category['category'],
+                          生效前提=category['condition'])
         if scope == '公共伤害乘区':
             return result('应剔除', '原生代码登记在角色或宠物的公共伤害修正器中。', 判定路径='公共修正器')
         if e['type'] in (6, 35, 65) and e['subtype'] in CATEGORY_AURAS and not any(e['flags']) and not e['affected_spells']:
@@ -166,24 +248,9 @@ class ScopeResolver:
             return result('应剔除', 'DBC 明确修正整个' + category + '类别，属于全局效果。', 判定路径='DBC 类别类型', 类别=category, 效果类型=e['subtype'], 范围参数=e['misc1'])
         targets = {s['spell_id'] for s in e['affected_spells']}
         native_targets = {sid for b in bindings for sid in b.get('传递到的伤害技能', []) if sid}
-        registered_targets = {b.get('target_spell_id') for b in bindings if b.get('target_spell_id')}
-        local_label = LOCAL_LABEL_SELECTORS.get(
-            (e['class_family'], e['subtype'], e['misc1'], e['misc2'])
-        ) if self.revision == REVIEWED_REVISION else None
-        if (local_label and e['method'] == 'dbc.spells_by_label'
-                and not any(e['flags']) and targets == set(local_label['ids'])
-                and registered_targets == set(local_label['registered_targets'])
-                and native_targets == set(local_label['native_damage_targets'])):
-            return result(
-                '保留',
-                'DBC 标签与原生注册都只限定' + local_label['label'] + '，不是职业公共伤害乘区。',
-                判定路径='已复核局部标签选择器',
-                标签=e['misc2'],
-                完整DBC集合=sorted(targets),
-                原生注册目标=sorted(registered_targets),
-            )
+
         local = LOCAL_SELECTORS.get((e['class_family'], tuple(e['flags']))) if self.revision == REVIEWED_REVISION else None
-        if local and e['subtype'] in (107,108) and targets == local['ids'] and native_targets <= targets:
+        if local and e['subtype'] in (107,108) and targets == local['ids'] and native_targets == set(self.reviewed_facts()[str(e['effect_id'])]['damage']):
             text = (self.source/local['file']).read_text(encoding='utf-8')
             if all(marker in text for marker in local['markers']):
                 sites=[]
@@ -283,6 +350,8 @@ class ScopeResolver:
             if parts and set().union(*(set(part['法术集合']) for part in parts)) == targets:
                 return result('保留', '每个选择位分别指向具体技能或其施法分量，合并后仍是明确的技能集合。',
                               判定路径='具体技能选择位的并集', 选择位分解=parts, 完整DBC集合=sorted(targets))
+        if reviewed_decision:
+            raise ValueError(f'已复核效果 {e["effect_id"]} 无法按已审计路径分类')
         return None
 
     def certified_skill_set(self, e, targets):

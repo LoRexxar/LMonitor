@@ -48,6 +48,23 @@ payload.actors[0].global_skill_effects = [{display_name:'激怒', source_spell_i
         effect_details:[{label:'自动攻击伤害',value_kind:'percent',base_value:15}]},
     {display_name:'防御姿态',source_spell_ids:[386208],
         projections:[{kind:'damage_multiplier',value:0.9}],runtime_condition:'防御姿态生效时'}];
+// Metadata uses 0 for non-hero talents; these remain visible in either tree.
+for (const treeId of ['60', '61']) {
+    element('simc-skill-damage-hero-tree').value = treeId;
+    for (const unrestricted of [null, 0]) {
+        payload.actors[0].actions[0].variant.hero_subtree_id = unrestricted;
+        payload.actors[0].global_skill_effects[0].hero_subtree_id = unrestricted;
+        assert.match(renderText(), /嗜血/);
+        assert.match(element('simc-skill-damage-global-modifiers').innerHTML, /激怒/);
+    }
+    payload.actors[0].actions[0].variant.hero_subtree_id = Number(treeId);
+    assert.match(renderText(), /嗜血/);
+    payload.actors[0].actions[0].variant.hero_subtree_id = treeId === '60' ? 61 : 60;
+    assert.doesNotMatch(renderText(), /嗜血/);
+}
+payload.actors[0].actions[0].variant = {};
+delete payload.actors[0].global_skill_effects[0].hero_subtree_id;
+element('simc-skill-damage-hero-tree').value = '60';
 render();
 const globalHtml = element('simc-skill-damage-global-modifiers').innerHTML;
 assert.match(element('simc-skill-damage-body').innerHTML, /data-wow-item-tooltip="攻击目标并造成伤害。"/);
@@ -64,7 +81,9 @@ payload.actors[0].global_skill_effects.push({display_name:'配置变化的增伤
     projections:[{kind:'damage_multiplier_range',minimum:1.1,maximum:1.3}]});
 render();
 assert.match(element('simc-skill-damage-global-modifiers').innerHTML,/已验证条件下的加成：\+10\.00% 至 \+30\.00%/);
-assert.match(element('simc-skill-damage-global-modifiers').innerHTML,/基础加成：直接伤害 \+10\.00%/);
+assert.match(element('simc-skill-damage-global-modifiers').innerHTML,/直接伤害 \+10\.00%/);
+assert.match(element('simc-skill-damage-global-modifiers').innerHTML,/自身激怒存在时/);
+assert.match(element('simc-skill-damage-global-modifiers').innerHTML,/防御姿态生效时/);
 payload.actors[0].global_skill_effects.push({display_name:'另一配置的增伤',source_spell_ids:[999],
     projections:[{kind:'damage_multiplier_range',minimum:1.2,maximum:1.4}]});
 render();
@@ -218,3 +237,69 @@ assert.match(element('simc-skill-damage-hero-tree').innerHTML, /屠戮者/);
 assert.match(element('simc-skill-damage-hero-tree').innerHTML, /山丘领主/);
 payload.actors = loadedActors;
 console.log('索引首屏也能加载英雄天赋选择项。');
+
+// 来源链直接消费后端标签：不同 proc 的同 SpellID / 数值不能合并。
+const procProduct = {final_normalized_damage:120, final_normalized_damage_by_target:{'1':120,'2':240}};
+payload.actors[0].actions = ['碎甲猛击', '斩杀', '雷霆轰击'].map((name, index) => ({
+    token:`native_proc_${index}`, spell_id:435791, display_name:'闪电打击', variant:{},
+    source_context:{relation:'reporting_parent', status:'resolved', display_label:`报告来源：${name} → 闪电打击`},
+    product:structuredClone(procProduct),
+}));
+element('simc-skill-damage-hero-tree').value='60';
+target.dataset.targetCount='1';
+const sourcesHtml = render();
+assert.equal((sourcesHtml.match(/技能 ID：435791/g) || []).length, 3);
+for (const name of ['碎甲猛击', '斩杀', '雷霆轰击']) assert.match(sourcesHtml, new RegExp(`报告来源：${name} → 闪电打击`));
+payload.actors[0].actions[0].source_context.display_label = '报告来源：<img src=x onerror="bad()">';
+assert.match(render(), /报告来源：&lt;img/);
+assert.doesNotMatch(render(), /<img src=x/);
+const legacy = {display_name:'旧技能', spell_id:1, parent_token:'unknown_execute'};
+assert.doesNotMatch(context.renderSimcSkillIdentity(legacy), /斩杀|触发/);
+assert.doesNotMatch(context.renderSimcSkillIdentity(legacy), /unknown_execute/);
+legacy.source_context = {display_label:'报告来源：unknown_execute（来源未解析）'};
+assert.match(context.renderSimcSkillIdentity(legacy), /来源未解析/);
+console.log('不同来源 proc 保留全部行并渲染转义后的后端来源链。');
+payload.actors[0].actions[0].variant.activation_context = {
+    display_label:'技能解锁：肆意放纵（前置天赋固定）', description:'固定天赋前提：<已核对>',
+};
+assert.match(render(), /技能解锁：肆意放纵/);
+assert.doesNotMatch(render(), /前置天赋固定/);
+payload.actors[0].global_skill_effects = [{display_name:'测试全局效果',
+    runtime_condition:'全局增伤分量在职业初始化前排除；生效条件不改变作用域分类；倍率随天赋等级变化；仅战斗中',
+    effect_details:[{label:'直接伤害',value_kind:'percent',base_value:15}]}];
+render();
+const conciseGlobalHtml = element('simc-skill-damage-global-modifiers').innerHTML;
+assert.doesNotMatch(conciseGlobalHtml, /职业初始化前排除|作用域分类|倍率随天赋等级变化|列出影响全技能|不重复叠乘/);
+assert.match(conciseGlobalHtml, /仅战斗中/);
+assert.match(conciseGlobalHtml, /直接伤害 \+15\.00%/);
+assert.match(render(), /固定天赋前提：&lt;已核对>/);
+
+// 唯一 effects 由服务端负责；类别效果保留单位和条件，不另画同值 projection。
+payload.actors[0].global_skill_effects = [{display_name:'类别效果',
+    effect_details:[{label:'自动攻击伤害', value_kind:'percent', base_value:15},
+        {label:'暴击率',value_kind:'percentage_points',base_value:3},
+        {label:'未解析类别',value_kind:'unknown'}],
+    projections:[{kind:'damage_multiplier',value:1.15}],
+    runtime_condition:'仅战斗中', runtime_conditions:[{token:'buff.test',name_zh:'测试状态',stacks:2}],
+}, {display_name:'未解析效果', value_status:'unresolved',
+    value_status_label:'数值未解析：等待同构建证据 <missing>'}];
+render();
+const categoryHtml = element('simc-skill-damage-global-modifiers').innerHTML;
+assert.match(categoryHtml, /自动攻击伤害 \+15\.00%/);
+assert.match(categoryHtml, /暴击率 \+3（百分点）/);
+assert.match(categoryHtml, /未解析类别 数值未解析/);
+assert.doesNotMatch(categoryHtml, /1\.15×|基础加成：|>全局伤害</);
+assert.match(categoryHtml, /仅战斗中/);
+assert.match(categoryHtml, /测试状态（2层）/);
+assert.match(categoryHtml, /数值未解析：等待同构建证据 &lt;missing>/);
+payload.actors[0].global_skill_effects[0].runtime_condition = '启用 buff.test';
+render();
+const localizedGlobalHtml = element('simc-skill-damage-global-modifiers').innerHTML;
+assert.doesNotMatch(localizedGlobalHtml, /buff\.test/);
+assert.match(localizedGlobalHtml, /自身存在/);
+assert.match(localizedGlobalHtml, /测试状态（2层）/);
+// 即使收到重复事实也不由 UI 静默删除；后端负责唯一化。
+payload.actors[0].global_skill_effects.push(structuredClone(payload.actors[0].global_skill_effects[0]));
+render();
+assert.equal((element('simc-skill-damage-global-modifiers').innerHTML.match(/>类别效果（2层）</g) || []).length, 2);
+console.log('全局卡优先类别明细、保留条件/单位，缺值诚实降级且无前端去重。');

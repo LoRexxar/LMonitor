@@ -5863,7 +5863,11 @@ function renderSimcSkillIdentity(action) {
     const spellId = action.spell_id || '-';
     const description = action.description_zh || action.description || '';
     const tooltipAttrs = renderSimcTooltipAttrs(name, description);
-    return `<div class="font-semibold text-gray-900"><span${tooltipAttrs}>${escapeHtml(name)}</span> <span class="font-mono text-xs font-normal text-stone-600">技能 ID：${escapeHtml(spellId)}</span></div>`;
+    const sourceLabel = action.source_context && action.source_context.display_label
+        || '';
+    const sourceHtml = sourceLabel
+        ? `<div class="mt-1 text-xs font-normal text-stone-600">${escapeHtml(sourceLabel)}</div>` : '';
+    return `<div class="font-semibold text-gray-900"><span${tooltipAttrs}>${escapeHtml(name)}</span> <span class="font-mono text-xs font-normal text-stone-600">技能 ID：${escapeHtml(spellId)}</span></div>${sourceHtml}`;
 }
 
 function renderSimcTooltipAttrs(name, description) {
@@ -5914,14 +5918,24 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const prefix = signed && value > 0 ? '+' : '';
         return `${prefix}${value.toFixed(2)}%`;
     };
-    const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = []) => {
+    const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = [], preserveRuntimeCondition = false) => {
         const condition = String(runtimeCondition || '').trim();
         const tokens = [...(Array.isArray(scenarioTokens) ? scenarioTokens : []),
             ...runtimeConditions.map(item => item && item.token).filter(Boolean)];
         const name = String(talentName || '').trim();
-        const parts = condition && !condition.startsWith('启用 ') ? [condition] : [];
+        // Legacy scenario markers are rendered below from localized state facts.
+        const parts = condition && !/^启用 (?:buff|debuff)\.[a-z0-9_]+$/.test(condition)
+            && (preserveRuntimeCondition || !condition.startsWith('启用 ')) ? [condition] : [];
         const talentLabel = name.endsWith('天赋') ? name : `${name}天赋`;
-        if (!parts.length && tokens.length && name && name !== '基础技能') parts.push(`点出${talentLabel}`);
+        // Talent selection and runtime state are independent conditions.
+        // A health/Buff label must not suppress the talent whose formula this is.
+        const selectedTalent = `点出${talentLabel}`;
+        if (name && name !== '基础技能' && !preserveRuntimeCondition
+            && !parts.some(part => part.includes(selectedTalent))) {
+            parts.unshift(selectedTalent);
+        } else if (!parts.length && tokens.length && name && name !== '基础技能') {
+            parts.push(selectedTalent);
+        }
         [...new Set(tokens.map(token => String(token || '').trim()).filter(Boolean))].forEach(token => {
             const separatorIndex = token.indexOf('.');
             const scope = separatorIndex >= 0 ? token.slice(0, separatorIndex) : '';
@@ -6081,72 +6095,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         return;
     }
 
-    const globalEffectDisplayPriority = effect => (
-        effect.source_type === 'talent' ? 3 : effect.source_type === 'specialization_passive' ? 2 : 1
-    );
-    const globalEffectDisplayKey = effect => {
-        const sourceIdentity = [
-            String(effect.effect_id || ''),
-            String(effect.source_type || ''),
-            [...(Array.isArray(effect.source_spell_ids) ? effect.source_spell_ids : [])].sort((a,b) => a-b),
-            Number.isInteger(Number(effect.talent_id)) ? Number(effect.talent_id) : 0,
-            String(effect.tree_type || ''),
-            Number.isInteger(Number(effect.hero_subtree_id)) ? Number(effect.hero_subtree_id) : 0,
-        ];
-        const runtimeConditions = Array.isArray(effect.runtime_conditions)
-            ? effect.runtime_conditions
-                .filter(condition => condition && typeof condition === 'object')
-                .map(condition => {
-                    const spellId = Number(condition.spell_id);
-                    const stacks = Number(condition.stacks);
-                    return [
-                        String(condition.token || '').trim(),
-                        String(condition.scope || ''),
-                        Number.isInteger(spellId) && spellId > 0 ? spellId : 0,
-                        Number.isInteger(stacks) && stacks > 0 ? stacks : 1,
-                    ];
-                })
-                .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right)))
-            : [];
-        const runtimeIdentity = runtimeConditions.length
-            ? runtimeConditions
-            : (Array.isArray(effect.scenario_tokens)
-                ? effect.scenario_tokens.map(token => [String(token), '', 0, 1]).sort()
-                : []);
-        const projectionKeys = (Array.isArray(effect.projections) ? effect.projections : [])
-            .filter(projection => projection && typeof projection === 'object')
-            .map(projection => [
-                String(projection.kind || ''),
-                String(projection.evidence_layer || ''),
-                hasFiniteSimcSkillDamageNumber(projection.value)
-                    ? formatSimcSkillDamageFactor(projection.value)
-                    : '',
-                hasFiniteSimcSkillDamageNumber(projection.percentage_points)
-                    ? formatSimcSkillDamageFactor(projection.percentage_points)
-                    : '',
-                hasFiniteSimcSkillDamageNumber(projection.minimum) ? String(projection.minimum) : '',
-                hasFiniteSimcSkillDamageNumber(projection.maximum) ? String(projection.maximum) : '',
-            ].join(':'))
-            .sort();
-        return JSON.stringify([sourceIdentity, runtimeIdentity, projectionKeys]);
-    };
-    const globalEffectsByKey = new Map();
-    selectedActors.forEach(actor => {
-        const effects = Array.isArray(actor.global_skill_effects)
-            ? actor.global_skill_effects
-            : [];
-        effects.forEach(effect => {
-            if (!effect || typeof effect !== 'object') return;
-            if (effect.hero_subtree_id != null && String(effect.hero_subtree_id) !== selectedHeroTree) return;
-            const key = globalEffectDisplayKey(effect);
-            if (!key) return;
-            const current = globalEffectsByKey.get(key);
-            if (!current || globalEffectDisplayPriority(effect) > globalEffectDisplayPriority(current)) {
-                globalEffectsByKey.set(key, effect);
-            }
-        });
-    });
-    const globalEffects = Array.from(globalEffectsByKey.values());
+    // Canonical effects and their identities are owned by the backend.
+    const globalEffects = selectedActors.flatMap(actor => (
+        Array.isArray(actor.global_skill_effects) ? actor.global_skill_effects : []
+    )).filter(effect => effect && typeof effect === 'object'
+        && (effect.hero_subtree_id == null || Number(effect.hero_subtree_id) === 0 || String(effect.hero_subtree_id) === selectedHeroTree));
     if (globalEffects.length) {
         const items = globalEffects.map(effect => {
             const name = effect.display_name || effect.talent_name_zh || effect.talent_name || effect.source_token || '未知全局效果';
@@ -6160,12 +6113,37 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const effectDescription = effect.description_zh || effect.talent_description_zh
                 || effect.description || effect.talent_description || '';
             const effectTooltipAttrs = renderSimcTooltipAttrs(displayName, effectDescription);
-            let projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
+            const displayCondition = String(effect.runtime_condition || '').split('；')
+                .filter(part => !['全局增伤分量在职业初始化前排除', '生效条件不改变作用域分类', '倍率随天赋等级变化'].includes(part.trim()))
+                .join('；');
+            const conditionLabel = renderSimcTalentProbeCondition(displayCondition,
+                effect.scenario_tokens, effect.talent_name_zh || effect.talent_name, runtimeConditions, true);
+            const conditionHtml = conditionLabel
+                ? `<div class="mt-1 text-xs text-indigo-700">${renderSimcConditionDescription(conditionLabel, effect)}</div>` : '';
+            const detailRows = (Array.isArray(effect.effect_details) ? effect.effect_details : [])
+                .filter(detail => detail && typeof detail === 'object');
+            const details = detailRows.map(detail => {
+                let value = detail.value_status_label || '数值未解析';
+                if (detail.value_kind === 'mastery') value = hasFiniteSimcSkillDamageNumber(detail.normalized_mastery_percent)
+                    ? `${formatSimcSkillDamagePercent(detail.normalized_mastery_percent, true)}（精通50%时）` : '随精通提高';
+                else if (detail.value_kind === 'dynamic') value = '随天赋或状态变化';
+                else if (hasFiniteSimcSkillDamageNumber(detail.base_value)) {
+                    if (detail.value_kind === 'percent') value = formatSimcSkillDamagePercent(detail.base_value, true);
+                    else if (detail.value_kind === 'percentage_points') value = `${detail.base_value > 0 ? '+' : ''}${formatSimcSkillDamageFactor(detail.base_value)}（百分点）`;
+                    else if (detail.unit) value = `${formatSimcSkillDamageFactor(detail.base_value)} ${detail.unit}`;
+                }
+                const detailCondition = detail.runtime_condition || (detail.conditional ? '条件性效果' : '');
+                return `${escapeHtml(detail.label || '未标注效果类别')} ${escapeHtml(value)}${detailCondition ? `（${escapeHtml(detailCondition)}）` : ''}`;
+            }).join('；');
+            // Fixed details carry category/units; measured conditional ranges
+            // remain additional evidence rather than being replaced by base values.
+            const projections = (Array.isArray(effect.projections) ? effect.projections : []).map(projection => {
                 if (!projection || typeof projection !== 'object') return '';
-                if (projection.kind === 'crit_chance') {
+                if (details && projection.kind !== 'damage_multiplier_range') return '';
+                if (projection.kind === 'crit_chance' && hasFiniteSimcSkillDamageNumber(projection.percentage_points)) {
                     return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">暴击率</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamagePercent(projection.percentage_points, true)}</span></span>`;
                 }
-                if (projection.kind === 'damage_multiplier') {
+                if (projection.kind === 'damage_multiplier' && hasFiniteSimcSkillDamageNumber(projection.value)) {
                     const label = projection.evidence_layer === 'dbc_base_multiplier'
                         ? '基础增伤' : (String(projection.evidence_layer || '').startsWith('base_damage.') ? '基础伤害' : '全局伤害');
                     return `<span class="whitespace-nowrap"><span class="text-xs text-indigo-700">${label}</span> <span class="font-mono text-indigo-900">${formatSimcSkillDamagePercent((projection.value - 1) * 100, true)}（${formatSimcSkillDamageFactor(projection.value)}×）</span></span>`;
@@ -6177,25 +6155,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 }
                 return '';
             }).filter(Boolean).join('<span class="text-indigo-300"> · </span>');
-            const detailGroups = new Map();
-            (Array.isArray(effect.effect_details) ? effect.effect_details : []).forEach(detail => {
-                if (!detail || typeof detail !== 'object') return;
-                let value;
-                if (detail.value_kind === 'mastery') value = hasFiniteSimcSkillDamageNumber(detail.normalized_mastery_percent)
-                    ? `${formatSimcSkillDamagePercent(detail.normalized_mastery_percent, true)}（精通50%时）` : '随精通提高';
-                else if (detail.value_kind === 'dynamic') value = '随天赋或状态变化';
-                else if (hasFiniteSimcSkillDamageNumber(detail.base_value)) {
-                    value = formatSimcSkillDamagePercent(detail.base_value, true);
-                    if (detail.value_kind === 'percentage_points') value += '（百分点）';
-                } else return;
-                const key = `${detail.label}:${value}`;
-                detailGroups.set(key, `${escapeHtml(detail.label)} ${escapeHtml(value)}`);
-            });
-            const details = [...detailGroups.values()].join('；');
-            if (details) projections += `<span class="text-xs text-indigo-900">基础加成：${details}</span>`;
-            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span${effectTooltipAttrs} class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${projections}</span></div></div>`;
+            const valueHtml = (details ? `<span class="text-xs text-indigo-900">${details}</span>` : '')
+                + projections || `<span class="text-xs text-amber-800" data-value-status="${escapeHtml(effect.value_status || 'unresolved')}">${escapeHtml(effect.value_status_label || '数值未解析')}</span>`;
+            return `<div class="rounded-lg border border-indigo-200 bg-white/70 px-3 py-2.5"><div class="flex flex-wrap items-start justify-between gap-2"><span${effectTooltipAttrs} class="font-semibold leading-5 text-indigo-950">${escapeHtml(displayName)}</span><span class="flex flex-wrap gap-2">${valueHtml}</span></div>${conditionHtml}</div>`;
         }).join('');
-        globalModifiersEl.innerHTML = `<div class="mb-1 text-sm font-bold text-indigo-950">全局伤害效果</div><div class="mb-3 text-xs text-indigo-700">列出影响全技能或整个伤害类别的加成；下方技能伤害不含这些公共加成。不同伤害类别分别列示，不重复叠乘。</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
+        globalModifiersEl.innerHTML = `<div class="mb-3 text-sm font-bold text-indigo-950">全局伤害效果</div><div class="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">${items}</div>`;
         globalModifiersEl.classList.remove('hidden');
     }
 
@@ -6213,7 +6177,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             // 使用导出器按完整施法验证的目标数，条件选项与伤害行保持一致。
             if (Array.isArray(action.affected_target_counts)
                 && !action.affected_target_counts.some(count => String(count) === targetCount)) return;
-            if (variant.hero_subtree_id != null && String(variant.hero_subtree_id) !== selectedHeroTree) return;
+            // DB2 uses 0 for ordinary class/spec talents, not a hero tree.
+            if (variant.hero_subtree_id != null && Number(variant.hero_subtree_id) !== 0
+                && String(variant.hero_subtree_id) !== selectedHeroTree) return;
             const heroSubtreeIds = Array.isArray(action.hero_subtree_ids) ? action.hero_subtree_ids : [];
             if (heroSubtreeIds.length && !heroSubtreeIds.some(id => String(id) === selectedHeroTree)) return;
 
@@ -6339,7 +6305,21 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         );
         const fallbackTalentLabel = talentName.endsWith('天赋') ? talentName : `${talentName}天赋`;
         const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`);
-        const variantCell = `<div class="text-xs text-amber-800">${renderSimcConditionDescription(variantLabel, variant)}</div>`;
+        const context = variant.activation_context || {};
+        const contextLabel = String(context.display_label || '').replace('（前置天赋固定）', '');
+        const contextHtml = contextLabel
+            ? `<div class="mt-1 text-xs text-stone-600"><span${renderSimcTooltipAttrs(contextLabel, context.description || '')}>${escapeHtml(contextLabel)}</span></div>` : '';
+        const reference = variant.reference_context || {};
+        const referenceTraits = Array.isArray(reference.traits) ? reference.traits : [];
+        const referenceEntries = reference.source === 'native_reference_selection'
+            && Array.isArray(reference.trait_entry_ids) ? reference.trait_entry_ids : [];
+        const referenceNames = referenceEntries.map(entry => {
+            const trait = referenceTraits.find(item => item && item.trait_entry_id === entry) || {};
+            return trait.name_zh || trait.name || `TraitEntry ${entry}`;
+        });
+        const referenceHtml = referenceNames.length
+            ? `<div class="mt-1 text-xs text-stone-600">固定参考天赋：${escapeHtml(referenceNames.join('、'))}</div>` : '';
+        const variantCell = `<div class="text-xs text-amber-800">${renderSimcConditionDescription(variantLabel, variant)}</div>${contextHtml}${referenceHtml}`;
         const normalizedBase = product.normalized_base_damage;
         const finalDamage = selectedFinalDamage;
         let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';

@@ -16,6 +16,10 @@ class ScopeResolutionTests(unittest.TestCase):
     def setUp(self):
         self.r = module.ScopeResolver.__new__(module.ScopeResolver)
         self.r.revision = module.REVIEWED_REVISION
+        # These synthetic DBC examples exercise generic selector semantics;
+        # reviewed-signature fail-closed behavior has real-ID tests elsewhere.
+        self.r.reviewed_facts = lambda: {}
+        self.r.enforce_reviewed_scope = lambda _effect, _bindings: None
         self.r.spells = {1: {'_id':1, '_class_flags_family':4, '_class_flags':[512,0,0,0]},
                          2: {'_id':2, '_class_flags_family':4, '_class_flags':[512,0,0,0]}}
         self.r.local_groups = []
@@ -25,7 +29,7 @@ class ScopeResolutionTests(unittest.TestCase):
         self.r.skill_sets = []
 
     def effect(self, **kwargs):
-        return {'type':6, 'subtype':108, 'misc1':0, 'misc2':0, 'flags':[512,0,0,0],
+        return {'effect_id':0, 'type':6, 'subtype':108, 'misc1':0, 'misc2':0, 'flags':[512,0,0,0],
                 'class_family':4, 'method':'dbc.effect_affects_spells',
                 'affected_spells':[{'spell_id':1},{'spell_id':2}], **kwargs}
 
@@ -167,7 +171,7 @@ class ScopeResolutionTests(unittest.TestCase):
         e=self.effect(class_family=100,flags=[1,0,0,0])
         self.assertEqual(self.r.resolve(e,[{'传递到的伤害技能':[1,2,3]}],'已解析技能应用关系')[0],'应剔除')
 
-    def test_reviewed_runeforge_label_selector_is_local(self):
+    def test_conditional_category_label_needs_exact_review_before_preservation(self):
         self.r.damage_families={15:{10,11}}
         e=self.effect(
             class_family=15,
@@ -183,8 +187,7 @@ class ScopeResolutionTests(unittest.TestCase):
             [{'target_spell_id':327096,'传递到的伤害技能':[]}],
             '已解析技能应用关系',
         )
-        self.assertEqual(result[0],'保留')
-        self.assertEqual(result[2]['判定路径'],'已复核局部标签选择器')
+        self.assertIsNone(result)
 
     def test_changed_runeforge_label_selector_stays_fail_closed(self):
         self.r.damage_families={15:{10,11}}

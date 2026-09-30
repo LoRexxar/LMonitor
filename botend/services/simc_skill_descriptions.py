@@ -1,4 +1,4 @@
-"""归一化表的技能、天赋和状态说明；只补展示字段，不参与伤害计算。"""
+"""归一化表的技能、天赋和状态展示资料；不参与伤害计算。"""
 
 import re
 from functools import lru_cache
@@ -55,7 +55,7 @@ def attach_skill_damage_descriptions(actor, *, game_build=''):
         rows = WowSpellSnapshot.objects.filter(
             branch='wow', locale__in=['zhCN', 'enUS'], spell_id__in=spell_ids,
         ).order_by('-updated_at', '-id').values(
-            'spell_id', 'locale', 'description', 'aura_description', 'snapshot_build',
+            'spell_id', 'locale', 'name_zh', 'description', 'aura_description', 'snapshot_build',
         )
         for row in rows.iterator(chunk_size=256):
             key = (row['spell_id'], row['locale'])
@@ -130,6 +130,18 @@ def attach_skill_damage_descriptions(actor, *, game_build=''):
         if variant.get('talent_id') or variant.get('trait_entry_id'):
             attach(variant, prefix='talent_', talent=True)
     for condition in conditions:
+        # Reviewed global conditions may only carry token/ID, even when the
+        # enclosing effect already has a Chinese title. Reuse the same bounded
+        # spell lookup for old snapshots; never translate by token or copy the
+        # enclosing talent's name to a different buff identity.
+        name = str(spells.get((condition.get('spell_id'), 'zhCN'), {}).get('name_zh') or '').strip()
+        if not re.search(r'[\u3400-\u9fff]', str(condition.get('name_zh') or '')):
+            if re.search(r'[\u3400-\u9fff]', name):
+                condition['name_zh'] = name
+        if (condition.get('display_name')
+                and not re.search(r'[\u3400-\u9fff]', str(condition['display_name']))
+                and re.search(r'[\u3400-\u9fff]', str(condition.get('name_zh') or ''))):
+            condition['display_name'] = condition['name_zh']
         attach(condition, [condition.get('spell_id')], aura=True)
     for effect in effects:
         aura = effect.get('source_kind') in {'buff', 'debuff'} or effect.get('source_type') == 'runtime_state'
