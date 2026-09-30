@@ -131,6 +131,58 @@ class EquipmentControlBenchmarkTests(TestCase):
         self.panel.save(update_fields=['is_public'])
         return execution
 
+    def test_slot_aliases_save_and_freeze_controls_without_execution(self):
+        import base64
+        import json
+        from botend.models import SimcBenchmarkExecution, SimcBenchmarkCase, SimcTask
+        from botend.services.simc_benchmark_config import replace_panel_config
+        from botend.services.simc_player_config import EQUIPMENT_SLOT_ALIASES
+
+        payload = {
+            'name': 'Alias controls', 'slug': 'alias-controls',
+            'schedule_enabled': False, 'is_public': False,
+            'specs': [{'class_name': 'warrior', 'spec_key': 'warrior_fury',
+                       'apl_id': self.apl.pk, 'template_id': self.template.pk,
+                       'backend_id': self.backend.pk,
+                       'profiles': [{'profile_id': self.profile.pk,
+                                     'talent_string_id': self.talent.pk}]}],
+            'scenarios': [{'key': 'patchwerk', 'name': 'Patchwerk'}],
+            'candidates': [
+                {'key': slot, 'candidate_type': 'gear_swap',
+                 'params': {'slot': slot, 'raw_value': ',id=456,ilevel=321'}}
+                for slot in ('wrist', 'wrists', 'shoulder', 'shoulders')
+            ],
+        }
+        panel, plan = replace_panel_config(payload, self.user_id)
+        rows = {row['candidate_key']: row for row in
+                _normalize_candidates(plan['cases'][0]['candidates'])}
+        for supplied_slot in ('wrist', 'wrists', 'shoulder', 'shoulders'):
+            with self.subTest(slot=supplied_slot):
+                canonical = EQUIPMENT_SLOT_ALIASES.get(supplied_slot, supplied_slot)
+                params = rows[control_key(supplied_slot)]['candidate_params']
+                self.assertTrue(params['equipment_effect_control'])
+                self.assertEqual(params['gear_swap']['slot'], canonical)
+                native = next(alias for alias, target in EQUIPMENT_SLOT_ALIASES.items()
+                              if target == canonical)
+                # Composer may retain either valid spelling in the equipment line.
+                for line_slot in (canonical, native):
+                    code = mark_control_input(
+                        f'warrior=x\n{line_slot}=id=456,ilevel=321\n', canonical)
+                    marker = next(line[len(MARKER):] for line in code.splitlines()
+                                  if line.startswith(MARKER))
+                    self.assertEqual(json.loads(base64.urlsafe_b64decode(marker))['slot'], native)
+                # Native saved-profile/log names must resolve to the same slot.
+                exported = parse_equipment_export(
+                    f'{native}=x,id=456\n# ilevel=321,stats=100haste\n',
+                    f'0.000 name=x slot={native} stats={{ +100 Haste }} source=Local',
+                    canonical,
+                )
+                self.assertEqual(exported['stats'], {'haste': 100.0})
+        self.assertFalse(panel.schedule_enabled)
+        self.assertEqual(SimcBenchmarkExecution.objects.count(), 0)
+        self.assertEqual(SimcBenchmarkCase.objects.count(), 0)
+        self.assertEqual(SimcTask.objects.count(), 0)
+
     def test_mixed_panel_keeps_trinket_preset_and_adds_independent_control(self):
         trinket = self.panel.candidates.get(key='trinket')
         trinket.params['benchmark_profile'] = {'kind': 'trinket_standard_reference', 'item_level': 240}

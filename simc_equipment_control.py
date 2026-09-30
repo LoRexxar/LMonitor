@@ -10,11 +10,14 @@ import uuid
 from pathlib import Path
 
 MARKER = '# lmonitor_equipment_control_v1='
-SLOTS = frozenset(('head', 'neck', 'shoulders', 'back', 'chest', 'wrists',
+NATIVE_SLOTS = frozenset(('head', 'neck', 'shoulders', 'back', 'chest', 'wrists',
                    'hands', 'waist', 'legs', 'feet', 'finger1', 'finger2',
                    'main_hand', 'off_hand'))
 ALIASES = {'shoulder': 'shoulders', 'wrist': 'wrists', 'hand': 'hands',
            'ring1': 'finger1', 'ring2': 'finger2'}
+# Application snapshots use wrist/shoulder; native SimC exports use plurals.
+# All configuration/worker gates consume this same accepted-slot set.
+SLOTS = NATIVE_SLOTS | frozenset(ALIASES)
 PENDING = 'lmonitor_effect_control_pending,stats=lmonitor_unprepared'
 
 
@@ -24,7 +27,8 @@ def control_key(candidate_key):
 
 def mark_control_input(code, slot):
     """冻结原装备，使用无法被旧工作器误执行的占位装备。"""
-    if slot not in SLOTS or MARKER in code:
+    slot = ALIASES.get(slot, slot)
+    if slot not in NATIVE_SLOTS or MARKER in code:
         raise ValueError('装备特效对照槽位或输入无效')
     lines, matched = code.splitlines(), []
     for index, line in enumerate(lines):
@@ -62,6 +66,7 @@ def _stats(value):
 
 def parse_equipment_export(profile, log, slot):
     """读取原生保存的装备字段及初始化日志中的实际护甲、武器数值。"""
+    slot = ALIASES.get(slot, slot)
     lines = profile.splitlines()
     rows = [i for i, line in enumerate(lines)
             if ALIASES.get(line.partition('=')[0], line.partition('=')[0]) == slot]
@@ -135,7 +140,7 @@ def prepare_control_input(code, binary, directory, *, execute=None):
             or payload['slot'] not in SLOTS or not isinstance(payload['value'], str)
             or '\n' in payload['value'] or '\r' in payload['value']):
         raise ValueError('装备特效对照标记无效')
-    slot = payload['slot']
+    slot = ALIASES.get(payload['slot'], payload['slot'])
     original_lines = [line for line in code.splitlines() if not line.startswith(MARKER)]
     indexes = [i for i, line in enumerate(original_lines)
                if ALIASES.get(line.partition('=')[0], line.partition('=')[0]) == slot]
