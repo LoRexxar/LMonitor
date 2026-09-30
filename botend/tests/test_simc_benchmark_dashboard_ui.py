@@ -101,7 +101,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
         """各基准入口必须加载支持逐装备对照的最新脚本。"""
-        expected = '?v=20260930_targeted_rerun'
+        expected = '?v=20260930_compact_candidates'
         for page in (INDEX, CONFIG_PAGE, EXECUTION_PAGE):
             script = next(line for line in page.splitlines() if 'simc-benchmark-dashboard.js' in line)
             self.assertIn(expected, script)
@@ -551,7 +551,8 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
     def test_candidate_cards_support_optional_rows_item_lookup_and_multiple_levels(self):
         segment = JS[JS.index('function addCandidate('):JS.index('function localDate(')]
         self.assertIn("field('装备 ID','item_id','number'", segment)
-        self.assertIn("field('装等（逗号分隔多个） *','item_level','text'", segment)
+        self.assertIn("field('装等','item_level','text'", segment)
+        self.assertIn('多个装等用逗号分隔', segment)
         self.assertIn('item-lookup/?item_id=', segment)
         self.assertIn(".split(',').map(x=>x.trim()).filter(Boolean)", JS)
         self.assertIn("if(!itemId)return []", JS)
