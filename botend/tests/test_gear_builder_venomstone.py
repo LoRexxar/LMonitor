@@ -1,6 +1,8 @@
 """毒液石部位、装等、数值与增量导入回归。"""
 from copy import deepcopy
 from io import StringIO
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 from django.core.management import call_command
@@ -10,10 +12,28 @@ from django.test import TestCase, SimpleTestCase
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.gear_builder import serialize_variant
 from botend.services.gear_builder_catalog_source import CurrentGearCatalogSource, SEASON_LEVEL_PROFILES, _tooltip_details
-from botend.services.gear_builder_venomstone import upgraded_variant, apply_tooltip, preserve_localized_effects
+from botend.services.gear_builder_venomstone import upgraded_variant, apply_tooltip, preserve_localized_effects, tooltip_branch
 
 
 class VenomstoneRulesTests(SimpleTestCase):
+    def test_automatic_branch_follows_item_origin(self):
+        self.assertEqual(tooltip_branch({}), 'live')
+        self.assertEqual(tooltip_branch({'ptr_preview': True}), 'ptr-2')
+        self.assertEqual(tooltip_branch({'ptr_preview': True}, 'live'), 'live')
+        self.assertEqual(tooltip_branch({}, 'ptr'), 'ptr')
+
+    @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
+    def test_full_catalog_uses_live_for_regular_upgrades(self, fetch):
+        fetch.return_value = {'item_level': 340, 'stats': {'strength': 120}, 'effects': [{'description_zh': '装备：新数值。'}]}
+        source = CurrentGearCatalogSource(cache_dir='.cache/venomstone-fix-tests')
+        variant = {'item_level': 340, 'type': 'drop_equipment', 'metadata': {'venomstone': {'item_id': 280562}}}
+        source._enrich_wowhead([{'item_id': 270175, 'inventory_type': 12, 'variants': [variant]}], '测试构建')
+        self.assertEqual(fetch.call_args.args[-1], 'live')
+        self.assertEqual(variant['effects'][0]['description_zh'], '装备：新数值。')
+        variant['metadata']['ptr_preview'] = True
+        source._enrich_wowhead([{'item_id': 270175, 'inventory_type': 12, 'variants': [variant]}], '测试构建')
+        self.assertEqual(fetch.call_args.args[-1], 'ptr-2')
+
     def test_only_eligible_drop_slots_receive_two_extra_variants(self):
         for inventory_type in (1, 2, 11, 12, 13, 14, 17, 23):
             with self.subTest(inventory_type=inventory_type):
@@ -84,6 +104,49 @@ class VenomstoneImportTests(TestCase):
 
     def execute(self, **options):
         call_command('update_gear_builder_venomstone', stdout=StringIO(), **options)
+
+    @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
+    def test_real_retail_chinese_without_templates_imports_new_values(self, fetch):
+        fixture = json.loads((Path(__file__).parent / 'fixtures/venomstone_retail_270175.json').read_text(encoding='utf8'))
+        self.item.item_id = fixture['item_id']
+        self.item.name_zh = '乌拉特克贪婪之心'
+        self.item.inventory_type = 12
+        self.item.save()
+        self.base.effects_json = fixture['base_effects']
+        self.base.save(update_fields=['effects_json'])
+        # 旧默认 PTR 会得到英文；旧目录只有中文文本，确实没有可绑定的新数值模板。
+        ptr_variant = {'effects': _tooltip_details(fixture['ptr-2'])['effects']}
+        with self.assertRaisesMessage(ValueError, '中文模板'):
+            preserve_localized_effects(ptr_variant, fixture['base_effects'])
+        fetch.side_effect = lambda _iid, _level, _cache, branch: _tooltip_details(fixture[branch])
+        self.execute(apply=True)
+        self.assertEqual(fetch.call_args.args[-1], 'live')
+        upgraded = WowItemVariantSnapshot.objects.get(track_rank=8)
+        effect = upgraded.effects_json[0]['description_zh']
+        self.assertIn('462力量或敏捷', effect)
+        self.assertIn('15131点物理伤害', effect)
+        self.assertNotIn('13921', effect)
+
+    @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
+    def test_ptr_upgrade_retains_template_translation(self, fetch):
+        self.base.metadata['ptr_preview'] = True
+        self.base.effects_json = [{'spell_id': 1, 'trigger_type': 1, 'template': 'Gain $s1 Haste.',
+                                  'template_zh': '获得$s1急速。', 'description_zh': '装备：获得100急速。'}]
+        self.base.save(update_fields=['metadata', 'effects_json'])
+        fetch.return_value = dict(self.details, effects=[{'description': 'Equip: Gain 150 Haste.'}])
+        self.execute(apply=True)
+        self.assertEqual(fetch.call_args.args[-1], 'ptr-2')
+        self.assertEqual(WowItemVariantSnapshot.objects.get(track_rank=8).effects_json[0]['description_zh'], '装备：获得150急速。')
+
+    @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
+    def test_localization_error_names_the_item_and_preserves_atomicity(self, fetch):
+        fetch.return_value = dict(self.details, effects=[{'description': 'Equip: Changed mechanics.'}])
+        with self.assertRaises(CommandError) as error:
+            self.execute(apply=True)
+        message = str(error.exception)
+        for expected in ('数据库未修改', '测试武器', '物品 280799', '装等 340', '来源 live', 'myth 8/6'):
+            self.assertIn(expected, message)
+        self.assertEqual(WowItemVariantSnapshot.objects.count(), 1)
 
     @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
     def test_preview_neither_fetches_nor_writes(self, fetch):

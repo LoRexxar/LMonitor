@@ -10,7 +10,7 @@ from botend.management.commands.sync_gear_builder_catalog import Command as Sync
 from botend.models import SeasonMeta, WowItemVariantSnapshot
 from botend.services.gear_builder import active_season
 from botend.services.gear_builder_catalog_source import CurrentGearCatalogSource, CatalogSourceError
-from botend.services.gear_builder_venomstone import SOURCE_BUILD, upgraded_variant, apply_tooltip, preserve_localized_effects
+from botend.services.gear_builder_venomstone import SOURCE_BUILD, upgraded_variant, apply_tooltip, preserve_localized_effects, tooltip_branch
 from botend.services.season_keys import canonical_season_key
 
 
@@ -36,7 +36,8 @@ class Command(BaseCommand):
         parser.add_argument('--cache-dir', default='.cache/gear_builder/venomstone', help='提示缓存目录')
         parser.add_argument('--refresh-cache', action='store_true', help='重新请求目标装等提示')
         parser.add_argument('--no-proxy', action='store_true', help='忽略配置代理')
-        parser.add_argument('--tooltip-branch', choices=('live', 'ptr', 'ptr-2'), default='ptr-2', help='属性数据分支，当前默认 ptr-2')
+        parser.add_argument('--tooltip-branch', choices=('auto', 'live', 'ptr', 'ptr-2'), default='auto',
+                            help='默认按装备来源选择：普通装备使用正式服，预览装备使用 ptr-2')
 
     def handle(self, *args, **options):
         season = active_season()
@@ -58,17 +59,30 @@ class Command(BaseCommand):
             cache_dir=options['cache_dir'], workers=options['workers'], timeout=options['timeout'],
             no_proxy=options['no_proxy'], refresh_wowhead_cache=options['refresh_cache'],
         )
-        keys = sorted({(row.item.item_id, payload['item_level']) for row, payload in targets})
+        def target_key(row, payload):
+            branch = tooltip_branch({**(row.item.metadata or {}), **(row.metadata or {})}, options['tooltip_branch'])
+            return row.item.item_id, payload['item_level'], branch
+        keys = sorted({target_key(row, payload) for row, payload in targets})
         self.stdout.write(f'正在补全 {len(keys)} 组毒液石装等提示，全部验证通过后写入。')
+        branch_counts = {branch: sum(key[2] == branch for key in keys) for branch in sorted({key[2] for key in keys})}
+        self.stdout.write('数据来源：' + '，'.join(f'{branch} {count} 组' for branch, count in branch_counts.items()))
         def fetch(key):
-            return key, source.venomstone_tooltip(*key, source.cache_root, options['tooltip_branch'])
+            item_id, item_level, branch = key
+            return key, source.venomstone_tooltip(item_id, item_level, source.cache_root, branch)
         try:
             with ThreadPoolExecutor(max_workers=source.workers) as pool:
                 details = dict(pool.map(fetch, keys))
+            failures = []
             for row, payload in targets:
-                apply_tooltip(payload, details[(row.item.item_id, payload['item_level'])],
-                              requires_effect=bool(row.effects_json or row.item.effect_refs) or row.item.inventory_type == 12)
-                preserve_localized_effects(payload, row.effects_json or [])
+                key = target_key(row, payload)
+                try:
+                    apply_tooltip(payload, details[key],
+                                  requires_effect=bool(row.effects_json or row.item.effect_refs) or row.item.inventory_type == 12)
+                    preserve_localized_effects(payload, row.effects_json or [])
+                except ValueError as exc:
+                    failures.append(f'{row.item.name_zh or row.item.name}（物品 {key[0]}，{row.upgrade_track} 8/6，装等 {key[1]}，来源 {key[2]}）：{exc}')
+            if failures:
+                raise ValueError(f'{len(failures)} 个变体未通过校验：\n' + '\n'.join(failures))
         except (CatalogSourceError, ValueError) as exc:
             raise CommandError(f'目标装等数据不完整，数据库未修改：{exc}') from exc
         created = 0
@@ -84,7 +98,7 @@ class Command(BaseCommand):
                 created += int(added)
             if targets:
                 current.gear_sync_report = deepcopy(current.gear_sync_report or {})
-                current.gear_sync_report['venomstone'] = {'build': SOURCE_BUILD, 'variants': len(targets), 'levels': [328, 340]}
+                current.gear_sync_report['venomstone'] = {'build': SOURCE_BUILD, 'variants': len(targets), 'levels': [328, 340], 'tooltip_branches': branch_counts}
                 current.save(update_fields=['gear_sync_report'])
         report['created'] = created
         self.stdout.write(json.dumps(report, ensure_ascii=False))

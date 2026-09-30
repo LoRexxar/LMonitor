@@ -14,6 +14,13 @@ INVENTORY_TYPES = {2, 12, 13, 14, 15, 17, 21, 22, 23, 25, 26, 28}
 TRACK_BONUSES = set(range(12841, 12857)) | {13848}
 
 
+def tooltip_branch(metadata, requested='auto'):
+    """正式服装备沿用正式服中文；只有预览装备自动选择 PTR 数据。"""
+    if requested != 'auto':
+        return requested
+    return 'ptr-2' if (metadata or {}).get('ptr_preview') else 'live'
+
+
 def upgraded_variant(inventory_type, base):
     """只从合法的英雄/神话六阶生成八阶，不沿用旧装等属性或特效。"""
     rule = TRACKS.get(base.get('upgrade_track'))

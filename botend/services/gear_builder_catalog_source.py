@@ -17,7 +17,7 @@ import requests
 from botend.services.season_keys import canonical_season_key
 from botend.services.gear_builder_tier_sources import tier_set_sources
 from botend.services.wow_item_text import normalize_catalog_text
-from botend.services.gear_builder_venomstone import upgraded_variant, apply_tooltip
+from botend.services.gear_builder_venomstone import upgraded_variant, apply_tooltip, tooltip_branch
 
 from botend.constants.wow import SPEC_IDENTITY_MAP, localize_gear_source
 from botend.services.article_image_service import _get_configured_proxies
@@ -710,13 +710,15 @@ class CurrentGearCatalogSource:
 
     def _enrich_wowhead(self, items, game_build):
         requests_needed = {}
-        venomstone_keys = set()
+        venomstone_keys = {}
         for item in items:
             for variant in item.get('variants') or []:
                 item_level = _safe_int(variant.get('item_level'))
                 requests_needed[(item['item_id'], item_level)] = None
                 if (variant.get('metadata') or {}).get('venomstone'):
-                    venomstone_keys.add((item['item_id'], item_level))
+                    venomstone_keys[(item['item_id'], item_level)] = tooltip_branch({
+                        **(item.get('metadata') or {}), **(variant.get('metadata') or {}),
+                    })
         total = len(requests_needed)
         self.progress(f'正在从 Wowhead 补全 {total} 组中文 Tooltip/装等属性（结果会缓存）……')
         cache_dir = self.cache_root / game_build / 'wowhead'
@@ -724,8 +726,10 @@ class CurrentGearCatalogSource:
         completed = 0
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
             futures = {
-                executor.submit(self.venomstone_tooltip if (item_id, item_level) in venomstone_keys else self._wowhead_tooltip,
-                                item_id, item_level, cache_dir): (item_id, item_level)
+                (executor.submit(self.venomstone_tooltip, item_id, item_level, cache_dir,
+                                 venomstone_keys[(item_id, item_level)])
+                 if (item_id, item_level) in venomstone_keys else
+                 executor.submit(self._wowhead_tooltip, item_id, item_level, cache_dir)): (item_id, item_level)
                 for item_id, item_level in requests_needed
             }
             for future in as_completed(futures):
@@ -784,7 +788,7 @@ class CurrentGearCatalogSource:
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
         return _tooltip_details(payload)
 
-    def venomstone_tooltip(self, item_id, item_level, cache_dir, branch='ptr-2'):
+    def venomstone_tooltip(self, item_id, item_level, cache_dir, branch='live'):
         """毒液石新增档位使用独立缓存，避免命中旧服同装等提示。"""
         directory = cache_dir / branch
         directory.mkdir(parents=True, exist_ok=True)

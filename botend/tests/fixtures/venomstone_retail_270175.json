@@ -1,0 +1,285 @@
+{
+  "说明": "2026-09-30 公开线上目录的旧中文特效，以及同目标装等的正式服中文与 PTR 英文提示；用于复现普通装备没有双语模板时的导入失败。",
+  "item_id": 270175,
+  "base_effects": [
+    {
+      "description_zh": "使用:  咬下心脏，拥抱贪食的饥饿，获得437力量或敏捷，持续20秒。 · 在饥饿感持续期间，每次攻击都有极高几率吞噬目标的一块血肉，造成13921点物理伤害，并使你的力量或敏捷进一步提高49点。 (1​分钟，30​秒 冷却)"
+    }
+  ],
+  "live": {
+    "name": "乌拉特克贪婪之心",
+    "quality": 4,
+    "icon": "inv_121_trinket_raid_ulatek_heart",
+    "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">乌拉特克贪婪之心</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">史诗</span></span><!--ndend--><span class=\"q\"><br>物品等级：<!--ilvl-->340</span><!--bo--><br>拾取后绑定<br>装备唯一<!--ue--><!--ue--><table width=\"100%\"><tr><td>饰品</td><th><!--scstart4:-4--><span class=\"q1\"></span><!--scend--></th></tr></table><!--rf--><!--ebstats--><span class=\"q2\">+<!--rtg32-->147暴击</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:2--><span id=\"useText2\" class=\"q2\">使用:  <!--useEffect:0:2--><a href=\"/cn/spell=1297761\" class=\"q2\">咬下心脏，拥抱贪食的饥饿，获得<!--pts1:0:0:1297760:1.21834-->462<!----><!--sp137005:0--><!--sp137005--><!--sp137026:0--><!--sp137026--><!--sp137047:0--><!--sp137047--><!--sp137009:0--><!--sp137009--><!--sp137014:0--><!--sp137014--><!--sp137022:0--><!--sp137022--><!--sp137034:0--><!--sp137034--><!--sp137038:0--><!--sp137038--><!--sp212611:0--><!--sp212611--><!--sp0:0-->力量或敏捷<!--sp0-->，持续20秒。<br /><br />在饥饿感持续期间，每次攻击都有极高几率吞噬目标的一块血肉，造成<!--pts2:0:0:1297760:19.8644-->15131<!---->点物理伤害，并使你的<!--sp137005:0--><!--sp137005--><!--sp137026:0--><!--sp137026--><!--sp137047:0--><!--sp137047--><!--sp137009:0--><!--sp137009--><!--sp137014:0--><!--sp137014--><!--sp137022:0--><!--sp137022--><!--sp137034:0--><!--sp137034--><!--sp137038:0--><!--sp137038--><!--sp212611:0--><!--sp212611--><!--sp0:0-->力量或敏捷<!--sp0-->进一步提高<!--pts3:0:0:1297760:0.136374-->52<!---->点。</a> (1​分钟，30​秒 冷却)<!--useEffect:2--></span><!--useText:2--><!--itemEffects:1--><br>\b需要等级 <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">售价: <span class=\"moneygold\">53</span> <span class=\"moneysilver\">9</span> <span class=\"moneycopper\">12</span></div><div class=\"whtt-extra whtt-droppedby\">掉落于: 乌拉特克</div></td></tr></table>",
+    "spells": {
+      "0": [
+        [
+          "",
+          "力量或敏捷",
+          ""
+        ],
+        [
+          "",
+          "力量或敏捷",
+          ""
+        ],
+        [
+          "",
+          "力量或敏捷",
+          ""
+        ],
+        [
+          "",
+          "力量或敏捷",
+          ""
+        ]
+      ],
+      "137005": [
+        [
+          "",
+          "力量",
+          ""
+        ],
+        [
+          "",
+          "力量",
+          ""
+        ]
+      ],
+      "137009": [
+        [
+          "",
+          "敏捷",
+          ""
+        ],
+        [
+          "",
+          "敏捷",
+          ""
+        ]
+      ],
+      "137014": [
+        [
+          "",
+          "敏捷",
+          ""
+        ],
+        [
+          "",
+          "敏捷",
+          ""
+        ]
+      ],
+      "137022": [
+        [
+          "",
+          "敏捷",
+          ""
+        ],
+        [
+          "",
+          "敏捷",
+          ""
+        ]
+      ],
+      "137026": [
+        [
+          "",
+          "力量",
+          ""
+        ],
+        [
+          "",
+          "力量",
+          ""
+        ]
+      ],
+      "137034": [
+        [
+          "",
+          "敏捷",
+          ""
+        ],
+        [
+          "",
+          "敏捷",
+          ""
+        ]
+      ],
+      "137038": [
+        [
+          "",
+          "敏捷",
+          ""
+        ],
+        [
+          "",
+          "敏捷",
+          ""
+        ]
+      ],
+      "137047": [
+        [
+          "",
+          "力量",
+          ""
+        ],
+        [
+          "",
+          "力量",
+          ""
+        ]
+      ],
+      "212611": [
+        [
+          "",
+          "敏捷",
+          ""
+        ],
+        [
+          "",
+          "敏捷",
+          ""
+        ]
+      ]
+    }
+  },
+  "ptr-2": {
+    "name": "Voracious Heart of Ula'tek",
+    "quality": 4,
+    "icon": "inv_121_trinket_raid_ulatek_heart",
+    "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Voracious Heart of Ula'tek</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Mythic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->340</span><!--bo--><br>Binds when picked up<br>Unique-Equipped<!--ue--><!--ue--><table width=\"100%\"><tr><td>Trinket</td><th><!--scstart4:-4--><span class=\"q1\"></span><!--scend--></th></tr></table><!--rf--><!--ebstats--><span class=\"q2\">+<!--rtg32-->147 Critical Strike</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:2--><span id=\"useText2\" class=\"q2\">Use: <!--useEffect:0:2--><a href=\"/ptr-2/spell=1297761/voracious-heart-of-ulatek\" class=\"q2\">Bite the heart and embrace the ravening hunger, gaining <!--pts1:0:0:1297760:1.21834-->462<!----> <!--sp137005:0--><!--sp137005--><!--sp137026:0--><!--sp137026--><!--sp137047:0--><!--sp137047--><!--sp137009:0--><!--sp137009--><!--sp137014:0--><!--sp137014--><!--sp137022:0--><!--sp137022--><!--sp137034:0--><!--sp137034--><!--sp137038:0--><!--sp137038--><!--sp212611:0--><!--sp212611--><!--sp0:0-->Strength or Agility<!--sp0--> for 20 sec.<br /><br />While the hunger persists, gain a very high chance to devour a morsel of your target with every attack, dealing <!--pts2:0:0:1297760:19.8644-->15131<!----> Physical damage and further increasing your <!--sp137005:0--><!--sp137005--><!--sp137026:0--><!--sp137026--><!--sp137047:0--><!--sp137047--><!--sp137009:0--><!--sp137009--><!--sp137014:0--><!--sp137014--><!--sp137022:0--><!--sp137022--><!--sp137034:0--><!--sp137034--><!--sp137038:0--><!--sp137038--><!--sp212611:0--><!--sp212611--><!--sp0:0-->Strength or Agility<!--sp0--> by <!--pts3:0:0:1297760:0.136374-->52<!---->.</a> (1 Min, 30 Sec Cooldown)<!--useEffect:2--></span><!--useText:2--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">53</span> <span class=\"moneysilver\">9</span> <span class=\"moneycopper\">12</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Ula'tek</div></td></tr></table>",
+    "spells": {
+      "0": [
+        [
+          "",
+          "Strength or Agility",
+          ""
+        ],
+        [
+          "",
+          "Strength or Agility",
+          ""
+        ],
+        [
+          "",
+          "Strength or Agility",
+          ""
+        ],
+        [
+          "",
+          "Strength or Agility",
+          ""
+        ]
+      ],
+      "137005": [
+        [
+          "",
+          "Strength",
+          ""
+        ],
+        [
+          "",
+          "Strength",
+          ""
+        ]
+      ],
+      "137009": [
+        [
+          "",
+          "Agility",
+          ""
+        ],
+        [
+          "",
+          "Agility",
+          ""
+        ]
+      ],
+      "137014": [
+        [
+          "",
+          "Agility",
+          ""
+        ],
+        [
+          "",
+          "Agility",
+          ""
+        ]
+      ],
+      "137022": [
+        [
+          "",
+          "Agility",
+          ""
+        ],
+        [
+          "",
+          "Agility",
+          ""
+        ]
+      ],
+      "137026": [
+        [
+          "",
+          "Strength",
+          ""
+        ],
+        [
+          "",
+          "Strength",
+          ""
+        ]
+      ],
+      "137034": [
+        [
+          "",
+          "Agility",
+          ""
+        ],
+        [
+          "",
+          "Agility",
+          ""
+        ]
+      ],
+      "137038": [
+        [
+          "",
+          "Agility",
+          ""
+        ],
+        [
+          "",
+          "Agility",
+          ""
+        ]
+      ],
+      "137047": [
+        [
+          "",
+          "Strength",
+          ""
+        ],
+        [
+          "",
+          "Strength",
+          ""
+        ]
+      ],
+      "212611": [
+        [
+          "",
+          "Agility",
+          ""
+        ],
+        [
+          "",
+          "Agility",
+          ""
+        ]
+      ]
+    }
+  }
+}
