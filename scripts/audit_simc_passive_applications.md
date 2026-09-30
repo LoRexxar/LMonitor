@@ -28,8 +28,8 @@ python3 scripts/audit_simc_passive_applications.py \
 
 - 输出目录必须不存在，防止覆盖之前的证据。
 - 默认目标血量100；其他冻结场景需明确传 `--target-health`。
-- 先进行一次正常导出，按实际 native 候选发现 effect；逐 effect 一次独立导出，再进行至多一次联合排除，不枚举幂集。
-- 默认最多16个候选 effect；超限时不会启动反事实导出。主动扩大边界才传 `--max-effects`。
+- 先进行一次正常导出，按实际 native 候选发现 effect；逐 effect 做独立导出，再只为实际观察到的多来源组件集合做精确联合排除，不枚举幂集，也不用全局候选并集代替组件子集。
+- 默认最多16个候选 effect、16个精确联合集合；主动扩大边界才传 `--max-effects` / `--max-joint-groups`，超限不得静默丢弃覆盖。
 - 每次子进程前后校验 binary/input SHA256，防止更新过程混入另一套事实。输入的外部 include/可变依赖不在文件哈希覆盖范围内，调用者必须先用自包含冻结输入消除它们。
 - 禁止 `python -O`：工具会主动拒绝关闭断言的运行方式。
 
@@ -43,6 +43,14 @@ python3 scripts/audit_simc_passive_applications.py \
 6. `unregistered` 与 `rejected` 分开保留。缺登记不等于整个游戏实现无此被动；不通过证明的项保持原值，不按职业、spell ID 或倍率特判。
 
 `probe-report.json` 保存正常与每个排除导出的路径、哈希、输入哈希、耗时，以及每个实际 component/state 的 verified/rejected/unregistered 明细。进程退出成功和 `status=compared` 不等于没有被拒绝的组件，必须检查明细。
+
+## 后端共享验证入口
+
+CLI 与 `botend.services.simc_skill_passive_evidence` 共用同一比较谓词。`verify_passive_applications(ordinary, counterfactuals)` 接收可信执行器创建的 `PassiveProbeExport`，逐份核对冻结输入与 binary 哈希；这些执行身份不能从客户端任意 JSON 声称中获得。
+
+单来源用自身独立对照；多来源必须找到**与当前组件待剥离来源集合完全相同**的联合排除。全局候选并集即使结果满足乘积，也可能掩盖子集联动，不能代替精确子集。缺精确对照与已对照但不通过分别记录，不重试后者来伪造成功。
+
+该入口返回证据计划，不修改 native 数据、不接受 `application.applied` 标记，也不自动启用旧 helper 的剥离。读写已冻结的证据计划不能替代对原始成对输出的验证。
 
 ## 尚未实现的生产工作
 
