@@ -10701,7 +10701,9 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
             for panel in rows
             if panel.active_execution_id or panel.dashboard_latest_execution_id
         }
-        executions = SimcBenchmarkExecution.objects.filter(pk__in=execution_ids).only(
+        # This PK lookup only builds a dictionary. Do not filesort large frozen
+        # JSON snapshots using the model's default history ordering.
+        executions = SimcBenchmarkExecution.objects.filter(pk__in=execution_ids).order_by().only(
             'id', 'panel_id', 'trigger', 'status', 'scheduled_slot',
             'created_at', 'completed_at', 'config_snapshot', 'config_hash',
         )

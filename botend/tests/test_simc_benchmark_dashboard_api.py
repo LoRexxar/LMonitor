@@ -4,7 +4,9 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import Client, SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from botend.dashboard.api import _benchmark_safe_error_log
@@ -502,6 +504,63 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         row = response.json()['data'][0]
         self.assertNotIn('aggregated_results', row)
         serialize.assert_not_called()
+
+    def test_panel_list_execution_id_lookup_is_unsorted_and_keeps_selection_semantics(self):
+        talent = SimcTalentString.objects.create(
+            name='Execution lookup talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.payload['specs'][0]['profiles'][0]['talent_string_id'] = talent.pk
+        panel = self._create_panel()
+        snapshot = {'version': 2, 'case_count': 7, 'run_count': 11,
+                    'frozen_payload': 'x' * (2 * 1024 * 1024)}
+        active = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot=snapshot, config_hash='a' * 64,
+            status='running',
+        )
+        newer = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={'version': 2, 'case_count': 2, 'run_count': 3},
+            config_hash='b' * 64, status='pending',
+        )
+        # Tie timestamps to protect the id tiebreaker in latest/history ordering.
+        SimcBenchmarkExecution.objects.filter(pk__in=[active.pk, newer.pk]).update(
+            created_at=timezone.now(),
+        )
+        panel.active_execution = active
+        panel.save(update_fields=['active_execution'])
+        other_panel = SimcBenchmarkPanel.objects.create(
+            name='AAA without active execution', slug='unsorted-execution-lookup',
+            created_by_id=self.staff.pk,
+        )
+        SimcBenchmarkExecution.objects.create(
+            panel=other_panel, config_snapshot={}, config_hash='c' * 64,
+        )
+        latest = SimcBenchmarkExecution.objects.create(
+            panel=other_panel, config_snapshot={'version': 2, 'case_count': 3, 'run_count': 5},
+            config_hash='d' * 64,
+        )
+        SimcBenchmarkExecution.objects.filter(panel=other_panel).update(created_at=timezone.now())
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/simc-benchmarks/panels/')
+        self.assertEqual(response.status_code, 200, response.content)
+        rows = response.json()['data']
+        self.assertEqual([row['id'] for row in rows], [other_panel.pk, panel.pk])
+        by_id = {row['id']: row for row in rows}
+        self.assertEqual(by_id[panel.pk]['execution']['id'], active.pk)
+        self.assertEqual(by_id[panel.pk]['execution']['total_cases'], 7)
+        self.assertEqual(by_id[panel.pk]['execution']['total_runs'], 11)
+        self.assertEqual(by_id[other_panel.pk]['execution']['id'], latest.pk)
+        normalized_sql = [query['sql'].replace('`', '"').upper() for query in queries]
+        execution_reads = [sql for sql in normalized_sql
+                           if sql.startswith('SELECT "SIMC_BENCHMARK_EXECUTION"."ID"')]
+        self.assertEqual(len(execution_reads), 1, execution_reads)
+        self.assertNotIn('ORDER BY', execution_reads[0])
+
+        history = self.client.get(f'/api/simc-benchmarks/panels/{panel.pk}/executions/')
+        self.assertEqual(history.status_code, 200, history.content)
+        self.assertEqual([row['id'] for row in history.json()['data']['items']],
+                         [newer.pk, active.pk])
 
     def test_panel_list_exposes_current_plan_growth_separately_from_aggregate_baseline(self):
         panel = self._create_panel()
