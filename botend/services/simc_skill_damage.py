@@ -1032,6 +1032,13 @@ def _effect_changed(reference, current):
 
 
 def _paired_effect_changed(high_reference, high_current, low_reference, low_current):
+    # Nested target/layer facts retain their before/after values in _effect_delta.
+    # Two no-op pairs can therefore have different signatures solely because
+    # their health baselines differ. That is not an effect of this talent/state.
+    # Keep one-sided effects (including disappearance at low health), missing
+    # references and component/target-only changes on the ordinary comparison.
+    if not _effect_changed(high_reference, high_current) and not _effect_changed(low_reference, low_current):
+        return False
     return not _fact_equal(
         _effect_delta(high_reference, high_current),
         _effect_delta(low_reference, low_current),
