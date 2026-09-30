@@ -1,0 +1,131 @@
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -2,6 +2,7 @@
+ // Dedmonwakeen's Raid DPS/TPS Simulator.
+ // Send questions to natehieter@gmail.com
+ // ==========================================================================
++#include "skill_damage_passive_probe.hpp"
+ #include "player.hpp"
+ 
+ #include "action/action.hpp"
+@@ -15473,6 +15474,10 @@
+ 
+ bool player_t::register_passive_effect( const spelleffect_data_t& modifying_eff, bool remove )
+ {
++  // Suppress register AND undo: an effect skipped during initialization must
++  // not later apply an inverse multiplier when the source is deregistered.
++  if ( !sim->skill_damage_export_file.empty() && skill_damage_parser_probe_exclusions().count(
++           { modifying_eff.spell_id(), modifying_eff.index() } ) ) return false;
+   if ( !remove && range::contains( skill_damage_excluded_effect_ids_, modifying_eff.id() ) ) return false;
+   auto modifying_spell = modifying_eff.spell();
+   auto sub_type = modifying_eff.subtype();
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -3,6 +3,7 @@
+ // Send questions to natehieter@gmail.com
+ // ==========================================================================
+ 
++#include "player/skill_damage_passive_probe.hpp"
+ #include "class_modules/class_module.hpp"
+ #include "dbc/dbc.hpp"
+ #include "dbc/class_spells.hpp"
+@@ -2597,6 +2598,17 @@
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
++  if ( !skill_damage_parser_probe_exclusions().empty() )
++  {
++    out << ",\"parser_counterfactual\":{\"method\":\"initialization_parser_only_v1\",\"excluded_effects\":[";
++    bool first = true;
++    for ( const auto& entry : skill_damage_parser_probe_exclusions() )
++    {
++      if ( !first ) out << ','; first = false;
++      out << "{\"source_spell_id\":" << entry.first << ",\"effect_index\":" << entry.second << '}';
++    }
++    out << "]}";
++  }
+   out << ",\"probe\":\"runtime_snapshot_probe\",\"state_isolation\":\"actor_process_recursive_isolation\",\"actors\":[";
+   bool first_actor = true;
+   for ( player_t* player : sim.player_no_pet_list )
+@@ -2610,7 +2622,32 @@
+     if ( primary_stat == STAT_STRENGTH ) primary_attr = ATTR_STRENGTH;
+     else if ( primary_stat == STAT_AGILITY ) primary_attr = ATTR_AGILITY;
+     else if ( primary_stat == STAT_INTELLECT ) primary_attr = ATTR_INTELLECT;
+-    out << "{\"class\":"; apl_metadata_json_string( out, util::player_type_string( player->type ) );
++    out << "{\"passive_parser_ledger\":[";
++    bool first_ledger = true;
++    for ( const auto& spell : player->reporting_parse_action )
++      for ( const auto& field : spell.second )
++      {
++        if ( field.first != "direct_damage" && field.first != "periodic_damage" ) continue;
++        if ( !first_ledger ) out << ','; first_ledger = false;
++        const auto values = player->get_passive_value( *player->find_spell( spell.first ), field.first );
++        out << "{\"action_spell_id\":" << spell.first << ",\"component\":";
++        apl_metadata_json_string( out, field.first == "direct_damage" ? "direct" : "tick" );
++        out << ",\"flat\":"; write_skill_damage_json_number( out, values[1] );
++        out << ",\"pct\":"; write_skill_damage_json_number( out, values[2] );
++        out << ",\"effects\":[";
++        bool first_effect = true;
++        for ( const auto* effect : field.second )
++        {
++          if ( !effect ) continue;
++          if ( !first_effect ) out << ','; first_effect = false;
++          out << "{\"source_spell_id\":" << effect->spell_id() << ",\"effect_index\":" << effect->index()
++              << ",\"effect_id\":" << effect->id() << ",\"subtype\":" << effect->subtype() << ",\"value\":";
++          write_skill_damage_json_number( out, effect->average( player ) );
++          out << '}';
++        }
++        out << "]}";
++      }
++    out << "],\"class\":"; apl_metadata_json_string( out, util::player_type_string( player->type ) );
+     out << ",\"spec\":"; apl_metadata_json_string( out, util::tokenize_fn( dbc::specialization_string( player->specialization() ) ) );
+     out << ",\"name\":"; apl_metadata_json_string( out, player->name() );
+     out << ",\"talent_effectiveness\":";
+--- /dev/null
++++ b/engine/player/skill_damage_passive_probe.hpp
+@@ -0,0 +1,45 @@
++#pragma once
++#include <cstdlib>
++#include <limits>
++#include <set>
++#include <stdexcept>
++#include <string>
++#include <utility>
++
++// Diagnostic exporter process only. Do not mutate DBC or reuse the global
++// damage-normalization exclusion hook: those interventions are not equivalent.
++inline const std::set<std::pair<unsigned, unsigned>>& skill_damage_parser_probe_exclusions()
++{
++  static const auto exclusions = [] {
++    std::set<std::pair<unsigned, unsigned>> values;
++    const char* env = std::getenv( "LMONITOR_SIMC_PARSER_EXCLUDE" );
++    if ( !env || !*env ) return values;
++    std::string input( env );
++    size_t begin = 0;
++    while ( begin < input.size() )
++    {
++      const auto end = input.find( ',', begin );
++      const auto token = input.substr( begin, end == std::string::npos ? end : end - begin );
++      const auto colon = token.find( ':' );
++      const auto number = []( const std::string& text ) -> unsigned {
++        if ( text.empty() || text.find_first_not_of( "0123456789" ) != std::string::npos )
++          throw std::runtime_error( "Invalid parser-only exclusion identity" );
++        const auto value = std::stoul( text );
++        if ( value > std::numeric_limits<unsigned>::max() )
++          throw std::runtime_error( "Parser-only exclusion identity overflow" );
++        return static_cast<unsigned>( value );
++      };
++      if ( colon == std::string::npos || token.find( ':', colon + 1 ) != std::string::npos )
++        throw std::runtime_error( "Expected source_spell_id:zero_based_effect_index" );
++      const auto spell = number( token.substr( 0, colon ) );
++      const auto index = number( token.substr( colon + 1 ) );
++      if ( !spell || !values.emplace( spell, index ).second )
++        throw std::runtime_error( "Invalid or duplicate parser-only exclusion" );
++      if ( end == std::string::npos ) break;
++      begin = end + 1;
++      if ( begin == input.size() ) throw std::runtime_error( "Empty parser-only exclusion" );
++    }
++    return values;
++  }();
++  return exclusions;
++}

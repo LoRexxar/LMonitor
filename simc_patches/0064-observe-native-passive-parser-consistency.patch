@@ -1,0 +1,126 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -567,6 +567,9 @@
+     unsigned effect_index = 0;
+     std::string source_name;
+     double factor = 1.0;
++    unsigned application_action_spell_id = 0;
++    double parser_multiplier = 1.0, base_multiplier = 1.0;
++    double runtime_multiplier = 1.0, runtime_without_parser_multiplier = 1.0;
+   };
+ 
+   double action_multiplier = 1.0;
+@@ -747,6 +750,72 @@
+   }
+   skill_damage_passive_cache.emplace( key, result );
+   return result;
++}
++
++void skill_damage_reset_probe_rng( action_t& action );
++
++// DBC candidates and even consistent parser/base/runtime values do not prove
++// retained source attribution: derived actions can overwrite a base with the
++// same number. Export this only as diagnostics; it MUST NOT authorize division.
++void skill_damage_observe_passive_consistency( const action_state_t* state, bool periodic,
++    std::vector<skill_damage_runtime_layers_t::specialization_passive_effect_t>& effects )
++{
++  auto& action = *state->action;
++  auto* player = action.player;
++  if ( effects.empty() || !player || player->is_pet() ) return;
++  const auto field = periodic ? "periodic_damage" : "direct_damage";
++  const auto spell = player->reporting_parse_action.find( action.data().id() );
++  if ( spell == player->reporting_parse_action.end() ) return;
++  const auto parsed = spell->second.find( field );
++  if ( parsed == spell->second.end() ) return;
++  const double parser_multiplier = player->get_passive_value( action.data(), field )[ 2 ];
++  double& base = periodic ? action.base_td_multiplier : action.base_dd_multiplier;
++  const auto same = []( double a, double b ) {
++    return std::isfinite( a ) && std::isfinite( b ) && a > 0 && b > 0 &&
++           std::abs( a - b ) <= std::max( a, b ) * 1e-9;
++  };
++  if ( !same( base, parser_multiplier ) ) return;
++  double product = 1.0;
++  std::map<std::pair<unsigned, unsigned>, double> applied;
++  for ( const auto* effect : parsed->second )
++  {
++    if ( !effect ) return;
++    // Flat modifiers do not enter the percentage product. Unknown reporting
++    // fields must not be silently mistaken for percent damage modifiers.
++    if ( effect->subtype() == A_ADD_FLAT_MODIFIER || effect->subtype() == A_ADD_FLAT_LABEL_MODIFIER ) continue;
++    if ( effect->subtype() != A_ADD_PCT_MODIFIER && effect->subtype() != A_ADD_PCT_LABEL_MODIFIER ) return;
++    const auto factor = 1.0 + effect->average( player ) * 0.01;
++    if ( !std::isfinite( factor ) || factor <= 0 ||
++         !applied.emplace( std::make_pair( effect->spell_id(), effect->index() ), factor ).second ) return;
++    product *= factor;
++  }
++  // Overrides, missing reporting, removals and effect masks cannot be inferred
++  // from source registration: require the retained exact effect product.
++  if ( !same( product, parser_multiplier ) ) return;
++  const double original_base = base;
++  struct restore_t { double& value; double original; ~restore_t() { value = original; } } restore{ base, base };
++  const auto probe = [&]() {
++    skill_damage_reset_probe_rng( action );
++    return periodic ? action.composite_ta_multiplier( state ) : action.composite_da_multiplier( state );
++  };
++  const double runtime = probe();
++  base = 1.0;
++  const double without_parser = probe();
++  base = original_base;
++  skill_damage_reset_probe_rng( action );
++  const double snapshot = periodic ? state->ta_multiplier : state->da_multiplier;
++  if ( !same( snapshot, runtime ) || !same( runtime, without_parser * parser_multiplier ) ) return;
++  for ( auto& candidate : effects )
++  {
++    const auto found = applied.find( { candidate.source_spell_id, candidate.effect_index } );
++    if ( found == applied.end() ) continue;
++    candidate.factor = found->second;
++    candidate.application_action_spell_id = action.data().id();
++    candidate.parser_multiplier = parser_multiplier;
++    candidate.base_multiplier = original_base;
++    candidate.runtime_multiplier = runtime;
++    candidate.runtime_without_parser_multiplier = without_parser;
++  }
+ }
+ 
+ skill_damage_runtime_layers_t skill_damage_runtime_layers( const action_state_t* state, bool periodic )
+@@ -766,6 +835,7 @@
+   layers.target_pet_multiplier = state->target_pet_multiplier;
+   layers.specialization_passive_effects =
+       skill_damage_specialization_passive_effects( *state->action, periodic );
++  skill_damage_observe_passive_consistency( state, periodic, layers.specialization_passive_effects );
+   return layers;
+ }
+ 
+@@ -2136,6 +2206,17 @@
+       out << ",\"component\":";
+       apl_metadata_json_string( out, periodic ? "tick" : "direct" );
+       out << ",\"factor\":"; write_skill_damage_json_number( out, effect.factor );
++      if ( effect.application_action_spell_id )
++      {
++        out << ",\"parser_consistency\":{\"method\":\"registered_passive_base_consistency_v1\",\"action_spell_id\":"
++            << effect.application_action_spell_id;
++        out << ",\"layer\":"; apl_metadata_json_string( out, periodic ? "ta_multiplier" : "da_multiplier" );
++        out << ",\"parser_multiplier\":"; write_skill_damage_json_number( out, effect.parser_multiplier );
++        out << ",\"base_multiplier\":"; write_skill_damage_json_number( out, effect.base_multiplier );
++        out << ",\"runtime_multiplier\":"; write_skill_damage_json_number( out, effect.runtime_multiplier );
++        out << ",\"runtime_without_parser_multiplier\":"; write_skill_damage_json_number( out, effect.runtime_without_parser_multiplier );
++        out << '}';
++      }
+       out << '}';
+     }
+     out << ']';
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -15962,7 +15962,11 @@
+     };
+ 
+     auto add_reporting = [ & ]( std::string field ) {
+-      if ( sim->parent || sim->profileset_enabled || sim->report_details == 0 || ( sim->html_file_str.empty() && sim->skill_damage_evidence_export_file.empty() ) )
++      // Skill export needs the actual retained application ledger even when
++      // HTML reporting is disabled (including isolated actor subprocesses).
++      if ( sim->skill_damage_export_file.empty() &&
++           ( sim->parent || sim->profileset_enabled || sim->report_details == 0 ||
++             ( sim->html_file_str.empty() && sim->skill_damage_evidence_export_file.empty() ) ) )
+         return;
+ 
+       if ( remove )
