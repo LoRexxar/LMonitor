@@ -196,6 +196,17 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         execution_row = response.json()['data']['items'][0]
         self.assertEqual(execution_row['run_counts']['failed'], 1)
         self.assertEqual(execution_row['failures'][0]['error'], 'Initialization failed')
+        execution_reads = [q['sql'] for q in queries
+                           if q['sql'].startswith('SELECT')
+                           and 'FROM "simc_benchmark_execution"' in q['sql']]
+        self.assertTrue(execution_reads)
+        self.assertTrue(all('GROUP BY' not in sql for sql in execution_reads),
+                        'history groups full frozen JSON rows before paging')
+        full_snapshot_reads = [sql for sql in execution_reads
+                               if '"simc_benchmark_execution"."config_snapshot"' in sql]
+        self.assertTrue(full_snapshot_reads)
+        self.assertTrue(all('ORDER BY' not in sql for sql in full_snapshot_reads),
+                        'history sorts full frozen JSON instead of paging lightweight IDs')
         projections = [q['sql'].split(' FROM ', 1)[0] for q in queries
                        if q['sql'].startswith('SELECT')]
         for field in ('candidate_params', 'display_metadata', 'resource_manifest', 'result_summary'):
@@ -1121,6 +1132,11 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_execution_pagination_is_panel_scoped_ordered_and_capped(self):
+        talent = SimcTalentString.objects.create(
+            name='Pagination talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.payload['specs'][0]['profiles'][0]['talent_string_id'] = talent.id
         panel = self._create_panel()
         other = SimcBenchmarkPanel.objects.create(
             name='Other', slug='other-dashboard-panel', created_by_id=self.staff.id,

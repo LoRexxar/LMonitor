@@ -11271,20 +11271,24 @@ class SimcBenchmarkPanelExecutionListAPIView(_BenchmarkAdminAPIView):
             raise ValidationError({'pagination': ['page 和 size 必须是正整数']})
         size = min(size, 50)
         case_queryset = _benchmark_progress_case_queryset()
-        queryset = panel.executions.annotate(
-            dashboard_case_count=models.Count('cases'),
-        ).prefetch_related(models.Prefetch(
-            'cases',
-            queryset=case_queryset,
-            to_attr='_dashboard_cases',
-        )).order_by('-created_at', '-id')
+        # Sort/page only IDs. Grouping or filesorting the full frozen JSON row
+        # can exceed MySQL sort memory even for one large Execution snapshot.
+        queryset = panel.executions.order_by('-created_at', '-id')
         total = queryset.count()
         offset = (page - 1) * size
-        rows = list(queryset[offset:offset + size])
+        execution_ids = list(queryset.values_list('pk', flat=True)[offset:offset + size])
+        execution_by_id = {
+            row.pk: row for row in SimcBenchmarkExecution.objects.filter(
+                pk__in=execution_ids,
+            ).order_by().prefetch_related(models.Prefetch(
+                'cases', queryset=case_queryset, to_attr='_dashboard_cases',
+            ))
+        }
+        rows = [execution_by_id[pk] for pk in execution_ids if pk in execution_by_id]
         return JsonResponse({'success': True, 'data': {
             'items': [_benchmark_execution_summary(
                 row, published_id=panel.published_execution_id,
-                case_count=row.dashboard_case_count,
+                case_count=len(row._dashboard_cases),
                 cases=row._dashboard_cases,
             ) for row in rows],
             'pagination': {'page': page, 'size': size, 'total': total,
