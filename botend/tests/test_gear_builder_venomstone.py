@@ -133,10 +133,71 @@ class VenomstoneImportTests(TestCase):
         self.base.effects_json = [{'spell_id': 1, 'trigger_type': 1, 'template': 'Gain $s1 Haste.',
                                   'template_zh': '获得$s1急速。', 'description_zh': '装备：获得100急速。'}]
         self.base.save(update_fields=['metadata', 'effects_json'])
-        fetch.return_value = dict(self.details, effects=[{'description': 'Equip: Gain 150 Haste.'}])
+        fetch.side_effect = lambda _iid, level, *_args: dict(self.details, item_level=level, effects=[{'description': 'Equip: Gain 150 Haste.'}])
         self.execute(apply=True)
         self.assertEqual(fetch.call_args.args[-1], 'ptr-2')
         self.assertEqual(WowItemVariantSnapshot.objects.get(track_rank=8).effects_json[0]['description_zh'], '装备：获得150急速。')
+
+    @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
+    def test_real_ptr_tuning_refreshes_base_and_upgrade_together(self, fetch):
+        fixture = json.loads((Path(__file__).parent / 'fixtures/venomstone_ptr_280799.json').read_text(encoding='utf8'))
+        self.item.metadata = {'ptr_preview': True}
+        self.item.save(update_fields=['metadata'])
+        self.base.effects_json = fixture['base_effects']
+        self.base.metadata.update(game_build='12.1.5.69594', simc_revision='旧版本',
+                                  effects_status='exact_build_db2_simc', primary_stat_amount=189)
+        self.base.save()
+        original_id, original_bonus = self.base.pk, deepcopy(self.base.bonus_ids)
+        def details(_iid, level, _cache, branch):
+            self.assertEqual(branch, 'ptr-2')
+            value = _tooltip_details(fixture[str(level)])
+            value['source'] = {'provider': 'wowhead', 'branch': branch}
+            return value
+        fetch.side_effect = details
+        self.assertIn('1,127', self.base.effects_json[0]['description_zh'])
+        self.execute()
+        fetch.assert_not_called()
+        for _ in range(2):
+            self.execute(apply=True)
+            self.base.refresh_from_db()
+            upgraded = WowItemVariantSnapshot.objects.get(track_rank=8)
+            self.assertIn('756急速', self.base.effects_json[0]['description_zh'])
+            self.assertIn('9972点光辉伤害', self.base.effects_json[0]['description_zh'])
+            self.assertIn('774急速', upgraded.effects_json[0]['description_zh'])
+            self.assertEqual(self.base.pk, original_id)
+            self.assertEqual(self.base.bonus_ids, original_bonus)
+            self.assertEqual(self.base.game_build, '')
+            for key in ('game_build', 'simc_revision', 'effects_status', 'primary_stat_amount'):
+                self.assertNotIn(key, self.base.metadata)
+            self.assertEqual(self.base.metadata['tooltip_source']['branch'], 'ptr-2')
+            self.assertEqual(WowItemVariantSnapshot.objects.count(), 2)
+
+    @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
+    def test_refresh_covers_all_preview_ranks_and_is_atomic(self, fetch):
+        self.base.metadata['ptr_preview'] = True
+        self.base.save()
+        champion = deepcopy(self.base)
+        champion.pk = None
+        champion.variant_key = 'raid-champion-1-292'
+        champion.item_level, champion.upgrade_track, champion.track_rank = 292, 'champion', 1
+        champion.save()
+        special = deepcopy(self.base)
+        special.pk = None
+        special.variant_key = 'raid-myth-9-344'
+        special.item_level, special.track_rank = 344, 9
+        special.save()
+        fetch.side_effect = lambda _iid, level, *_args: dict(self.details, item_level=level)
+        self.execute(apply=True)
+        self.assertEqual({call.args[1] for call in fetch.call_args_list}, {292, 334, 340, 344})
+        for row in (champion, special):
+            row.refresh_from_db()
+            self.assertEqual(row.effects_json, self.details['effects'])
+        fetch.side_effect = lambda _iid, level, *_args: dict(self.details, item_level=level,
+            effects=[] if level == 292 else [{'description_zh': '装备：提高200急速。'}])
+        with self.assertRaisesMessage(CommandError, 'champion 1/6'):
+            self.execute(apply=True)
+        for row in WowItemVariantSnapshot.objects.all():
+            self.assertEqual(row.effects_json, self.details['effects'])
 
     @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
     def test_localization_error_names_the_item_and_preserves_atomicity(self, fetch):

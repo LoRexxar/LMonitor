@@ -180,3 +180,13 @@ assert.match(JSON.stringify(api.compactShareState(api.state)), /myth-6-venomston
 await api.switchVariant(100);
 assert.equal(api.state.equipment.main_hand.variant.item_level, 334);
 assert.equal(api.state.equipment.main_hand.variant.stats.strength, 180);
+
+// 后端修正原档位后，已保存配装也必须更新同一变体的特效缓存。
+api.state.equipment.main_hand.variant.effects = [{description_zh: '装备：获得1127急速。'}];
+api.state.equipment.main_hand.resolvedEffects = [{description_zh: '装备：获得1127急速。'}];
+const correctedSixth = {...sixth, text_schema_version: 2, effects: [{description_zh: '装备：获得756急速。'}]};
+assert.equal(api.refreshCachedEquipmentStats([{...venomItem, text_schema_version: 2, variants: [correctedSixth]}]), true);
+assert.equal(api.state.equipment.main_hand.variant.id, 100, '修正数值不更换已选装备');
+assert.equal(api.state.equipment.main_hand.variant.item_level, 334);
+assert.match(api.state.equipment.main_hand.variant.effects[0].description_zh, /756急速/);
+assert.match(api.state.equipment.main_hand.resolvedEffects[0].description_zh, /756急速/);

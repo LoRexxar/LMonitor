@@ -56,7 +56,10 @@ def apply_tooltip(variant, details, *, requires_effect=False):
         raise ValueError('毒液石 Tooltip 缺少装备特效')
     variant['stats'] = deepcopy(details.get('stats') or {})
     variant['effects'] = deepcopy(details.get('effects') or [])
-    variant.setdefault('metadata', {})['primary_stat_values'] = deepcopy(details.get('primary_options') or {})
+    metadata = variant.setdefault('metadata', {})
+    for key in ('primary_stat_amount', 'stats_status', 'effects_status', 'simc_revision', 'game_build'):
+        metadata.pop(key, None)
+    metadata['primary_stat_values'] = deepcopy(details.get('primary_options') or {})
     variant['metadata']['tooltip_item_level'] = details['item_level']
     if details.get('source'):
         variant['metadata']['tooltip_source'] = deepcopy(details['source'])

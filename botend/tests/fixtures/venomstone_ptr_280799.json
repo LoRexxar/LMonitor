@@ -1,0 +1,216 @@
+{
+  "说明": "露瑟拉玛旧构建与当前 PTR 提示，用于防止跨构建数值混用。",
+  "item_id": 280799,
+  "base_effects": [
+    {
+      "item_effect_id": 236665,
+      "spell_id": 1309762,
+      "trigger_type": 1,
+      "description": "Your damage has a chance to ignite Lu'selama for 10秒, granting you 1,127 Haste. While ablaze, further attacks have a chance to smite your target for an additional 14,515–21,993（随职责变化） Radiant damage.",
+      "description_zh": "装备：你的伤害有几率点燃露瑟拉玛，持续10秒，使你获得1,127急速。燃烧期间，后续攻击有几率额外对目标造成14,515–21,993（随职责变化）点光辉伤害。",
+      "template": "Your damage has a chance to ignite Lu'selama for $1309766d, granting you $s1 Haste. While ablaze, further attacks have a chance to smite your target for an additional ${$<rolemult>*$s2} Radiant damage.",
+      "unresolved_tokens": [],
+      "game_build": "12.1.5.69594",
+      "template_zh": "你的伤害有几率点燃露瑟拉玛，持续$1309766d，使你获得$s1急速。燃烧期间，后续攻击有几率额外对目标造成${$<rolemult>*$s2}点光辉伤害。",
+      "localization_build": "12.1.5.70077"
+    }
+  ],
+  "334": {
+    "name": "Lu'selama, Light's Justice",
+    "quality": 4,
+    "icon": "inv_sword_2h_raidmidnight_d_01",
+    "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Lu'selama, Light's Justice</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Mythic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->334</span><br><span class=\"q\">Upgrade Level: Myth <!--uindex-->6/6</span><!--bo--><br>Binds when picked up<br>Unique-Equipped<!--ue--><!--ue--><table width=\"100%\"><tr><td>Two-Hand</td><th><!--scstart2:8--><span class=\"q1\">Sword</span><!--scend--></th></tr></table><!--rf--><table width=\"100%\"><tr>\n    <td><span><!--dmg-->383 - 639 Damage</span></td>\n    <th>Speed <!--spd-->3.60</th>\n</tr></table><!--dps-->(141.9 damage per second)<br><span><!--stat4-->+189 Strength</span><br><span><!--stat7-->+3,910 Stamina</span><!--ebstats--><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1309762/lights-justice\" class=\"q2\">Your damage has a chance to ignite Lu'selama for 10 sec, granting you <!--pts1:0:0:1309762:2.63283-->756<!----> Haste. While ablaze, further attacks have a chance to smite your target for an additional (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts2:0:0:1309762:14.2295-->9972<!---->) Radiant damage.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">108</span> <span class=\"moneysilver\">84</span> <span class=\"moneycopper\">88</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+    "spells": {
+      "137008": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137010": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137012": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137023": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137024": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137028": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137029": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137031": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137032": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137039": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137048": [
+        [
+          "1",
+          "0.66",
+          ""
+        ]
+      ],
+      "212613": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "356810": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ]
+    }
+  },
+  "340": {
+    "name": "Lu'selama, Light's Justice",
+    "quality": 4,
+    "icon": "inv_sword_2h_raidmidnight_d_01",
+    "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Lu'selama, Light's Justice</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Mythic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->340</span><br><span class=\"q\">Upgrade Level: Myth <!--uindex-->6/6</span><!--bo--><br>Binds when picked up<br>Unique-Equipped<!--ue--><!--ue--><table width=\"100%\"><tr><td>Two-Hand</td><th><!--scstart2:8--><span class=\"q1\">Sword</span><!--scend--></th></tr></table><!--rf--><table width=\"100%\"><tr>\n    <td><span><!--dmg-->405 - 675 Damage</span></td>\n    <th>Speed <!--spd-->3.60</th>\n</tr></table><!--dps-->(150.0 damage per second)<br><span><!--stat4-->+199 Strength</span><br><span><!--stat7-->+4,187 Stamina</span><!--ebstats--><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1309762/lights-justice\" class=\"q2\">Your damage has a chance to ignite Lu'selama for 10 sec, granting you <!--pts1:0:0:1309762:2.63283-->774<!----> Haste. While ablaze, further attacks have a chance to smite your target for an additional (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts2:0:0:1309762:14.2295-->10839<!---->) Radiant damage.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">109</span> <span class=\"moneysilver\">17</span> <span class=\"moneycopper\">61</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+    "spells": {
+      "137008": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137010": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137012": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137023": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137024": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137028": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137029": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137031": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137032": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137039": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "137048": [
+        [
+          "1",
+          "0.66",
+          ""
+        ]
+      ],
+      "212613": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ],
+      "356810": [
+        [
+          "",
+          "0.66",
+          ""
+        ]
+      ]
+    }
+  }
+}
