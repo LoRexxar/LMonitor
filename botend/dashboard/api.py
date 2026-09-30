@@ -10307,10 +10307,14 @@ def _benchmark_progress_case_queryset():
         'spec_key', 'scenario_key', 'profile_key',
         'spec_label', 'scenario_label', 'profile_label',
         'task__id', 'task__current_status', 'task__ext', 'task__error_detail',
-        'task__simulation_runs__id', 'task__simulation_runs__status',
-        'task__simulation_runs__error_detail',
-        'task__artifacts__id', 'task__artifacts__artifact_type',
-    ).prefetch_related('task__simulation_runs', 'task__artifacts').order_by('id')
+    ).prefetch_related(
+        models.Prefetch('task__simulation_runs', queryset=SimulationRun.objects.only(
+            'id', 'task_id', 'status', 'error_detail',
+        )),
+        models.Prefetch('task__artifacts', queryset=SimcTaskArtifact.objects.only(
+            'id', 'task_id', 'artifact_type',
+        )),
+    ).order_by('id')
 
 
 def _benchmark_failure_rows(execution, cases):

@@ -432,10 +432,7 @@ def _candidate_display_tooltip(display, candidate):
     return f'{current}\n{effect_suffix}'
 
 
-def _task_candidate_identities(task):
-    mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
-    manifest = mode_params.get('request_manifest') if isinstance(mode_params, dict) else None
-    candidates = manifest.get('candidates') if isinstance(manifest, dict) else None
+def _candidate_identities_from_candidates(candidates):
     if not isinstance(candidates, list):
         return {}
     return {
@@ -443,6 +440,44 @@ def _task_candidate_identities(task):
         for candidate in candidates
         if isinstance(candidate, dict) and isinstance(candidate.get('candidate_key'), str)
     }
+
+
+def _task_candidate_identities(task):
+    mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
+    manifest = mode_params.get('request_manifest')
+    candidates = manifest.get('candidates') if isinstance(manifest, dict) else None
+    return _candidate_identities_from_candidates(candidates)
+
+
+def _load_task_candidate_identity_rows(task_ids):
+    """Return {id: {source_task_id, identities: {candidate_key: hash}}}.
+
+    Include all available provenance ancestors, without retaining Task models or
+    decoded manifests. Each SQL read hydrates at most 20 candidate arrays, even
+    with buffered database drivers; missing ancestors and cycles terminate safely.
+    """
+    from itertools import islice
+    from django.db.models.fields.json import KeyTransform
+
+    rows = {}
+    pending = set(task_ids)
+    attempted = set()
+    while pending:
+        batch = list(islice(pending, 20))
+        pending.difference_update(batch)
+        attempted.update(batch)
+        loaded = SimcTask.objects.filter(pk__in=batch).order_by().annotate(
+            frozen_candidates=KeyTransform(
+                'candidates', KeyTransform('request_manifest', 'mode_params'),
+            ),
+        ).values('id', 'source_task_id', 'frozen_candidates')
+        for row in loaded:
+            identities = _candidate_identities_from_candidates(row.pop('frozen_candidates'))
+            source_id = row['source_task_id']
+            rows[row['id']] = {'source_task_id': source_id, 'identities': identities}
+            if source_id and source_id not in attempted:
+                pending.add(source_id)
+    return rows
 
 
 def _task_candidate_identities_through_source_chain(task):
@@ -525,15 +560,20 @@ def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
             if value:
                 case_filters[key] = str(value)
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
-    cases = cases.select_related(
-        'task', 'task__profile_version', 'task__talent_version', 'execution',
-    ).order_by(
-        '-execution_id', '-id',
-    )
+    # Only the newest Task reference per coordinate is kept. Do not retain
+    # historical executable JSON or hydrate resource payloads before it wins.
+    cases = cases.exclude(
+        execution__status=SimcBenchmarkExecution.STATUS_CANCELLED,
+    ).exclude(execution__in=SimcBenchmarkExecution.objects.filter(
+        panel_id=panel.pk, config_snapshot__result_publication='atomic_targeted',
+    ).exclude(status=SimcBenchmarkExecution.STATUS_SUCCESS)).select_related(
+        'task', 'task__profile_version', 'task__talent_version',
+    ).defer(
+        'task__mode_params', 'task__analysis_result', 'task__result_summary', 'task__ext',
+        'task__profile_version__payload', 'task__talent_version__payload',
+    ).order_by('-execution_id', '-id')
     source_tasks = {}
-    for case in cases:
-        if not _execution_contributes_to_projection(case.execution):
-            continue
+    for case in cases.iterator(chunk_size=20):
         task = case.task
         coordinate = _coordinate_input_identity({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
@@ -690,35 +730,67 @@ def _reusable_candidate_tasks_by_coordinate(
                         matches[identity] = {'task_id': task_id}
         return coordinates
     else:
-        cases = cases.select_related(
+        # Result provenance needs candidate identities, not the complete executable
+        # Task and resource payloads. Keep historical scans bounded and hydrate
+        # frozen resource payloads only when a winning row is rendered below.
+        cases = cases.exclude(
+            execution__status=SimcBenchmarkExecution.STATUS_CANCELLED,
+        ).select_related(
             'task', 'task__profile_version', 'task__apl_version',
-            'task__template_version', 'task__talent_version', 'execution',
+            'task__template_version', 'task__talent_version',
+        ).defer(
+            'task__mode_params', 'task__analysis_result',
+            'task__result_summary', 'task__ext',
+            'task__profile_version__payload', 'task__apl_version__payload',
+            'task__template_version__payload', 'task__talent_version__payload',
         ).prefetch_related('results')
-    cases = cases.order_by('-execution_id', '-id').distinct()
-    for case in cases:
-        if not _execution_contributes_to_projection(case.execution):
-            continue
-        task = case.task
-        if task is None:
-            continue
-        coordinate_payload = {
-            'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
-            'profile_key': case.profile_key, 'profile_id': task.profile_id,
-            'apl_id': task.apl_id, 'template_id': task.template_id,
-            'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
-        }
-        if include_resource_versions:
-            coordinate_payload['resource_version_hashes'] = _task_resource_version_hashes(task)
-        coordinate = _coordinate_input_identity(
-            coordinate_payload, include_resource_versions=include_resource_versions,
-        )
-        candidates = coordinates.setdefault(coordinate, {})
-        identities = _task_candidate_identities_through_source_chain(task)
-        for result in case.results.all():
-            identity = identities.get(result.candidate_key)
-            if identity and identity not in candidates:
-                candidates[identity] = {'task': task, 'result': result}
-    return coordinates
+        last_execution_id = last_case_id = None
+        while True:
+            page = cases
+            if last_execution_id is not None:
+                page = page.filter(
+                    Q(execution_id__lt=last_execution_id)
+                    | Q(execution_id=last_execution_id, id__lt=last_case_id)
+                )
+            batch = list(page.order_by('-execution_id', '-id').distinct()[:20])
+            if not batch:
+                break
+            last_execution_id, last_case_id = batch[-1].execution_id, batch[-1].pk
+            identity_rows = _load_task_candidate_identity_rows(
+                {case.task_id for case in batch if case.task_id is not None},
+            )
+            for case in batch:
+                task = case.task
+                if task is None:
+                    continue
+                coordinate_payload = {
+                    'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
+                    'profile_key': case.profile_key, 'profile_id': task.profile_id,
+                    'apl_id': task.apl_id, 'template_id': task.template_id,
+                    'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
+                }
+                if include_resource_versions:
+                    coordinate_payload['resource_version_hashes'] = _task_resource_version_hashes(task)
+                coordinate = _coordinate_input_identity(
+                    coordinate_payload, include_resource_versions=include_resource_versions,
+                )
+                chain, seen, current_id = [], set(), task.pk
+                while current_id is not None and current_id not in seen:
+                    seen.add(current_id)
+                    frozen = identity_rows.get(current_id)
+                    if frozen is None:
+                        break
+                    chain.append(frozen)
+                    current_id = frozen['source_task_id']
+                identities = {}
+                for frozen in reversed(chain):
+                    identities.update(frozen['identities'])
+                candidates = coordinates.setdefault(coordinate, {})
+                for result in case.results.all():
+                    identity = identities.get(result.candidate_key)
+                    if identity and identity not in candidates:
+                        candidates[identity] = {'task': task, 'result': result}
+        return coordinates
 
 
 def _candidate_raw_report_urls(reusable_by_coordinate):
@@ -734,7 +806,9 @@ def _candidate_raw_report_urls(reusable_by_coordinate):
         task_id__in=task_ids,
         run_id__isnull=False,
         artifact_type='html_report',
-    ).select_related('run').order_by('-created_at', '-id')
+    ).select_related('run').only(
+        'id', 'task_id', 'run_id', 'file_path', 'run__id', 'run__candidate_key',
+    ).order_by('-created_at', '-id')
     for artifact in artifacts:
         lookup = (artifact.task_id, artifact.run.candidate_key)
         if lookup in urls:
@@ -751,17 +825,26 @@ def _candidate_raw_report_urls(reusable_by_coordinate):
 
 
 def _candidate_source_run(task, candidate_key):
-    """Resolve the actual immutable Run through the retry provenance chain."""
-    current = task
+    """Resolve baseline audit evidence without retaining ancestor Task payloads."""
+    from django.db.models.fields.json import KeyTransform
+
+    current_id = task.pk if task is not None else None
     seen = set()
-    while current is not None and current.pk not in seen:
-        seen.add(current.pk)
+    while current_id is not None and current_id not in seen:
+        seen.add(current_id)
         run = SimulationRun.objects.filter(
-            task_id=current.pk, candidate_key=candidate_key, status='completed',
+            task_id=current_id, candidate_key=candidate_key, status='completed',
+        ).only('id', 'task_id').annotate(
+            frozen_backend_version=KeyTransform('backend_version', 'resource_manifest'),
         ).order_by('-sequence', '-id').first()
         if run is not None:
             return run
-        current = current.source_task
+        current_id = (
+            task.source_task_id if current_id == task.pk else
+            SimcTask.objects.filter(pk=current_id).order_by().values_list(
+                'source_task_id', flat=True,
+            ).first()
+        )
     return None
 
 
@@ -1476,27 +1559,7 @@ def _reusable_result_counts_for_plans(panels, plans):
         'case__task__simulation_params',
     ).order_by('-case__execution_id', '-case_id', '-id'))
     task_ids = {row['case__task_id'] for row in results}
-    tasks = {
-        task.pk: task
-        for task in SimcTask.objects.filter(pk__in=task_ids).only(
-            'id', 'source_task_id', 'mode_params',
-        )
-    }
-    missing_source_ids = {
-        task.source_task_id for task in tasks.values()
-        if task.source_task_id and task.source_task_id not in tasks
-    }
-    while missing_source_ids:
-        loaded = list(SimcTask.objects.filter(pk__in=missing_source_ids).only(
-            'id', 'source_task_id', 'mode_params',
-        ))
-        if not loaded:
-            break
-        tasks.update((task.pk, task) for task in loaded)
-        missing_source_ids = {
-            task.source_task_id for task in loaded
-            if task.source_task_id and task.source_task_id not in tasks
-        }
+    tasks = _load_task_candidate_identity_rows(task_ids)
 
     identity_cache = {}
 
@@ -1512,10 +1575,10 @@ def _reusable_result_counts_for_plans(panels, plans):
             if task is None:
                 break
             chain.append(task)
-            current_id = task.source_task_id
+            current_id = task['source_task_id']
         identities = {}
         for task in reversed(chain):
-            identities.update(_task_candidate_identities(task))
+            identities.update(task['identities'])
         identity_cache[task_id] = identities
         return identities
 
@@ -1589,9 +1652,14 @@ def summarize_panel_coverage_counts(panels):
 
     # Old Panels predate aggregate_baseline_execution. Their largest frozen
     # snapshot remains the baseline denominator shown on the Dashboard.
+    from django.db.models.fields.json import KeyTransform
+
     executions_by_panel = {}
-    for row in SimcBenchmarkExecution.objects.filter(panel__in=panels).values(
-        'id', 'panel_id', 'config_snapshot',
+    for row in SimcBenchmarkExecution.objects.filter(panel__in=panels).order_by().annotate(
+        snapshot_case_count=KeyTransform('case_count', 'config_snapshot'),
+        snapshot_run_count=KeyTransform('run_count', 'config_snapshot'),
+    ).values(
+        'id', 'panel_id', 'snapshot_case_count', 'snapshot_run_count',
     ):
         executions_by_panel.setdefault(row['panel_id'], []).append(row)
 
@@ -1604,19 +1672,18 @@ def summarize_panel_coverage_counts(panels):
             selected = max(
                 rows,
                 key=lambda row: (
-                    int((row['config_snapshot'] or {}).get('run_count') or 0),
-                    int((row['config_snapshot'] or {}).get('case_count') or 0),
+                    int(row['snapshot_run_count'] or 0),
+                    int(row['snapshot_case_count'] or 0),
                     row['id'],
                 ),
                 default=None,
             )
         if selected is None:
             continue
-        snapshot = selected['config_snapshot'] if isinstance(selected['config_snapshot'], dict) else {}
         item = coverage[panel.pk]
         item['aggregate_baseline_execution_id'] = selected['id']
-        item['coordinates'] = int(snapshot.get('case_count') or 0)
-        item['candidate_runs'] = int(snapshot.get('run_count') or 0)
+        item['coordinates'] = int(selected['snapshot_case_count'] or 0)
+        item['candidate_runs'] = int(selected['snapshot_run_count'] or 0)
         item['plan_delta_runs'] = item['current_plan_runs'] - item['candidate_runs']
 
     result_counts = _reusable_result_counts_for_plans(panels, plans)
@@ -2045,7 +2112,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 result_task = match['task']
                 source_run = (
                     _candidate_source_run(result_task, candidate['candidate_key'])
-                    if include_details else None
+                    if include_details and candidate['candidate_key'] == 'baseline' else None
                 )
                 display = display_by_identity.get((
                     coordinate['spec_key'], _candidate_input_identity(candidate),
@@ -2091,8 +2158,6 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     row['equipment_items'] = deepcopy(swaps)
                 rows.append(row)
                 if include_details and candidate['candidate_key'] == 'baseline':
-                    manifest = source_run.resource_manifest if source_run is not None else {}
-                    manifest = manifest if isinstance(manifest, dict) else {}
                     coordinate_audit = {
                         'profile_identity': (
                             result_task.profile_version.content_hash
@@ -2107,7 +2172,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                             result_task.template_version.content_hash
                             if result_task.template_version_id else None
                         ),
-                        'backend_version': manifest.get('backend_version'),
+                        'backend_version': (
+                            source_run.frozen_backend_version if source_run is not None else None
+                        ),
                         'simulation_params': result_task.simulation_params or {},
                     }
         if not is_option_gain:
@@ -2241,11 +2308,9 @@ def serialize_panel_apl_ranking_results(panel, *, spec_key, scenario_key):
     def project(result):
         task = result.case.task
         source_run = _candidate_source_run(task, 'baseline')
-        manifest = source_run.resource_manifest if source_run is not None else {}
-        manifest = manifest if isinstance(manifest, dict) else {}
         if not (task.profile_version_id and task.apl_version_id and task.template_version_id):
             return None
-        backend_version = manifest.get('backend_version')
+        backend_version = source_run.frozen_backend_version if source_run is not None else None
         apl_payload = task.apl_version.payload or {}
         return {
             'spec_key': result.case.spec_key,
@@ -2640,11 +2705,21 @@ def _benchmark_failed_run_rows(task):
     return rows
 
 
+def _benchmark_lifecycle_case_queryset():
+    """Read lifecycle/error evidence, never hydrate executable Task payloads."""
+    return SimcBenchmarkCase.objects.select_related('task').only(
+        'id', 'execution_id', 'task_id', 'status', 'error_detail',
+        'spec_key', 'scenario_key', 'profile_key',
+        'spec_label', 'scenario_label', 'profile_label',
+        'task__id', 'task__current_status', 'task__ext', 'task__error_detail',
+    )
+
+
 def _summarize_active_lifecycle(execution):
     """Project active progress from Case/Task lifecycle without exposing Run results."""
-    cases = list(SimcBenchmarkCase.objects.filter(
+    cases = list(_benchmark_lifecycle_case_queryset().filter(
         execution_id=execution.pk,
-    ).select_related('task').prefetch_related(
+    ).prefetch_related(
         Prefetch(
             'task__simulation_runs',
             queryset=_benchmark_failed_run_queryset(),
@@ -2694,8 +2769,8 @@ def _summarize_active_lifecycle(execution):
 def _summarize_persisted_execution(execution):
     """Build terminal output solely from Execution/Case/Result aggregate tables."""
     result_qs = SimcBenchmarkResult.objects.order_by('case_id', 'id')
-    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).select_related(
-        'task',
+    cases = list(_benchmark_lifecycle_case_queryset().filter(
+        execution_id=execution.pk,
     ).prefetch_related(
         Prefetch('results', queryset=result_qs, to_attr='_persisted_results'),
         Prefetch(
