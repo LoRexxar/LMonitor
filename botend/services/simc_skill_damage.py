@@ -3917,7 +3917,13 @@ def project_skill_damage_product_payload(payload):
         'actual_crit_chance', 'normalized_expected',
     )
     actors = [actor for actor in (result.get('actors') or []) if isinstance(actor, dict)]
+    from .simc_skill_passive_projection import normalize_native_specialization_passives
+
     for actor in actors:
+        passive_diagnostics = []
+        normalize_native_specialization_passives(actor, diagnostics=passive_diagnostics)
+        if passive_diagnostics:
+            actor['specialization_passive_diagnostics'] = passive_diagnostics
         groups = {}
         hand_groups = {}
         for action in actor.get('actions') or []:
