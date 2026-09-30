@@ -116,7 +116,8 @@ def _load_json(season_id, class_name, spec_name, filename):
     if not os.path.exists(path):
         return None
     with open(path, 'r', encoding='utf-8') as f:
-        return json.load(f)
+        from botend.services.wow_item_display import refresh_aggregate_equipment
+        return refresh_aggregate_equipment(json.load(f), class_name=class_name, spec_name=spec_name)
 
 
 def _raid_overview_json_is_stale(season, zone_groups):

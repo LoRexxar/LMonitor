@@ -33,6 +33,11 @@ def _local_item_tooltip(entry_id, build):
         'default_variant_order': 'lowest',
         'require_complete_variant': True,
     }])[0]
+    if item['catalog_type'] == 'misc' and item.get('name_zh'):
+        return {'name': item['display_name'], 'lines': [item['display_name'], item['localized_description']],
+                'source': 'LMonitor 装备目录', 'url': item['wowhead_url'], 'icon': item['icon_url'],
+                'note': '非装备掉落，没有装备属性或装备特效。', 'item_level': None,
+                'stats': [], 'effects': [], 'complete': False, 'status': 'not_equipment'}
     is_ptr = bool(item['variant_metadata'].get('ptr_preview'))
     # variant 完整时直接返回结构化数据
     if item['variant_id'] and item['tooltip_complete']:

@@ -320,6 +320,7 @@ def sync_journal(*, build='', directory=None, offline=False, refresh=False, prog
                 'catalog': catalog,
                 'retail_build': build,
                 'ptr_overlays': ptr_overlays,
+                'display_overrides': (previous.manifest or {}).get('display_overrides', {}) if previous else {},
             }
             release.report = report
             for key, label in (('instances', '副本'), ('encounters', '首领'), ('sections', '技能'), ('loot', '掉落')):

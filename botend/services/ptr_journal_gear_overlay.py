@@ -127,6 +127,15 @@ def preserve_active_ptr_journal_overlay(active_release, rows, catalog, report, r
     正式服数据优先：若正式服已包含同一 JournalInstanceID，则丢弃旧 PTR
     overlay，避免预览数据永久压过后来发布的正式数据。
     """
+    # 本赛季归属是展示约定，正式服出现同 ID 时也应保留到该赛季结束。
+    displays = ((active_release.manifest or {}).get('display_overrides') or {}) if active_release else {}
+    if displays:
+        season = active_season()
+        current_tiers = {int(t['id']) for t in catalog.get('tiers') or [] if int(t.get('order') or 0) == 9000}
+        for row in rows:
+            display = displays.get(str(row['id'])) or {}
+            if season and display.get('season_key') == season.season_key:
+                row['tier_ids'] = sorted(set(row.get('tier_ids') or []) | current_tiers)
     overlays = dict((active_release.manifest or {}).get('ptr_overlays') or {}) if active_release else {}
     if not overlays:
         return rows, catalog, report, {}, retail_build

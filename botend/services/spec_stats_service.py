@@ -2645,7 +2645,8 @@ def _normalize_gear_items(items):
             if idx >= len(default_slots):
                 break
             item['slot'] = SLOT_CN.get(default_slots[idx], default_slots[idx])
-    return result
+    from botend.services.wow_item_display import refresh_localized_equipment
+    return refresh_localized_equipment(result)
 
 
 def _resolve_player_gear(player):
@@ -3022,4 +3023,5 @@ def _compute_gear_popularity(records, top_n=5):
             })
         result[slot] = items
 
-    return result
+    from botend.services.wow_item_display import refresh_localized_equipment
+    return refresh_localized_equipment(result)

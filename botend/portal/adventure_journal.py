@@ -31,11 +31,28 @@ def _version_label(build):
 def instance_source(release, instance_id):
     manifest = release.manifest or {}
     overlay = (manifest.get('ptr_overlays') or {}).get(str(instance_id))
+    display = (manifest.get('display_overrides') or {}).get(str(instance_id))
+    if display:
+        from botend.services.gear_builder import active_season
+        season = active_season()
+        if season and display.get('season_key') == season.season_key:
+            return {'key': 'current', 'label': '本赛季',
+                    'build': str((overlay or {}).get('source_build') or release.build.split('+ptr-', 1)[0]),
+                    'text_build': display['localization_build']}
     if overlay:
         build = str(overlay.get('source_build') or '')
         return {'key': 'ptr', 'label': f'PTR {_version_label(build)}', 'build': build}
     build = str(manifest.get('retail_build') or release.build.split('+ptr-', 1)[0])
     return {'key': 'retail', 'label': f'正式服 {_version_label(build)}', 'build': build}
+
+
+def _present_tooltip(data, source):
+    """赛季展示标签与保留的数值来源分开，避免把旧 PTR 构建伪装成正式服。"""
+    if data and source['key'] == 'current':
+        return {**data, 'source': 'LMonitor 装备目录',
+                'note': data.get('note', '') if data.get('status') == 'not_equipment' else
+                f'参考装等 {data.get("item_level") or "未知"}，不代表所选难度的初始掉落装等。'}
+    return data
 
 
 def catalog_data(request):
@@ -177,7 +194,7 @@ def detail_data(request, instance_id):
         if identity in seen:
             continue
         seen.add(identity)
-        filtered.append({**row, 'details': cached_tooltip('item', row['item_id'], difficulty, source['build'])})
+        filtered.append({**row, 'details': _present_tooltip(cached_tooltip('item', row['item_id'], difficulty, source['build']), source)})
     result['loot'] = filtered
     overview = next((s['descriptions'].get(str(difficulty), '') for s in payload['sections']
                      if s['type'] == 3 and not s['roles'] and difficulty in s['difficulty_ids']), '')
@@ -260,12 +277,12 @@ class PortalAdventureJournalTooltipView(View):
         if kind == 'spell':
             return JsonResponse({'name': referenced['title'],
                                  'lines': referenced['descriptions'].get(str(context['difficulty']), '').splitlines(),
-                                 'source': 'Wago', 'url': f'https://wago.tools/journal/{instance_id}?build={context["release"]["build"]}',
+                                 'source': 'Wago', 'url': f'https://wago.tools/journal/{instance_id}?build={source.get("text_build") or source["build"]}',
                                  'note': f'{source["label"]}，按当前难度解析；动态效果以游戏内实际状态为准。'},
                                 json_dumps_params={'ensure_ascii': False})
         from botend.services.journal_tooltip import tooltip
         try:
-            return JsonResponse(tooltip(kind, entry_id, context['difficulty'], context['release']['build']), json_dumps_params={'ensure_ascii': False})
+            return JsonResponse(_present_tooltip(tooltip(kind, entry_id, context['difficulty'], context['release']['build']), source), json_dumps_params={'ensure_ascii': False})
         except ValueError:
             item = load_item_display_metadata([entry_id])[entry_id]
             if item['display_name'] == f'#{entry_id}':

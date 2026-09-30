@@ -647,3 +647,60 @@ def load_item_display_metadata(item_ids):
         item_id: item_display_metadata(item_id, snapshots.get(item_id))
         for item_id in normalized_ids
     }
+
+
+def refresh_localized_equipment(value, *, class_name='', spec_name=''):
+    """批量刷新已修复物品的旧聚合展示，保留样本数、占比和装等。"""
+    rows = []
+
+    def visit(node):
+        if isinstance(node, dict):
+            item_id = _positive_int(node.get('itemID') or node.get('item_id') or node.get('id'))
+            if item_id:
+                rows.append((node, item_id))
+            for child in node.values():
+                if isinstance(child, (list, dict)):
+                    visit(child)
+        elif isinstance(node, list):
+            for child in node:
+                visit(child)
+
+    visit(value)
+    if not rows:
+        return value
+    localized = {
+        item.item_id for item in WowItemSnapshot.objects.filter(item_id__in={iid for _, iid in rows}).only('item_id', 'metadata', 'name_zh')
+        if (item.metadata or {}).get('localization') and item.name_zh
+    }
+    selected = [(row, iid) for row, iid in rows if iid in localized]
+    requests = [{
+        'item_id': iid, 'item_level': row.get('itemLevel') or row.get('item_level'),
+        'bonus_ids': row.get('bonusIDs') or row.get('bonus_ids'),
+        'allow_default_variant': True, 'default_variant_order': 'lowest',
+        'class_name': class_name, 'spec_name': spec_name,
+    } for row, iid in selected]
+    for (row, _iid), display in zip(selected, load_item_tooltip_metadata(requests)):
+        for field in ('name_zh', 'display_name', 'description_zh', 'display_description'):
+            row[field] = display[field]
+        row['tooltip'] = display['tooltip']
+    return value
+
+
+def refresh_aggregate_equipment(payload, *, class_name='', spec_name=''):
+    """只刷新装备区域，不把首领、玩家或天赋 ID 当作物品。"""
+    groups = []
+
+    def collect(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in {'gear_popularity', 'gear', 'equipment'}:
+                    groups.append(value)
+                elif isinstance(value, (dict, list)):
+                    collect(value)
+        elif isinstance(node, list):
+            for value in node:
+                collect(value)
+
+    collect(payload)
+    refresh_localized_equipment(groups, class_name=class_name, spec_name=spec_name)
+    return payload

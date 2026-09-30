@@ -16,7 +16,7 @@
 <label>副本类型<select name="kind"><option value="">全部类型</option><option value="dungeon" {% if kind == 'dungeon' %}selected{% endif %}>地下城</option><option value="raid" {% if kind == 'raid' %}selected{% endif %}>团队副本</option><option value="world" {% if kind == 'world' %}selected{% endif %}>世界首领</option></select></label>
 <button type="submit" class="journal-primary">查找副本</button>{% if q or kind or tier %}<a class="journal-reset" href="/portal/adventure-journal/">重置</a>{% endif %}
 </form>
-{% if release %}<div class="journal-section-label"><h2>副本目录 <span>{{ instances|length }}</span></h2><span>正式服 / PTR · 按副本标注</span></div>{% endif %}
+{% if release %}<div class="journal-section-label"><h2>副本目录 <span>{{ instances|length }}</span></h2><span>按副本查看战斗指南与掉落</span></div>{% endif %}
 <div class="journal-grid">{% for instance in instances %}
 <a class="journal-instance-card" href="{{ instance.url }}"><div class="journal-card-visual journal-visual-{{ instance.kind }}"><span class="journal-emblem" aria-hidden="true">{% if instance.kind == 'raid' %}♜{% elif instance.kind == 'world' %}✧{% else %}⚔{% endif %}</span>{% if instance.image %}<img src="/portal/adventure-journal/art/{{ instance.image }}/?v=2" alt="" loading="lazy" onerror="this.hidden=true">{% endif %}<span class="journal-card-kind">{{ instance.kind_label }}</span></div>
 <div class="journal-card-body"><p class="journal-eyebrow">{{ instance.tier_name }}</p><span class="journal-source-badge journal-source-badge--{{ instance.source.key }}">{{ instance.source.label }}</span><h3>{{ instance.name }}</h3><p class="journal-card-description">{{ instance.description|truncatechars:85 }}</p><div class="journal-card-footer"><span>{{ instance.boss_count_label }} 位首领</span><span>查看手册 →</span></div></div></a>
