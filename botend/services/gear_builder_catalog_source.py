@@ -17,6 +17,7 @@ import requests
 from botend.services.season_keys import canonical_season_key
 from botend.services.gear_builder_tier_sources import tier_set_sources
 from botend.services.wow_item_text import normalize_catalog_text
+from botend.services.gear_builder_venomstone import upgraded_variant, apply_tooltip
 
 from botend.constants.wow import SPEC_IDENTITY_MAP, localize_gear_source
 from botend.services.article_image_service import _get_configured_proxies
@@ -29,6 +30,7 @@ WOWHEAD_TOOLTIP = 'https://nether.wowhead.com/tooltip/item/{item_id}'
 # 当前正式服赛季的合法装备等级。版本变化时必须显式更新并通过审计，不能静默猜测。
 SEASON_LEVEL_PROFILES = {
     'mid2': {
+        'venomstone': True,
         'tracks': {
             'champion': (292, 295, 298, 302, 305, 308),
             'hero': (305, 308, 311, 315, 318, 321),
@@ -180,6 +182,7 @@ def _tooltip_details(payload):
     description_zh = '\n'.join(text for text in flavor if re.search(r'[\u4e00-\u9fff]', text))
     description = '\n'.join(text for text in flavor if not re.search(r'[\u4e00-\u9fff]', text))
     return {
+        'item_level': _safe_int((re.search(r'<!--ilvl-->\s*(\d+)', raw_tooltip) or [None, 0])[1]),
         'name_zh': display_name if re.search(r'[\u4e00-\u9fff]', display_name) else '',
         'name': display_name if not re.search(r'[\u4e00-\u9fff]', display_name) else '',
         'icon': str((payload or {}).get('icon') or ''),
@@ -629,6 +632,10 @@ class CurrentGearCatalogSource:
                     'socket_count': len(socket_types), 'socket_types': socket_types,
                     'sources': sources,
                 })
+                if profile.get('venomstone'):
+                    upgraded = upgraded_variant(item['inventory_type'], item['variants'][-1])
+                    if upgraded:
+                        item['variants'].append(upgraded)
         if special_mythic:
             item['variants'].append({
                 'key': f'{source_type}-myth-9-344',
@@ -703,17 +710,24 @@ class CurrentGearCatalogSource:
 
     def _enrich_wowhead(self, items, game_build):
         requests_needed = {}
+        venomstone_keys = set()
         for item in items:
             for variant in item.get('variants') or []:
                 item_level = _safe_int(variant.get('item_level'))
                 requests_needed[(item['item_id'], item_level)] = None
+                if (variant.get('metadata') or {}).get('venomstone'):
+                    venomstone_keys.add((item['item_id'], item_level))
         total = len(requests_needed)
         self.progress(f'正在从 Wowhead 补全 {total} 组中文 Tooltip/装等属性（结果会缓存）……')
         cache_dir = self.cache_root / game_build / 'wowhead'
         cache_dir.mkdir(parents=True, exist_ok=True)
         completed = 0
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
-            futures = {executor.submit(self._wowhead_tooltip, item_id, item_level, cache_dir): (item_id, item_level) for item_id, item_level in requests_needed}
+            futures = {
+                executor.submit(self.venomstone_tooltip if (item_id, item_level) in venomstone_keys else self._wowhead_tooltip,
+                                item_id, item_level, cache_dir): (item_id, item_level)
+                for item_id, item_level in requests_needed
+            }
             for future in as_completed(futures):
                 key = futures[future]
                 try:
@@ -727,6 +741,11 @@ class CurrentGearCatalogSource:
             fallback = {}
             for variant in item.get('variants') or []:
                 details = requests_needed.get((item['item_id'], _safe_int(variant.get('item_level')))) or {}
+                if (variant.get('metadata') or {}).get('venomstone'):
+                    try:
+                        apply_tooltip(variant, details, requires_effect=bool(item.get('effect_refs')) or item.get('inventory_type') == 12)
+                    except ValueError as exc:
+                        raise CatalogSourceError(f'物品 {item["item_id"]}：{exc}') from exc
                 fallback = fallback or details
                 if details.get('stats'):
                     variant['stats'] = details['stats']
@@ -764,3 +783,21 @@ class CurrentGearCatalogSource:
         payload = self._get_json(url)
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
         return _tooltip_details(payload)
+
+    def venomstone_tooltip(self, item_id, item_level, cache_dir, branch='ptr-2'):
+        """毒液石新增档位使用独立缓存，避免命中旧服同装等提示。"""
+        directory = cache_dir / branch
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f'{item_id}-{item_level}.json'
+        prefix = '' if branch == 'live' else f'{branch}/'
+        url = f'https://nether.wowhead.com/{prefix}tooltip/item/{item_id}?locale=zhcn&ilvl={item_level}'
+        def parse(payload):
+            details = _tooltip_details(payload)
+            details['source'] = {'provider': 'wowhead', 'branch': branch, 'url': url}
+            return details
+        if path.is_file() and not self.refresh_wowhead_cache and self.wowhead_cache_ttl_seconds:
+            if time.time() - path.stat().st_mtime <= self.wowhead_cache_ttl_seconds:
+                return parse(json.loads(path.read_text(encoding='utf-8')))
+        payload = self._get_json(url)
+        path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
+        return parse(payload)

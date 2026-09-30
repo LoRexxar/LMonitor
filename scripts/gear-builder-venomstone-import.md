@@ -1,0 +1,37 @@
+# 配装器晋升毒液石选项
+
+本次增加至暗之夜第二赛季掉落装备的英雄 8/6、神话 8/6 选项，名称带“晋升毒液石”。适用于武器（含盾牌和副手）、饰品、项链；不向戒指、防具、勇士轨道或其他赛季开放。制造装备不使用英雄/神话掉落轨道，本次不改变制造品级。
+
+## 核对依据
+
+- [暴雪第二赛季奖励说明](https://us.forums.blizzard.com/en/wow/t/curse-of-ulatek-endgame-reward-changes/2317450)：满级英雄、神话武器/饰品/项链可消耗 10 枚晋升毒液石提升装等。
+- Wago 构建 `12.1.5.70077` 的 `ItemBonusListGroupEntry`：英雄八阶 `12848`，神话八阶 `12856`。
+- 对应 `ItemBonus` 类型 49 指向 `ItemScalingConfig`：英雄 `321` 的装等为 **328**；神话 `452` 的装等为 **340**。不按常规步长推算为 341。
+- 规则保留六阶常规上限；界面显示 8/6。已有神话 9/6、344 装等的特殊掉落不受影响。地下堡来源只增加英雄八阶，不生成神话装备。
+
+## 为现有线上目录补充数据
+
+部署代码后，在项目原有运行环境中执行：
+
+```powershell
+python manage.py update_gear_builder_venomstone
+python manage.py update_gear_builder_venomstone --apply
+```
+
+第一条只统计活动批次的候选，不联网、不写数据库。第二条先获取全部目标装等的提示，再以事务写入新变体。重复执行复用同一变体标识，不改原六阶装备、已保存配装、活动批次或打孔规则。网络失败、目标装等不匹配、必需特效缺失，或已汉化装备无法匹配新数值的中文模板时，整批拒绝写入。
+
+目标属性提示默认来自 Wowhead 的 `ptr-2` 分支。可通过 `--tooltip-branch live` 明确切换至正式服；应先核对版本。`--refresh-cache` 强制更新提示缓存，`--workers 4` 控制并发，`--no-proxy` 用于不需要代理的运行环境。规则来源与提示数据来源分开记录，不将 Wowhead 的实时提示声明为固定构建的 SimC 计算结果。
+
+常规全量目录构建也已接入这两阶。它们使用新装等的属性和特效，并携带 `12848` 或 `12856` 的升级标识。配装保存、分享和 SimC 导出使用真实变体；导出包含目标 `ilevel` 与 `bonus_id`。不能仅通过改界面标签或复制六阶属性实现升级。
+
+## 本地验证
+
+使用独立 SQLite 数据库验证，避免修改实际数据库：
+
+```powershell
+$env:DJANGO_SETTINGS_MODULE = 'LMonitor.settings_test_sqlite'
+python manage.py test botend.tests.test_gear_builder_venomstone botend.tests.test_gear_builder --noinput
+node botend/tests/js/gear-builder-locks.test.mjs
+```
+
+部署仍需运行上面的补充导入命令并更新静态文件。本地执行成功不代表线上已更新。

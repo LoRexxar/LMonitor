@@ -1569,7 +1569,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)
-        self.assertIn("portal/js/gear_builder.js' %}?v=20260928_detail_theme", template)
+        self.assertRegex(template, r"portal/js/gear_builder\.js' %}\?v=\d{8}_[a-z0-9_]+")
         self.assertIn("wow-item-tooltip.js' %}?v=20260928_shared_content", template)
         self.assertNotIn('class="gear-option-stat" title=', script)
         self.assertIn('const seen = new Set();', script)

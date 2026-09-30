@@ -12,11 +12,15 @@ from botend.services.journal_text import integer
 from botend.services.journal_loot import class_matches, equipment_type
 from botend.services.journal_tooltip import cached_tooltip
 from botend.services.wow_item_display import load_item_display_metadata
+from botend.services.journal_classification import JournalClassification, instance_kind
+from botend.services.season_keys import canonical_season_key
+from botend.services.gear_builder import active_season
 
 
 CLASSES = [(1, '战士'), (2, '圣骑士'), (3, '猎人'), (4, '潜行者'), (5, '牧师'), (6, '死亡骑士'),
            (7, '萨满祭司'), (8, '法师'), (9, '术士'), (10, '武僧'), (11, '德鲁伊'), (12, '恶魔猎手'), (13, '唤魔师')]
-KINDS = {'dungeon': '地下城', 'raid': '团队副本', 'world': '世界首领'}
+KINDS = {'dungeon': '地下城', 'raid': '团队副本', 'world': '世界首领', 'affix': '大秘境机制'}
+_UNSET = object()
 
 
 def current_release():
@@ -28,14 +32,14 @@ def _version_label(build):
     return '.'.join(str(build or '').split('.')[:3])
 
 
-def instance_source(release, instance_id):
+def instance_source(release, instance_id, *, season=_UNSET):
     manifest = release.manifest or {}
     overlay = (manifest.get('ptr_overlays') or {}).get(str(instance_id))
     display = (manifest.get('display_overrides') or {}).get(str(instance_id))
     if display:
-        from botend.services.gear_builder import active_season
-        season = active_season()
-        if season and display.get('season_key') == season.season_key:
+        if season is _UNSET:
+            season = active_season()
+        if season and canonical_season_key(display.get('season_key')) == canonical_season_key(season.season_key):
             return {'key': 'current', 'label': '本赛季',
                     'build': str((overlay or {}).get('source_build') or release.build.split('+ptr-', 1)[0]),
                     'text_build': display['localization_build']}
@@ -63,27 +67,29 @@ def catalog_data(request):
     result = {'release': None, 'instances': [], 'tiers': [], 'q': query, 'kind': kind, 'tier': tier}
     if not release:
         return result
+    classification = JournalClassification(release, active_season())
     rows = JournalInstance.objects.filter(release=release).annotate(boss_count=Count('encounters')).order_by('-expansion', 'journal_id')
     if query:
         matching = JournalEncounter.objects.filter(instance__release=release, name__icontains=query).values('instance_id')
         rows = rows.filter(Q(name__icontains=query) | Q(id__in=matching))
-    if kind in KINDS:
-        rows = rows.filter(kind=kind)
     result['release'] = {'id': release.id, 'build': release.build, 'updated': release.completed_at,
                          'counts': {k: release.report.get(k, 0) for k in ('instances', 'encounters', 'loot')}}
-    result['tiers'] = sorted(release.manifest['catalog']['tiers'], key=lambda t: -t['order'])
+    result['tiers'] = classification.tiers
+    result['season_label'] = classification.season_label
     if 'tier' not in request.GET:
         tier = next((t['id'] for t in result['tiers'] if t['order'] == 9000), 0)
         result['tier'] = tier
     for row in rows:
-        if tier and tier not in row.payload.get('tier_ids', []):
+        classified = classification.project(row.payload)
+        if kind in KINDS and classified['kind'] != kind:
             continue
-        payload = {**row.payload, 'boss_count': row.boss_count, 'kind_label': KINDS.get(row.kind, '副本'),
+        if tier and tier not in classified['tier_ids']:
+            continue
+        payload = {**classified, 'boss_count': row.boss_count, 'kind_label': KINDS.get(classified['kind'], '副本'),
                    'url': f'/portal/adventure-journal/{row.journal_id}/'}
-        payload['tier_name'] = next((t['name'] for t in result['tiers'] if t['id'] in row.payload['tier_ids'] and t['order'] != 9000), '')
         counts = [n for n in row.payload.get('boss_counts', {}).values() if n] or [row.boss_count]
         payload['boss_count_label'] = str(max(counts)) if min(counts) == max(counts) else f'{min(counts)}–{max(counts)}'
-        payload['source'] = instance_source(release, row.journal_id)
+        payload['source'] = instance_source(release, row.journal_id, season=classification.season)
         result['instances'].append(payload)
     return result
 
@@ -112,10 +118,11 @@ def detail_data(request, instance_id):
     boss = boss or (bosses[0] if bosses else None)
     keep = {key: request.GET[key] for key in ('slot', 'class', 'item_type', 'loot_q') if key in request.GET}
     keep.update(difficulty=difficulty, role=role)
-    source = instance_source(release, instance.journal_id)
+    classification = JournalClassification(release, active_season())
+    source = instance_source(release, instance.journal_id, season=classification.season)
     result = {'release': {'id': release.id, 'build': release.build, 'updated': release.completed_at},
               'source': source,
-              'instance': {**instance.payload, 'kind_label': KINDS.get(instance.kind, '副本'), 'source': source},
+              'instance': {**classification.project(instance.payload), 'kind_label': KINDS.get(instance_kind(instance.journal_id, instance.kind), '副本'), 'source': source},
               'bosses': [{'id': b.journal_id, 'name': b.name, 'url': '?' + urlencode({**keep, 'tab': 'skills', 'boss': b.journal_id})}
                          for b in bosses], 'boss': None, 'difficulty': difficulty, 'role': role,
               'difficulties': [d for d in release.manifest['catalog']['difficulties'] if d['id'] in available],
@@ -127,7 +134,7 @@ def detail_data(request, instance_id):
               'loot': [], 'loot_total': 0, 'item_types': [],
               'loot_url': '?' + urlencode({**keep, 'tab': 'loot'}),
               'tab': 'skills' if request.GET.get('tab') == 'skills' or ('tab' not in request.GET and selected) else 'loot'}
-    if instance.kind == 'world':
+    if instance_kind(instance.journal_id, instance.kind) == 'world':
         result['difficulties'] = [{'id': difficulty, 'name': '世界首领'}]
     if result['class_id'] not in {cid for cid, _ in CLASSES}:
         result['class_id'] = 0

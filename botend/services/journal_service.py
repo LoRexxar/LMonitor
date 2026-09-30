@@ -11,6 +11,7 @@ from django.utils import timezone
 from botend.journal_models import JournalEncounter, JournalInstance, JournalRelease, JournalState
 from botend.services.journal_source import TABLES, WagoJournalSource, latest_retail_build
 from botend.services.journal_text import JournalText, grouped, index, integer
+from botend.services.journal_classification import instance_kind
 
 
 ROLE_FLAGS = ((1, 'tank', '坦克'), (2, 'dps', '输出'), (4, 'healer', '治疗'))
@@ -134,8 +135,8 @@ def compile_journal(tables, *, item_fallback=None):
                             if integer(r['DifficultyID']) in difficulties and integer(r['DifficultyID']) > 0
                             and integer(difficulties[integer(r['DifficultyID'])].get('Flags'), 4) & (4 | 16 | 512)},
                            key=lambda d: (integer(difficulties[d]['OrderIndex']), d))
-        kind = {1: 'dungeon', 2: 'raid'}.get(integer(map_row.get('InstanceType')), 'world')
-        if integer(row.get('Flags')) & 2:
+        kind = instance_kind(iid, {1: 'dungeon', 2: 'raid'}.get(integer(map_row.get('InstanceType')), 'world'))
+        if integer(row.get('Flags')) & 2 or kind == 'world':
             # 世界首领分组隐藏难度选择，并借用团本地图与普通团队掉落上下文。
             # 有逐首领难度限制的分组仍保留真实难度，例如旧版 10/25 人首领。
             unrestricted = encounters.get(iid) and not any(integer(b.get('Flags')) & 2 for b in encounters[iid])
@@ -247,6 +248,9 @@ def compile_journal(tables, *, item_fallback=None):
             available = represented
         output.append({'id': iid, 'name': row['Name_lang'], 'description': row.get('Description_lang', ''),
                        'kind': kind, 'expansion': expansion, 'tier_ids': instance_tiers,
+                       'tier_links': [{'tier_id': integer(link['JournalTierID']),
+                                       'condition_id': integer(link.get('AvailabilityCondition')),
+                                       'order': integer(link.get('OrderIndex'))} for link in links],
                        'image': integer(row.get('ButtonFileDataID')), 'background': integer(row.get('BackgroundFileDataID')),
                        'map_id': map_id, 'difficulty_ids': available, 'boss_counts': boss_counts, 'encounters': boss_rows})
     report['instances'] = len(output)

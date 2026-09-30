@@ -1,0 +1,161 @@
+{
+  "说明": "赛季条件来自 Raidbots 客户端导出，旧发布缺失的分类条件按原构建 Wago 数据补齐。页面不联网，也不修改历史发布。",
+  "sources": [
+    "https://www.raidbots.com/static/data/live/seasons.json",
+    "https://wago.tools/db2/JournalTierXInstance?build=12.1.0.69587&locale=enUS"
+  ],
+  "seasons": {
+    "mn-s2": {
+      "condition_id": 156363,
+      "name": "至暗之夜第 2 赛季"
+    },
+    "mn-s1": {
+      "condition_id": 149388,
+      "name": "至暗之夜第 1 赛季"
+    },
+    "tww-s3": {
+      "condition_id": 141987,
+      "name": "地心之战第 3 赛季"
+    },
+    "tww-s2": {
+      "condition_id": 128527,
+      "name": "地心之战第 2 赛季"
+    },
+    "tww-s1": {
+      "condition_id": 125989,
+      "name": "地心之战第 1 赛季"
+    },
+    "df-s4": {
+      "condition_id": 117114,
+      "name": "巨龙时代第 4 赛季"
+    }
+  },
+  "legacy_links": {
+    "12.1.0.69587": {
+      "1307": [
+        {
+          "tier_id": 505,
+          "condition_id": 149388,
+          "order": 2
+        }
+      ],
+      "1308": [
+        {
+          "tier_id": 505,
+          "condition_id": 149388,
+          "order": 3
+        }
+      ],
+      "1314": [
+        {
+          "tier_id": 505,
+          "condition_id": 149388,
+          "order": 1
+        }
+      ],
+      "1319": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 9999
+        }
+      ],
+      "1312": [
+        {
+          "tier_id": 505,
+          "condition_id": 0,
+          "order": 0
+        }
+      ],
+      "1305": [
+        {
+          "tier_id": 505,
+          "condition_id": 149388,
+          "order": 4
+        }
+      ],
+      "1322": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 5
+        }
+      ],
+      "1311": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 6
+        }
+      ],
+      "1304": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 7
+        }
+      ],
+      "1309": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 8
+        }
+      ],
+      "1313": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 9
+        }
+      ],
+      "1041": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 10
+        }
+      ],
+      "1202": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 11
+        }
+      ],
+      "1030": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 12
+        }
+      ],
+      "1317": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 5
+        }
+      ],
+      "1320": [
+        {
+          "tier_id": 505,
+          "condition_id": 156363,
+          "order": 6
+        }
+      ]
+    }
+  },
+  "kind_overrides": {
+    "557": {
+      "kind": "world",
+      "说明": "德拉诺是世界首领分组，客户端借用了悬槌堡地图且没有世界首领标志。",
+      "source": "https://worldofwarcraft.blizzard.com/en-us/news/16561637"
+    },
+    "1319": {
+      "kind": "affix",
+      "说明": "该手册条目仅包含史诗钥石与词缀说明，不是独立地下城。",
+      "source": "https://wago.tools/db2/JournalEncounter?build=12.1.5.70077&filter%5BJournalInstanceID%5D=1319"
+    }
+  }
+}

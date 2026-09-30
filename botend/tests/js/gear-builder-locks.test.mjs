@@ -22,6 +22,7 @@ vm.runInNewContext(source.replace(marker, `
     setRequest(value) { requestJson = value; },
     setCandidates(value) { candidates = value; },
     normalizeState, toggleSlotLock, addItem, applyEnhancement, switchVariant,
+    variantLabel, simcEquipmentLine,
     changeCraftedStat, removeEnhancement, compactShareState, hydrateSharePayload,
     resolveCraftedEntry, replaceLoadout, totalsAndEffects, refreshCachedEquipmentStats, renderCachedDetail, refreshCachedEnhancementText,
   };
@@ -155,3 +156,27 @@ assert.deepEqual(plain(api.state.equipment.head.gems[0].variant.stats), {haste: 
 assert.deepEqual(plain(api.state.equipment.head.gems[0].variant.effects), []);
 assert.equal(api.state.equipment.head.gems[0].item.description, '');
 assert.deepEqual(plain(api.state.lockedSlots), ['head'], '强化文本迁移保留装备锁定');
+
+// 晋升毒液石切换必须使用新数值，保存和导出都引用真实八阶变体。
+const venomItem = {item_id: 280799, name: '露瑟拉玛，圣光之裁', name_en: 'Luselama'};
+const sixth = {id: 100, key: 'myth-6', type: 'drop_equipment', item_level: 334, track: 'myth', track_label: '神话',
+    track_rank: 6, track_max_rank: 6, socket_count: 1, stats: {strength: 180}, effects: [{description_zh: '旧效果'}], bonus_ids: [12854]};
+const eighth = {...sixth, id: 101, key: 'myth-6-venomstone', item_level: 340, track_rank: 8,
+    stats: {strength: 199}, effects: [{description_zh: '装备：获得774急速。'}], bonus_ids: [12856], metadata: {venomstone: {item_id: 280562}}};
+api.setState({className: 'Warrior', specName: 'Fury', selectedSlot: 'main_hand', equipment: {
+    main_hand: {item: venomItem, variant: sixth, resolvedStats: {strength: 180}, resolvedEffects: sixth.effects,
+        gems: [{item: {item_id: 12345}}], enchant: {item: {enchantment_id: 777}}, selectedStats: []},
+}});
+api.setCandidates([{...venomItem, variants: [eighth, sixth]}]);
+await api.switchVariant(101);
+const upgraded = api.state.equipment.main_hand;
+assert.equal(upgraded.resolvedStats, null, '八阶不能沿用旧属性缓存');
+assert.equal(upgraded.resolvedEffects, null, '八阶不能沿用旧特效缓存');
+assert.equal(upgraded.variant.stats.strength, 199);
+assert.equal(upgraded.gems[0].item.item_id, 12345, '品级切换保留宝石');
+assert.match(api.variantLabel(upgraded.variant), /神话 8\/6 · 340 · 晋升毒液石/);
+assert.match(api.simcEquipmentLine('main_hand', upgraded), /ilevel=340,bonus_id=12856,gem_id=12345,enchant_id=777/);
+assert.match(JSON.stringify(api.compactShareState(api.state)), /myth-6-venomstone/, '分享保存真实八阶引用');
+await api.switchVariant(100);
+assert.equal(api.state.equipment.main_hand.variant.item_level, 334);
+assert.equal(api.state.equipment.main_hand.variant.stats.strength, 180);
