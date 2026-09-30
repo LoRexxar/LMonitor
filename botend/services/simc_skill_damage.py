@@ -576,6 +576,13 @@ class _SpoolBackedTalentVariants:
         self.talents = tuple(talents)
         self.aliases = actor_plan['aliases']
         self.actor_spool = actor_spool
+        # Freeze names from the same plan metadata, never from a later talent tree.
+        self.reference_traits = {
+            trait.node_id: {'trait_entry_id': trait.node_id,
+                            'name': trait.name, 'name_zh': trait.name_zh}
+            for config in actor_plan.get('actors') or []
+            for trait in config.get('selected_talents') or []
+        }
 
     def _load_logical_actor(self, target_health, logical_name, cache):
         alias = self.aliases.get(logical_name)
@@ -631,6 +638,7 @@ class _SpoolBackedTalentVariants:
                 },
                 'reference_high': reference_high,
                 'reference_low': reference_low,
+                'reference_traits': list(self.reference_traits.values()),
                 'high': high_actor,
                 'low': low_actor,
             }
@@ -3339,6 +3347,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     def append_row(
         action, amount, *, talent, condition, comparison, scenario_tokens=(),
         projection_reference=None, preserve_owned_action=False,
+        reference_context=None,
     ):
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
             return
@@ -3452,6 +3461,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             ) if scenario_tokens else [],
             'reference_available': reference_state[0] == 'resolved',
         }
+        if reference_context is not None:
+            row['variant']['reference_context'] = copy.deepcopy(reference_context)
         if active_activation_context:
             context = copy.deepcopy(active_activation_context)
             traits = context.get('traits') or []
@@ -3563,6 +3574,26 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     for item in variants:
         talent = item.get('talent') or {}
         active_activation_context = item.get('activation_context')
+        # Absolute damage still contains the fixed reference configuration.
+        # Disclose native selections, not inferred contributors or current DB data.
+        reference_names = {
+            trait['trait_entry_id']: trait
+            for trait in [*(item.get('reference_traits') or []),
+                          *((active_activation_context or {}).get('traits') or [])]
+            if isinstance(trait, dict) and type(trait.get('trait_entry_id')) is int
+        }
+
+        def reference_context(actor):
+            if not isinstance(actor, dict) or not isinstance(actor.get('selected_trait_ids'), list):
+                return None
+            entries = sorted({entry for entry in actor['selected_trait_ids']
+                              if type(entry) is int and entry > 0})
+            return {'source': 'native_reference_selection', 'trait_entry_ids': entries,
+                    'traits': [copy.deepcopy(reference_names.get(entry, {'trait_entry_id': entry}))
+                               for entry in entries]}
+
+        reference_high_context = reference_context(item.get('reference_high'))
+        reference_low_context = reference_context(item.get('reference_low'))
         actor_context = {id(action):actor for actor in (item.get('high') or {},item.get('low') or {})
                          for action in actor.get('actions') or []}
         reference_high_actions = {
@@ -3673,6 +3704,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                     comparison=comparison, scenario_tokens=tokens,
                     projection_reference=projection_reference,
                     preserve_owned_action=preserve_owned_action,
+                    reference_context=(reference_high_context if source_action is high_action
+                                       else reference_low_context),
                 )
         # Materialize cast children while this pair's actors are still live.
         complete_cast_damage_components(rows, cast_sources, grouped=cast_groups, finalize=False)

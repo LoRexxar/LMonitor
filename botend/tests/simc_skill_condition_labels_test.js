@@ -47,4 +47,7 @@ assert.equal(render({...talent, runtime_condition: ''}), '点出已选天赋');
 assert.equal(render({runtime_condition: '血量低于35%'}), '血量低于35%');
 assert.equal(render({}), '基础技能');
 assert.equal(render({...talent, talent_name_zh: '<已选天赋>'}), '点出&lt;已选天赋>天赋');
+const referenceContext = {source: 'native_reference_selection', trait_entry_ids: [30, 40],
+    traits: [{trait_entry_id: 30, name_zh: '固定前置'}, {trait_entry_id: 40}]};
+assert.match(render({...talent, reference_context: referenceContext}), /固定参考天赋：固定前置、TraitEntry 40/);
 console.log('条件列保留天赋、血量与Buff，不重复标签、不修改公式、正确转义。');

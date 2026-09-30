@@ -6309,7 +6309,17 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const contextLabel = String(context.display_label || '').replace('（前置天赋固定）', '');
         const contextHtml = contextLabel
             ? `<div class="mt-1 text-xs text-stone-600"><span${renderSimcTooltipAttrs(contextLabel, context.description || '')}>${escapeHtml(contextLabel)}</span></div>` : '';
-        const variantCell = `<div class="text-xs text-amber-800">${renderSimcConditionDescription(variantLabel, variant)}</div>${contextHtml}`;
+        const reference = variant.reference_context || {};
+        const referenceTraits = Array.isArray(reference.traits) ? reference.traits : [];
+        const referenceEntries = reference.source === 'native_reference_selection'
+            && Array.isArray(reference.trait_entry_ids) ? reference.trait_entry_ids : [];
+        const referenceNames = referenceEntries.map(entry => {
+            const trait = referenceTraits.find(item => item && item.trait_entry_id === entry) || {};
+            return trait.name_zh || trait.name || `TraitEntry ${entry}`;
+        });
+        const referenceHtml = referenceNames.length
+            ? `<div class="mt-1 text-xs text-stone-600">固定参考天赋：${escapeHtml(referenceNames.join('、'))}</div>` : '';
+        const variantCell = `<div class="text-xs text-amber-800">${renderSimcConditionDescription(variantLabel, variant)}</div>${contextHtml}${referenceHtml}`;
         const normalizedBase = product.normalized_base_damage;
         const finalDamage = selectedFinalDamage;
         let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';
