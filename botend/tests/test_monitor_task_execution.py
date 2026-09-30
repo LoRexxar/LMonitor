@@ -26,6 +26,9 @@ class _FakeHeartbeat:
 
 
 class MonitorTaskExecutionLeaseTests(TestCase):
+    def setUp(self):
+        MonitorTask.objects.update(is_active=False)
+
     def _claim_task(self, owner):
         now = timezone.now()
         task = MonitorTask.objects.create(
@@ -75,3 +78,26 @@ class MonitorTaskExecutionLeaseTests(TestCase):
         request_client.set_current_task.assert_any_call(None)
         request_client.close_driver.assert_called_once_with()
         self.assertFalse(MonitorTaskLease.objects.filter(task=task).exists())
+
+    def test_data_plugin_can_run_without_browser(self):
+        task = self._claim_task('data-plugin-owner')
+
+        class DataPlugin:
+            requires_browser = False
+
+            def __init__(self, request, monitor_task):
+                self.task = monitor_task
+
+            def scan(self, target):
+                self.task.flag = '资料检查完成'
+                return True
+
+        with (
+            patch('botend.views._MonitorTaskLeaseHeartbeat', _FakeHeartbeat),
+            patch('botend.views.LReq') as request,
+            patch('botend.views.Monitor_Type_BaseObject_List', [DataPlugin]),
+        ):
+            LMonitorCore()._execute_claimed_task(task, 'data-plugin-owner')
+        request.assert_called_once_with(is_chrome=False)
+        task.refresh_from_db()
+        self.assertEqual(task.flag, '资料检查完成')

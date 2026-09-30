@@ -4308,7 +4308,8 @@ class MythicPlannerPageContractTests(SimpleTestCase):
         planner = self.client.get('/portal/mythic-planner/')
 
         self.assertEqual(planner.status_code, 200)
-        self.assertContains(planner, 'MythicDungeonTools 6.2.20（GPLv2）')
+        self.assertContains(planner, 'id="mdt-source-link"')
+        self.assertContains(planner, 'MythicDungeonTools（GPLv2）')
         self.assertContains(
             planner,
             '/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/mdt-full.png',

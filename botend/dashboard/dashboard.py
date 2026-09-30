@@ -54,6 +54,7 @@ def _fmt_dt(dt):
 MODEL_DESCRIPTIONS = {
     'MonitorTask': '监控任务',
     'ClassGuideSyncRun': '攻略同步批次',
+    'MythicDungeonSyncRun': 'MDT 自动更新记录',
     'TargetAuth': '目标认证信息',
     'MonitorWebhook': '监控钩子',
     'WechatAccountTask': '微信公众号任务',
@@ -324,7 +325,7 @@ class DashboardView(View):
                 or model_name not in MODEL_DESCRIPTIONS
             ):
                 continue
-            read_only = model_name in self.SIMC_DEDICATED_API_MODELS or model_name == 'ClassGuideSyncRun'
+            read_only = model_name in self.SIMC_DEDICATED_API_MODELS or model_name in {'ClassGuideSyncRun', 'MythicDungeonSyncRun'}
             lifecycle_managed = model_name == 'SeasonMeta'
             has_required_sensitive_field = any(
                 self._is_sensitive_field(field, model_name)

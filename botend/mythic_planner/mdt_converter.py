@@ -375,7 +375,7 @@ def _spell_names(spell_id, snapshots):
         return (
             str(snapshot.get('name') or f'Spell #{spell_id}'),
             str(snapshot.get('name_zh') or f'技能 #{spell_id}'),
-            str(snapshot.get('description') or ''),
+            str(snapshot.get('description_zh') or snapshot.get('description') or ''),
             str(snapshot.get('icon_url') or ''),
         )
     return f'Spell #{spell_id}', f'技能 #{spell_id}', '', ''
@@ -464,7 +464,7 @@ def _enemy_key(source_enemy, source_index, used_keys):
     return key
 
 
-def _load_ability_overrides(source_root):
+def _load_ability_overrides(source_root, *, source_tag=SOURCE_TAG, source_commit=SOURCE_COMMIT):
     source_root = Path(source_root)
     override_path = source_root / ABILITY_OVERRIDE_RELATIVE_PATH
     if not override_path.is_file():
@@ -478,11 +478,11 @@ def _load_ability_overrides(source_root):
     target = raw.get('target')
     if not isinstance(target, dict):
         raise LuaParseError('技能补充表缺少 target。')
-    if target.get('source_tag') != SOURCE_TAG:
+    if target.get('source_tag') != source_tag:
         raise LuaParseError(
-            f'技能补充表目标标签 {target.get("source_tag")!r} 与 {SOURCE_TAG!r} 不一致。'
+            f'技能补充表目标标签 {target.get("source_tag")!r} 与 {source_tag!r} 不一致。'
         )
-    if target.get('source_commit') != SOURCE_COMMIT:
+    if target.get('source_commit') != source_commit:
         raise LuaParseError('技能补充表目标提交与固定 MDT 快照不一致。')
 
     raw_dungeons = raw.get('dungeons')
@@ -758,6 +758,8 @@ def build_payload(
     spell_snapshots=None,
     floor_background_urls=None,
     enemy_icon_urls=None,
+    source_tag=SOURCE_TAG,
+    source_commit=SOURCE_COMMIT,
 ):
     source_root = Path(source_root).resolve()
     midnight_path = source_root / 'Midnight'
@@ -768,7 +770,7 @@ def build_payload(
         ability_overrides,
         spell_descriptions_zh,
         ability_override_metadata,
-    ) = _load_ability_overrides(source_root)
+    ) = _load_ability_overrides(source_root, source_tag=source_tag, source_commit=source_commit)
     effective_spell_snapshots = {
         int(spell_id): dict(snapshot)
         for spell_id, snapshot in (spell_snapshots or {}).items()
@@ -833,7 +835,7 @@ def build_payload(
                 'name_zh': name_zh,
                 'background_url': (
                     (floor_background_urls or {}).get((dungeon_key, floor_key))
-                    or f'{MAP_STATIC_PREFIX}/{dungeon_key}/{floor_key}.webp'
+                    or f'/static/portal/mythic_planner/vendor/mdt-{source_tag}/maps/{dungeon_key}/{floor_key}.webp'
                 ),
                 'background_color': '#171512',
                 'map_width': 1200,
@@ -873,8 +875,8 @@ def build_payload(
             'metadata': {
                 'source_file': f'Midnight/{filename}',
                 'teleport_id': map_info.get('teleportId'),
-                'source_tag': SOURCE_TAG,
-                'source_commit': SOURCE_COMMIT,
+                'source_tag': source_tag,
+                'source_commit': source_commit,
                 'selection_groups': group_memberships.get(dungeon_index, []),
             },
             'floors': floors,
@@ -891,12 +893,12 @@ def build_payload(
     return {
         'schema_version': 1,
         'data_version': {
-            'key': version_key or f'mdt-{SOURCE_TAG.replace(".", "-")}',
-            'label': f'MythicDungeonTools {SOURCE_TAG} 午夜版本数据',
+            'key': version_key or f'mdt-{source_tag.replace(".", "-")}',
+            'label': f'MythicDungeonTools {source_tag} 午夜版本数据',
             'game_version': 'Midnight',
-            'season': f'MythicDungeonTools {SOURCE_TAG}',
+            'season': f'MythicDungeonTools {source_tag}',
             'source_name': 'MythicDungeonTools',
-            'source_reference': SOURCE_URL,
+            'source_reference': f'https://github.com/Nnoggie/MythicDungeonTools/tree/{source_tag}',
             'notes': (
                 '由固定上游快照的 Lua 副本数据离线转换生成；地图由原始 15×10 PNG '
                 '切片无损拼接。三个上游暂缺技能表的旧副本使用版本化补充关系；技能名称'
@@ -904,10 +906,10 @@ def build_payload(
             ),
             'metadata': {
                 'license': 'GPL-2.0-only',
-                'source_tag': SOURCE_TAG,
-                'source_commit': SOURCE_COMMIT,
+                'source_tag': source_tag,
+                'source_commit': source_commit,
                 'source_digest': _source_digest(source_root),
-                'source_url': SOURCE_URL,
+                'source_url': f'https://github.com/Nnoggie/MythicDungeonTools/tree/{source_tag}',
                 'locale': ['enUS', 'zhCN'],
                 'generated': True,
                 'dungeon_selection_groups': selection_groups,
@@ -926,7 +928,7 @@ def write_payload(payload, output_path):
     return output_path
 
 
-def compose_maps(source_root, static_map_root):
+def compose_maps(source_root, static_map_root, *, progress=None):
     try:
         from PIL import Image
     except ImportError as exc:
@@ -956,6 +958,8 @@ def compose_maps(source_root, static_map_root):
         output_directory = static_map_root / dungeon_key
         output_directory.mkdir(parents=True, exist_ok=True)
         for floor_index in floor_indices:
+            if progress:
+                progress()
             canvas = Image.new('RGBA', (MAP_OUTPUT_WIDTH, MAP_OUTPUT_HEIGHT))
             normalized_tiles = []
             for row in range(MAP_TILE_ROWS):

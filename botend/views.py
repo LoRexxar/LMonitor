@@ -237,7 +237,7 @@ class LMonitorCore:
             task_url = now_task.target
             task_class = Monitor_Type_BaseObject_List[task_type]
 
-            Lreq = LReq(is_chrome=True)
+            Lreq = LReq(is_chrome=bool(getattr(task_class, 'requires_browser', True)))
             try:
                 Lreq.set_current_task(now_task)
             except Exception:

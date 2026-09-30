@@ -49,6 +49,8 @@ PORTAL_MONITOR_TASK_PRIORITY = {
 
 
 def monitor_default_wait_time(name):
+    if name == 'MythicDungeonToolsMonitor':
+        return 86400  # 每日检查正式发布，后台可调整间隔和开关。
     if name == 'AdventureJournalMonitor':
         return 604800  # 保留历史 type=35 的间隔；任务默认关闭且只允许手动刷新。
     if name == 'MaxrollClassGuideMonitor':

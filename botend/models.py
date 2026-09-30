@@ -3602,6 +3602,24 @@ class MythicDungeonRouteShare(models.Model):
         return f'{self.name} / {self.token}'
 
 
+class MythicDungeonSyncRun(models.Model):
+    """MDT 自动更新检查、发布结果与失败原因。"""
+
+    status = models.CharField('状态', max_length=24, default='running')
+    source_version = models.CharField('原版本', max_length=120, blank=True)
+    target_version = models.CharField('目标版本', max_length=120, blank=True)
+    source_commit = models.CharField('上游提交', max_length=40, blank=True)
+    summary = models.JSONField('校验结果', default=dict, blank=True)
+    error = models.TextField('失败原因', blank=True)
+    started_at = models.DateTimeField('开始时间', default=timezone.now)
+    finished_at = models.DateTimeField('结束时间', null=True, blank=True)
+
+    class Meta:
+        db_table = 'mythic_dungeon_sync_run'
+        ordering = ['-started_at', '-id']
+        verbose_name = 'MDT 自动更新记录'
+
+
 class MythicPlannerConfig(models.Model):
     """路线规划器的可维护运行配置。"""
 

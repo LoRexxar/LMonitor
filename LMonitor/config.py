@@ -39,6 +39,7 @@ from botend.controller.plugins.wow.WowDailyReportMonitor import WowDailyReportMo
 from botend.controller.plugins.wow.WowTodayMonitor import WowTodayMonitor
 from botend.controller.plugins.wow.MaxrollClassGuideMonitor import MaxrollClassGuideMonitor
 from botend.controller.plugins.wow.AdventureJournalMonitor import AdventureJournalMonitor
+from botend.controller.plugins.wow.MythicDungeonToolsMonitor import MythicDungeonToolsMonitor
 
 from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailSeasonMonitor
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
@@ -89,4 +90,5 @@ Monitor_Type_BaseObject_List = [
     SpecDungeonDpsRankingMonitor,
     MaxrollClassGuideMonitor,
     AdventureJournalMonitor,
+    MythicDungeonToolsMonitor,
 ]

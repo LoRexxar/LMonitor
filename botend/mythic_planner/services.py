@@ -262,6 +262,7 @@ def serialize_catalog():
             'season': version.season,
             'schema_version': version.schema_version,
             'source_name': version.source_name,
+            'source_tag': (version.metadata or {}).get('source_tag', ''),
             'imported_at': version.imported_at.isoformat() if version.imported_at else None,
         },
         'selection_groups': catalog_groups,
