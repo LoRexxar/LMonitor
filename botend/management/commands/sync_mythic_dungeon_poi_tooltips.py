@@ -7,6 +7,7 @@ from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from botend.mythic_planner.mdt_converter import write_payload
+from botend.mythic_planner.icon_assets import build_wowhead_icon_url
 from botend.mythic_planner.wowhead_tooltips import fetch_wowhead_tooltip
 
 
@@ -17,7 +18,7 @@ class Command(BaseCommand):
         parser.add_argument(
             '--file',
             default='',
-            help='要更新的数据包；默认使用 mdt_6_2_16.json。',
+            help='要更新的数据包；默认使用 mdt_6_2_20.json。',
         )
         parser.add_argument('--data-env', type=int, default=1)
         parser.add_argument('--difficulty-id', type=int, default=8)
@@ -32,7 +33,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         package_path = Path(options['file'] or (
             Path(settings.BASE_DIR)
-            / 'botend/data/mythic_planner/mdt_6_2_16.json'
+            / 'botend/data/mythic_planner/mdt_6_2_20.json'
         )).resolve()
         if not package_path.is_file():
             raise CommandError(f'MDT 数据包不存在：{package_path}')
@@ -90,6 +91,7 @@ class Command(BaseCommand):
                     data_env=options['data_env'],
                     difficulty_id=options['difficulty_id'],
                     delay=max(0, float(options['delay'])),
+                    include_buff=True,
                 ): (spell_id, locale)
                 for spell_id in pending
                 for locale in (4, 0)
@@ -127,6 +129,8 @@ class Command(BaseCommand):
                 metadata['tooltip'] = tooltip
                 poi['metadata'] = metadata
                 poi['label'] = tooltip['name_zh'] or poi.get('label') or ''
+                if not poi.get('icon_url'):
+                    poi['icon_url'] = build_wowhead_icon_url(tooltip['icon_name'])
                 updated += 1
 
         write_payload(payload, package_path)

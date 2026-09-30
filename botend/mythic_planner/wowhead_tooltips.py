@@ -42,6 +42,7 @@ def fetch_wowhead_tooltip(
     data_env=1,
     difficulty_id=8,
     delay=0,
+    include_buff=False,
 ):
     """抓取单个技能的名称、图标 slug 与说明，失败时返回 None。"""
 
@@ -85,13 +86,32 @@ def fetch_wowhead_tooltip(
                 response.raise_for_status()
                 payload = response.json()
                 tooltip_html = str(payload.get('tooltip') or '')
+                description = description_from_tooltip_html(tooltip_html)
+                if not description and include_buff:
+                    description = description_from_buff_html(payload.get('buff'))
                 return {
                     'name': str(payload.get('name') or '').strip(),
                     'icon_name': str(payload.get('icon') or '').strip(),
-                    'description': description_from_tooltip_html(tooltip_html),
+                    'description': description,
                 }
             except Exception:
                 continue
         if attempt < 2:
             time.sleep(2 ** attempt)
     return None
+
+
+def description_from_buff_html(buff_html):
+    """读取只有增益说明的地图交互点，跳过首个名称表格。"""
+
+    tables = re.findall(
+        r'<table\b[^>]*>(.*?)</table>',
+        str(buff_html or ''),
+        re.IGNORECASE | re.DOTALL,
+    )
+    if len(tables) < 2:
+        return ''
+    body = re.sub(r'<br\s*/?>', '\n', tables[1], flags=re.IGNORECASE)
+    body = re.sub(r'<[^>]+>', '', body)
+    body = html.unescape(body).replace('\u200b', '').strip()
+    return re.sub(r'[ \t]+', ' ', body)

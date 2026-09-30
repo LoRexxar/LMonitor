@@ -66,7 +66,11 @@ from botend.mythic_planner.spell_tooltips import (
     build_manifest_core,
     manifest_hash,
 )
-from botend.mythic_planner.wowhead_tooltips import description_from_tooltip_html
+from botend.mythic_planner.wowhead_tooltips import (
+    description_from_buff_html,
+    description_from_tooltip_html,
+    fetch_wowhead_tooltip,
+)
 from botend.management.commands.sync_mythic_dungeon_spells import (
     Command as SyncMythicDungeonSpellsCommand,
 )
@@ -78,10 +82,10 @@ from botend.management.commands.sync_mythic_dungeon_tools import (
     load_payload_seed,
 )
 from botend.wow.spell_text import SpellTextResolver
-from scripts.import_mdt_6_2_16 import (
-    SOURCE_VERSION_KEY as MDT_6216_SOURCE_VERSION_KEY,
-    TARGET_VERSION_KEY as MDT_6216_TARGET_VERSION_KEY,
-    validate_package as validate_6216_package,
+from scripts.import_mdt_6_2_20 import (
+    SOURCE_VERSION_KEY as MDT_6220_SOURCE_VERSION_KEY,
+    TARGET_VERSION_KEY as MDT_6220_TARGET_VERSION_KEY,
+    validate_package as validate_6220_package,
 )
 from botend.mythic_planner.mdt_route_codec import (
     MDT2_PREFIX,
@@ -132,11 +136,11 @@ def assign_demo_mdt_indexes():
 
 
 class MythicPlannerImportTests(TestCase):
-    def test_builtin_6216_upgrade_contract_starts_from_6215(self):
-        self.assertEqual(MDT_6216_SOURCE_VERSION_KEY, 'mdt-6-2-15')
-        self.assertEqual(MDT_6216_TARGET_VERSION_KEY, 'mdt-6-2-16')
+    def test_builtin_6220_upgrade_contract_starts_from_6216(self):
+        self.assertEqual(MDT_6220_SOURCE_VERSION_KEY, 'mdt-6-2-16')
+        self.assertEqual(MDT_6220_TARGET_VERSION_KEY, 'mdt-6-2-20')
 
-    def test_builtin_6216_package_imports_complete_live_dataset(self):
+    def test_builtin_6220_package_imports_complete_live_dataset(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -145,10 +149,10 @@ class MythicPlannerImportTests(TestCase):
         )
 
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-16',
+            key='mdt-6-2-20',
             is_active=True,
         )
-        self.assertEqual(version.metadata['source_tag'], '6.2.16')
+        self.assertEqual(version.metadata['source_tag'], '6.2.20')
         self.assertEqual(version.metadata['spell_snapshot']['source_branch'], 'wow')
         self.assertEqual(version.metadata['spell_snapshot']['snapshot_build'], '12.1.0.69299')
         self.assertEqual(version.dungeons.filter(is_active=True).count(), 16)
@@ -164,7 +168,7 @@ class MythicPlannerImportTests(TestCase):
                 enemy__dungeon__data_version=version,
                 is_active=True,
             ).count(),
-            3068,
+            3069,
         )
         self.assertEqual(
             MythicDungeonAbility.objects.filter(
@@ -231,7 +235,7 @@ class MythicPlannerImportTests(TestCase):
         self.assertTrue(share_code.startswith(MDT2_PREFIX))
         self.assertEqual(decode_share_code(share_code), route_data)
 
-    def test_builtin_6216_assets_resolve_to_current_short_oss_keys(self):
+    def test_builtin_6220_assets_resolve_to_current_short_oss_keys(self):
         call_command(
             'import_mythic_dungeon_data',
             activate=True,
@@ -239,12 +243,12 @@ class MythicPlannerImportTests(TestCase):
             verbosity=0,
         )
         version = MythicDungeonDataVersion.objects.get(
-            key='mdt-6-2-16',
+            key='mdt-6-2-20',
         )
         jobs, stats = SyncMythicDungeonAssetsCommand()._build_jobs(
             version=version,
             base_prefix='mythic-planner',
-            version_prefix='mythic-planner/versions/mdt-6-2-16',
+            version_prefix='mythic-planner/versions/mdt-6-2-20',
             oss_base_url='https://oss.wowdaily.cn/',
             force=False,
         )
@@ -655,6 +659,27 @@ class MythicPlannerImportTests(TestCase):
 
 
 class MythicDungeonToolsConverterTests(SimpleTestCase):
+    def test_buff_only_poi_tooltip_is_opt_in(self):
+        buff = (
+            '<table><tr><td><b>锚定符文</b></td></tr></table>'
+            '<table><tr><td>移动速度降低50%。<br>'
+            '<span class="q">持续15\u200b分钟</span></td></tr></table>'
+        )
+        self.assertEqual(description_from_buff_html(buff), '移动速度降低50%。\n持续15分钟')
+        self.assertEqual(description_from_buff_html('<table>只有名称</table>'), '')
+        response = mock.Mock()
+        response.status_code = 200
+        response.json.return_value = {
+            'name': '锚定符文', 'icon': 'spell_deathknight_pathoffrost',
+            'tooltip': '<b>锚定符文</b><br>瞬发', 'buff': buff,
+        }
+        with mock.patch('botend.mythic_planner.wowhead_tooltips.requests.get', return_value=response):
+            self.assertEqual(fetch_wowhead_tooltip(1271737, locale=4)['description'], '')
+            self.assertEqual(
+                fetch_wowhead_tooltip(1271737, locale=4, include_buff=True)['description'],
+                '移动速度降低50%。\n持续15分钟',
+            )
+
     def test_wowhead_tooltip_parser_preserves_rendered_description(self):
         tooltip = (
             '<div class="q"><a>使用：造成<!--value-->30<!---->%伤害。'
@@ -674,16 +699,16 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             / 'data'
             / 'mythic_planner'
             / 'vendor'
-            / 'mythic-dungeon-tools-6.2.16'
+            / 'mythic-dungeon-tools-6.2.20'
         )
 
     def test_fixed_upstream_snapshot_converts_real_dungeons_and_assets(self):
         payload = build_payload(self.source_root())
 
-        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-16')
+        self.assertEqual(payload['data_version']['key'], 'mdt-6-2-20')
         self.assertEqual(
             payload['data_version']['metadata']['source_commit'],
-            '952d152a8694bbde8421dc14995522f853515886',
+            '7fd7672d41b3aff933cbfd5b0f508fc4f62e33ae',
         )
         self.assertEqual(payload['data_version']['metadata']['license'], 'GPL-2.0-only')
         self.assertEqual(len(payload['dungeons']), 16)
@@ -711,7 +736,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
                 for dungeon in payload['dungeons']
                 for enemy in dungeon['enemies']
             ),
-            3068,
+            3069,
         )
         blinding_vale = next(
             dungeon
@@ -752,7 +777,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             'midnight-season-2',
         )
         self.assertIn(
-            '/static/portal/mythic_planner/vendor/mdt-6.2.16/maps/',
+            '/static/portal/mythic_planner/vendor/mdt-6.2.20/maps/',
             murder_row['floors'][0]['background_url'],
         )
         all_pois = [
@@ -761,7 +786,7 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             for floor in dungeon['floors']
             for poi in floor['pois']
         ]
-        self.assertEqual(len(all_pois), 64)
+        self.assertEqual(len(all_pois), 70)
         self.assertEqual(
             {poi['type'] for poi in all_pois},
             {
@@ -898,16 +923,16 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
             1673,
         )
 
-    def test_builtin_6216_package_passes_release_contract(self):
+    def test_builtin_6220_package_passes_release_contract(self):
         self.assertEqual(
-            validate_6216_package(),
+            validate_6220_package(),
             {
                 'dungeons': 16,
                 'enemies': 462,
-                'spawns': 3068,
+                'spawns': 3069,
                 'abilities': 1673,
                 'spells': 1482,
-                'pois': 64,
+                'pois': 70,
             },
         )
 
@@ -988,13 +1013,13 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         )
         self.assertEqual(metadata['spell_snapshot']['source_branch'], 'wowt')
 
-    def test_builtin_6216_package_preserves_interactive_poi_assets(self):
+    def test_builtin_6220_package_preserves_interactive_poi_assets(self):
         package_path = (
             Path(settings.BASE_DIR)
             / 'botend'
             / 'data'
             / 'mythic_planner'
-            / 'mdt_6_2_16.json'
+            / 'mdt_6_2_20.json'
         )
         payload = json.loads(package_path.read_text(encoding='utf-8'))
         pois = [
@@ -1007,8 +1032,8 @@ class MythicDungeonToolsConverterTests(SimpleTestCase):
         assignable = [
             poi for poi in pois if poi['type'] == 'genericAssignablePOI'
         ]
-        self.assertEqual(len(pois), 64)
-        self.assertEqual(len(items), 19)
+        self.assertEqual(len(pois), 70)
+        self.assertEqual(len(items), 25)
         self.assertEqual(len(assignable), 28)
         self.assertTrue(all(poi['label'] and poi['icon_url'] for poi in items))
         self.assertTrue(all(
@@ -4279,14 +4304,14 @@ class MythicPlannerDashboardTests(TestCase):
         self.assertIn('同一个数据版本', rejected.json()['message'])
 
 class MythicPlannerPageContractTests(SimpleTestCase):
-    def test_direct_route_uses_current_6216_assets(self):
+    def test_direct_route_uses_current_6220_assets(self):
         planner = self.client.get('/portal/mythic-planner/')
 
         self.assertEqual(planner.status_code, 200)
-        self.assertContains(planner, 'MythicDungeonTools 6.2.16（GPLv2）')
+        self.assertContains(planner, 'MythicDungeonTools 6.2.20（GPLv2）')
         self.assertContains(
             planner,
-            '/static/portal/mythic_planner/vendor/mdt-6.2.16/assets/mdt-full.png',
+            '/static/portal/mythic_planner/vendor/mdt-6.2.20/assets/mdt-full.png',
         )
 
     def test_direct_route_exists_and_portal_navigation_exposes_mdt(self):
