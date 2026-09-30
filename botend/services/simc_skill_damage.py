@@ -4818,6 +4818,8 @@ class SimcSkillDamageSnapshotService:
         self, payload, *, profile=None, expected_actor_count=1,
         expected_actor_names=None,
     ):
+        if 'parser_counterfactual' in payload:
+            raise ValueError('exporter parser counterfactual 是诊断数据，不能作为普通快照输入。')
         if payload.get('schema_version') != self.EXPORTER_SCHEMA_REVISION:
             raise ValueError('exporter schema revision 不匹配，请应用最新 SimC 补丁并重新编译导出器。')
         if payload.get('simc_revision') != self.snapshot.simc_revision:
