@@ -23,7 +23,7 @@ from botend.constants.wow import SPEC_CN
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcBenchmarkCandidate, SimcBenchmarkPanel,
     SimcBenchmarkProfile, SimcBenchmarkScenario, SimcBenchmarkSpec,
-    SimcContentTemplate, SimcProfile, SimcTalentString, WowItemSnapshot,
+    SimcContentTemplate, SimcProfile, SimcTalentString, WowItemSnapshot, WowItemVariantSnapshot,
 )
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, canonical_simc_profile_identity,
@@ -99,6 +99,7 @@ _ITEM_OPTION_KEYS = {
     'id', 'ilevel', 'item_level', 'bonus_id', 'bonus_ids', 'gem_id', 'gems',
     'enchant_id', 'crafted_stats', 'crafting_quality', 'drop_level',
     'content_tuning', 'suffix', 'upgrade',
+    'embellishment', 'gem_bonus_id', 'gem_ilevel',
 }
 _SAFE_KEY = re.compile(r'^[a-z0-9][a-z0-9_-]{0,99}$')
 
@@ -381,6 +382,43 @@ def _normalize_candidate_params(candidate_type, params):
     if candidate_type != 'gear_swap':
         _error('candidate_type 只支持 gear_swap；baseline 由系统注入', 'candidate_type')
 
+    if (isinstance(params, str) and len(params.strip().splitlines()) > 1
+            or isinstance(params, dict) and 'gear_swaps' in params):
+        from simc_equipment_control import SLOTS, ALIASES
+        if isinstance(params, str):
+            rows, options = params.strip().splitlines(), None
+        else:
+            if set(params) - {'candidate_type', 'is_base', 'gear_swaps', 'simc_options'}:
+                _error('装备组合包含未知字段', 'params')
+            if 'candidate_type' in params and (params['candidate_type'] != 'gear_swap' or params.get('is_base') is not False):
+                _error('装备组合执行类型无效', 'params')
+            rows, options = params['gear_swaps'], params.get('simc_options')
+        if not isinstance(rows, list) or not 2 <= len(rows) <= len(SLOTS):
+            _error('装备组合必须包含 2 至 14 件装备', 'params')
+        swaps = []
+        for row in rows:
+            if isinstance(row, dict) and 'item_id' in row:
+                row = {'candidate_type': 'gear_swap', 'is_base': False, 'gear_swap': row}
+            normalized = _normalize_candidate_params('gear_swap', row)
+            if 'gear_swap' not in normalized:
+                _error('装备组合不能嵌套组合', 'params')
+            swaps.append(normalized['gear_swap'])
+        slots = [ALIASES.get(row['slot'], row['slot']) for row in swaps]
+        if len(set(slots)) != len(slots) or any(slot not in SLOTS for slot in slots):
+            _error('装备组合不能重复槽位或包含饰品', 'params')
+        for swap in swaps:
+            _benchmark_item_identity({'gear_swap': swap})
+        result = {'candidate_type': 'gear_swap', 'is_base': False,
+                  'gear_swaps': sorted(swaps, key=lambda row: row['slot'])}
+        if options is not None:
+            try:
+                result['simc_options'] = normalize_controlled_simc_options(options)
+            except ValueError as exc:
+                _error(str(exc), 'params')
+        if len(json.dumps(result, ensure_ascii=False).encode()) > MAX_CANDIDATE_PARAMS_BYTES:
+            _error('装备组合内容过长', 'params')
+        return result
+
     if isinstance(params, str):
         if '\n' in params or '\r' in params:
             _error('装备候选不允许换行', 'params')
@@ -469,7 +507,8 @@ def _normalize_candidate_params(candidate_type, params):
 
 
 def _benchmark_item_identity(params):
-    swap = params['gear_swap']
+    from simc_equipment_control import candidate_swaps
+    swap = candidate_swaps(params)[0]
     item_id = swap['item_id']
     options = []
     for fragment in swap['raw_value'].split(','):
@@ -493,6 +532,10 @@ def _benchmark_item_identity(params):
 
 
 def _derived_candidate_key(params, item_id, item_level, options):
+    if params.get('gear_swaps'):
+        return 'equipment-group-' + hashlib.sha256(json.dumps(
+            params, sort_keys=True, ensure_ascii=True,
+        ).encode()).hexdigest()[:32]
     base = f'item-{item_id}-ilvl-{item_level}'
     simple_options = {key for key, _value in options} == {'id', 'ilevel'}
     swap = params['gear_swap']
@@ -770,6 +813,18 @@ def normalize_panel_payload(payload, user_id, panel=None):
         metadata_label, metadata_effect, metadata_icon_url = _benchmark_item_display_metadata(
             item_id, item_level, bonus_ids,
         )
+        if params.get('gear_swaps'):
+            descriptions, effects = [], []
+            for swap in params['gear_swaps']:
+                identity = _benchmark_item_identity({'gear_swap': swap})
+                bonuses = [value for name, value in identity[2] if name == 'bonus_id']
+                name, effect, icon = _benchmark_item_display_metadata(identity[0], identity[1], bonuses)
+                descriptions.append(f'{name or "物品 " + str(identity[0])} · {identity[1]}')
+                if effect:
+                    effects.append(f'{name or identity[0]}\n{effect}')
+                metadata_icon_url = metadata_icon_url or icon
+            metadata_label, metadata_effect = ' ＋ '.join(descriptions), '\n\n'.join(effects)
+            item_level = 0
         requested_label = _text(raw.get('label', ''), 'candidate.label', required=False, max_length=200)
         icon_url = metadata_icon_url or _text(raw.get('icon_url', ''), 'icon_url', required=False,
                                                 max_length=500)
@@ -975,8 +1030,18 @@ def _freeze_trinket_benchmark_preset(spec_key, benchmark_profile):
     }
 
 
-def _freeze_case_candidates(spec_key, applicable):
-    from simc_equipment_control import SLOTS, control_key
+def _freeze_equipment_rules():
+    from simc_equipment_control import equipment_rules
+    rules = deepcopy(equipment_rules())
+    rules['intrinsic_item_ids'] = sorted(set(rules['intrinsic_item_ids']) | set(
+        WowItemVariantSnapshot.objects.filter(is_intrinsic_embellishment=True)
+        .values_list('item_id', flat=True)
+    ))
+    return rules
+
+
+def _freeze_case_candidates(spec_key, applicable, rules=None):
+    from simc_equipment_control import SLOTS, ALIASES, candidate_swaps, control_key
 
     trinkets = [item for item in applicable
                 if item.params.get('gear_swap', {}).get('slot') in ('trinket1', 'trinket2')]
@@ -997,16 +1062,21 @@ def _freeze_case_candidates(spec_key, applicable):
     if preset:
         baseline['candidate_params']['equipment_preset'] = deepcopy(preset)
     controls = []
+    if rules is None and len(trinkets) != len(applicable):
+        rules = _freeze_equipment_rules()
     for candidate in candidates:
         params = candidate['candidate_params']
-        slot = params.get('gear_swap', {}).get('slot')
+        swaps = candidate_swaps(params)
+        slots = [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in swaps]
+        slot = slots[0] if len(slots) == 1 else None
         if slot in ('trinket1', 'trinket2'):
             if preset:
                 params.pop('benchmark_profile', None)
                 params['equipment_preset'] = deepcopy(preset)
             continue
-        if slot not in SLOTS:
-            _error(f'暂不支持装备槽 {slot} 的同属性特效对照')
+        if not slots or any(slot not in SLOTS for slot in slots) or len(set(slots)) != len(slots):
+            _error('装备组合槽位不支持同属性特效对照')
+        params['equipment_effect_policy'] = {'version': 2, 'target_slots': slots, 'rules': deepcopy(rules)}
         key = control_key(candidate['candidate_key'])
         if any(row['candidate_key'] == key for row in candidates):
             _error('候选标识与系统生成的无特效对照冲突')
@@ -1214,7 +1284,13 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
     elif any(item.candidate_type != 'gear_swap' for item in candidates):
         _error('持久化候选只允许 gear_swap；baseline 由系统注入')
 
-    cases = []
+    from simc_equipment_control import candidate_swaps
+    from botend.services.simc_equipment_eligibility import EquipmentEligibility
+    eligibility = EquipmentEligibility([item.params for item in candidates])
+    needs_rules = any(any(swap.get('slot') not in ('trinket1', 'trinket2')
+                         for swap in candidate_swaps(item.params)) for item in candidates)
+    equipment_policy_rules = _freeze_equipment_rules() if needs_rules else None
+    cases, excluded_candidates = [], []
     for spec in specs:
         profiles = spec._snapshot_profiles
         if not profiles:
@@ -1224,7 +1300,13 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             if not item.spec_keys or spec.spec_key in item.spec_keys
         ]
         if not is_option_gain:
-            case_candidates = _freeze_case_candidates(spec.spec_key, applicable)
+            accepted, excluded = eligibility.filter([
+                {'key': item.key, 'label': item.label, 'params': item.params} for item in applicable
+            ], spec.spec_key, spec.class_name)
+            accepted_keys = {item['key'] for item in accepted}
+            applicable = [item for item in applicable if item.key in accepted_keys]
+            excluded_candidates.extend({'spec_key': spec.spec_key, **item} for item in excluded)
+            case_candidates = _freeze_case_candidates(spec.spec_key, applicable, equipment_policy_rules)
         for scenario in scenarios:
             for selected in profiles:
                 if not selected.talent_string_id:
@@ -1293,6 +1375,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             'source_label': row.source_label, 'params': deepcopy(row.params),
         } for row in candidates],
         'cases': cases, 'case_count': case_count, 'run_count': run_count,
+        'excluded_candidates': excluded_candidates,
     }
 
 
@@ -1358,6 +1441,17 @@ def serialize_panel_config(panel):
             'display_order': row.display_order,
         } for row in panel._snapshot_candidates]
     )
+    if result['candidates']:
+        from botend.services.simc_equipment_eligibility import EquipmentEligibility
+        eligibility = EquipmentEligibility([row['params'] for row in result['candidates']])
+        for candidate in result['candidates']:
+            candidate['excluded_specs'] = []
+            for spec in result['specs']:
+                if not spec['is_enabled'] or candidate['spec_keys'] and spec['spec_key'] not in candidate['spec_keys']:
+                    continue
+                reason = eligibility.reason(candidate['params'], spec['spec_key'], spec['class_name'])
+                if reason:
+                    candidate['excluded_specs'].append({'spec_key': spec['spec_key'], 'label': spec['label'], **reason})
     return deepcopy(result)
 
 

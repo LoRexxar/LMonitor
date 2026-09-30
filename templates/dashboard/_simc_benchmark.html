@@ -39,7 +39,7 @@
           </div></section>
           <section class="simc-benchmark-form-section" data-configuration-only><div class="section-title"><h3>候选装备模拟矩阵</h3></div><p class="field-help">首层只勾选专精、天赋字符串、战斗场景；Profile、APL、Template 和 Backend 统一收在进阶模拟选项中。</p><div class="spec-config-table"><div class="spec-config-table-head" aria-hidden="true"><span>专精</span><span>状态</span><span>天赋字符串</span><span>进阶模拟选项</span></div><div data-editor-specs class="config-stack spec-config-list"></div></div></section>
           <section class="simc-benchmark-form-section" data-configuration-only><div class="section-title"><h3>战斗场景</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="scenario">添加场景</button></div><p class="field-help">只接受结构化白名单参数，不提供任意 JSON 输入。</p><div data-editor-scenarios class="config-stack"></div></section>
-          <section class="simc-benchmark-form-section" data-configuration-only><div class="section-title"><h3>候选装备</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">添加候选</button></div><p class="field-help">仅支持 gear_swap；baseline 由系统生成，不能配置。</p><div data-editor-candidates class="config-stack"></div></section>
+          <section class="simc-benchmark-form-section" data-configuration-only><div class="section-title"><h3>候选装备</h3><button type="button" class="simc-benchmark-btn secondary" data-editor-add="candidate">添加候选</button></div><p class="field-help">支持单件装备、两件套与美化组合；每个组合整体计算收益，美化比较会统一移除原配装中的其他美化。</p><div data-editor-candidates class="config-stack"></div></section>
         </form>
         <aside class="simc-benchmark-summary" data-editor-summary aria-live="polite"></aside>
       </div>

@@ -205,6 +205,13 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
 .candidate-config-row .candidate-item-name { min-height:34px; padding-left:.8rem; }
 .simc-benchmark-config-page .candidate-config-row .config-card-head { grid-column:4; grid-row:1; min-height:0; margin:0; border:0; padding:.25rem .35rem; background:transparent; }
 .candidate-config-row .config-card-title { display:none; }
+.candidate-config-row .candidate-primary[hidden],.candidate-config-row .config-card-advanced label[hidden] { display:none !important; }
+.candidate-config-row .config-card-advanced { grid-column:1/-1; min-width:0; }
+.candidate-config-row .config-card-advanced textarea { width:100%; box-sizing:border-box; }
+.simc-benchmark-config-page .candidate-config-row[data-equipment-input="1"] { grid-template-columns:minmax(0,1fr) 4.5rem; }
+.simc-benchmark-config-page .candidate-config-row[data-equipment-input="1"] .config-card-head { grid-column:1/-1; justify-content:space-between; }
+.candidate-config-row[data-equipment-input="1"] .config-card-title { display:block; }
+.simc-benchmark-config-page .candidate-config-row[data-equipment-input="1"] .config-card-head .danger { width:4.5rem; }
 .simc-benchmark-config-page .candidate-config-row .config-card-head .danger { width:100%; min-height:34px; }
 
 @media (max-width: 900px) {

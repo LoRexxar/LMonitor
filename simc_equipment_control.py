@@ -8,6 +8,7 @@ import re
 import subprocess
 import uuid
 from pathlib import Path
+from functools import lru_cache
 
 MARKER = '# lmonitor_equipment_control_v1='
 SLOTS = frozenset(('head', 'neck', 'shoulders', 'back', 'chest', 'wrists',
@@ -15,7 +16,73 @@ SLOTS = frozenset(('head', 'neck', 'shoulders', 'back', 'chest', 'wrists',
                    'main_hand', 'off_hand'))
 ALIASES = {'shoulder': 'shoulders', 'wrist': 'wrists', 'hand': 'hands',
            'ring1': 'finger1', 'ring2': 'finger2'}
+ALL_SLOTS = SLOTS | {'trinket1', 'trinket2'}
 PENDING = 'lmonitor_effect_control_pending,stats=lmonitor_unprepared'
+
+
+def candidate_swaps(params):
+    """保持旧单件输入兼容，组合以完整槽位列表表示。"""
+    if isinstance(params.get('gear_swaps'), list):
+        return params['gear_swaps']
+    swap = params.get('gear_swap')
+    return [swap] if isinstance(swap, dict) else []
+
+
+@lru_cache(maxsize=1)
+def equipment_rules():
+    return json.loads(Path(__file__).with_name('simc_equipment_rules.json').read_text(encoding='utf-8'))
+
+
+def validate_effect_policy(params):
+    """只接受冻结的背景规则和与候选完全一致的目标槽位。"""
+    policy = params.get('equipment_effect_policy')
+    slots = [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in candidate_swaps(params)]
+    if (params.get('candidate_type') != 'gear_swap' or not isinstance(policy, dict)
+            or set(policy) != {'version', 'target_slots', 'rules'} or policy['version'] != 2
+            or not slots or len(set(slots)) != len(slots) or any(slot not in SLOTS for slot in slots)
+            or policy['target_slots'] != slots):
+        raise ValueError('装备特效背景策略无效')
+    rules = policy['rules']
+    if (not isinstance(rules, dict) or set(rules) != {'version', 'embellishments', 'effect_ids', 'intrinsic_item_ids', 'sets'}
+            or rules['version'] != 2 or not isinstance(rules['embellishments'], dict)
+            or any(not isinstance(rules[key], list) for key in ('effect_ids', 'intrinsic_item_ids', 'sets'))):
+        raise ValueError('装备特效规则无效')
+    for key in ('effect_ids', 'intrinsic_item_ids'):
+        if any(type(value) is not int or value <= 0 for value in rules[key]):
+            raise ValueError('装备特效身份无效')
+    for name, value in rules['embellishments'].items():
+        if (not re.fullmatch(r'[a-z0-9_]+', name) or not isinstance(value, dict)
+                or set(value) != {'bonus_id', 'spell_id'}
+                or any(type(number) is not int or number <= 0 for number in value.values())):
+            raise ValueError('美化规则无效')
+    for row in rules['sets']:
+        if (not isinstance(row, dict) or set(row) != {'name', 'pieces', 'items'}
+                or not isinstance(row['name'], str) or not re.fullmatch(r'[a-z0-9_]+', row['name'])
+                or type(row['pieces']) is not int or not 1 <= row['pieces'] <= 8
+                or not isinstance(row['items'], list)
+                or any(type(number) is not int or number <= 0 for number in row['items'])):
+            raise ValueError('两件套规则无效')
+
+
+def mark_equipment_input(code, slots, *, control, rules):
+    """冻结多件候选与服务端规则；两个模拟组都准备同一无美化背景。"""
+    if (not isinstance(slots, list) or not slots or len(set(slots)) != len(slots)
+            or any(slot not in SLOTS for slot in slots) or MARKER in code):
+        raise ValueError('装备组合槽位无效')
+    lines, originals = code.splitlines(), {}
+    for index, line in enumerate(lines):
+        key, sep, value = line.strip().partition('=')
+        slot = ALIASES.get(key, key)
+        if sep and slot in slots:
+            if slot in originals:
+                raise ValueError('装备组合包含重复槽位')
+            originals[slot] = value
+            lines[index] = f'{slot}={PENDING}'
+    if set(originals) != set(slots):
+        raise ValueError('装备组合缺少目标装备槽')
+    payload = {'version': 2, 'items': originals, 'control': control, 'rules': rules}
+    encoded = base64.urlsafe_b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()
+    return '\n'.join(lines) + '\n' + MARKER + encoded + '\n'
 
 
 def control_key(candidate_key):
@@ -78,9 +145,9 @@ def parse_equipment_export(profile, log, slot):
         raise ValueError('SimC 初始化日志缺少唯一装备记录，拒绝猜测属性')
     record = records[0]
     blocks = dict(re.findall(r'(\w+)=\{\s*([^{}]*?)\s*\}', record))
-    if 'stats' not in blocks:
+    if 'stats' not in blocks and slot not in ('trinket1', 'trinket2'):
         raise ValueError('SimC 未导出装备基础属性')
-    stats = _stats(blocks['stats'])
+    stats = _stats(blocks.get('stats', ''))
     for stat, value in _stats(blocks.get('socket_bonus', '')).items():
         stats[stat] = stats.get(stat, 0) + value
     weapon = None
@@ -131,6 +198,8 @@ def prepare_control_input(code, binary, directory, *, execute=None):
     if len(markers) != 1:
         raise ValueError('装备特效对照标记重复')
     payload = json.loads(base64.urlsafe_b64decode(markers[0]).decode())
+    if isinstance(payload, dict) and payload.get('version') == 2:
+        return _prepare_combination(code, payload, binary, directory, execute=execute)
     if (not isinstance(payload, dict) or set(payload) != {'slot', 'value'}
             or payload['slot'] not in SLOTS or not isinstance(payload['value'], str)
             or '\n' in payload['value'] or '\r' in payload['value']):
@@ -177,3 +246,100 @@ def prepare_control_input(code, binary, directory, *, execute=None):
     if re.search(r'\bsource=item\b', control['record']):
         raise ValueError('无特效对照仍存在装备自带效果')
     return '\n'.join(control_lines) + '\n'
+
+
+def embellishment_count(export, rules):
+    """结合原生效果、bonus、显式名称和目录身份，避免漏掉自带美化。"""
+    options = export['options']
+    name = options.get('embellishment', '').lower()
+    if name and name != 'none' and name not in rules['embellishments']:
+        if name not in ('alchemical_flavor_pocket', 'griftahs_allpurpose_embellishing_powder',
+                        'griftahs_heavyduty_embellishing_powder'):
+            raise ValueError(f'美化 {name} 缺少已核实规则，拒绝生成收益')
+    bonus_ids = [int(value) for value in re.findall(r'\d+', options.get('bonus_id', ''))]
+    known_bonus_ids = {row['bonus_id'] for row in rules['embellishments'].values()}
+    declared = sum(value in known_bonus_ids for value in bonus_ids) + int(name in rules['embellishments'])
+    proc_ids = [int(value) for value in re.findall(r'proc=\w+/(\d+)', export['record'])]
+    native = sum(value in rules['effect_ids'] for value in proc_ids)
+    intrinsic = int(options.get('id', '0')) in rules['intrinsic_item_ids']
+    return max(native, declared + int(intrinsic))
+
+
+def _prepare_combination(code, payload, binary, directory, *, execute):
+    """先清理背景美化，再生成候选组；逐部位核验后才执行战斗。"""
+    items, rules = payload.get('items'), payload.get('rules')
+    if (set(payload) != {'version', 'items', 'control', 'rules'} or not isinstance(items, dict)
+            or not items or any(slot not in SLOTS for slot in items)
+            or any(not isinstance(value, str) or '\n' in value or '\r' in value for value in items.values())
+            or type(payload['control']) is not bool or not isinstance(rules, dict)
+            or rules.get('version') != 2):
+        raise ValueError('装备组合冻结输入无效')
+    validate_effect_policy({'candidate_type': 'gear_swap',
+                           'gear_swaps': [{'slot': slot} for slot in items],
+                           'equipment_effect_policy': {'version': 2, 'target_slots': list(items), 'rules': rules}})
+    lines = [line for line in code.splitlines() if not line.startswith(MARKER)]
+    indexes = {}
+    for index, line in enumerate(lines):
+        key, sep, value = line.partition('=')
+        slot = ALIASES.get(key.strip(), key.strip())
+        if sep and slot in ALL_SLOTS:
+            if value.strip() in ('', 'none', 'empty', 'nothing') and slot not in items:
+                continue
+            if slot in indexes:
+                raise ValueError('装备组合输入包含重复槽位')
+            indexes[slot] = index
+            if slot in items:
+                if value != PENDING:
+                    raise ValueError('装备组合占位输入不匹配')
+                lines[index] = f'{slot}={items[slot]}'
+    if not set(items).issubset(indexes):
+        raise ValueError('装备组合输入缺少目标槽位')
+    directory = Path(directory).resolve()
+    prefix = 'equipment-combination-' + uuid.uuid4().hex
+
+    def probe(content, suffix):
+        input_path = directory / f'{prefix}-{suffix}.simc'
+        profile_path = directory / f'{prefix}-{suffix}-saved.simc'
+        log_path = directory / f'{prefix}-{suffix}.log'
+        input_path.write_text('\n'.join(content) + '\n', encoding='utf-8')
+        command = [str(binary), str(input_path), f'save={profile_path}', 'save_gear_comments=1',
+                   'save_profile_with_actions=0', 'debug=1', 'threads=1', f'output={log_path}']
+        result = execute(command) if execute else subprocess.run(command, cwd=directory, capture_output=True, timeout=60)
+        if result.returncode or not profile_path.is_file() or not log_path.is_file():
+            raise ValueError(f'SimC 装备组合初始化失败：{str(result.stderr or result.stdout or "")[-2000:]}')
+        profile = profile_path.read_text(encoding='utf-8-sig')
+        log = log_path.read_text(encoding='utf-8', errors='replace')
+        if 'SimulationCraft has not been built with PTR data' in log:
+            raise ValueError('当前 SimC 不支持所需 PTR 数据')
+        return {slot: parse_equipment_export(profile, log, slot) for slot in indexes}
+
+    original = probe(lines, 'original')
+    counts = {slot: embellishment_count(item, rules) for slot, item in original.items()}
+    if sum(counts[slot] for slot in items) > 2:
+        raise ValueError('候选组合超过两件美化或在同一装备上叠加了多个美化')
+    if any(counts[slot] > 1 for slot in items):
+        raise ValueError('单件候选同时包含多个美化来源')
+    removed = {slot for slot, count in counts.items() if count and slot not in items}
+    if payload['control']:
+        removed.update(items)
+    for slot in removed:
+        lines[indexes[slot]] = f'{slot}={synthetic_item(original[slot])}'
+    # 只覆盖此次移除装备所属的非职业套装，职业套装显式配置保持一致。
+    removed_ids = {int(original[slot]['options'].get('id', '0')) for slot in removed}
+    remaining_ids = [int(item['options'].get('id', '0')) for slot, item in original.items() if slot not in removed]
+    for row in rules['sets']:
+        if (removed_ids.intersection(row['items'])
+                and sum(item_id in row['items'] for item_id in remaining_ids) < row['pieces']):
+            lines.append(f'set_bonus=name={row["name"]},pc={row["pieces"]},enable=0')
+    prepared = probe(lines, 'prepared')
+    for slot, before in original.items():
+        for field in ('stats', 'weapon', 'attachments'):
+            if before[field] != prepared[slot][field]:
+                raise ValueError(f'装备组合的 {slot} {field} 不一致，拒绝生成收益')
+        if slot in removed and re.search(r'\bsource=item\b', prepared[slot]['record']):
+            raise ValueError(f'无特效装备 {slot} 仍包含自带效果')
+    actual = {slot: embellishment_count(item, rules) for slot, item in prepared.items()}
+    expected = 0 if payload['control'] else sum(counts[slot] for slot in items)
+    if sum(actual.values()) != expected or sum(actual.values()) > 2:
+        raise ValueError('最终装备美化数量与目标组合不一致')
+    return '\n'.join(lines) + '\n'

@@ -192,6 +192,7 @@
     const label = String(candidate.label || candidate.key || "候选方案");
     const level = Number(candidate.item_level);
     if (!Number.isFinite(level) || level <= 0) return label;
+    if (candidate.equipment_group_key) return label.replace(/\s*·\s*\d+(?=\s*＋|$)/g, "");
     return label.replace(new RegExp(`(?:\\s*·\\s*|\\s+装等\\s*)${level}$`), "");
   }
 
@@ -254,8 +255,8 @@
     candidates.forEach((candidate) => {
       const itemId = Number(candidate.item_id);
       const label = candidateGearLabel(candidate);
-      const itemIdentity = Number.isFinite(itemId) && itemId > 0 ? `item-${itemId}` : `candidate-${candidate.key || label}`;
-      const variantIdentity = candidate.item_variant_key || label;
+      const itemIdentity = candidate.equipment_group_key ? `group-${candidate.equipment_group_key}` : Number.isFinite(itemId) && itemId > 0 ? `item-${itemId}` : `candidate-${candidate.key || label}`;
+      const variantIdentity = candidate.equipment_group_key || candidate.item_variant_key || label;
       const key = `${itemIdentity}|${variantIdentity}`;
       if (!groups.has(key)) {
         groups.set(key, {

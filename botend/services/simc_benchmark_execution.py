@@ -197,6 +197,8 @@ def _safe_snapshot(panel, plan, *, execution_mode='supplement'):
                 definitions_by_key[definition['key']] = definition
             elif params.get('effect_baseline_key'):
                 definition['params']['effect_baseline_key'] = params['effect_baseline_key']
+                if params.get('equipment_effect_policy'):
+                    definition['params']['equipment_effect_policy'] = deepcopy(params['equipment_effect_policy'])
     for row in plan['cases']:
         resource_key = _canonical_hash({
             'backend_id': row['backend_id'], 'profile_id': row['profile_id'],
@@ -219,6 +221,7 @@ def _safe_snapshot(panel, plan, *, execution_mode='supplement'):
         'profiles': list(profiles.values()),
         'candidates': candidate_definitions, 'resources': resources,
         'execution_mode': execution_mode,
+        'excluded_candidates': deepcopy(plan.get('excluded_candidates', [])),
         # A full rerun is an atomic replacement from the panel's perspective:
         # its output is eligible for the aggregate only after every frozen input
         # has succeeded and the Execution has received its publication seal.
@@ -297,6 +300,10 @@ def _candidate_item_level(candidate):
     params = candidate.get('candidate_params')
     if not isinstance(params, dict):
         return None
+    if params.get('gear_swaps'):
+        levels = {_candidate_item_level({'candidate_params': {'gear_swap': swap}})
+                  for swap in params['gear_swaps']}
+        return next(iter(levels)) if len(levels) == 1 else None
     gear_swap = params.get('gear_swap')
     if not isinstance(gear_swap, dict):
         gear_swap = params
@@ -367,11 +374,18 @@ def _candidate_bonus_ids(candidate):
 
 
 def _candidate_item_variant_key(candidate):
-    """Stable display identity for item attributes, excluding only item level."""
+    """同装等组合共用装等分组；混合装等组合保持完整身份。"""
     params = deepcopy(candidate.get('candidate_params'))
     if not isinstance(params, dict):
         return None
     params.pop('effect_baseline_key', None)
+    params.pop('equipment_effect_policy', None)
+    if params.get('gear_swaps') and _candidate_item_level(candidate) is not None:
+        for swap in params['gear_swaps']:
+            swap.pop('ilevel', None)
+            swap.pop('item_level', None)
+            swap['raw_value'] = re.sub(r'(^|,)\s*(?:ilevel|item_level)=\d+(?=,|$)',
+                                      r'\1ilevel=*', str(swap.get('raw_value') or ''), flags=re.I)
     gear_swap = params.get('gear_swap')
     if not isinstance(gear_swap, dict):
         gear_swap = params
@@ -1852,12 +1866,28 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         selected_filter = historical_filter or None
     display_candidates = []
     display_requests = []
+    group_display_members = {}
     seen_display_identities = set()
     for coordinate in projected_cases:
         for candidate in coordinate['candidates']:
             item_id = _candidate_item_id(candidate)
             identity = _candidate_input_identity(candidate)
             display_identity = (coordinate['spec_key'], identity)
+            swaps = (candidate.get('candidate_params') or {}).get('gear_swaps')
+            if swaps and display_identity not in seen_display_identities:
+                seen_display_identities.add(display_identity)
+                members = []
+                for swap in swaps:
+                    member = {'candidate_params': {'gear_swap': swap}}
+                    member_identity = (*display_identity, swap['slot'])
+                    members.append((member_identity, _candidate_item_level(member)))
+                    display_candidates.append(member_identity)
+                    display_requests.append({'item_id': _candidate_item_id(member),
+                                             'item_level': _candidate_item_level(member),
+                                             'bonus_ids': _candidate_bonus_ids(member),
+                                             'spec_key': coordinate['spec_key']})
+                group_display_members[display_identity] = members
+                continue
             if not item_id or display_identity in seen_display_identities:
                 continue
             seen_display_identities.add(display_identity)
@@ -1872,6 +1902,16 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         display_candidates,
         load_item_tooltip_metadata(display_requests) if display_requests else (),
     ))
+    for identity, members in group_display_members.items():
+        displays = [(display_by_identity[key], level) for key, level in members]
+        names = [f'{row["display_name"]} · {level}' for row, level in displays]
+        # 没有活动目录时保留配置中完整的组合名称与特效。
+        display_by_identity[identity] = {
+            'display_name': ' ＋ '.join(names) if all(not row['display_name'].startswith('#') for row, _ in displays) else '',
+            'icon_url': next((row.get('icon_url') for row, _ in displays if row.get('icon_url')), ''),
+            'tooltip': '\n\n'.join(f'{row["display_name"]}\n{row["tooltip"]}' for row, _ in displays if row.get('tooltip')),
+            'tooltip_complete': all(row.get('tooltip_complete') for row, _ in displays),
+        }
     # The projection needs the matched Task and Result objects below even when
     # optional detail fields are omitted.  ``summary_only`` is reserved for the
     # cleanup planner, which only needs task identities.
@@ -1981,7 +2021,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 if display_name.startswith('#'):
                     display_name = ''
                 label = display_name or candidate['candidate_label']
-                if display_name and item_level:
+                if display_name and item_level and not (candidate.get('candidate_params') or {}).get('gear_swaps'):
                     label = f'{display_name} · {item_level}'
                 tooltip = _candidate_display_tooltip(display, candidate)
                 row = {
@@ -2011,6 +2051,10 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     row['item_variant_key'] = _candidate_item_variant_key(candidate)
                 if item_level is not None:
                     row['item_level'] = item_level
+                swaps = (candidate.get('candidate_params') or {}).get('gear_swaps')
+                if swaps:
+                    row['equipment_group_key'] = _candidate_item_variant_key(candidate)
+                    row['equipment_items'] = deepcopy(swaps)
                 rows.append(row)
                 if include_details and candidate['candidate_key'] == 'baseline':
                     manifest = source_run.resource_manifest if source_run is not None else {}
@@ -3394,6 +3438,12 @@ def serialize_public_execution(panel_or_execution):
                     'gain_dps': gain, 'gain_percent': gain / baseline_dps * 100 if baseline_dps > 0 else None,
                     'comparison_mode': 'equipment_effect',
                 })
+            swaps = candidate['params'].get('gear_swaps')
+            if swaps:
+                candidate_row['equipment_items'] = deepcopy(swaps)
+                frozen = {'candidate_type': candidate['candidate_type'], 'candidate_params': candidate['params']}
+                candidate_row['equipment_group_key'] = _candidate_item_variant_key(frozen)
+                candidate_row['item_level'] = _candidate_item_level(frozen)
             effect = str(display.get('effect') or candidate.get('effect') or '')
             if effect:
                 candidate_row['effect'] = effect

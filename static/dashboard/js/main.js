@@ -1533,7 +1533,7 @@ function closeSimcWorkbenchDialog() {
 }
 window.closeSimcWorkbenchDialog = closeSimcWorkbenchDialog;
 
-function showSimcTaskCreatedDialog() {
+function showSimcTaskCreatedDialog(excludedCandidates = []) {
     return new Promise(resolve => {
         const dialog = document.getElementById('simc-workbench-dialog');
         const body = document.getElementById('simc-dialog-body');
@@ -1564,14 +1564,21 @@ function showSimcTaskCreatedDialog() {
                 <p class="text-lg font-semibold text-gray-900">任务已新建</p>
                 <p class="mt-2 text-sm text-gray-500">任务已进入队列，可在任务列表查看进度。</p>
                 <button type="button" data-simc-task-created-history class="mt-6 rounded-xl bg-blue-600 px-5 py-2.5 font-semibold text-white transition-colors hover:bg-blue-700">前往任务列表</button>
-                <p class="mt-3 text-xs text-gray-400">此窗口将在 1 秒后自动关闭</p>
+                <p data-simc-task-created-dismiss class="mt-3 text-xs text-gray-400">此窗口将在 1 秒后自动关闭</p>
             </div>`;
         document.addEventListener('simc-dialog-closing', onDialogClosing, { once: true });
+        if (excludedCandidates.length) {
+            const note = document.createElement('p');
+            note.className = 'mt-3 text-left text-sm text-gray-600';
+            note.textContent = `已跳过 ${excludedCandidates.length} 个不适用或资料不足的候选：${excludedCandidates.map(row => `${row.label || row.candidate_key}（${row.reason}）`).join('；')}`;
+            body.querySelector('[data-simc-task-created-history]').before(note);
+            body.querySelector('[data-simc-task-created-dismiss]').textContent = '其余候选已进入队列，请关闭此窗口或前往任务列表。';
+        }
         body.querySelector('[data-simc-task-created-history]')?.addEventListener('click', () => {
             showDashboardSection(SIMC_DASHBOARD_SECTIONS.history);
             close();
         });
-        dismissTimer = window.setTimeout(close, 1000);
+        if (!excludedCandidates.length) dismissTimer = window.setTimeout(close, 1000);
     });
 }
 
@@ -4031,7 +4038,7 @@ async function startSelectedSimcCandidateComparisons() {
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || '创建比较任务失败');
         if (!isCurrentSimcCandidateControl(control)) return;
-        await showSimcTaskCreatedDialog();
+        await showSimcTaskCreatedDialog(payload.data?.excluded_candidates || []);
     } catch (error) {
         if (error.name !== 'AbortError') showMessage(String(error.message || error), 'error');
     } finally {

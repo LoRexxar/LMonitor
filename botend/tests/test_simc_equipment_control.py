@@ -11,10 +11,11 @@ from django.test import TestCase
 
 from simc_equipment_control import (
     MARKER, control_key, mark_control_input, parse_equipment_export,
-    prepare_control_input, synthetic_item,
+    prepare_control_input, synthetic_item, mark_equipment_input, equipment_rules,
+    embellishment_count,
 )
-from botend.models import SimcBenchmarkCandidate
-from botend.services.simc_benchmark_config import build_execution_plan
+from botend.models import SimcBenchmarkCandidate, WowItemSnapshot
+from botend.services.simc_benchmark_config import build_execution_plan, _normalize_candidate_params
 from botend.services.simc_benchmark_execution import (
     reconcile_execution, serialize_incremental_panel_results, serialize_public_execution,
 )
@@ -23,6 +24,88 @@ from botend.tests import test_simc_benchmark_execution as fixtures
 
 
 class EquipmentControlInputTests(UnitTestCase):
+    def combination_probe(self, command):
+        import re
+        options = dict(part.split('=', 1) for part in command[2:])
+        profile, records = [], []
+        for line in Path(command[1]).read_text(encoding='utf-8').splitlines():
+            slot, sep, value = line.partition('=')
+            if not sep or slot not in ('wrists', 'back', 'feet', 'finger1', 'trinket2'):
+                continue
+            item_id = re.search(r'\bid=(\d+)', value)
+            effect = ' proc_spells={ proc=OnEquip/1283697 }' if 'embellishment=arcanoweave_lining' in value else ''
+            profile.extend([line, '# ilevel=289,quality=epic,stats=100haste'])
+            records.append(f'0.000 name=x slot={slot} stats={{ +100 Haste }} source=Local{effect}')
+        Path(options['save']).write_text('\n'.join(profile), encoding='utf-8')
+        Path(options['output']).write_text('\n'.join(records), encoding='utf-8')
+        return SimpleNamespace(returncode=0, stdout='', stderr='')
+
+    def test_combination_clears_two_background_embellishments_in_both_groups(self):
+        code = ('warrior=x\nwrists=,id=123,ilevel=289\n'
+                'back=,id=456,ilevel=289,embellishment=arcanoweave_lining\n'
+                'feet=,id=789,ilevel=289,embellishment=arcanoweave_lining\n'
+                'finger1=,id=111,ilevel=289,embellishment=arcanoweave_lining\n')
+        results = []
+        with tempfile.TemporaryDirectory() as directory:
+            for control in (False, True):
+                marked = mark_equipment_input(code, ['wrists', 'finger1'], control=control, rules=equipment_rules())
+                result = prepare_control_input(marked, 'simc', directory, execute=self.combination_probe)
+                results.append(result)
+                self.assertIn('back=lmonitor_effect_control', result)
+                self.assertIn('feet=lmonitor_effect_control', result)
+                self.assertNotIn(MARKER, result)
+        self.assertEqual(results[0].count('embellishment='), 1)
+        self.assertEqual(results[1].count('embellishment='), 0)
+        self.assertIn('wrists=lmonitor_effect_control', results[1])
+
+    def test_three_target_embellishments_and_stacked_sources_are_rejected(self):
+        code = 'warrior=x\n' + '\n'.join(f'{slot}=,id={100+i},ilevel=289,embellishment=arcanoweave_lining'
+                                          for i, slot in enumerate(('wrists', 'back', 'feet'))) + '\n'
+        with tempfile.TemporaryDirectory() as directory:
+            marked = mark_equipment_input(code, ['wrists', 'back', 'feet'], control=False, rules=equipment_rules())
+            with self.assertRaisesRegex(ValueError, '超过两件美化'):
+                prepare_control_input(marked, 'simc', directory, execute=self.combination_probe)
+        item = parse_equipment_export(
+            'wrists=x,id=123,bonus_id=12384,embellishment=arcanoweave_lining\n# stats=100haste',
+            '0.000 name=x slot=wrists stats={ +100 Haste } source=Local', 'wrists')
+        self.assertEqual(embellishment_count(item, equipment_rules()), 2)
+
+    def test_intrinsic_and_unknown_embellishment_identity(self):
+        item = parse_equipment_export('wrists=x,id=123\n# stats=100haste',
+            '0.000 name=x slot=wrists stats={ +100 Haste } source=Local proc_spells={ proc=OnEquip/1251815 }', 'wrists')
+        self.assertEqual(embellishment_count(item, equipment_rules()), 1)
+        item['record'] = '0.000 name=x slot=wrists stats={ +100 Haste } source=Local'
+        item['options']['id'] = '239660'
+        self.assertEqual(embellishment_count(item, equipment_rules()), 1)
+        item['options']['embellishment'] = 'unknown_future_effect'
+        with self.assertRaisesRegex(ValueError, '缺少已核实规则'):
+            embellishment_count(item, equipment_rules())
+
+    def test_target_set_is_disabled_but_class_set_override_is_preserved(self):
+        rules = deepcopy(equipment_rules())
+        rules['sets'] = [{'name': 'arcanoweave_trappings', 'pieces': 2, 'items': [123, 456]}]
+        code = 'warrior=x\nwrists=,id=123,ilevel=289\nback=,id=456,ilevel=289\nset_bonus=midnight_season_1_4pc=1\n'
+        marked = mark_equipment_input(code, ['wrists', 'back'], control=True, rules=rules)
+        with tempfile.TemporaryDirectory() as directory:
+            result = prepare_control_input(marked, 'simc', directory, execute=self.combination_probe)
+        self.assertIn('set_bonus=name=arcanoweave_trappings,pc=2,enable=0', result)
+        self.assertIn('set_bonus=midnight_season_1_4pc=1', result)
+
+    def test_removing_third_crafted_piece_keeps_selected_two_piece_set_active(self):
+        code = 'warrior=x\nwrists=,id=239660,ilevel=289\nback=,id=239661,ilevel=289\nfeet=,id=239662,ilevel=289\n'
+        marked = mark_equipment_input(code, ['wrists', 'back'], control=False, rules=equipment_rules())
+        with tempfile.TemporaryDirectory() as directory:
+            result = prepare_control_input(marked, 'simc', directory, execute=self.combination_probe)
+        self.assertIn('feet=lmonitor_effect_control', result)
+        self.assertNotIn('set_bonus=name=arcanoweave_trappings', result)
+
+    def test_intrinsic_crafted_trinket_is_removed_from_background(self):
+        code = 'warrior=x\nwrists=,id=123,ilevel=289\ntrinket2=,id=241340,ilevel=289\n'
+        marked = mark_equipment_input(code, ['wrists'], control=False, rules=equipment_rules())
+        with tempfile.TemporaryDirectory() as directory:
+            result = prepare_control_input(marked, 'simc', directory, execute=self.combination_probe)
+        self.assertIn('trinket2=lmonitor_effect_control', result)
+
     def test_native_readback_rejects_stat_drift(self):
         code = mark_control_input('warrior=x\nfinger1=id=123\n', 'finger1')
         def execute(command):
@@ -46,7 +129,8 @@ class EquipmentControlInputTests(UnitTestCase):
         consumer.transport.json.return_value = {'lease_expires_at': '2999-01-01T00:00:00+00:00'}
         consumer._lease_heartbeat_loop = Mock()
         consumer._complete = Mock()
-        code = mark_control_input('warrior=x\nfinger1=id=123\nhtml=simc_task_1_run_1.html\n', 'finger1')
+        code = mark_equipment_input('warrior=x\nfinger1=id=123\nhtml=simc_task_1_run_1.html\n',
+                                    ['finger1'], control=True, rules=equipment_rules())
         executions = []
         def popen(command, **kwargs):
             process = Mock(returncode=0)
@@ -109,6 +193,10 @@ class EquipmentControlBenchmarkTests(TestCase):
 
     def setUp(self):
         fixtures.SimcBenchmarkExecutionTests.setUp(self)
+        for item_id, inventory, subclass in ((123, 12, 0), (456, 11, 0), (239660, 9, 4), (239661, 16, 1)):
+            WowItemSnapshot.objects.create(item_id=item_id, item_class_id=4,
+                inventory_type=inventory, item_subclass_id=subclass,
+                metadata={'primary_stat_options': ['strength', 'agility', 'intellect']})
         self.ring = SimcBenchmarkCandidate.objects.create(
             panel=self.panel, key='ring', label='测试戒指', candidate_type='gear_swap',
             params={'candidate_type': 'gear_swap', 'is_base': False,
@@ -158,6 +246,50 @@ class EquipmentControlBenchmarkTests(TestCase):
         self.assertNotEqual(rows['ring']['candidate_params']['effect_baseline_key'],
                             rows['ring-300']['candidate_params']['effect_baseline_key'])
         self.assertEqual(_candidate_item_variant_key(rows['ring']), _candidate_item_variant_key(rows['ring-300']))
+
+    def test_multiline_candidate_is_safe_and_canonical_roundtrip_preserves_all_items(self):
+        code = 'wrists=,id=239660,ilevel=289\nback=,id=239661,ilevel=289,embellishment=arcanoweave_lining'
+        params = _normalize_candidate_params('gear_swap', code)
+        self.assertEqual(_normalize_candidate_params('gear_swap', params), params)
+        self.assertEqual({row['slot'] for row in params['gear_swaps']}, {'wrist', 'back'})
+        for invalid in ('wrists=,id=123,ilevel=289\nwrists=,id=456,ilevel=289',
+                        'wrists=,id=123,ilevel=289\ntrinket1=,id=456,ilevel=289',
+                        'wrists=,id=123,ilevel=289\nback=,id=456,ilevel=289,output=secret'):
+            from django.core.exceptions import ValidationError
+            with self.assertRaises(ValidationError):
+                _normalize_candidate_params('gear_swap', invalid)
+
+    def test_combination_levels_group_only_when_all_members_share_one_level(self):
+        from botend.services.simc_benchmark_execution import _candidate_item_variant_key
+        def identity(first, second):
+            return _candidate_item_variant_key({'candidate_type': 'gear_swap', 'candidate_params':
+                _normalize_candidate_params('gear_swap',
+                    f'wrists=,id=239660,ilevel={first}\nback=,id=239661,ilevel={second}')})
+        self.assertEqual(identity(289, 289), identity(300, 300))
+        self.assertNotEqual(identity(289, 300), identity(300, 289))
+        self.assertNotEqual(identity(289, 300), identity(300, 300))
+
+    def test_combination_freezes_all_slots_and_reuses_display_and_supplement(self):
+        self.ring.params = _normalize_candidate_params('gear_swap',
+            'wrists=,id=239660,ilevel=289\nback=,id=239661,ilevel=289')
+        self.ring.label = '测试两件套'
+        self.ring.save()
+        plan = build_execution_plan(self.panel)
+        candidate = next(row for row in plan['cases'][0]['candidates'] if row['candidate_key'] == 'ring')
+        self.assertEqual(candidate['candidate_params']['equipment_effect_policy']['target_slots'], ['back', 'wrists'])
+        execution = self.finish()
+        live = serialize_incremental_panel_results(self.panel)
+        row = next(row for row in live['coordinates'][0]['candidates'] if row['key'] == 'ring')
+        self.assertEqual(row['baseline_dps'], 1500)
+        self.assertEqual(len(row['equipment_items']), 2)
+        self.assertTrue(row['equipment_group_key'])
+        self.assertEqual(len(serialize_public_execution(execution)['execution']['cases'][0]['candidates']), 3)
+        self.assertEqual(build_execution_plan(self.panel)['run_count'], 4)
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        request = SimcMonitor.apply_candidate_overrides(
+            {'player_equipment': 'warrior=x\nwrists=,id=1\nback=,id=2'}, candidate['candidate_params'])
+        self.assertIn('back=,id=239661', request['player_equipment'])
+        self.assertIn('wrists=,id=239660', request['player_equipment'])
 
     def test_composer_marks_only_control_and_local_worker_executes_prepared_input(self):
         from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
@@ -230,3 +362,13 @@ class EquipmentControlBenchmarkTests(TestCase):
         ring = next(row for row in rows if row['key'] == 'ring')
         self.assertEqual(ring['baseline_dps'], 1500)
         self.assertEqual(ring['gain_dps'], 100)
+
+    def test_combination_failed_control_is_supplemented_without_rerunning_successful_items(self):
+        self.ring.params = _normalize_candidate_params('gear_swap',
+            'wrists=,id=239660,ilevel=289,crafted_stats=crit/haste\n'
+            'back=,id=239661,ilevel=289,crafted_stats=crit/haste')
+        self.ring.save()
+        self.test_missing_control_is_not_compared_with_common_baseline_and_is_supplemented()
+        row = next(row for row in serialize_incremental_panel_results(self.panel)
+                   ['coordinates'][0]['candidates'] if row['key'] == 'ring')
+        self.assertEqual(len(row['equipment_items']), 2)

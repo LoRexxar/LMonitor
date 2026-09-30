@@ -1,0 +1,187 @@
+{
+  "source": "https://www.raidbots.com/static/data/live/encounter-items.json",
+  "build": "12.1.0.69933",
+  "sha256": "4872aad02caf2d2b4d20be66865b599326c8d5c7074b478cd62cf7da8b4831dc",
+  "items": [
+    {
+      "item_id": 239657,
+      "name": "Sunfire Bracers",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 239658,
+      "name": "Sunfire Cloak",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 239659,
+      "name": "Sunfire Treads",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 239660,
+      "name": "Arcanoweave Bracers",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 239661,
+      "name": "Arcanoweave Cloak",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 239662,
+      "name": "Arcanoweave Treads",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 239663,
+      "name": "Sunfire Sash",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 239664,
+      "name": "Arcanoweave Cord",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 241139,
+      "name": "Thalassian Phoenix Torque",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 241140,
+      "name": "Signet of Azerothian Blessings",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 241340,
+      "name": "Magister's Alchemist Stone",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244463,
+      "name": "Murder Row Fleet Feet",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244472,
+      "name": "Knight-Commander's Palisade",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244601,
+      "name": "World Tree Rootwraps",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244602,
+      "name": "Ranger-General's Grips",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244605,
+      "name": "Axe-Flingin' Bands",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244606,
+      "name": "Hexwoven Strand",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244609,
+      "name": "World Tender's Trunkplate",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244610,
+      "name": "World Tender's Rootslippers",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244611,
+      "name": "World Tender's Barkclasp",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244612,
+      "name": "Row Walker's Deflectors",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244613,
+      "name": "Row Walker's Insurance",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244614,
+      "name": "Row Walker's Swiftgrips",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 244679,
+      "name": "Murder Row Fishhook",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 246304,
+      "name": "Darkmoon Dominion: Hunt",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 246305,
+      "name": "Darkmoon Dominion: Blood",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 246306,
+      "name": "Darkmoon Dominion: Rot",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 246307,
+      "name": "Darkmoon Dominion: Void",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 251073,
+      "name": "Voidstone Shielding Array",
+      "category": 512,
+      "quantity": 2
+    },
+    {
+      "item_id": 251513,
+      "name": "Loa Worshiper's Band",
+      "category": 512,
+      "quantity": 2
+    }
+  ]
+}

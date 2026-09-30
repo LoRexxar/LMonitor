@@ -2882,7 +2882,8 @@ class SimcComparisonTaskAPIView(View):
             return JsonResponse({'success': True, 'data': {
                 'task_id': task.id, 'run_ids': [],
                 'mode': task.mode,
-                'accepted': len(candidates),
+                'accepted': len((task.mode_params or {}).get('initial_candidates') or []),
+                'excluded_candidates': (task.mode_params or {}).get('excluded_candidates') or [],
             }})
         except json.JSONDecodeError:
             return JsonResponse({'success': False, 'error': '无效的JSON数据'})

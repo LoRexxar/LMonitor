@@ -24,6 +24,11 @@ class SimcBenchmarkConfigServiceTests(TestCase):
     user_id = 101
 
     def setUp(self):
+        WowItemSnapshot.objects.bulk_create([
+            WowItemSnapshot(item_id=item_id, item_class_id=4, inventory_type=12,
+                            metadata={'primary_stat_options': ['strength', 'agility', 'intellect']})
+            for item_id in (123, 456)
+        ])
         self.backend, _ = SimcBackendBinary.objects.update_or_create(
             identifier='production', defaults={'name': 'Production', 'is_active': True},
         )
@@ -333,8 +338,8 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.assertEqual(result['candidates'][0]['label'], '物品 123 · 700')
 
     def test_freezes_chinese_item_metadata_into_new_candidate(self):
-        WowItemSnapshot.objects.create(
-            item_id=123, name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',
+        WowItemSnapshot.objects.filter(item_id=123).update(
+            name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',
         )
 
         result = normalize_panel_payload(self.payload, self.user_id)
@@ -345,8 +350,8 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.assertEqual(candidate['source_label'], '物品 #123')
 
     def test_prefers_chinese_tooltip_even_when_english_snapshot_is_more_verbose(self):
-        WowItemSnapshot.objects.create(
-            item_id=123, name='Test Trinket', name_zh='测试饰品',
+        WowItemSnapshot.objects.filter(item_id=123).update(
+            name='Test Trinket', name_zh='测试饰品',
             description='Equip: A much longer English static effect description with extra details.',
             description_zh='装备：中文特效。',
         )
@@ -356,8 +361,8 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.assertEqual(candidate['effect'], '物品等级 700\n装备：中文特效。')
 
     def test_preserves_explicit_variant_suffix_when_localizing_item_name(self):
-        WowItemSnapshot.objects.create(
-            item_id=123, name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',
+        WowItemSnapshot.objects.filter(item_id=123).update(
+            name='Test Trinket', name_zh='测试饰品', icon='inv_trinket_raid_01',
         )
         payload = dict(self.payload)
         payload['candidates'] = [dict(payload['candidates'][0], label='测试饰品 · 暴击')]
@@ -699,6 +704,10 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         payload = dict(self.payload, slug='expanded-candidates', candidates=[
             candidate(index) for index in range(130)
         ])
+        WowItemSnapshot.objects.bulk_create([
+            WowItemSnapshot(item_id=1000 + index, item_class_id=4, inventory_type=12,
+                            metadata={'primary_stat_options': ['strength']}) for index in range(130)
+        ])
         _panel, plan = replace_panel_config(payload, self.user_id)
         self.assertEqual(plan['run_count'], 131)
 
@@ -876,10 +885,8 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             plan = build_execution_plan(stale)
         self.assertEqual(plan['cases'][0]['scenario_label'], 'DB current')
         one_spec_queries = len(captured)
-        # Locked planning is fixed at 12 statements under TestCase: savepoint pair,
-        # Panel + four config-axis reads, then five batched resource in_bulk reads
-        # (APL, Template, Backend, Profile, TalentString).
-        self.assertLessEqual(one_spec_queries, 12)
+        # 原有 12 次固定读取，加装备身份与活动变体两次批量查询；不随专精增加。
+        self.assertLessEqual(one_spec_queries, 14)
 
         mage_apl = SimcApl.objects.create(
             name='Fire APL', spec='mage_fire', content='actions=/fireball',
@@ -910,7 +917,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             expanded = build_execution_plan(stale)
         self.assertEqual(len(expanded['specs']), 2)
         self.assertEqual(len(captured), one_spec_queries)
-        self.assertLessEqual(len(captured), 12)
+        self.assertLessEqual(len(captured), 14)
 
         spec = panel.specs.get(spec_key='warrior_fury')
         for index in range(3):
@@ -920,7 +927,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             SimcBenchmarkProfile.objects.create(panel_spec=spec, profile=profile, label=profile.name)
         with CaptureQueriesContext(connection) as captured:
             serialized = serialize_panel_config(stale)
-        self.assertLessEqual(len(captured), 5)
+        self.assertLessEqual(len(captured), 7)  # 配置轴读取加两次批量装备适用资料读取。
         self.assertEqual(len(serialized['specs'][0]['profiles']), 4)
 
     def test_forty_spec_plan_keeps_batched_resource_queries_constant(self):
@@ -942,7 +949,7 @@ class SimcBenchmarkConfigServiceTests(TestCase):
         self.assertEqual(len(plan['specs']), MAX_SPECS)
         self.assertEqual(plan['case_count'], MAX_SPECS)
         # Resource FKs are loaded by five in_bulk statements, not per Spec/Profile.
-        self.assertLessEqual(len(captured), 12)
+        self.assertLessEqual(len(captured), 14)
 
     def test_execution_snapshot_queryset_locks_every_config_axis(self):
         """SQLite ignores row locks at runtime, so assert the ORM lock contract itself."""

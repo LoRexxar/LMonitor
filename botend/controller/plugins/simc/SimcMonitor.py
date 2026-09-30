@@ -484,15 +484,33 @@ class SimcMonitor(BaseScan):
                 params['simc_options'], allow_absent=False,
             )
         candidate_type = params.get('candidate_type') or 'base'
+        if params.get('equipment_effect_policy') is not None:
+            from simc_equipment_control import validate_effect_policy
+            validate_effect_policy(params)
+            request_data['_equipment_effect_policy'] = params['equipment_effect_policy']
+            request_data['_equipment_effect_control'] = params.get('equipment_effect_control') is True
         if 'equipment_effect_control' in params:
-            from simc_equipment_control import SLOTS
-            slot = (params.get('gear_swap') or {}).get('slot')
+            from simc_equipment_control import SLOTS, ALIASES
+            from simc_equipment_control import candidate_swaps
+            swaps = candidate_swaps(params)
+            slots = [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in swaps]
+            slot = slots[0] if len(slots) == 1 else None
             if (params['equipment_effect_control'] is not True
-                    or candidate_type != 'gear_swap' or slot not in SLOTS):
+                    or candidate_type != 'gear_swap'
+                    or not swaps or any(slot not in SLOTS for slot in slots)):
                 raise ValueError('装备特效对照参数无效')
-            request_data['_equipment_effect_control_slot'] = slot
+            if not params.get('equipment_effect_policy'):
+                request_data['_equipment_effect_control_slot'] = slot
 
         if candidate_type == 'gear_swap':
+            if params.get('gear_swaps'):
+                if params.get('gear_swap') is not None:
+                    raise ValueError('装备组合不能同时包含单件配置')
+                for swap in params['gear_swaps']:
+                    request_data = SimcMonitor.apply_candidate_overrides(
+                        request_data, {'candidate_type': 'gear_swap', 'gear_swap': swap},
+                    )
+                return request_data
             swap = params.get('gear_swap') or {}
             slot = str(swap.get('slot') or '').strip().lower()
             raw_value = normalize_gear_candidate_value(slot, swap.get('raw_value'))

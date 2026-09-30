@@ -162,10 +162,10 @@ MODE_PARAMS_WHITELIST = {
 }
 
 CANDIDATE_PARAMS_WHITELIST = {
-    'candidate_type', 'is_base', 'gear_swap', 'talent_override',
+    'candidate_type', 'is_base', 'gear_swap', 'gear_swaps', 'talent_override',
     'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
     'simc_options', 'equipment_preset', 'option_value', 'enabled',
-    'equipment_effect_control', 'effect_baseline_key',
+    'equipment_effect_control', 'effect_baseline_key', 'equipment_effect_policy',
     'simulation_params',
 }
 
@@ -380,9 +380,10 @@ def _normalize_candidates(candidates, round_number=1):
             except ValueError as exc:
                 raise TaskCreationError(str(exc)) from exc
         if 'equipment_effect_control' in params or 'effect_baseline_key' in params:
-            from simc_equipment_control import SLOTS
+            from simc_equipment_control import SLOTS, ALIASES, candidate_swaps
+            slots = [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in candidate_swaps(params)]
             if (params.get('candidate_type') != 'gear_swap'
-                    or params.get('gear_swap', {}).get('slot') not in SLOTS
+                    or not slots or any(slot not in SLOTS for slot in slots)
                     or ('equipment_effect_control' in params
                         and params['equipment_effect_control'] is not True)
                     or ('effect_baseline_key' in params and (
@@ -390,6 +391,12 @@ def _normalize_candidates(candidates, round_number=1):
                         or not re.fullmatch(r'effect-control-[0-9a-f]{32}', params['effect_baseline_key'])))
                     or ('equipment_effect_control' in params and 'effect_baseline_key' in params)):
                 raise TaskCreationError('装备特效对照参数无效')
+        if 'equipment_effect_policy' in params:
+            from simc_equipment_control import validate_effect_policy
+            try:
+                validate_effect_policy(params)
+            except ValueError as exc:
+                raise TaskCreationError(str(exc)) from exc
         if 'equipment_preset' in params:
             preset = params['equipment_preset']
             if not isinstance(preset, dict) or set(preset) != {'trinket1', 'trinket2'}:
@@ -894,6 +901,21 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
                                 prepared.template_payload_json, prepared.talent_payload_json)):
             raise TaskPreparedResourceChanged('Prepared task creation is stale')
         profile_payload, apl_payload, template_payload = map(json.loads, payloads[:3])
+        from botend.services.simc_equipment_eligibility import EquipmentEligibility
+        original_candidates = normalized_mode_params['initial_candidates']
+        equipment_eligibility = EquipmentEligibility([row['candidate_params'] for row in original_candidates])
+        accepted, skipped = equipment_eligibility.filter(original_candidates, profile.spec, profile.class_name)
+        if skipped and is_benchmark_task:
+            raise TaskPreparedResourceChanged('装备适用资料发生变化，请重新生成执行计划')
+        if skipped:
+            if not any(row['candidate_params'].get('candidate_type') == 'gear_swap' for row in accepted):
+                raise TaskCreationError('没有适用于当前职业专精的候选装备：' + '；'.join(
+                    f'{row["label"]}：{row["reason"]}' for row in skipped), details={'excluded_candidates': skipped})
+            normalized_mode_params['initial_candidates'] = accepted
+            normalized_mode_params['excluded_candidates'] = skipped
+            manifest = normalized_mode_params.get('request_manifest')
+            if isinstance(manifest, dict):
+                manifest['candidate_count'] = len(accepted)
         profile_version = _create_or_reuse_version('profile', profile.pk, profile_payload)
         apl_version = _create_or_reuse_version('apl', apl.pk, apl_payload)
         template_version = _create_or_reuse_version('template', template.pk, template_payload)
