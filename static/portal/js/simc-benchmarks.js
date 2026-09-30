@@ -323,7 +323,9 @@
       identity.appendChild(node("strong", "simc-benchmark-gear-name", group.label));
       const plot = node("div", "simc-benchmark-gear-plot");
       let previousDps = scale.lowest;
-      group.variants.forEach((candidate) => {
+      // 装等升高时模拟结果可能下降，色条须按实际端点递增排列，避免反向覆盖。
+      const plotVariants = group.variants.slice().sort((left, right) => (validDps(left.dps) ?? scale.lowest) - (validDps(right.dps) ?? scale.lowest));
+      plotVariants.forEach((candidate) => {
         const dps = validDps(candidate.dps) ?? previousDps;
         const level = Number(candidate.item_level);
         const start = position(previousDps); const end = position(dps);

@@ -101,7 +101,7 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
         """各基准入口必须加载支持逐装备对照的最新脚本。"""
-        expected = '?v=20260930_equipment_eligibility'
+        expected = '?v=20260930_targeted_rerun'
         for page in (INDEX, CONFIG_PAGE, EXECUTION_PAGE):
             script = next(line for line in page.splitlines() if 'simc-benchmark-dashboard.js' in line)
             self.assertIn(expected, script)
@@ -464,7 +464,8 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertIn('function rerunFailedPage(id,button)', JS)
         self.assertIn("dataset:{rerunFailed:data.id}", JS)
         self.assertIn('使用原 Execution 冻结的 APL、Profile、Template 与场景输入', JS)
-        self.assertIn('如需使用刚保存的 APL，请返回面板选择“全量重新计算”', JS)
+        self.assertIn('如需使用当前配置，可选择“定向重跑”', JS)
+        self.assertIn("actionButton('run-targeted','定向重跑'", JS)
         self.assertIn('?v=20260930_equipment_eligibility', INDEX)
         self.assertIn("if(!configPage){document.body.classList.add", JS)
         self.assertIn("data-benchmark-notification", JS)

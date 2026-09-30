@@ -852,12 +852,12 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(detail.status_code, 200)
         self.assertEqual(detail.json()['success'], True)
 
-        run = self.client.get(f'/api/simc-benchmarks/panels/{panel.id}/run/')
+        run = self.client.put(f'/api/simc-benchmarks/panels/{panel.id}/run/')
         self.assertEqual(run.status_code, 405)
         self.assertEqual(run.json(), {
             'success': False, 'error': 'method_not_allowed',
         })
-        self.assertEqual(set(run['Allow'].split(', ')), {'POST', 'OPTIONS'})
+        self.assertEqual(set(run['Allow'].split(', ')), {'GET', 'HEAD', 'POST', 'OPTIONS'})
 
     def test_physical_delete_removes_config_execution_and_case_but_keeps_task(self):
         panel = self._create_panel()

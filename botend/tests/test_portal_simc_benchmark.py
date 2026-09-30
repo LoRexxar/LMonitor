@@ -890,7 +890,7 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertNotIn(')).join("\\n\\n")', self.JS)
         self.assertNotIn('const effect = group.effect', self.JS)
         self.assertNotIn('showItemTooltip', self.JS)
-        self.assertIn('?v=20260930_equipment_combinations', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=20260930_chart_endpoint_order', self.RESULTS_TEMPLATE)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (

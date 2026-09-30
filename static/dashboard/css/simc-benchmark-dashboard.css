@@ -323,3 +323,21 @@ body.simc-benchmark-scroll-locked { overflow: hidden !important; }
   .simc-benchmark-config-page .candidate-config-row .config-card-head { display:flex; min-height:2.65rem; border-bottom:1px solid #edf0f4; padding:.45rem .65rem .45rem .85rem; background:#fafbfc; }
   .candidate-config-row .config-card-title { display:block; }
 }
+.benchmark-targeted-dialog { box-sizing:border-box; width:min(820px,calc(100vw - 2rem)); max-height:88vh; overflow:auto; border:1px solid #cbd5e1; border-radius:.8rem; padding:1.2rem; color:#1e293b; background:#fff; box-shadow:0 20px 60px #0f172a40; }
+.benchmark-targeted-dialog::backdrop { background:#0f172a80; }
+.benchmark-targeted-dialog header,.benchmark-targeted-dialog footer,.benchmark-targeted-toolbar { display:flex; align-items:center; justify-content:space-between; gap:.6rem; }
+.benchmark-targeted-dialog h2 { margin:0; font-size:1.15rem; }
+.benchmark-targeted-dialog h3 { margin:.8rem 0 .4rem; font-size:.95rem; }
+.benchmark-targeted-dialog p { line-height:1.6; font-size:.85rem; }
+.benchmark-targeted-dialog fieldset { border:0; padding:0; margin:0; min-width:0; }
+.benchmark-targeted-dialog fieldset>label { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; margin:.6rem 0; }
+.benchmark-targeted-dialog input[type=search],.benchmark-targeted-dialog select { border:1px solid #cbd5e1; border-radius:.35rem; padding:.45rem; max-width:100%; }
+.benchmark-targeted-dialog input[type=search] { width:100%; margin-bottom:.5rem; }
+.benchmark-targeted-options { max-height:230px; overflow:auto; border:1px solid #e2e8f0; border-radius:.35rem; margin:.5rem 0; }
+.benchmark-targeted-options label { display:flex; align-items:flex-start; gap:.6rem; padding:.5rem; font-size:.85rem; }
+.benchmark-targeted-options label:hover { background:#f1f5f9; }
+.benchmark-targeted-options input { flex:none; margin-top:.2rem; }
+.benchmark-targeted-dialog [hidden] { display:none!important; }
+.benchmark-targeted-preview { max-height:200px; overflow:auto; font-size:.85rem; margin:.7rem 0; }
+.benchmark-targeted-preview details { padding:.3rem 0; }
+.benchmark-targeted-dialog footer { justify-content:flex-end; }

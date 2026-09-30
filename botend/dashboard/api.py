@@ -114,7 +114,7 @@ from botend.services.simc_benchmark_purge import (
 from botend.services.simc_benchmark_config import (
     MAX_PROFILES_PER_SPEC, MAX_SCENARIOS, MAX_SPECS, SIMC_FIGHT_STYLES,
     SIMC_RAID_BUFFS, benchmark_resource_querysets,
-    duplicate_panel_config, replace_panel_config, serialize_panel_config,
+    build_execution_plan, duplicate_panel_config, replace_panel_config, serialize_panel_config,
 )
 from botend.services.simc_benchmark_execution import (
     BenchmarkExecutionConflict, cancel_execution, create_execution, reconcile_execution,
@@ -10649,6 +10649,7 @@ def _benchmark_safe_detail(summary, execution):
         safe_counts['pending'] += total_cases - counted_cases
     return {
         'id': execution.pk, 'panel_id': execution.panel_id,
+        'is_targeted_rerun': isinstance(snapshot, dict) and snapshot.get('result_publication') == 'atomic_targeted',
         'trigger': execution.trigger,
         'status': status if status in case_statuses else 'failed',
         'scheduled_slot': _benchmark_iso(execution.scheduled_slot),
@@ -11205,11 +11206,26 @@ class SimcBenchmarkPanelDuplicateAPIView(_BenchmarkAdminAPIView):
 
 
 class SimcBenchmarkPanelRunAPIView(_BenchmarkAdminAPIView):
+    def get(self, request, panel_id):
+        from botend.services.simc_benchmark_targeting import rerun_options
+        panel, error = self.panel_or_404(panel_id)
+        if error:
+            return error
+        return JsonResponse({'success': True, 'data': rerun_options(build_execution_plan(panel))})
+
     def post(self, request, panel_id):
-        payload = _benchmark_json_object(request, allowed_fields={'mode'})
+        from botend.services.simc_benchmark_targeting import rerun_preview
+        payload = _benchmark_json_object(request, allowed_fields={'mode', 'selection', 'preview', 'plan_hash'})
         mode = payload.get('mode', 'supplement')
-        if mode not in {'full', 'supplement'}:
-            raise ValidationError({'mode': ['必须是 full 或 supplement']})
+        if mode not in {'full', 'supplement', 'targeted'}:
+            raise ValidationError({'mode': ['必须是 full、supplement 或 targeted']})
+        if mode != 'targeted' and set(payload) - {'mode'}:
+            raise ValidationError({'mode': ['只有定向重跑允许选择范围和预览']})
+        if 'preview' in payload and type(payload['preview']) is not bool:
+            raise ValidationError({'preview': ['必须是布尔值']})
+        if mode == 'targeted' and (not isinstance(payload.get('plan_hash'), str)
+                                   or len(payload['plan_hash']) != 64):
+            raise ValidationError({'plan_hash': ['请先加载当前重跑范围']})
         panel, error = self.panel_or_404(panel_id)
         if error:
             return error
@@ -11217,8 +11233,14 @@ class SimcBenchmarkPanelRunAPIView(_BenchmarkAdminAPIView):
             return _benchmark_error('panel_purge_in_progress', 409)
         if not panel.is_active:
             raise ValidationError({'panel': ['Panel 未启用，无法执行']})
+        if mode == 'targeted' and payload.get('preview'):
+            preview = rerun_preview(build_execution_plan(panel), payload.get('selection'))
+            if preview['plan_hash'] != payload['plan_hash']:
+                raise BenchmarkExecutionConflict('面板配置已变化，请重新选择重跑范围')
+            return JsonResponse({'success': True, 'data': preview})
+        extra = {'selection': payload.get('selection'), 'expected_plan_hash': payload.get('plan_hash')} if mode == 'targeted' else {}
         execution = create_execution(
-            panel, requested_by=request.user, execution_mode=mode,
+            panel, requested_by=request.user, execution_mode=mode, **extra,
         )
         return JsonResponse({
             'success': True,

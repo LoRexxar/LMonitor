@@ -44,6 +44,7 @@ from botend.services.simc_task_service import (
 )
 from botend.services.wow_item_display import load_item_tooltip_metadata
 from botend.services.task_rerun import create_rerun, TaskRerunError
+from botend.services.simc_benchmark_targeting import select_rerun_coordinates
 from botend.wow.talents.default_versions import DEFAULT_TALENT_VERSIONS
 
 TASK_PENDING = 0
@@ -230,6 +231,9 @@ def _safe_snapshot(panel, plan, *, execution_mode='supplement'):
         'result_publication': 'atomic_full' if execution_mode == 'full' else 'incremental',
         'cases': cases, 'case_count': plan['case_count'], 'run_count': plan['run_count'],
     }
+    if execution_mode == 'targeted':
+        snapshot['result_publication'] = 'atomic_targeted'
+        snapshot['rerun_selection'] = deepcopy(plan['rerun_selection'])
     size = len(json.dumps(snapshot, sort_keys=True, separators=(',', ':'),
                           ensure_ascii=False).encode('utf-8'))
     if size > MAX_PANEL_CONFIG_BYTES:
@@ -506,13 +510,9 @@ def _task_resource_version_hashes(task):
 
 
 def _execution_contributes_to_projection(execution):
-    """Every independently sealed candidate may contribute to the live projection.
-
-    Execution status remains diagnostic: a partial/failed full rerun does not move
-    the full-snapshot publication boundary, but its successful immutable candidate
-    rows supersede older rows while failed/missing candidates keep falling back.
-    Historical ``atomic_full`` markers use this corrected per-candidate policy too.
-    """
+    """普通执行逐候选替换结果；定向重跑须整批成功后统一替换。"""
+    if (execution.config_snapshot or {}).get('result_publication') == 'atomic_targeted':
+        return execution.status == SimcBenchmarkExecution.STATUS_SUCCESS
     return execution.status != SimcBenchmarkExecution.STATUS_CANCELLED
 
 
@@ -580,6 +580,11 @@ def _reusable_candidate_tasks_by_coordinate(
                 task__backend_id=coordinate['backend_id'],
             )
         cases = cases.filter(current_coordinates)
+    # 定向重跑必须整批成功后才能参与复用和公开展示，包括清理使用的轻量查询。
+    cases = cases.exclude(execution__in=SimcBenchmarkExecution.objects.filter(
+        panel_id=panel.pk,
+        config_snapshot__result_publication='atomic_targeted',
+    ).exclude(status=SimcBenchmarkExecution.STATUS_SUCCESS))
     if summary_only and not include_resource_versions:
         # Cleanup only needs the newest task id for each executable candidate.
         # Do not prefetch Result model instances here: a large historical panel
@@ -802,10 +807,14 @@ def _plan_for_coordinates(plan, coordinates):
 
 
 def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=None,
-                     execution_mode='supplement'):
-    """Create either a full fresh baseline or a failure/missing-result supplement."""
-    if execution_mode not in {'full', 'supplement'}:
-        _validation_error('execution_mode 必须是 full 或 supplement', 'execution_mode')
+                     execution_mode='supplement', selection=None, expected_plan_hash=None):
+    """创建全量、缺失补充或指定任务及装备范围的全新执行。"""
+    if execution_mode not in {'full', 'supplement', 'targeted'}:
+        _validation_error('execution_mode 必须是 full、supplement 或 targeted', 'execution_mode')
+    if execution_mode != 'targeted' and (selection is not None or expected_plan_hash is not None):
+        _validation_error('只有定向重跑允许选择范围', 'selection')
+    if execution_mode == 'targeted' and trigger != SimcBenchmarkExecution.TRIGGER_MANUAL:
+        _validation_error('定向重跑只允许手动发起', 'trigger')
     slot = _normalize_trigger_slot(trigger, scheduled_slot)
     requester_id = _requester_id(requested_by)
     requester_is_superuser = _requester_is_superuser(requested_by)
@@ -835,15 +844,21 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             panel=current_panel, completed_at__isnull=True,
         ).first()
         if active is not None:
+            if execution_mode == 'targeted':
+                raise BenchmarkExecutionConflict('面板已有未完成执行，请结束后再定向重跑')
             return active
 
     # No row locks are held while SimC is executed. Deduplication intentionally
     # ignores scenario/candidate differences because APL validity is resource-bound.
     optimistic_plan = build_execution_plan(current_panel, lock=False)
     optimistic_identity = _canonical_hash(optimistic_plan)
+    if expected_plan_hash is not None and expected_plan_hash != optimistic_identity:
+        raise BenchmarkExecutionConflict('面板配置已变化，请重新预览重跑范围')
+    preflight_coordinates = (select_rerun_coordinates(optimistic_plan, selection)
+                             if execution_mode == 'targeted' else optimistic_plan['cases'])
     prepared_by_resources = {}
     preflight_errors = {}
-    for coordinate in optimistic_plan['cases']:
+    for coordinate in preflight_coordinates:
         key = (coordinate['backend_id'], coordinate['profile_id'],
                coordinate['apl_id'], coordinate['template_id'],
                coordinate.get('talent_string_id'))
@@ -896,6 +911,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
             locked_panel.save(update_fields=['active_execution'])
             active = None
         if active is not None:
+            if execution_mode == 'targeted':
+                raise BenchmarkExecutionConflict('面板已有未完成执行，请结束后再定向重跑')
             if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL:
                 return active
             raise BenchmarkExecutionConflict(
@@ -919,11 +936,15 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                 'apl': _compute_content_hash(json.loads(prepared.apl_payload_json)),
                 'template': _compute_content_hash(json.loads(prepared.template_payload_json)),
             }
-        incremental_coordinates = _incremental_coordinates(locked_panel, locked_plan)
         # Full rerun schedules the entire frozen surface. Results remain readable
         # from the previous execution until each replacement candidate succeeds.
-        execution_coordinates = (locked_plan['cases'] if execution_mode == 'full'
-                                 else incremental_coordinates)
+        if execution_mode == 'targeted':
+            execution_coordinates = select_rerun_coordinates(locked_plan, selection)
+            locked_plan['rerun_selection'] = deepcopy(selection)
+        elif execution_mode == 'full':
+            execution_coordinates = locked_plan['cases']
+        else:
+            execution_coordinates = _incremental_coordinates(locked_panel, locked_plan)
         # Execution freezes only work it owns.  The Panel configuration remains
         # authoritative for display; completed immutable Results are reused there.
         incremental_plan = _plan_for_coordinates(locked_plan, execution_coordinates)
@@ -953,6 +974,8 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
                 panel=locked_panel, completed_at__isnull=True,
             ).first()
             if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL and winner is not None:
+                if execution_mode == 'targeted':
+                    raise BenchmarkExecutionConflict('面板已有未完成执行，请结束后再定向重跑')
                 return winner
             raise
 
@@ -1172,6 +1195,14 @@ def rerun_failed_cases(execution, requested_by=None, case_id=None):
 
     preliminary_source = SimcBenchmarkExecution.objects.select_related('panel').get(pk=execution.pk)
     preliminary_panel = preliminary_source.panel
+    if (preliminary_source.config_snapshot or {}).get('result_publication') == 'atomic_targeted':
+        if preliminary_source.completed_at is None:
+            raise BenchmarkExecutionConflict('定向重跑仍在执行中')
+        if case_id is not None:
+            _validation_error('定向重跑需要整批更新，请使用定向重跑入口重新选择范围', 'case_id')
+        # 重新生成整批选中项，不能让失败重试提前发布其中几个装等。
+        return create_execution(preliminary_panel, requested_by=requested_by,
+            execution_mode='targeted', selection=preliminary_source.config_snapshot['rerun_selection'])
     if requester_id != preliminary_panel.created_by_id:
         raise PermissionDenied('Only the Panel owner may rerun failed benchmark cases')
     if preliminary_source.completed_at is None:
@@ -1434,7 +1465,10 @@ def _reusable_result_counts_for_plans(panels, plans):
     results = list(SimcBenchmarkResult.objects.filter(
         case__execution__panel_id__in=panel_ids,
         case__task__isnull=False,
-    ).values(
+    ).exclude(case__execution__in=SimcBenchmarkExecution.objects.filter(
+        panel_id__in=panel_ids,
+        config_snapshot__result_publication='atomic_targeted',
+    ).exclude(status=SimcBenchmarkExecution.STATUS_SUCCESS)).values(
         'candidate_key', 'case__execution_id', 'case__execution__panel_id',
         'case__spec_key', 'case__scenario_key', 'case__profile_key',
         'case__task_id', 'case__task__profile_id', 'case__task__apl_id',
