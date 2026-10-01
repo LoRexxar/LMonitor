@@ -1511,10 +1511,21 @@ class SimcAgentConsumer:
                 upload_pending = True
                 self.logger.warning('report upload deferred in durable outbox for Run %s: %s', run_id, exc)
 
+        # Keep the bounded proof prefix when noisy SimC output needs truncation.
+        # The existing tail-only protocol would otherwise silently discard it.
+        from simc_equipment_control import NATIVE_PROOF_MARKER, extract_native_proof, native_proof_marker
+        if stdout.startswith(NATIVE_PROOF_MARKER):
+            proof_prefix = native_proof_marker(extract_native_proof(stdout))
+            _, _, output_body = stdout.partition('\n')
+            completion_stdout = proof_prefix + _utf8_tail(
+                output_body, COMPLETION_TEXT_MAX_BYTES - len(proof_prefix.encode('utf-8')),
+            )
+        else:
+            completion_stdout = _utf8_tail(stdout, COMPLETION_TEXT_MAX_BYTES)
         metadata = {
             'lease_token': lease_token, 'instance_id': self.instance_id,
             'completion_id': completion_id, 'status': status,
-            'stdout': _utf8_tail(stdout, COMPLETION_TEXT_MAX_BYTES),
+            'stdout': completion_stdout,
             'stderr': _utf8_tail(stderr, COMPLETION_TEXT_MAX_BYTES),
             'report': report if status == 'completed' else None,
         }
@@ -1581,8 +1592,9 @@ class SimcAgentConsumer:
             with tempfile.TemporaryDirectory(prefix=f'simc-agent-run-{run_id}-') as work:
                 work_path = Path(work)
                 input_path = work_path / f'run-{run_id}.simc'
+                native_proof_text = ''
                 if '# lmonitor_equipment_control_v1=' in input_text:
-                    from simc_equipment_control import prepare_control_input
+                    from simc_equipment_control import prepare_control_input, extract_native_proof, native_proof_marker
                     deadline = time.monotonic() + timeout
 
                     def renew_probe_lease():
@@ -1617,6 +1629,9 @@ class SimcAgentConsumer:
                     input_text = prepare_control_input(
                         input_text, self.config.simc_path, work_path, execute=execute_probe,
                     )
+                    proof = extract_native_proof(input_text)
+                    if proof is not None:
+                        native_proof_text = native_proof_marker(proof)
                     renew_probe_lease()
                     timeout = deadline - time.monotonic()
                     if timeout <= 0:
@@ -1640,7 +1655,7 @@ class SimcAgentConsumer:
                     self._stop_process(process)
                     raw_stdout, raw_stderr = process.communicate()
                     raw_stderr = self._text(raw_stderr) + '\nSimC execution timed out'
-                stdout, stderr = self._text(raw_stdout), self._text(raw_stderr)
+                stdout, stderr = native_proof_text + self._text(raw_stdout), self._text(raw_stderr)
                 if 'SimulationCraft has not been built with PTR data' in f'{stdout}\n{stderr}':
                     stderr = (stderr + '\nCurrent SimC binary does not support PTR data; refusing Live fallback').strip()
                     process.returncode = process.returncode or 1

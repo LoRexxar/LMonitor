@@ -12,6 +12,44 @@ from functools import lru_cache
 
 MARKER = '# lmonitor_equipment_control_v1='
 EXPECTATION_MARKER = '# lmonitor_equipment_expectation_v1='
+NATIVE_PROOF_MARKER = '# lmonitor_equipment_native_proof_v1='
+NATIVE_PROOF_MAX_BYTES = 64 * 1024
+
+
+def native_proof_marker(proof):
+    encoded = json.dumps(proof, ensure_ascii=True, allow_nan=False, separators=(',', ':'))
+    if len(encoded.encode('utf-8')) > NATIVE_PROOF_MAX_BYTES:
+        raise ValueError('装备原生证据超过大小上限')
+    return NATIVE_PROOF_MARKER + encoded + '\n'
+
+
+def extract_native_proof(text):
+    """Strict bounded comment/stdout protocol; absent evidence stays absent."""
+    matches = [line for line in text.splitlines() if line.startswith(NATIVE_PROOF_MARKER)]
+    if not matches:
+        return None
+    if len(matches) != 1:
+        raise ValueError('装备原生证据标记重复')
+    encoded = matches[0][len(NATIVE_PROOF_MARKER):]
+    if len(encoded.encode('utf-8')) > NATIVE_PROOF_MAX_BYTES:
+        raise ValueError('装备原生证据超过大小上限')
+
+    def unique(pairs):
+        result = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError('装备原生证据字段重复')
+            result[key] = value
+        return result
+
+    try:
+        proof = json.loads(encoded, object_pairs_hook=unique,
+                           parse_constant=lambda _: (_ for _ in ()).throw(ValueError('nonfinite proof')))
+        if not isinstance(proof, dict):
+            raise ValueError('装备原生证据格式无效')
+        return proof
+    except (TypeError, RecursionError, json.JSONDecodeError) as exc:
+        raise ValueError('装备原生证据格式无效') from exc
 NATIVE_SLOTS = frozenset(('head', 'neck', 'shoulders', 'back', 'chest', 'wrists',
                    'hands', 'waist', 'legs', 'feet', 'finger1', 'finger2',
                    'main_hand', 'off_hand'))
@@ -169,7 +207,7 @@ def parse_equipment_export(profile, log, slot):
     return {'options': options, 'stats': stats, 'weapon': weapon,
             'attachments': {key: blocks.get(key, '') for key in
                             ('gems', 'enchant', 'addon', 'temporary_enchant')},
-            'record': record}
+            'record': record, 'profile_value': lines[index].partition('=')[2]}
 
 
 def synthetic_item(export):
@@ -462,4 +500,28 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
     for slot in items:
         if _item_effects(original[slot]) != _item_effects(normal[slot]):
             raise ValueError(f'目标装备 {slot} 原生效果与准备后不一致，拒绝生成收益')
-    return '\n'.join(control_lines if payload['control'] else normal_lines) + '\n'
+    # Persist only after every native preparation gate has passed. Full paired
+    # static/effect snapshots are evidence, not a bare success flag.
+    def snapshot(exports, sets):
+        return {'items': {slot: {
+            'item_id': int(item['options'].get('id', '0')),
+            'bonus_ids': sorted({int(value) for value in re.findall(r'\d+', item['options'].get('bonus_id', ''))}),
+            'profile_value': item['profile_value'],
+            'static': {key: item[key] for key in ('stats', 'weapon', 'attachments')},
+            'effects': [{'source': 'item', 'type': kind, 'driver': driver}
+                        for kind, driver in _item_effects(item)],
+        } for slot, item in exports.items()}, 'sets': [list(row) for row in sorted(sets)]}
+
+    proof = {'schema_version': 1, 'scope': 'equipment_effect_combination',
+             'mode': 'control' if payload['control'] else 'normal',
+             'targets': [{'slot': slot, 'item_id': int(original[slot]['options'].get('id', '0'))}
+                         for slot in items],
+             'background_removed': sorted(background),
+             'rules_hash': hashlib.sha256(json.dumps(rules, sort_keys=True, separators=(',', ':')).encode()).hexdigest(),
+             'original': snapshot(original, original_sets),
+             'normal': snapshot(normal, normal_sets), 'control': snapshot(control, control_sets),
+             'target_sets': [list(row) for row in sorted(target_sets)]}
+    prepared_lines = control_lines if payload['control'] else normal_lines
+    if any(line.startswith(NATIVE_PROOF_MARKER) for line in prepared_lines):
+        raise ValueError('装备输入不允许预置原生证据')
+    return '\n'.join(prepared_lines) + '\n' + native_proof_marker(proof)

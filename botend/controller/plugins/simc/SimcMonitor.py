@@ -1414,8 +1414,16 @@ class SimcMonitor(BaseScan):
                         is_equipment_effect_candidate, validate_equipment_effect_report,
                     )
                     if is_equipment_effect_candidate(active_run.candidate_params):
+                        from simc_equipment_control import extract_native_proof
+                        try:
+                            with open(simc_file_path, encoding='utf-8') as prepared_stream:
+                                native_proof = extract_native_proof(prepared_stream.read())
+                        except ValueError:
+                            native_proof = {}
+                        except OSError:
+                            native_proof = None  # Legacy direct calls have no prepared input.
                         semantic_validation['equipment_effect_validation'] = validate_equipment_effect_report(
-                            report_html, active_run.candidate_params,
+                            report_html, active_run.candidate_params, native_proof=native_proof,
                         )
                 if not self._persist_claimed_semantic_validation(simc_task, semantic_validation):
                     return False

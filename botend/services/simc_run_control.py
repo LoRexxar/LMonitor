@@ -700,8 +700,13 @@ def complete_run(run_id, metadata, authorization):
                 is_equipment_effect_candidate, validate_equipment_effect_report,
             )
             if is_equipment_effect_candidate(run.candidate_params):
+                from simc_equipment_control import extract_native_proof
+                try:
+                    native_proof = extract_native_proof(metadata['stdout'])
+                except ValueError:
+                    native_proof = {}  # Malformed evidence is invalid, not absent.
                 summary['equipment_effect_validation'] = validate_equipment_effect_report(
-                    report_html, run.candidate_params,
+                    report_html, run.candidate_params, native_proof=native_proof,
                 )
             SimcTaskArtifact.objects.update_or_create(
                 task=task, run=run, artifact_type='html_report',
