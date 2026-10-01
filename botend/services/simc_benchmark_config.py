@@ -1101,7 +1101,12 @@ def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=Non
     for candidate in candidates:
         params = candidate['candidate_params']
         layout = eligibility.weapon_layout(params, spec_key, class_name)
-        if layout:
+        if layout and not layout['titan_grip'] and any(
+            row['slot'] == 'main_hand' and row['inventory_type'] == 17
+            for row in layout['weapons']
+        ):
+            # Freeze only an executable layout change; ordinary 1h/Titan Grip
+            # candidates must keep their existing reuse identity.
             params['equipment_weapon_layout'] = layout
     activation_facts = item_activation_facts([
         swap.get('item_id') for candidate in candidates

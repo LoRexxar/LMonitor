@@ -40,8 +40,8 @@ class FrozenWeaponLayoutTests(TestCase):
                 rows = _normalize_candidates(plan['cases'][0]['candidates'])
                 self.assertEqual(len(rows), 3, 'Legal Frost 2h must not be deleted')
                 pair = [row['candidate_params'] for row in rows[1:]]
-                self.assertIn('equipment_weapon_layout', pair[0])
-                self.assertEqual(pair[0]['equipment_weapon_layout'], pair[1]['equipment_weapon_layout'])
+                self.assertEqual('equipment_weapon_layout' in pair[0], clear)
+                self.assertEqual(pair[0].get('equipment_weapon_layout'), pair[1].get('equipment_weapon_layout'))
                 # Central data changed AFTER freezing: execution must not re-read it.
                 WowItemSnapshot.objects.filter(pk=self.weapon.pk).update(inventory_type=13)
                 equipment = 'deathknight=x\nspec=frost\nmain_hand=,id=1\noff_hand=,id=2'
@@ -56,14 +56,36 @@ class FrozenWeaponLayoutTests(TestCase):
                 self.assertEqual(pair, original)
                 # Old tasks have no frozen evidence, so do not silently reinterpret them.
                 legacy = deepcopy(pair[0])
-                legacy.pop('equipment_weapon_layout')
+                legacy.pop('equipment_weapon_layout', None)
                 from botend.services.simc_benchmark_execution import _candidate_input_identity
-                self.assertNotEqual(
-                    _candidate_input_identity({'candidate_params': pair[0]}),
-                    _candidate_input_identity({'candidate_params': legacy}),
-                )
+                current_identity = _candidate_input_identity({'candidate_params': pair[0]})
+                legacy_identity = _candidate_input_identity({'candidate_params': legacy})
+                self.assertEqual(current_identity == legacy_identity, not clear)
                 self.assertIn('off_hand=,id=2', SimcMonitor.apply_candidate_overrides(
                     {'player_equipment': equipment}, legacy)['player_equipment'])
+
+    def test_layout_repair_keeps_legacy_results_visible_without_reusing_old_inputs(self):
+        from botend.services.simc_benchmark_execution import serialize_incremental_panel_results, _incremental_coordinates
+        self.candidate.key = 'ring'
+        self.candidate.save(update_fields=['key'])
+        spec = self.panel.specs.get()
+        spec.spec_key = 'warrior_arms'
+        spec.class_name = 'warrior'
+        spec.save()
+        self._create = fixtures.EquipmentControlBenchmarkTests._create.__get__(self)
+        self._run = fixtures.EquipmentControlBenchmarkTests._run.__get__(self)
+        execution = fixtures.EquipmentControlBenchmarkTests.finish(self)
+        task = execution.cases.get().task
+        old = deepcopy(task.mode_params)
+        for rows in (old['initial_candidates'], old['request_manifest']['candidates']):
+            for row in rows:
+                row['candidate_params'].pop('equipment_weapon_layout', None)
+        task.mode_params = old
+        task.save(update_fields=['mode_params'])
+        rows = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
+        self.assertTrue(any(row['key'] == 'ring' for row in rows))
+        missing = _incremental_coordinates(self.panel, build_execution_plan(self.panel))
+        self.assertTrue(any(row['candidate_key'] == 'ring' for case in missing for row in case['candidates']))
 
     def test_twohand_plus_explicit_offhand_is_rejected_except_titan_grip(self):
         offhand = WowItemSnapshot.objects.create(item_id=900002, item_class_id=2,

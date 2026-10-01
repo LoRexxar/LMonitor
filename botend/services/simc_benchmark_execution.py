@@ -2083,7 +2083,8 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         for match in matches.values():
             latest_by_key.setdefault(match['result'].candidate_key, match)
         for definition in coordinate['candidates']:
-            if (definition.get('candidate_params') or {}).get('equipment_effect_expectation'):
+            params = definition.get('candidate_params') or {}
+            if params.get('equipment_effect_expectation') or params.get('equipment_weapon_layout'):
                 previous = latest_by_key.get(definition['candidate_key'])
                 if previous is not None:
                     matches.setdefault(_candidate_input_identity(definition), previous)
