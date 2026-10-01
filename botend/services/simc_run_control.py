@@ -195,6 +195,35 @@ def _task_scope_allows(task_scope, is_benchmark_task):
     )
 
 
+def _discover_claim_task_id(agent, now):
+    """Discover one candidate without locks; eligibility is rechecked after PK lock.
+
+    Never add FOR UPDATE here: JOIN/order/LIMIT can lock unrelated Tasks/Runs
+    on MySQL, reversing the Task -> Run order used by lease heartbeats.
+    """
+    expired_run = SimulationRun.objects.filter(
+        task_id=OuterRef('pk'), status='running', lease_expires_at__lte=now,
+    )
+    candidates = _task_scope_queryset(
+        SimcTask.objects.filter(backend_id=agent.backend_id, is_active=True),
+        agent.task_scope,
+    ).annotate(has_expired_run=Exists(expired_run)).filter(has_expired_run=False)
+    task_id = candidates.filter(
+        current_status=1, execution_owner=SimcTask.EXECUTION_OWNER_AGENT,
+        simulation_runs__status='pending',
+    ).order_by('-queue_priority', 'create_time', 'id').values_list('pk', flat=True).first()
+    if task_id is not None:
+        return task_id
+    benchmark = SimcBenchmarkCase.objects.filter(task_id=OuterRef('pk'))
+    return candidates.filter(
+        current_status=0,
+        execution_owner__in=(SimcTask.EXECUTION_OWNER_UNASSIGNED,
+                             SimcTask.EXECUTION_OWNER_AGENT),
+    ).annotate(is_benchmark=Exists(benchmark)).order_by(
+        '-queue_priority', 'is_benchmark', 'create_time', 'id',
+    ).values_list('pk', flat=True).first()
+
+
 def claim_run(payload, authorization):
     allowed_fields = {'instance_id', 'agent_version', 'agent_revision', 'protocol_version'}
     if set(payload) - allowed_fields or 'instance_id' not in payload:
@@ -258,35 +287,23 @@ def claim_run(payload, authorization):
             return None
         raise mismatch
     _check_agent_ready(discovered_agent, timezone.now())
+    task_id = _discover_claim_task_id(discovered_agent, timezone.now())
     with transaction.atomic():
-        now = timezone.now()
-        expired_run = SimulationRun.objects.filter(
-            task_id=OuterRef('pk'), status='running', lease_expires_at__lte=now,
-        )
-        task = _task_scope_queryset(
-            SimcTask.objects.select_for_update().filter(
-                backend_id=discovered_agent.backend_id, is_active=True, current_status=1,
-                execution_owner=SimcTask.EXECUTION_OWNER_AGENT,
-                simulation_runs__status='pending',
-            ),
-            discovered_agent.task_scope,
-        ).annotate(has_expired_run=Exists(expired_run)).filter(
-            has_expired_run=False,
-        ).order_by('-queue_priority', 'create_time', 'id').first()
-        if task is None:
-            benchmark = SimcBenchmarkCase.objects.filter(task_id=OuterRef('pk'))
-            task = _task_scope_queryset(
-                SimcTask.objects.select_for_update().filter(
-                    backend_id=discovered_agent.backend_id, is_active=True, current_status=0,
-                    execution_owner__in=(SimcTask.EXECUTION_OWNER_UNASSIGNED,
-                                         SimcTask.EXECUTION_OWNER_AGENT),
-                ),
-                discovered_agent.task_scope,
-            ).annotate(
-                is_benchmark=Exists(benchmark), has_expired_run=Exists(expired_run),
-            ).filter(has_expired_run=False).order_by(
-                '-queue_priority', 'is_benchmark', 'create_time', 'id',
-            ).first()
+        task = None
+        if task_id is not None:
+            try:
+                # Only this PK may be locked; never combine discovery with locking.
+                task = SimcTask.objects.select_for_update().get(pk=task_id)
+            except SimcTask.DoesNotExist:
+                return None
+            if (not task.is_active or task.current_status not in (0, 1)
+                    or task.backend_id != discovered_agent.backend_id
+                    or not _task_scope_allows(discovered_agent.task_scope, task.is_benchmark_task)
+                    or task.execution_owner not in (
+                        (SimcTask.EXECUTION_OWNER_UNASSIGNED, SimcTask.EXECUTION_OWNER_AGENT)
+                        if task.current_status == 0 else (SimcTask.EXECUTION_OWNER_AGENT,))):
+                # A stale candidate is harmless; let the next poll select again.
+                return None
 
         # Keep one global order for control-plane mutations: Task -> Run -> Agent.
         locked_runs = []
@@ -307,6 +324,8 @@ def claim_run(payload, authorization):
         if live_run_count >= _agent_run_capacity(agent):
             return None
         if task is None:
+            return None
+        if task.current_status == 1 and not any(run.status == 'pending' for run in locked_runs):
             return None
         if any(run.status == 'running' and run.lease_expires_at is not None
                and run.lease_expires_at <= now for run in locked_runs):
