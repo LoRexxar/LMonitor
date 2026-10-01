@@ -183,6 +183,21 @@ class EquipmentEffectProjectionTests(TestCase):
         self.fixtures = EquipmentControlBenchmarkTests()
         self.fixtures.setUp()
 
+    def test_activation_repair_keeps_history_visible_but_does_not_reuse_old_input(self):
+        from botend.models import WowItemSnapshot, SimulationRun
+        from botend.services.wow_item_effect_activation_store import merge_item_effect_activation
+        from botend.services.simc_benchmark_execution import serialize_incremental_panel_results, _incremental_coordinates
+        from botend.services.simc_benchmark_config import build_execution_plan
+        execution=self.fixtures.finish()
+        fact={'schema_version':1,'item_id':456,'game_build':'12.1.0.69933',
+              'required_bonus_ids':[123],'effects':[{'item_effect_id':10,'spell_id':80,'bonus_id':123,'trigger_type':1}],
+              'source':{'provider':'wago_db2','evidence':[{'table':'ItemEffect','rows':[{'ID':10}]}]}}
+        merge_item_effect_activation([fact],is_ptr=False)
+        rows=serialize_incremental_panel_results(self.fixtures.panel)['coordinates'][0]['candidates']
+        self.assertTrue(any(row['key']=='ring' for row in rows))
+        missing=_incremental_coordinates(self.fixtures.panel,build_execution_plan(self.fixtures.panel))
+        self.assertTrue(any(c['candidate_key']=='ring' for co in missing for c in co['candidates']))
+
     def test_control_invalid_or_unknown_cannot_publish_normal_valid_gain(self):
         from botend.models import SimulationRun
         from simc_equipment_control import control_key

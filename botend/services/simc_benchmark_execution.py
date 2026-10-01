@@ -2074,6 +2074,19 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         panel, selected_filter, summary_only=False,
         coordinate_plans=projected_cases,
     )
+    # Display continuity is resource/key based, never an execution-reuse grant.
+    # Central activation repair changes frozen executable hashes; retain the old
+    # result with its own validity evidence until a corrected result completes.
+    for coordinate in projected_cases:
+        matches = reusable_by_coordinate.get(_coordinate_input_identity(coordinate), {})
+        latest_by_key = {}
+        for match in matches.values():
+            latest_by_key.setdefault(match['result'].candidate_key, match)
+        for definition in coordinate['candidates']:
+            if (definition.get('candidate_params') or {}).get('equipment_effect_expectation'):
+                previous = latest_by_key.get(definition['candidate_key'])
+                if previous is not None:
+                    matches.setdefault(_candidate_input_identity(definition), previous)
     report_urls = (
         _candidate_raw_report_urls(reusable_by_coordinate) if include_details else {}
     )
