@@ -240,6 +240,7 @@ def prepare_control_input(code, binary, directory, *, execute=None):
         return parse_equipment_export(profile_path.read_text(encoding='utf-8-sig'), log, slot)
 
     original = probe(original_lines, 'original')
+    _require_target_effect({slot: original}, [slot], frozenset())
     replacement = synthetic_item(original)
     control_lines = list(original_lines)
     control_lines[index] = f'{slot}={replacement}'
@@ -267,6 +268,48 @@ def embellishment_count(export, rules):
     native = sum(value in rules['effect_ids'] for value in proc_ids)
     intrinsic = int(options.get('id', '0')) in rules['intrinsic_item_ids']
     return max(native, declared + int(intrinsic))
+
+
+def _item_effects(export):
+    """Only instantiated item effects count; DB proc_spells and attachments do not."""
+    effects = []
+    for block in re.findall(r'\beffect=\{\s*([^{}]*?)\s*\}', export['record']):
+        fields = dict(re.findall(r'\b(\w+)=([^\s]+)', block))
+        driver = fields.get('driver', '')
+        if (fields.get('source') == 'item' and fields.get('type') in ('equip', 'use')
+                and driver.isdecimal() and int(driver) > 0):
+            effects.append((fields['type'], int(driver)))
+    return tuple(sorted(effects))
+
+
+def _native_sets(log):
+    """Read the native initialized roster, not saved comments or declared rules."""
+    result = set()
+    for line in log.splitlines():
+        if 'Initialized set bonus:' not in line:
+            continue
+        matches = re.findall(
+            r'\{\s*[^,{}]+,\s*([a-z0-9_]+),\s*[^,{}]+,\s*(\d+) piece bonus[^{}]*\}', line)
+        if not matches:
+            raise ValueError('原生套装初始化记录无法识别，拒绝生成收益')
+        for name, pieces in matches:
+            result.add((name, int(pieces)))
+    return frozenset(result)
+
+
+def _target_sets(exports, slots, rules, native_sets):
+    ids = [int(item['options'].get('id', '0')) for item in exports.values()]
+    target_ids = {int(exports[slot]['options'].get('id', '0')) for slot in slots}
+    return {(row['name'], row['pieces']) for row in rules['sets']
+            if (row['name'], row['pieces']) in native_sets
+            and target_ids.intersection(row['items'])
+            and sum(item_id in row['items'] for item_id in ids) >= row['pieces']}
+
+
+def _require_target_effect(exports, slots, active_sets):
+    if not any(_item_effects(exports[slot]) for slot in slots) and not active_sets:
+        identities = ', '.join(f'{slot}(id={exports[slot]["options"].get("id", "0")})' for slot in slots)
+        raise ValueError(f'目标装备 {identities} 未加载原生有效自带特效或已核实套装效果，拒绝生成收益')
 
 
 def _prepare_combination(code, payload, binary, directory, *, execute):
@@ -315,35 +358,64 @@ def _prepare_combination(code, payload, binary, directory, *, execute):
         log = log_path.read_text(encoding='utf-8', errors='replace')
         if 'SimulationCraft has not been built with PTR data' in log:
             raise ValueError('当前 SimC 不支持所需 PTR 数据')
-        return {slot: parse_equipment_export(profile, log, slot) for slot in indexes}
+        return {slot: parse_equipment_export(profile, log, slot) for slot in indexes}, _native_sets(log)
 
-    original = probe(lines, 'original')
+    original, original_sets = probe(lines, 'original')
     counts = {slot: embellishment_count(item, rules) for slot, item in original.items()}
     if sum(counts[slot] for slot in items) > 2:
         raise ValueError('候选组合超过两件美化或在同一装备上叠加了多个美化')
     if any(counts[slot] > 1 for slot in items):
         raise ValueError('单件候选同时包含多个美化来源')
-    removed = {slot for slot, count in counts.items() if count and slot not in items}
-    if payload['control']:
-        removed.update(items)
-    for slot in removed:
-        lines[indexes[slot]] = f'{slot}={synthetic_item(original[slot])}'
-    # 只覆盖此次移除装备所属的非职业套装，职业套装显式配置保持一致。
-    removed_ids = {int(original[slot]['options'].get('id', '0')) for slot in removed}
-    remaining_ids = [int(item['options'].get('id', '0')) for slot, item in original.items() if slot not in removed]
+    _require_target_effect(original, items, _target_sets(original, items, rules, original_sets))
+    background = {slot for slot, count in counts.items() if count and slot not in items}
+
+    def without_effects(removed):
+        content = list(lines)
+        for slot in removed:
+            content[indexes[slot]] = f'{slot}={synthetic_item(original[slot])}'
+        # Only disable the affected non-class sets, leaving class overrides intact.
+        removed_ids = {int(original[slot]['options'].get('id', '0')) for slot in removed}
+        remaining_ids = [int(item['options'].get('id', '0')) for slot, item in original.items() if slot not in removed]
+        for row in rules['sets']:
+            if (removed_ids.intersection(row['items'])
+                    and sum(item_id in row['items'] for item_id in remaining_ids) < row['pieces']):
+                content.append(f'set_bonus=name={row["name"]},pc={row["pieces"]},enable=0')
+        return content
+
+    normal_lines = without_effects(background)
+    normal, normal_sets = probe(normal_lines, 'normal-prepared') if background else (original, original_sets)
+    control_lines = without_effects(background | set(items))
+    control, control_sets = probe(control_lines, 'prepared')
+    known_sets = {(row['name'], row['pieces']) for row in rules['sets']}
+    changed_sets = (original_sets ^ normal_sets) | (normal_sets ^ control_sets)
+    unknown_sets = changed_sets - known_sets
+    if unknown_sets:
+        names = ', '.join(f'{name}/{pieces}pc' for name, pieces in sorted(unknown_sets))
+        raise ValueError(f'装备套装 {names} 缺少已核实规则，拒绝生成收益')
+    removed_ids = {int(original[slot]['options'].get('id', '0')) for slot in background | set(items)}
+    remaining_ids = [int(item['options'].get('id', '0')) for slot, item in original.items()
+                     if slot not in background and slot not in items]
     for row in rules['sets']:
         if (removed_ids.intersection(row['items'])
-                and sum(item_id in row['items'] for item_id in remaining_ids) < row['pieces']):
-            lines.append(f'set_bonus=name={row["name"]},pc={row["pieces"]},enable=0')
-    prepared = probe(lines, 'prepared')
-    for slot, before in original.items():
-        for field in ('stats', 'weapon', 'attachments'):
-            if before[field] != prepared[slot][field]:
-                raise ValueError(f'装备组合的 {slot} {field} 不一致，拒绝生成收益')
-        if slot in removed and re.search(r'\bsource=item\b', prepared[slot]['record']):
-            raise ValueError(f'无特效装备 {slot} 仍包含自带效果')
-    actual = {slot: embellishment_count(item, rules) for slot, item in prepared.items()}
-    expected = 0 if payload['control'] else sum(counts[slot] for slot in items)
-    if sum(actual.values()) != expected or sum(actual.values()) > 2:
-        raise ValueError('最终装备美化数量与目标组合不一致')
-    return '\n'.join(lines) + '\n'
+                and sum(item_id in row['items'] for item_id in remaining_ids) < row['pieces']
+                and (row['name'], row['pieces']) in control_sets):
+            raise ValueError(f'无特效对照套装 {row["name"]} 仍初始化，拒绝生成收益')
+    # A rule alone does not prove activation. The native set must initialize in
+    # normal and disappear when the target is stripped, tying it to this candidate.
+    target_sets = _target_sets(normal, items, rules, normal_sets) & (normal_sets - control_sets)
+    _require_target_effect(normal, items, target_sets)
+    for prepared, removed in ((normal, background), (control, background | set(items))):
+        for slot, before in original.items():
+            for field in ('stats', 'weapon', 'attachments'):
+                if before[field] != prepared[slot][field]:
+                    raise ValueError(f'装备组合的 {slot} {field} 不一致，拒绝生成收益')
+            if slot in removed and re.search(r'\bsource=item\b', prepared[slot]['record']):
+                raise ValueError(f'无特效装备 {slot} 仍包含自带效果')
+        actual = {slot: embellishment_count(item, rules) for slot, item in prepared.items()}
+        expected = 0 if prepared is control else sum(counts[slot] for slot in items)
+        if sum(actual.values()) != expected or sum(actual.values()) > 2:
+            raise ValueError('最终装备美化数量与目标组合不一致')
+    for slot in items:
+        if _item_effects(original[slot]) != _item_effects(normal[slot]):
+            raise ValueError(f'目标装备 {slot} 原生效果与准备后不一致，拒绝生成收益')
+    return '\n'.join(control_lines if payload['control'] else normal_lines) + '\n'

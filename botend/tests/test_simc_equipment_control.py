@@ -27,15 +27,26 @@ class EquipmentControlInputTests(UnitTestCase):
     def combination_probe(self, command):
         import re
         options = dict(part.split('=', 1) for part in command[2:])
-        profile, records = [], []
+        profile, records, item_ids = [], [], []
+        input_lines = Path(command[1]).read_text(encoding='utf-8').splitlines()
         for line in Path(command[1]).read_text(encoding='utf-8').splitlines():
             slot, sep, value = line.partition('=')
             if not sep or slot not in ('wrists', 'back', 'feet', 'finger1', 'trinket2'):
                 continue
             item_id = re.search(r'\bid=(\d+)', value)
+            if item_id:
+                item_ids.append(int(item_id.group(1)))
             effect = ' proc_spells={ proc=OnEquip/1283697 }' if 'embellishment=arcanoweave_lining' in value else ''
+            # Unit-test native records must distinguish instantiated item effects
+            # from a DB proc_spells entry, just as the real SimC format does.
+            if item_id and int(item_id.group(1)) in (123, 111):
+                effect += ' effect={ fixture_effect type=equip source=item driver=99999 }'
             profile.extend([line, '# ilevel=289,quality=epic,stats=100haste'])
             records.append(f'0.000 name=x slot={slot} stats={{ +100 Haste }} source=Local{effect}')
+        for row in getattr(self, 'native_set_fixtures', equipment_rules()['sets']):
+            disabled = f'set_bonus=name={row["name"]},pc={row["pieces"]},enable=0'
+            if sum(item_id in row['items'] for item_id in item_ids) >= row['pieces'] and disabled not in input_lines:
+                records.append(f'0.000 Initialized set bonus: {{ Fixture, {row["name"]}, Generic, {row["pieces"]} piece bonus }}')
         Path(options['save']).write_text('\n'.join(profile), encoding='utf-8')
         Path(options['output']).write_text('\n'.join(records), encoding='utf-8')
         return SimpleNamespace(returncode=0, stdout='', stderr='')
@@ -84,6 +95,7 @@ class EquipmentControlInputTests(UnitTestCase):
     def test_target_set_is_disabled_but_class_set_override_is_preserved(self):
         rules = deepcopy(equipment_rules())
         rules['sets'] = [{'name': 'arcanoweave_trappings', 'pieces': 2, 'items': [123, 456]}]
+        self.native_set_fixtures = rules['sets']
         code = 'warrior=x\nwrists=,id=123,ilevel=289\nback=,id=456,ilevel=289\nset_bonus=midnight_season_1_4pc=1\n'
         marked = mark_equipment_input(code, ['wrists', 'back'], control=True, rules=rules)
         with tempfile.TemporaryDirectory() as directory:
@@ -106,15 +118,27 @@ class EquipmentControlInputTests(UnitTestCase):
             result = prepare_control_input(marked, 'simc', directory, execute=self.combination_probe)
         self.assertIn('trinket2=lmonitor_effect_control', result)
 
+    def test_legacy_control_rejects_an_unloaded_target_effect(self):
+        code = mark_control_input('warrior=x\nfinger1=id=123\n', 'finger1')
+        def execute(command):
+            options = dict(part.split('=', 1) for part in command[2:])
+            Path(options['save']).write_text('finger1=x,id=123\n# ilevel=289,quality=epic,stats=100haste\n')
+            Path(options['output']).write_text('0.000 name=x slot=finger1 stats={ +100 Haste } source=Local')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, '未加载原生有效'):
+                prepare_control_input(code, 'simc', directory, execute=execute)
+
     def test_native_readback_rejects_stat_drift(self):
         code = mark_control_input('warrior=x\nfinger1=id=123\n', 'finger1')
         def execute(command):
             options = dict(part.split('=', 1) for part in command[2:])
             is_control = '-control.simc' in command[1]
             amount = 101 if is_control else 100
+            effect = '' if is_control else ' effect={ fixture_effect type=equip source=item driver=99999 }'
             Path(options['save']).write_text('finger1=x,id=123\n# ilevel=289,quality=epic,stats=100haste\n')
             Path(options['output']).write_text(
-                f'0.000 name=x slot=finger1 stats={{ +{amount} Haste }} source=Local')
+                f'0.000 name=x slot=finger1 stats={{ +{amount} Haste }} source=Local' + effect)
             return SimpleNamespace(returncode=0, stdout='', stderr='')
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, '不一致'):
@@ -138,8 +162,10 @@ class EquipmentControlInputTests(UnitTestCase):
             process.communicate.return_value = (b'', b'')
             options = dict(part.split('=', 1) for part in command[2:])
             if 'save' in options:
-                Path(options['save']).write_text('finger1=x,id=123\n# ilevel=289,quality=epic,stats=100haste\n')
-                Path(options['output']).write_text('0.000 name=x slot=finger1 stats={ +100 Haste } source=Local')
+                target = next(line for line in Path(command[1]).read_text().splitlines() if line.startswith('finger1='))
+                effect = ' effect={ fixture_effect type=equip source=item driver=99999 }' if 'id=123' in target else ''
+                Path(options['save']).write_text(target + '\n# ilevel=289,quality=epic,stats=100haste\n')
+                Path(options['output']).write_text('0.000 name=x slot=finger1 stats={ +100 Haste } source=Local' + effect)
             else:
                 executions.append((Path(kwargs['cwd']) / command[1]).read_text())
                 (Path(kwargs['cwd']) / 'simc_task_1_run_1.html').write_text('<html>结果</html>')
