@@ -953,7 +953,9 @@ class SimcComposer:
             options.append(f"vary_combat_length={request_data['vary_combat_length']}")
         if request_data.get('enemy_type'):
             options.append(f"enemy={request_data['enemy_type']}")
-        if request_data.get('enemy_initial_health_percentage') is not None:
+        # 100% is the native enemy default. This option is enemy-actor scoped,
+        # so emitting the no-op in the global header only creates a warning.
+        if request_data.get('enemy_initial_health_percentage') not in (None, 100):
             options.append(
                 'enemy_initial_health_percentage='
                 f"{request_data['enemy_initial_health_percentage']}"
