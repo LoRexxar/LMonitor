@@ -94,4 +94,12 @@ assert.match(descendants(backendChart,'benchmark-aggregate-dps')[0].textContent,
 assert.match(descendants(backendChart,'benchmark-aggregate-delta')[1].textContent,/230/);
 assert.equal(descendants(descendants(backendChart,'benchmark-gear-row')[4],'benchmark-gear-segment').length,0);
 assert.ok(descendants(backendChart,'benchmark-gear-segment').every(segment=>segment.style.minWidth==='0'&&segment.style.padding==='0'&&segment.style.boxSizing==='border-box'));
+const invalid = {...effectCandidates[2], item_id:6, label:'Invalid effect', dps:999,
+  effect_validation:{status:'invalid',reason:'目标特效未加载'}};
+const invalidChart=portal([...effectCandidates,invalid],{dps:100},{lowest:0,highest:1,range:1});
+const invalidRows=descendants(invalidChart,'simc-benchmark-gear-row');
+assert.equal(descendants(invalidChart,'simc-benchmark-gear-name').at(-1).textContent,'Invalid effect');
+assert.match(descendants(invalidRows.at(-1),'simc-benchmark-candidate-value')[0].textContent,/特效结果无效/);
+assert.equal(descendants(invalidRows.at(-1),'simc-benchmark-gear-segment').length,0);
+assert.equal(descendants(invalidRows.at(-1),'simc-benchmark-gear-rank')[0].textContent,'—');
 console.log('通过：特效百分比排序/绘图、最高收益装等、负收益及缺失对照；普通DPS图表保持原有语义。');

@@ -183,11 +183,38 @@ class EquipmentEffectProjectionTests(TestCase):
         self.fixtures = EquipmentControlBenchmarkTests()
         self.fixtures.setUp()
 
+    def test_control_invalid_or_unknown_cannot_publish_normal_valid_gain(self):
+        from botend.models import SimulationRun
+        from simc_equipment_control import control_key
+        from botend.services.simc_benchmark_execution import serialize_incremental_panel_results, serialize_public_execution
+        execution = self.fixtures.finish()
+        task = execution.cases.get().task
+        normal = SimulationRun.objects.get(task=task, candidate_key='ring')
+        normal.result_summary = {**normal.result_summary, 'equipment_effect_validation':
+            {'schema_version': 1, 'status': 'valid', 'valid': True}}
+        normal.save(update_fields=['result_summary'])
+        control = SimulationRun.objects.get(task=task, candidate_key=control_key('ring'))
+        for status in ('invalid', 'unverified'):
+            control.result_summary = {**control.result_summary, 'equipment_effect_validation':
+                {'schema_version': 1, 'status': status, 'valid': False if status=='invalid' else None}}
+            control.save(update_fields=['result_summary'])
+            live=serialize_incremental_panel_results(self.fixtures.panel)['coordinates'][0]['candidates']
+            public=serialize_public_execution(execution)['execution']['cases'][0]['candidates']
+            for rows in (live,public):
+                row=next(row for row in rows if row['key']=='ring')
+                self.assertEqual(row['effect_validation']['status'], status)
+                self.assertNotIn('effect_delta_percent',row)
+
     def test_both_projections_consume_frozen_run_validation_and_unknown_legacy(self):
         from botend.models import SimulationRun
         from botend.services.simc_benchmark_execution import serialize_incremental_panel_results, serialize_public_execution
         execution = self.fixtures.finish()
         run = SimulationRun.objects.get(task=execution.cases.get().task, candidate_key='ring')
+        from simc_equipment_control import control_key
+        control = SimulationRun.objects.get(task=run.task, candidate_key=control_key('ring'))
+        control.result_summary = {**control.result_summary, 'equipment_effect_validation':
+            {'schema_version': 1, 'status': 'valid', 'valid': True}}
+        control.save(update_fields=['result_summary'])
         for validation in (None, {'schema_version': 1, 'status': 'unverified', 'valid': None},
                            {'schema_version': 1, 'status': 'invalid', 'valid': False},
                            {'schema_version': 1, 'status': 'valid', 'valid': True}):

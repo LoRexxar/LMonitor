@@ -135,7 +135,8 @@ function groupGearResultRows(rows){
     const variantIdentity=candidate.equipment_group_key||candidate.item_variant_key||label;
     const key=[coordinate.spec_key,coordinate.scenario_key,coordinate.profile_key,itemIdentity,variantIdentity].join('|');
     if(!groups.has(key))groups.set(key,{key,label,icon_url:candidate.icon_url||'',coordinate,variants:[]});
-    const deltaPercent=(!effectComparison||candidate.comparison_mode==='equipment_effect')&&Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(row.dps-row.baseline_dps)*100/row.baseline_dps:null;
+    const effectValid=!candidate.effect_validation||candidate.effect_validation.status==='valid';
+    const deltaPercent=(!effectComparison||(candidate.comparison_mode==='equipment_effect'&&effectValid))&&Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(row.dps-row.baseline_dps)*100/row.baseline_dps:null;
     groups.get(key).variants.push({...row,item_level:Number(candidate.item_level),delta_percent:deltaPercent});
   });
   return Array.from(groups.values()).map(group=>{
@@ -187,7 +188,8 @@ function renderGearResultChart(rows){
     });
     const best=group.best,result=el('div',{class:'benchmark-aggregate-result'});
     if(group.effect_comparison){
-      result.append(el('strong',{class:'benchmark-aggregate-dps'},Number.isFinite(best.delta_percent)?`${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(2)}% 特效提升`:'无特效对照'),el('span',{class:'benchmark-aggregate-delta'},`${best.item_level} 装等 · ${formatDps(best.dps)} 总DPS`),el('small',{},'对照：本装备同属性、仅关闭特效'));
+      const validation=best.candidate.effect_validation,unavailable=validation?.status==='invalid'?'特效结果无效':validation&&validation.status!=='valid'?'特效待验证':'无特效对照';
+      result.append(el('strong',{class:'benchmark-aggregate-dps'},Number.isFinite(best.delta_percent)?`${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(2)}% 特效提升`:unavailable),el('span',{class:'benchmark-aggregate-delta'},`${best.item_level} 装等 · ${formatDps(best.dps)} 总DPS`),el('small',{},validation?.reason||'对照：本装备同属性、仅关闭特效'));
     }else{
       result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(best.dps)),el('span',{class:`benchmark-aggregate-delta ${best.delta_percent<0?'negative':'positive'}`},Number.isFinite(best.delta_percent)?`最高 ${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(1)}%`:'无基准对比'));
     }

@@ -164,9 +164,15 @@
     return safeIconUrl(candidate?.raw_report_url);
   }
   function equipmentEffectGain(candidate) {
+    if (candidate?.effect_validation && candidate.effect_validation.status !== "valid") return null;
     if (candidate?.comparison_mode !== "equipment_effect" || candidate.dps == null) return null;
     const dps = validDps(candidate.dps), baseline = validDps(candidate.baseline_dps);
     return dps !== null && baseline !== null && baseline > 0 ? (dps - baseline) * 100 / baseline : null;
+  }
+
+  function equipmentEffectUnavailable(candidate) {
+    const status = candidate?.effect_validation?.status;
+    return status === "invalid" ? "特效结果无效" : status && status !== "valid" ? "特效待验证" : "无特效对照";
   }
 
   function isEffectComparison(candidates) { return candidates.some(candidate => candidate?.comparison_mode === "equipment_effect"); }
@@ -333,12 +339,13 @@
       const row = node("div", "simc-benchmark-gear-row");
       const identity = node("button", "simc-benchmark-gear-identity");
       identity.type = "button";
-      identity.setAttribute("aria-label", `第 ${index + 1} 名，查看 ${group.label} 的装备说明`);
+      const ranked = !effectComparison || equipmentEffectGain(group.best) !== null;
+      identity.setAttribute("aria-label", `${ranked ? `第 ${index + 1} 名` : "未参与特效排名"}，查看 ${group.label} 的装备说明`);
       if (group.tooltip) {
         identity.setAttribute("data-wow-item-tooltip", group.tooltip);
         identity.setAttribute("data-wow-item-tooltip-name", group.label);
       }
-      identity.appendChild(node("span", "simc-benchmark-gear-rank", String(index + 1)));
+      identity.appendChild(node("span", "simc-benchmark-gear-rank", ranked ? String(index + 1) : "—"));
       const iconUrl = safeIconUrl(group.icon_url);
       if (iconUrl) {
         const icon = node("img", "simc-benchmark-candidate-icon");
@@ -399,7 +406,8 @@
       const metrics = node("div", "simc-benchmark-candidate-metrics");
       if (effectComparison) {
         const gain = equipmentEffectGain(best);
-        metrics.append(node("div", "simc-benchmark-candidate-value", gain === null ? "无特效对照" : `${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% 特效提升`), node("div", "simc-benchmark-relative", `${best.item_level} 装等 · ${numberFormat.format(validDps(best.dps) ?? 0)} 总DPS`));
+        metrics.append(node("div", "simc-benchmark-candidate-value", gain === null ? equipmentEffectUnavailable(best) : `${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% 特效提升`), node("div", "simc-benchmark-relative", `${best.item_level} 装等 · ${numberFormat.format(validDps(best.dps) ?? 0)} 总DPS`));
+        if (gain === null && best.effect_validation?.reason) metrics.appendChild(node("div", "simc-benchmark-relative", best.effect_validation.reason));
         if (gain !== null) metrics.appendChild(node("div", "simc-benchmark-relative", `无特效对照：${numberFormat.format(best.baseline_dps)} DPS`));
       } else {
         metrics.append(node("div", "simc-benchmark-candidate-value", `${numberFormat.format(validDps(best.dps) ?? 0)} DPS`), node("div", "simc-benchmark-relative", comparisonText(best, [baseline, ...candidates].filter(Boolean), scale)));

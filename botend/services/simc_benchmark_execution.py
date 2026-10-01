@@ -848,6 +848,16 @@ def _candidate_source_run(task, candidate_key):
     return None
 
 
+def _paired_effect_validation(normal, control):
+    if normal.get('status') == 'valid' and control.get('status') == 'valid':
+        return normal
+    failed = normal if normal.get('status') != 'valid' else control
+    status = 'invalid' if 'invalid' in (normal.get('status'), control.get('status')) else 'unverified'
+    return {**failed, 'status': status, 'valid': False if status == 'invalid' else None,
+            'reason': failed.get('reason') or 'effect_pair_not_verified',
+            'normal_status': normal.get('status'), 'control_status': control.get('status')}
+
+
 def _equipment_effect_validations(requests):
     """Read only frozen summary subkeys, resolving supplemented source chains in batches.
 
@@ -2227,6 +2237,12 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 (reusable[_candidate_input_identity(definitions[row['key']])]['task'].pk, row['key'])
                 for row in rows if (definitions[row['key']].get('candidate_params') or {}).get('effect_baseline_key')
             }
+            for row in rows:
+                baseline_key = (definitions[row['key']].get('candidate_params') or {}).get('effect_baseline_key')
+                control = definitions.get(baseline_key) if baseline_key else None
+                control_match = reusable.get(_candidate_input_identity(control)) if control else None
+                if control_match:
+                    validation_requests.add((control_match['task'].pk, baseline_key))
             effect_validations = _equipment_effect_validations(validation_requests)
             paired_rows = []
             for row in rows:
@@ -2252,7 +2268,10 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                          if baseline_dps > 0 else None),
                         'comparison_mode': 'equipment_effect',
                     })
-                    row['effect_validation'] = effect_validations[(normal['task'].pk, row['key'])]
+                    row['effect_validation'] = _paired_effect_validation(
+                        effect_validations[(normal['task'].pk, row['key'])],
+                        effect_validations[(match['task'].pk, baseline_key)],
+                    )
                     if row['effect_validation'].get('status') == 'valid':
                         row['effect_delta_percent'] = row['gain_percent']
                 paired_rows.append(row)
@@ -3558,6 +3577,11 @@ def serialize_public_execution(panel_or_execution):
         (row['task_id'], run['key']) for row in summary['cases'] for run in row['runs']
         if candidate_metadata[run['key']]['params'].get('effect_baseline_key')
     })
+    effect_validations.update(_equipment_effect_validations({
+        (row['task_id'], candidate_metadata[run['key']]['params']['effect_baseline_key'])
+        for row in summary['cases'] for run in row['runs']
+        if candidate_metadata[run['key']]['params'].get('effect_baseline_key')
+    }))
     public_cases = []
     seal_rows = []
     for row in summary['cases']:
@@ -3603,7 +3627,10 @@ def serialize_public_execution(panel_or_execution):
                     'gain_dps': gain, 'gain_percent': gain / baseline_dps * 100 if baseline_dps > 0 else None,
                     'comparison_mode': 'equipment_effect',
                 })
-                candidate_row['effect_validation'] = effect_validations[(row['task_id'], run['key'])]
+                candidate_row['effect_validation'] = _paired_effect_validation(
+                    effect_validations[(row['task_id'], run['key'])],
+                    effect_validations[(row['task_id'], candidate['params']['effect_baseline_key'])],
+                )
                 if candidate_row['effect_validation'].get('status') == 'valid':
                     candidate_row['effect_delta_percent'] = candidate_row['gain_percent']
             swaps = candidate['params'].get('gear_swaps')
