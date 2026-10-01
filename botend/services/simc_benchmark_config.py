@@ -1074,7 +1074,7 @@ def _freeze_equipment_rules():
     return rules
 
 
-def _freeze_case_candidates(spec_key, applicable, rules=None):
+def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=None, class_name=''):
     from simc_equipment_control import SLOTS, ALIASES, candidate_swaps, control_key
     from botend.services.wow_item_effect_activation_store import (
         item_activation_facts, freeze_equipment_activation,
@@ -1095,6 +1095,14 @@ def _freeze_case_candidates(spec_key, applicable, rules=None):
         'candidate_type': 'base', 'icon_url': '', 'source_label': '',
     }
     candidates = [_candidate_snapshot(item) for item in applicable]
+    if eligibility is None:
+        from botend.services.simc_equipment_eligibility import EquipmentEligibility
+        eligibility = EquipmentEligibility([row['candidate_params'] for row in candidates])
+    for candidate in candidates:
+        params = candidate['candidate_params']
+        layout = eligibility.weapon_layout(params, spec_key, class_name)
+        if layout:
+            params['equipment_weapon_layout'] = layout
     activation_facts = item_activation_facts([
         swap.get('item_id') for candidate in candidates
         for swap in candidate_swaps(candidate['candidate_params'])
@@ -1350,7 +1358,10 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             accepted_keys = {item['key'] for item in accepted}
             applicable = [item for item in applicable if item.key in accepted_keys]
             excluded_candidates.extend({'spec_key': spec.spec_key, **item} for item in excluded)
-            case_candidates = _freeze_case_candidates(spec.spec_key, applicable, equipment_policy_rules)
+            case_candidates = _freeze_case_candidates(
+                spec.spec_key, applicable, equipment_policy_rules,
+                eligibility=eligibility, class_name=spec.class_name,
+            )
         for scenario in scenarios:
             for selected in profiles:
                 if not selected.talent_string_id:

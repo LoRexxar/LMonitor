@@ -88,7 +88,29 @@ class EquipmentEligibility:
                              or bool(variant and variant.stats_json) or inventory in (2, 11))
             if not known_primary:
                 return {**detail, 'code': 'missing_metadata', 'reason': '装备主属性资料不足'}
+        weapons = self.weapon_layout(params, spec_key, class_name)
+        if (weapons and not weapons['titan_grip']
+                and any(row['slot'] == 'main_hand' and row['inventory_type'] == 17
+                        for row in weapons['weapons'])
+                and any(row['slot'] == 'off_hand' for row in weapons['weapons'])):
+            return {'code': 'invalid_weapon_layout', 'reason': '双手主手不能同时配置副手装备'}
         return None
+
+    def weapon_layout(self, params, spec_key, class_name=''):
+        """Freeze central slot facts once; execution must never consult live items."""
+        weapons = []
+        for swap in candidate_swaps(params):
+            slot = ALIASES.get(swap.get('slot'), swap.get('slot'))
+            if slot not in ('main_hand', 'off_hand'):
+                continue
+            item_id = _identity(swap)[0]
+            item = self.items[item_id]
+            weapons.append({'slot': slot, 'item_id': item_id,
+                            'inventory_type': int(item.inventory_type)})
+        if not weapons:
+            return None
+        identity = canonical_class_spec(*canonical_simc_profile_identity(spec_key, class_name))
+        return {'version': 1, 'weapons': weapons, 'titan_grip': identity == ('Warrior', 'Fury')}
 
     def filter(self, candidates, spec_key, class_name=''):
         accepted, skipped = [], []

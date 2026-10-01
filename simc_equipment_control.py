@@ -130,6 +130,52 @@ def mark_equipment_input(code, slots, *, control, rules, expectation=None):
     return result
 
 
+def validate_weapon_layout(params):
+    """Bind frozen weapon facts to this exact candidate, without live lookups."""
+    layout = params.get('equipment_weapon_layout')
+    if (not isinstance(layout, dict) or set(layout) != {'version', 'weapons', 'titan_grip'}
+            or type(layout['version']) is not int or layout['version'] != 1
+            or type(layout['titan_grip']) is not bool or not isinstance(layout['weapons'], list)):
+        raise ValueError('冻结武器布局无效')
+    swaps = {ALIASES.get(row.get('slot'), row.get('slot')): row for row in candidate_swaps(params)
+             if row.get('slot') in ('main_hand', 'off_hand')}
+    seen = set()
+    for row in layout['weapons']:
+        if (not isinstance(row, dict) or set(row) != {'slot', 'item_id', 'inventory_type'}
+                or row['slot'] not in swaps or row['slot'] in seen
+                or type(row['item_id']) is not int or row['item_id'] <= 0
+                or type(row['inventory_type']) is not int or row['inventory_type'] <= 0):
+            raise ValueError('冻结武器部位事实无效')
+        swap = swaps[row['slot']]
+        options = _options(str(swap.get('raw_value') or ''))
+        if str(row['item_id']) != str(options.get('id') or swap.get('item_id')):
+            raise ValueError('冻结武器与候选物品身份不一致')
+        seen.add(row['slot'])
+    if not seen or seen != set(swaps):
+        raise ValueError('冻结武器布局缺少候选槽位')
+    clear = not layout['titan_grip'] and any(
+        row['slot'] == 'main_hand' and row['inventory_type'] == 17 for row in layout['weapons'])
+    if clear and 'off_hand' in swaps:
+        raise ValueError('双手主手不能同时配置副手装备')
+    return clear
+
+
+def apply_weapon_layout(equipment, params):
+    if 'equipment_weapon_layout' not in params:
+        return equipment  # Historical tasks retain their frozen semantics.
+    if not validate_weapon_layout(params):
+        return equipment
+    lines = []
+    in_candidate_section = False
+    for line in str(equipment or '').splitlines():
+        if line.strip().startswith('###'):
+            in_candidate_section = True
+        if not in_candidate_section and line.partition('=')[0].strip().lower() == 'off_hand':
+            line = 'off_hand='
+        lines.append(line)
+    return '\n'.join(lines)
+
+
 def control_key(candidate_key):
     return 'effect-control-' + hashlib.sha256(candidate_key.encode()).hexdigest()[:32]
 

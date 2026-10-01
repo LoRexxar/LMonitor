@@ -512,6 +512,10 @@ class SimcMonitor(BaseScan):
                     request_data = SimcMonitor.apply_candidate_overrides(
                         request_data, {'candidate_type': 'gear_swap', 'gear_swap': swap},
                     )
+                from simc_equipment_control import apply_weapon_layout
+                request_data['player_equipment'] = apply_weapon_layout(
+                    request_data.get('player_equipment'), params,
+                )
                 return request_data
             swap = params.get('gear_swap') or {}
             slot = str(swap.get('slot') or '').strip().lower()
@@ -536,7 +540,8 @@ class SimcMonitor(BaseScan):
                     lines.append(line)
             if not replaced:
                 raise ValueError(f'基准玩家块未包含可替换的装备槽位: {slot}')
-            request_data['player_equipment'] = '\n'.join(lines)
+            from simc_equipment_control import apply_weapon_layout
+            request_data['player_equipment'] = apply_weapon_layout('\n'.join(lines), params)
 
         elif candidate_type == 'talent_override':
             talent = str(params.get('talent_override') or '').strip()
