@@ -696,6 +696,13 @@ def complete_run(run_id, metadata, authorization):
             )
             if summary.get('dps') is None or not re.search(r'\bDPS=', metadata['stdout']):
                 raise AgentAPIError('SimC result does not contain DPS')
+            from botend.services.simc_equipment_effect_validation import (
+                is_equipment_effect_candidate, validate_equipment_effect_report,
+            )
+            if is_equipment_effect_candidate(run.candidate_params):
+                summary['equipment_effect_validation'] = validate_equipment_effect_report(
+                    report_html, run.candidate_params,
+                )
             SimcTaskArtifact.objects.update_or_create(
                 task=task, run=run, artifact_type='html_report',
                 defaults={

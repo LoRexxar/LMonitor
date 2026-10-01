@@ -848,6 +848,50 @@ def _candidate_source_run(task, candidate_key):
     return None
 
 
+def _equipment_effect_validations(requests):
+    """Read only frozen summary subkeys, resolving supplemented source chains in batches.
+
+    DPS and lifecycle still come exclusively from immutable aggregate Results.
+    Missing legacy validation is unknown; never re-download or infer from metadata.
+    """
+    from django.db.models.fields.json import KeyTransform
+
+    unknown = {'schema_version': 1, 'status': 'unverified', 'valid': None,
+               'reason': 'equipment_effect_validation_missing',
+               'reason_codes': ['equipment_effect_validation_missing']}
+    resolved = {request: deepcopy(unknown) for request in requests}
+    pending = {request: request[0] for request in resolved if request[0] is not None}
+    seen = {request: set() for request in pending}
+    while pending:
+        task_ids = set(pending.values())
+        keys = {request[1] for request in pending}
+        rows = SimulationRun.objects.filter(
+            task_id__in=task_ids, candidate_key__in=keys, status='completed',
+        ).annotate(
+            frozen_effect_validation=KeyTransform('equipment_effect_validation', 'result_summary'),
+        ).order_by('task_id', 'candidate_key', '-sequence', '-id').values_list(
+            'task_id', 'candidate_key', 'frozen_effect_validation',
+        )
+        latest = {}
+        for task_id, key, validation in rows:
+            latest.setdefault((task_id, key), validation)
+        remaining = {}
+        for request, task_id in pending.items():
+            seen[request].add(task_id)
+            if (task_id, request[1]) in latest:
+                validation = latest[(task_id, request[1])]
+                if isinstance(validation, dict) and validation.get('status') in ('valid', 'invalid', 'unverified'):
+                    resolved[request] = deepcopy(validation)
+            else:
+                remaining[request] = task_id
+        parents = dict(SimcTask.objects.filter(pk__in=set(remaining.values())).values_list(
+            'pk', 'source_task_id',
+        )) if remaining else {}
+        pending = {request: parents[task_id] for request, task_id in remaining.items()
+                   if parents.get(task_id) is not None and parents[task_id] not in seen[request]}
+    return resolved
+
+
 def _reusable_candidate_tasks(
         panel, coordinate, reusable_by_coordinate=None, *, include_resource_versions=False):
     """Return finalized Task provenance by full frozen coordinate/candidate input identity."""
@@ -2179,6 +2223,11 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     }
         if not is_option_gain:
             definitions = {item['candidate_key']: item for item in coordinate['candidates']}
+            validation_requests = {
+                (reusable[_candidate_input_identity(definitions[row['key']])]['task'].pk, row['key'])
+                for row in rows if (definitions[row['key']].get('candidate_params') or {}).get('effect_baseline_key')
+            }
+            effect_validations = _equipment_effect_validations(validation_requests)
             paired_rows = []
             for row in rows:
                 params = definitions[row['key']].get('candidate_params') or {}
@@ -2203,6 +2252,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                          if baseline_dps > 0 else None),
                         'comparison_mode': 'equipment_effect',
                     })
+                    row['effect_validation'] = effect_validations[(normal['task'].pk, row['key'])]
+                    if row['effect_validation'].get('status') == 'valid':
+                        row['effect_delta_percent'] = row['gain_percent']
                 paired_rows.append(row)
             rows = paired_rows
         if is_option_gain:
@@ -3502,6 +3554,10 @@ def serialize_public_execution(panel_or_execution):
     if set(frozen_by_coordinate) != set(summary_by_coordinate):
         return {'status': 'not_ready', 'execution': None}
 
+    effect_validations = _equipment_effect_validations({
+        (row['task_id'], run['key']) for row in summary['cases'] for run in row['runs']
+        if candidate_metadata[run['key']]['params'].get('effect_baseline_key')
+    })
     public_cases = []
     seal_rows = []
     for row in summary['cases']:
@@ -3547,6 +3603,9 @@ def serialize_public_execution(panel_or_execution):
                     'gain_dps': gain, 'gain_percent': gain / baseline_dps * 100 if baseline_dps > 0 else None,
                     'comparison_mode': 'equipment_effect',
                 })
+                candidate_row['effect_validation'] = effect_validations[(row['task_id'], run['key'])]
+                if candidate_row['effect_validation'].get('status') == 'valid':
+                    candidate_row['effect_delta_percent'] = candidate_row['gain_percent']
             swaps = candidate['params'].get('gear_swaps')
             if swaps:
                 candidate_row['equipment_items'] = deepcopy(swaps)

@@ -1409,6 +1409,14 @@ class SimcMonitor(BaseScan):
                         == 'attribute_baseline_probe'
                     ),
                 )
+                if active_run is not None:
+                    from botend.services.simc_equipment_effect_validation import (
+                        is_equipment_effect_candidate, validate_equipment_effect_report,
+                    )
+                    if is_equipment_effect_candidate(active_run.candidate_params):
+                        semantic_validation['equipment_effect_validation'] = validate_equipment_effect_report(
+                            report_html, active_run.candidate_params,
+                        )
                 if not self._persist_claimed_semantic_validation(simc_task, semantic_validation):
                     return False
                 if not semantic_validation['valid']:
