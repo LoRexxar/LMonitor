@@ -317,9 +317,27 @@ class _Collection:
                 self._unresolved('conditional_effect_link', path, row=row, blockers=blockers)
                 continue
             self._effect(_integer(row.get('ItemEffectID'), 'ItemEffectID', minimum=1), path)
+        # Reports show triggered buffs/damage, not necessarily a driver row.
+        # Preserve the exact-build spell family without guessing by its name.
+        events = set()
+        spells = deque((effect['spell_id'], 0) for effect in self.effects.values())
+        while spells:
+            spell_id, depth = spells.popleft()
+            if spell_id in events:
+                continue
+            if depth > self.limits['max_depth']:
+                self._unresolved('spell_depth_limit', root_path, spell_id=spell_id)
+                continue
+            events.add(spell_id)
+            spell_rows = self._rows('SpellEffect', 'SpellID', spell_id, root_path)
+            for row in spell_rows or []:
+                trigger = _integer(row.get('EffectTriggerSpell'), 'EffectTriggerSpell')
+                if trigger and trigger not in events:
+                    spells.append((trigger, depth + 1))
         return {
             'schema_version': SCHEMA_VERSION, 'item_id': self.item_id, 'game_build': self.build,
             'required_bonus_ids': sorted(self.required),
+            'event_spell_ids': sorted(events),
             'effects': sorted(self.effects.values(), key=lambda e: (e['item_effect_id'], e.get('bonus_id', 0))),
             'source': {'provider': 'wago_db2', 'locale': self.locale,
                        'requests': self.requests, 'row_count': self.row_count,

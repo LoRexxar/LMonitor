@@ -218,6 +218,17 @@ class ItemEffectActivationTests(unittest.TestCase):
         self.assertEqual(result['required_bonus_ids'], [])
         self.assertTrue(any(p['reason'] == 'missing_item_effect' for p in result['unresolved_paths']))
 
+    def test_event_spell_ids_follow_only_exact_build_trigger_relations(self):
+        records = fixture()
+        records[('SpellEffect', 'SpellID', 50)] = [
+            {'ID': 100, 'SpellID': 50, 'EffectTriggerSpell': 51}]
+        records[('SpellEffect', 'SpellID', 51)] = [
+            {'ID': 101, 'SpellID': 51, 'EffectTriggerSpell': 52}]
+        records[('SpellEffect', 'SpellID', 52)] = [
+            {'ID': 102, 'SpellID': 52, 'EffectTriggerSpell': 0}]
+        result = self.collect(FakeSource(records))
+        self.assertEqual(result['event_spell_ids'], [50, 51, 52])
+
     def test_invalid_inputs_do_not_make_requests(self):
         for kwargs in ({'item_id': True, 'game_build': BUILD},
                        {'item_id': 10, 'game_build': '70077'},

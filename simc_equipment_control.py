@@ -11,6 +11,7 @@ from pathlib import Path
 from functools import lru_cache
 
 MARKER = '# lmonitor_equipment_control_v1='
+EXPECTATION_MARKER = '# lmonitor_equipment_expectation_v1='
 NATIVE_SLOTS = frozenset(('head', 'neck', 'shoulders', 'back', 'chest', 'wrists',
                    'hands', 'waist', 'legs', 'feet', 'finger1', 'finger2',
                    'main_hand', 'off_hand'))
@@ -66,7 +67,7 @@ def validate_effect_policy(params):
             raise ValueError('两件套规则无效')
 
 
-def mark_equipment_input(code, slots, *, control, rules):
+def mark_equipment_input(code, slots, *, control, rules, expectation=None):
     """冻结多件候选与服务端规则；两个模拟组都准备同一无美化背景。"""
     if (not isinstance(slots, list) or not slots or len(set(slots)) != len(slots)
             or any(slot not in SLOTS for slot in slots) or MARKER in code):
@@ -84,7 +85,11 @@ def mark_equipment_input(code, slots, *, control, rules):
         raise ValueError('装备组合缺少目标装备槽')
     payload = {'version': 2, 'items': originals, 'control': control, 'rules': rules}
     encoded = base64.urlsafe_b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()
-    return '\n'.join(lines) + '\n' + MARKER + encoded + '\n'
+    result = '\n'.join(lines) + '\n' + MARKER + encoded + '\n'
+    if expectation is not None:
+        validate_equipment_expectation(expectation, slots)
+        result += EXPECTATION_MARKER + base64.urlsafe_b64encode(json.dumps(expectation).encode()).decode() + '\n'
+    return result
 
 
 def control_key(candidate_key):
@@ -203,7 +208,13 @@ def prepare_control_input(code, binary, directory, *, execute=None):
         raise ValueError('装备特效对照标记重复')
     payload = json.loads(base64.urlsafe_b64decode(markers[0]).decode())
     if isinstance(payload, dict) and payload.get('version') == 2:
-        return _prepare_combination(code, payload, binary, directory, execute=execute)
+        expected = [line[len(EXPECTATION_MARKER):] for line in code.splitlines() if line.startswith(EXPECTATION_MARKER)]
+        if len(expected) > 1:
+            raise ValueError('装备激活期待标记重复')
+        expectation = json.loads(base64.urlsafe_b64decode(expected[0]).decode()) if expected else None
+        if expectation is not None:
+            validate_equipment_expectation(expectation, list(payload.get('items', {})))
+        return _prepare_combination(code, payload, binary, directory, execute=execute, expectation=expectation)
     if (not isinstance(payload, dict) or set(payload) != {'slot', 'value'}
             or payload['slot'] not in SLOTS or not isinstance(payload['value'], str)
             or '\n' in payload['value'] or '\r' in payload['value']):
@@ -312,7 +323,38 @@ def _require_target_effect(exports, slots, active_sets):
         raise ValueError(f'目标装备 {identities} 未加载原生有效自带特效或已核实套装效果，拒绝生成收益')
 
 
-def _prepare_combination(code, payload, binary, directory, *, execute):
+def validate_equipment_expectation(expectation, slots):
+    if (not isinstance(expectation, dict) or set(expectation) != {'schema_version', 'targets'}
+            or type(expectation.get('schema_version')) is not int or expectation['schema_version'] != 1
+            or not isinstance(expectation['targets'], list)
+            or not expectation['targets'] or len(expectation['targets']) > len(slots)):
+        raise ValueError('装备激活期待格式无效')
+    seen = set()
+    for row in expectation['targets']:
+        if (not isinstance(row, dict) or row.get('slot') not in slots or row['slot'] in seen
+                or type(row.get('item_id')) is not int or row['item_id'] <= 0
+                or not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', str(row.get('game_build', '')))
+                or not re.fullmatch(r'[0-9a-f]{64}', str(row.get('fact_hash', '')))):
+            raise ValueError('装备激活期待身份无效')
+        seen.add(row['slot'])
+        for key in ('required_bonus_ids', 'driver_spell_ids', 'event_spell_ids'):
+            values = row.get(key)
+            if not isinstance(values, list) or any(type(value) is not int or value <= 0 for value in values):
+                raise ValueError('装备激活期待 ID 无效')
+
+
+def _require_declared_effects(exports, expectation):
+    for row in (expectation or {}).get('targets', []):
+        item = exports[row['slot']]
+        drivers = {driver for _, driver in _item_effects(item)}
+        bonuses = {int(value) for value in re.findall(r'\d+', item['options'].get('bonus_id', ''))}
+        if (int(item['options'].get('id', '0')) != row['item_id']
+                or not set(row['required_bonus_ids']).issubset(bonuses)
+                or not set(row['driver_spell_ids']).issubset(drivers)):
+            raise ValueError(f'目标装备 {row["slot"]} 未加载中央预期特效，拒绝生成收益')
+
+
+def _prepare_combination(code, payload, binary, directory, *, execute, expectation=None):
     """先清理背景美化，再生成候选组；逐部位核验后才执行战斗。"""
     items, rules = payload.get('items'), payload.get('rules')
     if (set(payload) != {'version', 'items', 'control', 'rules'} or not isinstance(items, dict)
@@ -361,6 +403,7 @@ def _prepare_combination(code, payload, binary, directory, *, execute):
         return {slot: parse_equipment_export(profile, log, slot) for slot in indexes}, _native_sets(log)
 
     original, original_sets = probe(lines, 'original')
+    _require_declared_effects(original, expectation)
     counts = {slot: embellishment_count(item, rules) for slot, item in original.items()}
     if sum(counts[slot] for slot in items) > 2:
         raise ValueError('候选组合超过两件美化或在同一装备上叠加了多个美化')
@@ -404,6 +447,7 @@ def _prepare_combination(code, payload, binary, directory, *, execute):
     # normal and disappear when the target is stripped, tying it to this candidate.
     target_sets = _target_sets(normal, items, rules, normal_sets) & (normal_sets - control_sets)
     _require_target_effect(normal, items, target_sets)
+    _require_declared_effects(normal, expectation)
     for prepared, removed in ((normal, background), (control, background | set(items))):
         for slot, before in original.items():
             for field in ('stats', 'weapon', 'attachments'):

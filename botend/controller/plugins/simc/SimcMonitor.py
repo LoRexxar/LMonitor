@@ -489,6 +489,8 @@ class SimcMonitor(BaseScan):
             validate_effect_policy(params)
             request_data['_equipment_effect_policy'] = params['equipment_effect_policy']
             request_data['_equipment_effect_control'] = params.get('equipment_effect_control') is True
+            if params.get('equipment_effect_expectation') is not None:
+                request_data['_equipment_effect_expectation'] = params['equipment_effect_expectation']
         if 'equipment_effect_control' in params:
             from simc_equipment_control import SLOTS, ALIASES
             from simc_equipment_control import candidate_swaps

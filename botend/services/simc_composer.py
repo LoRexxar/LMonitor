@@ -398,6 +398,7 @@ class SimcComposer:
             final_content = mark_equipment_input(
                 final_content, policy['target_slots'],
                 control=request_data['_equipment_effect_control'], rules=policy['rules'],
+                expectation=request_data.get('_equipment_effect_expectation'),
             )
         elif request_data.get('_equipment_effect_control_slot'):
             from simc_equipment_control import mark_control_input

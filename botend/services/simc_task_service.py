@@ -166,6 +166,7 @@ CANDIDATE_PARAMS_WHITELIST = {
     'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
     'simc_options', 'equipment_preset', 'option_value', 'enabled',
     'equipment_effect_control', 'effect_baseline_key', 'equipment_effect_policy',
+    'equipment_effect_expectation',
     'simulation_params',
 }
 
@@ -395,6 +396,13 @@ def _normalize_candidates(candidates, round_number=1):
             from simc_equipment_control import validate_effect_policy
             try:
                 validate_effect_policy(params)
+            except ValueError as exc:
+                raise TaskCreationError(str(exc)) from exc
+        if 'equipment_effect_expectation' in params:
+            from simc_equipment_control import validate_equipment_expectation, candidate_swaps, ALIASES
+            try:
+                validate_equipment_expectation(params['equipment_effect_expectation'],
+                    [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in candidate_swaps(params)])
             except ValueError as exc:
                 raise TaskCreationError(str(exc)) from exc
         if 'equipment_preset' in params:

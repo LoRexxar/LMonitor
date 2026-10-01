@@ -366,6 +366,32 @@ def _normalize_item_options(raw_value):
             _error(f'装备候选包含不允许的选项: {key.strip()}', 'params')
 
 
+def _preserve_declared_gear_bonus(raw_value, declared):
+    """Make canonical bonus metadata executable, never silently discard it."""
+    if isinstance(declared, str):
+        if not re.fullmatch(r'[1-9]\d*(?:[/:][1-9]\d*)*', declared):
+            _error('装备 bonus_id 必须是正整数或原生 /: 分隔的正整数列表', 'params')
+        values = [int(value) for value in re.split(r'[/:]', declared)]
+        encoded = declared
+    elif type(declared) is int:
+        values, encoded = [declared], str(declared)
+    elif isinstance(declared, list):
+        values = declared
+        encoded = '/'.join(str(value) for value in values)
+    else:
+        _error('装备 bonus_id 类型无效', 'params')
+    if any(type(value) is not int or value <= 0 for value in values) or len(values) != len(set(values)):
+        _error('装备 bonus_id 包含无效或重复身份', 'params')
+    inline = re.findall(r'(?:^|,)\s*bonus_id=([^,]+)', raw_value, re.I)
+    if inline:
+        if len(inline) != 1 or not re.fullmatch(r'[1-9]\d*(?:[/:][1-9]\d*)*', inline[0]):
+            _error('装备行 bonus_id 无效', 'params')
+        if set(map(int, re.split(r'[/:]', inline[0]))) != set(values):
+            _error('装备行与 canonical bonus_id 冲突', 'params')
+        return raw_value
+    return raw_value + (f',bonus_id={encoded}' if values else '')
+
+
 def _item_requires_ptr(item_id):
     """Read the central item fact used to select SimC's PTR database."""
     item = WowItemSnapshot.objects.filter(item_id=item_id).values('source', 'metadata').first()
@@ -419,6 +445,8 @@ def _normalize_candidate_params(candidate_type, params):
             _error('装备组合内容过长', 'params')
         return result
 
+    declared_bonus = None
+    has_declared_bonus = False
     if isinstance(params, str):
         if '\n' in params or '\r' in params:
             _error('装备候选不允许换行', 'params')
@@ -445,6 +473,8 @@ def _normalize_candidate_params(candidate_type, params):
             if set(swap) - {'slot', 'raw_value', 'item_id', 'source', 'bonus_id', 'is_ptr'}:
                 _error('gear_swap 包含未知字段', 'params')
             slot, raw_value = swap.get('slot'), swap.get('raw_value')
+            has_declared_bonus = 'bonus_id' in swap
+            declared_bonus = swap.get('bonus_id')
         else:
             unknown = set(params) - {
                 'slot', 'raw_value', 'simc_options', 'benchmark_profile',
@@ -464,6 +494,10 @@ def _normalize_candidate_params(candidate_type, params):
         normalized = normalize_gear_candidate_value(canonical_slot, raw_value)
     except ValueError as exc:
         _error(str(exc), 'params')
+    if has_declared_bonus:
+        normalized = _preserve_declared_gear_bonus(normalized, declared_bonus)
+        if len(normalized) > MAX_GEAR_RAW_VALUE_CHARS:
+            _error('装备 bonus_id 使装备行过长', 'params')
     _normalize_item_options(normalized)
     item_match = re.search(r'(?:^|,)\s*id=(\d+)(?:,|$)', normalized, re.IGNORECASE)
     if item_match is None:  # Defensive invariant behind normalize_gear_candidate_value.
@@ -1042,6 +1076,9 @@ def _freeze_equipment_rules():
 
 def _freeze_case_candidates(spec_key, applicable, rules=None):
     from simc_equipment_control import SLOTS, ALIASES, candidate_swaps, control_key
+    from botend.services.wow_item_effect_activation_store import (
+        item_activation_facts, freeze_equipment_activation,
+    )
 
     trinkets = [item for item in applicable
                 if item.params.get('gear_swap', {}).get('slot') in ('trinket1', 'trinket2')]
@@ -1058,6 +1095,11 @@ def _freeze_case_candidates(spec_key, applicable, rules=None):
         'candidate_type': 'base', 'icon_url': '', 'source_label': '',
     }
     candidates = [_candidate_snapshot(item) for item in applicable]
+    activation_facts = item_activation_facts([
+        swap.get('item_id') for candidate in candidates
+        for swap in candidate_swaps(candidate['candidate_params'])
+        if swap.get('item_id')
+    ])
     preset = _freeze_trinket_benchmark_preset(spec_key, marked[0]) if marked else None
     if preset:
         baseline['candidate_params']['equipment_preset'] = deepcopy(preset)
@@ -1076,6 +1118,8 @@ def _freeze_case_candidates(spec_key, applicable, rules=None):
             continue
         if not slots or any(slot not in SLOTS for slot in slots) or len(set(slots)) != len(slots):
             _error('装备组合槽位不支持同属性特效对照')
+        params = freeze_equipment_activation(params, activation_facts)
+        candidate['candidate_params'] = params
         params['equipment_effect_policy'] = {'version': 2, 'target_slots': slots, 'rules': deepcopy(rules)}
         key = control_key(candidate['candidate_key'])
         if any(row['candidate_key'] == key for row in candidates):
