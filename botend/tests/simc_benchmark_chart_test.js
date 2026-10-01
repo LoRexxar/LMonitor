@@ -50,4 +50,46 @@ for (const values of [[83956.8,87286.5,84514.5,87883.8],[90,80,95,85],[90,120,80
 const rows = candidates([120,140,160,180]).map((candidate,i)=>({candidate, coordinate:{},
   dps:candidate.dps, baseline_dps:[100,100,200,140][i]}));
 checkNoOverlap(descendants(dashboard(rows), 'benchmark-gear-segment'));
-console.log('通过：公开页装等倒挂，以及后台正负收益和独立对照基准的色条均不反向覆盖。');
+// 特效排名必须按独立无特效对照的收益，而非总 DPS；同装备也选最高收益装等。
+const effectCandidates = [
+  {key:'a-321', item_id:1, label:'A', item_level:321, dps:240, baseline_dps:200},
+  {key:'a-340', item_id:1, label:'A', item_level:340, dps:230, baseline_dps:190},
+  {key:'b-340', item_id:2, label:'B', item_level:340, dps:160, baseline_dps:100},
+  {key:'c-340', item_id:3, label:'C', item_level:340, dps:90, baseline_dps:100},
+  {key:'d-340', item_id:4, label:'D', item_level:340, dps:97, baseline_dps:100},
+  {key:'e-340', item_id:5, label:'E', item_level:340, dps:300, baseline_dps:0},
+].map(candidate=>({...candidate, comparison_mode:'equipment_effect'}));
+const effectChart = portal(effectCandidates, {dps:100}, {lowest:90,highest:300,range:210});
+assert.deepEqual(descendants(effectChart,'simc-benchmark-gear-name').map(n=>n.textContent), ['B','A','D','C','E']);
+const metrics = descendants(effectChart,'simc-benchmark-candidate-value').map(n=>n.textContent);
+assert.match(metrics[0], /\+60\.00%.*特效提升/);
+assert.match(metrics[1], /\+21\.05%.*特效提升/);
+assert.match(metrics[2], /-3\.00%/);
+assert.match(metrics[3], /-10\.00%/);
+assert.match(metrics[4], /无特效对照/);
+const effectRows = descendants(effectChart,'simc-benchmark-gear-row');
+const rowAText = descendants(effectRows[1],'simc-benchmark-relative').map(n=>n.textContent).join(' ');
+assert.match(rowAText, /230/); assert.match(rowAText, /340/);
+const endpoints = descendants(effectChart,'simc-benchmark-gear-segment');
+assert.match(endpoints[0].attributes['aria-label'], /特效提升/);
+// 60% 是最长正向色条；零点来自 -10%~60% 的实际收益范围，不是 90~300 DPS。
+assert.ok(Math.abs(parseFloat(endpoints[0].style.left) - 100*10/70) < 1e-8);
+assert.ok(Math.abs(parseFloat(endpoints[0].style.width) - 100*60/70) < 1e-8);
+assert.equal(descendants(effectRows[4],'simc-benchmark-gear-segment').length,0);
+checkNoOverlap(descendants(effectRows[1],'simc-benchmark-gear-segment'));
+for(const values of [[100,100],[95,90],[110,90]]){
+ const variants=candidates(values).map(c=>({...c,baseline_dps:100,comparison_mode:'equipment_effect'}));
+ const chart=portal(variants,{dps:100},{lowest:0,highest:1,range:1});
+ for(const segment of descendants(chart,'simc-benchmark-gear-segment')){
+  assert.ok(Number.isFinite(parseFloat(segment.style.left)));
+  assert.ok(Number.isFinite(parseFloat(segment.style.width)));
+ }
+}
+const backendRows=effectCandidates.map(candidate=>({candidate,coordinate:{},dps:candidate.dps,baseline_dps:candidate.baseline_dps}));
+const backendChart=dashboard(backendRows);
+const backendNames=descendants(backendChart,'benchmark-gear-identity-text').map(n=>n.children[0].textContent);
+assert.deepEqual(backendNames,['B','A','D','C','E']);
+assert.match(descendants(backendChart,'benchmark-aggregate-dps')[0].textContent,/\+60\.00%.*特效提升/);
+assert.match(descendants(backendChart,'benchmark-aggregate-delta')[1].textContent,/230/);
+assert.equal(descendants(descendants(backendChart,'benchmark-gear-row')[4],'benchmark-gear-segment').length,0);
+console.log('通过：特效百分比排序/绘图、最高收益装等、负收益及缺失对照；普通DPS图表保持原有语义。');

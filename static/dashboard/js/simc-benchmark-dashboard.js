@@ -84,7 +84,8 @@ function renderAggregatedResults(aggregate,compact=false){
   const heading=el('div',{class:'benchmark-aggregate-heading'});
   heading.append(el('strong',{},'模拟结果'),badge(`${coordinates.length} 个坐标`,'good'));
   host.append(heading);
-  host.append(el('div',{class:'benchmark-aggregate-summary'},'页面打开时，按已完成模拟的不可变结果即时生成；不创建额外模拟或聚合任务。选择专精、战斗场景与 Profile 后，列表按候选饰品 DPS 排名。'));
+  const effectComparison=coordinates.some(coordinate=>(coordinate.candidates||[]).some(candidate=>candidate.comparison_mode==='equipment_effect'));
+  host.append(el('div',{class:'benchmark-aggregate-summary'},effectComparison?'按装备特效提升百分比排名；对照为同装备同属性、仅关闭特效。每件装备展示特效提升最高的装等，总 DPS 仅作辅助信息。':'页面打开时，按已完成模拟的不可变结果即时生成；不创建额外模拟或聚合任务。选择专精、战斗场景与 Profile 后，列表按候选装备总 DPS 排名。'));
   const dimensions=[['spec_key','spec','专精'],['scenario_key','scenario','战斗场景'],['profile_key','profile','Profile']];
   const selectedCoordinates={};
   const filters=el('div',{class:'benchmark-aggregate-filters'});
@@ -126,6 +127,7 @@ function candidateGearLabel(candidate){
   return label.endsWith(suffix)?label.slice(0,-suffix.length):label;
 }
 function groupGearResultRows(rows){
+  const effectComparison=rows.some(row=>row.candidate?.comparison_mode==='equipment_effect');
   const groups=new Map();
   rows.forEach(row=>{
     const candidate=row.candidate||{},coordinate=row.coordinate||{},label=candidateGearLabel(candidate),itemId=Number(candidate.item_id);
@@ -133,14 +135,17 @@ function groupGearResultRows(rows){
     const variantIdentity=candidate.equipment_group_key||candidate.item_variant_key||label;
     const key=[coordinate.spec_key,coordinate.scenario_key,coordinate.profile_key,itemIdentity,variantIdentity].join('|');
     if(!groups.has(key))groups.set(key,{key,label,icon_url:candidate.icon_url||'',coordinate,variants:[]});
-    const deltaPercent=Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(row.dps-row.baseline_dps)*100/row.baseline_dps:null;
+    const deltaPercent=(!effectComparison||candidate.comparison_mode==='equipment_effect')&&Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(row.dps-row.baseline_dps)*100/row.baseline_dps:null;
     groups.get(key).variants.push({...row,item_level:Number(candidate.item_level),delta_percent:deltaPercent});
   });
   return Array.from(groups.values()).map(group=>{
     group.variants.sort((left,right)=>(Number.isFinite(left.item_level)?left.item_level:Number.MAX_SAFE_INTEGER)-(Number.isFinite(right.item_level)?right.item_level:Number.MAX_SAFE_INTEGER)||left.dps-right.dps);
-    group.best_dps=Math.max(...group.variants.map(variant=>variant.dps));
+    group.effect_comparison=effectComparison;
+    const score=variant=>effectComparison?(variant.delta_percent??-Infinity):variant.dps;
+    group.best=group.variants.reduce((winner,variant)=>score(variant)>score(winner)?variant:winner,group.variants[0]);
+    group.best_value=score(group.best);
     return group;
-  }).sort((left,right)=>right.best_dps-left.best_dps);
+  }).sort((left,right)=>right.best_value-left.best_value);
 }
 function buildItemLevelColorMap(groups){
   const palette=['#4e79a7','#f28e2b','#59a14f','#e15759','#b07aa1','#76b7b2','#edc948','#ff9da7','#9c755f','#bab0ac'];
@@ -167,7 +172,7 @@ function renderGearResultChart(rows){
     // 正负收益分别从零点向外排列，不能假定装等或总 DPS 与相对收益同步递增。
     const endpointOf=variant=>Number.isFinite(variant.delta_percent)?variant.delta_percent:0;
     const previous={positive:0,negative:0};
-    const plotVariants=group.variants.slice().sort((left,right)=>Math.abs(endpointOf(left))-Math.abs(endpointOf(right)));
+    const plotVariants=group.variants.filter(variant=>!group.effect_comparison||Number.isFinite(variant.delta_percent)).sort((left,right)=>Math.abs(endpointOf(left))-Math.abs(endpointOf(right)));
     plotVariants.forEach(variant=>{
       const endpoint=endpointOf(variant),side=endpoint<0?'negative':'positive',startPosition=position(previous[side]),endPosition=position(endpoint);
       const itemLevel=Number.isFinite(variant.item_level)&&variant.item_level>0?variant.item_level:null;
@@ -179,8 +184,12 @@ function renderGearResultChart(rows){
       segment.addEventListener('pointerenter',showComparison);segment.addEventListener('pointermove',moveTooltip);segment.addEventListener('pointerleave',hideComparison);segment.addEventListener('focus',showComparison);segment.addEventListener('blur',hideComparison);
       plot.append(segment);previous[side]=endpoint;
     });
-    const best=group.variants.reduce((winner,variant)=>variant.dps>winner.dps?variant:winner,group.variants[0]),result=el('div',{class:'benchmark-aggregate-result'});
-    result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(best.dps)),el('span',{class:`benchmark-aggregate-delta ${best.delta_percent<0?'negative':'positive'}`},Number.isFinite(best.delta_percent)?`最高 ${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(1)}%`:'无基准对比'));
+    const best=group.best,result=el('div',{class:'benchmark-aggregate-result'});
+    if(group.effect_comparison){
+      result.append(el('strong',{class:'benchmark-aggregate-dps'},Number.isFinite(best.delta_percent)?`${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(2)}% 特效提升`:'无特效对照'),el('span',{class:'benchmark-aggregate-delta'},`${best.item_level} 装等 · ${formatDps(best.dps)} 总DPS`),el('small',{},'对照：本装备同属性、仅关闭特效'));
+    }else{
+      result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(best.dps)),el('span',{class:`benchmark-aggregate-delta ${best.delta_percent<0?'negative':'positive'}`},Number.isFinite(best.delta_percent)?`最高 ${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(1)}%`:'无基准对比'));
+    }
     row.append(identity,plot,result);body.append(row);
   });
   chart.append(body);return chart;
