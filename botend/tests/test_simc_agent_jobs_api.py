@@ -916,6 +916,80 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(response.status_code, 503, response.content)
         self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'running')
 
+    def test_completion_parses_reports_without_holding_control_plane_locks(self):
+        from django.db import connection
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+
+        job = self.claim_after_task()
+        SimulationRun.objects.filter(pk=job['run_id']).update(
+            candidate_params={'equipment_effect_control': True},
+        )
+        depth = len(connection.atomic_blocks)
+        semantic = SimcMonitor.validate_simulation_semantics
+        observed = []
+
+        def check_semantic(*args, **kwargs):
+            self.assertEqual(len(connection.atomic_blocks), depth)
+            observed.append('semantic')
+            return semantic(*args, **kwargs)
+
+        def check_equipment(*args, **kwargs):
+            self.assertEqual(len(connection.atomic_blocks), depth)
+            observed.append('equipment')
+            return validate_equipment_effect_report(*args, **kwargs)
+
+        with patch.object(SimcMonitor, 'validate_simulation_semantics', side_effect=check_semantic), patch(
+            'botend.services.simc_equipment_effect_validation.validate_equipment_effect_report',
+            side_effect=check_equipment,
+        ):
+            response = self.complete(job)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(observed, ['semantic', 'equipment'])
+        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'completed')
+
+    def test_completion_rechecks_cancellation_after_report_validation(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+
+        job = self.claim_after_task()
+        task = SimcTask.objects.get(pk=job['task_id'])
+        owner, _ = get_user_model().objects.get_or_create(
+            pk=task.user_id, defaults={'username': 'cancel-during-validation'},
+        )
+        case = self.benchmark_task(task, 'cancel-during-validation')
+        semantic = SimcMonitor.validate_simulation_semantics
+
+        def validate_then_cancel(*args, **kwargs):
+            result = semantic(*args, **kwargs)
+            cancel_execution(case.execution, requested_by=owner)
+            return result
+
+        with patch.object(SimcMonitor, 'validate_simulation_semantics', side_effect=validate_then_cancel):
+            response = self.complete(job)
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json()['code'], 'run_cancelled')
+        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'cancelled')
+        self.assertFalse(SimcTaskArtifact.objects.filter(run_id=job['run_id']).exists())
+
+    def test_completion_rechecks_lease_expiry_after_report_validation(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+
+        job = self.claim_after_task()
+        semantic = SimcMonitor.validate_simulation_semantics
+
+        def validate_then_expire(*args, **kwargs):
+            result = semantic(*args, **kwargs)
+            SimulationRun.objects.filter(pk=job['run_id']).update(
+                lease_expires_at=timezone.now() - timedelta(seconds=1),
+            )
+            return result
+
+        with patch.object(SimcMonitor, 'validate_simulation_semantics', side_effect=validate_then_expire):
+            response = self.complete(job)
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'running')
+        self.assertFalse(SimcTaskArtifact.objects.filter(run_id=job['run_id']).exists())
+
     def test_completion_rechecks_expiry_after_locked_agent_authentication(self):
         from botend.services.simc_run_control import authenticate_bearer as real_authenticate
 

@@ -1242,7 +1242,8 @@ class SimcAgentConsumer:
 
     def _lease_heartbeat_loop(self, job: dict[str, Any], stopped: threading.Event,
                               lease_lost: threading.Event,
-                              process: subprocess.Popen[Any], deadline: float) -> None:
+                              process: subprocess.Popen[Any], deadline: float,
+                              on_renew=None) -> None:
         interval = max(1.0, min(self.heartbeat_interval, self.lease_seconds / 3))
         delay = min(interval, max(0.0, deadline - time.monotonic()))
         while not stopped.wait(delay):
@@ -1259,6 +1260,8 @@ class SimcAgentConsumer:
                 if not response:
                     raise APIError('lease heartbeat returned an empty response')
                 deadline = self._lease_deadline(response.get('lease_expires_at'))
+                if on_renew is not None:
+                    on_renew(deadline)
                 delay = min(interval, max(0.0, deadline - time.monotonic()))
             except Exception as exc:
                 if isinstance(exc, APIError) and exc.status in (403, 404, 409):
@@ -1596,15 +1599,48 @@ class SimcAgentConsumer:
                 if '# lmonitor_equipment_control_v1=' in input_text:
                     from simc_equipment_control import prepare_control_input, extract_native_proof, native_proof_marker
                     deadline = time.monotonic() + timeout
+                    lease_lock = threading.Lock()
+
+                    def record_probe_lease(confirmed_deadline):
+                        nonlocal lease_deadline
+                        # A late response from the preceding probe must not
+                        # overwrite a newer confirmed renewal.
+                        with lease_lock:
+                            lease_deadline = max(lease_deadline, confirmed_deadline)
+
+                    def probe_budget():
+                        with lease_lock:
+                            return min(lease_deadline, deadline) - time.monotonic()
 
                     def renew_probe_lease():
-                        nonlocal lease_deadline
-                        response = self.transport.json(
-                            path=f'/api/simc-agent/v1/jobs/{run_id}/heartbeat/',
-                            payload={'lease_token': lease_token, 'instance_id': self.instance_id},
-                            authorization=self.authorization,
-                        )
-                        lease_deadline = self._lease_deadline(response.get('lease_expires_at'))
+                        while not lease_lost.is_set():
+                            if probe_budget() <= 0:
+                                break
+                            try:
+                                response = self.transport.json(
+                                    path=f'/api/simc-agent/v1/jobs/{run_id}/heartbeat/',
+                                    payload={'lease_token': lease_token, 'instance_id': self.instance_id},
+                                    authorization=self.authorization,
+                                )
+                                if not response:
+                                    raise APIError('lease heartbeat returned an empty response')
+                                record_probe_lease(self._lease_deadline(response.get('lease_expires_at')))
+                            except Exception as exc:
+                                if isinstance(exc, APIError) and exc.status in (403, 404, 409):
+                                    lease_lost.set()
+                                    raise
+                                if not _is_transient_control_plane_error(exc):
+                                    raise
+                                remaining = probe_budget()
+                                if remaining <= 0:
+                                    break
+                                time.sleep(min(1.0, remaining))
+                                continue
+                            if not lease_lost.is_set() and probe_budget() > 0:
+                                return
+                            break
+                        lease_lost.set()
+                        raise APIError('装备对照初始化期间任务租约失效或任务时限耗尽')
 
                     def execute_probe(command):
                         renew_probe_lease()
@@ -1614,6 +1650,7 @@ class SimcAgentConsumer:
                         thread = threading.Thread(
                             target=self._lease_heartbeat_loop,
                             args=(job, stopped, lease_lost, probe, lease_deadline), daemon=True,
+                            kwargs={'on_renew': record_probe_lease},
                         )
                         thread.start()
                         try:

@@ -625,6 +625,7 @@ def complete_run(run_id, metadata, authorization):
 
     report = metadata['report']
     report_html = ''
+    summary = {}
     if status == 'completed':
         from botend.services.simc_agent_oss import (
             ReportStorageError, ReportValidationError, download_report_html,
@@ -649,6 +650,33 @@ def complete_run(run_id, metadata, authorization):
             raise AgentAPIError(str(exc), 422) from exc
         except ReportStorageError as exc:
             raise AgentAPIError(str(exc), 503) from exc
+
+        # Frozen input/report analysis is CPU-heavy. Do not hold Task/Run/Agent
+        # locks while parsing: sibling upload tickets and lease heartbeats use
+        # those same locks. Revalidate ownership, cancellation and lease below
+        # before persisting any summary or artifact.
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        summary = SimcMonitor.validate_simulation_semantics(
+            metadata['stdout'],
+            report_html=report_html,
+            extract_gear_ratings=(
+                isinstance(run_for_key.candidate_params, dict)
+                and run_for_key.candidate_params.get('candidate_type')
+                == 'attribute_baseline_probe'
+            ),
+        )
+        from botend.services.simc_equipment_effect_validation import (
+            is_equipment_effect_candidate, validate_equipment_effect_report,
+        )
+        if is_equipment_effect_candidate(run_for_key.candidate_params):
+            from simc_equipment_control import extract_native_proof
+            try:
+                native_proof = extract_native_proof(metadata['stdout'])
+            except ValueError:
+                native_proof = {}  # Malformed evidence is invalid, not absent.
+            summary['equipment_effect_validation'] = validate_equipment_effect_report(
+                report_html, run_for_key.candidate_params, native_proof=native_proof,
+            )
 
     with transaction.atomic():
         try:
@@ -684,30 +712,8 @@ def complete_run(run_id, metadata, authorization):
             raise AgentAPIError('Run is not running', 409)
 
         if status == 'completed':
-            from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-            summary = SimcMonitor.validate_simulation_semantics(
-                metadata['stdout'],
-                report_html=report_html,
-                extract_gear_ratings=(
-                    isinstance(run.candidate_params, dict)
-                    and run.candidate_params.get('candidate_type')
-                    == 'attribute_baseline_probe'
-                ),
-            )
             if summary.get('dps') is None or not re.search(r'\bDPS=', metadata['stdout']):
                 raise AgentAPIError('SimC result does not contain DPS')
-            from botend.services.simc_equipment_effect_validation import (
-                is_equipment_effect_candidate, validate_equipment_effect_report,
-            )
-            if is_equipment_effect_candidate(run.candidate_params):
-                from simc_equipment_control import extract_native_proof
-                try:
-                    native_proof = extract_native_proof(metadata['stdout'])
-                except ValueError:
-                    native_proof = {}  # Malformed evidence is invalid, not absent.
-                summary['equipment_effect_validation'] = validate_equipment_effect_report(
-                    report_html, run.candidate_params, native_proof=native_proof,
-                )
             SimcTaskArtifact.objects.update_or_create(
                 task=task, run=run, artifact_type='html_report',
                 defaults={

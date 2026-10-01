@@ -145,27 +145,107 @@ class EquipmentControlInputTests(UnitTestCase):
                 prepare_control_input(code, 'simc', directory, execute=execute)
 
     def test_agent_prepares_control_before_actual_simulation_and_renews_lease(self):
+        self._run_agent_control()
+
+    def test_agent_probe_renewal_transient_errors_recover_at_all_three_boundaries(self):
+        from simc_agent_consumer import APIError
+        for boundary in range(3):
+            for status in (None, 503):
+                with self.subTest(boundary=boundary, status=status):
+                    success = {'lease_expires_at': '2999-01-01T00:00:00+00:00'}
+                    responses = [success] * boundary + [APIError('read timeout', status)] + [success] * (3 - boundary)
+                    self._run_agent_control(responses=responses, heartbeat_count=4)
+
+    def test_agent_probe_renewal_fencing_never_completes(self):
+        from simc_agent_consumer import APIError
+        for boundary in range(3):
+            for status in (403, 404, 409):
+                with self.subTest(boundary=boundary, status=status):
+                    success = {'lease_expires_at': '2999-01-01T00:00:00+00:00'}
+                    self._run_agent_control(responses=[success] * boundary + [APIError('fenced', status)],
+                                            expected=None, probes=boundary)
+
+    def test_agent_probe_renewal_exhausts_lease_or_job_budget(self):
+        from simc_agent_consumer import APIError
+        from datetime import datetime, timezone
+        for lease_seconds, job_seconds in ((2, 120), (120, 2)):
+            with self.subTest(lease_seconds=lease_seconds, job_seconds=job_seconds):
+                clock = [1000.0]
+                def sleep(seconds):
+                    clock[0] += seconds
+                expiry = datetime.fromtimestamp(1000 + lease_seconds, timezone.utc).isoformat()
+                with patch('simc_agent_consumer.time.monotonic', side_effect=lambda: clock[0]), \
+                     patch('simc_agent_consumer.time.time', side_effect=lambda: clock[0]), \
+                     patch('simc_agent_consumer.time.sleep', side_effect=sleep):
+                    consumer = self._run_agent_control(responses=APIError('offline', 503), expected=None,
+                                                      probes=0, expiry=expiry, job_seconds=job_seconds)
+                self.assertEqual(clock[0], 1002)
+                self.assertEqual(consumer.transport.json.call_count, 2)
+
+    def test_agent_real_equipment_validation_failure_still_completes_failed(self):
+        self._run_agent_control(expected='failed', probes=2, stat_drift=True)
+
+    def test_agent_background_probe_renewal_updates_synchronous_retry_budget(self):
+        from simc_agent_consumer import APIError
+        from datetime import datetime, timezone
+        import threading
+        clock = [1000.0]
+        renewed = threading.Event()
+        def response_at(timestamp):
+            return {'lease_expires_at': datetime.fromtimestamp(timestamp, timezone.utc).isoformat()}
+        responses = iter([response_at(1002), response_at(1100), APIError('timeout'),
+                          response_at(1100), response_at(1100)])
+        def respond(**kwargs):
+            response = next(responses)
+            if threading.current_thread() is not threading.main_thread():
+                renewed.set()
+            if isinstance(response, Exception):
+                raise response
+            return response
+        def first_probe_wait():
+            self.assertTrue(renewed.wait(3), 'real background heartbeat did not run')
+            clock[0] = 1003.0  # Initial lease expired, renewed lease still valid.
+            return b'', b''
+        def sleep(seconds):
+            clock[0] += seconds
+        with patch('simc_agent_consumer.time.monotonic', side_effect=lambda: clock[0]), \
+             patch('simc_agent_consumer.time.time', side_effect=lambda: clock[0]), \
+             patch('simc_agent_consumer.time.sleep', side_effect=sleep):
+            self._run_agent_control(responses=respond, heartbeat_count=5,
+                                    expiry=response_at(1002)['lease_expires_at'],
+                                    first_probe_wait=first_probe_wait)
+
+    def _run_agent_control(self, *, responses=None, heartbeat_count=3, expected='completed',
+                           probes=2, expiry='2999-01-01T00:00:00+00:00', job_seconds=120,
+                           stat_drift=False, first_probe_wait=None):
         from simc_agent_consumer import SimcAgentConsumer
         consumer = object.__new__(SimcAgentConsumer)
         consumer.config = SimpleNamespace(simc_path='simc', max_run_seconds=120)
         consumer.instance_id, consumer.agent_token = 'test', 'token'
         consumer.transport = Mock()
         consumer.transport.json.return_value = {'lease_expires_at': '2999-01-01T00:00:00+00:00'}
-        consumer._lease_heartbeat_loop = Mock()
+        consumer.transport.json.side_effect = responses
+        consumer.heartbeat_interval = consumer.lease_seconds = 120
+        if first_probe_wait is not None:
+            consumer.heartbeat_interval = 1
         consumer._complete = Mock()
         code = mark_equipment_input('warrior=x\nfinger1=id=123\nhtml=simc_task_1_run_1.html\n',
                                     ['finger1'], control=True, rules=equipment_rules())
-        executions = []
+        executions, probe_executions = [], []
         def popen(command, **kwargs):
             process = Mock(returncode=0)
             process.poll.return_value = 0
             process.communicate.return_value = (b'', b'')
             options = dict(part.split('=', 1) for part in command[2:])
             if 'save' in options:
+                probe_executions.append(command)
+                if len(probe_executions) == 1 and first_probe_wait is not None:
+                    process.communicate.side_effect = lambda **kwargs: first_probe_wait()
                 target = next(line for line in Path(command[1]).read_text().splitlines() if line.startswith('finger1='))
                 effect = ' effect={ fixture_effect type=equip source=item driver=99999 }' if 'id=123' in target else ''
                 Path(options['save']).write_text(target + '\n# ilevel=289,quality=epic,stats=100haste\n')
-                Path(options['output']).write_text('0.000 name=x slot=finger1 stats={ +100 Haste } source=Local' + effect)
+                amount = 101 if stat_drift and len(probe_executions) == 2 else 100
+                Path(options['output']).write_text(f'0.000 name=x slot=finger1 stats={{ +{amount} Haste }} source=Local' + effect)
             else:
                 executions.append((Path(kwargs['cwd']) / command[1]).read_text())
                 (Path(kwargs['cwd']) / 'simc_task_1_run_1.html').write_text('<html>结果</html>')
@@ -174,15 +254,28 @@ class EquipmentControlInputTests(UnitTestCase):
             consumer.execute_job({
                 'run_id': 1, 'lease_token': 'test', 'input': code,
                 'input_hash': hashlib.sha256(code.encode()).hexdigest(),
-                'output_filename': 'simc_task_1_run_1.html', 'timeout_seconds': 120,
-                'lease_expires_at': '2999-01-01T00:00:00+00:00',
+                'output_filename': 'simc_task_1_run_1.html', 'timeout_seconds': job_seconds,
+                'lease_expires_at': expiry,
             })
+        self.assertEqual(len(probe_executions), probes)
+        if expected is None:
+            consumer._complete.assert_not_called()
+            self.assertEqual(executions, [])
+            return consumer
+        self.assertEqual(consumer._complete.call_count, 1)
+        self.assertEqual(consumer._complete.call_args.args[3], expected)
+        if expected == 'failed':
+            self.assertEqual(executions, [])
+            self.assertIn('不一致', consumer._complete.call_args.args[5])
+            return consumer
         self.assertEqual(len(executions), 1)
         self.assertIn('finger1=lmonitor_effect_control,', executions[0])
-        self.assertNotIn('id=123', executions[0])
+        executable_input = '\n'.join(line for line in executions[0].splitlines() if not line.startswith('#'))
+        self.assertNotIn('id=123', executable_input)
         self.assertNotIn(MARKER, executions[0])
         self.assertEqual(consumer._complete.call_args.args[3], 'completed')
-        self.assertEqual(consumer.transport.json.call_count, 3)
+        self.assertEqual(consumer.transport.json.call_count, heartbeat_count)
+        return consumer
 
     def test_native_export_preserves_resolved_armor_gems_and_weapon(self):
         profile = ('main_hand=real_weapon,id=123,ilevel=300,enchant_id=42\n'
