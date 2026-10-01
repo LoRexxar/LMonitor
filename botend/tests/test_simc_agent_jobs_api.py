@@ -102,6 +102,128 @@ class SimcAgentJobAPITests(TestCase):
                         'agent_revision': settings.SIMC_AGENT_REQUIRED_REVISION or ('a' * 40), 'protocol_version': 1,
         }, token)
 
+    def test_claim_hero_analysis_is_outside_locks_and_freezes_matching_input(self):
+        from django.db import connection
+        from botend.services.simc_hero_talents import enrich_manifest_with_actual_hero_talents
+        self.task()
+        depth = len(connection.atomic_blocks)
+        observed = []
+
+        def enrich(manifest, code, spec, **kwargs):
+            self.assertEqual(len(connection.atomic_blocks), depth)
+            reserved = SimulationRun.objects.get(status='running')
+            self.assertEqual(reserved.input_hash, hashlib.sha256(code.encode()).hexdigest())
+            observed.append(code)
+            result = enrich_manifest_with_actual_hero_talents(manifest, code, spec, **kwargs)
+            result['hero_talent_names'] = ['frozen-hero']
+            return result
+
+        with patch('botend.services.simc_run_control.enrich_manifest_with_actual_hero_talents', side_effect=enrich):
+            response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        job = response.json()
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        self.assertEqual(observed, [job['input']])
+        self.assertEqual(run.input_hash, job['input_hash'])
+        self.assertEqual(run.resource_manifest['hero_talent_names'], ['frozen-hero'])
+
+    def test_claim_hero_analysis_cancellation_or_expiry_cannot_publish(self):
+        for action in ('cancel', 'expire'):
+            with self.subTest(action=action):
+                task = self.task(name=action)
+                before = {}
+
+                def enrich(manifest, code, spec, **kwargs):
+                    run = SimulationRun.objects.get(task=task)
+                    before['manifest'] = run.resource_manifest
+                    if action == 'cancel':
+                        SimcTask.objects.filter(pk=task.pk).update(current_status=3, is_active=False)
+                        SimulationRun.objects.filter(pk=run.pk).update(status='cancelled')
+                    else:
+                        SimulationRun.objects.filter(pk=run.pk).update(lease_expires_at=timezone.now() - timedelta(seconds=1))
+                    before['expiry'] = SimulationRun.objects.get(pk=run.pk).lease_expires_at
+                    return {**manifest, 'hero_talent_names': ['must-not-publish']}
+
+                with patch('botend.services.simc_run_control.enrich_manifest_with_actual_hero_talents', side_effect=enrich):
+                    response = self.claim()
+                self.assertEqual(response.status_code, 409, response.content)
+                run = SimulationRun.objects.get(task=task)
+                self.assertEqual(run.resource_manifest, before['manifest'])
+                self.assertEqual(run.lease_expires_at, before['expiry'])
+                self.assertEqual(run.status, 'cancelled' if action == 'cancel' else 'running')
+                SimcTask.objects.filter(pk=task.pk).update(is_active=False)
+
+    def test_claim_rechecks_sibling_expiry_after_lock_wait(self):
+        from botend.services.simc_run_control import authenticate_bearer as real_authenticate
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'one', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'two', 'candidate_params': {'candidate_type': 'base'}},
+        ])
+        self.agent.capabilities = {'max_concurrent_runs': 2}
+        self.agent.save(update_fields=['capabilities'])
+        job = self.claim().json()
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        clock = {'now': run.lease_expires_at - timedelta(seconds=1)}
+
+        def authenticate(authorization, lock=False):
+            agent = real_authenticate(authorization, lock=lock)
+            if lock:
+                clock['now'] = run.lease_expires_at + timedelta(seconds=1)
+            return agent
+
+        with patch('botend.services.simc_run_control.timezone.now', side_effect=lambda: clock['now']), patch(
+            'botend.services.simc_run_control.authenticate_bearer', side_effect=authenticate,
+        ):
+            response = self.claim()
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertEqual(SimulationRun.objects.filter(task=task, status='running').count(), 1)
+
+    def test_claim_lease_starts_after_slow_composition(self):
+        from botend.services.simc_run_control import build_frozen_run_input
+        task = self.task()
+        start = timezone.now()
+        clock = {'now': start}
+
+        def compose(*args, **kwargs):
+            result = build_frozen_run_input(*args, **kwargs)
+            clock['now'] = start + timedelta(seconds=61)
+            return result
+
+        with patch('botend.services.simc_run_control.timezone.now', side_effect=lambda: clock['now']), patch(
+            'botend.services.simc_run_control.build_frozen_run_input', side_effect=compose,
+        ):
+            response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        run = SimulationRun.objects.get(task=task)
+        self.assertEqual(run.started_at, clock['now'])
+        self.assertEqual(run.lease_expires_at, clock['now'] + timedelta(seconds=60))
+
+    def test_heartbeat_uses_post_lock_clock_and_never_revives_expired_lease(self):
+        from botend.services.simc_run_control import authenticate_bearer as real_authenticate
+        job = self.claim_after_task()
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        for elapsed in (10, 61):
+            with self.subTest(elapsed=elapsed):
+                old = run.lease_expires_at
+                start = old - timedelta(seconds=60)
+                clock = {'now': start}
+
+                def authenticate(authorization, lock=False):
+                    agent = real_authenticate(authorization, lock=lock)
+                    if lock:
+                        clock['now'] = start + timedelta(seconds=elapsed)
+                    return agent
+
+                with patch('botend.services.simc_run_control.timezone.now', side_effect=lambda: clock['now']), patch(
+                    'botend.services.simc_run_control.authenticate_bearer', side_effect=authenticate,
+                ):
+                    response = self.post_json(f"/api/simc-agent/v1/jobs/{run.pk}/heartbeat/", {
+                        'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+                    })
+                self.assertEqual(response.status_code, 200 if elapsed < 60 else 409, response.content)
+                run.refresh_from_db()
+                self.assertEqual(run.lease_expires_at, clock['now'] + timedelta(seconds=60) if elapsed < 60 else old)
+
     def test_claim_keeps_regular_simulation_above_high_priority_benchmark(self):
         regular = self.task(name='regular')
         benchmark = self.task(name='benchmark')

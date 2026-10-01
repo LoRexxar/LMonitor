@@ -98,12 +98,12 @@ def _output_filename(run):
     return filename
 
 
-def build_frozen_run_input(task, run, output_filename=None):
+def build_frozen_run_input(task, run, output_filename=None, *, enrich_hero=True, resolved=None):
     """Compose readable SimC input from a Run's current frozen task configuration."""
     from botend.controller.plugins.simc.SimcMonitor import SimcMonitor, _composer_identity
     from botend.services.simc_composer import SimcComposer
 
-    resolved = resolve_task(task)
+    resolved = resolved if resolved is not None else resolve_task(task)
     profile_payload = resolved.profile_payload
     profile_spec = (resolved.resource_metadata.get('profile') or {}).get('spec', 'fury')
     composer_spec, composer_class = _composer_identity(
@@ -159,13 +159,19 @@ def build_frozen_run_input(task, run, output_filename=None):
         'talent_candidate': talent_candidate,
         'output_filename': filename,
     }
-    manifest = enrich_manifest_with_actual_hero_talents(
-        manifest,
-        code,
-        f'{composer_class}_{composer_spec}',
-        use_ptr=profile_payload.get('use_ptr') is True,
-    )
+    if enrich_hero:
+        manifest = _enrich_frozen_manifest(resolved, code, manifest)
     return code, manifest
+
+
+def _enrich_frozen_manifest(resolved, code, manifest):
+    from botend.controller.plugins.simc.SimcMonitor import _composer_identity
+    profile_spec = (resolved.resource_metadata.get('profile') or {}).get('spec', 'fury')
+    spec, class_name = _composer_identity(resolved.simulation_params.get('spec') or profile_spec)
+    return enrich_manifest_with_actual_hero_talents(
+        manifest, code, f'{class_name}_{spec}',
+        use_ptr=resolved.profile_payload.get('use_ptr') is True,
+    )
 
 
 def runtime_threads(task):
@@ -289,6 +295,7 @@ def claim_run(payload, authorization):
                 task=task,
             ).order_by('id'))
         agent = authenticate_bearer(authorization, lock=True)
+        now = timezone.now()
         _check_agent_ready(agent, now)
         if agent.pk != discovered_agent.pk or (task is not None and task.backend_id != agent.backend_id):
             raise AgentAPIError('Agent backend changed during claim', 409)
@@ -331,11 +338,15 @@ def claim_run(payload, authorization):
             raise AgentAPIError('Task has no pending Run', 409)
 
         token = secrets.token_urlsafe(32)
-        expires = now + timedelta(seconds=_lease_seconds())
         try:
-            code, manifest = build_frozen_run_input(task, run, _output_filename(run))
+            resolved = resolve_task(task)
+            code, manifest = build_frozen_run_input(
+                task, run, _output_filename(run), enrich_hero=False, resolved=resolved,
+            )
         except (ValueError, TypeError) as exc:
             raise AgentAPIError('Unable to compose frozen Run input', 409) from exc
+        now = timezone.now()
+        expires = now + timedelta(seconds=_lease_seconds())
         digest = hashlib.sha256(code.encode('utf-8')).hexdigest()
         run.status = 'running'
         run.started_at = now
@@ -358,6 +369,39 @@ def claim_run(payload, authorization):
         agent.last_seen_at = now
         agent.instance_id = instance_id
         agent.save(update_fields=['status', 'last_seen_at', 'instance_id', 'updated_at'])
+
+    # Reserve capacity before releasing locks, but never deliver the token until
+    # hero facts from this exact input have been frozen under the same live fence.
+    manifest = _enrich_frozen_manifest(resolved, code, manifest)
+    with transaction.atomic():
+        try:
+            task = SimcTask.objects.select_for_update().get(pk=task.pk)
+            run = SimulationRun.objects.select_for_update().get(pk=run.pk, task=task)
+        except (SimcTask.DoesNotExist, SimulationRun.DoesNotExist):
+            raise AgentAPIError('Run not found', 404)
+        agent = authenticate_bearer(authorization, lock=True)
+        now = timezone.now()
+        if agent.pk != discovered_agent.pk or task.backend_id != agent.backend_id:
+            raise AgentAPIError('Agent identity changed during claim', 409)
+        _check_agent_ready(agent, now)
+        if task_has_active_panel_purge(task.pk):
+            raise AgentAPIError('Panel purge is in progress', 409)
+        if (not task.is_active or task.current_status != 1
+                or task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT
+                or run.status != 'running'):
+            raise AgentAPIError('Run is no longer claimable', 409)
+        if not _task_scope_allows(agent.task_scope, task.is_benchmark_task):
+            raise AgentAPIError('Agent task scope changed during claim', 409)
+        _validate_fence(run, agent, token, instance_id, now)
+        if run.input_hash != digest:
+            raise AgentAPIError('Run input changed during claim', 409)
+        expires = now + timedelta(seconds=_lease_seconds())
+        run.resource_manifest = manifest
+        run.lease_heartbeat_at = now
+        run.lease_expires_at = expires
+        run.save(update_fields=['resource_manifest', 'lease_heartbeat_at', 'lease_expires_at'])
+        agent.last_seen_at = now
+        agent.save(update_fields=['last_seen_at', 'updated_at'])
         timeout = max(1, int(getattr(settings, 'SIMC_AGENT_RUN_TIMEOUT_SECONDS', 300)))
         return {
             'run_id': run.pk, 'task_id': task.pk, 'sequence': run.sequence,
@@ -393,13 +437,13 @@ def heartbeat_run(run_id, payload, authorization):
     if task_id is None:
         raise AgentAPIError('Run not found', 404)
     with transaction.atomic():
-        now = timezone.now()
         try:
             task = SimcTask.objects.select_for_update().get(pk=task_id)
             run = SimulationRun.objects.select_for_update().get(pk=run_id, task=task)
         except (SimcTask.DoesNotExist, SimulationRun.DoesNotExist):
             raise AgentAPIError('Run not found', 404)
         agent = authenticate_bearer(authorization, lock=True)
+        now = timezone.now()
         if agent.pk != discovered_agent.pk:
             raise AgentAPIError('Agent identity changed during heartbeat', 409)
         if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
