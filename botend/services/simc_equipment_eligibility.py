@@ -41,7 +41,11 @@ class EquipmentEligibility:
                 self.variants[row.item.item_id].append(row)
 
     def reason(self, params, spec_key, class_name=''):
-        if params.get('candidate_type') != 'gear_swap':
+        # 历史候选将类型存于 Candidate 行，params 可能只有装备结构。
+        # 非装备候选仍按显式类型跳过；无类型的单件/组合也必须检查绑定。
+        if params.get('candidate_type') != 'gear_swap' and (
+            'candidate_type' in params or not any(key in params for key in ('gear_swap', 'gear_swaps'))
+        ):
             return None
         identity = canonical_class_spec(*canonical_simc_profile_identity(spec_key, class_name))
         if not identity:
