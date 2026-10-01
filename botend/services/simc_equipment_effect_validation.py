@@ -315,7 +315,11 @@ def validate_equipment_effect_report(report_html, candidate_params, *, native_pr
         return _result('invalid', 'equipment_native_proof_invalid', control=control)
     if verified is None:
         return _result('unverified', 'report_evidence_incomplete', control=control)
-    result = _result('valid', '', control=control)
+    # Initialization proves a valid isolation, not that a known expected combat
+    # event happened. Do not rank simulation noise when that positive evidence
+    # is missing; native per-slot proof can resolve control-source ambiguity only.
+    result = (deepcopy(expected) if not control and params.get('equipment_effect_expectation')
+              and expected['status'] != 'valid' else _result('valid', '', control=control))
     result.update(validation_basis='native_structure', native_proof=deepcopy(native_proof),
                   targets=structural['targets'], html_event_validation=expected,
                   event_status='triggered' if not control and expected['status'] == 'valid'

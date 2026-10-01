@@ -53,6 +53,17 @@ class NativeRuntimeProofTests(SimpleTestCase):
             with self.assertRaises(ValueError):
                 native.extract_native_proof(text)
 
+    def test_known_normal_missing_combat_events_is_not_promoted_to_verified_gain(self):
+        params = self.params()
+        params['equipment_effect_expectation'] = {'schema_version': 1, 'targets': [{
+            'slot': 'neck', 'item_id': 100001, 'game_build': '12.0.1.70077', 'fact_hash': 'a' * 64,
+            'required_bonus_ids': [], 'driver_spell_ids': [900001], 'event_spell_ids': [9003]}]}
+        proof = native.extract_native_proof(self.prepared())
+        result = validate_equipment_effect_report(native_html(profile='neck=,id=100001,ilevel=321',
+            damage=0, triggers=0, uptime=0), params, native_proof=proof)
+        self.assertEqual(result['status'], 'unverified', result)
+        self.assertEqual(result['validation_basis'], 'native_structure')
+
     def test_control_and_central_bonus_driver_cannot_be_bypassed(self):
         code = self.prepared(True)
         proof = native.extract_native_proof(code)
