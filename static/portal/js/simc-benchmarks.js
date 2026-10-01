@@ -364,6 +364,7 @@
         const start = position(effectComparison ? previousEffect[side] : previousDps); const end = position(endpoint);
         const segment = node("button", "simc-benchmark-gear-segment", Number.isFinite(level) && level > 0 ? String(level) : "装备");
         segment.type = "button";
+        if (effectComparison) Object.assign(segment.style, { minWidth: "0", padding: "0", boxSizing: "border-box" });
         segment.style.left = `${Math.min(start, end)}%`;
         segment.style.width = `${Math.max(effectComparison ? 0 : 0.45, Math.abs(end - start))}%`;
         segment.style.backgroundColor = levelColors.get(level) || "#64748b";

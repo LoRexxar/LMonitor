@@ -72,6 +72,7 @@ const rowAText = descendants(effectRows[1],'simc-benchmark-relative').map(n=>n.t
 assert.match(rowAText, /230/); assert.match(rowAText, /340/);
 const endpoints = descendants(effectChart,'simc-benchmark-gear-segment');
 assert.match(endpoints[0].attributes['aria-label'], /特效提升/);
+assert.ok(endpoints.every(segment=>segment.style.minWidth==='0'&&segment.style.padding==='0'&&segment.style.boxSizing==='border-box'));
 // 60% 是最长正向色条；零点来自 -10%~60% 的实际收益范围，不是 90~300 DPS。
 assert.ok(Math.abs(parseFloat(endpoints[0].style.left) - 100*10/70) < 1e-8);
 assert.ok(Math.abs(parseFloat(endpoints[0].style.width) - 100*60/70) < 1e-8);
@@ -92,4 +93,5 @@ assert.deepEqual(backendNames,['B','A','D','C','E']);
 assert.match(descendants(backendChart,'benchmark-aggregate-dps')[0].textContent,/\+60\.00%.*特效提升/);
 assert.match(descendants(backendChart,'benchmark-aggregate-delta')[1].textContent,/230/);
 assert.equal(descendants(descendants(backendChart,'benchmark-gear-row')[4],'benchmark-gear-segment').length,0);
+assert.ok(descendants(backendChart,'benchmark-gear-segment').every(segment=>segment.style.minWidth==='0'&&segment.style.padding==='0'&&segment.style.boxSizing==='border-box'));
 console.log('通过：特效百分比排序/绘图、最高收益装等、负收益及缺失对照；普通DPS图表保持原有语义。');
