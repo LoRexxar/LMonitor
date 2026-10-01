@@ -42,7 +42,7 @@ def _positive_ids(value):
     return sorted(set(value))
 
 
-def _validate_expected_report(report_html, candidate_params):
+def _validate_expected_report(report_html, candidate_params, *, _parsed_native=None):
     """Return JSON-freezable valid/invalid/unverified without changing Run semantics.
 
     Frozen targets cover *every* candidate slot. Each normal target requires its
@@ -138,7 +138,8 @@ def _validate_expected_report(report_html, candidate_params):
 
     event_ids = sorted({spell for target in targets.values() for spell in target['event_spell_ids']})
     validation_params = {**params, 'gear_swaps': validation_swaps}
-    evidence = extract_equipment_effect_evidence(report_html, validation_params, {'driver': event_ids})
+    evidence = extract_equipment_effect_evidence(report_html, validation_params, {'driver': event_ids},
+                                                 _parsed_native=_parsed_native)
     if set(targets) != candidate_slots or any(not target['event_spell_ids'] or not target['driver_spell_ids']
                                              for target in targets.values()):
         _add_reason(evidence, 'equipment_effect_expectation_incomplete', 'unverified')
@@ -158,7 +159,7 @@ def _validate_expected_report(report_html, candidate_params):
     return evidence
 
 
-def _validate_native_structure(report_html, params, proof):
+def _validate_native_structure(report_html, params, proof, *, _parsed_native=None):
     """Check paired native facts and bind the selected gear to actual HTML Profile."""
     import hashlib
     import json
@@ -187,7 +188,7 @@ def _validate_native_structure(report_html, params, proof):
     rules = params['equipment_effect_policy']['rules']
     if proof['rules_hash'] != hashlib.sha256(json.dumps(rules, sort_keys=True, separators=(',', ':')).encode()).hexdigest():
         raise ValueError('native rules mismatch')
-    structural = extract_equipment_effect_evidence(report_html, params)
+    structural = extract_equipment_effect_evidence(report_html, params, _parsed_native=_parsed_native)
     target_ids = {row['slot']: row['expected']['item_id'] for row in structural['targets']}
     if (not isinstance(proof['targets'], list) or len(proof['targets']) != len(target_ids)
             or not target_ids or any(type(row.get('item_id')) is not int or row['item_id'] <= 0
@@ -269,7 +270,7 @@ def _validate_native_structure(report_html, params, proof):
         if (not set(target['required_bonus_ids']) <= set(item['bonus_ids'])
                 or not set(target['driver_spell_ids']) <= {row['driver'] for row in item['effects']}):
             raise ValueError('native central activation mismatch')
-    document, complete = _native_document(report_html)
+    document, complete = _native_document(report_html) if _parsed_native is None else _parsed_native
     profile = '\n'.join(block for section in document.get('sections', [])
                         if section.get('key') == 'profile' for block in section.get('text_blocks', []))
     actual = {}
@@ -302,7 +303,10 @@ def validate_equipment_effect_report(report_html, candidate_params, *, native_pr
     Without native proof the legacy event-evidence contract stays unchanged.
     Central frozen bonus/driver requirements are never bypassed by native proof.
     """
-    expected = _validate_expected_report(report_html, candidate_params)
+    from botend.services.simc_equipment_result_evidence import _native_document
+    # Share immutable parsed facts only within this completion, not across Runs.
+    parsed_native = _native_document(report_html) if native_proof is not None else None
+    expected = _validate_expected_report(report_html, candidate_params, _parsed_native=parsed_native)
     if native_proof is None:
         return expected
     params = candidate_params if isinstance(candidate_params, dict) else {}
@@ -310,7 +314,8 @@ def validate_equipment_effect_report(report_html, candidate_params, *, native_pr
     if expected['status'] == 'invalid':
         return expected
     try:
-        verified, structural = _validate_native_structure(report_html, params, native_proof)
+        verified, structural = _validate_native_structure(report_html, params, native_proof,
+                                                           _parsed_native=parsed_native)
     except (ValueError, TypeError, AttributeError, KeyError, OverflowError, RecursionError):
         return _result('invalid', 'equipment_native_proof_invalid', control=control)
     if verified is None:

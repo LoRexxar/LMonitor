@@ -117,7 +117,7 @@ def _native_document(report_html):
     return document, complete
 
 
-def extract_equipment_effect_evidence(report_html, candidate_params, expected_effect_spell_ids=None):
+def extract_equipment_effect_evidence(report_html, candidate_params, expected_effect_spell_ids=None, *, _parsed_native=None):
     """Extract bounded evidence; return ``valid``, ``invalid`` or ``unverified``.
 
     ``expected_effect_spell_ids`` is an optional mapping of ``driver``, ``buff``
@@ -156,7 +156,7 @@ def extract_equipment_effect_evidence(report_html, candidate_params, expected_ef
                 'expected_spell_ids': expected, 'targets': [], 'actions': [], 'buffs': [],
                 'observed_spell_ids': {'actions': [], 'buffs': []}}
     try:
-        document, complete = _native_document(report_html)
+        document, complete = _native_document(report_html) if _parsed_native is None else _parsed_native
         profile = '\n'.join(block for section in document.get('sections', [])
                             if section.get('key') == 'profile' for block in section.get('text_blocks', []))
         slots = {}
