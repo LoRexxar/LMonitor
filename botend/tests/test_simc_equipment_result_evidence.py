@@ -54,6 +54,107 @@ class EquipmentEffectEvidenceTests(SimpleTestCase):
             native_html() if html is None else html,
             copy.deepcopy(PARAMS if params is None else params), expected)
 
+    def test_native_projection_prunes_ui_but_preserves_consumed_details(self):
+        from unittest.mock import patch
+        from botend.services import simc_equipment_result_evidence as module
+        html = native_html().replace('</table></td></tr>',
+            '</table><div>UNUSED_CHART_PAYLOAD</div></td></tr>')
+        original = module.BeautifulSoup
+        parsed_inputs = []
+        def capture(text, *args, **kwargs):
+            parsed_inputs.append(text)
+            return original(text, *args, **kwargs)
+        with patch.object(module, 'BeautifulSoup', side_effect=capture):
+            result = self.evidence(html)
+        self.assertEqual(result['status'], 'valid')
+        self.assertEqual(result['actions'][0]['actual_amount'], 400)
+        self.assertEqual(result['actions'][0]['executes'], 4)
+        self.assertEqual(result['actions'][0]['successful_results'], 4)
+        self.assertTrue(parsed_inputs)
+        self.assertNotIn('UNUSED_CHART_PAYLOAD', parsed_inputs[0])
+
+    def test_native_projection_equivalence_and_safe_fallback(self):
+        from html import escape
+        from unittest.mock import patch
+        from botend.services import simc_equipment_result_evidence as module
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+        from botend.tests.test_simc_equipment_effect_validation import frozen_params
+        inline = native_html().replace('<script type="text/x-deferred-html">', '').replace('</script>', '')
+        escaped = '<div class="player"><div class="toggle-content">' + escape(inline) + '</div></div>'
+        cases = [native_html(), inline, escaped,
+                 native_html().replace('>Profile<', '>NotProfile<'),
+                 native_html().replace('>Damage Stats<', '>Unknown Stats<'),
+                 native_html().replace('toprow right', 'toprow childrow right'),
+                 native_html().replace('<th>Executes</th>', '<th>Executes <b>Unknown</b></th>'),
+                 native_html().replace('</body>', native_html(damage=0) + '</body>')]
+        for html in cases:
+            with self.subTest(html=html[:60]):
+                with patch.object(module, '_native_evidence_html', side_effect=lambda value: value):
+                    expected = validate_equipment_effect_report(html, frozen_params())
+                self.assertEqual(validate_equipment_effect_report(html, frozen_params()), expected)
+        self.assertEqual(module._native_evidence_html(escaped), escaped)
+        with patch.object(module, 'native_html', None):
+            self.assertEqual(module._native_evidence_html(inline), inline)
+            self.assertEqual(self.evidence(inline)['status'], 'valid')
+        with patch.object(module.native_html, 'fromstring', side_effect=module.etree.ParserError('invalid')):
+            self.assertEqual(module._native_evidence_html(inline), inline)
+            self.assertEqual(self.evidence(inline)['status'], 'valid')
+
+    def test_projection_contracts_and_safe_fallback(self):
+        from unittest.mock import patch
+        from botend.services import simc_equipment_result_evidence as module
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+        from botend.tests.test_simc_equipment_effect_validation import frozen_params
+        html = native_html()
+        plain = html.replace('<script type="text/x-deferred-html">', '').replace('</script>', '')
+        child = html.replace('toprow right', 'toprow right childrow')
+        variants = [html, plain, child,
+                    html.replace('</body>', native_html(damage=0) + '</body>'),
+                    html.replace('>Profile<', '>Unknown<'),
+                    html.replace('>Damage Stats<', '>Unknown<'),
+                    html.replace('<th>Count</th>', '<th>Unknown</th>'),
+                    html.replace('<table class="details">', '<table class="details"></table><table>'),
+                    '<div class="player"><broken></div>', 'not html']
+        for report in variants:
+            for proof in (None, {'rules_hash': '0' * 64}):
+                with self.subTest(report=report[:50], proof=proof):
+                    with patch.object(module, '_native_evidence_html', side_effect=lambda value: value):
+                        expected = validate_equipment_effect_report(report, frozen_params(), native_proof=proof)
+                    self.assertEqual(validate_equipment_effect_report(report, frozen_params(), native_proof=proof), expected)
+        expected = self.evidence(html)
+        malformed = html.replace('<th>Damage Stats</th>', '<th>Damage Stats</th></unexpected>')
+        self.assertEqual(module._native_evidence_html(malformed), malformed)
+        with patch.object(module, 'native_html', None):
+            self.assertEqual(self.evidence(html), expected)
+        with patch.object(module.native_html, 'fromstring', side_effect=module.etree.ParserError('broken')):
+            self.assertEqual(self.evidence(html), expected)
+        from html import escape
+        fragment = html.split('<script type="text/x-deferred-html">')[1].split('</script>')[0]
+        escaped = '<div class="player"><div class="toggle-content">' + escape(fragment) + '</div></div>'
+        self.assertEqual(module._native_evidence_html(escaped), escaped)
+        self.assertEqual(self.evidence(escaped), expected)
+
+    def test_dropping_all_details_changes_full_validation(self):
+        from bs4 import BeautifulSoup
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+        from botend.tests.test_simc_equipment_effect_validation import frozen_params
+        # Direct results/amount, not summary count/DPS, determine activation.
+        html = native_html().replace('<td>4</td><td>4</td><td>0</td><td>400</td>',
+                                     '<td>7</td><td>0</td><td>0</td><td>0</td>')
+        good = validate_equipment_effect_report(html, frozen_params())
+        soup = BeautifulSoup(html, 'html.parser')
+        script = soup.find('script')
+        fragment = BeautifulSoup(script.string, 'html.parser')
+        for row in fragment.select('tr.details'):
+            row.decompose()
+        script.string = str(fragment)
+        unsafe = validate_equipment_effect_report(str(soup), frozen_params())
+        self.assertNotEqual(good, unsafe)
+        self.assertEqual(good['actions'][0]['actual_amount'], 0)
+        self.assertEqual(good['actions'][0]['executes'], 7)
+        self.assertFalse(good['actions'][0]['effective'])
+        self.assertTrue(unsafe['actions'][0]['effective'])
+
     def test_optional_identity_is_unverified_and_summary_is_json_freezable(self):
         params = copy.deepcopy(PARAMS)
         before = copy.deepcopy(params)

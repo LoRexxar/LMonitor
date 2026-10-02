@@ -2587,6 +2587,11 @@ def _runs_through_source_chain(task):
         current = SimcTask.objects.select_related('source_task').get(pk=current.source_task_id)
     runs_by_key = {}
     for source in reversed(tasks):
+        # A retry owns its frozen candidates even before claim initializes Runs.
+        # Only candidates NOT scheduled in that attempt may inherit source Runs
+        # (the failed-only retry contract). Never republish a superseded success.
+        for key in _expected_candidate_keys(source) or []:
+            runs_by_key.pop(key, None)
         runs = getattr(source, '_benchmark_runs', None)
         if runs is None:
             runs = SimulationRun.objects.filter(task_id=source.pk).order_by('sequence', 'id')

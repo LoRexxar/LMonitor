@@ -11,7 +11,10 @@ from django.db.models import Case, IntegerField, Q, Value, When
 from django.utils import timezone
 
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
-from botend.models import SimcAgent, SimcBackendBinary, SimcBenchmarkCase, SimcTask, SimulationRun
+from botend.models import (
+    SimcAgent, SimcBackendBinary, SimcBenchmarkCase, SimcBenchmarkExecution,
+    SimcBenchmarkPanel, SimcBenchmarkResult, SimcTask, SimulationRun,
+)
 from botend.services import simc_benchmark_scheduler
 from botend.services.simc_benchmark_purge import process_next_purge
 from botend.services.task_rerun import create_rerun, TaskRerunError
@@ -59,6 +62,27 @@ class SimcWorker:
             is_benchmark = False
             try:
                 with transaction.atomic():
+                    # Share the projection/cancellation fence BEFORE taking Task
+                    # locks. Otherwise a stale Task snapshot can be published after
+                    # rebind, or Case -> Task cancellation can deadlock with recovery.
+                    authority = SimcBenchmarkCase.objects.filter(task_id=task_id).values(
+                        'pk', 'execution_id', 'execution__panel_id',
+                    ).first()
+                    benchmark_case = None
+                    is_benchmark = authority is not None
+                    if authority is not None:
+                        SimcBenchmarkPanel.objects.select_for_update().get(
+                            pk=authority['execution__panel_id'],
+                        )
+                        execution = SimcBenchmarkExecution.objects.select_for_update().get(
+                            pk=authority['execution_id'],
+                        )
+                        benchmark_case = SimcBenchmarkCase.objects.select_for_update().filter(
+                            pk=authority['pk'], task_id=task_id,
+                            execution_id=execution.pk,
+                        ).first()
+                        if benchmark_case is None or execution.completed_at is not None:
+                            continue
                     task = SimcTask.objects.select_for_update().select_related('backend').filter(
                         id=task_id, is_active=True, current_status=1,
                     ).first()
@@ -77,10 +101,6 @@ class SimcWorker:
                     )
                     if task.modified_time >= threshold and not expired_agent_lease:
                         continue
-                    benchmark_case = SimcBenchmarkCase.objects.select_for_update().filter(
-                        task_id=task.id,
-                    ).first()
-                    is_benchmark = benchmark_case is not None
 
                     attempts = 1
                     ancestor_id = task.source_task_id
@@ -146,11 +166,20 @@ class SimcWorker:
                             if benchmark_case is not None:
                                 rebound = SimcBenchmarkCase.objects.filter(
                                     pk=benchmark_case.pk, task_id=task.id,
-                                ).update(task_id=new_task.id)
+                                ).update(
+                                    task_id=new_task.id,
+                                    status=SimcBenchmarkExecution.STATUS_PENDING,
+                                    error_detail='',
+                                )
                                 if rebound != 1:
                                     raise RuntimeError(
                                         'benchmark Case authority changed during stale retry'
                                     )
+                                # These rows project the Case's current authority;
+                                # source Task/Run/Artifact history stays immutable.
+                                SimcBenchmarkResult.objects.filter(
+                                    case_id=benchmark_case.pk,
+                                ).delete()
                         except TaskRerunError as exc:
                             task.error_detail = f'Worker 心跳超时，Task 重试复制失败: {exc}'
                             task.save(update_fields=['error_detail', 'modified_time'])

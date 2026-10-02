@@ -10,6 +10,11 @@ import re
 
 from bs4 import BeautifulSoup
 
+try:
+    from lxml import etree, html as native_html
+except ImportError:  # Optional accelerator; the original parser remains authoritative.
+    etree = native_html = None
+
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, _parse_line,
 )
@@ -61,6 +66,100 @@ def _equipment(values):
             'bonus_ids': _ids(bonus.split('/')) if bonus else []}
 
 
+def _native_evidence_html(report_html):
+    """Shrink native HTML before Python parsing, never parse metrics here.
+
+    Unknown layouts and accelerator failures use the original input. Action
+    detail headers/values and their sibling rows are evidence, not UI debris.
+    """
+    if native_html is None or etree is None:
+        return report_html
+
+    def has_class(name):
+        return "contains(concat(' ', normalize-space(@class), ' '), ' " + name + " ')"
+
+    def text(node):
+        return ' '.join(part.strip() for part in node.itertext() if part.strip())
+
+    try:
+        parser = native_html.HTMLParser()
+        root = native_html.fromstring(report_html, parser=parser)
+        if parser.error_log:
+            return report_html
+        players = root.xpath('descendant-or-self::*[' + has_class('player') + ']')
+        if not players:
+            return report_html
+        detail = players[0]
+        toggles = detail.xpath('./div[' + has_class('toggle-content') + ']')
+        if toggles:
+            scripts = toggles[0].xpath('.//script[@type="text/x-deferred-html"]')
+            if scripts:
+                parser = native_html.HTMLParser()
+                detail = native_html.fromstring('<div>' + (scripts[0].text or '') + '</div>', parser=parser)
+            elif '<' in ''.join(toggles[0].itertext()):
+                return report_html  # Legacy escaped HTML belongs to the old parser.
+        tables = detail.xpath('.//table[' + has_class('sc') + ']')
+        selected = []
+        for title in ('Damage Stats', 'Dynamic Buffs', 'Constant Buffs'):
+            for table in tables:
+                headers = [text(node) for node in table.xpath('.//th')]
+                matches = title in headers if title == 'Dynamic Buffs' else headers and headers[0] == title
+                if matches and (title != 'Damage Stats' or 'sort' in table.get('class', '').split()):
+                    selected.append((title, table))
+                    break
+        profiles = [node for node in detail.xpath('.//div[' + has_class('player-section') + ']')
+                    if node.xpath('.//h2 | .//h3') and text(node.xpath('.//h2 | .//h3')[0]) == 'Profile']
+        if not selected or selected[0][0] != 'Damage Stats' or len(selected) < 2 or len(profiles) != 1:
+            return report_html
+        # Nested evidence sections are not the native report layout.
+        nodes = [node for _, node in selected] + profiles
+        if any(parent in nodes for node in nodes for parent in node.iterancestors()):
+            return report_html
+        if parser.error_log:
+            # Native SimC has malformed charts in unrelated sections. Accept
+            # recovery only inside a wholly discarded, bounded sibling section;
+            # errors in evidence or with ambiguous location use the old parser.
+            discarded_ranges = []
+            for section in detail.xpath('.//div[' + has_class('player-section') + ']'):
+                following = section.getnext()
+                if following is None or any(node == section or section in node.iterancestors()
+                                            or node in section.iterancestors() for node in nodes):
+                    continue
+                if section.sourceline and following.sourceline:
+                    discarded_ranges.append((section.sourceline, following.sourceline))
+            if any(not any(start < error.line < end for start, end in discarded_ranges)
+                   for error in parser.error_log):
+                return report_html
+        for title, table in selected:
+            for row in table.xpath('.//tr[' + has_class('details') + ']'):
+                if title != 'Damage Stats':
+                    row.getparent().remove(row)
+                    continue
+                metrics = row.xpath('.//table[' + has_class('details') + ']')
+                kept = None
+                if metrics:
+                    rows = metrics[0].xpath('.//tr')
+                    if not rows:
+                        return report_html
+                    first = rows[0]
+                    following = first.xpath('following-sibling::tr[1]')
+                    kept = etree.Element('table', {'class': 'details'})
+                    kept.append(first)
+                    if following:
+                        kept.append(following[0])
+                # Keep the details tr itself: the original parser searches siblings.
+                for child in list(row):
+                    row.remove(child)
+                row.text = None
+                if kept is not None:
+                    etree.SubElement(row, 'td').append(kept)
+        return '<div class="player">' + ''.join(
+            etree.tostring(node, encoding='unicode', method='html', with_tail=False)
+            for node in nodes) + '</div>'
+    except (etree.LxmlError, ValueError, TypeError, AttributeError, IndexError):
+        return report_html
+
+
 def _native_document(report_html):
     """Use the existing parser on only one player's native evidence sections.
 
@@ -70,7 +169,7 @@ def _native_document(report_html):
     """
     if not isinstance(report_html, str) or not report_html:
         return {}, False
-    soup = BeautifulSoup(report_html, 'html.parser')
+    soup = BeautifulSoup(_native_evidence_html(report_html), 'html.parser')
     player = soup.find(class_='player')
     if player is None:
         return {}, False
