@@ -181,66 +181,13 @@
     return effectComparison ? equipmentEffectGain(candidate) : validDps(candidate?.dps);
   }
 
-  function gearAxisValue(candidate, baseline, effectComparison) {
-    if (effectComparison) return equipmentEffectGain(candidate);
-    const dps = candidate?.dps == null ? null : validDps(candidate.dps);
-    const base = validDps(baseline?.dps);
-    return dps !== null && base > 0 ? (dps - base) * 100 / base : dps;
-  }
-
-  function gearAxisStep(span) {
-    const raw = Math.max(span / 5, 0.000001);
-    const magnitude = 10 ** Math.floor(Math.log10(raw));
-    return ([1, 2, 5, 10].find(step => step * magnitude >= raw) || 10) * magnitude;
-  }
-
-  function gearChartScale(candidates, baseline) {
+  function gearChartScale(candidates) {
     const effectComparison = isEffectComparison(candidates);
-    const percent = effectComparison || validDps(baseline?.dps) > 0;
-    const values = candidates.map(candidate => gearAxisValue(candidate, baseline, effectComparison)).filter(value => value !== null);
-    const lowest = percent ? Math.min(-5, ...values) : Math.min(0, ...values);
-    const highest = Math.max(percent ? 1 : 0, ...values);
-    const step = gearAxisStep(highest - lowest);
-    // 默认保留 -5%；更低的真实负收益自动扩展，不静默截断。
-    const lower = percent ? Math.floor(lowest) : Math.floor(lowest / step) * step;
-    const upper = Math.max(lower + step, Math.ceil(highest / step) * step);
-    return { lowest: lower, highest: upper, range: upper - lower, unit: percent ? '%' : ' DPS' };
-  }
-
-  function renderGearComparison(candidates, baseline) {
-    const host = node('div', 'simc-benchmark-comparison');
-    const automatic = gearChartScale(candidates, baseline);
-    const controls = node('div', 'simc-benchmark-axis-controls');
-    const inputs = ['横轴下限', '横轴上限'].map(text => {
-      const label = node('label', '', `${text}（${automatic.unit.trim()}）`);
-      const input = node('input', 'simc-benchmark-axis-input');
-      input.type = 'number'; input.step = 'any'; input.setAttribute('aria-label', text);
-      label.appendChild(input); controls.appendChild(label); return input;
-    });
-    const apply = node('button', 'simc-benchmark-axis-apply', '应用范围'); apply.type = 'button';
-    const reset = node('button', 'simc-benchmark-axis-reset', '恢复自动'); reset.type = 'button';
-    const status = node('span', 'simc-benchmark-axis-status'); status.setAttribute('role', 'status');
-    const result = node('div', 'simc-benchmark-axis-result');
-    const render = scale => {
-      inputs[0].value = String(scale.lowest); inputs[1].value = String(scale.highest);
-      const outside = candidates.filter(candidate => {
-        const value = gearAxisValue(candidate, baseline, isEffectComparison(candidates));
-        return value !== null && (value < scale.lowest || value > scale.highest);
-      }).length;
-      status.textContent = outside ? `${outside} 个装等结果超出范围，色条已截断；完整数值仍可查看` : '';
-      result.replaceChildren(renderGearResultChart(candidates, baseline, scale));
-    };
-    const applyRange = () => {
-      const [lowest, highest] = inputs.map(input => input.value.trim() === '' ? NaN : Number(input.value));
-      if (!Number.isFinite(lowest) || !Number.isFinite(highest) || !Number.isFinite(highest - lowest) || lowest >= highest || lowest > 0 || highest < 0) {
-        status.textContent = '请输入有效范围：下限小于上限，且包含 0 基准线'; return;
-      }
-      render({lowest, highest, range: highest - lowest, unit: automatic.unit});
-    };
-    apply.addEventListener('click', applyRange);
-    inputs.forEach(input => input.addEventListener('keydown', event => { if (event.key === 'Enter') { event.preventDefault(); applyRange(); } }));
-    reset.addEventListener('click', () => render(automatic));
-    controls.append(apply, reset, status); host.append(controls, result); render(automatic); return host;
+    const values = candidates.map(candidate => gearRankingValue(candidate, effectComparison)).filter(value => value !== null);
+    const lowest = values.length ? Math.min(...values, ...(effectComparison ? [0] : [])) : 0;
+    let highest = values.length ? Math.max(...values, ...(effectComparison ? [0] : [])) : 0;
+    if (effectComparison && lowest === highest) highest = lowest + 1;
+    return { lowest, highest, range: highest - lowest };
   }
 
   function sortCandidates(candidates) { return candidates.slice().sort((a, b) => (validDps(b?.dps) ?? -1) - (validDps(a?.dps) ?? -1)); }
@@ -260,8 +207,7 @@
     const baseline = candidates.find(isBaseline);
     const baselineDps = candidate.comparison_mode === "equipment_effect"
       ? validDps(candidate.baseline_dps) : (baseline ? validDps(baseline.dps) : null);
-    const highestDps = Math.max(0, ...candidates.filter(candidate => !isBaseline(candidate)).map(candidate => validDps(candidate?.dps) ?? 0));
-    const highestText = highestDps > 0 ? `${((dps / highestDps) * 100).toFixed(1)}% · 最高 DPS` : "—";
+    const highestText = scale.highest > 0 ? `${((dps / scale.highest) * 100).toFixed(1)}% · 最高 DPS` : "—";
     if (baselineDps !== null && baselineDps > 0) {
       const delta = ((dps - baselineDps) / baselineDps) * 100;
       return `${delta > 0 ? "+" : ""}${delta.toFixed(1)}% vs baseline · ${highestText}`;
@@ -369,8 +315,7 @@
 
   function renderGearResultChart(candidates, baseline, scale) {
     const effectComparison = isEffectComparison(candidates);
-    if (!scale?.unit) scale = gearChartScale(candidates, baseline);
-    const percentAxis = scale.unit === "%";
+    if (effectComparison) scale = gearChartScale(candidates);
     const groups = groupGearCandidates(candidates);
     const levelColors = buildItemLevelColorMap(groups);
     const chart = node("div", "simc-benchmark-gear-chart");
@@ -383,22 +328,6 @@
     });
     if (levelColors.size) chart.appendChild(legend);
 
-    const axisRow = node('div', 'simc-benchmark-gear-axis-row');
-    const axis = node('div', 'simc-benchmark-gear-axis');
-    const step = gearAxisStep(scale.range);
-    const ticks = [scale.lowest, scale.highest];
-    for (let value = Math.ceil(scale.lowest / step) * step; value < scale.highest; value += step) {
-      if ((value - scale.lowest) / scale.range > 0.08 && (scale.highest - value) / scale.range > 0.08) ticks.push(value);
-    }
-    if (percentAxis && scale.lowest < 0 && scale.highest > 0) ticks.push(0);
-    [...new Set(ticks)].sort((a, b) => a - b).forEach(value => {
-      const label = node('span', 'simc-benchmark-axis-label', `${numberFormat.format(value)}${scale.unit}`);
-      label.style.left = `${(value - scale.lowest) * 100 / scale.range}%`;
-      if (value === scale.lowest) label.style.transform = 'none';
-      if (value === scale.highest) label.style.transform = 'translateX(-100%)';
-      axis.appendChild(label);
-    });
-    axisRow.append(node('span'), axis, node('span')); chart.appendChild(axisRow);
     const body = node("div", "simc-benchmark-gear-chart-body");
     const guide = node("div", "simc-benchmark-gear-hover-guide"); guide.hidden = true; guide.setAttribute("aria-hidden", "true");
     const tooltip = node("div", "simc-benchmark-gear-tooltip"); tooltip.hidden = true; tooltip.setAttribute("role", "tooltip");
@@ -425,26 +354,26 @@
       }
       identity.appendChild(node("strong", "simc-benchmark-gear-name", group.label));
       const plot = node("div", "simc-benchmark-gear-plot");
-      const variantLinks = node("div", "simc-benchmark-variant-links");
+      let previousDps = scale.lowest;
       const previousEffect = { positive: 0, negative: 0 };
-      if (percentAxis) {
+      if (effectComparison) {
         const zero = node("i", "simc-benchmark-gear-zero"); zero.setAttribute("aria-hidden", "true");
         Object.assign(zero.style, { position: "absolute", left: `${position(0)}%`, top: "0", bottom: "0", width: "1px", background: "#94a3b8" });
         plot.appendChild(zero);
       }
-      // 正负收益分别从零点向外，装等查看入口独立于色条宽度。
-      const endpointOf = candidate => gearAxisValue(candidate, baseline, effectComparison);
-      const plotVariants = group.variants.filter(candidate => endpointOf(candidate) !== null).sort((left, right) => Math.abs(endpointOf(left)) - Math.abs(endpointOf(right)));
+      // 特效正负收益分别从零点向外；普通配装保持按 DPS 端点排列。
+      const endpointOf = candidate => gearRankingValue(candidate, effectComparison) ?? (effectComparison ? 0 : scale.lowest);
+      const plotVariants = group.variants.filter(candidate => !effectComparison || equipmentEffectGain(candidate) !== null).sort((left, right) => effectComparison ? Math.abs(endpointOf(left)) - Math.abs(endpointOf(right)) : endpointOf(left) - endpointOf(right));
       plotVariants.forEach((candidate) => {
-        const dps = validDps(candidate.dps);
+        const dps = validDps(candidate.dps) ?? previousDps;
         const level = Number(candidate.item_level);
         const endpoint = endpointOf(candidate), side = endpoint < 0 ? "negative" : "positive";
-        const start = position(previousEffect[side]); const end = position(endpoint);
+        const start = position(effectComparison ? previousEffect[side] : previousDps); const end = position(endpoint);
         const segment = node("button", "simc-benchmark-gear-segment", Number.isFinite(level) && level > 0 ? String(level) : "装备");
         segment.type = "button";
-        Object.assign(segment.style, { minWidth: "0", padding: "0", boxSizing: "border-box" });
+        if (effectComparison) Object.assign(segment.style, { minWidth: "0", padding: "0", boxSizing: "border-box" });
         segment.style.left = `${Math.min(start, end)}%`;
-        segment.style.width = `${Math.abs(end - start)}%`;
+        segment.style.width = `${Math.max(effectComparison ? 0 : 0.45, Math.abs(end - start))}%`;
         segment.style.backgroundColor = levelColors.get(level) || "#64748b";
         const gain = equipmentEffectGain(candidate);
         segment.setAttribute("aria-label", `${group.label} ${Number.isFinite(level) && level > 0 ? `模拟装等 ${level}` : ""} ${effectComparison ? (gain === null ? "无特效对照" : `特效提升 ${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% · `) : ""}${numberFormat.format(dps)} DPS`);
@@ -471,14 +400,7 @@
         const hideComparison = () => { row.classList.remove("is-hovered"); guide.hidden = true; tooltip.hidden = true; };
         segment.addEventListener("pointerenter", showComparison); segment.addEventListener("pointermove", moveTooltip); segment.addEventListener("pointerleave", hideComparison);
         segment.addEventListener("focus", showComparison); segment.addEventListener("blur", hideComparison);
-        const variantButton = node('button', 'simc-benchmark-variant-button', Number.isFinite(level) && level > 0 ? String(level) : '查看');
-        variantButton.type = 'button'; variantButton.style.borderColor = levelColors.get(level) || '#64748b';
-        variantButton.setAttribute('aria-label', segment.getAttribute('aria-label'));
-        variantButton.addEventListener('pointerenter', showComparison); variantButton.addEventListener('pointerleave', hideComparison);
-        variantButton.addEventListener('focus', showComparison); variantButton.addEventListener('blur', hideComparison);
-        variantButton.addEventListener('click', showComparison);
-        variantLinks.appendChild(variantButton);
-        plot.appendChild(segment); previousEffect[side] = endpoint;
+        plot.appendChild(segment); previousDps = dps; previousEffect[side] = endpoint;
       });
       const best = group.best;
       const metrics = node("div", "simc-benchmark-candidate-metrics");
@@ -490,8 +412,7 @@
       } else {
         metrics.append(node("div", "simc-benchmark-candidate-value", `${numberFormat.format(validDps(best.dps) ?? 0)} DPS`), node("div", "simc-benchmark-relative", comparisonText(best, [baseline, ...candidates].filter(Boolean), scale)));
       }
-      const plotArea = node("div", "simc-benchmark-gear-plot-area"); plotArea.append(plot, variantLinks);
-      row.append(identity, plotArea, metrics); body.appendChild(row);
+      row.append(identity, plot, metrics); body.appendChild(row);
     });
     chart.appendChild(body); return chart;
   }
@@ -761,12 +682,16 @@
     ));
     if (!candidates.length) { caseNode.appendChild(state("当前坐标暂无已完成候选结果", "empty")); return caseNode; }
     const effectComparison = isEffectComparison(candidates);
+    const scale = gearChartScale(candidates), { lowest, highest } = scale;
+    const axis = node("div", "simc-benchmark-axis-labels");
+    [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", effectComparison ? `${(lowest + scale.range * value / 100).toFixed(2)}%` : `${value}%`)));
+    const chart = renderGearResultChart(candidates, baseline, scale);
     const range = node("div", "simc-benchmark-range-note", effectComparison
-      ? "按特效提升排名 · 0% 为本装备无特效对照 · 装等按钮可查看完整数值"
-      : validDps(baseline?.dps) > 0
-      ? "横轴为相对 baseline 的收益 · 0% 为基准 · 装等按钮可查看完整数值"
-      : "缺少有效 baseline，横轴展示总 DPS");
-    caseNode.append(range, renderGearComparison(candidates, baseline)); return caseNode;
+      ? "按特效提升排名 · 对照为同装备同属性、仅关闭特效 · 每件装备展示特效提升最高的装等"
+      : scale.range > 0
+      ? `区间对比：${numberFormat.format(lowest)} DPS = 0%，${numberFormat.format(highest)} DPS = 100%`
+      : "区间内结果相同");
+    caseNode.append(range, axis, chart); return caseNode;
   }
 
   function renderSpecComparison(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {
