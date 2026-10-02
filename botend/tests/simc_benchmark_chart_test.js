@@ -8,7 +8,12 @@ function element() {
     append(...children) { this.children.push(...children); },
     appendChild(child) { this.append(child); },
     setAttribute(key, value) { this.attributes[key] = value; },
-    addEventListener() {},
+    events: {},
+    addEventListener(name, handler) { this.events[name] = handler; },
+    replaceChildren(...children) { this.children = children; },
+    getAttribute(key) { return this.attributes[key]; },
+    classList: {add() {}, remove() {}},
+    getBoundingClientRect() { return {left:0, top:0, width:500}; },
   };
 }
 function renderer(file, startup) {
@@ -102,4 +107,36 @@ assert.equal(descendants(invalidChart,'simc-benchmark-gear-name').at(-1).textCon
 assert.match(descendants(invalidRows.at(-1),'simc-benchmark-candidate-value')[0].textContent,/特效结果无效/);
 assert.equal(descendants(invalidRows.at(-1),'simc-benchmark-gear-segment').length,0);
 assert.equal(descendants(invalidRows.at(-1),'simc-benchmark-gear-rank')[0].textContent,'—');
-console.log('通过：特效百分比排序/绘图、最高收益装等、负收益及缺失对照；普通DPS图表保持原有语义。');
+// 横轴真实 baseline 百分比、默认 -5%、小色段独立查看以及局部缩放。
+const axis = descendants(chart, 'simc-benchmark-axis-label').map(n=>n.textContent);
+assert.equal(axis[0], '-5%');
+assert.ok(axis.includes('0%'));
+assert.equal(descendants(chart, 'simc-benchmark-gear-zero').length, 1);
+assert.equal(descendants(chart, 'simc-benchmark-variant-button').length, 4);
+const zeroChart=portal(candidates([100,100]),{dps:100});
+assert.equal(descendants(zeroChart,'simc-benchmark-gear-segment')[0].style.width,'0%');
+assert.equal(descendants(zeroChart,'simc-benchmark-variant-button').length,2);
+const fallbackChart=portal(candidates([100,110]),null);
+assert.equal(descendants(fallbackChart,'simc-benchmark-gear-zero').length,0);
+assert.ok(descendants(fallbackChart,'simc-benchmark-axis-label').every(n=>n.textContent.endsWith(' DPS')));
+const source=fs.readFileSync(path.join(__dirname,'../../static/portal/js/simc-benchmarks.js'),'utf8');
+const ctx=vm.createContext({document:{createElement:element},Intl,URL});
+vm.runInContext(source.slice(0,source.indexOf('  document.addEventListener("DOMContentLoaded", loadBenchmarks);'))+'globalThis.comparison=renderGearComparison;})();',ctx);
+const comparison=ctx.comparison(effectCandidates,{dps:100});
+const inputs=descendants(comparison,'simc-benchmark-axis-input');
+const apply=descendants(comparison,'simc-benchmark-axis-apply')[0];
+const reset=descendants(comparison,'simc-benchmark-axis-reset')[0];
+const before=descendants(comparison,'simc-benchmark-candidate-value').map(n=>n.textContent);
+inputs[0].value='-5';inputs[1].value='5';apply.events.click();
+assert.equal(descendants(comparison,'simc-benchmark-axis-label').at(-1).textContent,'5%');
+assert.match(descendants(comparison,'simc-benchmark-axis-status')[0].textContent,/4.*超出/);
+assert.deepEqual(descendants(comparison,'simc-benchmark-candidate-value').map(n=>n.textContent),before);
+for(const [min,max] of [['','5'],['5','-5'],['1','5'],['-5','NaN']]){
+ inputs[0].value=min;inputs[1].value=max;apply.events.click();
+ assert.match(descendants(comparison,'simc-benchmark-axis-status')[0].textContent,/有效/);
+ assert.equal(descendants(comparison,'simc-benchmark-axis-label').at(-1).textContent,'5%');
+}
+reset.events.click();
+assert.equal(descendants(comparison,'simc-benchmark-axis-label')[0].textContent,'-10%');
+assert.equal(descendants(comparison,'simc-benchmark-axis-label').at(-1).textContent,'60%');
+console.log('通过：排名/数据不变；真实基准百分比、负收益、无基准回退、装等查看、缩放校验及恢复自动。');
