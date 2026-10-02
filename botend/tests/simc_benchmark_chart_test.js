@@ -73,9 +73,18 @@ assert.match(rowAText, /230/); assert.match(rowAText, /340/);
 const endpoints = descendants(effectChart,'simc-benchmark-gear-segment');
 assert.match(endpoints[0].attributes['aria-label'], /特效提升/);
 assert.ok(endpoints.every(segment=>segment.style.minWidth==='0'&&segment.style.padding==='0'&&segment.style.boxSizing==='border-box'));
-// 60% 是最长正向色条；零点来自 -10%~60% 的实际收益范围，不是 90~300 DPS。
-assert.ok(Math.abs(parseFloat(endpoints[0].style.left) - 100*10/70) < 1e-8);
-assert.ok(Math.abs(parseFloat(endpoints[0].style.width) - 100*60/70) < 1e-8);
+// 平方根刻度保留正负方向和真实收益；小收益色条放大但不改变数值。
+const rootSpan = Math.sqrt(10) + Math.sqrt(60);
+assert.ok(Math.abs(parseFloat(endpoints[0].style.left) - 100*Math.sqrt(10)/rootSpan) < 1e-8);
+assert.ok(Math.abs(parseFloat(endpoints[0].style.width) - 100*Math.sqrt(60)/rootSpan) < 1e-8);
+const smallChart=portal([
+  {key:'small',item_id:101,label:'Small',dps:100.5,baseline_dps:100,comparison_mode:'equipment_effect'},
+  {key:'large',item_id:102,label:'Large',dps:108,baseline_dps:100,comparison_mode:'equipment_effect'},
+],{dps:100});
+const smallSegments=descendants(smallChart,'simc-benchmark-gear-segment');
+assert.equal(parseFloat(smallSegments[0].style.width),100);
+assert.equal(parseFloat(smallSegments[1].style.width),25);
+assert.match(descendants(smallChart,'simc-benchmark-candidate-value')[1].textContent,/\+0\.50%/);
 assert.equal(descendants(effectRows[4],'simc-benchmark-gear-segment').length,0);
 checkNoOverlap(descendants(effectRows[1],'simc-benchmark-gear-segment'));
 for(const values of [[100,100],[95,90],[110,90]]){

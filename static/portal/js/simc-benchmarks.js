@@ -332,7 +332,12 @@
     const guide = node("div", "simc-benchmark-gear-hover-guide"); guide.hidden = true; guide.setAttribute("aria-hidden", "true");
     const tooltip = node("div", "simc-benchmark-gear-tooltip"); tooltip.hidden = true; tooltip.setAttribute("role", "tooltip");
     body.append(guide, tooltip);
-    const position = (dps) => scale.range > 0 ? Math.max(0, Math.min(100, ((dps - scale.lowest) / scale.range) * 100)) : 100;
+    // 仅特效收益采用带符号平方根刻度：展开小收益，保留零点和负收益方向。
+    const signedSqrt = value => Math.sign(value) * Math.sqrt(Math.abs(value));
+    const low = signedSqrt(scale.lowest), span = signedSqrt(scale.highest) - low;
+    const position = (dps) => effectComparison && span > 0
+      ? Math.max(0, Math.min(100, (signedSqrt(dps) - low) * 100 / span))
+      : scale.range > 0 ? Math.max(0, Math.min(100, ((dps - scale.lowest) / scale.range) * 100)) : 100;
     const baselineDps = baseline ? validDps(baseline.dps) : null;
 
     groups.forEach((group, index) => {
@@ -684,10 +689,12 @@
     const effectComparison = isEffectComparison(candidates);
     const scale = gearChartScale(candidates), { lowest, highest } = scale;
     const axis = node("div", "simc-benchmark-axis-labels");
-    [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", effectComparison ? `${(lowest + scale.range * value / 100).toFixed(2)}%` : `${value}%`)));
+    const axisRootLow = Math.sign(lowest) * Math.sqrt(Math.abs(lowest));
+    const axisRootSpan = Math.sign(highest) * Math.sqrt(Math.abs(highest)) - axisRootLow;
+    [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", effectComparison ? `${(Math.sign(axisRootLow + axisRootSpan * value / 100) * (axisRootLow + axisRootSpan * value / 100) ** 2).toFixed(2)}%` : `${value}%`)));
     const chart = renderGearResultChart(candidates, baseline, scale);
     const range = node("div", "simc-benchmark-range-note", effectComparison
-      ? "按特效提升排名 · 对照为同装备同属性、仅关闭特效 · 每件装备展示特效提升最高的装等"
+      ? "平方根刻度（非线性）· 按特效提升排名 · 对照为同装备同属性、仅关闭特效 · 每件装备展示特效提升最高的装等"
       : scale.range > 0
       ? `区间对比：${numberFormat.format(lowest)} DPS = 0%，${numberFormat.format(highest)} DPS = 100%`
       : "区间内结果相同");
