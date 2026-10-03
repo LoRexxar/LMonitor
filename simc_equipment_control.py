@@ -55,9 +55,10 @@ NATIVE_SLOTS = frozenset(('head', 'neck', 'shoulders', 'back', 'chest', 'wrists'
                    'main_hand', 'off_hand'))
 ALIASES = {'shoulder': 'shoulders', 'wrist': 'wrists', 'hand': 'hands',
            'ring1': 'finger1', 'ring2': 'finger2'}
-# 应用快照与原生 SimC 的槽位拼写不同，入口统一接受这些别名。
-SLOTS = NATIVE_SLOTS | frozenset(ALIASES)
 ALL_SLOTS = NATIVE_SLOTS | {'trinket1', 'trinket2'}
+# 组合可跨武器和饰品槽；旧单件对照入口仍使用 NATIVE_SLOTS。
+# 应用快照与原生 SimC 的槽位拼写不同，入口统一接受这些别名。
+SLOTS = ALL_SLOTS | frozenset(ALIASES)
 PENDING = 'lmonitor_effect_control_pending,stats=lmonitor_unprepared'
 
 
@@ -251,6 +252,8 @@ def parse_equipment_export(profile, log, slot):
             raise ValueError('SimC 未完整导出武器类型、伤害与攻速')
         weapon = (options['weapon'].split('_')[0], *damage.groups(), speed[1])
     return {'options': options, 'stats': stats, 'weapon': weapon,
+            'effect_log': native_effect_log(log),
+            'effects': native_item_effects(lines[index].partition('=')[2], log, slot),
             'attachments': {key: blocks.get(key, '') for key in
                             ('gems', 'enchant', 'addon', 'temporary_enchant')},
             'record': record, 'profile_value': lines[index].partition('=')[2]}
@@ -377,6 +380,102 @@ def _item_effects(export):
     return tuple(sorted(effects))
 
 
+def native_effect_log(log):
+    """Keep the native origin chain, including competing mappings, without APLs."""
+    return '\n'.join(line for line in log.splitlines() if
+        ' adding effect ' in line or 'Initializing items for Player ' in line
+        or 'Initializing special effects for Player ' in line
+        or 'Initializing item-based special effect ' in line
+        or (' name=' in line and ' slot=' in line and ' source=' in line))
+
+
+def native_item_effects(profile_value, log, slot):
+    """Bind actual effect blocks to an unambiguous native item/actor origin.
+
+    Final item records have no actor label. Only a single native actor scope can
+    therefore authorize migration. Item names bind adding lines to unique final
+    records; effect names and proc_spells never establish identity or activation.
+    Repeated identical initialization pairs (shared copies) are allowed, but
+    competing triggers, declarations, or final blocks cannot authorize a binding.
+    """
+    slot = ALIASES.get(slot, slot)
+    lines = log.splitlines()
+    records = [line for line in lines if ' name=' in line and ' slot=' in line and ' source=' in line]
+    selected = [line for line in records if re.search(rf'\bslot={re.escape(slot)}\s', line)]
+    if len(selected) != 1:
+        raise ValueError('native effect record ambiguous or missing')
+    record = selected[0]
+    effects = []
+    for block in re.findall(r'\beffect=\{\s*([^{}]*?)\s*\}', record):
+        fields = dict(re.findall(r'\b(\w+)=([^\s]+)', block))
+        driver, trigger = fields.get('driver', ''), fields.get('trigger', '')
+        if (fields.get('source') == 'item' and fields.get('type') in ('equip', 'use')
+                and driver.isdecimal() and int(driver) > 0):
+            effects.append({'source': 'item', 'type': fields['type'], 'driver': int(driver),
+                            'trigger': int(trigger) if trigger.isdecimal() and int(trigger) > 0 else None,
+                            'origin': None})
+    item_scopes = re.findall(r"Initializing items for Player '([^']+)'\.", log)
+    effect_scopes = re.findall(r"Initializing special effects for Player '([^']+)'\.", log)
+    identity = re.search(r'\bname=(\S+) id=(\d+) slot=(\S+)', record)
+    if (len(item_scopes) != 1 or effect_scopes != item_scopes or not identity
+            or identity[2] != _options(profile_value).get('id')
+            or sum(bool(re.search(rf'\bname={re.escape(identity[1])}\s', row)) for row in records) != 1):
+        return effects
+    actor, name = item_scopes[0], identity[1]
+    additions = []
+    for line in lines:
+        match = re.search(r"Player (\S+) item '([^']+)' adding effect (\d+) \(type=(\w+), index=(\d+)\)", line)
+        if match and match[1] == actor and match[2] == name:
+            additions.append((match[4], int(match[3]), int(match[5])))
+    if len({index for _, _, index in additions}) != len(additions):
+        return effects
+    mappings = {}
+    in_actor = False
+    for line in lines:
+        scope = re.search(r"Initializing special effects for Player '([^']+)'\.", line)
+        if scope:
+            in_actor = scope[1] == actor
+        if in_actor and 'Initializing item-based special effect ' in line:
+            fields = dict(re.findall(r'\b(\w+)=([^\s]+)', line))
+            if fields.get('source') == 'item':
+                mappings.setdefault((fields.get('type'), fields.get('driver')), set()).add(fields.get('trigger'))
+    candidates = []
+    for effect in effects:
+        matches = []
+        for kind, driver, index in additions:
+            triggers = mappings.get((kind, str(driver)), set())
+            if (effect['type'] == kind and effect['trigger'] is not None
+                    and triggers == {str(effect['trigger'])}
+                    and effect['driver'] in (driver, effect['trigger'])):
+                matches.append({'actor': actor, 'slot': slot, 'item_id': int(identity[2]),
+                                'index': index, 'type': kind, 'driver': driver, 'trigger': effect['trigger']})
+        candidates.append(matches)
+    for effect, matches in zip(effects, candidates):
+        if len(matches) == 1 and sum(matches[0] in other for other in candidates) == 1:
+            effect['origin'] = matches[0]
+    return effects
+
+
+def native_effects_equal(before, after):
+    """Keep exact runtime equality; migration requires origins on both sides."""
+    def runtime(rows):
+        return sorted((row['type'], row['driver'], row.get('trigger') or 0) for row in rows)
+    if runtime(before) == runtime(after):
+        return True
+    def identities(rows):
+        return sorted(json.dumps(row['origin'], sort_keys=True) if row.get('origin') else
+                      json.dumps({'runtime': [row['type'], row['driver'], row.get('trigger')]}, sort_keys=True)
+                      for row in rows)
+    return identities(before) == identities(after)
+
+
+def native_effect_drivers(effects):
+    # A central declared driver may be proven by the origin chain, never by a
+    # trigger alone. The final instantiated block remains mandatory.
+    return {row['driver'] for row in effects} | {
+        row['origin']['driver'] for row in effects if row.get('origin')}
+
+
 def _native_sets(log):
     """Read the native initialized roster, not saved comments or declared rules."""
     result = set()
@@ -430,7 +529,7 @@ def validate_equipment_expectation(expectation, slots):
 def _require_declared_effects(exports, expectation):
     for row in (expectation or {}).get('targets', []):
         item = exports[row['slot']]
-        drivers = {driver for _, driver in _item_effects(item)}
+        drivers = native_effect_drivers(item['effects'])
         bonuses = {int(value) for value in re.findall(r'\d+', item['options'].get('bonus_id', ''))}
         if (int(item['options'].get('id', '0')) != row['item_id']
                 or not set(row['required_bonus_ids']).issubset(bonuses)
@@ -544,7 +643,8 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
         if sum(actual.values()) != expected or sum(actual.values()) > 2:
             raise ValueError('最终装备美化数量与目标组合不一致')
     for slot in items:
-        if _item_effects(original[slot]) != _item_effects(normal[slot]):
+        if (original[slot]['profile_value'] != normal[slot]['profile_value']
+                or not native_effects_equal(original[slot]['effects'], normal[slot]['effects'])):
             raise ValueError(f'目标装备 {slot} 原生效果与准备后不一致，拒绝生成收益')
     # Persist only after every native preparation gate has passed. Full paired
     # static/effect snapshots are evidence, not a bare success flag.
@@ -554,11 +654,11 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
             'bonus_ids': sorted({int(value) for value in re.findall(r'\d+', item['options'].get('bonus_id', ''))}),
             'profile_value': item['profile_value'],
             'static': {key: item[key] for key in ('stats', 'weapon', 'attachments')},
-            'effects': [{'source': 'item', 'type': kind, 'driver': driver}
-                        for kind, driver in _item_effects(item)],
-        } for slot, item in exports.items()}, 'sets': [list(row) for row in sorted(sets)]}
+            'effects': item['effects'],
+        } for slot, item in exports.items()}, 'sets': [list(row) for row in sorted(sets)],
+                'effect_log': next(iter(exports.values()))['effect_log']}
 
-    proof = {'schema_version': 1, 'scope': 'equipment_effect_combination',
+    proof = {'schema_version': 2, 'scope': 'equipment_effect_combination',
              'mode': 'control' if payload['control'] else 'normal',
              'targets': [{'slot': slot, 'item_id': int(original[slot]['options'].get('id', '0'))}
                          for slot in items],

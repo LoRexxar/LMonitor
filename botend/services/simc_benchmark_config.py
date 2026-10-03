@@ -410,7 +410,7 @@ def _normalize_candidate_params(candidate_type, params):
 
     if (isinstance(params, str) and len(params.strip().splitlines()) > 1
             or isinstance(params, dict) and 'gear_swaps' in params):
-        from simc_equipment_control import SLOTS, ALIASES
+        from simc_equipment_control import SLOTS, ALL_SLOTS, ALIASES
         if isinstance(params, str):
             rows, options = params.strip().splitlines(), None
         else:
@@ -419,8 +419,8 @@ def _normalize_candidate_params(candidate_type, params):
             if 'candidate_type' in params and (params['candidate_type'] != 'gear_swap' or params.get('is_base') is not False):
                 _error('装备组合执行类型无效', 'params')
             rows, options = params['gear_swaps'], params.get('simc_options')
-        if not isinstance(rows, list) or not 2 <= len(rows) <= len(SLOTS):
-            _error('装备组合必须包含 2 至 14 件装备', 'params')
+        if not isinstance(rows, list) or not 2 <= len(rows) <= len(ALL_SLOTS):
+            _error(f'装备组合必须包含 2 至 {len(ALL_SLOTS)} 件装备', 'params')
         swaps = []
         for row in rows:
             if isinstance(row, dict) and 'item_id' in row:
@@ -431,7 +431,7 @@ def _normalize_candidate_params(candidate_type, params):
             swaps.append(normalized['gear_swap'])
         slots = [ALIASES.get(row['slot'], row['slot']) for row in swaps]
         if len(set(slots)) != len(slots) or any(slot not in SLOTS for slot in slots):
-            _error('装备组合不能重复槽位或包含饰品', 'params')
+            _error('装备组合不能重复槽位或包含非装备槽位', 'params')
         for swap in swaps:
             _benchmark_item_identity({'gear_swap': swap})
         result = {'candidate_type': 'gear_swap', 'is_base': False,

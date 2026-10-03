@@ -164,7 +164,10 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
     import hashlib
     import json
     import math
-    from simc_equipment_control import native_proof_marker, validate_effect_policy
+    from simc_equipment_control import (
+        native_proof_marker, validate_effect_policy, native_item_effects,
+        native_effects_equal, native_effect_drivers,
+    )
     from botend.services.simc_equipment_result_evidence import _native_document
 
     native_proof_marker(proof)  # Bound even direct local callers, reject NaN.
@@ -182,7 +185,7 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
     mode = 'control' if params.get('equipment_effect_control') is True else 'normal'
     if (set(proof) != {'schema_version', 'scope', 'mode', 'targets', 'background_removed',
                       'rules_hash', 'original', 'normal', 'control', 'target_sets'}
-            or type(proof['schema_version']) is not int or proof['schema_version'] != 1
+            or type(proof['schema_version']) is not int or proof['schema_version'] not in (1, 2)
             or proof['scope'] != 'equipment_effect_combination' or proof['mode'] != mode):
         raise ValueError('native scope mismatch')
     rules = params['equipment_effect_policy']['rules']
@@ -196,14 +199,17 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
             or {row['slot']: row['item_id'] for row in proof['targets']} != target_ids):
         raise ValueError('native target mismatch')
     groups = {}
+    origin_schema = proof['schema_version'] == 2
     for group in ('original', 'normal', 'control'):
         snapshot = proof[group]
-        if set(snapshot) != {'items', 'sets'} or not isinstance(snapshot['items'], dict):
+        keys = {'items', 'sets', 'effect_log'} if origin_schema else {'items', 'sets'}
+        if (set(snapshot) != keys or not isinstance(snapshot['items'], dict)
+                or origin_schema and not isinstance(snapshot['effect_log'], str)):
             raise ValueError('native snapshot invalid')
         roster = snapshot['items']
         if not roster or len(roster) > len(EQUIPMENT_SLOTS) or not set(roster) <= EQUIPMENT_SLOTS:
             raise ValueError('native roster invalid')
-        for item in roster.values():
+        for slot, item in roster.items():
             if (set(item) != {'item_id', 'bonus_ids', 'profile_value', 'static', 'effects'}
                     or type(item['item_id']) is not int or item['item_id'] < 0
                     or not isinstance(item['profile_value'], str) or '\n' in item['profile_value']
@@ -221,9 +227,12 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
             if _equipment(fields) != {'item_id': item['item_id'] or None, 'bonus_ids': item['bonus_ids']}:
                 raise ValueError('native profile identity mismatch')
             for effect in item['effects']:
-                if (set(effect) != {'source', 'type', 'driver'} or effect['source'] != 'item'
+                effect_keys = {'source', 'type', 'driver', 'trigger', 'origin'} if origin_schema else {'source', 'type', 'driver'}
+                if (set(effect) != effect_keys or effect['source'] != 'item'
                         or effect['type'] not in ('equip', 'use') or type(effect['driver']) is not int or effect['driver'] <= 0):
                     raise ValueError('native effect invalid')
+            if origin_schema and item['effects'] != native_item_effects(item['profile_value'], snapshot['effect_log'], slot):
+                raise ValueError('native origin evidence mismatch')
         sets = snapshot['sets']
         if (not isinstance(sets, list) or len(sets) > 128
                 or any(not isinstance(row, list) or len(row) != 2 or not isinstance(row[0], str)
@@ -248,7 +257,10 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
         if slot in background and normal[slot]['effects']:
             raise ValueError('native background not removed')
         if slot in target_ids and (before['item_id'] != target_ids[slot]
-                or normal[slot]['item_id'] != target_ids[slot] or before['effects'] != normal[slot]['effects']):
+                or normal[slot]['item_id'] != target_ids[slot]
+                or (not native_effects_equal(before['effects'], normal[slot]['effects'])
+                    or before['profile_value'] != normal[slot]['profile_value'] if origin_schema
+                    else before['effects'] != normal[slot]['effects'])):
             raise ValueError('native target effects mismatch')
     normal_sets = {tuple(row) for row in proof['normal']['sets']}
     control_sets = {tuple(row) for row in proof['control']['sets']}
@@ -268,7 +280,7 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
     for target in (expectation or {}).get('targets', []):
         item = normal[_slot(target['slot'])]
         if (not set(target['required_bonus_ids']) <= set(item['bonus_ids'])
-                or not set(target['driver_spell_ids']) <= {row['driver'] for row in item['effects']}):
+                or not set(target['driver_spell_ids']) <= native_effect_drivers(item['effects'])):
             raise ValueError('native central activation mismatch')
     document, complete = _native_document(report_html) if _parsed_native is None else _parsed_native
     profile = '\n'.join(block for section in document.get('sections', [])
