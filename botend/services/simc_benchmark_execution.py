@@ -14,7 +14,7 @@ from datetime import timezone as datetime_timezone
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Func, JSONField, Prefetch, Q
 from django.utils import timezone
 
 from botend.constants.hero_talents import (
@@ -2522,13 +2522,75 @@ def _safe_error(value):
     return text[:_ERROR_LIMIT]
 
 
-def _execution_queryset():
-    runs = SimulationRun.objects.order_by('sequence', 'id')
-    cases = SimcBenchmarkCase.objects.select_related('task').prefetch_related(
-        Prefetch('task__simulation_runs', queryset=runs, to_attr='_benchmark_runs'),
+class _ReconcileJSONKeys(Func):
+    """Project object keys without scalar coercion or hydrating the whole document.
+
+    KeyTransform alone can conflate JSON strings such as "false" with booleans on
+    SQLite. Return a JSON object instead, preserving types for the validity/DPS
+    gates. Non-object documents retain the old isinstance(..., dict) fallback.
+    """
+    output_field = JSONField()
+
+    def __init__(self, field, keys):
+        self.keys = keys
+        super().__init__(field)
+
+    def as_sql(self, compiler, connection, **extra_context):
+        field, field_params = compiler.compile(self.source_expressions[0])
+        params = list(field_params)
+        pairs = []
+        for key in self.keys:
+            path = '$.' + json.dumps(key)
+            if connection.vendor == 'sqlite':
+                # Keep raw JSON rather than round-tripping through SQL scalars:
+                # JSON_EXTRACT loses boolean types and large-number precision.
+                value = f'JSON({field} -> %s)'
+                params.extend([key, *field_params, path])
+            else:
+                value = f'JSON_EXTRACT({field}, %s)'
+                params.extend([key, *field_params, path])
+            pairs.append(f'%s, {value}')
+        object_type = 'object' if connection.vendor == 'sqlite' else 'OBJECT'
+        sql = (
+            f"CASE WHEN JSON_TYPE({field}) = '{object_type}' "
+            f"THEN JSON_OBJECT({', '.join(pairs)}) ELSE JSON_OBJECT() END"
+        )
+        return sql, params
+
+
+def _reconcile_run_queryset():
+    return SimulationRun.objects.only(
+        'id', 'task_id', 'sequence', 'candidate_key', 'candidate_label',
+        'status', 'error_detail',
+    ).annotate(
+        _reconcile_summary=_ReconcileJSONKeys(
+            'result_summary', ('valid', 'reason', 'error', 'dps'),
+        ),
+        _reconcile_manifest=_ReconcileJSONKeys('resource_manifest', ('hero_talent_names',)),
+    ).order_by('sequence', 'id')
+
+
+def _reconcile_task_queryset():
+    # Keep the actual frozen mode_params and ext: candidate fallback/ownership and
+    # task_progress must not see fabricated or truncated mode/progress state.
+    return SimcTask.objects.only(
+        'id', 'source_task_id', 'current_status', 'error_detail', 'mode_params', 'ext',
+    ).prefetch_related(
+        Prefetch('simulation_runs', queryset=_reconcile_run_queryset(), to_attr='_benchmark_runs'),
+    )
+
+
+def _reconcile_case_queryset():
+    return SimcBenchmarkCase.objects.prefetch_related(
+        Prefetch('task', queryset=_reconcile_task_queryset()),
     ).order_by('id')
-    return SimcBenchmarkExecution.objects.select_related('panel').prefetch_related(
-        Prefetch('cases', queryset=cases, to_attr='_benchmark_cases'),
+
+
+def _execution_queryset():
+    # This loader is private to live reconciliation; full Run consumers keep their
+    # ordinary queryset and never receive these read-only projected instances.
+    return SimcBenchmarkExecution.objects.prefetch_related(
+        Prefetch('cases', queryset=_reconcile_case_queryset(), to_attr='_benchmark_cases'),
     )
 
 
@@ -2629,7 +2691,7 @@ def task_progress(task):
     return None
 
 
-def _runs_through_source_chain(task):
+def _runs_through_source_chain(task, *, compact=False):
     """Overlay retry Runs on their immutable source Task history by candidate key."""
     tasks = []
     current = task
@@ -2639,7 +2701,9 @@ def _runs_through_source_chain(task):
         seen.add(current.pk)
         if current.source_task_id is None:
             break
-        current = SimcTask.objects.select_related('source_task').get(pk=current.source_task_id)
+        sources = (_reconcile_task_queryset() if compact
+                   else SimcTask.objects.select_related('source_task'))
+        current = sources.get(pk=current.source_task_id)
     runs_by_key = {}
     for source in reversed(tasks):
         # A retry owns its frozen candidates even before claim initializes Runs.
@@ -2649,7 +2713,8 @@ def _runs_through_source_chain(task):
             runs_by_key.pop(key, None)
         runs = getattr(source, '_benchmark_runs', None)
         if runs is None:
-            runs = SimulationRun.objects.filter(task_id=source.pk).order_by('sequence', 'id')
+            queryset = _reconcile_run_queryset() if compact else SimulationRun.objects.all()
+            runs = queryset.filter(task_id=source.pk).order_by('sequence', 'id')
         for run in runs:
             runs_by_key[run.candidate_key] = run
     return runs_by_key
@@ -2676,12 +2741,9 @@ def _summarize_live_execution(execution, *, case_id=None):
             execution = SimcBenchmarkExecution.objects.get(pk=execution.pk)
         except SimcBenchmarkExecution.DoesNotExist:
             _validation_error('Execution 不存在', 'execution')
-        runs = SimulationRun.objects.order_by('sequence', 'id')
-        cases = list(SimcBenchmarkCase.objects.filter(
+        cases = list(_reconcile_case_queryset().filter(
             execution_id=execution.pk, pk=case_id,
-        ).select_related('task').prefetch_related(
-            Prefetch('task__simulation_runs', queryset=runs, to_attr='_benchmark_runs'),
-        ).order_by('id'))
+        ))
     expected_by_coordinate = dict(_snapshot_layout(execution) or [])
     count_names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in count_names}
@@ -2715,12 +2777,12 @@ def _summarize_live_execution(execution, *, case_id=None):
         if task.source_task_id is None:
             ordered_runs = list(task._benchmark_runs)
         else:
-            runs_by_key = _runs_through_source_chain(task)
+            runs_by_key = _runs_through_source_chain(task, compact=True)
             ordered_runs = [runs_by_key[key] for key in expected_keys if key in runs_by_key] \
                 if expected_keys is not None else list(runs_by_key.values())
         for run in ordered_runs:
             total_runs += 1
-            summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+            summary = run._reconcile_summary
             semantic_error = ''
             if summary.get('valid') is False:
                 semantic_error = str(
@@ -2740,8 +2802,7 @@ def _summarize_live_execution(execution, *, case_id=None):
                 'status': run_status, 'dps': None,
                 '_raw_dps': None if semantic_error else summary.get('dps'),
                 '_hero_talent_names': _normalized_hero_talent_names(
-                    (run.resource_manifest or {}).get('hero_talent_names')
-                    if isinstance(run.resource_manifest, dict) else []
+                    run._reconcile_manifest.get('hero_talent_names')
                 ),
             })
         actual_keys = [run.candidate_key for run in ordered_runs]
