@@ -377,6 +377,44 @@ def _candidate_bonus_ids(candidate):
     return tuple(sorted(normalized))
 
 
+def _embellishment_result_labels(candidates):
+    """Resolve the selected effect, not its carrier, from canonical item facts."""
+    from botend.models import WowItemSnapshot
+    from simc_equipment_control import equipment_rules
+
+    selected = {}
+    for candidate in candidates:
+        params = candidate.get('candidate_params', candidate.get('params')) or {}
+        swap = params.get('gear_swap')
+        if (not isinstance(swap, dict) or params.get('gear_swaps')
+                or params.get('equipment_effect_control')):
+            continue
+        rules = (params.get('equipment_effect_policy') or {}).get('rules') or equipment_rules()
+        bonuses = set(_candidate_bonus_ids({'candidate_params': params}))
+        tokens = {token for token, rule in rules.get('embellishments', {}).items()
+                  if rule.get('bonus_id') in bonuses}
+        explicit = re.search(r'(?:^|,)\s*embellishment=([a-z0-9_]+)(?=,|$)',
+                             str(swap.get('raw_value') or ''))
+        if explicit:
+            tokens.add(explicit.group(1))
+        if tokens:
+            selected[candidate.get('candidate_key', candidate.get('key'))] = sorted(tokens)
+    if not selected:
+        return {}
+    names = {}
+    for row in WowItemSnapshot.objects.filter(
+        catalog_type='embellishment',
+        simc_token__in={token for tokens in selected.values() for token in tokens},
+    ).values('simc_token', 'name_zh', 'name'):
+        name = str(row['name_zh'] or row['name'] or '').strip()
+        if name:
+            names.setdefault(row['simc_token'], set()).add(name)
+    # Missing or ambiguous localized facts retain the exact effect token.
+    resolved = {token: next(iter(values)) for token, values in names.items() if len(values) == 1}
+    return {key: ' ＋ '.join(resolved.get(token, token) for token in tokens)
+            for key, tokens in selected.items()}
+
+
 def _candidate_item_variant_key(candidate):
     """同装等组合共用装等分组；混合装等组合保持完整身份。"""
     params = deepcopy(candidate.get('candidate_params'))
@@ -2019,6 +2057,8 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
     else:
         projected_cases = [] if coordinate_filter is not None else plan_cases
         selected_filter = historical_filter or None
+    embellishment_labels = _embellishment_result_labels(
+        [candidate for coordinate in projected_cases for candidate in coordinate['candidates']])
     display_candidates = []
     display_requests = []
     group_display_members = {}
@@ -2193,6 +2233,11 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 if display_name and item_level and not (candidate.get('candidate_params') or {}).get('gear_swaps'):
                     label = f'{display_name} · {item_level}'
                 tooltip = _candidate_display_tooltip(display, candidate)
+                embellishment_label = embellishment_labels.get(candidate['candidate_key'])
+                if embellishment_label:
+                    if tooltip and display_name:
+                        tooltip = f'{display_name}\n{tooltip}'
+                    label = embellishment_label
                 row = {
                     'key': candidate['candidate_key'],
                     'label': label,
@@ -2873,6 +2918,7 @@ def _summarize_persisted_execution(execution):
         if isinstance(execution.config_snapshot, dict) else []
     labels = {item.get('key'): item.get('label') for item in definitions
               if isinstance(item, dict)}
+    labels.update(_embellishment_result_labels(definitions))
     rows, result_runs = [], 0
     layout = _snapshot_layout(execution) or []
     expected_by_coordinate = dict(layout)
@@ -3601,6 +3647,7 @@ def serialize_public_execution(panel_or_execution):
         for row in summary['cases'] for run in row['runs']
         if candidate_metadata[run['key']]['params'].get('effect_baseline_key')
     }))
+    embellishment_labels = _embellishment_result_labels(list(candidate_metadata.values()))
     public_cases = []
     seal_rows = []
     for row in summary['cases']:
@@ -3628,7 +3675,7 @@ def serialize_public_execution(panel_or_execution):
                 continue
             candidate_row = {
                 'key': run['key'],
-                'label': str(display.get('label') or candidate['label']),
+                'label': embellishment_labels.get(run['key']) or str(display.get('label') or candidate['label']),
                 'type': candidate['candidate_type'],
                 'icon_url': str(display.get('icon_url') or candidate['icon_url']),
                 'source_label': candidate['source_label'],

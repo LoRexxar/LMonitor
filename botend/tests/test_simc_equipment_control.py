@@ -349,6 +349,40 @@ class EquipmentControlBenchmarkTests(TestCase):
         self.panel.save(update_fields=['is_public'])
         return execution
 
+    def test_embellishment_result_names_use_central_effect_not_carrier(self):
+        from botend.services.simc_benchmark_execution import summarize_execution
+        WowItemSnapshot.objects.filter(item_id=239660).update(
+            name_zh='测试载体护腕', description_zh='腕部 板甲\n+100 急速')
+        WowItemSnapshot.objects.filter(item_id=123).update(name_zh='普通饰品')
+        for item_id in (240166, 240167):
+            WowItemSnapshot.objects.create(
+                item_id=item_id, catalog_type='embellishment',
+                simc_token='arcanoweave_lining', name_zh='奥纹内衬')
+        for option in ('bonus_id=12384', 'embellishment=arcanoweave_lining'):
+            with self.subTest(option=option):
+                self.ring.params = _normalize_candidate_params(
+                    'gear_swap', f'wrists=,id=239660,ilevel=334,{option}')
+                self.ring.label = '旧候选名不应作为美化身份'
+                self.ring.save()
+                execution = self.finish()
+                frozen = deepcopy(execution.config_snapshot)
+                live = serialize_incremental_panel_results(self.panel)
+                public = serialize_public_execution(self.panel)
+                summary = summarize_execution(execution)
+                for rows in (live['coordinates'][0]['candidates'],
+                             public['execution']['cases'][0]['candidates'],
+                             summary['cases'][0]['runs']):
+                    label = next(row['label'] for row in rows if row['key'] == 'ring')
+                    self.assertEqual(label, '奥纹内衬')
+                row = next(row for row in live['coordinates'][0]['candidates'] if row['key'] == 'ring')
+                self.assertIn('测试载体护腕', row['tooltip'])
+                self.assertEqual(row['dps'], 1600)
+                self.assertEqual(row['baseline_dps'], 1500)
+                self.assertEqual(next(row['label'] for row in live['coordinates'][0]['candidates']
+                                      if row['key'] == 'trinket'), '普通饰品')
+                execution.refresh_from_db()
+                self.assertEqual(execution.config_snapshot, frozen)
+
     def test_slot_aliases_save_and_freeze_controls_without_execution(self):
         import base64
         import json
