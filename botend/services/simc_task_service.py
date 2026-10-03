@@ -386,6 +386,7 @@ def _normalize_candidates(candidates, round_number=1):
             slots = [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in candidate_swaps(params)]
             if (params.get('candidate_type') != 'gear_swap'
                     or not slots or any(slot not in SLOTS for slot in slots)
+                    or (len(slots) == 1 and slots[0] in ('trinket1', 'trinket2'))
                     or ('equipment_effect_control' in params
                         and params['equipment_effect_control'] is not True)
                     or ('effect_baseline_key' in params and (

@@ -65,8 +65,11 @@ class EquipmentControlInputTests(UnitTestCase):
                 self.assertIn('back=lmonitor_effect_control', result)
                 self.assertIn('feet=lmonitor_effect_control', result)
                 self.assertNotIn(MARKER, result)
-        self.assertEqual(results[0].count('embellishment='), 1)
-        self.assertEqual(results[1].count('embellishment='), 0)
+        # Raw native provenance in proof comments is not executable equipment.
+        executable = ['\n'.join(line for line in result.splitlines()
+                                if not line.startswith('#')) for result in results]
+        self.assertEqual(executable[0].count('embellishment='), 1)
+        self.assertEqual(executable[1].count('embellishment='), 0)
         self.assertIn('wrists=lmonitor_effect_control', results[1])
 
     def test_three_target_embellishments_and_stacked_sources_are_rejected(self):
@@ -298,11 +301,19 @@ class EquipmentControlInputTests(UnitTestCase):
         self.assertEqual(prepare_control_input('unchanged', '', ''), 'unchanged')
 
     def test_control_options_cannot_be_forged_for_trinkets(self):
-        with self.assertRaises(TaskCreationError):
-            _normalize_candidates([{'candidate_params': {
-                'candidate_type': 'gear_swap', 'equipment_effect_control': True,
-                'gear_swap': {'slot': 'trinket1'},
-            }}])
+        for swaps in ({'gear_swap': {'slot': 'trinket1'}},
+                      {'gear_swaps': [{'slot': 'trinket2'}]}):
+            with self.subTest(swaps=swaps), self.assertRaises(TaskCreationError):
+                _normalize_candidates([{'candidate_params': {
+                    'candidate_type': 'gear_swap', 'equipment_effect_control': True,
+                    **swaps,
+                }}])
+
+    def test_control_options_accept_real_weapon_trinket_combination(self):
+        params = {'candidate_type': 'gear_swap', 'equipment_effect_control': True,
+                  'gear_swaps': [{'slot': 'main_hand'}, {'slot': 'trinket1'}]}
+        result = _normalize_candidates([{'candidate_params': params}])
+        self.assertEqual(result[0]['candidate_params'], params)
 
 
 class EquipmentControlBenchmarkTests(TestCase):
@@ -429,7 +440,7 @@ class EquipmentControlBenchmarkTests(TestCase):
         self.assertEqual(_normalize_candidate_params('gear_swap', params), params)
         self.assertEqual({row['slot'] for row in params['gear_swaps']}, {'wrist', 'back'})
         for invalid in ('wrists=,id=123,ilevel=289\nwrists=,id=456,ilevel=289',
-                        'wrists=,id=123,ilevel=289\ntrinket1=,id=456,ilevel=289',
+                        'wrists=,id=123,ilevel=289\ninvalid_slot=,id=456,ilevel=289',
                         'wrists=,id=123,ilevel=289\nback=,id=456,ilevel=289,output=secret'):
             from django.core.exceptions import ValidationError
             with self.assertRaises(ValidationError):
