@@ -354,10 +354,16 @@ class EquipmentControlBenchmarkTests(TestCase):
         WowItemSnapshot.objects.filter(item_id=239660).update(
             name_zh='测试载体护腕', description_zh='腕部 板甲\n+100 急速')
         WowItemSnapshot.objects.filter(item_id=123).update(name_zh='普通饰品')
+        effect = ('你的法术和技能有几率吸引一只法力浮龙，使你和一名盟友获得奥纹洞察。'
+                  '奥纹洞察会提高你和盟友的主要属性。')
         for item_id in (240166, 240167):
+            description = f'提供下列属性：{effect}'
+            if item_id == 240166:
+                description = f'附加制作材料\n+15 配方难度\n{description}\n用于：\n至暗之夜护甲配方。'
             WowItemSnapshot.objects.create(
                 item_id=item_id, catalog_type='embellishment',
-                simc_token='arcanoweave_lining', name_zh='奥纹内衬')
+                simc_token='arcanoweave_lining', name_zh='奥纹内衬',
+                description_zh=description)
         for option in ('bonus_id=12384', 'embellishment=arcanoweave_lining'):
             with self.subTest(option=option):
                 self.ring.params = _normalize_candidate_params(
@@ -375,7 +381,12 @@ class EquipmentControlBenchmarkTests(TestCase):
                     label = next(row['label'] for row in rows if row['key'] == 'ring')
                     self.assertEqual(label, '奥纹内衬')
                 row = next(row for row in live['coordinates'][0]['candidates'] if row['key'] == 'ring')
-                self.assertIn('测试载体护腕', row['tooltip'])
+                self.assertEqual(row['tooltip'], effect)
+                self.assertEqual(row['effect'], effect)
+                public_row = next(row for row in public['execution']['cases'][0]['candidates'] if row['key'] == 'ring')
+                self.assertEqual(public_row['effect'], effect)
+                self.assertNotIn('测试载体护腕', row['tooltip'])
+                self.assertNotIn('配方难度', row['tooltip'])
                 self.assertEqual(row['dps'], 1600)
                 self.assertEqual(row['baseline_dps'], 1500)
                 self.assertEqual(next(row['label'] for row in live['coordinates'][0]['candidates']

@@ -377,7 +377,7 @@ def _candidate_bonus_ids(candidate):
     return tuple(sorted(normalized))
 
 
-def _embellishment_result_labels(candidates):
+def _embellishment_result_display(candidates):
     """Resolve the selected effect, not its carrier, from canonical item facts."""
     from botend.models import WowItemSnapshot
     from simc_equipment_control import equipment_rules
@@ -401,18 +401,30 @@ def _embellishment_result_labels(candidates):
             selected[candidate.get('candidate_key', candidate.get('key'))] = sorted(tokens)
     if not selected:
         return {}
-    names = {}
+    names, effects = {}, {}
     for row in WowItemSnapshot.objects.filter(
         catalog_type='embellishment',
         simc_token__in={token for tokens in selected.values() for token in tokens},
-    ).values('simc_token', 'name_zh', 'name'):
+    ).values('simc_token', 'name_zh', 'name', 'description_zh', 'description'):
         name = str(row['name_zh'] or row['name'] or '').strip()
         if name:
             names.setdefault(row['simc_token'], set()).add(name)
+        for description in (row['description_zh'], row['description']):
+            match = re.search(
+                r'(?:提供下列属性|Provides the following property)\s*[:：]\s*(.*?)'
+                r'(?=\n(?:用于|Usable with|最大叠加|Max Stack|售价|Sell Price)\s*[:：]|\n["“]|\Z)',
+                str(description or ''), re.S | re.I)
+            if match and match.group(1).strip():
+                effects.setdefault(row['simc_token'], set()).add(
+                    re.sub(r'\s+', ' ', match.group(1)).strip())
+                break
     # Missing or ambiguous localized facts retain the exact effect token.
     resolved = {token: next(iter(values)) for token, values in names.items() if len(values) == 1}
-    return {key: ' ＋ '.join(resolved.get(token, token) for token in tokens)
-            for key, tokens in selected.items()}
+    descriptions = {token: next(iter(values)) for token, values in effects.items() if len(values) == 1}
+    return {key: {
+        'label': ' ＋ '.join(resolved.get(token, token) for token in tokens),
+        'tooltip': '\n\n'.join(descriptions.get(token, '美化特效说明暂无可用数据') for token in tokens),
+    } for key, tokens in selected.items()}
 
 
 def _candidate_item_variant_key(candidate):
@@ -2057,7 +2069,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
     else:
         projected_cases = [] if coordinate_filter is not None else plan_cases
         selected_filter = historical_filter or None
-    embellishment_labels = _embellishment_result_labels(
+    embellishment_display = _embellishment_result_display(
         [candidate for coordinate in projected_cases for candidate in coordinate['candidates']])
     display_candidates = []
     display_requests = []
@@ -2233,11 +2245,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 if display_name and item_level and not (candidate.get('candidate_params') or {}).get('gear_swaps'):
                     label = f'{display_name} · {item_level}'
                 tooltip = _candidate_display_tooltip(display, candidate)
-                embellishment_label = embellishment_labels.get(candidate['candidate_key'])
-                if embellishment_label:
-                    if tooltip and display_name:
-                        tooltip = f'{display_name}\n{tooltip}'
-                    label = embellishment_label
+                embellishment = embellishment_display.get(candidate['candidate_key'])
+                if embellishment:
+                    label, tooltip = embellishment['label'], embellishment['tooltip']
                 row = {
                     'key': candidate['candidate_key'],
                     'label': label,
@@ -2918,7 +2928,8 @@ def _summarize_persisted_execution(execution):
         if isinstance(execution.config_snapshot, dict) else []
     labels = {item.get('key'): item.get('label') for item in definitions
               if isinstance(item, dict)}
-    labels.update(_embellishment_result_labels(definitions))
+    labels.update({key: display['label'] for key, display in
+                   _embellishment_result_display(definitions).items()})
     rows, result_runs = [], 0
     layout = _snapshot_layout(execution) or []
     expected_by_coordinate = dict(layout)
@@ -3647,7 +3658,7 @@ def serialize_public_execution(panel_or_execution):
         for row in summary['cases'] for run in row['runs']
         if candidate_metadata[run['key']]['params'].get('effect_baseline_key')
     }))
-    embellishment_labels = _embellishment_result_labels(list(candidate_metadata.values()))
+    embellishment_display = _embellishment_result_display(list(candidate_metadata.values()))
     public_cases = []
     seal_rows = []
     for row in summary['cases']:
@@ -3675,7 +3686,7 @@ def serialize_public_execution(panel_or_execution):
                 continue
             candidate_row = {
                 'key': run['key'],
-                'label': embellishment_labels.get(run['key']) or str(display.get('label') or candidate['label']),
+                'label': (embellishment_display.get(run['key']) or {}).get('label') or str(display.get('label') or candidate['label']),
                 'type': candidate['candidate_type'],
                 'icon_url': str(display.get('icon_url') or candidate['icon_url']),
                 'source_label': candidate['source_label'],
@@ -3705,7 +3716,8 @@ def serialize_public_execution(panel_or_execution):
                 frozen = {'candidate_type': candidate['candidate_type'], 'candidate_params': candidate['params']}
                 candidate_row['equipment_group_key'] = _candidate_item_variant_key(frozen)
                 candidate_row['item_level'] = _candidate_item_level(frozen)
-            effect = str(display.get('effect') or candidate.get('effect') or '')
+            effect = str((embellishment_display.get(run['key']) or {}).get('tooltip')
+                         or display.get('effect') or candidate.get('effect') or '')
             if effect:
                 candidate_row['effect'] = effect
             candidates.append(candidate_row)
