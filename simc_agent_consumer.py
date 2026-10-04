@@ -644,6 +644,10 @@ class SimcAgentConsumer:
         self.stop_event = threading.Event()
         self.logger = logging.getLogger(LOGGER_NAME)
         self._last_simc_check = 0.0
+        self._binary_identity_lock = threading.Lock()
+        self._binary_identity_key = None
+        self._binary_identity: dict[str, str] = {}
+        self._binary_identity_retry_at = 0.0
         self._server_required_revision = ''
         self._maintenance_slot_path = Path(self.config.token_path).with_name('simc-maintenance-slots.json')
         self._completed_maintenance_slots = self._load_completed_maintenance_slots()
@@ -713,6 +717,75 @@ class SimcAgentConsumer:
             except FileNotFoundError:
                 pass
 
+    def _probe_binary_identity(self) -> dict[str, str]:
+        """Observe the installed executable; never infer identity from its marker.
+
+        Successful observations live only while the file identity is unchanged.
+        Failed probes have a short backoff, not a stale successful fallback. This
+        is telemetry, not a conditional contract, relation or execution binding.
+        """
+        binary = Path(self.config.simc_path)
+
+        def identity(file_stat):
+            return (str(binary), file_stat.st_dev, file_stat.st_ino,
+                    file_stat.st_size, file_stat.st_mtime_ns,
+                    file_stat.st_ctime_ns, file_stat.st_mode)
+
+        with self._binary_identity_lock:
+            try:
+                if not _is_executable_regular_file(binary):
+                    self._binary_identity_key = None
+                    self._binary_identity = {}
+                    return {}
+                key = identity(binary.stat())
+                now = time.monotonic()
+                if key == self._binary_identity_key and (
+                    self._binary_identity or now < self._binary_identity_retry_at
+                ):
+                    return dict(self._binary_identity)
+                self._binary_identity_key = key
+                self._binary_identity = {}
+                self._binary_identity_retry_at = now + 60.0
+                digest = hashlib.sha256()
+                with binary.open('rb') as source:
+                    if identity(os.fstat(source.fileno())) != key:
+                        return {}
+                    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                        if time.monotonic() - now > 30.0:
+                            return {}
+                        digest.update(chunk)
+                    if identity(os.fstat(source.fileno())) != key:
+                        return {}
+                # SimC has no --version flag. No arguments prints its own banner
+                # and exits without running a simulation or writing reports.
+                probe = subprocess.run(
+                    [str(binary)], capture_output=True, text=True,
+                    timeout=5, check=False, stdin=subprocess.DEVNULL,
+                )
+                if probe.returncode != 0 or identity(binary.stat()) != key:
+                    return {}
+                banners = re.findall(
+                    r'(?:^|\n)(?:Nothing to sim! )?SimulationCraft [^\r\n]+',
+                    probe.stdout + '\n' + probe.stderr,
+                )
+                if len(banners) != 1:
+                    return {}
+                build = re.search(
+                    r'for World of Warcraft (\d+\.\d+\.\d+\.\d+) (?:Live|PTR)\b',
+                    banners[0],
+                )
+                if not build:
+                    return {}
+                observed = {'binary_sha256': digest.hexdigest(), 'dbc_build': build.group(1)}
+                revision = re.search(r'\bgit build \S+ ([0-9a-fA-F]{40})(?=[,)\s]|$)', banners[0])
+                if revision:
+                    observed['binary_revision'] = revision.group(1).lower()
+                self._binary_identity = observed
+                return dict(observed)
+            except (OSError, UnicodeError, subprocess.TimeoutExpired):
+                self._binary_identity = {}
+                return {}
+
     def _report(self, status: str = 'online') -> dict[str, Any]:
         binary = Path(self.config.simc_path)
         binary_available = _is_executable_regular_file(binary)
@@ -733,7 +806,12 @@ class SimcAgentConsumer:
         return {
             'status': status, 'platform': self.config.platform,
             'agent_version': VERSION, 'agent_revision': agent_upstream_revision(), 'protocol_version': PROTOCOL_VERSION,
-            'capabilities': {'max_concurrent_runs': self.config.max_concurrent_runs},
+            'capabilities': {
+                'max_concurrent_runs': self.config.max_concurrent_runs,
+                # Conditional execution/evidence delivery is not implemented.
+                'conditional_evidence_protocol_version': 0,
+                **self._probe_binary_identity(),
+            },
             'instance_id': self.instance_id, 'current_version': marker_revision,
             'binary_available': binary_available,
             'html_locale_patch_version': html_locale_patch_version,
