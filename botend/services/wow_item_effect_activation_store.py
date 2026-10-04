@@ -86,9 +86,16 @@ def item_activation_facts(item_ids):
     return {item_id: facts if isinstance(facts, dict) else {} for item_id, facts in rows}
 
 
-def select_activation(facts, *, is_ptr, item_id):
+def select_activation(facts, *, is_ptr, item_id, game_build=''):
+    from botend.services.wow_item_identity import build_key
+    if type(is_ptr) is not bool:
+        raise ValidationError('必须显式声明激活来源分支')
+    if game_build:
+        build_key(game_build)
     candidates = []
     for build, entry in facts.items():
+        if game_build and build != game_build:
+            continue
         if not BUILD_RE.fullmatch(str(build)):
             continue
         parts = tuple(map(int, build.split('.')))
@@ -110,9 +117,13 @@ def freeze_equipment_activation(params, facts_by_item):
     targets = []
     for swap in candidate_swaps(result):
         item_id = swap.get('item_id')
+        from botend.services.wow_item_identity import validate_swap_identity_context
+        validate_swap_identity_context(swap, trusted_item_identity=True)
         fact = select_activation(facts_by_item.get(item_id, {}),
-            is_ptr=swap.get('is_ptr') is True, item_id=item_id)
+            is_ptr=swap.get('is_ptr') is True, item_id=item_id, game_build=swap.get('game_build', ''))
         if not fact:
+            if swap.get('game_build') and facts_by_item.get(item_id):
+                raise ValidationError('选定装备构建缺少同分支激活事实')
             continue  # Native initialization still fail-closes unloaded effects.
         ref = activation_reference(fact)
         raw = str(swap.get('raw_value') or '')

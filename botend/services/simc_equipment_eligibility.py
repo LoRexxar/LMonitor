@@ -3,6 +3,8 @@ from collections import defaultdict
 import re
 
 from django.db.models import F
+from django.core.exceptions import ValidationError
+from botend.services.wow_item_identity import resolve_item_identity, project_item_identity
 
 from botend.constants.wow import canonical_class_spec
 from botend.models import WowItemSnapshot, WowItemVariantSnapshot
@@ -107,7 +109,15 @@ class EquipmentEligibility:
             detail = {'item_id': item_id, 'slot': slot}
             if item is None:
                 return {**detail, 'code': 'missing_metadata', 'reason': '装备资料不足，无法确认适用性'}
+            try:
+                ref = resolve_item_identity(item, game_build=swap.get('game_build', ''),
+                                            is_ptr=swap.get('is_ptr', False))
+            except ValidationError:
+                return {**detail, 'code': 'missing_metadata', 'reason': '缺少同分支精确构建装备身份'}
+            item = project_item_identity(item, ref)
             variants = self.variants[item_id]
+            if ref:
+                variants = [row for row in variants if row.game_build == ref['game_build']]
             # 不混用不同目录批次；主属性身份允许在同批次其他装等的变体中补齐。
             if variants:
                 latest = variants[0]
@@ -155,6 +165,9 @@ class EquipmentEligibility:
                 continue
             item_id = _identity(swap)[0]
             item = self.items[item_id]
+            ref = resolve_item_identity(item, game_build=swap.get('game_build', ''),
+                                        is_ptr=swap.get('is_ptr', False))
+            item = project_item_identity(item, ref)
             weapons.append({'slot': slot, 'item_id': item_id,
                             'inventory_type': int(item.inventory_type)})
         if not weapons:

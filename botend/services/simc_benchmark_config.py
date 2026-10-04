@@ -447,6 +447,7 @@ def _normalize_candidate_params(candidate_type, params):
 
     declared_bonus = None
     has_declared_bonus = False
+    declared_context = {}
     if isinstance(params, str):
         if '\n' in params or '\r' in params:
             _error('装备候选不允许换行', 'params')
@@ -470,17 +471,19 @@ def _normalize_candidate_params(candidate_type, params):
             if not isinstance(params.get('gear_swap'), dict):
                 _error('gear_swap 必须是对象', 'params')
             swap = params['gear_swap']
-            if set(swap) - {'slot', 'raw_value', 'item_id', 'source', 'bonus_id', 'is_ptr'}:
+            if set(swap) - {'slot', 'raw_value', 'item_id', 'source', 'bonus_id', 'is_ptr', 'game_build'}:
                 _error('gear_swap 包含未知字段', 'params')
+            declared_context = swap
             slot, raw_value = swap.get('slot'), swap.get('raw_value')
             has_declared_bonus = 'bonus_id' in swap
             declared_bonus = swap.get('bonus_id')
         else:
             unknown = set(params) - {
-                'slot', 'raw_value', 'simc_options', 'benchmark_profile',
+                'slot', 'raw_value', 'simc_options', 'benchmark_profile', 'game_build', 'is_ptr',
             }
             if unknown:
                 _error(f'gear_swap 包含未知字段: {", ".join(sorted(unknown))}', 'params')
+            declared_context = params
             slot, raw_value = params.get('slot'), params.get('raw_value')
     else:
         _error('gear_swap params 必须是装备行或对象', 'params')
@@ -507,7 +510,28 @@ def _normalize_candidate_params(candidate_type, params):
         'slot': canonical_slot, 'raw_value': normalized,
         'item_id': item_id, 'source': 'manual',
     }
-    if _item_requires_ptr(item_id):
+    from botend.services.wow_item_identity import has_identity_store, resolve_item_identity, build_key
+    if 'item_id' in declared_context and (type(declared_context['item_id']) is not int
+                                        or declared_context['item_id'] != item_id):
+        _error('装备 canonical item_id 与装备行冲突', 'params')
+    if 'is_ptr' in declared_context and type(declared_context['is_ptr']) is not bool:
+        _error('装备 is_ptr 必须严格为布尔值', 'params')
+    if 'source' in declared_context and declared_context['source'] != 'manual':
+        _error('装备 source 必须为 manual', 'params')
+    game_build = declared_context.get('game_build', '')
+    if 'game_build' in declared_context:
+        build_key(game_build)
+    branch = declared_context.get('is_ptr', _item_requires_ptr(item_id))
+    item = WowItemSnapshot.objects.filter(item_id=item_id).first()
+    if game_build or has_identity_store(item):
+        if item is None:
+            _error('缺少精确构建装备身份', 'params')
+        ref = resolve_item_identity(item, game_build=game_build, is_ptr=branch)
+        gear_swap['game_build'] = ref['game_build']
+        gear_swap['is_ptr'] = ref['is_ptr']
+    elif branch != _item_requires_ptr(item_id):
+        _error('装备分支与中央来源冲突', 'params')
+    elif branch:
         gear_swap['is_ptr'] = True
     result = {
         'candidate_type': 'gear_swap', 'is_base': False,
@@ -606,12 +630,13 @@ def _default_talent_string(spec_key):
     return matches[0]
 
 
-def _benchmark_item_display_metadata(item_id, item_level=0, bonus_ids=()):
+def _benchmark_item_display_metadata(item_id, item_level=0, bonus_ids=(), swap=None):
     """用统一活动目录生成候选冻结前的展示字段。"""
     metadata = load_item_tooltip_metadata([{
         'item_id': item_id,
         'item_level': item_level,
         'bonus_ids': bonus_ids,
+        **{key: value for key, value in (swap or {}).items() if key in ('game_build', 'is_ptr')},
     }])[0]
     label = metadata['display_name']
     return (
@@ -845,14 +870,14 @@ def normalize_panel_payload(payload, user_id, panel=None):
             value for key, value in item_options if key in {'bonus_id', 'bonus_ids'}
         ]
         metadata_label, metadata_effect, metadata_icon_url = _benchmark_item_display_metadata(
-            item_id, item_level, bonus_ids,
+            item_id, item_level, bonus_ids, params.get('gear_swap'),
         )
         if params.get('gear_swaps'):
             descriptions, effects = [], []
             for swap in params['gear_swaps']:
                 identity = _benchmark_item_identity({'gear_swap': swap})
                 bonuses = [value for name, value in identity[2] if name == 'bonus_id']
-                name, effect, icon = _benchmark_item_display_metadata(identity[0], identity[1], bonuses)
+                name, effect, icon = _benchmark_item_display_metadata(identity[0], identity[1], bonuses, swap)
                 descriptions.append(f'{name or "物品 " + str(identity[0])} · {identity[1]}')
                 if effect:
                     effects.append(f'{name or identity[0]}\n{effect}')
@@ -1098,8 +1123,10 @@ def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=Non
     if eligibility is None:
         from botend.services.simc_equipment_eligibility import EquipmentEligibility
         eligibility = EquipmentEligibility([row['candidate_params'] for row in candidates])
+    from botend.services.wow_item_identity import freeze_equipment_identity
     for candidate in candidates:
-        params = candidate['candidate_params']
+        params = freeze_equipment_identity(candidate['candidate_params'], eligibility.items)
+        candidate['candidate_params'] = params
         layout = eligibility.weapon_layout(params, spec_key, class_name)
         if layout and (
             {row['slot'] for row in layout['weapons']} == {'main_hand', 'off_hand'}

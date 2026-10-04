@@ -397,8 +397,24 @@ def _tooltip_text(*, item_level=0, stats=None, effects=None, sources=None, fallb
 def item_display_metadata(
     item_id, snapshot=None, *, item_level=0, variant=None, stats=None, effects=None,
     sources=None, icon_size='small', primary_stat='',
+    game_build='', is_ptr=None, frozen_identity=None, legacy_identity=False,
 ):
     """返回三个装备入口共同消费的稳定展示契约。"""
+    from botend.services.wow_item_identity import (
+        has_identity_store, resolve_display_identity, variant_identity, project_item_identity,
+    )
+    identity = frozen_identity or getattr(snapshot, '_resolved_identity', None)
+    if snapshot and not identity and not legacy_identity and has_identity_store(snapshot):
+        if game_build or type(is_ptr) is bool:
+            identity = resolve_display_identity(snapshot, game_build=game_build, is_ptr=is_ptr)
+        elif variant is not None:
+            identity = variant_identity(snapshot, variant)
+    if identity:
+        snapshot = project_item_identity(snapshot, identity)
+        game_build = identity['game_build']
+        if variant is not None and variant.game_build != game_build:
+            variant = None
+            stats = effects = sources = None
     normalized_id = _positive_int(item_id) or None
     has_structured_projection = variant is not None or stats is not None or effects is not None
     if variant is not None:
@@ -500,7 +516,10 @@ def item_display_metadata(
         "sources": normalized_sources,
         "variant_id": getattr(variant, 'pk', None),
         "variant_key": str(getattr(variant, 'variant_key', '') or ''),
-        "game_build": str(getattr(variant, 'game_build', '') or ''),
+        "game_build": game_build or str(getattr(variant, 'game_build', '') or ''),
+        "item_identity": identity,
+        "identity_available": bool(identity),
+        "stats_game_build": str(getattr(variant, 'game_build', '') or ''),
         "variant_metadata": variant_metadata,
         "tooltip_complete": bool(normalized_stats or normalized_effects) and not (
             expects_effect and not normalized_effects
@@ -568,7 +587,8 @@ def _variant_score(variant, item_level, bonus_ids):
 
 def load_item_tooltip_metadata(requests):
     """按输入顺序批量匹配活动目录的具体装备变体。"""
-    normalized = [_request_values(request) for request in (requests or [])]
+    requests = list(requests or [])
+    normalized = [_request_values(request) for request in requests]
     if not normalized:
         return []
     item_ids = {
@@ -600,10 +620,19 @@ def load_item_tooltip_metadata(requests):
         ).select_related('item'):
             variants_by_item.setdefault(int(variant.item.item_id), []).append(variant)
     result = []
-    for (
+    from botend.services.wow_item_identity import has_identity_store, resolve_display_identity
+    for request, (
         item_id, item_level, bonus_ids, primary_stat,
         allow_default_variant, game_build, default_order, require_complete,
-    ) in normalized:
+    ) in zip(requests, normalized):
+        context = request if isinstance(request, dict) else {}
+        snapshot = snapshots.get(item_id)
+        identity = context.get('item_identity')
+        if not identity and not context.get('legacy_identity') and has_identity_store(snapshot):
+            if game_build or type(context.get('is_ptr')) is bool:
+                identity = resolve_display_identity(snapshot, game_build=game_build, is_ptr=context.get('is_ptr'))
+        if identity:
+            game_build = identity['game_build']
         candidates = variants_by_item.get(item_id, [])
         if game_build:
             candidates = [row for row in candidates if str(row.game_build or '') == game_build]
@@ -625,6 +654,8 @@ def load_item_tooltip_metadata(requests):
         snapshot = snapshots.get(item_id) or getattr(variant, 'item', None)
         result.append(item_display_metadata(
             item_id, snapshot, item_level=item_level, variant=variant, primary_stat=primary_stat,
+            game_build=game_build, is_ptr=context.get('is_ptr'), frozen_identity=identity,
+            legacy_identity=context.get('legacy_identity', False),
         ))
     return result
 

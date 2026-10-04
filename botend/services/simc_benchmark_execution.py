@@ -43,6 +43,15 @@ from botend.services.simc_task_service import (
     _compute_content_hash, create_task, prepare_task_creation,
 )
 from botend.services.wow_item_display import load_item_tooltip_metadata
+
+
+def _identity_display_context(swap):
+    ref = swap.get('item_identity')
+    if ref:
+        return {'item_identity': ref, 'game_build': ref['game_build'], 'is_ptr': ref['is_ptr']}
+    # An old frozen candidate is not retroactively assigned today's identity.
+    return {'legacy_identity': True, **{key: swap[key] for key in ('game_build', 'is_ptr') if key in swap}}
+
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.simc_benchmark_targeting import select_rerun_coordinates
 from botend.wow.talents.default_versions import DEFAULT_TALENT_VERSIONS
@@ -2121,6 +2130,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     display_requests.append({'item_id': _candidate_item_id(member),
                                              'item_level': _candidate_item_level(member),
                                              'bonus_ids': _candidate_bonus_ids(member),
+                                             **_identity_display_context(swap),
                                              'spec_key': coordinate['spec_key']})
                 group_display_members[display_identity] = members
                 continue
@@ -2132,6 +2142,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 'item_id': item_id,
                 'item_level': _candidate_item_level(candidate),
                 'bonus_ids': _candidate_bonus_ids(candidate),
+                **_identity_display_context((candidate.get('candidate_params') or {}).get('gear_swap') or {}),
                 'spec_key': coordinate['spec_key'],
             })
     display_by_identity = dict(zip(
