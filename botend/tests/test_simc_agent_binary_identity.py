@@ -169,6 +169,44 @@ class SimcAgentBinaryIdentityTests(SimpleTestCase):
             self.assertEqual(self.consumer._probe_binary_identity(), {})
         self.assertEqual(self.consumer._binary_identity_diagnostics['binary_identity_reason'], 'file_changed')
 
+    def test_stat_mismatch_reports_exact_stage_and_only_integer_differences(self):
+        from types import SimpleNamespace
+
+        fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_mode')
+        baseline = self.binary.stat()
+        expected = {name: getattr(baseline, name) for name in fields}
+        for stage in ('fstat_before_hash', 'fstat_after_hash', 'path_after_probe'):
+            for field in fields:
+                with self.subTest(stage=stage, field=field):
+                    self.consumer._binary_identity_key = None
+                    changed = SimpleNamespace(**{**expected, field: expected[field] + 1})
+                    stats = [changed] if stage == 'fstat_before_hash' else [baseline, changed]
+                    if stage == 'path_after_probe':
+                        stats = [baseline, baseline]
+                    from contextlib import ExitStack
+                    with ExitStack() as stack:
+                        def probe(*args, **kwargs):
+                            if stage == 'path_after_probe':
+                                stack.enter_context(patch.object(Path, 'stat', return_value=changed))
+                            return self.result()
+                        stack.enter_context(patch('simc_agent_consumer.os.fstat', side_effect=stats))
+                        run = stack.enter_context(patch('simc_agent_consumer.subprocess.run', side_effect=probe))
+                        caps = self.consumer._report()['capabilities']
+                    self.assertEqual(caps['binary_identity_reason'], 'file_changed')
+                    self.assertEqual(caps.get('binary_identity_comparison_stage'), stage)
+                    self.assertEqual(caps.get('binary_identity_stat_differences'), {
+                        field: {'expected': expected[field], 'observed': expected[field] + 1},
+                    })
+                    self.assertEqual(run.call_count, int(stage == 'path_after_probe'))
+                    self.assertNotIn('binary_sha256', caps)
+                    self.assertNotIn(str(self.binary), json.dumps(caps))
+                    self.assertLess(len(json.dumps(caps)), 2048)
+        with patch('simc_agent_consumer.time.monotonic', return_value=float('inf')), patch(
+            'simc_agent_consumer.subprocess.run', return_value=self.result()
+        ):
+            recovered = self.consumer._report()['capabilities']
+        self.assertEqual([k for k in recovered if k.startswith('binary_identity_')], ['binary_identity_status'])
+
     def test_nonzero_or_ambiguous_banner_is_not_trusted(self):
         for output, code in [(BANNER, 1), ('not simc', 0), (BANNER + BANNER.replace('69933', '69934'), 0)]:
             with self.subTest(output=output, code=code):

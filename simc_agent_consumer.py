@@ -740,6 +740,21 @@ class SimcAgentConsumer:
             )
             return {}
 
+        def identity_changed(observed, comparison_stage):
+            if observed == key:
+                return False
+            # Never include the path component or arbitrary exception/output text.
+            fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_mode')
+            self._binary_identity_diagnostics.update(
+                binary_identity_comparison_stage=comparison_stage,
+                binary_identity_stat_differences={
+                    name: {'expected': before, 'observed': after}
+                    for name, before, after in zip(fields, key[1:], observed[1:])
+                    if before != after
+                },
+            )
+            return True
+
         def output_facts(stdout, stderr):
             for name, data in (('stdout', stdout), ('stderr', stderr)):
                 if isinstance(data, bytes):
@@ -766,13 +781,13 @@ class SimcAgentConsumer:
                 stage = 'hash_io_error'
                 digest = hashlib.sha256()
                 with binary.open('rb') as source:
-                    if identity(os.fstat(source.fileno())) != key:
+                    if identity_changed(identity(os.fstat(source.fileno())), 'fstat_before_hash'):
                         return failed('file_changed')
                     for chunk in iter(lambda: source.read(1024 * 1024), b''):
                         if time.monotonic() - now > 30.0:
                             return failed('hash_timeout')
                         digest.update(chunk)
-                    if identity(os.fstat(source.fileno())) != key:
+                    if identity_changed(identity(os.fstat(source.fileno())), 'fstat_after_hash'):
                         return failed('file_changed')
                 # SimC has no --version flag. No arguments prints its own banner
                 # and exits without running a simulation or writing reports.
@@ -794,8 +809,10 @@ class SimcAgentConsumer:
                 if probe.returncode != 0:
                     return failed('nonzero_exit')
                 stage = 'file_changed'
-                if identity(binary.stat()) != key:
+                self._binary_identity_diagnostics['binary_identity_comparison_stage'] = 'path_after_probe'
+                if identity_changed(identity(binary.stat()), 'path_after_probe'):
                     return failed('file_changed')
+                self._binary_identity_diagnostics.pop('binary_identity_comparison_stage', None)
                 banners = re.findall(
                     r'(?:^|\n)(?:Nothing to sim! )?SimulationCraft [^\r\n]+',
                     stdout + '\n' + stderr,
