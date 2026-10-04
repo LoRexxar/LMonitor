@@ -64,6 +64,55 @@ class FrozenWeaponLayoutTests(TestCase):
                 self.assertIn('off_hand=,id=2', SimcMonitor.apply_candidate_overrides(
                     {'player_equipment': equipment}, legacy)['player_equipment'])
 
+    def test_paired_weapons_freeze_and_fill_only_missing_base_offhand(self):
+        self.weapon.inventory_type = 13
+        self.weapon.item_subclass_id = 7
+        self.weapon.metadata = {'primary_stat_options': ['agility']}
+        self.weapon.save()
+        offhand = WowItemSnapshot.objects.create(
+            item_id=900002, item_class_id=2, item_subclass_id=7, inventory_type=13,
+            metadata={'primary_stat_options': ['agility']})
+        self.candidate.params = {'candidate_type': 'gear_swap', 'gear_swaps': [
+            {'slot': 'main_hand', 'item_id': 900001, 'raw_value': ',id=900001,ilevel=321'},
+            {'slot': 'off_hand', 'item_id': 900002, 'raw_value': ',id=900002,ilevel=321'},
+        ]}
+        self.candidate.save()
+        for spec_key in ('hunter_survival', 'monk_windwalker'):
+            with self.subTest(spec=spec_key):
+                spec = self.panel.specs.get()
+                spec.spec_key = spec_key
+                spec.class_name = spec_key.split('_')[0]
+                spec.save()
+                plan = build_execution_plan(self.panel)
+                pair = [row['candidate_params'] for row in
+                        _normalize_candidates(plan['cases'][0]['candidates'])[1:]]
+                self.assertEqual(len(pair), 2)
+                self.assertIn('equipment_weapon_layout', pair[0])
+                self.assertEqual(pair[0]['equipment_weapon_layout'], pair[1]['equipment_weapon_layout'])
+                # A candidate-section offhand is not a base player slot.
+                equipment = 'main_hand=,id=1\n### alternatives\noff_hand=,id=3'
+                for params in pair:
+                    before = deepcopy(params)
+                    with self.assertNumQueries(0):
+                        request = SimcMonitor.apply_candidate_overrides(
+                            {'player_equipment': equipment}, params)
+                    base, candidates = request['player_equipment'].split('###', 1)
+                    self.assertIn('main_hand=,id=900001,ilevel=321', base)
+                    self.assertIn('off_hand=,id=900002,ilevel=321', base)
+                    self.assertIn('off_hand=,id=3', candidates)
+                    self.assertEqual(params, before)
+                    # Do not reinterpret old frozen inputs with no layout proof.
+                    legacy = deepcopy(params)
+                    legacy.pop('equipment_weapon_layout')
+                    with self.assertRaisesRegex(ValueError, 'off_hand'):
+                        SimcMonitor.apply_candidate_overrides({'player_equipment': equipment}, legacy)
+                    with self.assertRaisesRegex(ValueError, 'main_hand'):
+                        SimcMonitor.apply_candidate_overrides({'player_equipment': 'head=,id=1'}, params)
+                    tampered = deepcopy(params)
+                    tampered['equipment_weapon_layout']['weapons'][0]['item_id'] = 999999
+                    with self.assertRaisesRegex(ValueError, '身份不一致'):
+                        SimcMonitor.apply_candidate_overrides({'player_equipment': equipment}, tampered)
+
     def test_layout_repair_keeps_legacy_results_visible_without_reusing_old_inputs(self):
         from botend.services.simc_benchmark_execution import serialize_incremental_panel_results, _incremental_coordinates
         self.candidate.key = 'ring'

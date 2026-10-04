@@ -1224,6 +1224,9 @@ class SimcAgentConsumer:
                 process.kill()
             except OSError:
                 pass
+            # kill() only requests termination. Reap before callers remove the
+            # work directory; Windows can retain file/directory locks until exit.
+            process.wait()
 
     @staticmethod
     def _lease_deadline(value: Any) -> float:

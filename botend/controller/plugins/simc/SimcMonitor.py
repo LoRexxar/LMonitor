@@ -508,11 +508,14 @@ class SimcMonitor(BaseScan):
             if params.get('gear_swaps'):
                 if params.get('gear_swap') is not None:
                     raise ValueError('装备组合不能同时包含单件配置')
+                from simc_equipment_control import apply_weapon_layout
+                request_data['player_equipment'] = apply_weapon_layout(
+                    request_data.get('player_equipment'), params,
+                )
                 for swap in params['gear_swaps']:
                     request_data = SimcMonitor.apply_candidate_overrides(
                         request_data, {'candidate_type': 'gear_swap', 'gear_swap': swap},
                     )
-                from simc_equipment_control import apply_weapon_layout
                 request_data['player_equipment'] = apply_weapon_layout(
                     request_data.get('player_equipment'), params,
                 )

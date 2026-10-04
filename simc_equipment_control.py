@@ -164,16 +164,27 @@ def validate_weapon_layout(params):
 def apply_weapon_layout(equipment, params):
     if 'equipment_weapon_layout' not in params:
         return equipment  # Historical tasks retain their frozen semantics.
-    if not validate_weapon_layout(params):
+    clear = validate_weapon_layout(params)
+    paired = {row['slot'] for row in params['equipment_weapon_layout']['weapons']} == {'main_hand', 'off_hand'}
+    if not clear and not paired:
         return equipment
     lines = []
     in_candidate_section = False
+    has_offhand = False
+    base_end = None
     for line in str(equipment or '').splitlines():
         if line.strip().startswith('###'):
+            if not in_candidate_section:
+                base_end = len(lines)
             in_candidate_section = True
         if not in_candidate_section and line.partition('=')[0].strip().lower() == 'off_hand':
-            line = 'off_hand='
+            has_offhand = True
+            if clear:
+                line = 'off_hand='
         lines.append(line)
+    if paired and not has_offhand:
+        # Only an explicit, identity-validated pair authorizes a missing slot.
+        lines.insert(base_end if base_end is not None else len(lines), 'off_hand=')
     return '\n'.join(lines)
 
 
@@ -385,6 +396,7 @@ def native_effect_log(log):
     return '\n'.join(line for line in log.splitlines() if
         ' adding effect ' in line or 'Initializing items for Player ' in line
         or 'Initializing special effects for Player ' in line
+        or 'Creating Auras, Buffs, and Debuffs for Pet ' in line
         or 'Initializing item-based special effect ' in line
         or (' name=' in line and ' slot=' in line and ' source=' in line))
 
@@ -416,6 +428,13 @@ def native_item_effects(profile_value, log, slot):
                             'origin': None})
     item_scopes = re.findall(r"Initializing items for Player '([^']+)'\.", log)
     effect_scopes = re.findall(r"Initializing special effects for Player '([^']+)'\.", log)
+    # SimC also labels pet item initialization as Player. Exclude only actors
+    # explicitly identified as pets, never by name, and only without their own
+    # item effects. The single equipped actor/origin requirement stays intact.
+    pets = set(re.findall(r"Creating Auras, Buffs, and Debuffs for Pet '([^']+)'\.", log))
+    if pets.intersection(re.findall(r"Player (\S+) item '[^']+' adding effect ", log)):
+        return effects
+    item_scopes = [actor for actor in item_scopes if actor not in pets]
     identity = re.search(r'\bname=(\S+) id=(\d+) slot=(\S+)', record)
     if (len(item_scopes) != 1 or effect_scopes != item_scopes or not identity
             or identity[2] != _options(profile_value).get('id')

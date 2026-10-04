@@ -252,8 +252,14 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
         if slot in background or slot in target_ids:
             if control[slot]['effects'] or control[slot]['item_id'] or control[slot]['bonus_ids']:
                 raise ValueError('native control not removed')
-        if slot not in target_ids and normal[slot] != control[slot]:
-            raise ValueError('native background mismatch')
+        if slot not in target_ids:
+            # Removing one of two identically named weapons can make the other
+            # origin uniquely resolvable. Compare runtime effects, not whether
+            # optional attribution became available; all other facts stay exact.
+            normal_item, control_item = normal[slot], control[slot]
+            if (any(normal_item[key] != control_item[key] for key in normal_item if key != 'effects')
+                    or not native_effects_equal(normal_item['effects'], control_item['effects'])):
+                raise ValueError('native background mismatch')
         if slot in background and normal[slot]['effects']:
             raise ValueError('native background not removed')
         if slot in target_ids and (before['item_id'] != target_ids[slot]

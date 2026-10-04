@@ -102,6 +102,130 @@ class SimcAgentJobAPITests(TestCase):
                         'agent_revision': settings.SIMC_AGENT_REQUIRED_REVISION or ('a' * 40), 'protocol_version': 1,
         }, token)
 
+    def test_invalid_frozen_candidate_is_terminal_and_does_not_block_next_claim(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'missing-off-hand', 'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {'slot': 'off_hand', 'raw_value': ',id=251885,ilevel=321'},
+            }},
+            {'candidate_key': 'valid-sibling', 'candidate_params': {'candidate_type': 'base'}},
+        ])
+        # Reproduce an already-running Task after its earlier candidates finished.
+        from botend.services.simc_task_service import initialize_task_runs
+        task.current_status = 1
+        task.execution_owner = SimcTask.EXECUTION_OWNER_AGENT
+        task.started_at = timezone.now()
+        task.save()
+        initialize_task_runs(task, expected_started_at=task.started_at)
+        response = self.claim()
+        invalid = task.simulation_runs.get(candidate_key='missing-off-hand')
+        self.assertEqual(invalid.status, 'failed', response.content)
+        self.assertIn('off_hand', invalid.error_detail)
+        self.assertIsNotNone(invalid.completed_at)
+        self.assertIsNone(invalid.started_at)
+        self.assertFalse(invalid.lease_token_hash)
+        self.assertIsNone(invalid.lease_agent_id)
+        self.assertFalse(SimcTaskArtifact.objects.filter(task=task).exists())
+        self.assertEqual(response.status_code, 204)
+
+        response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        valid = task.simulation_runs.get(candidate_key='valid-sibling')
+        self.assertEqual(response.json()['run_id'], valid.pk)
+        self.assertEqual(valid.status, 'running')
+        self.assertTrue(valid.lease_token_hash)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+
+    def test_invalid_only_candidate_finalizes_task_without_worker_retry(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'missing-off-hand', 'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {'slot': 'off_hand', 'raw_value': ',id=251885,ilevel=321'},
+            }},
+        ])
+        response = self.claim()
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3, response.content)
+        self.assertIn('off_hand', task.error_detail)
+        self.assertIsNotNone(task.completed_at)
+        self.assertEqual(task.analysis_result['failed'], 1)
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.claim().status_code, 204)
+        self.assertFalse(SimcTask.objects.filter(source_task=task).exists())
+
+    def test_invalid_last_candidate_finalizes_running_task_with_completed_sibling(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'valid-sibling', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'missing-off-hand', 'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {'slot': 'off_hand', 'raw_value': ',id=251885,ilevel=321'},
+            }},
+        ])
+        first = self.claim()
+        self.assertEqual(first.status_code, 200, first.content)
+        completed = self.complete(first.json())
+        self.assertEqual(completed.status_code, 200, completed.content)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+        artifacts_before = list(SimcTaskArtifact.objects.filter(task=task).values())
+
+        response = self.claim()
+        self.assertEqual(response.status_code, 204, response.content)
+        task.refresh_from_db()
+        # Comparison success means at least one successful candidate, not all.
+        self.assertEqual(task.current_status, 2)
+        self.assertIsNotNone(task.completed_at)
+        self.assertIsNone(task.error_detail)
+        self.assertEqual(task.analysis_result['succeeded'], 1)
+        self.assertEqual(task.analysis_result['failed'], 1)
+        self.assertEqual(task.simulation_runs.get(candidate_key='missing-off-hand').status, 'failed')
+        self.assertEqual(list(SimcTaskArtifact.objects.filter(task=task).values()), artifacts_before)
+        self.assertEqual(self.claim().status_code, 204)
+        self.assertFalse(SimcTask.objects.filter(source_task=task).exists())
+
+    def test_invalid_candidate_preserves_running_sibling_lease_and_fence(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'valid-sibling', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'missing-off-hand', 'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {'slot': 'off_hand', 'raw_value': ',id=251885,ilevel=321'},
+            }},
+        ])
+        self.agent.capabilities = {'max_concurrent_runs': 2}
+        self.agent.save(update_fields=['capabilities'])
+        first = self.claim()
+        self.assertEqual(first.status_code, 200, first.content)
+        job = first.json()
+        sibling_before = SimulationRun.objects.filter(pk=job['run_id']).values().get()
+        agent_before = SimcAgent.objects.filter(pk=self.agent.pk).values().get()
+        task.refresh_from_db()
+        started_at = task.started_at
+
+        response = self.claim()
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertEqual(SimulationRun.objects.filter(pk=job['run_id']).values().get(), sibling_before)
+        self.assertEqual(SimcAgent.objects.filter(pk=self.agent.pk).values().get(), agent_before)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+        self.assertEqual(task.started_at, started_at)
+        self.assertIsNone(task.completed_at)
+        self.assertEqual(task.simulation_runs.get(candidate_key='missing-off-hand').status, 'failed')
+        self.assertFalse(SimcTaskArtifact.objects.filter(task=task).exists())
+        heartbeat = f"/api/simc-agent/v1/jobs/{job['run_id']}/heartbeat/"
+        self.assertEqual(self.post_json(heartbeat, {
+            'lease_token': job['lease_token'], 'instance_id': 'wrong-instance',
+        }).status_code, 409)
+        self.assertEqual(SimulationRun.objects.filter(pk=job['run_id']).values().get(), sibling_before)
+        self.assertEqual(self.post_json(heartbeat, {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+        }).status_code, 200)
+        completed = self.complete(job, status='failed', report=None, verify_report=False)
+        self.assertEqual(completed.status_code, 200, completed.content)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+        self.assertEqual(task.analysis_result['failed'], 2)
+
     def test_claim_task_locks_are_primary_key_only_for_pending_and_running(self):
         from django.db.models.query import QuerySet
         task = self.task(mode='comparison', candidates=[
@@ -1415,15 +1539,36 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(response.status_code, 401)
         verify.assert_not_called()
 
-    def test_claim_composition_failure_rolls_back_task_and_runs(self):
+    def test_unexpected_composition_error_rolls_back_task_and_runs(self):
         task = self.task()
         with patch('botend.services.simc_run_control.build_frozen_run_input',
-                   side_effect=ValueError('boom')):
-            response = self.claim()
-        self.assertEqual(response.status_code, 409, response.content)
+                   side_effect=RuntimeError('unexpected infrastructure failure')):
+            with self.assertRaisesRegex(RuntimeError, 'unexpected infrastructure failure'):
+                self.claim()
         task.refresh_from_db()
         self.assertEqual(task.current_status, 0)
         self.assertFalse(SimulationRun.objects.filter(task=task).exists())
+
+    def test_unexpected_composition_error_preserves_running_task_and_sibling_lease(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'running', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'pending', 'candidate_params': {'candidate_type': 'base'}},
+        ])
+        self.agent.capabilities = {'max_concurrent_runs': 2}
+        self.agent.save(update_fields=['capabilities'])
+        response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        task_before = SimcTask.objects.filter(pk=task.pk).values().get()
+        runs_before = list(task.simulation_runs.order_by('pk').values())
+        agent_before = SimcAgent.objects.filter(pk=self.agent.pk).values().get()
+        with patch('botend.services.simc_run_control.build_frozen_run_input',
+                   side_effect=RuntimeError('unexpected infrastructure failure')):
+            with self.assertRaisesRegex(RuntimeError, 'unexpected infrastructure failure'):
+                self.claim()
+        self.assertEqual(SimcTask.objects.filter(pk=task.pk).values().get(), task_before)
+        self.assertEqual(list(task.simulation_runs.order_by('pk').values()), runs_before)
+        self.assertEqual(SimcAgent.objects.filter(pk=self.agent.pk).values().get(), agent_before)
+        self.assertFalse(SimcTaskArtifact.objects.filter(task=task).exists())
 
     def test_all_responses_are_no_store_including_errors(self):
         self.assertEqual(self.claim().headers['Cache-Control'], 'no-store')

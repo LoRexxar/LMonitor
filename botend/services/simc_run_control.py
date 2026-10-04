@@ -363,7 +363,16 @@ def claim_run(payload, authorization):
                 task, run, _output_filename(run), enrich_hero=False, resolved=resolved,
             )
         except (ValueError, TypeError) as exc:
-            raise AgentAPIError('Unable to compose frozen Run input', 409) from exc
+            # Invalid frozen candidates cannot improve on another claim. Commit
+            # their failure instead of rolling back into a permanent 409/pending
+            # loop that eventually triggers an unrelated Worker stale retry.
+            now = timezone.now()
+            run.status = 'failed'
+            run.completed_at = now
+            run.error_detail = f'Unable to compose frozen Run input: {exc}'[:8000]
+            run.save(update_fields=['status', 'completed_at', 'error_detail'])
+            _finalize_task(task, now)
+            return None
         now = timezone.now()
         expires = now + timedelta(seconds=_lease_seconds())
         digest = hashlib.sha256(code.encode('utf-8')).hexdigest()
