@@ -512,9 +512,20 @@ def _native_item_effects_v3(profile_value, log, slot):
             or sum(n == name for n, _, _ in identities) != 1
             or len({s for _, _, s in identities}) != len(identities)):
         return effects
-    pets = set(re.findall(r"Creating Auras, Buffs, and Debuffs for Pet '([^']+)'\.", log))
-    actors = [a for a in re.findall(r"Initializing items for Player '([^']+)'\.", log) if a not in pets]
-    scopes = re.findall(r"Initializing special effects for Player '([^']+)'\.", log)
+    # Native names are unescaped: an apostrophe is data until the closing
+    # quote-plus-period at line end. Keep full names for exact actor/pet checks.
+    # A malformed boundary must not disappear from the roster or leave the
+    # preceding actor authorized, even if it occurs after the last item init.
+    for line in lines:
+        for marker in ('Initializing items for Player ',
+                       'Initializing special effects for Player ',
+                       'Creating Auras, Buffs, and Debuffs for Pet '):
+            if marker in line and not re.fullmatch(r"'[^\r\n]+'\.", line.partition(marker)[2]):
+                return effects
+    pets = set(re.findall(r"Creating Auras, Buffs, and Debuffs for Pet '([^\r\n]+)'\.$", log, re.MULTILINE))
+    actors = [a for a in re.findall(r"Initializing items for Player '([^\r\n]+)'\.$", log, re.MULTILINE) if a not in pets]
+    scope_pattern = re.compile(r"Initializing special effects for Player '([^\r\n]+)'\.$", re.MULTILINE)
+    scopes = scope_pattern.findall(log)
     if len(actors) != 1 or scopes != actors:
         return effects
     actor = actors[0]
@@ -540,7 +551,7 @@ def _native_item_effects_v3(profile_value, log, slot):
     initials = []
     in_actor = False
     for line in lines:
-        scope = re.search(r"Initializing special effects for Player '([^']+)'\.", line)
+        scope = scope_pattern.search(line)
         if scope:
             in_actor = scope[1] == actor
         if 'Initializing item-based special effect ' in line:

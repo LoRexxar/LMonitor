@@ -68,6 +68,95 @@ class NativeOriginV3Tests(TestCase):
             with self.subTest(name=name, mutation='profile_name'):
                 self.assertIsNone(self.effects(sample, profile='wrong_name,' + sample['profile_value'].partition(',')[2])[0]['origin'])
 
+    def apostrophe_sample(self):
+        return json.loads(Path(__file__).with_name('fixtures').joinpath(
+            'simc_native_actor_apostrophe.json').read_text())
+
+    def test_real_apostrophe_actor_retains_exact_native_origin(self):
+        sample = self.apostrophe_sample()
+        effect, = self.effects(sample)
+        self.assertEqual((effect['driver'], effect['trigger']), (1245012, 1245012))
+        self.assertEqual(effect['origin'], {
+            'actor': "MID2_Death_Knight_Blood_San'layn", 'slot': 'main_hand',
+            'item_id': 237842, 'type': 'equip', 'driver': 1245053,
+            'trigger': 1245012, 'source': 'native_attachment', 'index': 0,
+        })
+        self.assertIn(1245053, native.native_effect_drivers([effect]))
+        self.assertEqual(self.effects(sample), self.effects(sample, native.native_effect_log(sample['log'])))
+        # This frozen v2 behavior must not acquire the new attribution.
+        self.assertIsNone(self.effects(sample, version=2)[0]['origin'])
+
+    def test_apostrophe_scope_preserves_actor_and_pet_isolation(self):
+        sample = self.apostrophe_sample()
+        actor = "MID2_Death_Knight_Blood_San'layn"
+        log = sample['log']
+        scope = f"Initializing special effects for Player '{actor}'."
+        declaration = f"Player {actor} item 'bloomforged_greataxe'"
+        init = next(line for line in log.splitlines()
+                    if 'Initializing item-based special effect blood ' in line)
+        variants = {}
+        # Include names sharing the prefix before the quote and the complete name.
+        for other in ("other'actor", actor + '_other', actor.split("'")[0], actor.replace("'", '')):
+            variants['second_actor_' + other] = log + (
+                f"\nInitializing items for Player '{other}'."
+                f"\nInitializing special effects for Player '{other}'.")
+            variants['foreign_scope_' + other] = log.replace(scope,
+                f"Initializing special effects for Player '{other}'.")
+            variants['foreign_declaration_' + other] = log.replace(declaration,
+                f"Player {other} item 'bloomforged_greataxe'")
+        pet = actor + "_pet's_ghoul"
+        pet_scope = (f"\nInitializing items for Player '{pet}'."
+                     f"\nCreating Auras, Buffs, and Debuffs for Pet '{pet}'.")
+        # An explicitly identified pet without item effects is still allowed.
+        self.assertEqual(self.effects(sample, log + pet_scope), self.effects(sample))
+        variants['pet_declaration'] = log + pet_scope + (
+            f"\nPlayer {pet} item 'pet_item' adding effect 1245053 (type=equip, index=0)")
+        variants['pet_initialization'] = log + pet_scope + (
+            f"\nInitializing special effects for Player '{pet}'.\n" + init)
+        variants['actor_is_pet'] = log + f"\nCreating Auras, Buffs, and Debuffs for Pet '{actor}'."
+        variants['trailing_scope_text'] = log.replace(scope, scope + ' not_a_scope')
+        variants['unterminated_scope'] = log.replace(scope, scope[:-2])
+        variants['split_scope'] = log.replace(scope, scope.replace("San'layn", "San'\nlayn"))
+        for label, changed in variants.items():
+            with self.subTest(mutation=label):
+                self.assertIsNone(self.effects(sample, changed)[0]['origin'])
+
+    def test_malformed_secondary_boundaries_fail_closed(self):
+        sample = self.apostrophe_sample()
+        for actor_name in ("San'layn", 'Sanlayn'):
+            log = sample['log'].replace("San'layn", actor_name)
+            init = next(line for line in log.splitlines()
+                        if 'Initializing item-based special effect blood ' in line)
+            self.assertIsNotNone(self.effects(sample, log)[0]['origin'])
+            for marker in ('Initializing items for Player ',
+                           'Initializing special effects for Player ',
+                           'Creating Auras, Buffs, and Debuffs for Pet '):
+                for ending in ("'other'. not_a_scope", "'other'. ",
+                               "'other'.\t", "'other'", "'other", "''."):
+                    boundary = marker + ending
+                    # Both positions follow the valid main scope. Appending also
+                    # guards against merely resetting in_actor during init scans.
+                    for position, changed in (
+                            ('before_init', log.replace(init, boundary + '\n' + init)),
+                            ('after_init', log + '\n' + boundary)):
+                        for canonicalized in (False, True):
+                            with self.subTest(actor=actor_name, marker=marker,
+                                              ending=ending, position=position,
+                                              canonicalized=canonicalized):
+                                candidate = native.native_effect_log(changed) if canonicalized else changed
+                                self.assertIsNone(self.effects(sample, candidate)[0]['origin'])
+
+    def test_apostrophe_actor_and_pets_on_initialization_only_chain(self):
+        sample = self.samples['sunfire_sash_crafted']
+        # Explicit name-only mutation of the existing full-roster real fixture.
+        actor = "MID2_Mage_Fire_Sun'fur.y"
+        log = sample['log'].replace('MID2_Mage_Fire_Sunfury', actor)
+        effect, = self.effects(sample, log)
+        self.assertIsNotNone(effect['origin'])
+        self.assertEqual(effect['origin']['actor'], actor)
+        self.assertEqual(effect['origin']['source'], 'native_initialization_chain')
+        self.assertNotIn('index', effect['origin'])
+
     def test_unknown_schema_is_not_guessed(self):
         for version in (1, 4, True, '3', None):
             with self.subTest(version=version), self.assertRaises(ValueError):
