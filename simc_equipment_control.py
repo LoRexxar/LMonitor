@@ -231,7 +231,7 @@ def _stats(value):
     return result
 
 
-def parse_equipment_export(profile, log, slot):
+def parse_equipment_export(profile, log, slot, *, schema_version=2):
     """读取原生保存的装备字段及初始化日志中的实际护甲、武器数值。"""
     slot = ALIASES.get(slot, slot)
     lines = profile.splitlines()
@@ -264,7 +264,7 @@ def parse_equipment_export(profile, log, slot):
         weapon = (options['weapon'].split('_')[0], *damage.groups(), speed[1])
     return {'options': options, 'stats': stats, 'weapon': weapon,
             'effect_log': native_effect_log(log),
-            'effects': native_item_effects(lines[index].partition('=')[2], log, slot),
+            'effects': native_item_effects(lines[index].partition('=')[2], log, slot, schema_version=schema_version),
             'attachments': {key: blocks.get(key, '') for key in
                             ('gems', 'enchant', 'addon', 'temporary_enchant')},
             'record': record, 'profile_value': lines[index].partition('=')[2]}
@@ -401,7 +401,15 @@ def native_effect_log(log):
         or (' name=' in line and ' slot=' in line and ' source=' in line))
 
 
-def native_item_effects(profile_value, log, slot):
+def native_item_effects(profile_value, log, slot, *, schema_version=2):
+    """Select provenance semantics explicitly; never reinterpret frozen v2 proof."""
+    if type(schema_version) is not int or schema_version not in (2, 3):
+        raise ValueError('unsupported native origin schema')
+    parser = _native_item_effects_v2 if schema_version == 2 else _native_item_effects_v3
+    return parser(profile_value, log, slot)
+
+
+def _native_item_effects_v2(profile_value, log, slot):
     """Bind actual effect blocks to an unambiguous native item/actor origin.
 
     Final item records have no actor label. Only a single native actor scope can
@@ -472,6 +480,126 @@ def native_item_effects(profile_value, log, slot):
     for effect, matches in zip(effects, candidates):
         if len(matches) == 1 and sum(matches[0] in other for other in candidates) == 1:
             effect['origin'] = matches[0]
+    return effects
+
+
+def _native_item_effects_v3(profile_value, log, slot):
+    """Prove D/T -> D/T or T/U, using the entire native item roster.
+
+    Attachment declarations bind shared copies to their own item, but competing
+    numeric identities never do. With no attachment, a single raw initialization
+    instance and a bidirectionally unique final instance are mandatory. No index
+    is invented and neither names of effects nor expected drivers create edges.
+    """
+    slot = ALIASES.get(slot, slot)
+    # Preserve the runtime projection, not v2's optional attribution.
+    effects = _native_item_effects_v2(profile_value, log, slot)
+    for effect in effects:
+        effect['origin'] = None
+    lines = log.splitlines()
+    records = [line for line in lines if ' name=' in line and ' slot=' in line and ' source=' in line]
+    identities = [re.search(r'\bname=(\S+) id=(\d+) slot=(\S+)', row) for row in records]
+    if any(identity is None for identity in identities):
+        return effects
+    identities = [identity.groups() for identity in identities]
+    selected = [i for i, (_, _, s) in enumerate(identities) if s == slot]
+    if len(selected) != 1:
+        return effects
+    selected_index = selected[0]
+    name, item_id, _ = identities[selected_index]
+    if (item_id != _options(profile_value).get('id') or int(item_id) <= 0
+            or profile_value.partition(',')[0] != name
+            or sum(n == name for n, _, _ in identities) != 1
+            or len({s for _, _, s in identities}) != len(identities)):
+        return effects
+    pets = set(re.findall(r"Creating Auras, Buffs, and Debuffs for Pet '([^']+)'\.", log))
+    actors = [a for a in re.findall(r"Initializing items for Player '([^']+)'\.", log) if a not in pets]
+    scopes = re.findall(r"Initializing special effects for Player '([^']+)'\.", log)
+    if len(actors) != 1 or scopes != actors:
+        return effects
+    actor = actors[0]
+    declarations = []
+    for line in lines:
+        match = re.search(r"Player (\S+) item '([^']+)' adding effect (\d+) \(type=(\w+), index=(\d+)\)", line)
+        if match:
+            if match[1] != actor:
+                return effects
+            declarations.append((match[2], match[4], int(match[3]), int(match[5])))
+    if len({(n, index) for n, _, _, index in declarations}) != len(declarations):
+        return effects
+
+    def pair(line):
+        fields = dict(re.findall(r'\b(\w+)=([^\s]+)', line))
+        driver, trigger = fields.get('driver', ''), fields.get('trigger', '')
+        if (fields.get('source') == 'item' and fields.get('type') in ('equip', 'use')
+                and driver.isdecimal() and int(driver) > 0):
+            return (fields['type'], int(driver),
+                    int(trigger) if trigger.isdecimal() and int(trigger) > 0 else None)
+        return None
+
+    initials = []
+    in_actor = False
+    for line in lines:
+        scope = re.search(r"Initializing special effects for Player '([^']+)'\.", line)
+        if scope:
+            in_actor = scope[1] == actor
+        if 'Initializing item-based special effect ' in line:
+            value = pair(line)
+            if value:
+                if not in_actor:
+                    return effects
+                initials.append(value)  # Keep raw instance multiplicity.
+    finals = []
+    for i, record in enumerate(records):
+        for block in re.findall(r'\beffect=\{\s*([^{}]*?)\s*\}', record):
+            value = pair(block)
+            if value:
+                finals.append((i, value))
+
+    def linked(initial, final):
+        kind, driver, trigger = initial
+        return (kind == final[0] and trigger is not None and final[2] is not None
+                and ((driver, trigger) == final[1:] or trigger == final[1]))
+
+    unique_initials = set(initials)
+    candidates = [{initial for initial in unique_initials if linked(initial, final)} for _, final in finals]
+    target_effects = iter(effects)
+    for j, (record_index, final) in enumerate(finals):
+        if record_index != selected_index:
+            continue
+        effect = next(target_effects)
+        if len(candidates[j]) != 1:
+            continue
+        initial = next(iter(candidates[j]))
+        kind, driver, trigger = initial
+        if {t for k, d, t in initials if (k, d) == (kind, driver)} != {trigger}:
+            continue
+        outgoing = [n for n, (_, value) in enumerate(finals) if linked(initial, value)]
+        declared = [d for d in declarations if d[1:3] == (kind, driver)]
+        own = [d for d in declarations if d[0] == name]
+        origin = {'actor': actor, 'slot': slot, 'item_id': int(item_id),
+                  'type': kind, 'driver': driver, 'trigger': trigger}
+        if declared:
+            # Check both directions across ALL records, not just target effects.
+            # Multiple identical initial pairs are legitimate only when each has
+            # its own explicit attachment and exactly one corresponding final.
+            bound = []
+            for declaration in declared:
+                item_name = declaration[0]
+                matches = [n for n in outgoing if identities[finals[n][0]][0] == item_name]
+                if (len(matches) != 1 or len(candidates[matches[0]]) != 1
+                        or sum(n == item_name for n, _, _ in identities) != 1):
+                    break
+                bound.append(matches[0])
+            else:
+                matching = [d for d in own if d in declared]
+                if (len(matching) == 1 and len(bound) == len(set(bound))
+                        and set(bound) == set(outgoing) and initials.count(initial) == len(declared)):
+                    origin.update(source='native_attachment', index=matching[0][3])
+                    effect['origin'] = origin
+        elif not own and initials.count(initial) == 1 and outgoing == [j]:
+            origin['source'] = 'native_initialization_chain'
+            effect['origin'] = origin
     return effects
 
 
@@ -602,7 +730,7 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
         log = log_path.read_text(encoding='utf-8', errors='replace')
         if 'SimulationCraft has not been built with PTR data' in log:
             raise ValueError('当前 SimC 不支持所需 PTR 数据')
-        return {slot: parse_equipment_export(profile, log, slot) for slot in indexes}, _native_sets(log)
+        return {slot: parse_equipment_export(profile, log, slot, schema_version=3) for slot in indexes}, _native_sets(log)
 
     original, original_sets = probe(lines, 'original')
     _require_declared_effects(original, expectation)
@@ -677,7 +805,7 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
         } for slot, item in exports.items()}, 'sets': [list(row) for row in sorted(sets)],
                 'effect_log': next(iter(exports.values()))['effect_log']}
 
-    proof = {'schema_version': 2, 'scope': 'equipment_effect_combination',
+    proof = {'schema_version': 3, 'scope': 'equipment_effect_combination',
              'mode': 'control' if payload['control'] else 'normal',
              'targets': [{'slot': slot, 'item_id': int(original[slot]['options'].get('id', '0'))}
                          for slot in items],

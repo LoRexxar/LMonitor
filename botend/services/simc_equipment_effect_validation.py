@@ -185,7 +185,7 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
     mode = 'control' if params.get('equipment_effect_control') is True else 'normal'
     if (set(proof) != {'schema_version', 'scope', 'mode', 'targets', 'background_removed',
                       'rules_hash', 'original', 'normal', 'control', 'target_sets'}
-            or type(proof['schema_version']) is not int or proof['schema_version'] not in (1, 2)
+            or type(proof['schema_version']) is not int or proof['schema_version'] not in (1, 2, 3)
             or proof['scope'] != 'equipment_effect_combination' or proof['mode'] != mode):
         raise ValueError('native scope mismatch')
     rules = params['equipment_effect_policy']['rules']
@@ -199,7 +199,7 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
             or {row['slot']: row['item_id'] for row in proof['targets']} != target_ids):
         raise ValueError('native target mismatch')
     groups = {}
-    origin_schema = proof['schema_version'] == 2
+    origin_schema = proof['schema_version'] in (2, 3)
     for group in ('original', 'normal', 'control'):
         snapshot = proof[group]
         keys = {'items', 'sets', 'effect_log'} if origin_schema else {'items', 'sets'}
@@ -231,7 +231,8 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
                 if (set(effect) != effect_keys or effect['source'] != 'item'
                         or effect['type'] not in ('equip', 'use') or type(effect['driver']) is not int or effect['driver'] <= 0):
                     raise ValueError('native effect invalid')
-            if origin_schema and item['effects'] != native_item_effects(item['profile_value'], snapshot['effect_log'], slot):
+            if origin_schema and item['effects'] != native_item_effects(
+                    item['profile_value'], snapshot['effect_log'], slot, schema_version=proof['schema_version']):
                 raise ValueError('native origin evidence mismatch')
         sets = snapshot['sets']
         if (not isinstance(sets, list) or len(sets) > 128

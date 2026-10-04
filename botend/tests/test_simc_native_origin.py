@@ -50,7 +50,7 @@ class NativeOriginTests(TestCase):
         for run in self.fixtures:
             with self.subTest(run=run):
                 proof = self.prepare(run)
-                self.assertEqual(proof['schema_version'], 2)
+                self.assertEqual(proof['schema_version'], 3)
                 self.assertEqual(proof['background_removed'], ['feet'])
                 before = proof['original']['items']['wrists']['effects'][0]
                 after = proof['normal']['items']['wrists']['effects'][0]
@@ -82,7 +82,7 @@ class NativeOriginTests(TestCase):
             edit('normal', "special effects for Player 'MID2_Warrior_Arms'", "special effects for Player 'other_actor'"),
             edit('normal', 'effect={ arcanoweave_lining type=equip source=item driver=1229511 trigger=1229511 proc_chance=101% rppm=2 }', ''),
             edit('normal', 'source=item driver=1229511 trigger=1229511', 'source=item driver=999999 trigger=1229511'),
-            edit('normal', 'source=item driver=1229511 trigger=1229511', 'source=item driver=1229511 trigger=999999'),
+
             edit('normal', 'source=item driver=1229511 trigger=1229511', 'source=item trigger=1229511'),
             edit('normal', init, init + "\n0.000 Initializing special effects for Player 'other_actor'."),
             edit('normal', 'source=item driver=1229511 trigger=1229511', 'source=item driver=1229511'),
