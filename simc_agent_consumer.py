@@ -15,6 +15,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import locale
 import math
 import os
 import platform as platform_module
@@ -644,9 +645,10 @@ class SimcAgentConsumer:
         self.stop_event = threading.Event()
         self.logger = logging.getLogger(LOGGER_NAME)
         self._last_simc_check = 0.0
-        self._binary_identity_lock = threading.Lock()
+        self._binary_identity_lock = threading.RLock()
         self._binary_identity_key = None
         self._binary_identity: dict[str, str] = {}
+        self._binary_identity_diagnostics: dict[str, Any] = {}
         self._binary_identity_retry_at = 0.0
         self._server_required_revision = ''
         self._maintenance_slot_path = Path(self.config.token_path).with_name('simc-maintenance-slots.json')
@@ -731,12 +733,26 @@ class SimcAgentConsumer:
                     file_stat.st_size, file_stat.st_mtime_ns,
                     file_stat.st_ctime_ns, file_stat.st_mode)
 
+        def failed(reason):
+            self._binary_identity = {}
+            self._binary_identity_diagnostics.update(
+                binary_identity_status='failed', binary_identity_reason=reason,
+            )
+            return {}
+
+        def output_facts(stdout, stderr):
+            for name, data in (('stdout', stdout), ('stderr', stderr)):
+                if isinstance(data, bytes):
+                    self._binary_identity_diagnostics[f'binary_identity_{name}_bytes'] = len(data)
+                    self._binary_identity_diagnostics[f'binary_identity_{name}_sha256'] = hashlib.sha256(data).hexdigest()
+
         with self._binary_identity_lock:
+            stage = 'not_available'
             try:
                 if not _is_executable_regular_file(binary):
                     self._binary_identity_key = None
-                    self._binary_identity = {}
-                    return {}
+                    self._binary_identity_diagnostics = {}
+                    return failed('not_available')
                 key = identity(binary.stat())
                 now = time.monotonic()
                 if key == self._binary_identity_key and (
@@ -746,45 +762,69 @@ class SimcAgentConsumer:
                 self._binary_identity_key = key
                 self._binary_identity = {}
                 self._binary_identity_retry_at = now + 60.0
+                self._binary_identity_diagnostics = {}
+                stage = 'hash_io_error'
                 digest = hashlib.sha256()
                 with binary.open('rb') as source:
                     if identity(os.fstat(source.fileno())) != key:
-                        return {}
+                        return failed('file_changed')
                     for chunk in iter(lambda: source.read(1024 * 1024), b''):
                         if time.monotonic() - now > 30.0:
-                            return {}
+                            return failed('hash_timeout')
                         digest.update(chunk)
                     if identity(os.fstat(source.fileno())) != key:
-                        return {}
+                        return failed('file_changed')
                 # SimC has no --version flag. No arguments prints its own banner
                 # and exits without running a simulation or writing reports.
+                stage = 'probe_os_error'
                 probe = subprocess.run(
-                    [str(binary)], capture_output=True, text=True,
+                    [str(binary)], capture_output=True, text=False,
                     timeout=5, check=False, stdin=subprocess.DEVNULL,
                 )
-                if probe.returncode != 0 or identity(binary.stat()) != key:
-                    return {}
+                output_facts(probe.stdout, probe.stderr)
+                self._binary_identity_diagnostics['binary_identity_returncode'] = probe.returncode
+                # Match subprocess text=True's encoding and universal newlines;
+                # never replace invalid bytes or guess a Windows encoding.
+                encoding = 'utf-8' if sys.flags.utf8_mode else locale.getencoding()
+                stdout, stderr = (
+                    (data.decode(encoding, errors='strict') if isinstance(data, bytes) else data)
+                    .replace('\r\n', '\n').replace('\r', '\n')
+                    for data in (probe.stdout, probe.stderr)
+                )
+                if probe.returncode != 0:
+                    return failed('nonzero_exit')
+                stage = 'file_changed'
+                if identity(binary.stat()) != key:
+                    return failed('file_changed')
                 banners = re.findall(
                     r'(?:^|\n)(?:Nothing to sim! )?SimulationCraft [^\r\n]+',
-                    probe.stdout + '\n' + probe.stderr,
+                    stdout + '\n' + stderr,
                 )
+                self._binary_identity_diagnostics['binary_identity_banner_count'] = len(banners)
                 if len(banners) != 1:
-                    return {}
+                    return failed('banner_count')
                 build = re.search(
                     r'for World of Warcraft (\d+\.\d+\.\d+\.\d+) (?:Live|PTR)\b',
                     banners[0],
                 )
                 if not build:
-                    return {}
+                    return failed('build_missing')
                 observed = {'binary_sha256': digest.hexdigest(), 'dbc_build': build.group(1)}
                 revision = re.search(r'\bgit build \S+ ([0-9a-fA-F]{40})(?=[,)\s]|$)', banners[0])
                 if revision:
                     observed['binary_revision'] = revision.group(1).lower()
                 self._binary_identity = observed
+                self._binary_identity_diagnostics = {'binary_identity_status': 'ok'}
                 return dict(observed)
-            except (OSError, UnicodeError, subprocess.TimeoutExpired):
-                self._binary_identity = {}
-                return {}
+            except subprocess.TimeoutExpired as exc:
+                output_facts(exc.stdout, exc.stderr)
+                return failed('probe_timeout')
+            except UnicodeError:
+                return failed('decode_error')
+            except OSError:
+                if stage == 'not_available':
+                    self._binary_identity_diagnostics = {}
+                return failed(stage)
 
     def _report(self, status: str = 'online') -> dict[str, Any]:
         binary = Path(self.config.simc_path)
@@ -803,6 +843,9 @@ class SimcAgentConsumer:
                     html_locale_patch_version = patch_version
             except (OSError, UnicodeError, json.JSONDecodeError):
                 pass
+        with self._binary_identity_lock:
+            measured = self._probe_binary_identity()
+            diagnostics = dict(self._binary_identity_diagnostics)
         return {
             'status': status, 'platform': self.config.platform,
             'agent_version': VERSION, 'agent_revision': agent_upstream_revision(), 'protocol_version': PROTOCOL_VERSION,
@@ -810,7 +853,8 @@ class SimcAgentConsumer:
                 'max_concurrent_runs': self.config.max_concurrent_runs,
                 # Conditional execution/evidence delivery is not implemented.
                 'conditional_evidence_protocol_version': 0,
-                **self._probe_binary_identity(),
+                **measured,
+                **diagnostics,
             },
             'instance_id': self.instance_id, 'current_version': marker_revision,
             'binary_available': binary_available,

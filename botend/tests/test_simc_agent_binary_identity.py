@@ -33,7 +33,7 @@ class SimcAgentBinaryIdentityTests(SimpleTestCase):
         self.addCleanup(self.revision.stop)
 
     def result(self, text=BANNER, returncode=0):
-        return subprocess.CompletedProcess([], returncode, text, '')
+        return subprocess.CompletedProcess([], returncode, text.encode('utf-8'), b'')
 
     def test_report_measures_and_caches_without_changing_marker_semantics(self):
         Path(str(self.binary) + '.lmonitor-build.json').write_text(json.dumps({
@@ -83,6 +83,75 @@ class SimcAgentBinaryIdentityTests(SimpleTestCase):
         ):
             self.assertEqual(self.consumer._probe_binary_identity(), {})
 
+    def test_report_exposes_cached_probe_timeout_without_raw_output(self):
+        error = subprocess.TimeoutExpired('secret/path', 5, output=b'secret-output')
+        with patch('simc_agent_consumer.subprocess.run', side_effect=error) as run:
+            first = self.consumer._report()['capabilities']
+            second = self.consumer._report()['capabilities']
+        self.assertEqual(first.get('binary_identity_status'), 'failed')
+        self.assertEqual(first.get('binary_identity_reason'), 'probe_timeout')
+        self.assertEqual(first, second)
+        self.assertEqual(run.call_count, 1)
+        self.assertNotIn('secret', json.dumps(first))
+
+    def test_failure_reasons_are_bounded_and_success_clears_them(self):
+        cases = [
+            (self.result(BANNER, 7), 'nonzero_exit', None),
+            (self.result('secret-output'), 'banner_count', 0),
+            (self.result(BANNER + BANNER), 'banner_count', 2),
+            (self.result('SimulationCraft unknown secret-output'), 'build_missing', 1),
+            (subprocess.CompletedProcess([], 0, b'\xffsecret-output', b''), 'decode_error', None),
+        ]
+        for result, reason, count in cases:
+            with self.subTest(reason=reason, count=count):
+                self.binary.write_bytes(self.binary.read_bytes() + b'x')
+                with patch('simc_agent_consumer.subprocess.run', return_value=result) as run, patch(
+                    'simc_agent_consumer.locale.getencoding', return_value='utf-8'
+                ):
+                    caps = self.consumer._report()['capabilities']
+                    self.assertEqual(caps, self.consumer._report()['capabilities'])
+                    self.assertEqual(run.call_count, 1)
+                    self.assertFalse(run.call_args.kwargs['text'])
+                self.assertEqual(caps['binary_identity_status'], 'failed')
+                self.assertEqual(caps['binary_identity_reason'], reason)
+                self.assertEqual(caps.get('binary_identity_banner_count'), count)
+                self.assertEqual(caps['binary_identity_returncode'], result.returncode)
+                for name in ('stdout', 'stderr'):
+                    data = getattr(result, name)
+                    self.assertEqual(caps[f'binary_identity_{name}_bytes'], len(data))
+                    self.assertEqual(caps[f'binary_identity_{name}_sha256'], hashlib.sha256(data).hexdigest())
+                self.assertNotIn('binary_sha256', caps)
+                self.assertNotIn('secret', json.dumps(caps))
+                self.assertNotIn(str(self.binary), json.dumps(caps))
+                self.assertLess(len(json.dumps(caps)), 1024)
+                with patch('simc_agent_consumer.time.monotonic', return_value=float('inf')), patch(
+                    'simc_agent_consumer.subprocess.run', return_value=self.result()
+                ):
+                    recovered = self.consumer._report()['capabilities']
+                self.assertEqual(recovered['binary_identity_status'], 'ok')
+                self.assertEqual([k for k in recovered if k.startswith('binary_identity_')], ['binary_identity_status'])
+                self.assertIn('binary_sha256', recovered)
+
+    def test_missing_hash_timeout_and_hash_io_diagnostics(self):
+        with patch('simc_agent_consumer.time.monotonic', side_effect=[0, 31]):
+            self.assertEqual(self.consumer._probe_binary_identity(), {})
+        self.assertEqual(self.consumer._binary_identity_diagnostics['binary_identity_reason'], 'hash_timeout')
+        self.binary.write_bytes(b'changed')
+        with patch.object(Path, 'open', side_effect=OSError('secret-path')):
+            self.assertEqual(self.consumer._probe_binary_identity(), {})
+        self.assertEqual(self.consumer._binary_identity_diagnostics['binary_identity_reason'], 'hash_io_error')
+        self.binary.unlink()
+        caps = self.consumer._report()['capabilities']
+        self.assertEqual(caps['binary_identity_reason'], 'not_available')
+        self.assertNotIn('binary_sha256', caps)
+        self.assertNotIn('secret', json.dumps(caps))
+
+    def test_process_start_failure_has_no_exception_text(self):
+        with patch('simc_agent_consumer.subprocess.run', side_effect=OSError('secret-path')):
+            caps = self.consumer._report()['capabilities']
+        self.assertEqual(caps['binary_identity_reason'], 'probe_os_error')
+        self.assertNotIn('secret', json.dumps(caps))
+
     def test_unknown_revision_is_not_inferred_from_marker_or_source(self):
         with patch('simc_agent_consumer.subprocess.run', return_value=self.result(
             'Nothing to sim! SimulationCraft 1210-01 for World of Warcraft 12.1.0.69933 Live (no-networking)'
@@ -98,6 +167,7 @@ class SimcAgentBinaryIdentityTests(SimpleTestCase):
             return self.result()
         with patch('simc_agent_consumer.subprocess.run', side_effect=change):
             self.assertEqual(self.consumer._probe_binary_identity(), {})
+        self.assertEqual(self.consumer._binary_identity_diagnostics['binary_identity_reason'], 'file_changed')
 
     def test_nonzero_or_ambiguous_banner_is_not_trusted(self):
         for output, code in [(BANNER, 1), ('not simc', 0), (BANNER + BANNER.replace('69933', '69934'), 0)]:
