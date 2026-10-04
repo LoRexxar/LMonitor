@@ -8,10 +8,11 @@ from botend.constants.wow import canonical_class_spec
 from botend.models import WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.gear_builder import (
     spec_matches, SLOT_FAMILIES, PRIMARY_ARMOR_INVENTORY_TYPES, _item_primary_options,
+    embellishment_eligibility_reason,
 )
 from botend.services.gear_builder_catalog_source import INVENTORY_SLOTS
 from botend.services.simc_player_config import canonical_simc_profile_identity
-from simc_equipment_control import ALIASES, candidate_swaps
+from simc_equipment_control import ALIASES, candidate_swaps, equipment_rules
 
 
 def _identity(swap):
@@ -28,6 +29,10 @@ class EquipmentEligibility:
     """一次批量读取供整个专精矩阵共用，不按专精重复查询或联网。"""
 
     def __init__(self, candidate_params):
+        candidate_params = list(candidate_params)
+        self.embellishment_rules = equipment_rules()['embellishments']
+        self.effect_bonuses = {row['bonus_id'] for row in self.embellishment_rules.values()}
+        self.embellishments = defaultdict(list)
         item_ids = {_identity(swap)[0] for params in candidate_params for swap in candidate_swaps(params)} - {0}
         self.items = {row.item_id: row for row in WowItemSnapshot.objects.filter(item_id__in=item_ids)} if item_ids else {}
         self.variants = defaultdict(list)
@@ -39,6 +44,48 @@ class EquipmentEligibility:
                                   WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
             ).select_related('item').order_by('-season__gear_synced_at', '-season_id', '-pk'):
                 self.variants[row.item.item_id].append(row)
+        if any(self._declared_embellishments(swap) != (set(), False)
+               for params in candidate_params for swap in candidate_swaps(params)):
+            for row in WowItemVariantSnapshot.objects.filter(
+                season__is_active=True, batch_key=F('season__gear_batch_key'),
+                variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
+            ).select_related('item'):
+                # Only rule-declared effect bonuses identify materials. 8960 is
+                # a shared marker, not eighteen separate embellishments.
+                bonuses = {int(value) for value in (row.bonus_ids or []) if str(value).isdigit()}
+                for bonus in bonuses.intersection(self.effect_bonuses):
+                    self.embellishments[(row.season_id, row.batch_key, row.game_build, bonus)].append(row)
+
+    def _declared_embellishments(self, swap):
+        bonuses = _identity(swap)[2].intersection(self.effect_bonuses)
+        options = dict(re.findall(r'(?:^|,)\s*([a-z_]+)=([^,]+)', str(swap.get('raw_value') or '')))
+        token = str(options.get('embellishment') or '').strip().lower()
+        unknown = bool(token and token != 'none' and token not in self.embellishment_rules)
+        if token in self.embellishment_rules:
+            bonuses.add(self.embellishment_rules[token]['bonus_id'])
+        return bonuses, unknown
+
+    def _embellishment_reason(self, swap, variant, slot, class_name, spec_name):
+        bonuses, unknown = self._declared_embellishments(swap)
+        if unknown:
+            return {'code': 'embellishment_unknown', 'reason': '无法识别所声明的美化效果'}
+        if not bonuses:
+            return None
+        if len(bonuses) > 1:
+            return {'code': 'embellishment_incompatible', 'reason': '单件装备不能附加多个美化'}
+        if variant is None:
+            return embellishment_eligibility_reason(None, None, slot, class_name, spec_name)
+        bonus = next(iter(bonuses))
+        materials = self.embellishments.get((variant.season_id, variant.batch_key, variant.game_build, bonus), [])
+        if not materials:
+            return embellishment_eligibility_reason(variant, None, slot, class_name, spec_name)
+        reasons = [embellishment_eligibility_reason(variant, row, slot, class_name, spec_name)
+                   for row in materials]
+        # Multiple qualities may describe one effect. Conflicting relationships
+        # are not evidence that the permissive variant is the correct one.
+        if any(reason != reasons[0] for reason in reasons):
+            return {'code': 'embellishment_unknown', 'reason': '中央美化材料适用关系存在歧义'}
+        return reasons[0]
 
     def reason(self, params, spec_key, class_name=''):
         # 历史候选将类型存于 Candidate 行，params 可能只有装备结构。
@@ -88,6 +135,9 @@ class EquipmentEligibility:
                              or bool(variant and variant.stats_json) or inventory in (2, 11))
             if not known_primary:
                 return {**detail, 'code': 'missing_metadata', 'reason': '装备主属性资料不足'}
+            embellishment_reason = self._embellishment_reason(swap, variant, slot, *identity)
+            if embellishment_reason:
+                return {**detail, **embellishment_reason}
         weapons = self.weapon_layout(params, spec_key, class_name)
         if (weapons and not weapons['titan_grip']
                 and any(row['slot'] == 'main_hand' and row['inventory_type'] == 17

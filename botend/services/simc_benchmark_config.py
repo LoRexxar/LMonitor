@@ -1069,7 +1069,7 @@ def _freeze_equipment_rules():
     rules = deepcopy(equipment_rules())
     rules['intrinsic_item_ids'] = sorted(set(rules['intrinsic_item_ids']) | set(
         WowItemVariantSnapshot.objects.filter(is_intrinsic_embellishment=True)
-        .values_list('item_id', flat=True)
+        .values_list('item__item_id', flat=True)
     ))
     return rules
 

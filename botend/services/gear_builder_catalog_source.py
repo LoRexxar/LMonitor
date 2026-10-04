@@ -98,6 +98,56 @@ def _safe_int(value, default=0):
         return default
 
 
+def crafting_item_metadata(raw):
+    """保留配方和限装原始事实；空 slot 列表表示未知，不表示无限制。"""
+    profession = raw.get('profession') or {}
+    return {
+        'crafting_reagent_slot_ids': sorted({
+            _safe_int(row.get('id'))
+            for row in profession.get('optionalCraftingSlots') or []
+            if _safe_int(row.get('id')) > 0
+        }),
+        'crafting_profession_id': _safe_int(profession.get('id')),
+        'crafting_recipe_spell_id': _safe_int(profession.get('recipeSpellId')),
+        'item_limit': dict(raw.get('itemLimit') or {}),
+    }
+
+
+def build_embellishment_reagent_relations(crafting, encounter_items):
+    """反向连接材料→配方槽→同资料片装备；供采集和有界事实回填复用。
+
+    返回 {reagent_id: {reagent_slot_ids, compatible_slots}}。部位只是投影，
+    消费端仍须与装备的 crafting_reagent_slot_ids 求交，不能放行同部位任意装备。
+    """
+    reagent_slots = defaultdict(set)
+    for row in (crafting.get('slots') or {}).values():
+        slot_id = _safe_int(row.get('reagentSlotId'))
+        if slot_id <= 0:
+            continue
+        for reagent_id in row.get('reagentIds') or []:
+            if _safe_int(reagent_id) > 0:
+                reagent_slots[_safe_int(reagent_id)].add(slot_id)
+    carrier_slots = defaultdict(set)
+    for raw in encounter_items:
+        if _safe_int(raw.get('expansion')) != 11:
+            continue
+        facts = crafting_item_metadata(raw)
+        if _safe_int(facts['item_limit'].get('category')) == 512:
+            continue
+        slots = INVENTORY_SLOTS.get(_safe_int(raw.get('inventoryType')), ())
+        for slot_id in facts['crafting_reagent_slot_ids']:
+            carrier_slots[slot_id].update(slots)
+    return {
+        reagent_id: {
+            'reagent_slot_ids': sorted(slot_ids),
+            'compatible_slots': sorted({
+                slot for slot_id in slot_ids for slot in carrier_slots[slot_id]
+            }),
+        }
+        for reagent_id, slot_ids in reagent_slots.items()
+    }
+
+
 def _plain_text(value):
     value = str(value or '').replace('\b', '')
     value = re.sub(r'<br\s*/?>', '\n', value, flags=re.I)
@@ -432,6 +482,7 @@ class CurrentGearCatalogSource:
             by_id, catalyst_items, item_sets, profile, catalyst, raid_ids, instance_by_id,
         )
 
+        reagent_relations = build_embellishment_reagent_relations(crafting, encounter_items)
         for reagent in self._highest_quality_embellishments(crafting.get('reagents') or []):
             limit = reagent.get('itemLimit') or {}
             item_id = _safe_int(reagent.get('id') or reagent.get('itemId'))
@@ -439,16 +490,17 @@ class CurrentGearCatalogSource:
                 continue
             item = by_id.setdefault(item_id, self._base_item(reagent, 'embellishment', []))
             item['unique_group'] = 'embellishment-limit'
+            relation = reagent_relations.get(item_id) or {}
             item['variants'].append({
                 'key': f'embellishment-q{_safe_int(reagent.get("craftingQuality")) or 1}',
                 'type': 'embellishment',
                 'crafting_quality': _safe_int(reagent.get('craftingQuality')),
                 'bonus_ids': reagent.get('craftingBonusIds') or [],
-                'compatible_slots': [],
+                'compatible_slots': relation.get('compatible_slots') or [],
                 'unique_group': 'embellishment-limit',
                 'max_equipped': _safe_int(limit.get('quantity'), 2),
                 'sources': [localize_gear_source({'type': 'profession', 'profession': 'Crafting'})],
-                'metadata': {'reagent_slot_ids': reagent.get('reagentSlotIds') or []},
+                'metadata': {'reagent_slot_ids': relation.get('reagent_slot_ids') or []},
             })
 
         for raw in self._highest_quality_enhancements(enchantments):
@@ -556,6 +608,7 @@ class CurrentGearCatalogSource:
             'unique_group': f'item-{item_id}' if raw.get('uniqueEquipped') else '',
             'simc_token': re.sub(r'[^a-z0-9]+', '_', str(raw.get('name') or raw.get('itemName') or '').lower()).strip('_'),
             'metadata': {
+                **crafting_item_metadata(raw),
                 'raidbots_stats_alloc': raw.get('stats') or [],
                 'primary_stat_options': primary_options,
                 'two_handed': inventory_type == 17,
@@ -650,9 +703,18 @@ class CurrentGearCatalogSource:
     @staticmethod
     def _add_crafted_variants(item, profile, sources):
         socket_types = list((item.get('metadata') or {}).get('native_socket_types') or [])
+        limit = (item.get('metadata') or {}).get('item_limit') or {}
+        intrinsic_fields = {}
+        if _safe_int(limit.get('category')) == 512:
+            intrinsic_fields = {
+                'is_intrinsic_embellishment': True,
+                'unique_group': 'embellishment-limit',
+                'max_equipped': _safe_int(limit.get('quantity')),
+            }
         for tier, levels in profile['crafted'].items():
             for quality, item_level in enumerate(levels, 1):
                 item['variants'].append({
+                    **intrinsic_fields,
                     'key': f'crafted-{tier}-q{quality}-{item_level}',
                     'type': 'crafted_equipment', 'item_level': item_level, 'crafting_quality': quality,
                     'compatible_slots': list(INVENTORY_SLOTS.get(item['inventory_type'], ())),

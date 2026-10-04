@@ -14,7 +14,7 @@ from simc_equipment_control import (
     prepare_control_input, synthetic_item, mark_equipment_input, equipment_rules,
     embellishment_count,
 )
-from botend.models import SimcBenchmarkCandidate, WowItemSnapshot
+from botend.models import SeasonMeta, SimcBenchmarkCandidate, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.simc_benchmark_config import build_execution_plan, _normalize_candidate_params
 from botend.services.simc_benchmark_execution import (
     reconcile_execution, serialize_incremental_panel_results, serialize_public_execution,
@@ -351,8 +351,23 @@ class EquipmentControlBenchmarkTests(TestCase):
 
     def test_embellishment_result_names_use_central_effect_not_carrier(self):
         from botend.services.simc_benchmark_execution import summarize_execution
-        WowItemSnapshot.objects.filter(item_id=239660).update(
-            name_zh='测试载体护腕', description_zh='腕部 板甲\n+100 急速')
+        season = SeasonMeta.objects.create(
+            season_key='embellishment-display', season_name='Embellishment Display',
+            mplus_zone_id=1, raid_zone_id=2, is_active=True,
+            gear_batch_key='current', game_build='12.1.0.69933')
+        carrier = WowItemSnapshot.objects.get(item_id=239660)
+        carrier.name_zh = '测试载体护腕'
+        carrier.description_zh = '腕部 板甲\n+100 急速'
+        carrier.slot_key = 'wrists'
+        # Synthetic recipe IDs, but real central rows and the shared recipe gate.
+        carrier.metadata.update(crafting_reagent_slot_ids=[202],
+                                crafting_profession_id=164, crafting_recipe_spell_id=239660)
+        carrier.save()
+        WowItemVariantSnapshot.objects.create(
+            item=carrier, season=season, batch_key=season.gear_batch_key,
+            game_build=season.game_build, variant_key='crafted-wrists-334',
+            variant_type=WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+            item_level=334, compatible_slots=['wrists'], is_intrinsic_embellishment=False)
         WowItemSnapshot.objects.filter(item_id=123).update(name_zh='普通饰品')
         effect = ('你的法术和技能有几率吸引一只法力浮龙，使你和一名盟友获得奥纹洞察。'
                   '奥纹洞察会提高你和盟友的主要属性。')
@@ -360,10 +375,16 @@ class EquipmentControlBenchmarkTests(TestCase):
             description = f'提供下列属性：{effect}'
             if item_id == 240166:
                 description = f'附加制作材料\n+15 配方难度\n{description}\n用于：\n至暗之夜护甲配方。'
-            WowItemSnapshot.objects.create(
+            material = WowItemSnapshot.objects.create(
                 item_id=item_id, catalog_type='embellishment',
                 simc_token='arcanoweave_lining', name_zh='奥纹内衬',
                 description_zh=description)
+            WowItemVariantSnapshot.objects.create(
+                item=material, season=season, batch_key=season.gear_batch_key,
+                game_build=season.game_build, variant_key=str(item_id),
+                variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
+                bonus_ids=[8960, 12384], compatible_slots=['wrists'],
+                metadata={'reagent_slot_ids': [202]})
         for option in ('bonus_id=12384', 'embellishment=arcanoweave_lining'):
             with self.subTest(option=option):
                 self.ring.params = _normalize_candidate_params(

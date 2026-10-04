@@ -379,10 +379,10 @@ def _candidate_bonus_ids(candidate):
 
 def _embellishment_result_display(candidates):
     """Resolve the selected effect, not its carrier, from canonical item facts."""
-    from botend.models import WowItemSnapshot
+    from botend.models import WowItemSnapshot, WowItemVariantSnapshot
     from simc_equipment_control import equipment_rules
 
-    selected = {}
+    selected, token_bonuses = {}, {}
     for candidate in candidates:
         params = candidate.get('candidate_params', candidate.get('params')) or {}
         swap = params.get('gear_swap')
@@ -399,13 +399,42 @@ def _embellishment_result_display(candidates):
             tokens.add(explicit.group(1))
         if tokens:
             selected[candidate.get('candidate_key', candidate.get('key'))] = sorted(tokens)
+            for token in tokens:
+                bonus = rules.get('embellishments', {}).get(token, {}).get('bonus_id')
+                # 8960 is the shared embellishment marker, not an effect identity.
+                if isinstance(bonus, int) and bonus > 0 and bonus != 8960:
+                    token_bonuses.setdefault(token, set()).add(bonus)
     if not selected:
         return {}
-    names, effects = {}, {}
-    for row in WowItemSnapshot.objects.filter(
+    fields = ('simc_token', 'name_zh', 'name', 'description_zh', 'description')
+    rows = list(WowItemSnapshot.objects.filter(
         catalog_type='embellishment',
         simc_token__in={token for tokens in selected.values() for token in tokens},
-    ).values('simc_token', 'name_zh', 'name', 'description_zh', 'description'):
+    ).values(*fields))
+    direct_tokens = {row['simc_token'] for row in rows}
+    missing = {token: next(iter(bonuses)) for token, bonuses in token_bonuses.items()
+               if token not in direct_tokens and len(bonuses) == 1}
+    if missing:
+        # Deduplicate historical batches before a bounded, small identity read.
+        # Never resolve from a truncated catalog: that could hide ambiguity.
+        variants = list(WowItemVariantSnapshot.objects.filter(
+            variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
+            item__catalog_type='embellishment',
+        ).order_by().values('item_id', 'bonus_ids').distinct()[:2001])
+        item_tokens = {}
+        if len(variants) <= 2000:
+            for variant in variants:
+                for token, bonus in missing.items():
+                    if bonus in (variant['bonus_ids'] or []):
+                        item_tokens.setdefault(variant['item_id'], set()).add(token)
+        if item_tokens:
+            for row in WowItemSnapshot.objects.filter(
+                pk__in=item_tokens, catalog_type='embellishment',
+            ).values('pk', *fields):
+                for token in item_tokens[row['pk']]:
+                    rows.append({**row, 'simc_token': token})
+    names, effects = {}, {}
+    for row in rows:
         name = str(row['name_zh'] or row['name'] or '').strip()
         if name:
             names.setdefault(row['simc_token'], set()).add(name)
