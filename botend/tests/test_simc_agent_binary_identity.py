@@ -207,6 +207,86 @@ class SimcAgentBinaryIdentityTests(SimpleTestCase):
             recovered = self.consumer._report()['capabilities']
         self.assertEqual([k for k in recovered if k.startswith('binary_identity_')], ['binary_identity_status'])
 
+    def windows_stats(self):
+        from types import SimpleNamespace
+        fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_mode')
+        common = {name: getattr(self.binary.stat(), name) for name in fields}
+        # Agent13 real differing fields; equal fields use the local fixture.
+        return (SimpleNamespace(**{**common, 'st_mode': 33279,
+                                   'st_ctime_ns': 1791054205847172200}),
+                SimpleNamespace(**{**common, 'st_mode': 33206,
+                                   'st_ctime_ns': 1791054205972792500}))
+
+    def probe_with_stats(self, path_before, fd_before, fd_after, path_after, windows=True):
+        with patch('simc_agent_consumer._is_windows', return_value=windows), patch(
+            'simc_agent_consumer._is_executable_regular_file', return_value=True
+        ), patch.object(Path, 'stat', side_effect=[path_before, path_after]), patch(
+            'simc_agent_consumer.os.fstat', side_effect=[fd_before, fd_after]
+        ), patch('simc_agent_consumer.subprocess.run', return_value=self.result()):
+            return self.consumer._probe_binary_identity()
+
+    def test_windows_real_mode_and_ctime_pair_succeeds(self):
+        path, fd = self.windows_stats()
+        from dataclasses import replace
+        self.consumer.config = replace(self.consumer.config, platform='linux')  # Not runtime.
+        result = self.probe_with_stats(path, fd, fd, path)
+        self.assertEqual(result.get('binary_sha256'), hashlib.sha256(b'first binary').hexdigest())
+        self.assertEqual(result.get('dbc_build'), '12.1.0.69933')
+
+    def test_windows_same_api_changes_are_rejected(self):
+        from types import SimpleNamespace
+        path, fd = self.windows_stats()
+        for source, original in [('fstat_before_hash', fd), ('path_before_hash', path)]:
+            for field in ('st_ctime_ns', 'st_mode'):
+                with self.subTest(source=source, field=field):
+                    self.consumer._binary_identity_key = None
+                    changed = SimpleNamespace(**{**vars(original), field: getattr(original, field) + 1})
+                    result = self.probe_with_stats(path, fd,
+                        changed if source == 'fstat_before_hash' else fd,
+                        changed if source == 'path_before_hash' else path)
+                    self.assertEqual(result, {})
+                    diagnostics = self.consumer._binary_identity_diagnostics
+                    self.assertEqual(diagnostics['binary_identity_expected_source'], source)
+                    self.assertEqual(diagnostics['binary_identity_stat_differences'], {
+                        field: {'expected': getattr(original, field), 'observed': getattr(changed, field)}})
+
+    def test_windows_cross_api_comparable_fields_are_rejected(self):
+        from types import SimpleNamespace
+        path, fd = self.windows_stats()
+        changes = {'st_dev': fd.st_dev + 1, 'st_ino': fd.st_ino + 1,
+                   'st_size': fd.st_size + 1, 'st_mtime_ns': fd.st_mtime_ns + 1,
+                   'st_mode': fd.st_mode ^ 0o200}
+        for field, value in [*changes.items(), ('st_mode', 0o40666)]:
+            with self.subTest(field=field, value=value):
+                self.consumer._binary_identity_key = None
+                changed = SimpleNamespace(**{**vars(fd), field: value})
+                self.assertEqual(self.probe_with_stats(path, changed, changed, path), {})
+                diagnostics = self.consumer._binary_identity_diagnostics
+                self.assertEqual(diagnostics['binary_identity_comparison_stage'], 'fstat_before_hash')
+                self.assertEqual(diagnostics['binary_identity_expected_source'], 'path_before_hash')
+                self.assertIn(field, diagnostics['binary_identity_stat_differences'])
+
+    def test_linux_does_not_relax_windows_differences(self):
+        path, fd = self.windows_stats()
+        from dataclasses import replace
+        self.consumer.config = replace(self.consumer.config, platform='windows')
+        self.assertEqual(self.probe_with_stats(path, fd, fd, path, windows=False), {})
+        self.assertEqual(set(self.consumer._binary_identity_diagnostics['binary_identity_stat_differences']),
+                         {'st_mode', 'st_ctime_ns'})
+
+    def test_windows_path_ctime_and_mode_invalidate_success_cache(self):
+        from types import SimpleNamespace
+        path, fd = self.windows_stats()
+        for field in ('st_ctime_ns', 'st_mode'):
+            with self.subTest(field=field):
+                self.consumer._binary_identity_key = None
+                self.assertTrue(self.probe_with_stats(path, fd, fd, path))
+                changed = SimpleNamespace(**{**vars(path), field: getattr(path, field) ^ 1})
+                # Cache invalidation must re-enter hashing; failure cannot reuse success.
+                with patch.object(Path, 'open', side_effect=OSError('unreadable')):
+                    self.assertEqual(self.probe_with_stats(changed, fd, fd, changed), {})
+                self.assertEqual(self.consumer._binary_identity_diagnostics['binary_identity_reason'], 'hash_io_error')
+
     def test_nonzero_or_ambiguous_banner_is_not_trusted(self):
         for output, code in [(BANNER, 1), ('not simc', 0), (BANNER + BANNER.replace('69933', '69934'), 0)]:
             with self.subTest(output=output, code=code):

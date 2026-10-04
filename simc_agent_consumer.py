@@ -740,18 +740,30 @@ class SimcAgentConsumer:
             )
             return {}
 
-        def identity_changed(observed, comparison_stage):
-            if observed == key:
-                return False
-            # Never include the path component or arbitrary exception/output text.
+        def identity_changed(observed, comparison_stage, expected, expected_source, *, cross_api=False):
+            # Windows path stat synthesizes executable bits; CPython 3.12's
+            # path ctime is birthtime while fstat can expose ChangeTime.
+            # Only cross-API comparisons exclude these non-comparable values.
+            # Same-API observations (and the path cache key) remain complete.
+            windows_cross_api = cross_api and _is_windows()
             fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_mode')
+            differences = {}
+            for name, before, after in zip(fields, expected[1:], observed[1:]):
+                if windows_cross_api and name == 'st_ctime_ns':
+                    continue
+                if windows_cross_api and name == 'st_mode':
+                    equal = (before & ~0o111) == (after & ~0o111)
+                else:
+                    equal = before == after
+                if not equal:
+                    differences[name] = {'expected': before, 'observed': after}
+            if not differences:
+                return False
+            # Never include paths or arbitrary exception/output text.
             self._binary_identity_diagnostics.update(
                 binary_identity_comparison_stage=comparison_stage,
-                binary_identity_stat_differences={
-                    name: {'expected': before, 'observed': after}
-                    for name, before, after in zip(fields, key[1:], observed[1:])
-                    if before != after
-                },
+                binary_identity_expected_source=expected_source,
+                binary_identity_stat_differences=differences,
             )
             return True
 
@@ -781,13 +793,16 @@ class SimcAgentConsumer:
                 stage = 'hash_io_error'
                 digest = hashlib.sha256()
                 with binary.open('rb') as source:
-                    if identity_changed(identity(os.fstat(source.fileno())), 'fstat_before_hash'):
+                    fd_before = identity(os.fstat(source.fileno()))
+                    if identity_changed(fd_before, 'fstat_before_hash', key,
+                                        'path_before_hash', cross_api=True):
                         return failed('file_changed')
                     for chunk in iter(lambda: source.read(1024 * 1024), b''):
                         if time.monotonic() - now > 30.0:
                             return failed('hash_timeout')
                         digest.update(chunk)
-                    if identity_changed(identity(os.fstat(source.fileno())), 'fstat_after_hash'):
+                    if identity_changed(identity(os.fstat(source.fileno())), 'fstat_after_hash',
+                                        fd_before, 'fstat_before_hash'):
                         return failed('file_changed')
                 # SimC has no --version flag. No arguments prints its own banner
                 # and exits without running a simulation or writing reports.
@@ -810,9 +825,11 @@ class SimcAgentConsumer:
                     return failed('nonzero_exit')
                 stage = 'file_changed'
                 self._binary_identity_diagnostics['binary_identity_comparison_stage'] = 'path_after_probe'
-                if identity_changed(identity(binary.stat()), 'path_after_probe'):
+                self._binary_identity_diagnostics['binary_identity_expected_source'] = 'path_before_hash'
+                if identity_changed(identity(binary.stat()), 'path_after_probe', key, 'path_before_hash'):
                     return failed('file_changed')
                 self._binary_identity_diagnostics.pop('binary_identity_comparison_stage', None)
+                self._binary_identity_diagnostics.pop('binary_identity_expected_source', None)
                 banners = re.findall(
                     r'(?:^|\n)(?:Nothing to sim! )?SimulationCraft [^\r\n]+',
                     stdout + '\n' + stderr,
