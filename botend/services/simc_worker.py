@@ -105,12 +105,22 @@ class SimcWorker:
                     attempts = 1
                     ancestor_id = task.source_task_id
                     seen = {task.id}
-                    while ancestor_id and ancestor_id not in seen:
+                    while ancestor_id and attempts < self.max_attempts:
+                        if ancestor_id in seen:
+                            # Corrupt ancestry must not grant a fresh retry budget.
+                            attempts = self.max_attempts
+                            break
                         seen.add(ancestor_id)
+                        ancestor = SimcTask.objects.filter(id=ancestor_id).values_list(
+                            'current_status', 'source_task_id',
+                        ).first()
+                        # Benchmark supplements also link successful Tasks for
+                        # result provenance. Success ends the previous attempt
+                        # series; neither it nor older history consumes retries.
+                        if ancestor is None or ancestor[0] == 2:
+                            break
                         attempts += 1
-                        ancestor_id = SimcTask.objects.filter(
-                            id=ancestor_id,
-                        ).values_list('source_task_id', flat=True).first()
+                        ancestor_id = ancestor[1]
 
                     task.current_status = 3
                     task.completed_at = now
