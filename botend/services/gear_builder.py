@@ -709,7 +709,7 @@ def catalog_items(
         season,
         (WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
         query,
-    ):
+    ).select_related(None).prefetch_related('item'):
         if not _source_track_is_valid(variant):
             continue
         if not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
