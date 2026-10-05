@@ -228,7 +228,7 @@ def validate_conditional_report(report_html, params, proof, *, prepared_input=No
         report=json.loads(report_json) if isinstance(report_json,(str,bytes)) else report_json
         sim=report['sim']; options=sim['options']; dbc=options['dbc'];identity=expectation['identity']
         if (dbc[dbc['version_used']]['wow_version']!=identity['dbc_build']
-                or not re.fullmatch('[0-9a-f]{8,40}',report['git_revision'])
+                or not re.fullmatch('[0-9a-f]{7,40}',report['git_revision'])
                 or not identity['revision'].startswith(report['git_revision'])):
             raise ValueError('conditional report build/revision')
         if len(sim['players'])!=1: raise ValueError('conditional actor ambiguous')

@@ -36,6 +36,21 @@ class ConditionalBindingTests(unittest.TestCase):
             self.assertEqual(side['status'], 'pair_pending')
             self.assertIsNone(validate_pair_witness(side, None)['valid'])
 
+    def test_report_accepts_seven_digit_git_abbreviation_but_rejects_mismatch(self):
+        data = copy.deepcopy(self.base)
+        short = self.auth['identity']['revision'][:7]
+        for side in data.values():
+            side['report']['git_revision'] = short
+        sides, pair = self.validate(data)
+        self.assertTrue(pair['valid'], (sides, pair))
+        for bad in (short[:6], '0' * 7, '', None):
+            changed = copy.deepcopy(data)
+            changed['normal']['report']['git_revision'] = bad
+            with self.subTest(revision=bad):
+                sides, pair = self.validate(changed)
+                self.assertEqual(sides[0]['status'], 'invalid')
+                self.assertFalse(pair['valid'])
+
     def output_pair(self, extra=''):
         """Deliberate fixture mutation, not new combat evidence."""
         from simc_equipment_conditional import digest, input_digest
