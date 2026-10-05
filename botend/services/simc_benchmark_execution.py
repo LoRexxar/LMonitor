@@ -1308,26 +1308,35 @@ def _copy_failed_runs_for_retry(source_task, rerun_task, include_completed=False
     source_runs = list(SimulationRun.objects.filter(
         task_id=source_task.pk,
     ).order_by('sequence', 'id'))
-    expected = _expected_candidate_keys(source_task) or []
+    expected = _expected_candidate_keys(source_task)
+    if expected is None:
+        _validation_error('源 Task 缺少有效冻结候选', 'execution')
+    frozen = source_task.mode_params.get('initial_candidates')
+    if not isinstance(frozen, list) or not frozen:
+        frozen = source_task.mode_params['request_manifest']['candidates']
+    frozen_by_key = {candidate['candidate_key']: candidate for candidate in frozen}
     by_key = {run.candidate_key: run for run in source_runs}
     retry_candidates, retry_runs = [], []
     for candidate_key in expected:
         run = by_key.get(candidate_key)
         if run is not None and run.status == 'completed' and not include_completed:
             continue
-        candidate = {
-            'candidate_key': candidate_key,
-            'candidate_label': run.candidate_label if run else candidate_key,
-            'round_number': run.round_number if run else 1,
-            'candidate_params': deepcopy(run.candidate_params) if run else {},
-            'display_metadata': deepcopy(run.display_metadata) if run else {},
-        }
+        # Unmaterialized work must retain the exact frozen request, not empty
+        # params. Existing Runs remain the authority for claim-time frozen data.
+        candidate = deepcopy(frozen_by_key[candidate_key])
+        if run is not None:
+            candidate.update(
+                candidate_label=run.candidate_label, round_number=run.round_number,
+                candidate_params=deepcopy(run.candidate_params),
+                display_metadata=deepcopy(run.display_metadata),
+            )
         retry_candidates.append(candidate)
         retry_runs.append(SimulationRun(
             task=rerun_task, sequence=len(retry_runs) + 1, status='pending',
-            candidate_key=candidate_key, candidate_label=candidate['candidate_label'],
-            round_number=candidate['round_number'], candidate_params=candidate['candidate_params'],
-            display_metadata=candidate['display_metadata'],
+            candidate_key=candidate_key, candidate_label=candidate.get('candidate_label', candidate_key),
+            round_number=candidate.get('round_number', 1),
+            candidate_params=candidate.get('candidate_params', {}),
+            display_metadata=candidate.get('display_metadata', {}),
         ))
     if not retry_runs:
         _validation_error('失败子任务没有可重跑的 Run', 'execution')

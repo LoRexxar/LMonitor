@@ -16,6 +16,9 @@ from botend.models import (
     SimcBenchmarkPanel, SimcBenchmarkResult, SimcTask, SimulationRun,
 )
 from botend.services import simc_benchmark_scheduler
+from botend.services.simc_benchmark_execution import (
+    _copy_failed_runs_for_retry, _expected_candidate_keys,
+)
 from botend.services.simc_benchmark_purge import process_next_purge
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from utils.log import logger
@@ -74,7 +77,9 @@ class SimcWorker:
                         SimcBenchmarkPanel.objects.select_for_update().get(
                             pk=authority['execution__panel_id'],
                         )
-                        execution = SimcBenchmarkExecution.objects.select_for_update().get(
+                        execution = SimcBenchmarkExecution.objects.select_for_update().defer(
+                            'config_snapshot',
+                        ).get(
                             pk=authority['execution_id'],
                         )
                         benchmark_case = SimcBenchmarkCase.objects.select_for_update().filter(
@@ -89,8 +94,8 @@ class SimcWorker:
                     if task is None:
                         continue
                     # Global control-plane lock order is Task -> Run -> Agent.
-                    # Lock every sibling Run because an expired lease invalidates
-                    # and retries the whole frozen Task, not just one candidate.
+                    # Fence every sibling lease. Benchmark retries own only
+                    # unfinished work; ordinary Tasks still replay the full request.
                     task_runs = list(SimulationRun.objects.select_for_update().filter(
                         task=task,
                     ).order_by('id'))
@@ -101,6 +106,23 @@ class SimcWorker:
                     )
                     if task.modified_time >= threshold and not expired_agent_lease:
                         continue
+
+                    if benchmark_case is not None:
+                        expected = _expected_candidate_keys(task)
+                        ordered_runs = sorted(task_runs, key=lambda run: (run.sequence, run.pk))
+                        if (expected and [run.candidate_key for run in ordered_runs] == expected
+                                and all(run.status == 'completed' for run in ordered_runs)):
+                            # No executable retry work. Let the normal reconciler
+                            # validate DPS/pairs and publish the actual terminal Case;
+                            # completed alone is not a publication seal.
+                            task.current_status = 2
+                            task.completed_at = now
+                            task.error_detail = ''
+                            task.save(update_fields=[
+                                'current_status', 'completed_at', 'error_detail', 'modified_time',
+                            ])
+                            recovered += 1
+                            continue
 
                     attempts = 1
                     ancestor_id = task.source_task_id
@@ -174,6 +196,8 @@ class SimcWorker:
                         try:
                             new_task = create_rerun(task.id, task.user_id)
                             if benchmark_case is not None:
+                                _copy_failed_runs_for_retry(task, new_task)
+                                retry_keys = _expected_candidate_keys(new_task)
                                 rebound = SimcBenchmarkCase.objects.filter(
                                     pk=benchmark_case.pk, task_id=task.id,
                                 ).update(
@@ -185,10 +209,11 @@ class SimcWorker:
                                     raise RuntimeError(
                                         'benchmark Case authority changed during stale retry'
                                     )
-                                # These rows project the Case's current authority;
+                                # Invalidate only newly owned keys. Unretried
+                                # successful projections remain visible atomically;
                                 # source Task/Run/Artifact history stays immutable.
                                 SimcBenchmarkResult.objects.filter(
-                                    case_id=benchmark_case.pk,
+                                    case_id=benchmark_case.pk, candidate_key__in=retry_keys,
                                 ).delete()
                         except TaskRerunError as exc:
                             task.error_detail = f'Worker 心跳超时，Task 重试复制失败: {exc}'

@@ -55,36 +55,121 @@ class BenchmarkRetryProjectionTests(TransactionTestCase):
         self.assertNotEqual(self.case.task_id, self.task.pk)
         return self.case.task
 
-    def test_rebind_resets_projection_preserves_source_and_accepts_new_dps(self):
+    def test_rebind_preserves_success_and_retries_only_unfinished(self):
+        source_run = self.task.simulation_runs.get(candidate_key=self.keys[0])
+        frozen = SimulationRun.objects.filter(pk=source_run.pk).values().get()
+        result_id = self.case.results.get().pk
         retry = self.recover()
         self.assertEqual(self.case.status, 'pending')
         self.assertEqual(self.case.error_detail, '')
-        self.assertFalse(self.case.results.exists())
-        self.assertEqual(self.task.simulation_runs.get(candidate_key=self.keys[0]).result_summary['dps'], 100)
+        self.assertEqual(self.case.results.get().pk, result_id)
         self.assertEqual(retry.source_task_id, self.task.pk)
-        self.assertFalse(retry.simulation_runs.exists())
-        # Recovery happens before claim/Run initialization; an idle sweep must not
-        # seal the old successful Run against the replacement Task.
+        self.assertEqual([c['candidate_key'] for c in retry.mode_params['initial_candidates']], self.keys[1:])
+        self.assertEqual(retry.mode_params['request_manifest']['candidates'], retry.mode_params['initial_candidates'])
+        self.assertEqual(list(retry.simulation_runs.values_list('candidate_key', flat=True)), self.keys[1:])
         execution_service.reconcile_execution_case(self.execution, self.case.pk)
-        self.assertFalse(self.case.results.exists())
-        SimcTask.objects.filter(pk=retry.pk).update(current_status=1)
-        for sequence, key in enumerate(self.keys, 1):
-            SimulationRun.objects.create(
-                task=retry, sequence=sequence, candidate_key=key,
-                status='completed' if sequence == 1 else 'running',
-                result_summary={'dps': 200.0} if sequence == 1 else {},
-            )
+        self.assertEqual(self.case.results.get().dps, 100)
+        retry.simulation_runs.update(status='completed', result_summary={'dps': 200.0})
+        SimcTask.objects.filter(pk=retry.pk).update(current_status=2)
         execution_service.reconcile_execution_case(self.execution, self.case.pk)
-        self.assertEqual(self.case.results.get().dps, 200.0)
-        execution_service.reconcile_execution_case(self.execution, self.case.pk)
-        self.assertEqual(self.case.results.count(), 1)
+        self.assertEqual(self.case.results.get(candidate_key=self.keys[0]).dps, 100)
+        self.assertEqual(self.case.results.count(), len(self.keys))
+        self.assertEqual(SimulationRun.objects.filter(pk=source_run.pk).values().get(), frozen)
+        self.assertEqual(execution_service._runs_through_source_chain(retry)[self.keys[0]].pk, source_run.pk)
 
-    def test_pending_retry_does_not_reproject_source_results(self):
+    def test_pending_retry_reprojects_unowned_source_results(self):
         self.recover()
-        # Isolate the pre-claim source-chain bug from deletion at rebind.
         self.case.results.all().delete()
         execution_service.reconcile_execution(self.execution)
-        self.assertFalse(self.case.results.exists())
+        self.assertEqual(self.case.results.get().dps, 100)
+
+    def test_missing_run_preserves_exact_frozen_candidate(self):
+        from copy import deepcopy
+        candidate = deepcopy(self.task.mode_params['initial_candidates'][-1])
+        candidate.update(candidate_label='Frozen label', round_number=7,
+                         display_metadata={'frozen': ['identity']})
+        candidate['candidate_params']['frozen_nested'] = {'bonus_ids': [11, 22]}
+        self.task.mode_params['initial_candidates'][-1] = candidate
+        self.task.save(update_fields=['mode_params'])
+        self.task.simulation_runs.filter(candidate_key=candidate['candidate_key']).delete()
+        self.make_stale()
+        retry = self.recover()
+        self.assertEqual(retry.mode_params['initial_candidates'][-1], candidate)
+        run = retry.simulation_runs.get(candidate_key=candidate['candidate_key'])
+        self.assertEqual(run.candidate_params, candidate['candidate_params'])
+        self.assertEqual(run.display_metadata, candidate['display_metadata'])
+        self.assertEqual((run.candidate_label, run.round_number), ('Frozen label', 7))
+
+    def test_all_completed_stale_task_finishes_without_replacement(self):
+        self.task.simulation_runs.update(status='completed', result_summary={'dps': 100.0})
+        self.assertEqual(self.worker.recover_stale_tasks(), 1)
+        self.task.refresh_from_db()
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.task_id, self.task.pk)
+        self.assertEqual(self.task.current_status, 2)
+        self.assertEqual(self.task.error_detail, '')
+        self.assertFalse(self.task.reruns.exists())
+        execution_service.reconcile_execution_case(self.execution, self.case.pk)
+        self.case.refresh_from_db()
+        self.assertEqual(self.case.status, 'success')
+        self.assertEqual(self.case.results.count(), len(self.keys))
+
+    def test_manual_full_retry_still_masks_completed_source_before_runs_exist(self):
+        from botend.services.task_rerun import create_rerun
+        retry = create_rerun(self.task.pk, self.user_id)
+        self.assertEqual(execution_service._runs_through_source_chain(retry), {})
+
+    def test_conditional_success_half_is_inherited_but_pair_binding_stays_strict(self):
+        import copy
+        import gzip
+        import json
+        from pathlib import Path
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+        from botend.tests.test_simc_conditional_core import fixture
+
+        evidence = json.loads(gzip.decompress((Path(__file__).with_name('fixtures') /
+            'conditional_run2_evidence.json.gz').read_bytes()))['sides']
+        _, _, authorization = fixture()
+        sides = {}
+        for mode in ('normal', 'control'):
+            data = evidence[mode]
+            sides[mode] = validate_equipment_effect_report(
+                data['html'], data['params'], native_proof=data['proof'],
+                prepared_input=data['prepared'], report_json=data['report'],
+                conditional_authorization=authorization,
+            )
+            self.assertEqual(sides[mode]['status'], 'pair_pending')
+        normal_key, control_key = self.keys[:2]
+        self.task.simulation_runs.filter(candidate_key=normal_key).update(
+            result_summary={'dps': 100, 'equipment_effect_validation': sides['normal']},
+        )
+        source_id = self.task.simulation_runs.get(candidate_key=normal_key).pk
+        retry = self.recover()
+        self.assertFalse(retry.simulation_runs.filter(candidate_key=normal_key).exists())
+        requests = {(retry.pk, normal_key), (retry.pk, control_key)}
+        values = execution_service._equipment_effect_validations(requests)
+        self.assertIsNot(execution_service._paired_effect_validation(
+            values[(retry.pk, normal_key)], values[(retry.pk, control_key)],
+        )['valid'], True)
+        retry.simulation_runs.filter(candidate_key=control_key).update(
+            status='completed', result_summary={'dps': 90, 'equipment_effect_validation': sides['control']},
+        )
+        values = execution_service._equipment_effect_validations(requests)
+        self.assertTrue(execution_service._paired_effect_validation(
+            values[(retry.pk, normal_key)], values[(retry.pk, control_key)],
+        )['valid'])
+        wrong = copy.deepcopy(sides['control'])
+        wrong['conditional_witness']['context_hash'] = 'different-frozen-context'
+        retry.simulation_runs.filter(candidate_key=control_key).update(
+            result_summary={'dps': 90, 'equipment_effect_validation': wrong},
+        )
+        values = execution_service._equipment_effect_validations(requests)
+        invalid = execution_service._paired_effect_validation(
+            values[(retry.pk, normal_key)], values[(retry.pk, control_key)],
+        )
+        self.assertFalse(invalid['valid'])
+        self.assertEqual(invalid['reason'], 'pair binding mismatch')
+        self.assertEqual(execution_service._runs_through_source_chain(retry)[normal_key].pk, source_id)
 
     def test_same_attempt_dps_conflict_still_rejected(self):
         self.task.simulation_runs.filter(candidate_key=self.keys[0]).update(result_summary={'dps': 201})
@@ -177,7 +262,7 @@ class BenchmarkRetryProjectionTests(TransactionTestCase):
                 )
                 self.assertIn(1, values)
                 self.case.refresh_from_db()
-                self.assertFalse(self.case.results.exists())
+                self.assertEqual(self.case.results.get().dps, 100)
                 self.assertEqual(self.case.status, 'pending')
                 # Prepare the replacement for the reverse/full-path iteration.
                 self.task = self.case.task
@@ -195,7 +280,7 @@ class BenchmarkRetryProjectionTests(TransactionTestCase):
         self.case.refresh_from_db()
         self.assertNotEqual(self.case.task_id, self.task.pk)
         self.assertEqual(self.case.status, 'pending')
-        self.assertFalse(self.case.results.exists())
+        self.assertEqual(self.case.results.get().dps, 100)
 
     @skipUnlessDBFeature('has_select_for_update')
     def test_innodb_cancel_then_recovery_does_not_deadlock_or_retry(self):

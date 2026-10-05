@@ -55,25 +55,33 @@ class StaleWorkerRetryBudgetTests(TestCase):
             modified_time=now if agent else now - timedelta(minutes=5),
         )
         if agent is not None:
-            return models.SimulationRun.objects.create(
-                task=task, sequence=1, candidate_key='baseline', status='running',
-                lease_agent=agent, lease_token_hash='old-lease', lease_instance_id='old-instance',
-                lease_heartbeat_at=now - timedelta(minutes=5),
-                lease_expires_at=now - timedelta(seconds=1),
+            run, _ = models.SimulationRun.objects.update_or_create(
+                task=task, candidate_key='baseline',
+                defaults=dict(sequence=1, status='running',
+                    lease_agent=agent, lease_token_hash='old-lease', lease_instance_id='old-instance',
+                    lease_heartbeat_at=now - timedelta(minutes=5),
+                    lease_expires_at=now - timedelta(seconds=1)),
             )
+            return run
 
-    def assert_retry(self, source):
+    def assert_retry(self, source, *, benchmark=False):
         source.refresh_from_db()
         self.assertEqual(source.current_status, 3)
         self.assertIn('已复制 Task 重试', source.error_detail)
         retry = source.reruns.get()
         self.assertEqual(retry.current_status, 0)
-        self.assertEqual(retry.mode_params, source.mode_params)
+        if benchmark:
+            self.assertEqual(
+                [c['candidate_key'] for c in retry.mode_params['initial_candidates']],
+                [c['candidate_key'] for c in source.mode_params['initial_candidates']],
+            )
+        else:
+            self.assertEqual(retry.mode_params, source.mode_params)
         self.assertEqual(retry.simulation_params, source.simulation_params)
         self.assertEqual(retry.backend_id, source.backend_id)
         for field in self.references:
             self.assertEqual(getattr(retry, f'{field}_id'), getattr(source, f'{field}_id'))
-        self.assertFalse(retry.simulation_runs.exists())
+        self.assertEqual(retry.simulation_runs.exists(), benchmark)
         return retry
 
     def assert_exhausted(self, task):
@@ -110,7 +118,7 @@ class StaleWorkerRetryBudgetTests(TestCase):
             task=task, sequence=2, candidate_key='candidate', status='pending',
         )
         self.assertEqual(self.worker.recover_stale_tasks(), 1)
-        retry = self.assert_retry(task)
+        retry = self.assert_retry(task, benchmark=True)
         case.refresh_from_db()
         self.assertEqual((case.task_id, case.status, case.error_detail), (retry.pk, 'pending', ''))
         self.assertFalse(case.results.exists())
@@ -128,7 +136,7 @@ class StaleWorkerRetryBudgetTests(TestCase):
         self.assertEqual(self.worker.recover_stale_tasks(), 0)
         self.expire(retry, agent=agent)
         self.assertEqual(self.worker.recover_stale_tasks(), 1)
-        last = self.assert_retry(retry)
+        last = self.assert_retry(retry, benchmark=True)
         self.expire(last, agent=agent)
         self.assertEqual(self.worker.recover_stale_tasks(), 1)
         self.assert_exhausted(last)
