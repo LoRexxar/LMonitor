@@ -138,7 +138,7 @@ from botend.portal.simc_benchmark_api import (
 from botend.simc_agent_api import (
     SimcAgentHeartbeatAPIView, SimcAgentRegisterAPIView,
     SimcAgentJobClaimAPIView, SimcAgentJobHeartbeatAPIView,
-    SimcAgentJobReportUploadAPIView, SimcAgentJobCompleteAPIView,
+    SimcAgentJobReportUploadAPIView, SimcAgentJobCompleteAPIView, SimcAgentJobEvidenceUploadAPIView,
     SimcAgentMaintenanceTaskAPIView,
     SimcAgentManagementListAPIView, SimcAgentManagementActiveAPIView, SimcAgentManagementTaskScopeAPIView,
     SimcAgentEnrollmentCodeListAPIView, SimcAgentEnrollmentCodeRevokeAPIView,
@@ -284,6 +284,7 @@ urlpatterns = [
     path('api/simc-agent/v1/jobs/claim/', SimcAgentJobClaimAPIView.as_view(), name='simc_agent_job_claim'),
     path('api/simc-agent/v1/jobs/<int:run_id>/heartbeat/', SimcAgentJobHeartbeatAPIView.as_view(), name='simc_agent_job_heartbeat'),
     path('api/simc-agent/v1/jobs/<int:run_id>/report-upload/', SimcAgentJobReportUploadAPIView.as_view(), name='simc_agent_job_report_upload'),
+    path('api/simc-agent/v1/jobs/<int:run_id>/evidence-upload/', SimcAgentJobEvidenceUploadAPIView.as_view(), name='simc_agent_job_evidence_upload'),
     path('api/simc-agent/v1/jobs/<int:run_id>/complete/', SimcAgentJobCompleteAPIView.as_view(), name='simc_agent_job_complete'),
     path('api/simc-agent/v1/maintenance-tasks/<int:task_id>/', SimcAgentMaintenanceTaskAPIView.as_view(), name='simc_agent_maintenance_task'),
     path('api/simc-workbench/agents/', SimcAgentManagementListAPIView.as_view(), name='simc_agent_management_list'),

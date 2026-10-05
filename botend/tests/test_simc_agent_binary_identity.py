@@ -50,7 +50,7 @@ class SimcAgentBinaryIdentityTests(SimpleTestCase):
         self.assertEqual(first['capabilities']['dbc_build'], '12.1.0.69933')
         self.assertEqual(first['capabilities']['binary_revision'], 'a' * 40)
         self.assertEqual(first['capabilities'], second['capabilities'])
-        self.assertEqual(first['capabilities']['conditional_evidence_protocol_version'], 0)
+        self.assertEqual(first['capabilities']['conditional_evidence_protocol_version'], 1)
         self.assertEqual(first['capabilities']['max_concurrent_runs'], 2)
         self.assertEqual(first['current_version'], 'c' * 40)
         self.assertEqual(first['html_locale_patch_version'], 1)

@@ -936,7 +936,31 @@ def _candidate_source_run(task, candidate_key):
     return None
 
 
+def _apply_conditional_result_display(row, params):
+    """Describe frozen roles, never infer standalone gain from a combination."""
+    policy = params.get('equipment_effect_policy') or {}
+    if policy.get('version') != 3 or policy.get('comparison_kind') != 'conditional_increment':
+        return
+    context = '、'.join(policy['context_slots'])
+    changed = '、'.join(policy['changed_slots'])
+    comparison_label = f'固定 {context}；{changed} 条件增量'
+    suffix = f'（{comparison_label}）'
+    if not row['label'].endswith(suffix):
+        row['label'] += suffix
+    row.update({
+        'comparison_kind': 'conditional_increment',
+        'comparison_label': comparison_label,
+        'comparison_baseline_label': f'保留 {context} 特效，仅关闭 {changed} 特效',
+        'context_slots': list(policy['context_slots']),
+        'changed_slots': list(policy['changed_slots']),
+    })
+
+
 def _paired_effect_validation(normal, control):
+    if any(side.get('status') == 'pair_pending' or 'conditional_witness' in side
+           for side in (normal, control)):
+        from simc_equipment_conditional import validate_pair_witness
+        return validate_pair_witness(normal, control)
     if normal.get('status') == 'valid' and control.get('status') == 'valid':
         return normal
     failed = normal if normal.get('status') != 'valid' else control
@@ -978,7 +1002,7 @@ def _equipment_effect_validations(requests):
             seen[request].add(task_id)
             if (task_id, request[1]) in latest:
                 validation = latest[(task_id, request[1])]
-                if isinstance(validation, dict) and validation.get('status') in ('valid', 'invalid', 'unverified'):
+                if isinstance(validation, dict) and validation.get('status') in ('valid', 'invalid', 'unverified', 'pair_pending'):
                     resolved[request] = deepcopy(validation)
             else:
                 remaining[request] = task_id
@@ -2296,6 +2320,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     'source_label': candidate['source_label'],
                     'dps': float(match['result'].dps),
                 }
+                _apply_conditional_result_display(row, candidate.get('candidate_params') or {})
                 if include_details:
                     row.update({
                         'task_id': result_task.pk,
@@ -2383,6 +2408,10 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     )
                     if row['effect_validation'].get('status') == 'valid':
                         row['effect_delta_percent'] = row['gain_percent']
+                    elif row.get('comparison_kind') == 'conditional_increment':
+                        # Raw sides stay inspectable, but an unproven conditional
+                        # pair must never publish an attributed gain.
+                        row['gain_dps'] = row['gain_percent'] = None
                 paired_rows.append(row)
             rows = paired_rows
         if is_option_gain:
@@ -3793,6 +3822,7 @@ def serialize_public_execution(panel_or_execution):
                 'source_label': candidate['source_label'],
                 'status': run['status'], 'dps': run['dps'],
             }
+            _apply_conditional_result_display(candidate_row, candidate['params'])
             baseline_key = candidate['params'].get('effect_baseline_key')
             if baseline_key:
                 control = next((item for item in row['runs'] if item['key'] == baseline_key), None)
@@ -3811,6 +3841,8 @@ def serialize_public_execution(panel_or_execution):
                 )
                 if candidate_row['effect_validation'].get('status') == 'valid':
                     candidate_row['effect_delta_percent'] = candidate_row['gain_percent']
+                elif candidate_row.get('comparison_kind') == 'conditional_increment':
+                    candidate_row['gain_dps'] = candidate_row['gain_percent'] = None
             swaps = candidate['params'].get('gear_swaps')
             if swaps:
                 candidate_row['equipment_items'] = deepcopy(swaps)

@@ -20,7 +20,7 @@ from botend.services.simc_agent_control import (
     revoke_enrollment_code,
 )
 from botend.services.simc_run_control import (
-    claim_run, complete_run, heartbeat_run, request_report_upload,
+    claim_run, complete_run, heartbeat_run, request_report_upload, request_evidence_upload,
     validate_completion_metadata,
 )
 
@@ -213,6 +213,19 @@ class SimcAgentJobReportUploadAPIView(View):
                 run_id, _parse_request_json(request),
                 request.headers.get('Authorization', ''),
             )
+        except AgentAPIError as exc:
+            return _error_response(exc)
+        return _no_store(JsonResponse(result))
+
+
+@method_decorator(csrf_exempt, name='dispatch')
+class SimcAgentJobEvidenceUploadAPIView(View):
+    http_method_names = ['post', 'options']
+
+    def post(self, request, run_id):
+        try:
+            result = request_evidence_upload(run_id, _parse_request_json(request),
+                                             request.headers.get('Authorization', ''))
         except AgentAPIError as exc:
             return _error_response(exc)
         return _no_store(JsonResponse(result))

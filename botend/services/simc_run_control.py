@@ -11,8 +11,14 @@ from dataclasses import asdict, is_dataclass
 from datetime import timedelta
 
 from django.conf import settings
+from django.core.exceptions import ValidationError
+from copy import deepcopy
+from botend.services.simc_conditional_execution import (
+    MANIFEST_KEY, CONTEXT_KEY, input_context_digest, validate_prepared_context,
+    freeze_for_agent, read_frozen_conditional_execution,
+)
 from django.db import IntegrityError, transaction
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q, Max
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 
@@ -98,8 +104,41 @@ def _output_filename(run):
     return filename
 
 
-def build_frozen_run_input(task, run, output_filename=None, *, enrich_hero=True, resolved=None):
-    """Compose readable SimC input from a Run's current frozen task configuration."""
+def _conditional_runtime_threads(task, run, *, locked_runs=None):
+    """Read one Task-wide policy; only claim persists it, under Task -> Run locks.
+
+    The first successfully composed conditional Run is the durable policy anchor.
+    Siblings and retries retain it regardless of status or current CPU affinity.
+    Never repair a historical missing/conflicting policy from today's CPU count.
+    Read-only input previews may call this without locks; they write nothing.
+    """
+    from botend.services.simc_conditional_execution import is_conditional_candidate
+
+    siblings = (locked_runs if locked_runs is not None else
+                SimulationRun.objects.filter(task_id=task.pk).exclude(pk=run.pk))
+    frozen_threads = None
+    for row in (run, *siblings):
+        if not is_conditional_candidate(row.candidate_params) or not row.input_hash:
+            continue
+        manifest = row.resource_manifest or {}
+        if 'runtime_threads' not in manifest:
+            raise ValueError('Conditional frozen runtime threads missing')
+        value = manifest['runtime_threads']
+        if type(value) is not int or value <= 0:
+            raise ValueError('Conditional runtime threads invalid')
+        if frozen_threads is not None and frozen_threads != value:
+            raise ValueError('Conditional frozen runtime threads conflict')
+        frozen_threads = value
+    if frozen_threads is None:
+        frozen_threads = runtime_threads(task)
+    if type(frozen_threads) is not int or frozen_threads <= 0:
+        raise ValueError('Conditional runtime threads invalid')
+    return frozen_threads
+
+
+def build_frozen_run_input(task, run, output_filename=None, *, enrich_hero=True, resolved=None,
+                           _locked_runs=None):
+    """Compose readable input without DB writes; claim supplies its locked Run set."""
     from botend.controller.plugins.simc.SimcMonitor import SimcMonitor, _composer_identity
     from botend.services.simc_composer import SimcComposer
 
@@ -144,6 +183,11 @@ def build_frozen_run_input(task, run, output_filename=None, *, enrich_hero=True,
         request['raid_buffs'] = list(resolved.simulation_params['raid_buffs'])
     if 'use_class_raid_buff' in resolved.simulation_params:
         request['use_class_raid_buff'] = resolved.simulation_params['use_class_raid_buff'] is True
+    from botend.services.simc_conditional_execution import is_conditional_candidate
+    frozen_threads = None
+    if is_conditional_candidate(run.candidate_params):
+        frozen_threads = _conditional_runtime_threads(task, run, locked_runs=_locked_runs)
+        request['_runtime_threads'] = frozen_threads
     request = SimcMonitor.apply_candidate_overrides(request, run.candidate_params)
     code, composition_manifest, error = SimcComposer(task.user_id).compose(request)
     if error or code is None:
@@ -159,6 +203,8 @@ def build_frozen_run_input(task, run, output_filename=None, *, enrich_hero=True,
         'talent_candidate': talent_candidate,
         'output_filename': filename,
     }
+    if frozen_threads is not None:
+        manifest['runtime_threads'] = frozen_threads
     if enrich_hero:
         manifest = _enrich_frozen_manifest(resolved, code, manifest)
     return code, manifest
@@ -222,6 +268,59 @@ def _discover_claim_task_id(agent, now):
     ).annotate(is_benchmark=Exists(benchmark)).order_by(
         '-queue_priority', 'is_benchmark', 'create_time', 'id',
     ).values_list('pk', flat=True).first()
+
+
+CLAIM_DISCOVERY_PAGE_SIZE = 32
+
+
+class _ConditionalIncompatible(Exception):
+    """Abort only this candidate transaction; never fail it for other Agents."""
+
+
+def _remaining_claim_task_ids(agent, now, first_id):
+    """Lock-free, bounded-page fallback after an incompatible first candidate.
+
+    Snapshot the PK high-water mark; keyset traversal cannot get stuck on a fixed
+    prefix. Only ordering scalars are hydrated (32 rows/page), never Task JSON.
+    No OFFSET and no Run join duplicates. Mutations remain PK-locked by caller.
+    """
+    high = SimcTask.objects.aggregate(high=Max('pk'))['high']
+    if high is None:
+        return
+    expired = SimulationRun.objects.filter(task_id=OuterRef('pk'), status='running',
+                                            lease_expires_at__lte=now)
+    pending = SimulationRun.objects.filter(task_id=OuterRef('pk'), status='pending')
+    benchmark = SimcBenchmarkCase.objects.filter(task_id=OuterRef('pk'))
+    base = _task_scope_queryset(SimcTask.objects.filter(
+        backend_id=agent.backend_id, is_active=True, pk__lte=high), agent.task_scope
+    ).exclude(pk=first_id).annotate(has_expired_run=Exists(expired)).filter(has_expired_run=False)
+    for running in (True, False):
+        if running:
+            qs = base.filter(current_status=1, execution_owner=SimcTask.EXECUTION_OWNER_AGENT
+                ).annotate(has_pending=Exists(pending)).filter(has_pending=True)
+            fields = ('queue_priority', 'create_time', 'pk')
+        else:
+            qs = base.filter(current_status=0, execution_owner__in=(
+                SimcTask.EXECUTION_OWNER_UNASSIGNED, SimcTask.EXECUTION_OWNER_AGENT)
+                ).annotate(is_benchmark=Exists(benchmark))
+            fields = ('queue_priority', 'is_benchmark', 'create_time', 'pk')
+        cursor = None
+        while True:
+            page_qs = qs
+            if cursor is not None:
+                after = Q()
+                equal = Q()
+                for index, field in enumerate(fields):
+                    after |= equal & Q(**{field + ('__lt' if index == 0 else '__gt'): cursor[index]})
+                    equal &= Q(**{field: cursor[index]})
+                page_qs = page_qs.filter(after)
+            rows = list(page_qs.order_by('-queue_priority', *fields[1:]
+                ).values_list(*fields)[:CLAIM_DISCOVERY_PAGE_SIZE])
+            for row in rows:
+                yield row[-1]
+            if len(rows) < CLAIM_DISCOVERY_PAGE_SIZE:
+                break
+            cursor = rows[-1]
 
 
 def claim_run(payload, authorization):
@@ -288,6 +387,21 @@ def claim_run(payload, authorization):
         raise mismatch
     _check_agent_ready(discovered_agent, timezone.now())
     task_id = _discover_claim_task_id(discovered_agent, timezone.now())
+    try:
+        return _claim_task(task_id, discovered_agent, authorization, instance_id)
+    except _ConditionalIncompatible as exc:
+        first_error = str(exc)
+    for next_id in _remaining_claim_task_ids(discovered_agent, timezone.now(), task_id):
+        try:
+            return _claim_task(next_id, discovered_agent, authorization, instance_id)
+        except _ConditionalIncompatible:
+            continue
+    # Preserve the diagnostic for a queue with no compatible work, but never
+    # prevent a later ordinary/v2 Task from being considered in this same poll.
+    raise AgentAPIError(first_error, 409)
+
+
+def _claim_task(task_id, discovered_agent, authorization, instance_id):
     with transaction.atomic():
         task = None
         if task_id is not None:
@@ -359,9 +473,19 @@ def claim_run(payload, authorization):
         token = secrets.token_urlsafe(32)
         try:
             resolved = resolve_task(task)
+            try:
+                conditional = freeze_for_agent(run, agent=agent,
+                    is_ptr=resolved.profile_payload.get('use_ptr') is True)
+            except ValidationError as exc:
+                # Roll back initialization too: another eligible Agent may claim.
+                raise _ConditionalIncompatible('; '.join(exc.messages)) from exc
             code, manifest = build_frozen_run_input(
                 task, run, _output_filename(run), enrich_hero=False, resolved=resolved,
+                _locked_runs=locked_runs,
             )
+            if conditional is not None:
+                manifest[MANIFEST_KEY] = deepcopy(conditional)
+                manifest[CONTEXT_KEY] = input_context_digest(code)
         except (ValueError, TypeError) as exc:
             # Invalid frozen candidates cannot improve on another claim. Commit
             # their failure instead of rolling back into a permanent 409/pending
@@ -424,6 +548,24 @@ def claim_run(payload, authorization):
         if run.input_hash != digest:
             raise AgentAPIError('Run input changed during claim', 409)
         expires = now + timedelta(seconds=_lease_seconds())
+        # Enrichment must never overwrite authority from the first fenced save.
+        persisted_conditional = (run.resource_manifest or {}).get(MANIFEST_KEY)
+        if persisted_conditional != conditional:
+            raise AgentAPIError('Conditional freeze changed during claim', 409)
+        if persisted_conditional is not None:
+            if run.resource_manifest.get(CONTEXT_KEY) != input_context_digest(code):
+                raise AgentAPIError('Conditional context changed during claim', 409)
+            try:
+                freeze_for_agent(run, agent=agent,
+                    is_ptr=resolved.profile_payload.get('use_ptr') is True)
+            except ValidationError as exc:
+                raise AgentAPIError('; '.join(exc.messages), 409) from exc
+            if run.resource_manifest.get('runtime_threads') != manifest.get('runtime_threads'):
+                raise AgentAPIError('Conditional runtime threads changed during claim', 409)
+            manifest[MANIFEST_KEY] = deepcopy(persisted_conditional)
+            manifest[CONTEXT_KEY] = run.resource_manifest[CONTEXT_KEY]
+        else:
+            manifest.pop(MANIFEST_KEY, None)
         run.resource_manifest = manifest
         run.lease_heartbeat_at = now
         run.lease_expires_at = expires
@@ -434,9 +576,12 @@ def claim_run(payload, authorization):
         return {
             'run_id': run.pk, 'task_id': task.pk, 'sequence': run.sequence,
             'input': code, 'input_hash': digest, 'output_filename': _output_filename(run),
-            'threads': runtime_threads(task), 'timeout_seconds': timeout,
+            'threads': (manifest['runtime_threads'] if persisted_conditional is not None
+                        else runtime_threads(task)), 'timeout_seconds': timeout,
             'lease_token': token, 'lease_expires_at': expires.isoformat(),
             'agent_id': agent.pk,
+            **({'conditional_authorization': deepcopy(persisted_conditional['conditional_authorization'])}
+               if persisted_conditional is not None else {}),
         }
 
 
@@ -512,24 +657,37 @@ def _validate_report_identity(payload):
     return {'size': size, 'sha256': sha256, 'content_md5': content_md5}
 
 
-def request_report_upload(run_id, payload, authorization):
+def request_evidence_upload(run_id, payload, authorization):
+    return request_report_upload(run_id, payload, authorization, _conditional=True)
+
+
+def request_report_upload(run_id, payload, authorization, *, _conditional=False):
     allowed = {'lease_token', 'instance_id', 'size', 'sha256', 'content_md5'}
     if set(payload) != allowed:
         raise AgentAPIError('Report upload fields are invalid')
     identity = _validate_report_identity({key: payload[key] for key in ('size', 'sha256', 'content_md5')})
+    if _conditional:
+        _validate_evidence_identity(identity)
     discovered_agent = authenticate_bearer(authorization, lock=False)
     task_id = SimulationRun.objects.filter(pk=run_id).values_list('task_id', flat=True).first()
     if task_id is None:
         raise AgentAPIError('Run not found', 404)
     with transaction.atomic():
-        task = SimcTask.objects.select_for_update().get(pk=task_id)
-        run = SimulationRun.objects.select_for_update().select_related('task').get(pk=run_id, task=task)
+        try:
+            task = SimcTask.objects.select_for_update().get(pk=task_id)
+            run = SimulationRun.objects.select_for_update().select_related('task').get(pk=run_id, task=task)
+        except (SimcTask.DoesNotExist, SimulationRun.DoesNotExist):
+            raise AgentAPIError('Run not found', 404)
         from botend.services.simc_benchmark_purge import task_has_active_panel_purge
         if task_has_active_panel_purge(task.pk):
             raise AgentAPIError('Panel purge is in progress', 409)
         agent = authenticate_bearer(authorization, lock=True)
         if agent.pk != discovered_agent.pk:
             raise AgentAPIError('Agent identity changed during report upload request', 409)
+        if agent.backend_id != discovered_agent.backend_id:
+            raise AgentAPIError('Agent backend changed during report upload request', 409)
+        if task.backend_id != agent.backend_id:
+            raise AgentAPIError('Task belongs to another backend', 403)
         if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
             raise AgentAPIError('Task is not agent-owned', 409)
         # A completed Run already has its one authoritative result.  A delayed
@@ -556,7 +714,19 @@ def request_report_upload(run_id, payload, authorization):
             raise
         lease_fence = run.lease_token_hash
         lease_expires_at = run.lease_expires_at
+        if _conditional:
+            try:
+                if read_frozen_conditional_execution(run.pk) is None:
+                    raise AgentAPIError('Run is not conditional', 409)
+                if not (run.resource_manifest or {}).get(CONTEXT_KEY):
+                    raise AgentAPIError('Conditional claim context missing', 409)
+            except ValidationError as exc:
+                raise AgentAPIError('Conditional freeze is invalid', 409) from exc
     try:
+        if _conditional:
+            from botend.services.simc_conditional_evidence_storage import issue_upload_ticket
+            return issue_upload_ticket(run, **identity, lease_fence=lease_fence,
+                                       lease_expires_at=lease_expires_at)
         from botend.services.simc_agent_oss import (
             issue_upload_ticket, object_key_for_run, public_report_url,
         )
@@ -573,7 +743,8 @@ def request_report_upload(run_id, payload, authorization):
             raise AgentAPIError(str(exc), 409) from exc
         if isinstance(exc, ReportStorageError):
             raise AgentAPIError(str(exc), 503) from exc
-        logger.exception('OSS report upload ticket failed for Run %s', run_id)
+        if not _conditional:
+            logger.exception('OSS report upload ticket failed for Run %s', run_id)
         raise AgentAPIError('OSS report upload service is unavailable', 503) from exc
 
 
@@ -592,9 +763,17 @@ def _validate_completion_report(report):
     return report
 
 
+def _validate_evidence_identity(payload):
+    from simc_conditional_evidence import MAX_COMPRESSED_BYTES
+    if type(payload.get('size')) is not int or not 0 < payload['size'] <= MAX_COMPRESSED_BYTES:
+        raise AgentAPIError('Conditional evidence size is invalid')
+    if type(payload.get('sha256')) is not str or not SHA256_RE.fullmatch(payload['sha256']):
+        raise AgentAPIError('Conditional evidence sha256 is invalid')
+
+
 def validate_completion_metadata(payload):
     allowed = {'lease_token', 'instance_id', 'completion_id', 'status', 'stdout', 'stderr', 'report'}
-    if set(payload) != allowed:
+    if set(payload) not in (allowed, allowed | {'conditional_evidence'}):
         raise AgentAPIError('Completion metadata fields are invalid')
     for field, limit in (('instance_id', 128), ('completion_id', 64),
                          ('stdout', COMPLETION_TEXT_MAX_BYTES),
@@ -610,6 +789,17 @@ def validate_completion_metadata(payload):
         _validate_completion_report(payload['report'])
     elif payload['report'] is not None:
         raise AgentAPIError('failed status must not include report')
+    if 'conditional_evidence' in payload:
+        evidence = payload['conditional_evidence']
+        if payload['status'] != 'completed':
+            raise AgentAPIError('failed status must not include conditional evidence')
+        if (not isinstance(evidence, dict)
+                or set(evidence) != {'protocol_version', 'object_key', 'size', 'sha256'}
+                or type(evidence['protocol_version']) is not int or evidence['protocol_version'] != 1
+                or type(evidence['object_key']) is not str
+                or not evidence['object_key'].startswith('simc_conditional_evidence/v1/')):
+            raise AgentAPIError('Conditional evidence fields are invalid')
+        _validate_evidence_identity(evidence)
     return payload
 
 
@@ -665,37 +855,82 @@ def complete_run(run_id, metadata, authorization):
 
     # Authenticate and validate the Run fence before any OSS request. The locked
     # transaction below repeats this check before committing authoritative state.
-    run_for_key = SimulationRun.objects.select_related('task', 'lease_agent').filter(pk=run_id).first()
-    if run_for_key is None:
+    task_id = SimulationRun.objects.filter(pk=run_id).values_list('task_id', flat=True).first()
+    if task_id is None:
         raise AgentAPIError('Run not found', 404)
-    task_id = run_for_key.task_id
-    if run_for_key.task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
-        raise AgentAPIError('Task is not agent-owned', 409)
-    # A terminal Run is immutable: the first valid completion won.  Any later
-    # completion is only a duplicate acknowledgement so an Agent can discard a
-    # locally durable outbox entry; it must not re-validate its old lease or
-    # overwrite the authoritative result.
-    if run_for_key.status in ('cancelled', 'canceled'):
-        raise AgentAPIError('Run was cancelled', 409, {'code': 'run_cancelled'})
-    if run_for_key.status in TERMINAL:
-        return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
-    try:
-        _validate_fence(
-            run_for_key, discovered_agent, metadata['lease_token'], metadata['instance_id'],
-            timezone.now(), require_unexpired=True, require_lease_agent=False,
-        )
-    except AgentAPIError as exc:
-        if (exc.status == 409 and str(exc) == 'Lease conflict'
-                and isinstance(metadata.get('lease_token'), str)
-                and LEASE_TOKEN_RE.fullmatch(metadata['lease_token'])):
-            # A stale durable terminal record cannot win against the current
-            # lease; acknowledge it solely so its Agent removes the outbox file.
+    with transaction.atomic():
+        try:
+            locked_task = SimcTask.objects.select_for_update().get(pk=task_id)
+            run_for_key = SimulationRun.objects.select_for_update().get(pk=run_id, task=locked_task)
+            run_for_key.task = locked_task
+        except (SimcTask.DoesNotExist, SimulationRun.DoesNotExist):
+            raise AgentAPIError('Run not found', 404)
+        locked_agent = authenticate_bearer(authorization, lock=True)
+        if locked_agent.pk != discovered_agent.pk:
+            raise AgentAPIError('Agent identity changed during completion', 409)
+        if locked_agent.backend_id != discovered_agent.backend_id:
+            raise AgentAPIError('Agent backend changed during completion', 409)
+        if locked_task.backend_id != locked_agent.backend_id:
+            raise AgentAPIError('Task belongs to another backend', 403)
+        from botend.services.simc_benchmark_purge import task_has_active_panel_purge
+        if task_has_active_panel_purge(task_id):
+            raise AgentAPIError('Panel purge is in progress', 409)
+        if run_for_key is None:
+            raise AgentAPIError('Run not found', 404)
+        task_id = run_for_key.task_id
+        if run_for_key.task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
+            raise AgentAPIError('Task is not agent-owned', 409)
+        # A terminal Run is immutable: the first valid completion won.  Any later
+        # completion is only a duplicate acknowledgement so an Agent can discard a
+        # locally durable outbox entry; it must not re-validate its old lease or
+        # overwrite the authoritative result.
+        if run_for_key.status in ('cancelled', 'canceled'):
+            raise AgentAPIError('Run was cancelled', 409, {'code': 'run_cancelled'})
+        if run_for_key.status in TERMINAL:
             return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
-        raise
-    if run_for_key.status != 'running':
-        raise AgentAPIError('Run is not running', 409)
+        try:
+            _validate_fence(
+                run_for_key, locked_agent, metadata['lease_token'], metadata['instance_id'],
+                timezone.now(), require_unexpired=True, require_lease_agent=False,
+            )
+        except AgentAPIError as exc:
+            if (exc.status == 409 and str(exc) == 'Lease conflict'
+                    and isinstance(metadata.get('lease_token'), str)
+                    and LEASE_TOKEN_RE.fullmatch(metadata['lease_token'])):
+                # A stale durable terminal record cannot win against the current
+                # lease; acknowledge it solely so its Agent removes the outbox file.
+                return {'run_id': run_for_key.pk, 'status': run_for_key.status, 'idempotent': True}
+            raise
+        if run_for_key.status != 'running':
+            raise AgentAPIError('Run is not running', 409)
 
+        try:
+            conditional = read_frozen_conditional_execution(run_id)
+        except ValidationError as exc:
+            raise AgentAPIError('; '.join(exc.messages), 409) from exc
     report = metadata['report']
+    evidence = metadata.get('conditional_evidence')
+    if conditional is None and evidence is not None:
+        raise AgentAPIError('Ordinary Run must not include conditional evidence')
+    if conditional is not None and status == 'completed' and evidence is None:
+        raise AgentAPIError('Conditional completion requires evidence')
+    candidate_snapshot = deepcopy(run_for_key.candidate_params)
+    context_snapshot = (run_for_key.resource_manifest or {}).get(CONTEXT_KEY)
+    evidence_body = None
+    if conditional is not None and status == 'completed':
+        from botend.services.simc_conditional_evidence_storage import download_evidence, object_key_for_run as evidence_key
+        from botend.services.simc_agent_oss import ReportStorageError, ReportValidationError
+        if evidence['object_key'] != evidence_key(run_for_key, lease_fence=run_for_key.lease_token_hash):
+            raise AgentAPIError('Evidence object does not belong to this Run lease', 409)
+        try:
+            evidence_body = download_evidence(run_for_key, object_key=evidence['object_key'],
+                expected_size=evidence['size'], expected_sha256=evidence['sha256'],
+                expected_lease_fence=run_for_key.lease_token_hash)
+            validate_prepared_context(run_for_key, evidence_body['prepared_input'])
+        except (ReportValidationError, ValidationError) as exc:
+            raise AgentAPIError('Conditional evidence validation failed', 422) from exc
+        except ReportStorageError as exc:
+            raise AgentAPIError('Conditional evidence storage unavailable', 503) from exc
     report_html = ''
     summary = {}
     if status == 'completed':
@@ -748,6 +983,10 @@ def complete_run(run_id, metadata, authorization):
                 native_proof = {}  # Malformed evidence is invalid, not absent.
             summary['equipment_effect_validation'] = validate_equipment_effect_report(
                 report_html, run_for_key.candidate_params, native_proof=native_proof,
+                **({'conditional_authorization': conditional['conditional_authorization'],
+                    'prepared_input': evidence_body['prepared_input'],
+                    'report_json': evidence_body['report_json']}
+                   if conditional is not None else {}),
             )
 
     with transaction.atomic():
@@ -771,6 +1010,12 @@ def complete_run(run_id, metadata, authorization):
         agent = authenticate_bearer(authorization, lock=True)
         if agent.pk != discovered_agent.pk:
             raise AgentAPIError('Agent identity changed during completion', 409)
+        # Row rotation within the original Backend remains valid with the old
+        # lease/instance; neither party may move Backend while I/O is unlocked.
+        if agent.backend_id != discovered_agent.backend_id:
+            raise AgentAPIError('Agent backend changed during completion', 409)
+        if task.backend_id != agent.backend_id:
+            raise AgentAPIError('Task belongs to another backend', 403)
         if task.execution_owner != SimcTask.EXECUTION_OWNER_AGENT:
             raise AgentAPIError('Task is not agent-owned', 409)
         if run.status in ('cancelled', 'canceled'):
@@ -783,6 +1028,14 @@ def complete_run(run_id, metadata, authorization):
         if run.status != 'running':
             raise AgentAPIError('Run is not running', 409)
 
+        try:
+            if (run.candidate_params != candidate_snapshot
+                    or (run.resource_manifest or {}).get(CONTEXT_KEY) != context_snapshot):
+                raise AgentAPIError('Conditional candidate/context changed during completion', 409)
+            if read_frozen_conditional_execution(run_id) != conditional:
+                raise AgentAPIError('Conditional freeze changed during completion', 409)
+        except ValidationError as exc:
+            raise AgentAPIError('; '.join(exc.messages), 409) from exc
         if status == 'completed':
             if summary.get('dps') is None or not re.search(r'\bDPS=', metadata['stdout']):
                 raise AgentAPIError('SimC result does not contain DPS')

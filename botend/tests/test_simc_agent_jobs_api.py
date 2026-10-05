@@ -1027,7 +1027,9 @@ class SimcAgentJobAPITests(TestCase):
         )
         self.assertEqual(self.complete(job).status_code, 200)
         self.assertEqual(SimcTaskArtifact.objects.filter(run=run).count(), 1)
-        duplicate = self.complete(job, status='failed', completion_id='different', token=self.other_token)
+        cross_backend = self.complete(job, status='failed', completion_id='different', token=self.other_token)
+        self.assertEqual(cross_backend.status_code, 403, cross_backend.content)
+        duplicate = self.complete(job, status='failed', completion_id='different')
         self.assertEqual(duplicate.status_code, 200, duplicate.content)
         self.assertEqual(duplicate.json(), {
             'run_id': job['run_id'], 'status': 'completed', 'idempotent': True,
@@ -1039,6 +1041,15 @@ class SimcAgentJobAPITests(TestCase):
                 'size': 16, 'sha256': 'a' * 64,
                 'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
             }, self.other_token,
+        )
+        self.assertEqual(upload.status_code, 403, upload.content)
+        upload = self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/",
+            {
+                'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+                'size': 16, 'sha256': 'a' * 64,
+                'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
+            },
         )
         self.assertEqual(upload.status_code, 200, upload.content)
         self.assertEqual(upload.json(), {

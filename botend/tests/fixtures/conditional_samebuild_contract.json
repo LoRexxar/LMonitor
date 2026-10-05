@@ -1,0 +1,819 @@
+{
+  "policy": {
+    "version": 3,
+    "comparison_kind": "conditional_increment",
+    "target_slots": [
+      "neck",
+      "waist"
+    ],
+    "changed_slots": [
+      "waist"
+    ],
+    "context_slots": [
+      "neck"
+    ],
+    "rules": {
+      "version": 2,
+      "embellishments": {
+        "armor_spikes": {
+          "bonus_id": 8188,
+          "spell_id": 396581
+        },
+        "potion_absorption_inhibitor": {
+          "bonus_id": 8175,
+          "spell_id": 371700
+        },
+        "blue_silken_lining": {
+          "bonus_id": 8932,
+          "spell_id": 387335
+        },
+        "bronzed_grip_wrappings": {
+          "bonus_id": 8937,
+          "spell_id": 396442
+        },
+        "fang_adornments": {
+          "bonus_id": 8796,
+          "spell_id": 377708
+        },
+        "toxified_armor_patch": {
+          "bonus_id": 8797,
+          "spell_id": 378758
+        },
+        "magazine_of_healing_darts": {
+          "bonus_id": 8913,
+          "spell_id": 415446
+        },
+        "shadowflametempered_armor_patch": {
+          "bonus_id": 9379,
+          "spell_id": 406254
+        },
+        "statuette_of_foreseen_power": {
+          "bonus_id": 9399,
+          "spell_id": 377360
+        },
+        "figurine_of_the_gathering_storm": {
+          "bonus_id": 9400,
+          "spell_id": 411126
+        },
+        "reserve_parachute": {
+          "bonus_id": 9412,
+          "spell_id": 409838
+        },
+        "medical_wrap_kit": {
+          "bonus_id": 9416,
+          "spell_id": 409923
+        },
+        "verdant_conduit": {
+          "bonus_id": 9521,
+          "spell_id": 418410
+        },
+        "dreamtenders_charm": {
+          "bonus_id": 9532,
+          "spell_id": 419368
+        },
+        "verdant_tether": {
+          "bonus_id": 9614,
+          "spell_id": 426552
+        },
+        "elemental_focusing_lens": {
+          "bonus_id": 10520,
+          "spell_id": 461177
+        },
+        "prismatic_null_stone": {
+          "bonus_id": 10518,
+          "spell_id": 435992
+        },
+        "captured_starlight": {
+          "bonus_id": 10521,
+          "spell_id": 460521
+        },
+        "blessed_weapon_grip": {
+          "bonus_id": 11103,
+          "spell_id": 443743
+        },
+        "writhing_armor_banding": {
+          "bonus_id": 11109,
+          "spell_id": 443902
+        },
+        "darkmoon_sigil_radiance": {
+          "bonus_id": 11299,
+          "spell_id": 454558
+        },
+        "darkmoon_sigil_ascension": {
+          "bonus_id": 11300,
+          "spell_id": 458573
+        },
+        "darkmoon_sigil_symbiosis": {
+          "bonus_id": 11302,
+          "spell_id": 463232
+        },
+        "darkmoon_sigil_vivacity": {
+          "bonus_id": 11301,
+          "spell_id": 454857
+        },
+        "pouch_of_pocket_grenades": {
+          "bonus_id": 11209,
+          "spell_id": 453503
+        },
+        "concealed_chaos_module": {
+          "bonus_id": 11210,
+          "spell_id": 453813
+        },
+        "energy_redistribution_beacon": {
+          "bonus_id": 11226,
+          "spell_id": 455147
+        },
+        "dawnthread_lining": {
+          "bonus_id": 11303,
+          "spell_id": 457665
+        },
+        "duskthread_lining": {
+          "bonus_id": 11304,
+          "spell_id": 457677
+        },
+        "arcanoweave_lining": {
+          "bonus_id": 12384,
+          "spell_id": 1283697
+        },
+        "sunfire_silk_lining": {
+          "bonus_id": 12385,
+          "spell_id": 1241711
+        },
+        "darkmoon_sigil_blood": {
+          "bonus_id": 12705,
+          "spell_id": 1245053
+        },
+        "darkmoon_sigil_void": {
+          "bonus_id": 13640,
+          "spell_id": 1245052
+        },
+        "darkmoon_sigil_rot": {
+          "bonus_id": 12692,
+          "spell_id": 1245055
+        },
+        "darkmoon_sigil_hunt": {
+          "bonus_id": 12693,
+          "spell_id": 1245054
+        },
+        "devouring_banding": {
+          "bonus_id": 12685,
+          "spell_id": 1244238
+        },
+        "blessed_pango_charm": {
+          "bonus_id": 12686,
+          "spell_id": 1259060
+        },
+        "primal_spore_binding": {
+          "bonus_id": 12687,
+          "spell_id": 1244276
+        },
+        "lucky_keychain": {
+          "bonus_id": 12715,
+          "spell_id": 1246298
+        },
+        "kinetic_ankle_primers": {
+          "bonus_id": 12717,
+          "spell_id": 1246308
+        },
+        "b1p_scorcher_of_souls": {
+          "bonus_id": 12990,
+          "spell_id": 1246309
+        },
+        "m3ddy_travelsized": {
+          "bonus_id": 12991,
+          "spell_id": 1246312
+        },
+        "prismatic_focusing_iris": {
+          "bonus_id": 13453,
+          "spell_id": 1251906
+        },
+        "stabilizing_gemstone_bandolier": {
+          "bonus_id": 13454,
+          "spell_id": 1251905
+        },
+        "hu5h_nonchalant_pup": {
+          "bonus_id": 13556,
+          "spell_id": 1259648
+        },
+        "b0p_curator_of_booms": {
+          "bonus_id": 13588,
+          "spell_id": 1261968
+        },
+        "snakeskin_lining": {
+          "bonus_id": 13764,
+          "spell_id": 1296550
+        },
+        "adorned_fang": {
+          "bonus_id": 13767,
+          "spell_id": 1296870
+        },
+        "polished_ammolite": {
+          "bonus_id": 13768,
+          "spell_id": 1296982
+        },
+        "coiled_snakeeye": {
+          "bonus_id": 13769,
+          "spell_id": 1297384
+        },
+        "hunters_ritual_stone": {
+          "bonus_id": 13771,
+          "spell_id": 1297382
+        }
+      },
+      "effect_ids": [
+        371700,
+        377360,
+        377708,
+        378758,
+        387335,
+        396442,
+        396581,
+        406254,
+        409838,
+        409923,
+        411126,
+        415446,
+        418410,
+        419368,
+        426552,
+        435992,
+        436132,
+        443736,
+        443743,
+        443760,
+        443762,
+        443902,
+        453503,
+        453573,
+        453813,
+        454558,
+        454857,
+        455147,
+        457665,
+        457677,
+        458573,
+        460521,
+        461177,
+        463232,
+        1241711,
+        1244238,
+        1244276,
+        1245052,
+        1245053,
+        1245054,
+        1245055,
+        1246298,
+        1246308,
+        1246309,
+        1246312,
+        1251815,
+        1251902,
+        1251904,
+        1251905,
+        1251906,
+        1259060,
+        1259648,
+        1261968,
+        1283697,
+        1296550,
+        1296870,
+        1296982,
+        1297382,
+        1297384
+      ],
+      "intrinsic_item_ids": [
+        239657,
+        239658,
+        239659,
+        239660,
+        239661,
+        239662,
+        239663,
+        239664,
+        241139,
+        241140,
+        241340,
+        244463,
+        244472,
+        244601,
+        244602,
+        244605,
+        244606,
+        244609,
+        244610,
+        244611,
+        244612,
+        244613,
+        244614,
+        244679,
+        246304,
+        246305,
+        246306,
+        246307,
+        251073,
+        251513
+      ],
+      "sets": [
+        {
+          "name": "arcanoweave_trappings",
+          "pieces": 2,
+          "items": [
+            239660,
+            239662,
+            239661
+          ]
+        },
+        {
+          "name": "azureweave_vestments",
+          "pieces": 2,
+          "items": [
+            193536,
+            193525,
+            193520
+          ]
+        },
+        {
+          "name": "bite_of_zuljan",
+          "pieces": 2,
+          "items": [
+            270173,
+            268209,
+            268213
+          ]
+        },
+        {
+          "name": "embrace_of_the_cinderbee",
+          "pieces": 2,
+          "items": [
+            219507,
+            219508,
+            219509
+          ]
+        },
+        {
+          "name": "fury_of_the_storm_rook",
+          "pieces": 2,
+          "items": [
+            219512,
+            219513,
+            219511
+          ]
+        },
+        {
+          "name": "horizon_striders_garments",
+          "pieces": 2,
+          "items": [
+            193463,
+            193465,
+            193459
+          ]
+        },
+        {
+          "name": "kyevezzas_cruel_implements",
+          "pieces": 2,
+          "items": [
+            219877,
+            212456
+          ]
+        },
+        {
+          "name": "murder_row_materials",
+          "pieces": 2,
+          "items": [
+            244613,
+            244614,
+            244612
+          ]
+        },
+        {
+          "name": "playful_spirits_fur",
+          "pieces": 2,
+          "items": [
+            193454,
+            193458,
+            193457
+          ]
+        },
+        {
+          "name": "raging_tempests",
+          "pieces": 2,
+          "items": [
+            199434,
+            199435,
+            199436,
+            199433,
+            199437,
+            199438,
+            199439,
+            199440
+          ]
+        },
+        {
+          "name": "raging_tempests",
+          "pieces": 4,
+          "items": [
+            199434,
+            199435,
+            199436,
+            199433,
+            199437,
+            199438,
+            199439,
+            199440
+          ]
+        },
+        {
+          "name": "raging_tempests",
+          "pieces": 6,
+          "items": [
+            199434,
+            199435,
+            199436,
+            199433,
+            199437,
+            199438,
+            199439,
+            199440
+          ]
+        },
+        {
+          "name": "root_wardens_regalia",
+          "pieces": 2,
+          "items": [
+            244609,
+            244610,
+            244611
+          ]
+        },
+        {
+          "name": "shards_of_the_void",
+          "pieces": 2,
+          "items": [
+            237730,
+            242392,
+            237728,
+            237735
+          ]
+        },
+        {
+          "name": "sunfire_silk_trappings",
+          "pieces": 2,
+          "items": [
+            239657,
+            239659,
+            239658
+          ]
+        },
+        {
+          "name": "torments_duality",
+          "pieces": 2,
+          "items": [
+            251884,
+            251885
+          ]
+        },
+        {
+          "name": "umbra_weavers_portent",
+          "pieces": 2,
+          "items": [
+            151303,
+            151299,
+            151302
+          ]
+        },
+        {
+          "name": "umbra_weavers_portent",
+          "pieces": 3,
+          "items": [
+            151303,
+            151299,
+            151302
+          ]
+        },
+        {
+          "name": "voidlight_bindings",
+          "pieces": 2,
+          "items": [
+            251093,
+            251217
+          ]
+        },
+        {
+          "name": "woven_chronocloth",
+          "pieces": 2,
+          "items": [
+            193527,
+            193537,
+            193512
+          ]
+        },
+        {
+          "name": "woven_dawn",
+          "pieces": 2,
+          "items": [
+            222807,
+            222808
+          ]
+        },
+        {
+          "name": "woven_dusk",
+          "pieces": 2,
+          "items": [
+            222809,
+            222810
+          ]
+        }
+      ]
+    }
+  },
+  "expectation": {
+    "schema_version": 2,
+    "targets": [
+      {
+        "slot": "neck",
+        "item_id": 240950,
+        "required_bonus_ids": [
+          13453,
+          8960
+        ],
+        "driver_spell_ids": [
+          1251906
+        ],
+        "event_spell_ids": [
+          1252389
+        ],
+        "game_build": "12.1.0.69933",
+        "fact_hash": "b915d138ac75f6180a1e224dd58e3694caa9403bbffb2fbc9f283c5acb1d5f4d",
+        "role": "context",
+        "effect_kind": "direct"
+      },
+      {
+        "slot": "waist",
+        "item_id": 239649,
+        "required_bonus_ids": [
+          13454,
+          8960
+        ],
+        "driver_spell_ids": [
+          1251905
+        ],
+        "event_spell_ids": [],
+        "game_build": "12.1.0.69933",
+        "fact_hash": "b915d138ac75f6180a1e224dd58e3694caa9403bbffb2fbc9f283c5acb1d5f4d",
+        "role": "changed",
+        "effect_kind": "dependent_modifier"
+      }
+    ],
+    "relations": [
+      {
+        "game_build": "12.1.0.69933",
+        "modifier_driver_spell_id": 1251905,
+        "consumer_driver_spell_id": 1251906,
+        "consumer_runtime_driver_spell_id": 1252383,
+        "consumer_event_spell_ids": [
+          1252389
+        ],
+        "operation": "multiply",
+        "factor": 2.0,
+        "metric": "periodic_damage_amount",
+        "conditions": [
+          {
+            "kind": "native_item_special_effect_present",
+            "driver_spell_id": 1251905
+          },
+          {
+            "kind": "fixed_consumer",
+            "original_driver_spell_id": 1251906,
+            "item_id": 240950,
+            "slot": "neck",
+            "required_bonus_ids": [
+              13453,
+              8960
+            ]
+          },
+          {
+            "kind": "changed_modifier",
+            "item_id": 239649,
+            "slot": "waist",
+            "required_bonus_ids": [
+              13454,
+              8960
+            ]
+          },
+          {
+            "kind": "unchanged_context",
+            "input_provenance": {
+              "path": "/tmp/lmonitor-embellishment-audit/conditional-exact6c50/input-provenance.json",
+              "sha256": "076c8fd46acf3bfefba576b6ac1ce3cfd4ec0b6f5288b2ca38df13cd318b58cb"
+            }
+          },
+          {
+            "kind": "no_duplicate_consumer",
+            "reason": "initializer returns early if runtime trigger special effect already exists; witness covers one Iris only"
+          }
+        ],
+        "provenance": {
+          "simc_relation": {
+            "path": "/tmp/lmonitor-embellishment-audit/conditional-exact6c50/source-relation-facts.json",
+            "sha256": "955f1ccb27ff5f15abd578acab045ad6906eeb27047d99e967bbfe1f9ddf9008"
+          },
+          "source_fact_hash": "505ae3251aeed75cdac237bda94063cd9cfb24278234e081d92b52b0d0a2e8c1",
+          "crafting_identity": {
+            "path": "/tmp/lmonitor-embellishment-audit/conditional-exact6c50/carrier-legality.json",
+            "sha256": "b915d138ac75f6180a1e224dd58e3694caa9403bbffb2fbc9f283c5acb1d5f4d"
+          },
+          "dbc_chain": {
+            "path": "/tmp/lmonitor-embellishment-audit/conditional-exact6c50/dbc-trigger-chain.json",
+            "sha256": "ab30e050b5648b941eb7044afe6a20d1d6da11c26d2705d9b0a85f200b965cec"
+          },
+          "native_chain": {
+            "normal": {
+              "path": "/tmp/lmonitor-embellishment-audit/conditional-exact6c50/normal/native-chain.json",
+              "sha256": "bdc03ad0cde60385ec7e6e6022bf09c0fc4baab970d2f58217697c6f1e14b211"
+            },
+            "control": {
+              "path": "/tmp/lmonitor-embellishment-audit/conditional-exact6c50/control/native-chain.json",
+              "sha256": "106d5dc8fed4012b536f957029c8ccbaa1465a4f2b49b02eaf8737bfc5fdad6a"
+            }
+          },
+          "binary_sha256": "3e7fd5da861605ac4f17e99b60fab8f55818deb2a50e32bd8b79f92a638b57f6",
+          "revision": "6c50c3c7b96c81bbb8e7abefbd817ecf31519592",
+          "dbc_build": "12.1.0.69933",
+          "pair_witness": {
+            "path": "/tmp/lmonitor-embellishment-audit/conditional-exact6c50/pair-witness.json",
+            "sha256": "c5cf95068ce389597791e369865776a413682cfec8c3c52f4a7010a68cc9edd7"
+          },
+          "report_hashes": {
+            "normal": {
+              "report.html": "a6cbd312e4d5f96cddc491170160ce3d7d91984b9027237048db1f80416202a4",
+              "report.json": "5c038c20a9196ae5e9891fac0e34189097d03e13a39776703db87569eb888445"
+            },
+            "control": {
+              "report.html": "536cdb8a1f36969930ec3a6aa65f261ca4bb157ab268984d91093698839133f4",
+              "report.json": "36b79423a2b8a34102f24d48f9324621dee3717d85f2c88f790a92907e7f14ab"
+            }
+          }
+        },
+        "schema_version": 1,
+        "source_fact": {
+          "kind": "independent_reviewed_upstream_source_relation",
+          "revision": "6c50c3c7b96c81bbb8e7abefbd817ecf31519592",
+          "source_file": {
+            "path": "/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source/engine/player/unique_gear_midnight.cpp",
+            "sha256": "2a02127c84acbadcca724ee52a5915c99d5ca9bd1431250b4702cbff5cc1bb40"
+          },
+          "source_clean_before": true,
+          "snippets": [
+            {
+              "kind": "registration",
+              "source_path": "/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source/engine/player/unique_gear_midnight.cpp",
+              "source_sha256": "2a02127c84acbadcca724ee52a5915c99d5ca9bd1431250b4702cbff5cc1bb40",
+              "line_start": 6449,
+              "line_end": 6450,
+              "snippet": "registration.cpp.txt",
+              "snippet_sha256": "5e511c643f3831fda695f72d1b49c66a1bd2a4eddd86a3ba61fa46b32b2ac417"
+            },
+            {
+              "kind": "iris_initializer",
+              "source_path": "/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source/engine/player/unique_gear_midnight.cpp",
+              "source_sha256": "2a02127c84acbadcca724ee52a5915c99d5ca9bd1431250b4702cbff5cc1bb40",
+              "line_start": 898,
+              "line_end": 923,
+              "snippet": "iris_initializer.cpp.txt",
+              "snippet_sha256": "6cc47b620b941a8bc0b63b032ecdb4906cd9791f7d7a5c25b448e9a01d1be92c"
+            },
+            {
+              "kind": "bandolier_predicate",
+              "source_path": "/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source/engine/player/unique_gear_midnight.cpp",
+              "source_sha256": "2a02127c84acbadcca724ee52a5915c99d5ca9bd1431250b4702cbff5cc1bb40",
+              "line_start": 6635,
+              "line_end": 6641,
+              "snippet": "bandolier_predicate.cpp.txt",
+              "snippet_sha256": "6527f6d9367584115dc9e9f1062ba496a24df7b82e387efc02d568fd912edeef"
+            }
+          ],
+          "dbc_carrier_chain": [
+            {
+              "source": {
+                "path": "/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source/engine/dbc/generated/item_bonus.inc",
+                "sha256": "7e1207cb687a005f70c8fa52eb5e48c99a2054ed13a78a3aa2a97141137663b4"
+              },
+              "build": "12.1.0.69933",
+              "lines": [
+                {
+                  "line": 1,
+                  "text": "// Item bonuses, wow build 12.1.0.69933"
+                },
+                {
+                  "line": 19567,
+                  "text": "  { 29373, 13453, 23,  215077,       0,       0,       0,  0 },"
+                },
+                {
+                  "line": 19568,
+                  "text": "  { 29374, 13454, 23,  215078,       0,       0,       0,  0 },"
+                }
+              ],
+              "snippet_sha256": "d6d21a155e3417048d5ac58b3c38397d1368948f68f3ba529de6d2d2016f4855"
+            },
+            {
+              "source": {
+                "path": "/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source/engine/dbc/generated/item_effect.inc",
+                "sha256": "4f749b8fa6c353449cfb467f17e50b73bcb196b4b9e6e5aa5cb58c5704130a7b"
+              },
+              "build": "12.1.0.69933",
+              "lines": [
+                {
+                  "line": 1,
+                  "text": "// Item effects, wow build 12.1.0.69933"
+                },
+                {
+                  "line": 982,
+                  "text": "  { 215077, 1251906,      0,   0,   1,    0,      -1,      -1 }, // Prismatic Focusing Iris"
+                },
+                {
+                  "line": 983,
+                  "text": "  { 215078, 1251905,      0,   0,   1,    0,      -1,      -1 }, // Stabilizing Gemstone Bandolier"
+                }
+              ],
+              "snippet_sha256": "3bb52eb1553659fcc5be8612b0fa0d85669e3d78736d33e24787ab4099b36f4e"
+            },
+            {
+              "source": {
+                "path": "/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source/engine/dbc/generated/embellishment_data.inc",
+                "sha256": "148349a8aace076595e3c88f303e5ed6a4b41f468afc94ee00b2622b1b6585c5"
+              },
+              "build": "12.1.0.69933",
+              "lines": [
+                {
+                  "line": 1,
+                  "text": "// Embellishment data, wow build 12.1.0.69933"
+                },
+                {
+                  "line": 48,
+                  "text": "  { \"Prismatic Focusing Iris\"                    ,   13453,  215077, 1251906 },"
+                },
+                {
+                  "line": 49,
+                  "text": "  { \"Stabilizing Gemstone Bandolier\"             ,   13454,  215078, 1251905 },"
+                }
+              ],
+              "snippet_sha256": "4283b8fd73e7d280e65868f3f75d55cdb0f8dd7c3288600ef359641bd45fe74b"
+            }
+          ],
+          "build_manifest": {
+            "file": {
+              "path": "/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-build/CMakeCache.txt",
+              "sha256": "3d17d3ccf138f40249805fd4aab4917ca9c6184bb6b6247427f31254ce7a1b0c"
+            },
+            "lines": [
+              {
+                "line": 31,
+                "text": "CMAKE_BUILD_TYPE:STRING=Release"
+              },
+              {
+                "line": 265,
+                "text": "simc_SOURCE_DIR:STATIC=/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source"
+              },
+              {
+                "line": 336,
+                "text": "CMAKE_HOME_DIRECTORY:INTERNAL=/tmp/lmonitor-embellishment-audit/simc-6c50c3c7-source"
+              }
+            ]
+          },
+          "modifier_driver_spell_id": 1251905,
+          "consumer_driver_spell_id": 1251906,
+          "initializer": "unique_gear::midnight::embellishments::prismatic_focusing_iris",
+          "modifier_registration": "DISABLED_EFFECT",
+          "predicate": "unique_gear::find_special_effect(p, 1251905) != nullptr",
+          "operation": "multiply",
+          "factor_when_present": 2.0,
+          "factor_when_absent": 1.0,
+          "target_field": "dot->base_td_multiplier",
+          "metric": "periodic_damage_amount",
+          "action_constructor": "create_proc_action<generic_proc_t>(\"prismatic_focusing_iris\", effect, effect.trigger()->effectN(1).trigger())",
+          "runtime_driver_assignment": "effect.spell_id = effect.trigger()->id()",
+          "callback": "new dbc_proc_callback_t(effect.player, effect)",
+          "scope": "This source relation alone is not runtime verification; no other consumers are certified.",
+          "fact_hash": "505ae3251aeed75cdac237bda94063cd9cfb24278234e081d92b52b0d0a2e8c1"
+        },
+        "relative_tolerance": 1e-12,
+        "relation_hash": "0fe4c141f4910b7bb153d5138a15d52784af8ff9feba8f83eb880333413ffc6f"
+      }
+    ],
+    "identity": {
+      "binary_sha256": "3e7fd5da861605ac4f17e99b60fab8f55818deb2a50e32bd8b79f92a638b57f6",
+      "revision": "6c50c3c7b96c81bbb8e7abefbd817ecf31519592",
+      "dbc_build": "12.1.0.69933"
+    }
+  },
+  "authorization": {
+    "identity": {
+      "binary_sha256": "3e7fd5da861605ac4f17e99b60fab8f55818deb2a50e32bd8b79f92a638b57f6",
+      "revision": "6c50c3c7b96c81bbb8e7abefbd817ecf31519592",
+      "dbc_build": "12.1.0.69933"
+    },
+    "relation_hashes": [
+      "0fe4c141f4910b7bb153d5138a15d52784af8ff9feba8f83eb880333413ffc6f"
+    ]
+  }
+}

@@ -189,7 +189,8 @@ function renderGearResultChart(rows){
     const best=group.best,result=el('div',{class:'benchmark-aggregate-result'});
     if(group.effect_comparison){
       const validation=best.candidate.effect_validation,unavailable=validation?.status==='invalid'?'特效结果无效':validation&&validation.status!=='valid'?'特效待验证':'无特效对照';
-      result.append(el('strong',{class:'benchmark-aggregate-dps'},Number.isFinite(best.delta_percent)?`${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(2)}% 特效提升`:unavailable),el('span',{class:'benchmark-aggregate-delta'},`${best.item_level} 装等 · ${formatDps(best.dps)} 总DPS`),el('small',{},validation?.reason||'对照：本装备同属性、仅关闭特效'));
+      const gainLabel=best.candidate.comparison_kind==='conditional_increment'?'条件增量':'特效提升';
+      result.append(el('strong',{class:'benchmark-aggregate-dps'},Number.isFinite(best.delta_percent)?`${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(2)}% ${gainLabel}`:unavailable),el('span',{class:'benchmark-aggregate-delta'},`${best.item_level} 装等 · ${formatDps(best.dps)} 总DPS`),el('small',{},validation?.reason||(best.candidate.comparison_baseline_label?`对照：${best.candidate.comparison_baseline_label}`:'对照：本装备同属性、仅关闭特效')));
     }else{
       result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(best.dps)),el('span',{class:`benchmark-aggregate-delta ${best.delta_percent<0?'negative':'positive'}`},Number.isFinite(best.delta_percent)?`最高 ${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(1)}%`:'无基准对比'));
     }
@@ -524,7 +525,7 @@ function addCandidate(data={}){
   if(data.excluded_specs?.length){const eligibility=el('details',{class:'candidate-eligibility-details'});eligibility.append(el('summary',{},`未参与的 ${data.excluded_specs.length} 个专精`));const reasons=el('ul',{class:'candidate-eligibility-note'});data.excluded_specs.forEach(row=>reasons.append(el('li',{},`${row.label||row.spec_key}：${row.reason}`)));eligibility.append(reasons);advanced.body.append(eligibility);advanced.details.querySelector('summary').append(el('small',{class:'candidate-skipped-count'},`跳过 ${data.excluded_specs.length} 专精`));}
   const modeSelect=mode.querySelector('select'),levelInput=itemLevel.querySelector('input');
   modeSelect.querySelector('[value=""]').disabled=true;
-  const syncModeOptions=()=>{modeSelect.querySelector('[value="quick"]').disabled=candidateEquipmentRows(rawInput.value).length>1;modeSelect.querySelector('[value="equipment"]').disabled=modeSelect.value==='quick'&&levelInput.value.split(',').filter(value=>value.trim()).length>1;};
+  const syncModeOptions=()=>{modeSelect.querySelector('[value="quick"]').disabled=candidateEquipmentRows(rawInput.value).length>1||card._candidateMeta.params?.conditional_comparison!==undefined;modeSelect.querySelector('[value="equipment"]').disabled=modeSelect.value==='quick'&&levelInput.value.split(',').filter(value=>value.trim()).length>1;};
   const updateOverview=()=>{const rows=candidateEquipmentRows(rawInput.value),levels=Array.from(new Set(rows.map(row=>gearParts({params:row}).itemLevel).filter(Boolean)));overview.replaceChildren(el('strong',{},data.label||'装备组合'),el('span',{},`${rows.length} 件装备${levels.length?` · 装等 ${levels.join(' / ')}`:''}`));};
   const syncMode=()=>{const useRaw=modeSelect.value==='equipment';card.dataset.equipmentInput=useRaw?'1':'0';primary.hidden=useRaw;overview.hidden=!useRaw;rawLabel.hidden=!useRaw;updateOverview();syncModeOptions();updateSummary();};
   modeSelect.addEventListener('change',()=>{
@@ -539,7 +540,8 @@ function collectCandidateCard(card,index){
   if(card.querySelector('[name="candidate_input_mode"]')?.value==='equipment'){
     const text=card.querySelector('[name="candidate_equipment"]').value.trim();if(!text)return [];
     let params=text;
-    if(meta.params?.simc_options){const rows=candidateEquipmentRows(text);params=rows.length===1?{...rows[0],simc_options:meta.params.simc_options}:{gear_swaps:rows,simc_options:meta.params.simc_options};}
+    const extras={...(meta.params?.simc_options?{simc_options:meta.params.simc_options}:{}),...(meta.params?.conditional_comparison!==undefined?{conditional_comparison:meta.params.conditional_comparison}:{})};
+    if(Object.keys(extras).length){const rows=candidateEquipmentRows(text);params=text===meta.originalEquipmentText?JSON.parse(JSON.stringify(meta.params)):rows.length===1?{...rows[0],...extras}:{gear_swaps:rows,...extras};}
     return [{...common,params,display_order:index,...(text===meta.originalEquipmentText&&meta.key?{key:meta.key}:{})}];
   }
   const itemId=card.querySelector('[name="item_id"]').value.trim(),levels=card.querySelector('[name="item_level"]').value.split(',').map(x=>x.trim()).filter(Boolean);if(!itemId)return [];

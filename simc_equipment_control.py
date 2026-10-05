@@ -79,6 +79,15 @@ def validate_effect_policy(params):
     """只接受冻结的背景规则和与候选完全一致的目标槽位。"""
     policy = params.get('equipment_effect_policy')
     slots = [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in candidate_swaps(params)]
+    if isinstance(policy, dict) and policy.get('version') == 3:
+        from simc_equipment_conditional import validate_contract
+        # Composition checks structure only. Independent approval is still
+        # mandatory at prepare; never derive authorization from candidate data.
+        validate_contract(policy, params.get('equipment_effect_expectation'),
+                          require_authorization=False)
+        if params.get('candidate_type') != 'gear_swap' or policy['target_slots'] != slots:
+            raise ValueError('conditional candidate slots mismatch')
+        return
     if (params.get('candidate_type') != 'gear_swap' or not isinstance(policy, dict)
             or set(policy) != {'version', 'target_slots', 'rules'} or policy['version'] != 2
             or not slots or len(set(slots)) != len(slots) or any(slot not in SLOTS for slot in slots)
@@ -106,7 +115,7 @@ def validate_effect_policy(params):
             raise ValueError('两件套规则无效')
 
 
-def mark_equipment_input(code, slots, *, control, rules, expectation=None):
+def mark_equipment_input(code, slots, *, control, rules, expectation=None, policy=None):
     """冻结多件候选与服务端规则；两个模拟组都准备同一无美化背景。"""
     if (not isinstance(slots, list) or not slots or len(set(slots)) != len(slots)
             or any(slot not in SLOTS for slot in slots) or MARKER in code):
@@ -123,6 +132,13 @@ def mark_equipment_input(code, slots, *, control, rules, expectation=None):
     if set(originals) != set(slots):
         raise ValueError('装备组合缺少目标装备槽')
     payload = {'version': 2, 'items': originals, 'control': control, 'rules': rules}
+    if policy is not None:
+        from simc_equipment_conditional import validate_contract
+        validate_contract(policy, expectation, require_authorization=False)
+        if policy['target_slots'] != slots or policy['rules'] != rules:
+            raise ValueError('conditional marker policy mismatch')
+        payload.update(version=3, policy=policy,
+                       items={slot: originals[slot] for slot in policy['target_slots']})
     encoded = base64.urlsafe_b64encode(json.dumps(payload, ensure_ascii=False).encode()).decode()
     result = '\n'.join(lines) + '\n' + MARKER + encoded + '\n'
     if expectation is not None:
@@ -297,7 +313,7 @@ def synthetic_item(export):
     return ','.join(values)
 
 
-def prepare_control_input(code, binary, directory, *, execute=None):
+def prepare_control_input(code, binary, directory, *, execute=None, conditional_authorization=None):
     """执行两次仅初始化的原生导出；校验通过后才返回正式模拟输入。"""
     markers = [line[len(MARKER):] for line in code.splitlines() if line.startswith(MARKER)]
     if not markers:
@@ -305,14 +321,15 @@ def prepare_control_input(code, binary, directory, *, execute=None):
     if len(markers) != 1:
         raise ValueError('装备特效对照标记重复')
     payload = json.loads(base64.urlsafe_b64decode(markers[0]).decode())
-    if isinstance(payload, dict) and payload.get('version') == 2:
+    if isinstance(payload, dict) and payload.get('version') in (2, 3):
         expected = [line[len(EXPECTATION_MARKER):] for line in code.splitlines() if line.startswith(EXPECTATION_MARKER)]
         if len(expected) > 1:
             raise ValueError('装备激活期待标记重复')
         expectation = json.loads(base64.urlsafe_b64decode(expected[0]).decode()) if expected else None
         if expectation is not None:
             validate_equipment_expectation(expectation, list(payload.get('items', {})))
-        return _prepare_combination(code, payload, binary, directory, execute=execute, expectation=expectation)
+        return _prepare_combination(code, payload, binary, directory, execute=execute, expectation=expectation,
+                                    conditional_authorization=conditional_authorization)
     if (not isinstance(payload, dict) or set(payload) != {'slot', 'value'}
             or payload['slot'] not in SLOTS or not isinstance(payload['value'], str)
             or '\n' in payload['value'] or '\r' in payload['value']):
@@ -665,6 +682,9 @@ def _require_target_effect(exports, slots, active_sets):
 
 
 def validate_equipment_expectation(expectation, slots):
+    if isinstance(expectation, dict) and expectation.get('schema_version') == 2:
+        # Full policy/trust validation is mandatory at conditional preparation.
+        return validate_equipment_expectation({'schema_version': 1, 'targets': expectation.get('targets')}, slots)
     if (not isinstance(expectation, dict) or set(expectation) != {'schema_version', 'targets'}
             or type(expectation.get('schema_version')) is not int or expectation['schema_version'] != 1
             or not isinstance(expectation['targets'], list)
@@ -695,9 +715,24 @@ def _require_declared_effects(exports, expectation):
             raise ValueError(f'目标装备 {row["slot"]} 未加载中央预期特效，拒绝生成收益')
 
 
-def _prepare_combination(code, payload, binary, directory, *, execute, expectation=None):
+def _prepare_combination(code, payload, binary, directory, *, execute, expectation=None, conditional_authorization=None):
     """先清理背景美化，再生成候选组；逐部位核验后才执行战斗。"""
     items, rules = payload.get('items'), payload.get('rules')
+    conditional = payload.get('version') == 3
+    if conditional:
+        from simc_equipment_conditional import validate_contract, bind_binary, authorize_exports, digest, input_digest
+        relation = validate_contract(payload['policy'], expectation, authorization=conditional_authorization)
+        if payload['policy']['rules'] != rules or payload['policy']['target_slots'] != list(items):
+            raise ValueError('conditional marker mismatch')
+        bind_binary(binary, expectation)
+        changed = set(payload['policy']['changed_slots'])
+        context = set(payload['policy']['context_slots'])
+        policy = payload['policy']
+        payload = {key: value for key, value in payload.items() if key != 'policy'}
+    else:
+        if (expectation or {}).get('schema_version') == 2:
+            raise ValueError('conditional expectation requires conditional policy')
+        changed, context = set(items or {}), set()
     if (set(payload) != {'version', 'items', 'control', 'rules'} or not isinstance(items, dict)
             or not items or any(slot not in SLOTS for slot in items)
             or any(not isinstance(value, str) or '\n' in value or '\r' in value for value in items.values())
@@ -744,6 +779,8 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
         return {slot: parse_equipment_export(profile, log, slot, schema_version=3) for slot in indexes}, _native_sets(log)
 
     original, original_sets = probe(lines, 'original')
+    if conditional:
+        authorize_exports(original, expectation, relation)
     _require_declared_effects(original, expectation)
     counts = {slot: embellishment_count(item, rules) for slot, item in original.items()}
     if sum(counts[slot] for slot in items) > 2:
@@ -768,7 +805,7 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
 
     normal_lines = without_effects(background)
     normal, normal_sets = probe(normal_lines, 'normal-prepared') if background else (original, original_sets)
-    control_lines = without_effects(background | set(items))
+    control_lines = without_effects(background | changed)
     control, control_sets = probe(control_lines, 'prepared')
     known_sets = {(row['name'], row['pieces']) for row in rules['sets']}
     changed_sets = (original_sets ^ normal_sets) | (normal_sets ^ control_sets)
@@ -776,9 +813,9 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
     if unknown_sets:
         names = ', '.join(f'{name}/{pieces}pc' for name, pieces in sorted(unknown_sets))
         raise ValueError(f'装备套装 {names} 缺少已核实规则，拒绝生成收益')
-    removed_ids = {int(original[slot]['options'].get('id', '0')) for slot in background | set(items)}
+    removed_ids = {int(original[slot]['options'].get('id', '0')) for slot in background | changed}
     remaining_ids = [int(item['options'].get('id', '0')) for slot, item in original.items()
-                     if slot not in background and slot not in items]
+                     if slot not in background and slot not in changed]
     for row in rules['sets']:
         if (removed_ids.intersection(row['items'])
                 and sum(item_id in row['items'] for item_id in remaining_ids) < row['pieces']
@@ -788,8 +825,14 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
     # normal and disappear when the target is stripped, tying it to this candidate.
     target_sets = _target_sets(normal, items, rules, normal_sets) & (normal_sets - control_sets)
     _require_target_effect(normal, items, target_sets)
+    if conditional:
+        authorize_exports(normal, expectation, relation)
+        for slot in context:
+            if (normal[slot]['profile_value'] != control[slot]['profile_value']
+                    or not native_effects_equal(normal[slot]['effects'], control[slot]['effects'])):
+                raise ValueError('conditional consumer changed')
     _require_declared_effects(normal, expectation)
-    for prepared, removed in ((normal, background), (control, background | set(items))):
+    for prepared, removed in ((normal, background), (control, background | changed)):
         for slot, before in original.items():
             for field in ('stats', 'weapon', 'attachments'):
                 if before[field] != prepared[slot][field]:
@@ -797,7 +840,7 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
             if slot in removed and re.search(r'\bsource=item\b', prepared[slot]['record']):
                 raise ValueError(f'无特效装备 {slot} 仍包含自带效果')
         actual = {slot: embellishment_count(item, rules) for slot, item in prepared.items()}
-        expected = 0 if prepared is control else sum(counts[slot] for slot in items)
+        expected = sum(counts[slot] for slot in context) if prepared is control else sum(counts[slot] for slot in items)
         if sum(actual.values()) != expected or sum(actual.values()) > 2:
             raise ValueError('最终装备美化数量与目标组合不一致')
     for slot in items:
@@ -826,6 +869,13 @@ def _prepare_combination(code, payload, binary, directory, *, execute, expectati
              'normal': snapshot(normal, normal_sets), 'control': snapshot(control, control_sets),
              'target_sets': [list(row) for row in sorted(target_sets)]}
     prepared_lines = control_lines if payload['control'] else normal_lines
+    if conditional:
+        proof.update(schema_version=4, comparison_kind='conditional_increment',
+            policy=policy, expectation=expectation,
+            contract_hash=digest({'policy':policy,'expectation':expectation}),
+            identity=expectation['identity'],
+            input_hashes={'normal':input_digest('\n'.join(normal_lines)), 'control':input_digest('\n'.join(control_lines))})
+        proof['pair_hash'] = digest({k:v for k,v in proof.items() if k != 'mode'})
     if any(line.startswith(NATIVE_PROOF_MARKER) for line in prepared_lines):
         raise ValueError('装备输入不允许预置原生证据')
     return '\n'.join(prepared_lines) + '\n' + native_proof_marker(proof)

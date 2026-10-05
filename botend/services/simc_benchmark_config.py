@@ -404,6 +404,35 @@ def _item_requires_ptr(item_id):
     )
 
 
+def _conditional_candidate_contract(params):
+    """Explicit A+B vs A intent; all roles/facts come from the central store."""
+    from botend.services.simc_conditional_store import freeze_referenced_conditional_contract
+    from simc_equipment_control import candidate_swaps
+
+    reference = params.get('conditional_comparison')
+    if not isinstance(reference, dict) or set(reference) != {'owner_item_id', 'contract_key'}:
+        _error('conditional_comparison 必须是完整的中央契约引用', 'params')
+    frozen = freeze_referenced_conditional_contract(**reference)
+    swaps = candidate_swaps(params)
+    if [row['slot'] for row in swaps] != frozen['policy']['target_slots']:
+        _error('conditional 装备槽位与中央契约不一致', 'params')
+    by_slot = {row['slot']: row for row in swaps}
+    for target in frozen['expectation']['targets']:
+        swap = by_slot[target['slot']]
+        item_id, _, options = _benchmark_item_identity({'gear_swap': swap})
+        bonuses = [value for key, value in options if key == 'bonus_id']
+        if (len(bonuses) > 1 or any(not re.fullmatch(r'[1-9]\d*(?:[/:][1-9]\d*)*', value)
+                                   for value in bonuses)):
+            _error('conditional bonus_id 无效', 'params')
+        bonus_ids = {int(value) for bonus in bonuses for value in re.split(r'[/:]', bonus)}
+        if (item_id != target['item_id']
+                or not set(target['required_bonus_ids']).issubset(bonus_ids)
+                or 'game_build' in swap and swap['game_build'] != target['game_build']
+                or 'is_ptr' in swap and swap['is_ptr'] != frozen['is_ptr']):
+            _error('conditional 装备身份或激活 bonus 与中央契约不一致', 'params')
+    return frozen
+
+
 def _normalize_candidate_params(candidate_type, params):
     if candidate_type != 'gear_swap':
         _error('candidate_type 只支持 gear_swap；baseline 由系统注入', 'candidate_type')
@@ -414,7 +443,8 @@ def _normalize_candidate_params(candidate_type, params):
         if isinstance(params, str):
             rows, options = params.strip().splitlines(), None
         else:
-            if set(params) - {'candidate_type', 'is_base', 'gear_swaps', 'simc_options'}:
+            if set(params) - {'candidate_type', 'is_base', 'gear_swaps', 'simc_options',
+                              'conditional_comparison'}:
                 _error('装备组合包含未知字段', 'params')
             if 'candidate_type' in params and (params['candidate_type'] != 'gear_swap' or params.get('is_base') is not False):
                 _error('装备组合执行类型无效', 'params')
@@ -436,6 +466,9 @@ def _normalize_candidate_params(candidate_type, params):
             _benchmark_item_identity({'gear_swap': swap})
         result = {'candidate_type': 'gear_swap', 'is_base': False,
                   'gear_swaps': sorted(swaps, key=lambda row: row['slot'])}
+        if isinstance(params, dict) and 'conditional_comparison' in params:
+            result['conditional_comparison'] = deepcopy(params['conditional_comparison'])
+            _conditional_candidate_contract(result)
         if options is not None:
             try:
                 result['simc_options'] = normalize_controlled_simc_options(options)
@@ -1161,16 +1194,27 @@ def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=Non
             continue
         if not slots or any(slot not in SLOTS for slot in slots) or len(set(slots)) != len(slots):
             _error('装备组合槽位不支持同属性特效对照')
-        params = freeze_equipment_activation(params, activation_facts)
+        conditional = 'conditional_comparison' in params
+        if conditional:
+            frozen = _conditional_candidate_contract(params)
+            params.pop('conditional_comparison')
+            params['equipment_effect_policy'] = frozen['policy']
+            params['equipment_effect_expectation'] = frozen['expectation']
+            context = '、'.join(frozen['policy']['context_slots'])
+            changed = '、'.join(frozen['policy']['changed_slots'])
+            candidate['candidate_label'] = f'{candidate["candidate_label"]}（固定 {context}；{changed} 条件增量）'[:200]
+        else:
+            params = freeze_equipment_activation(params, activation_facts)
+            params['equipment_effect_policy'] = {'version': 2, 'target_slots': slots, 'rules': deepcopy(rules)}
         candidate['candidate_params'] = params
-        params['equipment_effect_policy'] = {'version': 2, 'target_slots': slots, 'rules': deepcopy(rules)}
         key = control_key(candidate['candidate_key'])
         if any(row['candidate_key'] == key for row in candidates):
             _error('候选标识与系统生成的无特效对照冲突')
         params['effect_baseline_key'] = key
         control = deepcopy(candidate)
         control['candidate_key'] = key
-        control['candidate_label'] = f'{candidate["candidate_label"]}（无特效对照）'[:200]
+        control_label = '保留固定上下文的对照' if conditional else '无特效对照'
+        control['candidate_label'] = f'{candidate["candidate_label"]}（{control_label}）'[:200]
         control['candidate_params'].pop('effect_baseline_key')
         control['candidate_params']['equipment_effect_control'] = True
         controls.append(control)

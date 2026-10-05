@@ -101,9 +101,9 @@ class EquipmentEffectCompletionHookTests(SimpleTestCase):
     def test_agent_reuses_downloaded_html_without_affecting_dps_or_terminal_status(self):
         from botend.services import simc_run_control as control
         params = frozen_params()
-        task = Mock(pk=7, execution_owner=control.SimcTask.EXECUTION_OWNER_AGENT)
+        task = Mock(pk=7, backend_id=1, execution_owner=control.SimcTask.EXECUTION_OWNER_AGENT)
         run = Mock(pk=8, task=task, task_id=7, status='running', candidate_params=params,
-                   lease_token_hash='fence')
+                   lease_token_hash='fence', resource_manifest={})
         metadata = {'status': 'completed', 'lease_token': 'a' * 43, 'instance_id': 'instance',
                     'completion_id': 'completed-1', 'stdout': 'DPS=1234', 'stderr': '',
                     'report': {'object_key': 'bound.html', 'size': 123, 'sha256': 'b' * 64}}
@@ -112,12 +112,17 @@ class EquipmentEffectCompletionHookTests(SimpleTestCase):
         run_queryset.get.return_value = run
         with ExitStack() as stack:
             for name, value in (
-                ('authenticate_bearer', Mock(pk=1)), ('validate_completion_metadata', metadata),
+                ('authenticate_bearer', Mock(pk=1, backend_id=1)), ('validate_completion_metadata', metadata),
                 ('_validate_fence', None), ('_finalize_task', None), ('reconcile_execution_for_task', None),
             ):
                 stack.enter_context(patch.object(control, name, return_value=value))
             stack.enter_context(patch.object(control.transaction, 'atomic', side_effect=nullcontext))
+            discovery = stack.enter_context(patch.object(control.SimulationRun.objects, 'filter'))
+            discovery.return_value.values_list.return_value.first.return_value = task.pk
             stack.enter_context(patch.object(control.SimulationRun.objects, 'select_related', return_value=run_queryset))
+            # Isolate the real DB reader, not report-derived authorization. This
+            # unit fixture is legacy v2; real ORM claim/completion is tested separately.
+            stack.enter_context(patch.object(control, 'read_frozen_conditional_execution', return_value=None))
             stack.enter_context(patch.object(control.SimulationRun.objects, 'select_for_update', return_value=run_queryset))
             task_query = stack.enter_context(patch.object(control.SimcTask.objects, 'select_for_update'))
             task_query.return_value.get.return_value = task

@@ -381,7 +381,8 @@
         segment.style.width = `${Math.max(effectComparison ? 0 : 0.45, Math.abs(end - start))}%`;
         segment.style.backgroundColor = levelColors.get(level) || "#64748b";
         const gain = equipmentEffectGain(candidate);
-        segment.setAttribute("aria-label", `${group.label} ${Number.isFinite(level) && level > 0 ? `模拟装等 ${level}` : ""} ${effectComparison ? (gain === null ? "无特效对照" : `特效提升 ${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% · `) : ""}${numberFormat.format(dps)} DPS`);
+        const gainLabel = candidate.comparison_kind === "conditional_increment" ? "条件增量" : "特效提升";
+        segment.setAttribute("aria-label", `${group.label} ${Number.isFinite(level) && level > 0 ? `模拟装等 ${level}` : ""} ${effectComparison ? (gain === null ? "无特效对照" : `${gainLabel} ${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% · `) : ""}${numberFormat.format(dps)} DPS`);
         const moveTooltip = (event) => {
           const rect = body.getBoundingClientRect();
           if (Number.isFinite(event?.clientX) && Number.isFinite(event?.clientY)) {
@@ -398,7 +399,7 @@
           guide.style.left = `${plotRect.left - bodyRect.left + plotRect.width * end / 100}px`;
           const referenceDps = candidate.comparison_mode === "equipment_effect" ? validDps(candidate.baseline_dps) : baselineDps;
           const delta = referenceDps && referenceDps > 0 ? (dps - referenceDps) * 100 / referenceDps : null;
-          const deltaText = effectComparison ? (gain === null ? "无特效对照" : `特效提升 ${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% · 本装备无特效对照`) : (delta === null ? "无基准对比" : `相对基准 ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`);
+          const deltaText = effectComparison ? (gain === null ? "无特效对照" : `${gainLabel} ${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% · ${candidate.comparison_baseline_label || '本装备无特效对照'}`) : (delta === null ? "无基准对比" : `相对基准 ${delta >= 0 ? "+" : ""}${delta.toFixed(2)}%`);
           tooltip.replaceChildren(node("strong", "", group.label), node("span", "", `${Number.isFinite(level) && level > 0 ? `模拟装等 ${level} · ` : ""}${numberFormat.format(dps)} 总DPS`), node("span", "", deltaText));
           moveTooltip(event);
         };
@@ -411,9 +412,10 @@
       const metrics = node("div", "simc-benchmark-candidate-metrics");
       if (effectComparison) {
         const gain = equipmentEffectGain(best);
-        metrics.append(node("div", "simc-benchmark-candidate-value", gain === null ? equipmentEffectUnavailable(best) : `${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% 特效提升`), node("div", "simc-benchmark-relative", `${best.item_level} 装等 · ${numberFormat.format(validDps(best.dps) ?? 0)} 总DPS`));
+        const gainLabel = best.comparison_kind === "conditional_increment" ? "条件增量" : "特效提升";
+        metrics.append(node("div", "simc-benchmark-candidate-value", gain === null ? equipmentEffectUnavailable(best) : `${gain >= 0 ? "+" : ""}${gain.toFixed(2)}% ${gainLabel}`), node("div", "simc-benchmark-relative", `${best.item_level} 装等 · ${numberFormat.format(validDps(best.dps) ?? 0)} 总DPS`));
         if (gain === null && best.effect_validation?.reason) metrics.appendChild(node("div", "simc-benchmark-relative", best.effect_validation.reason));
-        if (gain !== null) metrics.appendChild(node("div", "simc-benchmark-relative", `无特效对照：${numberFormat.format(best.baseline_dps)} DPS`));
+        if (gain !== null) metrics.appendChild(node("div", "simc-benchmark-relative", `${best.comparison_baseline_label || '无特效对照'}：${numberFormat.format(best.baseline_dps)} DPS`));
       } else {
         metrics.append(node("div", "simc-benchmark-candidate-value", `${numberFormat.format(validDps(best.dps) ?? 0)} DPS`), node("div", "simc-benchmark-relative", comparisonText(best, [baseline, ...candidates].filter(Boolean), scale)));
       }

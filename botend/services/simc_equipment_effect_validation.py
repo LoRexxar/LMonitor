@@ -316,12 +316,21 @@ def _validate_native_structure(report_html, params, proof, *, _parsed_native=Non
     return True, structural
 
 
-def validate_equipment_effect_report(report_html, candidate_params, *, native_proof=None):
+def validate_equipment_effect_report(report_html, candidate_params, *, native_proof=None,
+                                     prepared_input=None, report_json=None, conditional_authorization=None):
     """Native structure validates the comparison, not whether an HTML proc fired.
 
     Without native proof the legacy event-evidence contract stays unchanged.
     Central frozen bonus/driver requirements are never bypassed by native proof.
     """
+    params = candidate_params if isinstance(candidate_params, dict) else {}
+    if ((params.get('equipment_effect_policy') or {}).get('version') == 3
+            or (params.get('equipment_effect_expectation') or {}).get('schema_version') == 2
+            or isinstance(native_proof, dict) and native_proof.get('schema_version') == 4):
+        from botend.services.simc_conditional_validation import validate_conditional_report
+        return validate_conditional_report(report_html, params, native_proof,
+            prepared_input=prepared_input, report_json=report_json,
+            conditional_authorization=conditional_authorization)
     from botend.services.simc_equipment_result_evidence import _native_document
     # Share immutable parsed facts only within this completion, not across Runs.
     parsed_native = _native_document(report_html) if native_proof is not None else None

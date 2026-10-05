@@ -111,4 +111,14 @@ assert.equal(descendants(invalidChart,'simc-benchmark-gear-name').at(-1).textCon
 assert.match(descendants(invalidRows.at(-1),'simc-benchmark-candidate-value')[0].textContent,/特效结果无效/);
 assert.equal(descendants(invalidRows.at(-1),'simc-benchmark-gear-segment').length,0);
 assert.equal(descendants(invalidRows.at(-1),'simc-benchmark-gear-rank')[0].textContent,'—');
-console.log('通过：特效百分比排序/绘图、最高收益装等、负收益及缺失对照；普通DPS图表保持原有语义。');
+const conditional={...effectCandidates[0],comparison_kind:'conditional_increment',comparison_baseline_label:'保留 neck 特效，仅关闭 waist 特效',effect_validation:{status:'valid'}};
+const conditionalChart=portal([conditional],{dps:100});
+assert.match(descendants(conditionalChart,'simc-benchmark-candidate-value')[0].textContent,/条件增量/);
+assert.ok(descendants(conditionalChart,'simc-benchmark-relative').some(n=>n.textContent.includes('保留 neck')));
+assert.match(descendants(conditionalChart,'simc-benchmark-gear-segment')[0].attributes['aria-label'],/条件增量/);
+const conditionalDashboard=dashboard([{candidate:conditional,coordinate:{},dps:conditional.dps,baseline_dps:conditional.baseline_dps}]);
+assert.match(descendants(conditionalDashboard,'benchmark-aggregate-dps')[0].textContent,/条件增量/);
+const pendingConditional=portal([{...conditional,effect_validation:{status:'pair_pending'}}],{dps:100});
+assert.equal(descendants(pendingConditional,'simc-benchmark-gear-segment').length,0);
+assert.doesNotMatch(descendants(pendingConditional,'simc-benchmark-candidate-value')[0].textContent,/%/);
+console.log('通过：v2特效与v3条件增量标签/保留上下文对照；未验证条件对比不展示收益；既有排序与普通DPS语义保持。');

@@ -378,6 +378,11 @@ class SimcComposer:
 
         # Step 9: Render final content via placeholders
         final_content = self._render_template(base_template_content, request_data)
+        if '_runtime_threads' in request_data:
+            # Additional input/templates cannot override or duplicate frozen policy.
+            thread_values = re.findall(r'^\s*threads\s*=\s*([^\r\n]*)', final_content, re.MULTILINE)
+            if thread_values != [str(request_data['_runtime_threads'])]:
+                return None, None, 'Conditional input must contain exactly one frozen threads option'
 
         # Step 10: Validate single actor
         actor_count = self._count_actors(final_content)
@@ -399,6 +404,7 @@ class SimcComposer:
                 final_content, policy['target_slots'],
                 control=request_data['_equipment_effect_control'], rules=policy['rules'],
                 expectation=request_data.get('_equipment_effect_expectation'),
+                policy=policy if policy.get('version') == 3 else None,
             )
         elif request_data.get('_equipment_effect_control_slot'):
             from simc_equipment_control import mark_control_input
@@ -967,7 +973,10 @@ class SimcComposer:
                 candidate_options, allow_absent=False,
             )
             options.extend(controlled_options or [])
-        options.append('threads=4')
+        threads = request_data.get('_runtime_threads', 4)
+        if type(threads) is not int or threads <= 0:
+            raise ValueError('Invalid internal runtime threads')
+        options.append(f'threads={threads}')
 
         content = '\n'.join(options)
         content_hash = hashlib.sha256(content.encode('utf-8')).hexdigest()
