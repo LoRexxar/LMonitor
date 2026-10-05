@@ -18,7 +18,7 @@ except ImportError:  # Optional accelerator; the original parser remains authori
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOTS, EQUIPMENT_SLOT_ALIASES, _parse_line,
 )
-from botend.services.simc_result_analysis import parse_simc_html_report
+from botend.services.simc_result_analysis import _parse_simc_report_soup, parse_simc_html_report
 
 
 _ROLES = ('driver', 'buff', 'damage')
@@ -169,7 +169,8 @@ def _native_document(report_html):
     """
     if not isinstance(report_html, str) or not report_html:
         return {}, False
-    soup = BeautifulSoup(_native_evidence_html(report_html), 'html.parser')
+    reduced_html = _native_evidence_html(report_html)
+    soup = BeautifulSoup(reduced_html, 'html.parser')
     player = soup.find(class_='player')
     if player is None:
         return {}, False
@@ -198,7 +199,20 @@ def _native_document(report_html):
         for row in damage.select('tr.toprow.childrow'):
             row['class'] = [name for name in row.get('class', []) if name != 'childrow']
     parts = [node for node in (damage, dynamic, constant, *profiles) if node is not None]
-    document = parse_simc_html_report('<div class="player">' + ''.join(map(str, parts)) + '</div>')
+    if reduced_html != report_html:
+        # The reducer has verified disjoint native sections. Move those exact
+        # nodes into the private projection; don't serialize and build a second
+        # live DOM. Unknown/malformed layouts retain the original round trip.
+        for node in parts:
+            node.extract()
+        soup.clear()
+        projection = soup.new_tag('div', attrs={'class': 'player'})
+        for node in parts:
+            projection.append(node)
+        soup.append(projection)
+        document = _parse_simc_report_soup(soup)
+    else:
+        document = parse_simc_html_report('<div class="player">' + ''.join(map(str, parts)) + '</div>')
     complete = bool(damage is not None and (dynamic is not None or constant is not None) and len(profiles) == 1)
     if damage:
         headers = {th.get_text(' ', strip=True) for th in damage.select('thead th')}

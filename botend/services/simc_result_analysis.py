@@ -438,6 +438,19 @@ def parse_simc_html_report(html_content):
         from bs4 import BeautifulSoup
 
         soup = BeautifulSoup(html_content, "html.parser")
+        return _parse_simc_report_soup(soup, document)
+    except Exception:
+        # Preserve the public parser's partial-document fallback.
+        return document
+
+
+def _parse_simc_report_soup(soup, document=None):
+    """Parse an existing private DOM with the authoritative report metric logic."""
+    if document is None:
+        document = parse_simc_html_report("")
+    try:
+        from bs4 import BeautifulSoup
+
         player = soup.find(class_="player")
         if player:
             heading = player.find("h2")
