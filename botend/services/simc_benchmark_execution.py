@@ -1089,13 +1089,14 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         if winner is not None:
             return winner
     if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL:
-        active = SimcBenchmarkExecution.objects.filter(
+        # Preserve the default winner ordering without sorting large JSON snapshots.
+        active_id = SimcBenchmarkExecution.objects.filter(
             panel=current_panel, completed_at__isnull=True,
-        ).first()
-        if active is not None:
+        ).values_list('pk', flat=True).first()
+        if active_id is not None:
             if execution_mode == 'targeted':
                 raise BenchmarkExecutionConflict('面板已有未完成执行，请结束后再定向重跑')
-            return active
+            return SimcBenchmarkExecution.objects.get(pk=active_id)
 
     # No row locks are held while SimC is executed. Deduplication intentionally
     # ignores scenario/candidate differences because APL validity is resource-bound.
