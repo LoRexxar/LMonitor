@@ -82,7 +82,7 @@ def issue_upload_ticket(run, *, size: int, sha256: str, content_md5: str,
         raise ReportLeaseExpiredError('Evidence lease expired before signing')
     oss, client, bucket = _private_client()
     request = oss.PutObjectRequest(bucket=bucket, key=key, content_type=CONTENT_TYPE,
-        content_length=size, content_md5=content_md5, object_acl='private', forbid_overwrite=True,
+        content_length=size, content_md5=content_md5, acl='private', forbid_overwrite=True,
         metadata={'sha256': sha256, 'lease-fence': lease_fence, 'evidence-version': str(PROTOCOL_VERSION)})
     try:
         result = client.presign(request, expiration=expiration)
