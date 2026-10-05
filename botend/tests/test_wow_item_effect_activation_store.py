@@ -43,6 +43,22 @@ class ActivationStoreTests(TestCase):
         live=deepcopy(self.params);live['gear_swap']['is_ptr']=False
         self.assertNotIn('equipment_effect_expectation',freeze_equipment_activation(live,facts))
 
+    def test_optional_crafting_choice_never_adds_an_unselected_embellishment(self):
+        self.fact['requires_explicit_bonus_choice'] = True
+        merge_item_effect_activation([self.fact], is_ptr=True)
+        facts = item_activation_facts([9901])
+        self.assertEqual(freeze_equipment_activation(self.params, facts), self.params)
+        explicit = deepcopy(self.params)
+        explicit['gear_swap']['raw_value'] = ',id=9901,ilevel=321,bonus_id=7/12,gem_id=4'
+        resolved = freeze_equipment_activation(explicit, facts)
+        self.assertEqual(resolved['gear_swap'], explicit['gear_swap'])
+        self.assertEqual(resolved['equipment_effect_expectation']['targets'][0]['required_bonus_ids'], [12])
+        from django.core.exceptions import ValidationError
+        from botend.services.wow_item_effect_activation_store import activation_reference
+        self.fact['requires_explicit_bonus_choice'] = 'true'
+        with self.assertRaises(ValidationError):
+            activation_reference(self.fact)
+
     def test_candidates_are_resolved_before_control_copy(self):
         merge_item_effect_activation([self.fact], is_ptr=True)
         candidate=SimpleNamespace(key='head',label='Head',candidate_type='gear_swap',params=self.params,

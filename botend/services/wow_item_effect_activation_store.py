@@ -19,7 +19,9 @@ def _hash(value):
 def activation_reference(fact):
     if (not isinstance(fact, dict) or fact.get('schema_version') != 1
             or type(fact.get('item_id')) is not int or fact['item_id'] <= 0
-            or not BUILD_RE.fullmatch(str(fact.get('game_build', '')))):
+            or not BUILD_RE.fullmatch(str(fact.get('game_build', '')))
+            or ('requires_explicit_bonus_choice' in fact
+                and type(fact['requires_explicit_bonus_choice']) is not bool)):
         raise ValidationError('中央装备激活事实格式无效')
     bonuses, effects = fact.get('required_bonus_ids'), fact.get('effects')
     if (not isinstance(bonuses, list) or not isinstance(effects, list)
@@ -132,6 +134,9 @@ def freeze_equipment_activation(params, facts_by_item):
             raise ValidationError('装备行包含重复 bonus_id')
         existing = [int(v) for v in matches[0][1].split('/')] if matches else []
         required = ref['required_bonus_ids']
+        # Optional crafting choices are not inherent effects of the carrier.
+        if fact.get('requires_explicit_bonus_choice') is True and not set(required).issubset(existing):
+            continue
         combined = list(dict.fromkeys(existing + required))
         if combined != existing:
             value = '/'.join(map(str, combined))

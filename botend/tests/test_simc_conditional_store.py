@@ -185,6 +185,46 @@ class ConditionalStoreTests(TestCase):
         with self.assertRaisesMessage(ValidationError, 'ambiguous'):
             freeze_observed_conditional_contract(**args)
 
+    def test_operator_execution_authorization_is_not_executable_review(self):
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+        from botend.models import SimcAgent, SimcBackendBinary
+        from botend.services.simc_conditional_store import authorize_agent_execution
+        operator = get_user_model().objects.create_user('operator', is_superuser=True)
+        ordinary = get_user_model().objects.create_user('ordinary')
+        backend = SimcBackendBinary.objects.create(identifier='conditional-agent-test')
+        identity = self.expectation['identity']
+        agent = SimcAgent.objects.create(backend=backend, host_identifier='conditional-test',
+            platform='linux', status='online', last_seen_at=timezone.now(),
+            binary_available=True, current_version=identity['revision'], capabilities={
+                'conditional_evidence_protocol_version': 1, 'binary_identity_status': 'ok',
+                'binary_sha256': identity['binary_sha256'], 'dbc_build': identity['dbc_build']})
+        args = dict(self.selector, agent_id=agent.pk, operator=operator,
+                    reason='Explicit operator authorization to run on the existing registered Agent')
+        with self.assertRaises(ValidationError):
+            authorize_agent_execution(**args)  # Source review still mandatory.
+        self.import_source()
+        with self.assertRaises(ValidationError):
+            authorize_agent_execution(**{**args, 'operator': ordinary})
+        with self.assertRaises(ValidationError):
+            authorize_agent_execution(**{**args, 'identity': {**identity, 'binary_sha256': '0' * 64}})
+        result = authorize_agent_execution(**args)
+        self.assertEqual(result, self.fixture['authorization'])
+        stored = next(iter(WowItemSnapshot.objects.get(item_id=self.owner).metadata[META_KEY].values()))
+        approval = stored['executables']['linux']
+        self.assertEqual(approval['kind'], 'operator_agent_execution_authorization')
+        self.assertEqual(approval['operator_user_id'], operator.pk)
+        self.assertIsNone(approval['actual_observation']['revision'])
+        self.assertEqual(freeze_conditional_contract(**self.selector)['conditional_authorization'], result)
+        with self.assertRaises(ValidationError):
+            approve_executable(**self.selector, approval=approval)
+        agent.capabilities['binary_sha256'] = '1' * 64
+        agent.save(update_fields=['capabilities'])
+        with self.assertRaises(ValidationError):
+            authorize_agent_execution(**args)
+        # Existing freezes remain immutable, not silently rebound to new telemetry.
+        self.assertEqual(freeze_conditional_contract(**self.selector)['conditional_authorization'], result)
+
     def test_idempotent_import_and_readback(self):
         self.approve()
         before = WowItemSnapshot.objects.get(item_id=self.owner).metadata

@@ -1,8 +1,10 @@
 """Trusted, two-stage conditional approvals on existing central item metadata.
 
 These write functions are operator/import boundaries, NOT request/Agent APIs.
-Review records must come from independent human/managed-build review. A digest
-or Agent telemetry alone is not an approval. No runtime path writes this store.
+Source review and execution permission are separate facts. Exact executable
+review remains supported; a superuser may also explicitly authorize execution
+on an existing registered Agent, without claiming an independently reviewed
+artifact. Telemetry alone grants nothing. No runtime path writes this store.
 """
 from copy import deepcopy
 import re
@@ -126,14 +128,78 @@ def _select(entries, *, owner_item_id, game_build, is_ptr, identity, relation_ha
     return record
 
 
-@transaction.atomic
-def approve_executable(*, owner_item_id, game_build, is_ptr, identity, relation_hash,
-                       source_fact_hash, platform, approval):
-    """Stage 2: explicitly reviewed exact artifact, not Agent self-attestation.
+def _execution_review(approval, source_fact_hash):
+    kind = approval.get('kind') if isinstance(approval, dict) else None
+    if kind != 'operator_agent_execution_authorization':
+        _review(approval, 'independent_executable_review', source_fact_hash)
+        return
+    _review(approval, kind, source_fact_hash)
+    decision = {k: v for k, v in approval.items() if k != 'evidence_sha256'}
+    observed = approval.get('actual_observation')
+    identity = approval.get('identity', {})
+    if (type(approval.get('operator_user_id')) is not int or approval['operator_user_id'] <= 0
+            or type(approval.get('agent_id')) is not int or approval['agent_id'] <= 0
+            or not isinstance(approval.get('reason'), str) or not approval['reason'].strip()
+            or not isinstance(observed, dict) or set(observed) != set(identity)
+            or any(observed.get(k) != identity.get(k) for k in ('binary_sha256', 'dbc_build'))
+            or observed.get('revision') not in (None, identity.get('revision'))
+            or approval.get('declared_revision') != identity.get('revision')
+            or approval.get('evidence_sha256') != digest(decision)):
+        raise ValidationError('conditional operator execution authorization invalid')
 
-    Windows requires its own contract with matching identity AND provenance;
-    this function never rebinds Linux provenance or synthesizes relation hashes.
+
+def approve_executable(*, approval, **selector):
+    """Independently reviewed exact artifact; telemetry never becomes review."""
+    _review(approval, 'independent_executable_review', selector.get('source_fact_hash'))
+    return _store_execution_authorization(approval=approval, **selector)
+
+
+@transaction.atomic
+def authorize_agent_execution(*, operator, agent_id, reason, **selector):
+    """Operator-only permission to execute, NOT a build or result attestation.
+
+    Existing source review/activation bindings and exact identity selection are
+    mandatory. No API invokes this writer and no claim auto-approves telemetry.
+    The registered Agent is trusted to run, as in ordinary tasks; native/pair
+    validation still decides whether a result may be published. Missing banner
+    revision remains None; the declared revision is scheduling intent, not proof.
     """
+    from botend.models import SimcAgent
+    from botend.services.simc_conditional_execution import _agent_identity
+    if (not getattr(operator, 'is_authenticated', False)
+            or not getattr(operator, 'is_active', False)
+            or not getattr(operator, 'is_superuser', False)
+            or not getattr(operator, 'pk', None)
+            or not isinstance(reason, str) or not reason.strip()):
+        raise ValidationError('conditional requires explicit superuser execution authorization')
+    try:
+        agent = SimcAgent.objects.select_for_update().get(pk=agent_id)
+    except SimcAgent.DoesNotExist as exc:
+        raise ValidationError('conditional registered Agent missing') from exc
+    actual = _agent_identity(agent)
+    identity = selector.get('identity', {})
+    if (not agent.is_active or not agent.binary_available or not agent.is_online()
+            or agent.platform != selector.get('platform')
+            or agent.current_version != identity.get('revision')
+            or any(actual[k] != identity.get(k) for k in ('binary_sha256', 'dbc_build'))
+            or actual['revision'] not in (None, identity.get('revision'))):
+        raise ValidationError('conditional selected Agent identity differs from execution authorization')
+    approval = {'kind': 'operator_agent_execution_authorization',
+                'reviewer': operator.get_username(), 'operator_user_id': operator.pk,
+                'agent_id': agent.pk, 'reason': reason.strip(),
+                'actual_observation': actual, 'declared_revision': agent.current_version,
+                'platform': agent.platform, 'identity': deepcopy(identity),
+                'source_fact_hash': selector.get('source_fact_hash'),
+                'relation_hashes': [selector.get('relation_hash')]}
+    # This hash identifies the operator decision, not an independent binary audit.
+    approval['evidence_sha256'] = digest(approval)
+    return _store_execution_authorization(approval=approval, **selector)
+
+
+@transaction.atomic
+def _store_execution_authorization(*, owner_item_id, game_build, is_ptr, identity, relation_hash,
+                                   source_fact_hash, platform, approval):
+    """Persist explicit execution permission without rebinding any contract."""
     try:
         owner = WowItemSnapshot.objects.select_for_update().get(item_id=owner_item_id)
     except WowItemSnapshot.DoesNotExist as exc:
@@ -143,7 +209,7 @@ def approve_executable(*, owner_item_id, game_build, is_ptr, identity, relation_
                      is_ptr=is_ptr, identity=identity, relation_hash=relation_hash,
                      source_fact_hash=source_fact_hash, platform=platform)
     approval = deepcopy(approval)
-    _review(approval, 'independent_executable_review', source_fact_hash)
+    _execution_review(approval, source_fact_hash)
     if (approval.get('platform') != platform or approval.get('identity') != identity
             or approval.get('relation_hashes') != [relation_hash]):
         raise ValidationError('conditional executable 审核范围不匹配')
@@ -267,11 +333,11 @@ def _freeze_record(record, *, identity, relation_hash, source_fact_hash, platfor
     approval = record['executables'].get(platform)
     if approval is None:
         raise ValidationError('conditional 无对应实际 binary 批准')
-    _review(approval, 'independent_executable_review', source_fact_hash)
+    _execution_review(approval, source_fact_hash)
     if (approval.get('platform') != platform or approval.get('identity') != identity
             or approval.get('relation_hashes') != [relation_hash]):
         raise ValidationError('conditional 无对应实际 binary 批准')
-    # Copy pins from the independent approved fact, NOT the contract/marker.
+    # Copy exact pins from persisted permission, never live telemetry/marker.
     authorization = {k: deepcopy(approval[k]) for k in ('identity', 'relation_hashes')}
     _contract(record['policy'], record['expectation'], authorization)
     return deepcopy({'policy': record['policy'], 'expectation': record['expectation'],
