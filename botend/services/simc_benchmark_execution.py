@@ -303,10 +303,17 @@ def _preflight_error(coordinate, exc):
 
 def _candidate_input_identity(candidate):
     """Only executable candidate input participates in cross-execution reuse."""
+    params = candidate.get('candidate_params')
+    candidate_type = candidate.get('candidate_type')
+    # Retry manifests contain normalized execution candidates: the type lives
+    # inside their frozen params, not at the original planning envelope level.
+    # Preserve explicit types (including invalid/conflicting values) verbatim.
+    if 'candidate_type' not in candidate and isinstance(params, dict):
+        candidate_type = params.get('candidate_type')
     return _canonical_hash({
         'key': candidate.get('candidate_key'),
-        'candidate_type': candidate.get('candidate_type'),
-        'candidate_params': candidate.get('candidate_params'),
+        'candidate_type': candidate_type,
+        'candidate_params': params,
     })
 
 

@@ -73,6 +73,65 @@ class BenchmarkNoiseProjectionTests(TestCase):
             self.assertTrue(all('task_id' not in row for row in rows))
         return [{row['key']: row for row in rows} for rows in (full, light, public)]
 
+    def test_retry_controls_use_latest_results_after_normalized_manifest_replaces_request(self):
+        from botend.services.simc_benchmark_execution import _copy_failed_runs_for_retry
+        from botend.services.task_rerun import create_rerun
+
+        execution = self.fixtures._create(execution_mode='full')
+        case = execution.cases.get()
+        source = case.task
+        for index, candidate in enumerate(source.mode_params['initial_candidates'], 1):
+            key = candidate['candidate_key']
+            control = bool(candidate['candidate_params'].get('equipment_effect_control'))
+            self.fixtures._run(source, index, 'failed' if control else 'completed', key,
+                               dps=1000 if key == 'baseline' else 1700)
+            run = SimulationRun.objects.get(task=source, candidate_key=key)
+            run.candidate_params = deepcopy(candidate['candidate_params'])
+            if not control:
+                run.result_summary['equipment_effect_validation'] = {
+                    'status': 'valid', 'valid': True,
+                }
+            run.save(update_fields=['candidate_params', 'result_summary'])
+        source.current_status = 3
+        source.save(update_fields=['current_status'])
+        retry = create_rerun(source.pk, source.user_id)
+        _copy_failed_runs_for_retry(source, retry)
+        case.task = retry
+        case.save(update_fields=['task'])
+        self.assertNotIn('candidate_type', retry.mode_params['request_manifest']['candidates'][0])
+        for run in retry.simulation_runs.all():
+            run.status = 'completed'
+            run.result_summary = {'dps': 1507, 'equipment_effect_validation': {
+                'status': 'valid', 'valid': True,
+            }}
+            run.save(update_fields=['status', 'result_summary'])
+        retry.current_status = 2
+        retry.save(update_fields=['current_status'])
+        reconcile_execution(execution)
+        execution.refresh_from_db()
+        self.assertEqual(execution.status, 'success')
+        self.assertEqual(case.results.get(candidate_key=control_key('ring')).dps, 1507)
+        before = self.snapshot()
+        for details in (False, True):
+            rows = serialize_incremental_panel_results(self.panel, include_details=details)['coordinates'][0]['candidates']
+            ring = next(row for row in rows if row['key'] == 'ring')
+            self.assertEqual(ring['dps'], 1700)
+            self.assertEqual(ring['baseline_dps'], 1507)
+            self.assertAlmostEqual(ring['gain_percent'], (1700 - 1507) / 1507 * 100)
+        self.assertEqual(self.snapshot(), before)
+
+    def test_candidate_identity_fallback_never_overrides_an_explicit_type_or_params(self):
+        from botend.services.simc_benchmark_execution import _candidate_input_identity
+        candidate = {'candidate_key': 'gear', 'candidate_type': 'gear_swap',
+                     'candidate_params': {'candidate_type': 'gear_swap', 'value': 1}}
+        normalized = deepcopy(candidate)
+        normalized.pop('candidate_type')
+        self.assertEqual(_candidate_input_identity(candidate), _candidate_input_identity(normalized))
+        for changed in ({**normalized, 'candidate_type': None},
+                        {**normalized, 'candidate_type': 'base'},
+                        {**normalized, 'candidate_params': {'candidate_type': 'gear_swap', 'value': 2}}):
+            self.assertNotEqual(_candidate_input_identity(candidate), _candidate_input_identity(changed))
+
     def test_three_levels_tie_in_both_projections_without_mutating_facts_or_seal(self):
         before = self.snapshot()
         projections = self.projections()
