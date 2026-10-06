@@ -166,8 +166,8 @@
   function equipmentEffectGain(candidate) {
     if (candidate?.effect_validation && candidate.effect_validation.status !== "valid") return null;
     if (candidate?.comparison_mode !== "equipment_effect" || candidate.dps == null) return null;
-    const dps = validDps(candidate.dps), baseline = validDps(candidate.baseline_dps);
-    return dps !== null && baseline !== null && baseline > 0 ? (dps - baseline) * 100 / baseline : null;
+    // The backend owns the display floor; never re-derive raw gain here.
+    return candidate.effect_delta_percent == null ? null : validDps(candidate.effect_delta_percent);
   }
 
   function equipmentEffectUnavailable(candidate) {
@@ -326,13 +326,14 @@
       const swatch = node("i"); swatch.style.backgroundColor = color; swatch.setAttribute("aria-hidden", "true");
       key.append(swatch, node("span", "", `模拟装等 ${level}`)); legend.appendChild(key);
     });
-    if (levelColors.size) chart.appendChild(legend);
+    if (effectComparison) legend.appendChild(node("small", "", "负收益及低于 0.1% 的收益按 0 展示；原始结果保留。"));
+    if (levelColors.size || effectComparison) chart.appendChild(legend);
 
     const body = node("div", "simc-benchmark-gear-chart-body");
     const guide = node("div", "simc-benchmark-gear-hover-guide"); guide.hidden = true; guide.setAttribute("aria-hidden", "true");
     const tooltip = node("div", "simc-benchmark-gear-tooltip"); tooltip.hidden = true; tooltip.setAttribute("role", "tooltip");
     body.append(guide, tooltip);
-    // 仅特效收益采用带符号平方根刻度：展开小收益，保留零点和负收益方向。
+    // 特效展示值由后端归零；平方根刻度展开正收益，原始 DPS 不变。
     const signedSqrt = value => Math.sign(value) * Math.sqrt(Math.abs(value));
     const low = signedSqrt(scale.lowest), span = signedSqrt(scale.highest) - low;
     const position = (dps) => effectComparison && span > 0

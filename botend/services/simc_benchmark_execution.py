@@ -963,6 +963,13 @@ def _apply_conditional_result_display(row, params):
     })
 
 
+def _display_equipment_effect_gain(gain_percent):
+    """Display floor only; raw DPS/gain and immutable simulation evidence stay intact."""
+    if gain_percent is None:
+        return None
+    return gain_percent if gain_percent >= 0.1 else 0.0
+
+
 def _paired_effect_validation(normal, control):
     if any(side.get('status') == 'pair_pending' or 'conditional_witness' in side
            for side in (normal, control)):
@@ -2453,7 +2460,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                         effect_validations[(match['task'].pk, baseline_key)],
                     )
                     if row['effect_validation'].get('status') == 'valid':
-                        row['effect_delta_percent'] = row['gain_percent']
+                        row['effect_delta_percent'] = _display_equipment_effect_gain(row['gain_percent'])
                     elif row.get('comparison_kind') == 'conditional_increment':
                         # Raw sides stay inspectable, but an unproven conditional
                         # pair must never publish an attributed gain.
@@ -3886,7 +3893,7 @@ def serialize_public_execution(panel_or_execution):
                     effect_validations[(row['task_id'], candidate['params']['effect_baseline_key'])],
                 )
                 if candidate_row['effect_validation'].get('status') == 'valid':
-                    candidate_row['effect_delta_percent'] = candidate_row['gain_percent']
+                    candidate_row['effect_delta_percent'] = _display_equipment_effect_gain(candidate_row['gain_percent'])
                 elif candidate_row.get('comparison_kind') == 'conditional_increment':
                     candidate_row['gain_dps'] = candidate_row['gain_percent'] = None
             swaps = candidate['params'].get('gear_swaps')

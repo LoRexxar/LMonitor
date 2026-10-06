@@ -136,7 +136,8 @@ function groupGearResultRows(rows){
     const key=[coordinate.spec_key,coordinate.scenario_key,coordinate.profile_key,itemIdentity,variantIdentity].join('|');
     if(!groups.has(key))groups.set(key,{key,label,icon_url:candidate.icon_url||'',coordinate,variants:[]});
     const effectValid=!candidate.effect_validation||candidate.effect_validation.status==='valid';
-    const deltaPercent=(!effectComparison||(candidate.comparison_mode==='equipment_effect'&&effectValid))&&Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(row.dps-row.baseline_dps)*100/row.baseline_dps:null;
+    const displayGain=candidate.effect_delta_percent;
+    const deltaPercent=effectComparison?(candidate.comparison_mode==='equipment_effect'&&effectValid&&displayGain!=null&&Number.isFinite(Number(displayGain))&&Number(displayGain)>=0?Number(displayGain):null):(Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(row.dps-row.baseline_dps)*100/row.baseline_dps:null);
     groups.get(key).variants.push({...row,item_level:Number(candidate.item_level),delta_percent:deltaPercent});
   });
   return Array.from(groups.values()).map(group=>{
@@ -157,11 +158,13 @@ function renderGearResultChart(rows){
   const groups=groupGearResultRows(rows),levelColorMap=buildItemLevelColorMap(groups),chart=el('div',{class:'benchmark-gear-chart'});
   const legend=el('div',{class:'benchmark-gear-level-legend','aria-label':'装等颜色图例'});
   levelColorMap.forEach((color,level)=>{const item=el('span',{class:'benchmark-gear-level-key'}),swatch=el('i',{'aria-hidden':'true'});swatch.style.backgroundColor=color;item.append(swatch,el('span',{},`${level} 装等`));legend.append(item);});
-  if(levelColorMap.size)chart.append(legend);
+  const effectComparison=groups.some(group=>group.effect_comparison);
+  if(effectComparison)legend.append(el('small',{},'负收益及低于 0.1% 的收益按 0 展示；原始结果保留。'));
+  if(levelColorMap.size||effectComparison)chart.append(legend);
   const finiteDeltas=groups.flatMap(group=>group.variants.map(variant=>variant.delta_percent)).filter(Number.isFinite);
   let scaleMin=Math.min(0,...finiteDeltas),scaleMax=Math.max(0,...finiteDeltas);
   if(scaleMin===scaleMax)scaleMax=scaleMin+1;
-  const scaleSpan=scaleMax-scaleMin;scaleMin-=scaleSpan*.04;scaleMax+=scaleSpan*.08;
+  const scaleSpan=scaleMax-scaleMin;if(!effectComparison)scaleMin-=scaleSpan*.04;scaleMax+=scaleSpan*.08;
   const position=value=>Math.max(0,Math.min(100,(value-scaleMin)*100/(scaleMax-scaleMin)));
   const body=el('div',{class:'benchmark-gear-chart-body'}),guide=el('div',{class:'benchmark-gear-hover-guide','aria-hidden':'true'}),tooltip=el('div',{class:'benchmark-gear-tooltip',role:'tooltip'});
   guide.hidden=true;tooltip.hidden=true;body.append(guide,tooltip);

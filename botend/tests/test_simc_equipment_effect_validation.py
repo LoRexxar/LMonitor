@@ -188,6 +188,40 @@ class EquipmentEffectProjectionTests(TestCase):
         self.fixtures = EquipmentControlBenchmarkTests()
         self.fixtures.setUp()
 
+    def test_effect_display_floor_preserves_raw_results_in_both_projections(self):
+        from botend.models import SimulationRun
+        from simc_equipment_control import control_key
+        from botend.services.simc_benchmark_execution import serialize_incremental_panel_results, serialize_public_execution
+        from botend.services.simc_benchmark_execution import reconcile_execution
+        self.fixtures.panel.is_public = True
+        self.fixtures.panel.save(update_fields=['is_public'])
+        for dps, expected in ((1400, 0), (1500, 0), (1501.499, 0), (1501.5, 0.1), (1503, 0.2)):
+            with self.subTest(dps=dps):
+                execution = self.fixtures._create(execution_mode='full')
+                task = execution.cases.get().task
+                task.current_status = 2
+                task.save(update_fields=['current_status'])
+                values = {'baseline': 1000, 'trinket': 1200, 'ring': dps, control_key('ring'): 1500}
+                for index, candidate in enumerate(task.mode_params['initial_candidates'], 1):
+                    key = candidate['candidate_key']
+                    self.fixtures._run(task, index, 'completed', key, dps=values[key])
+                pair = SimulationRun.objects.filter(task=task, candidate_key__in=['ring', control_key('ring')])
+                for run in pair:
+                    run.result_summary = {**run.result_summary, 'equipment_effect_validation':
+                        {'schema_version': 1, 'status': 'valid', 'valid': True}}
+                    run.save(update_fields=['result_summary'])
+                reconcile_execution(execution)
+                before = list(pair.order_by('pk').values())
+                live = serialize_incremental_panel_results(self.fixtures.panel)['coordinates'][0]['candidates']
+                public = serialize_public_execution(execution)['execution']['cases'][0]['candidates']
+                for rows in (live, public):
+                    row = next(row for row in rows if row['key'] == 'ring')
+                    self.assertAlmostEqual(row['effect_delta_percent'], expected)
+                    self.assertEqual(row['dps'], dps)
+                    self.assertAlmostEqual(row['gain_dps'], dps - 1500)
+                    self.assertAlmostEqual(row['gain_percent'], (dps - 1500) / 1500 * 100)
+                self.assertEqual(list(pair.order_by('pk').values()), before)
+
     def test_activation_repair_keeps_history_visible_but_does_not_reuse_old_input(self):
         from botend.models import WowItemSnapshot, SimulationRun
         from botend.services.wow_item_effect_activation_store import merge_item_effect_activation
