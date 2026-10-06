@@ -8,14 +8,19 @@ function element() {
     append(...children) { this.children.push(...children); },
     appendChild(child) { this.append(child); },
     setAttribute(key, value) { this.attributes[key] = value; },
-    addEventListener() {},
+    handlers: {}, classList: {add() {}, remove() {}}, offsetTop: 0,
+    get firstChild() { return this.children[0]; },
+    removeChild(child) { this.children.splice(this.children.indexOf(child), 1); },
+    replaceChildren(...children) { this.children = children; },
+    getBoundingClientRect() { return {left: 0, top: 0, width: 1000}; },
+    addEventListener(type, handler) { this.handlers[type] = handler; },
   };
 }
 function renderer(file, startup) {
   const source = fs.readFileSync(path.join(__dirname, '../../', file), 'utf8');
   const context = vm.createContext({document: {createElement: element}, Intl, URL});
   assert.ok(source.includes(startup));
-  vm.runInContext(source.slice(0, source.indexOf(startup)) + 'globalThis.render = renderGearResultChart;})();', context);
+  vm.runInContext(source.slice(0, source.indexOf(startup)) + 'globalThis.render = renderGearResultChart; globalThis.render.scale = typeof gearChartScale === "function" ? gearChartScale : null;})();', context);
   return context.render;
 }
 const portal = renderer('static/portal/js/simc-benchmarks.js', '  document.addEventListener("DOMContentLoaded", loadBenchmarks);');
@@ -134,4 +139,71 @@ for (const [dps, display] of [[900,0],[1000,0],[1000.999,0],[1001,0.1],[1002,0.2
  }
  assert.equal(JSON.stringify(candidate),before);
 }
-console.log('通过：v2特效与v3条件增量标签/保留上下文对照；未验证条件对比不展示收益；既有排序与普通DPS语义保持。');
+// 后端声明的噪声并列贯穿刻度、端点、排名与悬浮；前端不平滑未注释结果。
+const noiseLabel = '差异在报告误差范围内，按并列展示';
+const noise = (raw, display) => ({kind:'within_reported_error', raw_display_value:raw,
+  display_value:display, candidate_keys:['item-321','item-328'], label:noiseLabel});
+const noisy = candidates([1500.8,1500.2,1600]).map((c,i)=>({...c,
+  display_dps:i<2?1500:c.dps, gain_percent:(c.dps-1000)/10,
+  ...(i<2?{noise_adjustment:noise(c.dps,1500)}:{})}));
+const noisyBefore = JSON.stringify(noisy);
+assert.equal(portal.scale(noisy).lowest,1500,'ordinary gear scale consumes display_dps');
+assert.equal(portal.scale(noisy).highest,1600);
+function treeText(node) { return [node.textContent,...(node.children||[]).map(treeText)].join(' '); }
+for (const [render,prefix,metric] of [
+  [cs=>portal(cs,{key:'baseline',dps:1000},portal.scale(cs)),'simc-benchmark','simc-benchmark-candidate-value'],
+  [cs=>dashboard(cs.map(candidate=>({candidate,coordinate:{},dps:candidate.dps,baseline_dps:1000}))),'benchmark','benchmark-aggregate-dps'],
+]) {
+  const chart=render(noisy),segments=descendants(chart,`${prefix}-gear-segment`);
+  checkNoOverlap(segments);
+  const endpoint=s=>parseFloat(s.style.left)+parseFloat(s.style.width);
+  assert.equal(endpoint(segments[0]),endpoint(segments[1]),`${prefix}: tied endpoints`);
+  const tooltip=descendants(chart,`${prefix}-gear-tooltip`)[0];
+  const options=descendants(chart,`${prefix}-gear-tie-option`);
+  assert.equal(options.length,2,'every annotated candidate has a separate hit target');
+  assert.equal(descendants(descendants(chart,`${prefix}-gear-identity`)[0],`${prefix}-gear-tie-option`).length,0,'never nest an entry inside the identity button');
+  for(const [i,option] of options.entries()) {
+    assert.equal(String(option.textContent),String(noisy[i].item_level));
+    for(const event of ['pointerenter','focus','click']) {
+      option.handlers[event]({clientX:100,clientY:100});
+      assert.equal(tooltip.hidden,false);
+      assert.ok(treeText(tooltip).includes(noisy[i].dps.toLocaleString('en-US')));
+      assert.ok(treeText(tooltip).includes(`原始收益 +${noisy[i].gain_percent.toFixed(2)}%`));
+      option.handlers.pointerleave();
+      assert.equal(tooltip.hidden,true);
+    }
+    if(parseFloat(segments[i].style.width)===0)assert.equal(segments[i].tabIndex,-1,'zero-width segments do not duplicate keyboard stops');
+  }
+  segments[0].handlers.focus();
+  assert.match(treeText(tooltip),/相对基准 \+50\.00%/);
+  assert.ok(treeText(tooltip).includes(noiseLabel));
+  assert.match(treeText(tooltip),/1,500\.8/,'raw total DPS retained');
+  assert.match(treeText(tooltip),/原始收益 \+50\.08%/);
+  segments[2].handlers.pointerenter({clientX:100,clientY:100});
+  assert.ok(!treeText(tooltip).includes(noiseLabel),'unannotated results are not called ties');
+  const pair=render(noisy.slice(0,2));
+  assert.match(descendants(pair,metric)[0].textContent,/1,500\.8/,'raw total remains the primary DPS text');
+  assert.match(treeText(pair),/\+50\.0%/,'relative metric uses display endpoint');
+  const competitor={key:'competitor',item_id:2,label:'Competitor',item_level:340,dps:1500.4};
+  const ranking=render([...noisy.slice(0,2),competitor]);
+  const names=prefix==='simc-benchmark'?descendants(ranking,`${prefix}-gear-name`).map(n=>n.textContent)
+    :descendants(ranking,`${prefix}-gear-identity-text`).map(n=>n.children[0].textContent);
+  assert.deepEqual(names,['Competitor','测试装备'],'group ranking uses display DPS, not raw DPS');
+  for(const absent of [undefined,null]) {
+    const fallback=render([{...competitor,display_dps:absent},...noisy.slice(0,2)]);
+    assert.match(descendants(fallback,metric)[0].textContent,/1,500\.4/,'missing/null display DPS falls back to raw');
+  }
+  const effect={key:'noisy-effect',item_id:3,label:'Effect',item_level:340,dps:1500.8,baseline_dps:1000,
+    comparison_mode:'equipment_effect',effect_delta_percent:50,gain_percent:50.08,
+    noise_adjustment:noise(50.08,50)};
+  const effectBefore=JSON.stringify(effect),effectChart=render([effect]);
+  descendants(effectChart,`${prefix}-gear-segment`)[0].handlers.focus();
+  const effectTooltip=treeText(descendants(effectChart,`${prefix}-gear-tooltip`)[0]);
+  assert.ok(effectTooltip.includes(noiseLabel));
+  assert.match(effectTooltip,/\+50\.00%/);
+  assert.match(effectTooltip,/原始收益 \+50\.08%/);
+  assert.match(effectTooltip,/1,500\.8/);
+  assert.equal(JSON.stringify(effect),effectBefore);
+}
+assert.equal(JSON.stringify(noisy),noisyBefore,'rendering never overwrites raw results');
+console.log('通过：Portal/Dashboard 噪声并列的刻度、端点、排名、相对值与悬浮原始收益；缺字段回退、原始DPS不变及既有特效floor/条件增量回归。');

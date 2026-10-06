@@ -126,6 +126,10 @@ function candidateGearLabel(candidate){
   const suffix=` · ${level}`;
   return label.endsWith(suffix)?label.slice(0,-suffix.length):label;
 }
+function displayDps(candidate,rawDps){
+  const value=candidate?.display_dps;
+  return value!=null&&Number.isFinite(Number(value))&&Number(value)>=0?Number(value):rawDps;
+}
 function groupGearResultRows(rows){
   const effectComparison=rows.some(row=>row.candidate?.comparison_mode==='equipment_effect');
   const groups=new Map();
@@ -137,13 +141,14 @@ function groupGearResultRows(rows){
     if(!groups.has(key))groups.set(key,{key,label,icon_url:candidate.icon_url||'',coordinate,variants:[]});
     const effectValid=!candidate.effect_validation||candidate.effect_validation.status==='valid';
     const displayGain=candidate.effect_delta_percent;
-    const deltaPercent=effectComparison?(candidate.comparison_mode==='equipment_effect'&&effectValid&&displayGain!=null&&Number.isFinite(Number(displayGain))&&Number(displayGain)>=0?Number(displayGain):null):(Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(row.dps-row.baseline_dps)*100/row.baseline_dps:null);
-    groups.get(key).variants.push({...row,item_level:Number(candidate.item_level),delta_percent:deltaPercent});
+    const display=displayDps(candidate,row.dps);
+    const deltaPercent=effectComparison?(candidate.comparison_mode==='equipment_effect'&&effectValid&&displayGain!=null&&Number.isFinite(Number(displayGain))&&Number(displayGain)>=0?Number(displayGain):null):(Number.isFinite(row.baseline_dps)&&row.baseline_dps>0?(display-row.baseline_dps)*100/row.baseline_dps:null);
+    groups.get(key).variants.push({...row,display_dps:display,item_level:Number(candidate.item_level),delta_percent:deltaPercent});
   });
   return Array.from(groups.values()).map(group=>{
     group.variants.sort((left,right)=>(Number.isFinite(left.item_level)?left.item_level:Number.MAX_SAFE_INTEGER)-(Number.isFinite(right.item_level)?right.item_level:Number.MAX_SAFE_INTEGER)||left.dps-right.dps);
     group.effect_comparison=effectComparison;
-    const score=variant=>effectComparison?(variant.delta_percent??-Infinity):variant.dps;
+    const score=variant=>effectComparison?(variant.delta_percent??-Infinity):variant.display_dps;
     group.best=group.variants.reduce((winner,variant)=>score(variant)>score(winner)?variant:winner,group.variants[0]);
     group.best_value=score(group.best);
     return group;
@@ -173,6 +178,9 @@ function renderGearResultChart(rows){
     identity.append(group.icon_url?el('img',{class:'benchmark-gear-icon',src:group.icon_url,alt:'',loading:'lazy'}):el('span',{class:'benchmark-gear-icon placeholder','aria-hidden':'true'},'◈'));
     const identityText=el('span',{class:'benchmark-gear-identity-text'}),heroTalent=group.coordinate?.labels?.hero_talent||'无法获取';identityText.append(el('strong',{},group.label),el('small',{},`英雄天赋：${heroTalent}`));identity.append(identityText);
     const plot=el('div',{class:'benchmark-gear-plot'}),zero=el('i',{class:'benchmark-gear-zero','aria-hidden':'true'});zero.style.left=`${position(0)}%`;plot.append(zero);
+    const tiedLevels=el('div',{class:'benchmark-gear-tied-levels'});
+    Object.assign(tiedLevels.style,{display:'flex',flexWrap:'wrap',justifyContent:'flex-end',alignItems:'center',gap:'4px',marginTop:'4px',fontSize:'11px'});
+    tiedLevels.append(el('span',{},'并列装等'));
     // 正负收益分别从零点向外排列，不能假定装等或总 DPS 与相对收益同步递增。
     const endpointOf=variant=>Number.isFinite(variant.delta_percent)?variant.delta_percent:0;
     const previous={positive:0,negative:0};
@@ -181,12 +189,34 @@ function renderGearResultChart(rows){
       const endpoint=endpointOf(variant),side=endpoint<0?'negative':'positive',startPosition=position(previous[side]),endPosition=position(endpoint);
       const itemLevel=Number.isFinite(variant.item_level)&&variant.item_level>0?variant.item_level:null;
       const segment=el('button',{class:'benchmark-gear-segment',type:'button',dataset:{itemLevel:itemLevel||'',endpoint:endPosition},'aria-label':`${group.label} ${itemLevel?`${itemLevel} 装等`:''} ${formatDps(variant.dps)}`});
-      if(group.effect_comparison)Object.assign(segment.style,{minWidth:'0',padding:'0',boxSizing:'border-box'});
-      segment.style.left=`${Math.min(startPosition,endPosition)}%`;segment.style.width=`${Math.max(group.effect_comparison?0:.35,Math.abs(endPosition-startPosition))}%`;segment.style.backgroundColor=levelColorMap.get(itemLevel)||'#64748b';segment.append(el('span',{},itemLevel||'装备'));
+      const noise=variant.candidate.noise_adjustment;
+      if(group.effect_comparison||noise)Object.assign(segment.style,{minWidth:'0',padding:'0',boxSizing:'border-box'});
+      segment.style.left=`${Math.min(startPosition,endPosition)}%`;segment.style.width=`${Math.max(group.effect_comparison||noise?0:.35,Math.abs(endPosition-startPosition))}%`;segment.style.backgroundColor=levelColorMap.get(itemLevel)||'#64748b';segment.append(el('span',{},itemLevel||'装备'));
       const moveTooltip=event=>{const bodyRect=body.getBoundingClientRect(),hasPointer=Number.isFinite(event?.clientX)&&Number.isFinite(event?.clientY);tooltip.style.left=`${hasPointer?Math.min(Math.max(8,bodyRect.width-190),Math.max(8,event.clientX-bodyRect.left+12)):Math.max(8,bodyRect.width/2-90)}px`;tooltip.style.top=`${hasPointer?Math.max(8,event.clientY-bodyRect.top-58):Math.max(8,row.offsetTop-8)}px`;};
-      const showComparison=event=>{row.classList.add('is-hovered');guide.hidden=false;tooltip.hidden=false;const plotRect=plot.getBoundingClientRect(),bodyRect=body.getBoundingClientRect();guide.style.left=`${plotRect.left-bodyRect.left+plotRect.width*endPosition/100}px`;clear(tooltip);tooltip.append(el('strong',{},group.label),el('span',{},`${itemLevel?`${itemLevel} 装等 · `:''}${formatDps(variant.dps)}`),el('span',{},Number.isFinite(variant.delta_percent)?`相对基准 ${variant.delta_percent>=0?'+':''}${variant.delta_percent.toFixed(2)}%`:'无基准对比'));moveTooltip(event);};
+      const showComparison=event=>{
+        row.classList.add('is-hovered');guide.hidden=false;tooltip.hidden=false;
+        const plotRect=plot.getBoundingClientRect(),bodyRect=body.getBoundingClientRect();
+        guide.style.left=`${plotRect.left-bodyRect.left+plotRect.width*endPosition/100}px`;
+        const gainLabel=group.effect_comparison?(variant.candidate.comparison_kind==='conditional_increment'?'条件增量':'特效提升'):'相对基准';
+        clear(tooltip);tooltip.append(el('strong',{},group.label),el('span',{},`${itemLevel?`${itemLevel} 装等 · `:''}${formatDps(variant.dps)}`),el('span',{},Number.isFinite(variant.delta_percent)?`${gainLabel} ${variant.delta_percent>=0?'+':''}${variant.delta_percent.toFixed(2)}%`:'无基准对比'));
+        if(noise){
+          tooltip.append(el('span',{},noise.label||'差异在报告误差范围内，按并列展示'));
+          const rawGain=variant.candidate.gain_percent!=null&&Number.isFinite(Number(variant.candidate.gain_percent))?Number(variant.candidate.gain_percent):variant.baseline_dps>0?(variant.dps-variant.baseline_dps)*100/variant.baseline_dps:null;
+          if(rawGain!==null)tooltip.append(el('span',{},`原始收益 ${rawGain>=0?'+':''}${rawGain.toFixed(2)}%`));
+        }
+        moveTooltip(event);
+      };
       const hideComparison=()=>{row.classList.remove('is-hovered');guide.hidden=true;tooltip.hidden=true;};
       segment.addEventListener('pointerenter',showComparison);segment.addEventListener('pointermove',moveTooltip);segment.addEventListener('pointerleave',hideComparison);segment.addEventListener('focus',showComparison);segment.addEventListener('blur',hideComparison);
+      if(noise){
+        // Keep the numeric segment unchanged; each tied candidate gets its own hit target.
+        const option=el('button',{class:'benchmark-gear-tie-option',type:'button','aria-label':`${group.label} 并列装等 ${itemLevel||'未知'}，查看原始结果`},itemLevel||'装备');
+        Object.assign(option.style,{minWidth:'28px',minHeight:'24px',padding:'2px 6px',border:'1px solid #94a3b8',borderRadius:'4px',background:'#fff',color:'#334155',font:'inherit',cursor:'pointer'});
+        option.addEventListener('pointerenter',showComparison);option.addEventListener('pointermove',moveTooltip);option.addEventListener('pointerleave',hideComparison);
+        option.addEventListener('focus',showComparison);option.addEventListener('blur',hideComparison);option.addEventListener('click',showComparison);
+        tiedLevels.append(option);
+        if(startPosition===endPosition)segment.tabIndex=-1;
+      }
       plot.append(segment);previous[side]=endpoint;
     });
     const best=group.best,result=el('div',{class:'benchmark-aggregate-result'});
@@ -197,6 +227,7 @@ function renderGearResultChart(rows){
     }else{
       result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(best.dps)),el('span',{class:`benchmark-aggregate-delta ${best.delta_percent<0?'negative':'positive'}`},Number.isFinite(best.delta_percent)?`最高 ${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(1)}%`:'无基准对比'));
     }
+    if(tiedLevels.children.length>1)result.append(tiedLevels);
     row.append(identity,plot,result);body.append(row);
   });
   chart.append(body);return chart;

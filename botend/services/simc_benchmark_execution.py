@@ -36,6 +36,8 @@ from botend.services.simc_benchmark_config import (
 from botend.services.simc_composer import (
     SIMC_CLASS_RAID_BUFFS, SIMC_EXTRA_OPTIONS,
 )
+from botend.services.simc_benchmark_noise_display import apply_noise_display
+from botend.services.simc_benchmark_result_evidence import load_candidate_result_evidence
 from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_player_config import parse_manual_player_config
 from botend.services.simc_task_service import (
@@ -2134,6 +2136,53 @@ def _spec_icon_url(spec_key):
     return _SPEC_ICON_BY_NORMALIZED_KEY.get(normalized, '')
 
 
+def _apply_candidate_noise_display(rows, sources_by_key):
+    """Batch evidence only for numeric multi-level gear in one final coordinate.
+
+    Sources are the existing Result matches, not a new result-selection rule.
+    Keep baseline and unknown rows intact so the pure helper sees adjacency and
+    the ordinary coordinate baseline, without exposing private Run provenance.
+    """
+    groups = {}
+    for row in rows:
+        if row.get('type') != 'gear_swap' or row.get('key') == 'baseline':
+            continue
+        item_id, level = row.get('item_id'), row.get('item_level')
+        variant = row.get('item_variant_key') or row.get('equipment_group_key')
+        dps = row.get('dps')
+        if (type(item_id) is not int or item_id <= 0 or not variant
+                or type(level) is not int or level <= 0
+                or isinstance(dps, bool) or not isinstance(dps, (int, float))
+                or not math.isfinite(dps) or dps <= 0):
+            continue
+        if row.get('comparison_mode') == 'equipment_effect':
+            value = row.get('effect_delta_percent')
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value)):
+                continue
+        groups.setdefault((item_id, variant), []).append(row)
+    eligible = [row for group in groups.values()
+                if len({row['item_level'] for row in group}) > 1 for row in group]
+    requests, pairs = {}, {}
+    for row in eligible:
+        normal = sources_by_key.get(row['key'])
+        control_key = row.get('baseline_key')
+        control = sources_by_key.get(control_key) if control_key else None
+        if normal is None:
+            continue
+        normal_key = (normal[0], row['key'])
+        control_request = (control[0], control_key) if control is not None else None
+        requests[normal_key] = normal[1]
+        if control_request is not None:
+            requests[control_request] = control[1]
+        pairs[row['key']] = (normal_key, control_request)
+    evidence = load_candidate_result_evidence(requests) if requests else {}
+    apply_noise_display(rows, {
+        key: {'normal': evidence.get(normal), 'control': evidence.get(control)}
+        for key, (normal, control) in pairs.items()
+    })
+
+
 def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                         scenario_filter=None, spec_filter=None,
                                         include_coordinate_options=False,
@@ -2468,6 +2517,11 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                         row['gain_dps'] = row['gain_percent'] = None
                 paired_rows.append(row)
             rows = paired_rows
+            _apply_candidate_noise_display(rows, {
+                definition['candidate_key']: (match['task'].pk, match['result'].dps)
+                for definition in coordinate['candidates']
+                if (match := reusable.get(_candidate_input_identity(definition))) is not None
+            })
         if is_option_gain:
             result_by_key = {row['key']: row for row in rows}
             baseline = result_by_key.get('baseline')
@@ -3853,6 +3907,7 @@ def serialize_public_execution(panel_or_execution):
     embellishment_display = _embellishment_result_display(list(candidate_metadata.values()))
     public_cases = []
     seal_rows = []
+    noise_coordinates = []
     for row in summary['cases']:
         coordinate = (row['spec_key'], row['scenario_key'], row['profile_key'])
         frozen = frozen_by_coordinate[coordinate]
@@ -3905,17 +3960,28 @@ def serialize_public_execution(panel_or_execution):
                     candidate_row['effect_delta_percent'] = _display_equipment_effect_gain(candidate_row['gain_percent'])
                 elif candidate_row.get('comparison_kind') == 'conditional_increment':
                     candidate_row['gain_dps'] = candidate_row['gain_percent'] = None
+            frozen_candidate = {'candidate_type': candidate['candidate_type'],
+                                'candidate_params': candidate['params']}
+            item_id = _candidate_item_id(frozen_candidate)
+            item_level = _candidate_item_level(frozen_candidate)
+            if item_id is not None and item_level is not None:
+                candidate_row['item_id'] = item_id
+                candidate_row['item_variant_key'] = _candidate_item_variant_key(frozen_candidate)
+            if item_level is not None:
+                candidate_row['item_level'] = item_level
             swaps = candidate['params'].get('gear_swaps')
             if swaps:
                 candidate_row['equipment_items'] = deepcopy(swaps)
-                frozen = {'candidate_type': candidate['candidate_type'], 'candidate_params': candidate['params']}
-                candidate_row['equipment_group_key'] = _candidate_item_variant_key(frozen)
-                candidate_row['item_level'] = _candidate_item_level(frozen)
+                candidate_row['equipment_group_key'] = _candidate_item_variant_key(frozen_candidate)
+                candidate_row['item_level'] = item_level
             effect = str((embellishment_display.get(run['key']) or {}).get('tooltip')
                          or display.get('effect') or candidate.get('effect') or '')
             if effect:
                 candidate_row['effect'] = effect
             candidates.append(candidate_row)
+        noise_coordinates.append((candidates, {
+            run['key']: (row['task_id'], run['dps']) for run in row['runs']
+        }))
         public_cases.append({
             'coordinates': {
                 'spec_key': row['spec_key'], 'scenario_key': row['scenario_key'],
@@ -3931,6 +3997,8 @@ def serialize_public_execution(panel_or_execution):
         })
     if _result_seal(seal_rows, execution.completed_at) != execution.result_hash:
         return {'status': 'not_ready', 'execution': None}
+    for candidates, sources in noise_coordinates:
+        _apply_candidate_noise_display(candidates, sources)
     return {
         'status': 'ready',
         'panel': {
