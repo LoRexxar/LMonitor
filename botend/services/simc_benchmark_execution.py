@@ -467,7 +467,7 @@ def _embellishment_result_display(candidates):
                 and re.search(r'[。.!！?？]$', text)) for text in values):
             descriptions[token] = complete
     return {key: {
-        'label': ' ＋ '.join(resolved.get(token, token) for token in tokens),
+        'label': '美化：' + ' ＋ '.join(resolved.get(token, token) for token in tokens),
         'tooltip': '\n\n'.join(descriptions.get(token, '美化特效说明暂无可用数据') for token in tokens),
     } for key, tokens in selected.items()}
 

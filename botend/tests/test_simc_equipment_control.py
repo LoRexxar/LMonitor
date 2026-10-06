@@ -400,7 +400,7 @@ class EquipmentControlBenchmarkTests(TestCase):
                              public['execution']['cases'][0]['candidates'],
                              summary['cases'][0]['runs']):
                     label = next(row['label'] for row in rows if row['key'] == 'ring')
-                    self.assertEqual(label, '奥纹内衬')
+                    self.assertEqual(label, '美化：奥纹内衬')
                 row = next(row for row in live['coordinates'][0]['candidates'] if row['key'] == 'ring')
                 self.assertEqual(row['tooltip'], effect)
                 self.assertEqual(row['effect'], effect)

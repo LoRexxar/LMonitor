@@ -58,7 +58,7 @@ class EmbellishmentDisplayIdentityTests(TestCase):
         with CaptureQueriesContext(connection) as queries:
             result = _embellishment_result_display(candidates)
         self.assertEqual(result, {
-            token: {'label': name, 'tooltip': f'{name}完整特效。'}
+            token: {'label': f'美化：{name}', 'tooltip': f'{name}完整特效。'}
             for token, name in (('hunters_ritual_stone', '猎人仪式石'),
                                 ('coiled_snakeeye', '盘卷蛇眼'), ('direct', '直接命中'),
                                 ('bonus', '猎人仪式石'))})
@@ -71,7 +71,7 @@ class EmbellishmentDisplayIdentityTests(TestCase):
         # Different names for the same effect remain ambiguous, never guessed.
         WowItemSnapshot.objects.filter(item_id=273060).update(name_zh='冲突名称')
         result = _embellishment_result_display(candidates)
-        self.assertEqual(result['hunters_ritual_stone']['label'], 'hunters_ritual_stone')
+        self.assertEqual(result['hunters_ritual_stone']['label'], '美化：hunters_ritual_stone')
 
     def test_tooltip_preserves_complete_property_across_reagent_quality_rows(self):
         # Production formats: multiline headings, whitespace, unique-equipped
