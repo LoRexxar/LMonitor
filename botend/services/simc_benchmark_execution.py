@@ -1035,7 +1035,7 @@ def _reusable_candidate_tasks(
 
 
 def _incremental_coordinates(panel, plan):
-    """Schedule only candidate input identities absent from immutable successful results."""
+    """Supplement missing results and effect pairs without frozen validation."""
     rows = []
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(
         panel, include_resource_versions=True, coordinate_plans=plan['cases'],
@@ -1044,8 +1044,37 @@ def _incremental_coordinates(panel, plan):
         reusable = _reusable_candidate_tasks(
             panel, coordinate, reusable_by_coordinate, include_resource_versions=True,
         )
+        # A DPS Result is sufficient for display continuity, not proof that an
+        # effect pair can be skipped. Never tighten the shared display/cleanup
+        # lookup: only execution planning requires verified paired evidence.
+        definitions = {c['candidate_key']: c for c in coordinate['candidates']}
+        repair_keys, pairs, requests = set(), [], set()
+        for key, candidate in definitions.items():
+            baseline_key = (candidate.get('candidate_params') or {}).get('effect_baseline_key')
+            if not baseline_key:
+                continue
+            control = definitions.get(baseline_key)
+            normal_match = reusable.get(_candidate_input_identity(candidate))
+            control_match = reusable.get(_candidate_input_identity(control)) if control else None
+            if not normal_match or not control_match:
+                repair_keys.update((key, baseline_key))
+                continue
+            normal_request = (normal_match['task'].pk, normal_match['result'].candidate_key)
+            control_request = (control_match['task'].pk, control_match['result'].candidate_key)
+            requests.update((normal_request, control_request))
+            pairs.append((key, baseline_key, normal_request, control_request))
+        validations = {}
+        requests = sorted(requests)
+        # Bound task/key cross-product queries and project only frozen proofs.
+        for offset in range(0, len(requests), 128):
+            validations.update(_equipment_effect_validations(requests[offset:offset + 128]))
+        for key, baseline_key, normal_request, control_request in pairs:
+            if _paired_effect_validation(validations[normal_request],
+                                         validations[control_request]).get('status') != 'valid':
+                repair_keys.update((key, baseline_key))
         missing = [candidate for candidate in coordinate['candidates']
-                   if _candidate_input_identity(candidate) not in reusable]
+                   if _candidate_input_identity(candidate) not in reusable
+                   or candidate['candidate_key'] in repair_keys]
         if missing:
             row = deepcopy(coordinate)
             row['candidates'] = missing

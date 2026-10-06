@@ -599,24 +599,112 @@ class EquipmentControlBenchmarkTests(TestCase):
         self.assertIn(control_key('ring'), [row['key'] for row in execution.config_snapshot['candidates']])
         self.assertNotIn('equipment_effect_control', str(historical))
 
+    def test_supplement_requires_verified_effect_pair_without_changing_old_results(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from botend.models import SimulationRun
+        from botend.services import simc_benchmark_execution as service
+
+        original = self.finish()
+        task = original.cases.get().task
+        plan = service.build_execution_plan(self.panel, lock=False)
+        for coordinate in plan['cases']:
+            coordinate['resource_version_hashes'] = service._task_resource_version_hashes(task)
+        before_runs = list(task.simulation_runs.order_by('pk').values())
+        before_display = serialize_incremental_panel_results(self.panel)
+        pair_keys = {'ring', control_key('ring')}
+        with CaptureQueriesContext(connection) as queries:
+            missing = service._incremental_coordinates(self.panel, plan)
+        self.assertEqual({c['candidate_key'] for c in missing[0]['candidates']}, pair_keys)
+        validation_sql = [q['sql'] for q in queries if 'equipment_effect_validation' in q['sql']]
+        self.assertEqual(len(validation_sql), 1)
+        self.assertIn('JSON', validation_sql[0])
+        self.assertNotIn('"candidate_params"', validation_sql[0])
+        self.assertEqual(serialize_incremental_panel_results(self.panel), before_display)
+        self.assertEqual(list(task.simulation_runs.order_by('pk').values()), before_runs)
+
+        valid = {'status': 'valid', 'valid': True, 'validation_basis': 'native_structure',
+                 'event_status': 'unverified', 'reason_codes': []}
+        normal = task.simulation_runs.get(candidate_key='ring')
+        control = task.simulation_runs.get(candidate_key=control_key('ring'))
+        for evidence in (None, {}, 'malformed', {'status': 'invalid'}, {'status': 'unverified'}):
+            with self.subTest(evidence=evidence):
+                for run, proof in ((normal, valid), (control, evidence)):
+                    summary = {**run.result_summary, 'equipment_effect_validation': proof}
+                    SimulationRun.objects.filter(pk=run.pk).update(result_summary=summary)
+                rows = service._incremental_coordinates(self.panel, plan)
+                self.assertEqual({c['candidate_key'] for c in rows[0]['candidates']}, pair_keys)
+        for run in (normal, control):
+            SimulationRun.objects.filter(pk=run.pk).update(
+                result_summary={**run.result_summary, 'equipment_effect_validation': valid})
+        self.assertEqual(service._incremental_coordinates(self.panel, plan), [])
+
+        # A bound conditional witness is reusable only as a pair, not by each
+        # side's pair_pending status; use actual validator output from evidence.
+        import gzip
+        import json
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+        from botend.tests.test_simc_conditional_core import fixture
+        raw = json.loads(gzip.decompress((Path(__file__).with_name('fixtures') /
+            'conditional_run2_evidence.json.gz').read_bytes()))['sides']
+        _, _, authorization = fixture()
+        proofs = {}
+        for mode, run in (('normal', normal), ('control', control)):
+            side = raw[mode]
+            proofs[mode] = validate_equipment_effect_report(side['html'], side['params'],
+                native_proof=side['proof'], prepared_input=side['prepared'],
+                report_json=side['report'], conditional_authorization=authorization)
+            self.assertEqual(proofs[mode]['status'], 'pair_pending')
+            SimulationRun.objects.filter(pk=run.pk).update(result_summary={
+                **run.result_summary, 'equipment_effect_validation': proofs[mode]})
+        self.assertEqual(service._incremental_coordinates(self.panel, plan), [])
+        proofs['control']['conditional_witness']['context_hash'] = 'wrong-context'
+        SimulationRun.objects.filter(pk=control.pk).update(result_summary={
+            **control.result_summary, 'equipment_effect_validation': proofs['control']})
+        self.assertEqual({c['candidate_key'] for c in
+            service._incremental_coordinates(self.panel, plan)[0]['candidates']}, pair_keys)
+
+        # Fresh attempts replace the display only through the normal completion
+        # path. Legacy immutable rows are not backfilled to manufacture evidence.
+        task.simulation_runs.filter(pk__in=[normal.pk, control.pk]).update(result_summary={'dps': 1600})
+        original_rows = list(task.simulation_runs.order_by('pk').values())
+        supplement = self._create()
+        new_task = supplement.cases.get().task
+        self.assertEqual({c['candidate_key'] for c in new_task.mode_params['initial_candidates']}, pair_keys)
+        for seq, key in enumerate(('ring', control_key('ring')), 1):
+            self._run(new_task, seq, 'completed', key, dps=1600 if key == 'ring' else 1500)
+        for run in new_task.simulation_runs.all():
+            run.result_summary['equipment_effect_validation'] = valid
+            run.save(update_fields=['result_summary'])
+        new_task.current_status = 2
+        new_task.save(update_fields=['current_status'])
+        reconcile_execution(supplement)
+        self.assertEqual(service._incremental_coordinates(self.panel, plan), [])
+        self.assertEqual(list(task.simulation_runs.order_by('pk').values()), original_rows)
+        changed = deepcopy(plan)
+        changed['cases'][0]['resource_version_hashes']['apl'] = 'b' * 64
+        self.assertEqual(len(service._incremental_coordinates(self.panel, changed)[0]['candidates']),
+                         len(plan['cases'][0]['candidates']))
+
     def test_missing_control_is_not_compared_with_common_baseline_and_is_supplemented(self):
         self.finish(fail_control=True)
         live = serialize_incremental_panel_results(self.panel)
         self.assertNotIn('ring', [row['key'] for row in live['coordinates'][0]['candidates']])
         supplement = self._create()
         task = supplement.cases.get().task
-        self.assertEqual([row['candidate_key'] for row in task.mode_params['initial_candidates']],
-                         [control_key('ring')])
+        self.assertEqual({row['candidate_key'] for row in task.mode_params['initial_candidates']},
+                         {'ring', control_key('ring')})
         task.current_status = 2
         task.save(update_fields=['current_status'])
-        self._run(task, 1, 'completed', control_key('ring'), dps=1500)
+        self._run(task, 1, 'completed', 'ring', dps=1600)
+        self._run(task, 2, 'completed', control_key('ring'), dps=1500)
         reconcile_execution(supplement)
         rows = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
         ring = next(row for row in rows if row['key'] == 'ring')
         self.assertEqual(ring['baseline_dps'], 1500)
         self.assertEqual(ring['gain_dps'], 100)
 
-    def test_combination_failed_control_is_supplemented_without_rerunning_successful_items(self):
+    def test_combination_failed_control_supplements_pair_without_unrelated_items(self):
         self.ring.params = _normalize_candidate_params('gear_swap',
             'wrists=,id=239660,ilevel=289,crafted_stats=crit/haste\n'
             'back=,id=239661,ilevel=289,crafted_stats=crit/haste')
