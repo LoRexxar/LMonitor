@@ -72,3 +72,50 @@ class EmbellishmentDisplayIdentityTests(TestCase):
         WowItemSnapshot.objects.filter(item_id=273060).update(name_zh='冲突名称')
         result = _embellishment_result_display(candidates)
         self.assertEqual(result['hunters_ritual_stone']['label'], 'hunters_ritual_stone')
+
+    def test_tooltip_preserves_complete_property_across_reagent_quality_rows(self):
+        # Production formats: multiline headings, whitespace, unique-equipped
+        # metadata and a second quality's truncated Chinese translation.
+        examples = {
+            'hunt': (
+                ['提供下列属性：使次要属性提高\n56\n，持续15秒。\n装备唯一：美化（2）。\n用于：武器',
+                 '提供下列属性：使次要属性提高56，持续15秒。'],
+                '使次要属性提高 56 ，持续15秒。'),
+            'stone': (
+                ['提供下列属性：使随机属性提高\n101\n，持续15秒。\n追猎期间效果提高50%。\n用于：武器',
+                 '提供下列属性：使随机属性提高101，持续15秒。'],
+                '使随机属性提高 101 ，持续15秒。 追猎期间效果提高50%。'),
+            'bandolier': (
+                ['提供下列属性：宝石加倍，力量加倍！\n所有珠宝加工修饰都以双倍强度生效。\n用于：装备',
+                 '提供下列属性：宝石加倍，力量加倍！'],
+                '宝石加倍，力量加倍！ 所有珠宝加工修饰都以双倍强度生效。'),
+            'bomb': (
+                ['附加制作材料\n提供下列属性\n你的技能发射最多5发炸弹。\n用于：工程学装备',
+                 '提供下列属性：'],
+                '你的技能发射最多5发炸弹。'),
+            'conflict': (
+                ['提供下列属性：提高56点属性。', '提供下列属性：提高67点属性。'],
+                '美化特效说明暂无可用数据'),
+        }
+        candidates = []
+        for i, (token, (texts, expected)) in enumerate(examples.items()):
+            for quality, text in enumerate(texts):
+                WowItemSnapshot.objects.create(
+                    item_id=800000+i*2+quality, catalog_type='embellishment',
+                    simc_token=token, name_zh=token, description_zh=text)
+            candidates.append({'candidate_key': token, 'candidate_params': {
+                'gear_swap': {'raw_value': f',id=1,embellishment={token}'}}})
+        before = deepcopy(candidates)
+        result = _embellishment_result_display(candidates)
+        for token, (_, expected) in examples.items():
+            with self.subTest(token=token):
+                self.assertEqual(result[token]['tooltip'], expected)
+        self.assertEqual(candidates, before)
+        # With no translated body, retain the complete English source. A blank
+        # heading must not suppress it or leak crafting metadata into the hover.
+        WowItemSnapshot.objects.filter(simc_token='bomb').update(
+            description_zh='提供下列属性：',
+            description='Provides the following property\nFire up to 5 bombs.\n'
+                        'Heal friendly targets.\nUnique-Equipped: Embellished 2.\nUsable with: recipes')
+        self.assertEqual(_embellishment_result_display(candidates)['bomb']['tooltip'],
+                         'Fire up to 5 bombs. Heal friendly targets.')

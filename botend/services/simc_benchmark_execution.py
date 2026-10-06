@@ -389,6 +389,7 @@ def _candidate_bonus_ids(candidate):
 def _embellishment_result_display(candidates):
     """Resolve the selected effect, not its carrier, from canonical item facts."""
     from botend.models import WowItemSnapshot, WowItemVariantSnapshot
+    from botend.services.wow_item_text import crafting_property_text
     from simc_equipment_control import equipment_rules
 
     selected, token_bonuses = {}, {}
@@ -447,18 +448,24 @@ def _embellishment_result_display(candidates):
         name = str(row['name_zh'] or row['name'] or '').strip()
         if name:
             names.setdefault(row['simc_token'], set()).add(name)
-        for description in (row['description_zh'], row['description']):
-            match = re.search(
-                r'(?:提供下列属性|Provides the following property)\s*[:：]\s*(.*?)'
-                r'(?=\n(?:用于|Usable with|最大叠加|Max Stack|售价|Sell Price)\s*[:：]|\n["“]|\Z)',
-                str(description or ''), re.S | re.I)
-            if match and match.group(1).strip():
-                effects.setdefault(row['simc_token'], set()).add(
-                    re.sub(r'\s+', ' ', match.group(1)).strip())
-                break
+        for field in ('description_zh', 'description'):
+            text = crafting_property_text(row[field])
+            if text:
+                effects.setdefault(row['simc_token'], {}).setdefault(field, set()).add(text)
     # Missing or ambiguous localized facts retain the exact effect token.
     resolved = {token: next(iter(values)) for token, values in names.items() if len(values) == 1}
-    descriptions = {token: next(iter(values)) for token, values in effects.items() if len(values) == 1}
+    descriptions = {}
+    for token, localized in effects.items():
+        values = localized.get('description_zh') or localized.get('description', set())
+        compact = {text: re.sub(r'\s+', '', text) for text in values}
+        # Quality rows often contain a shortened translation or different line
+        # breaks. Keep an existing complete body only when every other body is
+        # identical or its whole-sentence prefix; numerical conflicts still fail.
+        complete = max(values, key=lambda text: (len(compact[text]), len(text), text))
+        if all(compact[text] == compact[complete] or (
+                compact[complete].startswith(compact[text])
+                and re.search(r'[。.!！?？]$', text)) for text in values):
+            descriptions[token] = complete
     return {key: {
         'label': ' ＋ '.join(resolved.get(token, token) for token in tokens),
         'tooltip': '\n\n'.join(descriptions.get(token, '美化特效说明暂无可用数据') for token in tokens),
