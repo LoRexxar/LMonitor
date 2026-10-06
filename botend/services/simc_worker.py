@@ -215,6 +215,12 @@ class SimcWorker:
                                 SimcBenchmarkResult.objects.filter(
                                     case_id=benchmark_case.pk, candidate_key__in=retry_keys,
                                 ).delete()
+                                from botend.services.simc_benchmark_result_snapshot import invalidate_result_snapshot
+                                invalidate_result_snapshot(benchmark_case.execution.panel_id, [{
+                                    'spec_key': benchmark_case.spec_key,
+                                    'profile_key': benchmark_case.profile_key,
+                                    'scenario_key': benchmark_case.scenario_key,
+                                }])
                         except TaskRerunError as exc:
                             task.error_detail = f'Worker 心跳超时，Task 重试复制失败: {exc}'
                             task.save(update_fields=['error_detail', 'modified_time'])
@@ -258,6 +264,11 @@ class SimcWorker:
             simc_benchmark_scheduler.reconcile_pending_executions()
         except Exception:
             logger.exception('[SimC Worker] benchmark reconcile sweep failed')
+        try:
+            from botend.services.simc_benchmark_result_snapshot import start_result_snapshot_refresh
+            start_result_snapshot_refresh()
+        except Exception:
+            logger.exception('[SimC Worker] benchmark snapshot dispatch failed')
 
     def run_scheduled_backend_maintenance(self):
         """Run the local backend updater once per Shanghai maintenance window."""

@@ -2137,9 +2137,10 @@ def _spec_icon_url(spec_key):
 def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                         scenario_filter=None, spec_filter=None,
                                         include_coordinate_options=False,
-                                        include_details=True):
+                                        include_details=True, _prepared_plan=None):
     """Aggregate reusable Results as a light summary or full coordinate detail."""
-    plan = build_execution_plan(panel, lock=False)
+    # The background read-model builder shares one plan across bounded coordinates.
+    plan = _prepared_plan if _prepared_plan is not None else build_execution_plan(panel, lock=False)
     is_option_gain = (
         plan['panel'].get('benchmark_type')
         == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
@@ -3391,6 +3392,8 @@ def backfill_completed_case_results(execution):
                 rows.extend(case_rows)
         if rows:
             SimcBenchmarkResult.objects.bulk_create(rows)
+            from botend.services.simc_benchmark_result_snapshot import invalidate_result_snapshot
+            invalidate_result_snapshot(locked.panel_id)
         return len(rows)
 
 
@@ -3425,6 +3428,12 @@ def _append_incremental_results(execution_id, rows):
         ))
     if new_rows:
         SimcBenchmarkResult.objects.bulk_create(new_rows, batch_size=500)
+        from botend.services.simc_benchmark_result_snapshot import invalidate_result_snapshot
+        panel_id = SimcBenchmarkExecution.objects.values_list('panel_id', flat=True).get(pk=execution_id)
+        coordinates = list(SimcBenchmarkCase.objects.filter(
+            pk__in={row.case_id for row in new_rows},
+        ).values('spec_key', 'profile_key', 'scenario_key'))
+        invalidate_result_snapshot(panel_id, coordinates)
     return len(new_rows)
 
 

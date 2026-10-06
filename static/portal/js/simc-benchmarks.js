@@ -1143,7 +1143,10 @@
       if (payload.status === "ready") {
         if (setPageHeading) applyPanelHeading(payload.panel || panel);
         renderResults(shell, payload, { syncLocation: setPageHeading, detailUrl });
-      } else shell.body.replaceChildren(state("暂无已完成模拟结果", "not-ready"));
+      } else shell.body.replaceChildren(state(
+        payload.results?.snapshot?.state === "building"
+          ? "结果快照正在后台生成，请稍后刷新；不会重新启动模拟。"
+          : "暂无已完成模拟结果", "not-ready"));
     } catch (_) { shell.body.replaceChildren(state("Benchmark 结果加载失败，请稍后重试", "error")); }
   }
 

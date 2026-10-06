@@ -10,6 +10,7 @@ from botend.models import (
     SimcBenchmarkSpec,
 )
 from botend.services.simc_benchmark_config import benchmark_profile_key
+from botend.services.simc_benchmark_result_snapshot import read_panel_result_snapshot
 from botend.services.simc_benchmark_execution import (
     serialize_incremental_panel_results, serialize_panel_apl_ranking_results,
 )
@@ -258,8 +259,12 @@ class PortalSimcSpecRankingAPIView(_PortalRankingAPIView):
 
 
 def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=None,
-                           include_details=False):
-    if scenario_filter is not None:
+                           include_details=False, use_snapshot=False):
+    if use_snapshot:
+        results = read_panel_result_snapshot(
+            panel, coordinate_filter=coordinate_filter, scenario_filter=scenario_filter,
+        )
+    elif scenario_filter is not None:
         results = serialize_incremental_panel_results(
             panel,
             scenario_filter=scenario_filter,
@@ -298,6 +303,8 @@ def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=Non
     }
     if isinstance(results.get('coordinate_options'), list):
         payload['results']['coordinate_options'] = results['coordinate_options']
+    if 'snapshot' in results:
+        payload['results']['snapshot'] = results['snapshot']
     if panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN:
         payload['result_view'] = 'option_gain'
     elif scenario_filter is not None:
@@ -367,4 +374,5 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
             coordinate_filter=coordinate_filter,
             scenario_filter=scenario_filter,
             include_details=include_details,
+            use_snapshot=request.GET.get('selected') == '1' and not include_details,
         ))
