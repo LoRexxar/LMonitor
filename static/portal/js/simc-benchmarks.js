@@ -363,9 +363,7 @@
       }
       identity.appendChild(node("strong", "simc-benchmark-gear-name", group.label));
       const plot = node("div", "simc-benchmark-gear-plot");
-      const tiedLevels = node("div", "simc-benchmark-gear-tied-levels");
-      Object.assign(tiedLevels.style, { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", alignItems: "center", gap: "4px", marginTop: "4px", fontSize: "11px" });
-      tiedLevels.appendChild(node("span", "", "并列装等"));
+
       let previousDps = scale.lowest;
       const previousEffect = { positive: 0, negative: 0 };
       if (effectComparison) {
@@ -420,17 +418,7 @@
         const hideComparison = () => { row.classList.remove("is-hovered"); guide.hidden = true; tooltip.hidden = true; };
         segment.addEventListener("pointerenter", showComparison); segment.addEventListener("pointermove", moveTooltip); segment.addEventListener("pointerleave", hideComparison);
         segment.addEventListener("focus", showComparison); segment.addEventListener("blur", hideComparison);
-        if (noise) {
-          // Keep the numeric segment unchanged; each tied candidate gets its own hit target.
-          const option = node("button", "simc-benchmark-gear-tie-option", Number.isFinite(level) && level > 0 ? String(level) : "装备");
-          option.type = "button";
-          option.setAttribute("aria-label", `${group.label} 并列装等 ${level}，查看原始结果`);
-          Object.assign(option.style, { minWidth: "28px", minHeight: "24px", padding: "2px 6px", border: "1px solid #94a3b8", borderRadius: "4px", background: "#fff", color: "#334155", font: "inherit", cursor: "pointer" });
-          option.addEventListener("pointerenter", showComparison); option.addEventListener("pointermove", moveTooltip); option.addEventListener("pointerleave", hideComparison);
-          option.addEventListener("focus", showComparison); option.addEventListener("blur", hideComparison); option.addEventListener("click", showComparison);
-          tiedLevels.appendChild(option);
-          if (start === end) segment.tabIndex = -1;
-        }
+
         plot.appendChild(segment); previousDps = endpoint; previousEffect[side] = endpoint;
       });
       const best = group.best;
@@ -444,7 +432,7 @@
       } else {
         metrics.append(node("div", "simc-benchmark-candidate-value", `${numberFormat.format(validDps(best.dps) ?? 0)} DPS`), node("div", "simc-benchmark-relative", comparisonText(best, [baseline, ...candidates].filter(Boolean), scale, displayDps(best))));
       }
-      if (tiedLevels.children.length > 1) metrics.appendChild(tiedLevels);
+
       row.append(identity, plot, metrics); body.appendChild(row);
     });
     chart.appendChild(body); return chart;

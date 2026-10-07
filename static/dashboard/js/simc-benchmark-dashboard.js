@@ -178,9 +178,7 @@ function renderGearResultChart(rows){
     identity.append(group.icon_url?el('img',{class:'benchmark-gear-icon',src:group.icon_url,alt:'',loading:'lazy'}):el('span',{class:'benchmark-gear-icon placeholder','aria-hidden':'true'},'◈'));
     const identityText=el('span',{class:'benchmark-gear-identity-text'}),heroTalent=group.coordinate?.labels?.hero_talent||'无法获取';identityText.append(el('strong',{},group.label),el('small',{},`英雄天赋：${heroTalent}`));identity.append(identityText);
     const plot=el('div',{class:'benchmark-gear-plot'}),zero=el('i',{class:'benchmark-gear-zero','aria-hidden':'true'});zero.style.left=`${position(0)}%`;plot.append(zero);
-    const tiedLevels=el('div',{class:'benchmark-gear-tied-levels'});
-    Object.assign(tiedLevels.style,{display:'flex',flexWrap:'wrap',justifyContent:'flex-end',alignItems:'center',gap:'4px',marginTop:'4px',fontSize:'11px'});
-    tiedLevels.append(el('span',{},'并列装等'));
+
     // 正负收益分别从零点向外排列，不能假定装等或总 DPS 与相对收益同步递增。
     const endpointOf=variant=>Number.isFinite(variant.delta_percent)?variant.delta_percent:0;
     const previous={positive:0,negative:0};
@@ -208,15 +206,7 @@ function renderGearResultChart(rows){
       };
       const hideComparison=()=>{row.classList.remove('is-hovered');guide.hidden=true;tooltip.hidden=true;};
       segment.addEventListener('pointerenter',showComparison);segment.addEventListener('pointermove',moveTooltip);segment.addEventListener('pointerleave',hideComparison);segment.addEventListener('focus',showComparison);segment.addEventListener('blur',hideComparison);
-      if(noise){
-        // Keep the numeric segment unchanged; each tied candidate gets its own hit target.
-        const option=el('button',{class:'benchmark-gear-tie-option',type:'button','aria-label':`${group.label} 并列装等 ${itemLevel||'未知'}，查看原始结果`},itemLevel||'装备');
-        Object.assign(option.style,{minWidth:'28px',minHeight:'24px',padding:'2px 6px',border:'1px solid #94a3b8',borderRadius:'4px',background:'#fff',color:'#334155',font:'inherit',cursor:'pointer'});
-        option.addEventListener('pointerenter',showComparison);option.addEventListener('pointermove',moveTooltip);option.addEventListener('pointerleave',hideComparison);
-        option.addEventListener('focus',showComparison);option.addEventListener('blur',hideComparison);option.addEventListener('click',showComparison);
-        tiedLevels.append(option);
-        if(startPosition===endPosition)segment.tabIndex=-1;
-      }
+
       plot.append(segment);previous[side]=endpoint;
     });
     const best=group.best,result=el('div',{class:'benchmark-aggregate-result'});
@@ -227,7 +217,7 @@ function renderGearResultChart(rows){
     }else{
       result.append(el('strong',{class:'benchmark-aggregate-dps'},formatDps(best.dps)),el('span',{class:`benchmark-aggregate-delta ${best.delta_percent<0?'negative':'positive'}`},Number.isFinite(best.delta_percent)?`最高 ${best.delta_percent>=0?'+':''}${best.delta_percent.toFixed(1)}%`:'无基准对比'));
     }
-    if(tiedLevels.children.length>1)result.append(tiedLevels);
+
     row.append(identity,plot,result);body.append(row);
   });
   chart.append(body);return chart;

@@ -159,20 +159,20 @@ for (const [render,prefix,metric] of [
   const endpoint=s=>parseFloat(s.style.left)+parseFloat(s.style.width);
   assert.equal(endpoint(segments[0]),endpoint(segments[1]),`${prefix}: tied endpoints`);
   const tooltip=descendants(chart,`${prefix}-gear-tooltip`)[0];
-  const options=descendants(chart,`${prefix}-gear-tie-option`);
-  assert.equal(options.length,2,'every annotated candidate has a separate hit target');
-  assert.equal(descendants(descendants(chart,`${prefix}-gear-identity`)[0],`${prefix}-gear-tie-option`).length,0,'never nest an entry inside the identity button');
-  for(const [i,option] of options.entries()) {
-    assert.equal(String(option.textContent),String(noisy[i].item_level));
-    for(const event of ['pointerenter','focus','click']) {
-      option.handlers[event]({clientX:100,clientY:100});
+  assert.equal(descendants(chart,`${prefix}-gear-tie-option`).length,0,'no separate tied-item-level controls');
+  assert.equal(descendants(chart,`${prefix}-gear-tied-levels`).length,0,'no extra tied-level row');
+  assert.doesNotMatch(treeText(chart),/并列装等/);
+  assert.equal(segments.length,noisy.length,'retain the original item-level segments');
+  for(const [i,segment] of segments.slice(0,2).entries()) {
+    assert.notEqual(segment.tabIndex,-1,'original segments remain keyboard accessible');
+    for(const event of ['pointerenter','focus']) {
+      segment.handlers[event]({clientX:100,clientY:100});
       assert.equal(tooltip.hidden,false);
       assert.ok(treeText(tooltip).includes(noisy[i].dps.toLocaleString('en-US')));
       assert.ok(treeText(tooltip).includes(`原始收益 +${noisy[i].gain_percent.toFixed(2)}%`));
-      option.handlers.pointerleave();
+      segment.handlers.pointerleave();
       assert.equal(tooltip.hidden,true);
     }
-    if(parseFloat(segments[i].style.width)===0)assert.equal(segments[i].tabIndex,-1,'zero-width segments do not duplicate keyboard stops');
   }
   segments[0].handlers.focus();
   assert.match(treeText(tooltip),/相对基准 \+50\.00%/);
