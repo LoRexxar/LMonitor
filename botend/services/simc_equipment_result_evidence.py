@@ -212,7 +212,14 @@ def _native_document(report_html):
         soup.append(projection)
         document = _parse_simc_report_soup(soup)
     else:
-        document = parse_simc_html_report('<div class="player">' + ''.join(map(str, parts)) + '</div>')
+        # Keep the authoritative BS fallback and its serialization boundary:
+        # libxml2 2.12 rejects some native scripts/charts and raw UI ampersands.
+        # Retry reduction only on the exact projection the old metric parser
+        # would receive, after BS has selected and normalized the evidence.
+        # The reducer still rejects unknown layouts and any remaining errors;
+        # never relax error handling on the original report or parse metrics here.
+        projection_html = '<div class="player">' + ''.join(map(str, parts)) + '</div>'
+        document = parse_simc_html_report(_native_evidence_html(projection_html))
     complete = bool(damage is not None and (dynamic is not None or constant is not None) and len(profiles) == 1)
     if damage:
         headers = {th.get_text(' ', strip=True) for th in damage.select('thead th')}

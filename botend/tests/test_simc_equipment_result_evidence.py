@@ -134,6 +134,39 @@ class EquipmentEffectEvidenceTests(SimpleTestCase):
         self.assertEqual(module._native_evidence_html(escaped), escaped)
         self.assertEqual(self.evidence(escaped), expected)
 
+    def test_fallback_reduces_authoritative_projection_before_metric_parsing(self):
+        from unittest.mock import patch
+        from botend.services import simc_equipment_result_evidence as module
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+        from botend.tests.test_simc_equipment_effect_validation import frozen_params
+
+        # libxml2 2.12 rejects native UI markup (including script close tags).
+        # An unrelated unmatched close tag reproduces fallback on newer versions
+        # too; do not mock the accelerator or substitute a different parser.
+        html = native_html().replace('<body>', '<body></unexpected>').replace(
+            '</table></td></tr>',
+            '</table><div>' + 'UNUSED_CHART_PAYLOAD' * 1000 + '</div></td></tr>')
+        self.assertEqual(module._native_evidence_html(html), html)
+        for report in (html, html.replace('toprow right', 'toprow childrow right'),
+                       html.replace('>Profile<', '>Unknown<'),
+                       html.replace('<th>Damage Stats</th>', '<th>Damage Stats</th></unexpected>')):
+            for control in (False, True):
+                params = frozen_params()
+                params['equipment_effect_control'] = control
+                for proof in (None, {'rules_hash': '0' * 64}):
+                    with self.subTest(control=control, proof=proof, report=report[:80]):
+                        # Disable only reduction for the original, authoritative
+                        # BS round trip; both sides execute the real metric parser.
+                        with patch.object(module, '_native_evidence_html', side_effect=lambda value: value):
+                            expected = validate_equipment_effect_report(report, params, native_proof=proof)
+                        with patch.object(module, 'parse_simc_html_report',
+                                          wraps=module.parse_simc_html_report) as parser:
+                            actual = validate_equipment_effect_report(report, params, native_proof=proof)
+                        self.assertEqual(actual, expected)
+                        if '>Unknown<' not in report:
+                            self.assertEqual(parser.call_count, 1)
+                            self.assertNotIn('UNUSED_CHART_PAYLOAD', parser.call_args.args[0])
+
     def test_dropping_all_details_changes_full_validation(self):
         from bs4 import BeautifulSoup
         from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
