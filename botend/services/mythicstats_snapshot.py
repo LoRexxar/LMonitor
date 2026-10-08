@@ -107,8 +107,9 @@ def _validate(payload, season, dungeon_id, period_id):
     rankings = payload.get('rankings')
     if not isinstance(rankings, dict) or any(not isinstance(rankings.get(role), list) for role in ROLES):
         raise ValueError('来源职责数据不完整')
-    if not any(rankings.values()):
-        raise ValueError('来源没有可发布的榜单，保留旧版')
+    # 解析器没有提供“该职责确实无数据”的证据；空列表也可能是解析失败。
+    if any(not rankings[role] for role in ROLES):
+        raise ValueError('来源职责榜单为空，无法确认完整性，保留旧版')
     for role in ROLES:
         slugs = [row.get('spec_slug') for row in rankings[role]]
         if any(not slug for slug in slugs) or len(set(slugs)) != len(slugs):
@@ -138,33 +139,47 @@ def collect_snapshots(*, req=None, season_hint=''):
         if not acquired:
             return {'busy': True, 'built': 0, 'failed': 0}
         manifest = deepcopy(_manifest())
-        # 不用调用者提供的赛季给上游最新数据贴标签，以实际周次归属为准。
-        base = source.fetch_mythicstats_dps(req=req, season='', dungeon_id=0, period_id=None)
-        season = base.get('season') or ''
-        if not season or season == 'unknown':
-            raise ValueError('无法确定来源赛季，保留已发布数据')
-        if source._parse_season(season_hint) not in ('', season):
-            raise ValueError('配置赛季与来源当前赛季不一致，请使用 auto 或当前赛季')
-        raw_periods = base.get('periods') or []
-        candidates = sorted({int(p['id']): p.get('label') or str(p['id']) for p in raw_periods if _number(p.get('id'))}.items(), reverse=True)[:3]
-        if not candidates or base.get('period_id') != candidates[0][0]:
-            raise ValueError('来源缺少最新周次或周次不一致')
-        _validate(base, season, 0, candidates[0][0])
-        if not base.get('dungeons'):
-            raise ValueError('来源缺少副本目录，保留已发布数据')
-        dungeons = {0: {'id': 0, 'name': '全部副本'}}
-        for row in base['dungeons']:
-            did = _number(row.get('id'))
-            if did:
-                dungeons[did] = {'id': did, 'name': str(row.get('name') or did)}
-        periods = []
-        for pid, label in candidates:
-            # 赛季交界不能把前一赛季周次写入新赛季。
-            owner = season if pid == base['period_id'] else source.fetch_period_season_slug(req=req, period_id=pid)[0]
-            if not owner:
-                raise ValueError(f'无法确定周次 {pid} 的所属赛季，保留已发布数据')
-            if owner == season:
-                periods.append({'id': pid, 'label': label})
+        try:
+            # 不用调用者提供的赛季给上游最新数据贴标签，以实际周次归属为准。
+            base = source.fetch_mythicstats_dps(req=req, season='', dungeon_id=0, period_id=None)
+            season = base.get('season') or ''
+            if not season or season == 'unknown':
+                raise ValueError('无法确定来源赛季，保留已发布数据')
+            if source._parse_season(season_hint) not in ('', season):
+                raise ValueError('配置赛季与来源当前赛季不一致，请使用 auto 或当前赛季')
+            raw_periods = base.get('periods') or []
+            candidates = sorted({int(p['id']): p.get('label') or str(p['id']) for p in raw_periods if _number(p.get('id'))}.items(), reverse=True)[:3]
+            if not candidates or base.get('period_id') != candidates[0][0]:
+                raise ValueError('来源缺少最新周次或周次不一致')
+            _validate(base, season, 0, candidates[0][0])
+            if not base.get('dungeons'):
+                raise ValueError('来源缺少副本目录，保留已发布数据')
+            dungeons = {0: {'id': 0, 'name': '全部副本'}}
+            for row in base['dungeons']:
+                did = _number(row.get('id'))
+                if did:
+                    dungeons[did] = {'id': did, 'name': str(row.get('name') or did)}
+            periods = []
+            for pid, label in candidates:
+                # 赛季交界不能把前一赛季周次写入新赛季。
+                owner = season if pid == base['period_id'] else source.fetch_period_season_slug(req=req, period_id=pid)[0]
+                if not owner:
+                    raise ValueError(f'无法确定周次 {pid} 的所属赛季，保留已发布数据')
+                if owner == season:
+                    periods.append({'id': pid, 'label': label})
+        except Exception as exc:
+            # 发现失败时无法信任新范围，只标记正在展示的当前赛季最新周。
+            # 保留历史周、文件指针及数据库事实；下次成功采集会清除对应错误。
+            current = manifest['seasons'].get(manifest['current_season'], {})
+            published_periods = current.get('periods') or []
+            if published_periods:
+                attempted_at = timezone.now().isoformat()
+                for key, entry in current.get('shards', {}).items():
+                    if key.endswith(f":{published_periods[0]['id']}"):
+                        entry.update(error=str(exc)[:500], attempted_at=attempted_at)
+                manifest['updated_at'] = attempted_at
+                _write(root / 'index.json', manifest)
+            raise
         previous = manifest['seasons'].get(season, {})
         meta = {**previous, 'periods': periods, 'dungeons': list(dungeons.values()),
                 'shards': dict(previous.get('shards', {}))}
@@ -202,7 +217,7 @@ def publish_database_snapshots():
     """显式迁移已有数据库榜单；只在后台运行，永不由页面触发。"""
     with _lock(snapshot_root() / 'worker.lock', blocking=False) as acquired:
         if not acquired:
-            return 0
+            raise BlockingIOError('已有采集发布任务运行，请稍后重试')
         manifest = deepcopy(_manifest())
         groups = {}
         for row in PortalMythicstatsDpsRow.objects.exclude(season__in=['unknown', 'season-mn-1']).order_by('season', 'period_id', 'dungeon_id', 'role', 'rank').iterator():

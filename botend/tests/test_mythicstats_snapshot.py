@@ -34,12 +34,12 @@ class MythicstatsSnapshotTests(TestCase):
         self.addCleanup(override.disable)
         self.requests = []
         self.values = {}
-        self.fail = set()
+        self.failed_scopes = set()
         self.season = 'test-season'
         def fetch(*, req=None, season='', dungeon_id=0, period_id=None):
             pid = period_id or 103
             self.requests.append((dungeon_id, pid))
-            if (dungeon_id, pid) in self.fail:
+            if (dungeon_id, pid) in self.failed_scopes:
                 raise RuntimeError('模拟上游不可用')
             return payload(season=self.season, dungeon_id=dungeon_id, period_id=pid,
                            value=self.values.get((dungeon_id, pid), 287000))
@@ -103,11 +103,82 @@ class MythicstatsSnapshotTests(TestCase):
         self.assertEqual(snapshots.read_snapshot(dungeon_id=11)['snapshot']['state'], 'ready')
         self.assertEqual(snapshots.read_snapshot(dungeon_id=11)['roles']['damage'][0]['avg_value'], 888011)
 
+    def test_empty_role_preserves_all_previous_roles_in_database_and_snapshot(self):
+        for did in (0, 11):
+            for role in snapshots.ROLES:
+                with self.subTest(dungeon=did, role=role):
+                    snapshots.collect_snapshots()
+                    before = snapshots.read_snapshot(dungeon_id=did)
+                    rows = PortalMythicstatsDpsRow.objects.filter(
+                        season=self.season, dungeon_id=did, period_id=103).order_by('pk')
+                    database_before = list(rows.values())
+                    original = self.fetch.side_effect
+
+                    def incomplete(**kwargs):
+                        result = original(**kwargs)
+                        if result['dungeon_id'] == did and result['period_id'] == 103:
+                            result['rankings'][role] = []
+                        return result
+
+                    with patch.object(snapshots.source, 'fetch_mythicstats_dps', side_effect=incomplete):
+                        if did == 0:
+                            with self.assertRaises(ValueError):
+                                snapshots.collect_snapshots()
+                        else:
+                            result = snapshots.collect_snapshots()
+                            self.assertEqual(result['failed'], 1)
+                    self.assertEqual(list(rows.values()), database_before)
+                    after = snapshots.read_snapshot(dungeon_id=did)
+                    self.assertEqual(after['roles'], before['roles'])
+                    self.assertEqual(after['generated_at'], before['generated_at'])
+                    self.assertEqual(after['snapshot']['state'], 'stale')
+
+    def test_discovery_failures_mark_latest_old_shards_stale_and_retry_recovers(self):
+        for target in ('fetch_mythicstats_dps', 'fetch_period_season_slug'):
+            with self.subTest(stage=target):
+                snapshots.collect_snapshots()
+                before = snapshots._manifest()
+                database_before = list(PortalMythicstatsDpsRow.objects.order_by('pk').values())
+                files_before = {path.name: path.read_bytes() for path in self.root.glob('*.json')
+                                if path.name != 'index.json'}
+                with patch.object(snapshots.source, target, side_effect=RuntimeError('发现阶段不可用')):
+                    with self.assertRaisesRegex(RuntimeError, '发现阶段不可用'):
+                        snapshots.collect_snapshots()
+                self.assertEqual(list(PortalMythicstatsDpsRow.objects.order_by('pk').values()), database_before)
+                after = snapshots._manifest()
+                self.assertEqual(after['current_season'], before['current_season'])
+                for key, entry in before['seasons'][self.season]['shards'].items():
+                    self.assertEqual(after['seasons'][self.season]['shards'][key]['file'], entry['file'])
+                self.assertEqual({path.name: path.read_bytes() for path in self.root.glob('*.json')
+                                  if path.name != 'index.json'}, files_before)
+                with self.assertNumQueries(0):
+                    for did in (0, 11, 12):
+                        self.assertEqual(snapshots.read_snapshot(dungeon_id=did)['snapshot']['state'], 'stale')
+                        self.assertEqual(snapshots.read_snapshot(dungeon_id=did, period_id=102)['snapshot']['state'], 'ready')
+                self.assertIn('发现阶段不可用', after['seasons'][self.season]['shards']['0:103']['error'])
+                self.assertTrue(after['seasons'][self.season]['shards']['0:103']['attempted_at'])
+                snapshots.collect_snapshots()
+                self.assertEqual(snapshots.read_snapshot()['snapshot']['state'], 'ready')
+
+    def test_database_export_command_reports_lock_contention_as_failure(self):
+        from botend.management.commands.refresh_mythicstats_snapshots import Command
+
+        output, errors = StringIO(), StringIO()
+        with snapshots._lock(self.root / 'worker.lock'), self.assertNumQueries(0):
+            with self.assertRaises(SystemExit) as raised:
+                Command(stdout=output, stderr=errors).run_from_argv(
+                    ['manage.py', 'refresh_mythicstats_snapshots', '--from-database'])
+        self.assertEqual(raised.exception.code, 1)
+        self.assertIn('已有采集发布任务运行', errors.getvalue())
+        self.assertEqual(output.getvalue(), '')
+        self.assertFalse((self.root / 'index.json').exists())
+        self.fetch.assert_not_called()
+
     def test_completed_historical_shards_are_reused_and_missing_historical_shards_retry(self):
-        self.fail = {(11, 102)}
+        self.failed_scopes = {(11, 102)}
         snapshots.collect_snapshots()
         self.assertEqual(snapshots.read_snapshot(dungeon_id=11, period_id=102)['snapshot']['state'], 'pending')
-        self.fail.clear()
+        self.failed_scopes.clear()
         self.requests.clear()
         result = snapshots.collect_snapshots()
         self.assertEqual(result['built'], 4)
@@ -126,15 +197,21 @@ class MythicstatsSnapshotTests(TestCase):
 
     def test_invalid_empty_source_and_publication_failure_preserve_previous_index(self):
         snapshots.collect_snapshots()
-        before = (self.root / 'index.json').read_bytes()
+        before = snapshots._manifest()
         for invalid in ({**payload(), 'rankings': {role: [] for role in snapshots.ROLES}},
                         {**payload(), 'season': 'unknown'}, {**payload(), 'dungeons': []}):
             with patch.object(snapshots.source, 'fetch_mythicstats_dps', return_value=invalid):
                 with self.assertRaises(ValueError):
                     snapshots.collect_snapshots()
-            self.assertEqual((self.root / 'index.json').read_bytes(), before)
+            after = snapshots._manifest()
+            self.assertEqual(after['current_season'], before['current_season'])
+            for key, entry in before['seasons'][self.season]['shards'].items():
+                published = after['seasons'][self.season]['shards'][key]
+                self.assertEqual({k: v for k, v in published.items() if k not in ('error', 'attempted_at')}, entry)
+            self.assertEqual(snapshots.read_snapshot()['snapshot']['state'], 'stale')
         with self.assertRaises(ValueError):
             snapshots.collect_snapshots(season_hint='wrong-season')
+        before = (self.root / 'index.json').read_bytes()
         original = snapshots._write
         def fail_index(path, data):
             if path.name == 'index.json':

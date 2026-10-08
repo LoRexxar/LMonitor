@@ -9,6 +9,7 @@ import re
 import threading
 import time
 import uuid
+import zlib
 
 from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
@@ -149,14 +150,41 @@ def catalog_snapshot_response(request, *, kind='equipment'):
     return response
 
 
-def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False):
-    """全局互斥、限制每轮构建量；写完数据后最后替换索引。"""
+def _verified_index(key):
+    """后台/命令完整回读；Web 热路径仍只检查小索引和文件长度。"""
+    index = _index(key)
+    if index is None:
+        return None
+    try:
+        raw = (_directory(key) / index['file']).read_bytes()
+        payload = json.loads(raw)
+        snapshot = payload['snapshot']
+        content = {name: value for name, value in payload.items() if name not in ('success', 'total', 'snapshot')}
+        digest = hashlib.sha256(json.dumps(content, cls=DjangoJSONEncoder, sort_keys=True,
+                                            ensure_ascii=False).encode()).hexdigest()
+        if (payload.get('success') is not True or snapshot.get('state') != 'ready'
+                or snapshot.get('coordinate') != key or snapshot.get('generation') != index['generation']
+                or digest != index.get('content_hash') or not index.get('gzip_bytes')
+                or gzip.decompress((_directory(key) / (index['file'] + '.gz')).read_bytes()) != raw):
+            return None
+    except (OSError, ValueError, TypeError, KeyError, AttributeError, EOFError, zlib.error):
+        return None
+    return index
+
+
+def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=None, kind='all', strict=False):
+    """后台有界轮询；手工预热只构建目标坐标并严格回读验收。"""
     root = snapshot_root()
     built = []
+    if targets is not None:
+        targets = list({json.dumps(coordinate(**key), sort_keys=True): coordinate(**key) for key in targets}.values())
     with _lock(root / 'worker.lock', blocking=False) as acquired:
         if not acquired:
+            if strict:
+                raise RuntimeError('装备目录快照锁忙，未完成预热')
             return built
-        requests = list(root.glob('*/request.json'))
+        requests = ([_directory(key) / 'request.json' for key in targets]
+                    if targets is not None else list(root.glob('*/request.json')))
         if not requests:
             return built
         checked = _load(root / 'source-check.json', {})
@@ -172,10 +200,13 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False):
         season, catalog, version = _source()
         _write(root / 'source-check.json', {'at': time.time(), 'revision': revision, 'version': version})
         pending = []
+        current = []
         for path in requests:
             try:
                 key = coordinate(**(_load(path) or {}))
                 if _directory(key) != path.parent:
+                    continue
+                if kind != 'all' and key.get('kind', 'equipment') != kind:
                     continue
             except (TypeError, gb.GearBuilderError):
                 continue
@@ -187,7 +218,10 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False):
                 if poll and retry and time.time() - attempt.get('at', 0) < 60:
                     continue
                 pending.append(((retry, index is not None, -path.stat().st_mtime), key))
-        for _, key in sorted(pending, key=lambda row: row[0])[:max(1, batch_size)]:
+            else:
+                current.append(key)
+        selected = [key for _, key in sorted(pending, key=lambda row: row[0])[:max(1, batch_size)]]
+        for key in selected:
             directory = _directory(key)
             _write(directory / 'attempt.json', {'at': time.time()})
             try:
@@ -203,7 +237,7 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False):
                 content_hash = hashlib.sha256(json.dumps(content, cls=DjangoJSONEncoder, sort_keys=True,
                                                          ensure_ascii=False).encode()).hexdigest()
                 previous = _index(key)
-                if previous and previous.get('content_hash') == content_hash:
+                if previous and previous.get('content_hash') == content_hash and _verified_index(key):
                     if _source()[2] != version:
                         break
                     _write(directory / 'index.json', {**previous, 'source_version': version, 'built_at': time.time()})
@@ -234,6 +268,19 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False):
                 built.append(key)
             except Exception:
                 logger.exception('装备目录分片构建失败：%s', key)
+        if strict:
+            expected = targets if targets is not None else (selected + current)[:max(1, batch_size)]
+            required = [key for _, key in pending] if targets is not None else selected
+            failed = [key for key in required if key not in built]
+            for key in expected:
+                index = _verified_index(key)
+                if not index or index.get('source_version') != version:
+                    if key not in failed:
+                        failed.append(key)
+            if failed:
+                raise RuntimeError(f'装备目录预热未完成：{len(failed)} 个目标分片生成或回读失败')
+            if expected and _source()[2] != version:
+                raise RuntimeError('装备目录来源在预热期间变化，请重试')
     return built
 
 

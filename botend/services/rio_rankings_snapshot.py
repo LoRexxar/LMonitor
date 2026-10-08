@@ -10,7 +10,7 @@ from django.conf import settings
 from django.utils import timezone
 
 from botend.models import PortalMplusRun, PortalPeakSpecRankRow, SeasonMeta
-from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, canonical_class_spec
+from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, SPEC_ROLE, canonical_class_spec
 from botend.wow_i18n import cn_dungeon_from_slug
 from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write
 
@@ -103,14 +103,18 @@ def _build(module, season, region):
             'class_slug', 'spec_slug', 'rank', 'id').iterator():
         key = (row.class_slug.strip(), row.spec_slug.strip())
         identity = canonical_class_spec(*key)
+        # The stored slugs identify the requested ranking scope. spec_name and
+        # spec_role come from character.spec: the player's current spec can be
+        # different or absent even in a valid per-spec ranking. Never infer the
+        # ranking role from that profile metadata or a majority of its rows.
+        role = SPEC_ROLE.get(identity) if identity else None
+        if not identity or role not in ('tank', 'healer', 'dps'):
+            raise ValueError(f'无法确定榜单专精职责：{key[0]}/{key[1]}，保留旧版')
         if key not in groups:
             groups[key] = {'class_slug': key[0], 'spec_slug': key[1],
-                           'class_name': identity[0] if identity else row.class_name.strip(),
-                           'spec_name': identity[1] if identity else row.spec_name.strip(),
-                           'aggregate_url': f'/portal/spec/{identity[0]}/{identity[1]}/dungeons/' if identity else '',
-                           'spec_role': row.spec_role.strip(), 'items': [], 'updated_at': _fmt_dt(row.updated_at)}
-        if groups[key]['spec_role'] != row.spec_role.strip():
-            raise ValueError('同一专精的职责口径不一致，保留旧版')
+                           'class_name': identity[0], 'spec_name': identity[1],
+                           'aggregate_url': f'/portal/spec/{identity[0]}/{identity[1]}/dungeons/',
+                           'spec_role': role, 'items': [], 'updated_at': _fmt_dt(row.updated_at)}
         groups[key]['items'].append(_peak_row_to_dict(row))
     return {'role': 'all', 'items': list(groups.values())}
 

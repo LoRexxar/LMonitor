@@ -20,6 +20,82 @@ from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
 
 class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
+    def test_scoped_command_does_not_consume_other_registered_coordinates(self):
+        other = snapshots.coordinate('Mage', 'Fire', 'chest')
+        enhancement = snapshots.coordinate('Warrior', 'Fury', 'head', 'enhancements')
+        snapshots.request_refresh(other)
+        snapshots.request_refresh(enhancement)
+        call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
+                     slot='head', kind='equipment', force=True)
+        self.assertIsNotNone(snapshots._index(self.key))
+        self.assertIsNone(snapshots._index(other))
+        self.assertIsNone(snapshots._index(enhancement))
+
+    def test_command_kind_filters_existing_queue_without_class(self):
+        enhancement = snapshots.coordinate('Warrior', 'Fury', 'head', 'enhancements')
+        snapshots.request_refresh(self.key)
+        snapshots.request_refresh(enhancement)
+        call_command('refresh_gear_catalog_snapshots', kind='enhancements', force=True)
+        self.assertIsNone(snapshots._index(self.key))
+        self.assertIsNotNone(snapshots._index(enhancement))
+
+    def test_command_rejects_busy_lock_and_failed_force_even_with_old_snapshot(self):
+        from django.core.management.base import CommandError
+        options = dict(class_name='Warrior', spec_name='Fury', slot='head', kind='equipment', force=True)
+        with snapshots._lock(self.directory / 'worker.lock'):
+            with self.assertRaises(CommandError):
+                call_command('refresh_gear_catalog_snapshots', **options)
+        self.assertIsNone(snapshots._index(self.key))
+        original = self.build()
+        with self.assertLogs(snapshots.logger, level='ERROR'), patch.object(
+                gb, 'catalog_snapshot_items', side_effect=RuntimeError('测试生成失败')):
+            with self.assertRaises(CommandError):
+                call_command('refresh_gear_catalog_snapshots', **options)
+        self.assertEqual(snapshots._index(self.key), original)
+
+    def test_explicit_targets_cannot_succeed_when_limit_leaves_one_unbuilt(self):
+        from django.core.management.base import CommandError
+        with self.assertRaises(CommandError):
+            call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
+                         slot='head', kind='all', limit=1)
+        call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
+                     slot='head', kind='all')
+        with self.assertRaises(CommandError):
+            call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
+                         slot='head', kind='all', limit=1, force=True)
+
+    def test_command_reads_back_files_instead_of_trusting_build_count(self):
+        from django.core.management.base import CommandError
+        write = snapshots._write
+
+        def corrupt_after_publish(path, payload):
+            write(path, payload)
+            if path.name == 'index.json':
+                body = path.parent / payload['file']
+                body.write_bytes(b'!' + body.read_bytes()[1:])
+
+        with patch.object(snapshots, '_write', side_effect=corrupt_after_publish):
+            with self.assertRaises(CommandError):
+                call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
+                             slot='head', kind='equipment')
+
+    def test_force_repairs_equal_length_plain_and_gzip_corruption(self):
+        for suffix in ('', '.gz'):
+            with self.subTest(suffix=suffix):
+                # Each corruption case starts from an independently built generation.
+                (snapshots._directory(self.key) / 'index.json').unlink(missing_ok=True)
+                old = self.build()
+                path = snapshots._directory(self.key) / (old['file'] + suffix)
+                raw = path.read_bytes()
+                path.write_bytes(b'!' + raw[1:])
+                call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
+                             slot='head', kind='equipment', force=True)
+                index = snapshots._index(self.key)
+                self.assertNotEqual(index['generation'], old['generation'])
+                plain = (path.parent / index['file']).read_bytes()
+                self.assertEqual(json.loads(plain)['snapshot']['coordinate'], self.key)
+                self.assertEqual(gzip.decompress((path.parent / (index['file'] + '.gz')).read_bytes()), plain)
+
     def test_idle_poll_skips_database_but_revision_and_new_shard_wake_worker(self):
         self.build()
         with self.assertNumQueries(0):

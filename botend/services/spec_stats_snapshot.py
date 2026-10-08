@@ -75,6 +75,31 @@ def publish_projection(path, payload, write_json):
     write_json(path, index)
 
 
+def _valid_index_containers(payload, module):
+    """合法 JSON 仍可能结构损坏；概览与详情都不能消费这样的入口。"""
+    def valid_rows(rows, identity):
+        return isinstance(rows, list) and all(
+            isinstance(row, dict) and re.fullmatch(r'\d+', str(row.get(identity, '')))
+            for row in rows
+        )
+
+    def valid_zones(zones):
+        return isinstance(zones, list) and all(
+            isinstance(zone, dict) and valid_rows(zone.get('bosses'), 'boss_id')
+            for zone in zones
+        )
+
+    if module == 'dungeon':
+        return valid_rows(payload.get('dungeons'), 'dungeon_id')
+    if module == 'raid':
+        difficulties = payload.get('difficulties')
+        return (isinstance(difficulties, list) and all(
+            isinstance(item, dict) and item.get('difficulty') in (4, 5)
+            and valid_zones(item.get('zone_groups')) for item in difficulties
+        ) and valid_zones(payload.get('zone_groups')))
+    return False
+
+
 def read_projection(path, detail_key=None):
     """旧完整文件仍只读兼容，新版只读取入口和一个所选详情。"""
     path = Path(path)
@@ -87,7 +112,8 @@ def read_projection(path, detail_key=None):
     if (not isinstance(meta, dict) or meta.get('schema') != SCHEMA
             or meta.get('module') != path.stem or meta.get('scope') != list(path.parent.parts[-3:])
             or not re.fullmatch(r'[0-9a-f]{32}', str(meta.get('generation', '')))
-            or not isinstance(meta.get('details'), list)):
+            or not isinstance(meta.get('details'), list)
+            or not _valid_index_containers(payload, path.stem)):
         return None
     if detail_key is None:
         return payload

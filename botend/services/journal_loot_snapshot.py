@@ -25,19 +25,31 @@ def _directory(key):
     return snapshot_root() / digest
 
 
-def read_loot_projection(release_id, instance_id, difficulty, source, *, journal_version=None):
-    """冷启动只登记任务；失败保留本坐标的旧版，不回退到在线聚合。"""
+def coordinate(release_id, instance_id, difficulty, source, *, journal_version=None):
     key = {'schema': SCHEMA, 'release_id': release_id, 'instance_id': instance_id,
            'difficulty': difficulty, 'source': source}
     if journal_version is not None:
         key['journal_version'] = journal_version
+    return key
+
+
+def _read_projection(key):
+    data = _load(_directory(key) / 'data.json')
+    if (isinstance(data, dict) and data.get('coordinate') == key and isinstance(data.get('loot'), list)
+            and isinstance(data.get('snapshot'), dict) and data['snapshot'].get('state') == 'ready'):
+        return data
+    return None
+
+
+def read_loot_projection(release_id, instance_id, difficulty, source, *, journal_version=None):
+    """冷启动只登记任务；失败保留本坐标的旧版，不回退到在线聚合。"""
+    key = coordinate(release_id, instance_id, difficulty, source, journal_version=journal_version)
     directory = _directory(key)
     try:
         if _load(directory / 'request.json') != key:
             _write(directory / 'request.json', key)
-        data = _load(directory / 'data.json')
-        if (isinstance(data, dict) and data.get('coordinate') == key and isinstance(data.get('loot'), list)
-                and data.get('snapshot', {}).get('state') == 'ready'):
+        data = _read_projection(key)
+        if data is not None:
             return data
         if time.time() - (directory / 'request.json').stat().st_mtime > 60:
             (directory / 'request.json').touch()
@@ -47,7 +59,7 @@ def read_loot_projection(release_id, instance_id, difficulty, source, *, journal
     return {'snapshot': {'state': 'building'}}
 
 
-def refresh_journal_loot_snapshots(*, batch_size=4, force=False, poll=False):
+def refresh_journal_loot_snapshots(*, batch_size=4, force=False, poll=False, targets=None, strict=False):
     from botend.journal_models import JournalInstance
     from botend.portal.adventure_journal import current_release, instance_source, build_loot_projection
     from botend.services.gear_catalog_snapshot import _source, snapshot_root as gear_root
@@ -56,8 +68,13 @@ def refresh_journal_loot_snapshots(*, batch_size=4, force=False, poll=False):
     root = snapshot_root()
     with _lock(root / 'worker.lock', blocking=False) as acquired:
         if not acquired:
+            if strict:
+                raise RuntimeError('冒险手册掉落快照锁忙，未完成预热')
             return built
-        requests = list(root.glob('*/request.json'))
+        if targets is not None:
+            targets = list({json.dumps(key, sort_keys=True): key for key in targets}.values())
+        requests = ([_directory(key) / 'request.json' for key in targets]
+                    if targets is not None else list(root.glob('*/request.json')))
         if not requests:
             return built
         checked = _load(root / 'source-check.json', {})
@@ -69,20 +86,23 @@ def refresh_journal_loot_snapshots(*, batch_size=4, force=False, poll=False):
         season, _, version = _source()
         release = current_release()
         if not release:
+            if strict:
+                raise RuntimeError('冒险手册尚未同步')
             return built
         pending = []
         for path in requests:
             key = _load(path, {})
             if key.get('schema') != SCHEMA or key.get('release_id') != release.id or _directory(key) != path.parent:
                 continue
-            previous = _load(path.parent / 'data.json', {})
+            previous = _read_projection(key) or {}
             if not force and previous.get('source_version') == version and time.time() - previous.get('built_at', 0) < 3600:
                 continue
             attempt = _load(path.parent / 'attempt.json', {}).get('at', 0)
             if poll and attempt > previous.get('built_at', 0) and time.time() - attempt < 60:
                 continue
             pending.append((attempt, path, key))
-        for _, path, key in sorted(pending, key=lambda entry: entry[0])[:max(1, batch_size)]:
+        selected = sorted(pending, key=lambda entry: entry[0])[:max(1, batch_size)]
+        for _, path, key in selected:
             _write(path.parent / 'attempt.json', {'at': time.time()})
             try:
                 instance = JournalInstance.objects.get(release=release, journal_id=key['instance_id'])
@@ -109,7 +129,28 @@ def refresh_journal_loot_snapshots(*, batch_size=4, force=False, poll=False):
             except Exception:
                 logger.exception('冒险手册掉落快照构建失败：%s', key)
         _write(root / 'source-check.json', {'at': started_at, 'revision': revision, 'version': version,
-                                          'pending': len(pending) > max(1, batch_size)})
+                                          'pending': targets is not None or len(pending) > max(1, batch_size)})
+        if strict:
+            expected = targets if targets is not None else [key for _, _, key in selected]
+            required = pending if targets is not None else selected
+            failed = [key for _, _, key in required if key not in built]
+            for key in expected:
+                data = _read_projection(key)
+                if not data or data.get('source_version') != version or key.get('release_id') != release.id:
+                    if key not in failed:
+                        failed.append(key)
+            if failed:
+                raise RuntimeError(f'冒险手册掉落预热未完成：{len(failed)} 个目标分片生成或回读失败')
+            active = current_release()
+            if expected and (_source()[2] != version or not active or active.id != release.id):
+                raise RuntimeError('冒险手册来源在预热期间变化，请重试')
+            for key in expected:
+                instance = JournalInstance.objects.filter(release=active, journal_id=key['instance_id']).first()
+                if (not instance or key['difficulty'] not in instance.payload['difficulty_ids']
+                        or instance_source(active, instance.journal_id, season=season) != key['source']
+                        or (key.get('journal_version') and
+                            loot_version(list(instance.encounters.all()), key['difficulty']) != key['journal_version'])):
+                    raise RuntimeError('冒险手册目标坐标在预热期间变化，请重试')
     return built
 
 
