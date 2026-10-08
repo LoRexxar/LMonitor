@@ -201,7 +201,10 @@ def detail_data(request, instance_id):
         if identity in seen:
             continue
         seen.add(identity)
-        filtered.append({**row, 'details': _present_tooltip(cached_tooltip('item', row['item_id'], difficulty, source['build']), source)})
+        filtered.append({**row, 'details': _present_tooltip(cached_tooltip(
+            'item', row['item_id'], difficulty, source['build'],
+            use_current_catalog=source['key'] == 'current',
+        ), source)})
     result['loot'] = filtered
     overview = next((s['descriptions'].get(str(difficulty), '') for s in payload['sections']
                      if s['type'] == 3 and not s['roles'] and difficulty in s['difficulty_ids']), '')
@@ -289,7 +292,10 @@ class PortalAdventureJournalTooltipView(View):
                                 json_dumps_params={'ensure_ascii': False})
         from botend.services.journal_tooltip import tooltip
         try:
-            return JsonResponse(_present_tooltip(tooltip(kind, entry_id, context['difficulty'], context['release']['build']), source), json_dumps_params={'ensure_ascii': False})
+            return JsonResponse(_present_tooltip(tooltip(
+                kind, entry_id, context['difficulty'], context['release']['build'],
+                use_current_catalog=source['key'] == 'current',
+            ), source), json_dumps_params={'ensure_ascii': False})
         except ValueError:
             item = load_item_display_metadata([entry_id])[entry_id]
             if item['display_name'] == f'#{entry_id}':

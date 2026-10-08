@@ -244,6 +244,44 @@ class JournalLocalTooltipTests(TestCase):
     def test_different_build_does_not_reuse_ptr_snapshot(self):
         self.assertIsNone(cached_tooltip('item', 281235, 14, '12.1.0.69814'))
 
+    def test_current_catalog_accepts_refreshed_tooltip_without_old_import_markers(self):
+        item = WowItemSnapshot.objects.create(
+            item_id=280799, name_zh='露瑟拉玛，圣光之裁', catalog_type='equipment',
+        )
+        WowItemVariantSnapshot.objects.create(
+            season=self.season, batch_key=self.season.gear_batch_key,
+            item=item, variant_key='刷新后的装备', variant_type='drop_equipment',
+            game_build='12.1.5.70077', item_level=292,
+            stats_json={'strength': 128, 'stamina': 2406},
+            effects_json=[{'description_zh': '装备：你的伤害有几率使你获得急速。'}],
+            metadata={'ptr_preview': True, 'tooltip_source': {'provider': 'wowhead'}},
+        )
+        # 历史 PTR 仍保持精确构建约束，本赛季跟随当前活动目录。
+        self.assertIsNone(cached_tooltip('item', 280799, 14, '12.1.5.69594'))
+        self.assertIsNone(cached_tooltip('item', 280799, 14, '12.1.5.70077'))
+        with patch('botend.services.journal_tooltip.requests.Session', side_effect=AssertionError('不应联网')):
+            result = tooltip('item', 280799, 14, '12.1.5.69594', use_current_catalog=True)
+        self.assertTrue(result['complete'])
+        self.assertIn('+128 力量', result['stats'])
+        self.assertEqual(result['effects'], ['装备：你的伤害有几率使你获得急速。'])
+        self.assertIn('12.1.5.70077', result['note'])
+
+    @patch('botend.services.journal_tooltip.requests.Session')
+    def test_flavor_text_does_not_block_missing_equipment_details(self, mock_session_cls):
+        WowItemSnapshot.objects.create(
+            item_id=281056, name_zh='圣洁骑士的凰刃', catalog_type='equipment',
+            description_zh='“黑暗休想在此立足。”——女伯爵莉亚德琳',
+        )
+        self.assertIsNone(cached_tooltip('item', 281056, 14, '12.1.5.69594'))
+        mock_resp = mock_session_cls.return_value.__enter__.return_value.get.return_value
+        mock_resp.json.return_value = {
+            'name': '圣洁骑士的凰刃', 'tooltip': '<div>物品等级：292<br>+308 智力<br>装备：法术有几率造成额外伤害。</div>',
+        }
+        result = tooltip('item', 281056, 14, '12.1.5.69594')
+        mock_session_cls.assert_called_once()
+        self.assertEqual(result['stats'], ['+308 智力'])
+        self.assertEqual(result['effects'], ['装备：法术有几率造成额外伤害。'])
+
     @patch('botend.services.journal_tooltip.requests.Session')
     def test_missing_item_variant_falls_back_to_wowhead_fetch(self, mock_session_cls):
         """中央目录缺失的装备应回退到 Wowhead tooltip API 获取。"""

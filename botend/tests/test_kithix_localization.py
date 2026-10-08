@@ -106,6 +106,34 @@ class KithixLocalizationTests(TestCase):
         popularity = _compute_gear_popularity([{'gear_json': [{'id': 281029, 'itemLevel': 292, 'slot': 'finger1'}]}])
         self.assertIn('酸巢灾虫', next(iter(popularity.values()))[0]['display_description'])
 
+    def test_current_handbook_follows_catalog_refresh_in_page_and_details(self):
+        self.apply()
+        item_ids = [281056, 281215, 280617, 280799, 280835]
+        # 模拟中央目录更新构建和来源后，手册发布仍保留旧的掉落关系构建。
+        for variant in WowItemVariantSnapshot.objects.filter(item__item_id__in=item_ids):
+            variant.game_build = '12.1.5.70077'
+            variant.metadata = {'ptr_preview': True, 'tooltip_source': {'provider': 'wowhead'}}
+            for effect in variant.effects_json:
+                effect.pop('game_build', None)
+            variant.save(update_fields=['game_build', 'metadata', 'effects_json'])
+        with patch('botend.services.journal_tooltip.requests.Session', side_effect=AssertionError('不应联网')):
+            page = self.client.get('/portal/adventure-journal/1324/', {'difficulty': 14, 'tab': 'loot'})
+            self.assertEqual(page.status_code, 200)
+            rows = {row['item_id']: row['details'] for row in page.context['loot']}
+            for item_id in item_ids:
+                expected = load_item_tooltip_metadata([{
+                    'item_id': item_id, 'allow_default_variant': True, 'default_variant_order': 'lowest',
+                }])[0]
+                self.assertTrue(rows[item_id]['complete'])
+                self.assertEqual(rows[item_id]['stats'], expected['stat_lines'])
+                self.assertEqual(rows[item_id]['effects'], expected['effects'])
+                response = self.client.get(
+                    f'/portal/api/adventure-journal/1324/tooltip/item/{item_id}/', {'difficulty': 14},
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json(), rows[item_id])
+                self.assertContains(page, f'data-loot-id="{item_id}" data-details-loaded="true"')
+
     def test_sync_retains_season_override_when_retail_includes_same_instance(self):
         self.apply()
         release = JournalState.objects.get().active_release

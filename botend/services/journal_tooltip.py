@@ -23,15 +23,16 @@ def cache_key(kind, entry_id, difficulty, build=''):
     return f'journal-tooltip:v3:{build}:{kind}:{entry_id}:{difficulty if kind == "spell" else 0}:zhCN'
 
 
-def _local_item_tooltip(entry_id, build):
-    if not build:
+def _local_item_tooltip(entry_id, build, *, use_current_catalog=False):
+    if not build and not use_current_catalog:
         return None
     item = load_item_tooltip_metadata([{
         'item_id': entry_id,
-        'game_build': build,
+        # 本赛季装备随中央目录更新，手册发布构建只约束首领和掉落关系。
+        'game_build': '' if use_current_catalog else build,
         'allow_default_variant': True,
         'default_variant_order': 'lowest',
-        'require_complete_variant': True,
+        'require_complete_variant': not use_current_catalog,
     }])[0]
     if item['catalog_type'] == 'misc' and item.get('name_zh'):
         return {'name': item['display_name'], 'lines': [item['display_name'], item['localized_description']],
@@ -42,6 +43,7 @@ def _local_item_tooltip(entry_id, build):
     # variant 完整时直接返回结构化数据
     if item['variant_id'] and item['tooltip_complete']:
         item_level = item['item_level']
+        data_build = item['game_build'] or build
         return {
             'name': item['display_name'],
             'lines': [item['display_name'], f'物品等级 {item_level}', *item['stat_lines'], *item['effects']],
@@ -49,9 +51,9 @@ def _local_item_tooltip(entry_id, build):
             'url': '',
             'icon': item['icon_url'],
             'note': (
-                f'数值为 PTR {build} 的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
+                f'数值为 PTR {data_build} 的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
                 if is_ptr else
-                f'数值为正式服 {build} 当前装备目录的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
+                f'数值为正式服 {data_build} 当前装备目录的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
             ),
             'item_level': item_level,
             'stats': item['stat_lines'],
@@ -96,6 +98,9 @@ def _local_item_tooltip(entry_id, build):
         if line == '+':
             stats.append(line)
             continue
+    # 背景描述不代表已有装备详情，否则会阻止后续补取属性和特效。
+    if not stats and not effects:
+        return None
     source_label = 'LMonitor PTR DB2 + SimulationCraft' if is_ptr else 'LMonitor 装备目录'
     note_prefix = f'PTR {build}' if is_ptr else f'正式服 {build}'
     note = f'{source_label} 基础事实，参考装等 {item_level or "未知"}。' if not stats else f'数值来自 {note_prefix} 装备目录描述文本。'
@@ -113,9 +118,9 @@ def _local_item_tooltip(entry_id, build):
     }
 
 
-def cached_tooltip(kind, entry_id, difficulty, build=''):
+def cached_tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False):
     if kind == 'item':
-        return _local_item_tooltip(entry_id, build)
+        return _local_item_tooltip(entry_id, build, use_current_catalog=use_current_catalog)
     key = cache_key(kind, entry_id, difficulty, build)
     result = cache.get(key)
     if result:
@@ -232,9 +237,9 @@ def _parse_wowhead_item_tooltip(entry_id, difficulty, raw_lines, payload):
     }
 
 
-def tooltip(kind, entry_id, difficulty, build=''):
+def tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False):
     key = cache_key(kind, entry_id, difficulty, build)
-    cached = cached_tooltip(kind, entry_id, difficulty, build)
+    cached = cached_tooltip(kind, entry_id, difficulty, build, use_current_catalog=use_current_catalog)
     if cached:
         return cached
     # 物品：中央变体缺失时回退到 Wowhead tooltip API
