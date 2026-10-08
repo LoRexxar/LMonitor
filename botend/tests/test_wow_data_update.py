@@ -171,6 +171,19 @@ class IncrementalUpdateTests(TestCase):
         self.run_update()
         self.assertEqual(WowDataUpdateState.objects.get(branch='retail').published_build, NEW)
 
+    def test_new_collection_fields_refresh_same_build_once(self):
+        self.source.discover.return_value = {'build': NEW, 'catalog_build': NEW}
+        self.run_update()
+        self.source.prepare.reset_mock()
+        self.source.discover.return_value = {'build': NEW, 'catalog_build': NEW,
+                                             'data_schema': 'loot-specializations-1'}
+        self.run_update()
+        self.source.prepare.assert_called_once()
+        self.assertEqual(WowItemSnapshot.objects.filter(item_id=123).count(), 1)
+        self.source.prepare.reset_mock()
+        self.assertEqual(self.run_update()['retail']['status'], 'unchanged')
+        self.source.prepare.assert_not_called()
+
     def test_failure_after_equipment_write_rolls_back_equipment_and_talents(self):
         with patch.object(WowTalentVersion, 'save', side_effect=ValueError('发布失败')):
             with self.assertRaisesMessage(ValueError, '发布失败'):
@@ -246,6 +259,19 @@ class IncrementalUpdateTests(TestCase):
     def test_old_build_does_not_hide_data_even_before_first_sync(self):
         result = load_item_tooltip_metadata([{'item_id': 123, 'item_level': 300, 'game_build': '1.0.0.1'}])[0]
         self.assertEqual(result['variant_id'], self.variant.pk)
+
+    def test_loot_specialization_updates_are_scoped_to_branch(self):
+        from botend.services.journal_loot import enrich_loot_specializations
+        def with_specs(*args):
+            bundle = self.bundle(*args)
+            bundle['catalog']['items'][0]['loot_spec_ids'] = [65]
+            return bundle
+        self.source.prepare.side_effect = with_specs
+        self.run_update(('ptr',))
+        ptr = enrich_loot_specializations([{'item_id': 123}], 'ptr')[0]
+        retail = enrich_loot_specializations([{'item_id': 123}], 'retail')[0]
+        self.assertEqual(ptr['eligible_specs'], ['Paladin:Holy'])
+        self.assertFalse(retail['eligible_specs'])
 
     def test_beta_is_separate_from_retail_and_ptr(self):
         self.run_update(('beta',))

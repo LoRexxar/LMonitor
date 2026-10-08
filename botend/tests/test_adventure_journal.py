@@ -344,15 +344,18 @@ class JournalPublicationTests(TestCase):
         from urllib.parse import parse_qs, urlsplit
         response = self.client.get('/portal/adventure-journal/10/', {
             'difficulty': 2, 'role': 'healer', 'class': 1, 'slot': 1,
+            'spec': 71,
             'faction': 'alliance', 'loot_q': '英雄', 'tab': 'loot',
         })
         params = parse_qs(urlsplit(response.context['bosses'][0]['url']).query)
         self.assertEqual(params['tab'], ['skills'])
         self.assertEqual(params['slot'], ['1'])
         self.assertEqual(params['class'], ['1'])
+        self.assertEqual(params['spec'], ['71'])
         self.assertEqual(params['loot_q'], ['英雄'])
         self.assertContains(response, 'name="slot" value="1"')
         self.assertContains(response, 'name="class" value="1"')
+        self.assertContains(response, 'name="spec" value="71"')
         self.assertContains(response, 'data-auto-filter')
 
     def test_equipment_details_are_inline_when_cached(self):
@@ -364,6 +367,45 @@ class JournalPublicationTests(TestCase):
         self.assertContains(response, '装等 289')
         self.assertContains(response, '使用：急速提高800，持续15秒。')
         self.assertNotContains(response, '正在加载特效')
+
+    def test_loot_spec_uses_current_item_whitelist_instead_of_whole_class(self):
+        WowItemSnapshot.objects.filter(item_id=60).update(eligible_specs=['Paladin:Holy'])
+        url = '/portal/api/adventure-journal/10/'
+        holy = self.client.get(url, {'class': 2, 'spec': 65}).json()
+        self.assertEqual([row['item_id'] for row in holy['loot']], [60])
+        self.assertEqual(self.client.get(url, {'class': 2, 'spec': 70}).json()['loot'], [])
+        self.assertEqual(len(self.client.get(url, {'class': 2}).json()['loot']), 1)
+        self.assertEqual(self.client.get(url, {'class': 1}).json()['loot'], [])
+
+    def test_db2_spec_override_is_compiled_and_filtered_without_catalog_specs(self):
+        tables = fixture()
+        tables['ItemSpecOverride'] = [{'ID': '1', 'ItemID': '60', 'SpecID': '65'}]
+        self.publish(tables)
+        self.assertEqual(self.client.get('/portal/api/adventure-journal/10/',
+            {'class': 2, 'spec': 70}).json()['loot'], [])
+        holy = self.client.get('/portal/api/adventure-journal/10/', {'class': 2, 'spec': 65}).json()
+        self.assertEqual(holy['loot'][0]['loot_spec_ids'], [65])
+
+    def test_loot_spec_rejects_cross_class_and_unknown_selection(self):
+        for value in ('65', 'invalid', '99999'):
+            data = self.client.get('/portal/api/adventure-journal/10/', {'class': 1, 'spec': value}).json()
+            self.assertEqual(data['spec_id'], 0)
+            self.assertEqual({row['id'] for row in data['specs']}, {71, 72, 73})
+
+    def test_loot_page_has_no_data_collection_notes(self):
+        response = self.client.get('/portal/adventure-journal/10/', {'class': 2, 'spec': 65})
+        self.assertNotContains(response, '尚缺明确的拾取专精资料')
+        self.assertNotContains(response, '拾取专精待确认')
+
+    def test_ptr_specialization_list_does_not_replace_retail(self):
+        from botend.services.journal_loot import enrich_loot_specializations
+        item = WowItemSnapshot.objects.get(item_id=60)
+        item.eligible_specs = ['Paladin:Holy']
+        item.metadata['branch_display'] = {'ptr': {'eligible_specs': ['Paladin:Retribution']}}
+        item.save()
+        row = {'item_id': 60}
+        self.assertEqual(enrich_loot_specializations([dict(row)], 'retail')[0]['eligible_specs'], ['Paladin:Holy'])
+        self.assertEqual(enrich_loot_specializations([dict(row)], 'ptr')[0]['eligible_specs'], ['Paladin:Retribution'])
 
     def test_difficulty_role_and_loot_filters_do_not_leak(self):
         url = '/portal/api/adventure-journal/10/'

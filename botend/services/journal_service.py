@@ -12,6 +12,7 @@ from botend.journal_models import JournalEncounter, JournalInstance, JournalRele
 from botend.services.journal_source import TABLES, WagoJournalSource, latest_retail_build
 from botend.services.journal_text import JournalText, grouped, index, integer
 from botend.services.journal_classification import instance_kind
+from botend.services.item_loot_specializations import LootSpecializationRules
 
 
 ROLE_FLAGS = ((1, 'tank', '坦克'), (2, 'dps', '输出'), (4, 'healer', '治疗'))
@@ -110,6 +111,7 @@ def compile_journal(tables, *, item_fallback=None):
     item_diff = grouped(tables['JournalItemXDifficulty'], 'JournalEncounterItemID')
     items = index(tables['Item'])
     sparse = index(tables['ItemSparse'])
+    loot_spec_rules = LootSpecializationRules(tables)
     resolver = JournalText(tables)
     report = {'instances': 0, 'encounters': 0, 'sections': 0, 'loot': 0, 'missing_item_ids': [],
               'encounters_without_sections': [], 'encounters_without_loot': [], 'unlinked_sections': {},
@@ -214,6 +216,7 @@ def compile_journal(tables, *, item_fallback=None):
                               'subclass_id': integer(item.get('SubclassID')), 'class_mask': integer(meta.get('AllowableClass'), -1),
                               'description': meta.get('Description_lang') or fallback.get('description', ''),
                               'required_level': integer(meta.get('RequiredLevel')),
+                              'gem_properties': integer(meta.get('GemProperties')),
                               'bonding': integer(meta.get('Bonding')),
                               'stat_types': sorted({integer(meta.get(f'StatModifier_bonusStat_{n}')) for n in range(10)
                                                     if integer(meta.get(f'StatPercentEditor_{n}')) > 0}),
@@ -224,6 +227,9 @@ def compile_journal(tables, *, item_fallback=None):
                               'condition_id': integer(drop.get('WorldStateExpressionID')),
                               'source': 'wago' if meta.get('Display_lang') else fallback.get('source', 'missing'),
                               'url': f'https://www.wowhead.com/cn/item={item_id}'})
+                specialization = loot_spec_rules.resolve(drops[-1])
+                if specialization:
+                    drops[-1].update(specialization)
             if not compiled:
                 report['encounters_without_sections'].append(eid)
             if not drops:

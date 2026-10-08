@@ -9,7 +9,7 @@ from django.views import View
 from botend.journal_models import JournalEncounter, JournalInstance, JournalState
 from botend.services.journal_service import ROLE_FLAGS, SLOTS
 from botend.services.journal_text import integer
-from botend.services.journal_loot import class_matches, equipment_type
+from botend.services.journal_loot import class_matches, equipment_type, specialization_options, enrich_loot_specializations
 from botend.services.journal_tooltip import cached_tooltip
 from botend.services.wow_item_display import load_item_display_metadata
 from botend.services.journal_classification import JournalClassification, instance_kind
@@ -116,7 +116,15 @@ def detail_data(request, instance_id):
     if boss is None and requested:
         boss = next((b for b in bosses if b.name == requested.name), None)
     boss = boss or (bosses[0] if bosses else None)
-    keep = {key: request.GET[key] for key in ('slot', 'class', 'item_type', 'loot_q') if key in request.GET}
+    class_id = integer(request.GET.get('class'))
+    if class_id not in {cid for cid, _ in CLASSES}:
+        class_id = 0
+    specs = specialization_options(class_id)
+    spec_id = integer(request.GET.get('spec'))
+    if spec_id not in {spec['id'] for spec in specs}:
+        spec_id = 0
+    keep = {key: request.GET[key] for key in ('slot', 'item_type', 'loot_q', 'loot_boss') if key in request.GET}
+    keep.update({'class': class_id or '', 'spec': spec_id or ''})
     keep.update(difficulty=difficulty, role=role)
     classification = JournalClassification(release, active_season())
     source = instance_source(release, instance.journal_id, season=classification.season)
@@ -128,7 +136,7 @@ def detail_data(request, instance_id):
               'difficulties': [d for d in release.manifest['catalog']['difficulties'] if d['id'] in available],
               'roles': [{'id': key, 'name': label} for _, key, label in ROLE_FLAGS],
               'slots': [], 'classes': [{'id': cid, 'name': name} for cid, name in CLASSES],
-              'slot': request.GET.get('slot', ''), 'class_id': integer(request.GET.get('class')),
+              'slot': request.GET.get('slot', ''), 'class_id': class_id, 'spec_id': spec_id, 'specs': specs,
               'item_type': request.GET.get('item_type', ''), 'loot_boss': integer(request.GET.get('loot_boss')),
               'loot_q': request.GET.get('loot_q', '').strip()[:100],
               'loot': [], 'loot_total': 0, 'item_types': [],
@@ -178,7 +186,8 @@ def detail_data(request, instance_id):
                 row['sources'].append({'id': owner.journal_id, 'name': owner.name})
             row['condition_id'] = row['condition_id'] or drop['condition_id']
             row['display_season_id'] = row['display_season_id'] or drop['display_season_id']
-    drops = list(by_item.values())
+    drops = enrich_loot_specializations(list(by_item.values()), source['key'], fallback_branch=(
+        'ptr' if str(instance_id) in (release.manifest or {}).get('ptr_overlays', {}) else 'retail'))
     result['loot_total'] = len(drops)
     result['item_types'] = [{'id': key, 'name': name} for key, name in sorted({(d['item_type'], d['type_name']) for d in drops})]
     result['slots'] = [{'id': slot, 'name': SLOTS.get(slot, '其他')} for slot in sorted({d['slot'] for d in drops})]
@@ -193,7 +202,7 @@ def detail_data(request, instance_id):
             continue
         if result['slot'] != '' and row['slot'] != integer(result['slot']):
             continue
-        if not class_matches(row, result['class_id']):
+        if not class_matches(row, result['class_id'], result['spec_id']):
             continue
         if result['loot_q'] and result['loot_q'].casefold() not in row['name'].casefold() and result['loot_q'] != str(row['item_id']):
             continue

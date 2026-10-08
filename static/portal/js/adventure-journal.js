@@ -1,6 +1,9 @@
 (() => {
   document.querySelectorAll('form[data-auto-filter]').forEach(form => {
-    form.querySelectorAll('select').forEach(select => select.addEventListener('change', () => form.requestSubmit()));
+    form.querySelectorAll('select').forEach(select => select.addEventListener('change', () => {
+      if (select.name === 'class' && form.elements.spec) form.elements.spec.value = '';
+      form.requestSubmit();
+    }));
     form.querySelectorAll('input[type="search"]').forEach(input => {
       input.addEventListener('search', () => form.requestSubmit());
     });

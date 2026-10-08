@@ -149,7 +149,9 @@ class UpdateSource:
             raise ValueError(f'{branch} 没有可用构建')
         build = max(builds, key=build_number)
         catalog = source._get_json(f'https://www.raidbots.com/static/data/{BRANCHES[branch][1]}/metadata.json')
-        return {'build': build, 'catalog_build': str(catalog.get('wowBuild') or catalog.get('wow_build') or '')}
+        # 新增采集字段时，即使上游构建未变，也在下一正常周期补齐一次。
+        return {'build': build, 'catalog_build': str(catalog.get('wowBuild') or catalog.get('wow_build') or ''),
+                'data_schema': 'loot-specializations-2'}
 
     def prepare(self, branch, build, run, heartbeat):
         current = WowTalentVersion.objects.filter(key=branch).first()
@@ -196,6 +198,20 @@ class UpdateSource:
         # 展示更新不依赖执行用的精确构建证据是否完成补采。
         identities, activations = [], []
         fact_warnings = []
+        loot_specializations = {}
+        try:
+            from botend.services.item_loot_specializations import prepare_specializations, eligible_names
+            spec_source = WagoJournalSource(build, directory, refresh=True, progress=heartbeat, max_workers=2)
+            spec_source.directory = directory / 'loot-specializations'
+            loot_specializations = prepare_specializations(branch, spec_source, payload['items'])
+            for item in payload['items']:
+                if item['item_id'] in loot_specializations:
+                    item.update(loot_specializations[item['item_id']])
+                    item['eligible_specs'] = eligible_names(item['loot_spec_ids'])
+        except MonitorTaskLeaseLost:
+            raise
+        except Exception as exc:
+            fact_warnings.append(f'拾取专精限制补采待重试：{exc}')
         if branch != 'beta':
             try:
                 identities, activations = self.facts(source, payload, branch, build, heartbeat)
@@ -207,7 +223,7 @@ class UpdateSource:
         self.talent_display(source, dump_dir, heartbeat)
         return {'catalog': payload, 'dump_dir': str(dump_dir), 'season_id': season.pk,
                 'previous_batch': season.gear_batch_key, 'identities': identities, 'activations': activations,
-                'warnings': fact_warnings}
+                'warnings': fact_warnings, 'loot_specializations': loot_specializations}
 
     @staticmethod
     def facts(source, payload, branch, build, heartbeat):
@@ -506,6 +522,9 @@ def publish(bundle, version, state, run, task):
             node.save(force_insert=True)
             retained.append(node.pk)
     season.gear_batch_key, season.gear_sync_status, season.gear_synced_at = batch, 'ready', timezone.now()
+    if bundle.get('loot_specializations'):
+        from botend.services.item_loot_specializations import publish_specializations
+        publish_specializations(run.branch, bundle['loot_specializations'])
     if run.branch == 'retail':
         season.game_build = run.build
     report = deepcopy(season.gear_sync_report or {})
@@ -540,10 +559,14 @@ def refresh_projections(state):
 
 def sync_game_data(*, monitor_task=None, branches=None, source=None):
     if branches is None:
+        from botend.journal_models import JournalState
+        journal = JournalState.objects.select_related('active_release').filter(pk='wow-zhCN').first()
+        journal_branches = ('ptr',) if journal and journal.active_release and (
+            journal.active_release.manifest or {}).get('ptr_overlays') else ()
         branches = tuple(dict.fromkeys(('retail', *WowTalentVersion.objects.filter(is_active=True)
                                        .values_list('branch', flat=True),
                                        *WowItemVariantSnapshot.objects.filter(season__is_active=True)
-                                       .values_list('data_branch', flat=True).distinct())))
+                                       .values_list('data_branch', flat=True).distinct(), *journal_branches)))
     if not branches or set(branches) - BRANCHES.keys():
         raise ValueError('只支持明确的正式服/PTR/Beta 分支')
     source = source or UpdateSource()

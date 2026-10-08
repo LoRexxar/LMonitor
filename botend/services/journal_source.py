@@ -18,6 +18,7 @@ TABLES = (
     'JournalInstance', 'JournalEncounter', 'JournalEncounterSection', 'JournalEncounterItem',
     'JournalSectionXDifficulty', 'JournalItemXDifficulty', 'JournalTier', 'JournalTierXInstance',
     'JournalEncounterCreature', 'Map', 'MapDifficulty', 'Difficulty', 'Item', 'ItemSparse',
+    'ItemSpec', 'ItemSpecOverride', 'ChrSpecialization', 'GemProperties',
     'Spell', 'SpellName', 'SpellEffect', 'SpellMisc', 'SpellDuration', 'SpellRadius',
     'SpellRange', 'SpellAuraOptions', 'SpellTargetRestrictions', 'DungeonEncounter', 'JournalEncounterXDifficulty',
 )
