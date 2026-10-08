@@ -912,9 +912,12 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertNotIn('enroll-secret', request.kwargs['payload'])
 
     def test_existing_token_registration_and_claim_use_bearer_identity_after_enrollment_was_consumed(self):
-        from simc_agent_consumer import AgentConfig, PROTOCOL_VERSION, SimcAgentConsumer, VERSION, agent_revision
+        from simc_agent_consumer import AgentConfig, PROTOCOL_VERSION, SimcAgentConsumer, VERSION
 
-        with tempfile.TemporaryDirectory() as root:
+        # 本地合并提交可以不同于上游，领取任务应上报受信任的上游版本。
+        with tempfile.TemporaryDirectory() as root, patch(
+            'simc_agent_consumer.agent_upstream_revision', return_value='a' * 40,
+        ):
             values = self.config(root)
             token = 'token-id.' + ('y' * 43)
             self.write_token(values, token)
@@ -933,7 +936,7 @@ class SimcAgentConsumerTests(SimpleTestCase):
             self.assertEqual(transport.json.call_args_list[1].kwargs['payload'], {
                 'instance_id': consumer.instance_id,
                 'agent_version': VERSION,
-                'agent_revision': agent_revision(Path(__file__).resolve().parents[2]),
+                'agent_revision': 'a' * 40,
                 'protocol_version': PROTOCOL_VERSION,
             })
 
