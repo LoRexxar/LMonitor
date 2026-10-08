@@ -40,7 +40,16 @@ class NgaFactsTests(TestCase):
         from botend.portal.api import PortalExwindLatestAPIView
         import json
         a = WowArticle.objects.create(source='nga', category='nga', author='真实用户', nga_board_id='310', title='前瞻')
-        response = PortalExwindLatestAPIView.as_view()(RequestFactory().get('/', {'source': 'nga_preview'}))
+        # 公开接口只读，夹具也必须先通过同一后台入口发布。
+        import tempfile
+        from pathlib import Path
+        from django.conf import settings
+        from botend.services.news_snapshot import refresh_news_snapshot
+        parent = Path(settings.BASE_DIR) / '.cache/news-tests'
+        parent.mkdir(parents=True, exist_ok=True)
+        with self.settings(NEWS_SNAPSHOT_ROOT=tempfile.mkdtemp(dir=parent)):
+            refresh_news_snapshot()
+            response = PortalExwindLatestAPIView.as_view()(RequestFactory().get('/', {'source': 'nga_preview'}))
         self.assertIn(a.id, [row['id'] for row in json.loads(response.content)['data']])
 
     def test_backfill_dry_run_apply_and_unresolved_preserve_facts(self):

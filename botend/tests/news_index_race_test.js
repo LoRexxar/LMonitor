@@ -68,6 +68,15 @@ vm.runInContext(`${source}\nthis.__state = NEWS_STATE; this.__loadNews = loadNew
 
   if (!renderedAfterHotfix.includes("Hotfix item")) throw new Error("Hotfix response was not rendered");
   if (renderedAfterStaleBuild !== renderedAfterHotfix) throw new Error("Stale Build response overwrote active Hotfix tab");
+  context.__state.activeTab = "news";
+  const preparing = context.__loadNews();
+  requests[2].resolve({
+    ok: true,
+    json: async () => ({status: "success", data: [], sources: [], meta: {page: 1},
+      snapshot: {state: "pending", message: "新闻数据正在准备，请稍后重试。"}}),
+  });
+  await preparing;
+  if (!elements.get("news-list").innerHTML.includes("正在准备")) throw new Error("准备状态未显示");
   console.log("news_index race test passed");
 })().catch((error) => {
   console.error(error);

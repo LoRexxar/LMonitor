@@ -14,6 +14,7 @@ from datetime import timedelta
 
 from botend.models import PortalEvent, PortalMplusSeasonCutoff, PortalNavigationGroup, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
+from botend.services.news_snapshot import news_response
 from botend.services.wow_hotfix_entries import continuous_entries, public_hotfix_entry
 from botend.services.wow_today_service import (
     apply_wow_today_section_settings,
@@ -116,60 +117,6 @@ def _normalize_display_text(v):
     if s == 'LMonitor':
         return ''
     return s
-
-
-ARTICLE_SOURCE_LABELS = {
-    'blizzard_cn': '魔兽世界中国',
-    'blizzard_tracker': 'Blizzard Tracker',
-    'bilibili': 'B 站视频',
-    'exwind': 'Exwind 新闻',
-    'lhfszs': '老黄蜂说芝士',
-    'nga': 'NGA',
-    'unknown': '其他来源',
-    'wowhead': 'Wowhead',
-}
-
-
-def _article_source_label(source):
-    key = (source or 'unknown').strip() or 'unknown'
-    return ARTICLE_SOURCE_LABELS.get(key, key)
-
-
-def _article_to_dict(a):
-    return {
-        'id': a.id,
-        'title': a.title or '',
-        'title_cn': a.title_cn or '',
-        'url': _normalize_url(a.url),
-        'article_url': f'/portal/article/{a.id}/',
-        'author': _normalize_display_text(a.author),
-        'source': a.source or '',
-        'category': a.category or '',
-        'publish_time': _fmt_dt(a.publish_time),
-        'reply_count': int(getattr(a, 'reply_count', 0) or 0),
-        'has_content': bool(a.content),
-        'has_translation': bool(a.content_cn),
-    }
-
-
-def _nga_article_to_dict(a):
-    from bs4 import BeautifulSoup
-    content_preview = BeautifulSoup(a.nga_preview or '', 'html.parser').get_text(' ', strip=True)[:200]
-    return {
-        'id': a.id,
-        'title': a.title or '',
-        'title_cn': a.title_cn or '',
-        'url': _normalize_url(a.url),
-        'article_url': f'/portal/article/{a.id}/',
-        'author': _normalize_display_text(a.author),
-        'source': a.source or '',
-        'category': a.category or '',
-        'publish_time': _fmt_dt(a.publish_time),
-        'reply_count': int(getattr(a, 'reply_count', 0) or 0),
-        'content_preview': content_preview,
-        'has_content': bool(a.nga_preview),
-        'has_translation': bool(a.nga_translation_preview),
-    }
 
 
 def _event_to_dict(e):
@@ -673,119 +620,28 @@ class PortalWowTodayAPIView(View):
 
 class PortalBluepostsAPIView(View):
     def get(self, request):
-        since = timezone.now() - timedelta(days=7)
-        rows = (
-            WowArticle.objects.filter(category='bluepost', is_active=True, publish_time__gte=since)
-            .order_by('-publish_time')[:60]
-        )
-        return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
+        return news_response(request, 'blueposts')
 
 
 class PortalNgaHotAPIView(View):
     def get(self, request):
-        qs = WowArticle.objects.filter(source='nga', category='hot', is_active=True, reply_count__gt=20)
-        if not qs.exists():
-            qs = WowArticle.objects.filter(source='nga', is_active=True, reply_count__gt=20)
-        from django.db.models.functions import Substr
-        rows = list(qs.defer('content', 'content_cn', 'content_blocks', 'content_blocks_cn', 'description')
-                    .annotate(nga_preview=Substr('content', 1, 600), nga_translation_preview=Substr('content_cn', 1, 1))
-                    .order_by('-publish_time', '-id')[:40])
-        return JsonResponse({'status': 'success', 'data': [_nga_article_to_dict(x) for x in rows]})
+        return news_response(request, 'nga')
 
 
 class PortalExwindLatestAPIView(View):
     def get(self, request):
-        source = (request.GET.get('source') or '').strip()
-        since = timezone.now() - timedelta(days=7)
-        if source == 'nga_preview':
-            rows = (
-                WowArticle.objects.filter(source='nga', is_active=True).filter(
-                    Q(nga_board_id='310') | Q(nga_board_id='', category='nga', author='nga前瞻区'))
-                .order_by('-publish_time', '-id')[:60]
-            )
-        else:
-            rows = (
-                WowArticle.objects.filter(source__in=['exwind', 'blizzard_cn'], is_active=True, publish_time__gte=since)
-                .order_by('-publish_time')[:60]
-            )
-        return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
+        section = 'nga_preview' if (request.GET.get('source') or '').strip() == 'nga_preview' else 'exwind'
+        return news_response(request, section)
 
 
 class PortalWowheadLatestAPIView(View):
     def get(self, request):
-        since = timezone.now() - timedelta(days=7)
-        rows = (
-            WowArticle.objects.filter(source='wowhead', category='news', is_active=True, publish_time__gte=since)
-            .order_by('-publish_time')[:60]
-        )
-        return JsonResponse({'status': 'success', 'data': [_article_to_dict(x) for x in rows]})
+        return news_response(request, 'wowhead')
 
 
 class PortalNewsIndexAPIView(View):
     def get(self, request):
-        q = (request.GET.get('q') or '').strip()
-        source = (request.GET.get('source') or '').strip()
-        exclude_source = (request.GET.get('exclude_source') or '').strip()
-        try:
-            page = max(1, int(request.GET.get('page') or 1))
-        except ValueError:
-            page = 1
-        try:
-            page_size = int(request.GET.get('page_size') or 30)
-        except ValueError:
-            page_size = 30
-        page_size = max(10, min(60, page_size))
-
-        base_qs = WowArticle.objects.filter(is_active=True).exclude(title__isnull=True).exclude(title='')
-        source_rows = list(
-            base_qs.values('source')
-            .annotate(count=Count('id'))
-            .order_by('source')
-        )
-        sources = [
-            {
-                'key': (row.get('source') or 'unknown'),
-                'label': _article_source_label(row.get('source')),
-                'count': int(row.get('count') or 0),
-            }
-            for row in source_rows
-        ]
-
-        qs = base_qs
-        if source:
-            qs = qs.filter(source=source)
-        elif exclude_source:
-            qs = qs.exclude(source=exclude_source)
-        if q:
-            qs = qs.filter(
-                Q(title__icontains=q)
-                | Q(title_cn__icontains=q)
-                | Q(author__icontains=q)
-                | Q(source__icontains=q)
-                | Q(category__icontains=q)
-            )
-
-        paginator = Paginator(qs.order_by('-publish_time', '-id'), page_size)
-        try:
-            page_obj = paginator.page(page)
-        except EmptyPage:
-            page_obj = paginator.page(paginator.num_pages or 1)
-
-        return JsonResponse({
-            'status': 'success',
-            'data': [_article_to_dict(x) for x in page_obj.object_list],
-            'sources': sources,
-            'meta': {
-                'q': q,
-                'source': source,
-                'page': page_obj.number,
-                'page_size': page_size,
-                'total': paginator.count,
-                'total_pages': paginator.num_pages,
-                'has_next': page_obj.has_next(),
-                'has_previous': page_obj.has_previous(),
-            },
-        })
+        return news_response(request)
 
 
 class PortalArticleDetailAPIView(View):

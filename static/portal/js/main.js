@@ -1846,6 +1846,10 @@ async function loadSection(key) {
     } else {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderSimpleList(ep.listId, r.data || [], { limit: key === "nga" ? 20 : 12 });
+      if (r.snapshot?.state === 'pending' && ep.listId) {
+        const list = document.getElementById(ep.listId);
+        if (list) list.innerHTML = `<div class="text-sm text-slate-500">${escapeHtml(r.snapshot.message || '新闻数据正在准备，请稍后重试。')}</div>`;
+      }
     }
     renderTodayStrip();
     renderDailyReportCard();

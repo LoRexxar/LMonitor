@@ -267,6 +267,9 @@ async function loadNews() {
     }
 
     renderNewsList(payload.data || []);
+    if (payload.snapshot?.state === 'pending' && list) {
+      list.innerHTML = `<div class="portal-news-empty">${escapeHtml(payload.snapshot.message || '新闻数据正在准备，请稍后重试。')}</div>`;
+    }
     renderMeta(NEWS_STATE.meta);
     syncUrl();
   } catch (err) {
