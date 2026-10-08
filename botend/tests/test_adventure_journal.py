@@ -206,6 +206,123 @@ class JournalCompilationTests(SimpleTestCase):
         self.assertIn('[技能]', text)
 
 
+class JournalInitialItemDisplayTests(TestCase):
+    """首屏基础身份直接读取中央事实，不依赖完整 tooltip 或外源补取。"""
+
+    @classmethod
+    def setUpTestData(cls):
+        rows, catalog, _report = compile_journal(fixture())
+        instance_payload = deepcopy(rows[0])
+        encounter_payload = instance_payload.pop('encounters')[0]
+        encounter_payload['loot'][0].update(
+            name='Original Trinket', source='wago-enUS', icon=123456,
+        )
+        release = JournalRelease.objects.create(
+            build='12.1.0.69587', status='completed', manifest={'catalog': catalog},
+        )
+        JournalState.objects.create(active_release=release)
+        instance = JournalInstance.objects.create(
+            release=release, journal_id=10, name=instance_payload['name'],
+            kind=instance_payload['kind'], payload=instance_payload,
+        )
+        cls.encounter = JournalEncounter.objects.create(
+            instance=instance, journal_id=30, name=encounter_payload['name'],
+            payload=encounter_payload,
+        )
+        cls.item = WowItemSnapshot.objects.create(
+            item_id=60, name='Central Trinket', name_zh='中央中文饰品',
+            icon='inv_trinket_test', catalog_type='equipment', inventory_type=12,
+        )
+
+    def test_initial_display_uses_central_identity_for_all_tooltip_states(self):
+        from bs4 import BeautifulSoup
+        from botend.models import SeasonMeta, WowItemVariantSnapshot
+
+        original_payload = deepcopy(self.encounter.payload)
+        icon_url = 'https://oss.wowdaily.cn/wow_icons_oss/small/inv_trinket_test.jpg'
+        season = SeasonMeta.objects.create(
+            season_key='journal-display-test', season_name='测试赛季',
+            is_active=True, gear_batch_key='journal-display-test', mplus_zone_id=0, raid_zone_id=0,
+        )
+        for state, catalog_type in (
+            ('complete', 'equipment'), ('basic', 'equipment'), ('not_equipment', 'misc'),
+        ):
+            with self.subTest(state=state):
+                WowItemVariantSnapshot.objects.all().delete()
+                if state == 'complete':
+                    WowItemVariantSnapshot.objects.create(
+                        item=self.item, season=season, batch_key=season.gear_batch_key,
+                        variant_key='test-drop', variant_type='drop_equipment',
+                        game_build='12.1.0.69587', item_level=100, stats_json={'stamina': 12},
+                    )
+                original_variants = list(WowItemVariantSnapshot.objects.values())
+                WowItemSnapshot.objects.filter(pk=self.item.pk).update(catalog_type=catalog_type)
+                # Fail closed if rendering ever starts fetching external metadata.
+                with patch('requests.sessions.Session.request', side_effect=AssertionError('unexpected network')):
+                    response = self.client.get('/portal/adventure-journal/10/')
+                self.assertEqual(response.status_code, 200)
+                row = response.context['loot'][0]
+                if state == 'complete':
+                    self.assertTrue(row['details']['complete'])
+                    self.assertEqual(row['details']['stats'], ['+12 耐力'])
+                elif state == 'basic':
+                    self.assertIsNone(row['details'])
+                else:
+                    self.assertEqual(row['details']['status'], 'not_equipment')
+                    self.assertFalse(row['details']['complete'])
+                    self.assertEqual(row['details']['stats'], [])
+                with self.subTest(projection='name'):
+                    self.assertEqual(row['name'], '中央中文饰品')
+                    self.assertIs(row['name_localized'], True)
+                with self.subTest(projection='icon'):
+                    self.assertEqual(row.get('icon_url'), icon_url)
+                dom = BeautifulSoup(response.content, 'html.parser').select_one('[data-loot-id="60"]')
+                with self.subTest(projection='html_name'):
+                    self.assertEqual(dom.select_one('.journal-loot-link strong').text, '中央中文饰品')
+                    self.assertNotIn('暂无中文名称', dom.text)
+                with self.subTest(projection='html_icon'):
+                    self.assertEqual(dom.select_one('.journal-loot-symbol img')['src'], icon_url)
+                self.encounter.refresh_from_db()
+                self.assertEqual(self.encounter.payload, original_payload)
+                self.assertEqual(list(WowItemVariantSnapshot.objects.values()), original_variants)
+
+    def test_search_matches_projected_chinese_original_english_and_id(self):
+        for query in ('中央中文', 'oRiGiNaL tRiNkEt', '60'):
+            with self.subTest(query=query):
+                response = self.client.get('/portal/api/adventure-journal/10/', {'loot_q': query})
+                self.assertEqual(response.status_code, 200)
+                rows = response.json()['loot']
+                self.assertEqual([row['item_id'] for row in rows], [60])
+                self.assertEqual(rows[0]['name'], '中央中文饰品')
+        self.assertEqual(self.client.get(
+            '/portal/api/adventure-journal/10/', {'loot_q': '不存在的装备'},
+        ).json()['loot'], [])
+
+    def test_central_english_does_not_replace_journal_chinese(self):
+        self.encounter.payload['loot'][0].update(name='手册中文饰品', source='wago')
+        self.encounter.save(update_fields=['payload'])
+        WowItemSnapshot.objects.filter(pk=self.item.pk).update(name_zh='')
+        response = self.client.get('/portal/adventure-journal/10/')
+        self.assertEqual(response.context['loot'][0]['name'], '手册中文饰品')
+        self.assertNotContains(response, '暂无中文名称')
+
+    def test_missing_central_icon_keeps_original_fdid_and_missing_name_label(self):
+        from bs4 import BeautifulSoup
+
+        # Both an English-only snapshot and a wholly absent catalog row keep the fallback.
+        for missing_snapshot in (False, True):
+            with self.subTest(missing_snapshot=missing_snapshot):
+                if missing_snapshot:
+                    self.item.delete()
+                else:
+                    WowItemSnapshot.objects.filter(pk=self.item.pk).update(name_zh='', icon='')
+                response = self.client.get('/portal/adventure-journal/10/')
+                dom = BeautifulSoup(response.content, 'html.parser').select_one('[data-loot-id="60"]')
+                self.assertEqual(dom.select_one('.journal-loot-link strong').text, 'Original Trinket')
+                self.assertEqual(dom.select_one('img')['src'], '/portal/adventure-journal/art/123456/?v=2')
+                self.assertIn('暂无中文名称', dom.text)
+
+
 class JournalPublicationTests(TestCase):
     def publish(self, tables=None):
         tables = tables or fixture()

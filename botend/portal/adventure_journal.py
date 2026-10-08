@@ -184,9 +184,17 @@ def detail_data(request, instance_id):
     result['slots'] = [{'id': slot, 'name': SLOTS.get(slot, '其他')} for slot in sorted({d['slot'] for d in drops})]
     if result['slot'] and integer(result['slot']) not in {s['id'] for s in result['slots']}:
         result['slots'].append({'id': integer(result['slot']), 'name': SLOTS.get(integer(result['slot']), '其他')})
+    # 基础身份独立于 tooltip 完整度；只投影副本掉落，不改发布快照。
+    display_metadata = load_item_display_metadata(by_item)
     filtered = []
     seen = set()
     for row in drops:
+        original_name = row['name']
+        display = display_metadata[row['item_id']]
+        row['name_localized'] = bool(display['name_zh']) or bool(row.get('name_localized'))
+        if display['name_zh']:
+            row['name'] = display['name_zh']
+        row['icon_url'] = display['icon_url']
         if result['loot_boss'] and result['loot_boss'] not in {s['id'] for s in row['sources']}:
             continue
         if result['item_type'] and row['item_type'] != result['item_type']:
@@ -195,7 +203,9 @@ def detail_data(request, instance_id):
             continue
         if not class_matches(row, result['class_id']):
             continue
-        if result['loot_q'] and result['loot_q'].casefold() not in row['name'].casefold() and result['loot_q'] != str(row['item_id']):
+        if result['loot_q'] and result['loot_q'] != str(row['item_id']) and not any(
+            result['loot_q'].casefold() in name.casefold() for name in (row['name'], original_name)
+        ):
             continue
         identity = (row['item_id'], row['faction'], row['display_season_id'], row['condition_id'])
         if identity in seen:
