@@ -42,12 +42,15 @@ def upsert_journal_base_item_facts(rows, build):
         metadata['journal_item'] = journal_item
         inventory_type = int(loot.get('slot') or 0)
         item_class_id = int(loot.get('class_id') or 0)
-        is_localized = loot.get('source') == 'wago'
+        source = str(loot.get('source') or '')
+        official_locale = source == 'wago' or source.startswith('wago-localization-')
+        is_localized = official_locale and bool(re.search(r'[\u3400-\u9fff]', loot.get('name') or ''))
+        description_is_localized = official_locale and bool(re.search(r'[\u3400-\u9fff]', loot.get('description') or ''))
         defaults = {
             'name': (existing.name if existing else '') or ('' if is_localized else loot.get('name') or ''),
             'name_zh': (existing.name_zh if existing else '') or (loot.get('name') or '' if is_localized else ''),
-            'description': (existing.description if existing else '') or ('' if is_localized else loot.get('description') or ''),
-            'description_zh': (existing.description_zh if existing else '') or (loot.get('description') or '' if is_localized else ''),
+            'description': (existing.description if existing else '') or ('' if description_is_localized else loot.get('description') or ''),
+            'description_zh': (existing.description_zh if existing else '') or (loot.get('description') or '' if description_is_localized else ''),
             'icon': existing.icon if existing else '',
             'quality': (existing.quality if existing and existing.quality else int(loot.get('quality') or 0)),
             'source': (existing.source if existing and existing.source else 'wago-db2-journal'),
@@ -163,6 +166,44 @@ def _item_defaults(item, existing=None):
         'metadata': metadata,
         'updated_at': timezone.now(),
     }
+
+
+def merge_item_display_facts(item, *, name_zh='', icon='', provenance=None):
+    """仅补已验证的中文名与命名图标；调用方负责取证、资源验证及事务锁。
+
+    不改变来源构建、属性或变体，不用新采集值覆盖已有可信展示事实。
+    空输入不更新更新时间；字段级取证只随真正采纳的事实合入中央 metadata。
+    """
+    facts = {'name_zh': str(name_zh or '').strip(), 'icon': str(icon or '').strip()}
+    if facts['name_zh'] and not re.search(r'[\u3400-\u9fff]', facts['name_zh']):
+        raise ValueError('中文名称必须包含已核实的中文字符')
+    if facts['icon'] and (
+        not re.fullmatch(r'[a-z0-9_-]+', facts['icon']) or facts['icon'] == 'inv_misc_questionmark'
+    ):
+        raise ValueError('图标必须为已验证的非占位规范名称')
+    for field, value in facts.items():
+        if len(value) > item._meta.get_field(field).max_length:
+            raise ValueError(f'{field} 超过字段长度')
+    if any(facts.values()) and (
+        not isinstance(provenance, dict) or not str(provenance.get('source') or '').strip()
+    ):
+        raise ValueError('补充展示事实必须保留来源')
+    changes = {
+        field: value for field, value in facts.items()
+        if value and (not str(getattr(item, field) or '').strip()
+                      or (field == 'icon' and item.icon == 'inv_misc_questionmark'))
+    }
+    if not changes:
+        return False
+    metadata = deepcopy(item.metadata or {})
+    display_facts = metadata.setdefault('display_facts', {})
+    for field, value in changes.items():
+        setattr(item, field, value)
+        display_facts[field] = deepcopy(provenance)
+    item.metadata = metadata
+    item.updated_at = timezone.now()
+    item.save(update_fields=[*changes, 'metadata', 'updated_at'])
+    return True
 
 
 def merge_item_catalog_metadata(item, metadata):
