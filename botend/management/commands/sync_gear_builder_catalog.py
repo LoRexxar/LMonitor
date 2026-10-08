@@ -103,26 +103,33 @@ class Command(BaseCommand):
 
         item_ids = []
         with transaction.atomic():
+            season = SeasonMeta.objects.select_for_update().get(pk=season.pk)
+            if options['activate'] and season.gear_batch_key:
+                batch_key = season.gear_batch_key
             for item_payload in payload['items']:
-                item = self._upsert_item(item_payload)
+                branches = {self._variant_defaults(row, game_build)['data_branch']
+                            for row in item_payload.get('variants') or []}
+                if len(branches) > 1:
+                    raise CommandError('单件导入资料必须明确一个来源分支')
+                item = self._upsert_item(item_payload, branch=next(iter(branches), 'retail'))
                 item_ids.append(item.item_id)
                 for variant_payload in item_payload.get('variants') or []:
                     defaults = self._variant_defaults(variant_payload, game_build)
-                    WowItemVariantSnapshot.objects.update_or_create(
+                    self._upsert_variant(
                         season=season,
                         batch_key=batch_key,
                         item=item,
                         variant_key=str(variant_payload.get('key') or variant_payload.get('variant_key') or '').strip(),
                         defaults=defaults,
                     )
+            db_report = self._audit_batch(season, batch_key)
+            db_report['catalog_rules'] = payload.get('rules') or (season.gear_sync_report or {}).get('catalog_rules', {})
+            if db_report['blocking_errors']:
+                raise CommandError('数据库目录审计失败，本次更新已回滚')
 
         if options['refresh_wowhead'] and item_ids:
             call_command('fetch_item_metadata', item_id=item_ids)
 
-        db_report = self._audit_batch(season, batch_key)
-        db_report['catalog_rules'] = payload.get('rules') or {}
-        if db_report['blocking_errors']:
-            raise CommandError('数据库批次审计失败，当前赛季未切换')
         if options['sync_icons']:
             call_command(
                 'sync_gear_builder_icons',
@@ -144,7 +151,7 @@ class Command(BaseCommand):
                 locked.gear_batch_key = batch_key
                 locked.gear_sync_status = 'ready'
                 locked.gear_synced_at = timezone.now()
-                locked.gear_sync_report = db_report
+                locked.gear_sync_report = {**(locked.gear_sync_report or {}), **db_report}
                 locked.save(update_fields=(
                     'is_active', 'game_build', 'gear_batch_key', 'gear_sync_status',
                     'gear_synced_at', 'gear_sync_report', 'updated_at',
@@ -229,7 +236,7 @@ class Command(BaseCommand):
             'warnings': warnings[:200],
         }
 
-    def _upsert_item(self, payload):
+    def _upsert_item(self, payload, branch=None):
         from botend.services.wow_item_text import normalize_catalog_text
         item_id = int(payload['item_id'])
         existing = WowItemSnapshot.objects.filter(item_id=item_id).first()
@@ -260,8 +267,57 @@ class Command(BaseCommand):
             'metadata': payload.get('metadata') or {},
             'updated_at': timezone.now(),
         }
-        item, _created = WowItemSnapshot.objects.update_or_create(item_id=item_id, defaults=defaults)
-        return item
+        if branch:
+            from copy import deepcopy
+            defaults['metadata'] = deepcopy({**(existing.metadata if existing else {}), **defaults['metadata']})
+            displays = defaults['metadata'].setdefault('branch_display', {})
+            displays[branch] = {**displays.get(branch, {}), **{
+                field: value for field, value in defaults.items()
+                if field not in ('metadata', 'updated_at') and field in payload and value not in ('', None, [], {})}}
+            if existing and branch != 'retail':
+                for field in defaults.keys() - {'metadata', 'updated_at'}:
+                    defaults[field] = getattr(existing, field)
+        if existing:
+            defaults['metadata'] = {**(existing.metadata or {}), **defaults['metadata']}
+            for field in defaults:
+                if defaults[field] in ('', None, [], {}):
+                    defaults[field] = getattr(existing, field)
+            changed = [field for field, value in defaults.items()
+                       if field != 'updated_at' and getattr(existing, field) != value]
+            if changed:
+                for field in changed:
+                    setattr(existing, field, defaults[field])
+                existing.updated_at = defaults['updated_at']
+                existing.save(update_fields=[*changed, 'updated_at'])
+            return existing
+        return WowItemSnapshot.objects.create(item_id=item_id, **defaults)
+
+    @staticmethod
+    def _upsert_variant(*, season, batch_key, item, variant_key, defaults):
+        from botend.services.wow_data_branch import variant_branch
+        branch = defaults['data_branch']
+        key = variant_key.removeprefix(f'{branch}:')
+        row = next((row for row in WowItemVariantSnapshot.objects.filter(
+            season=season, batch_key=batch_key, item=item)
+            if variant_branch(row) == branch and row.variant_key.removeprefix(f'{branch}:') == key), None)
+        if row is None:
+            stored_key = variant_key
+            if WowItemVariantSnapshot.objects.filter(season=season, batch_key=batch_key,
+                    item=item, variant_key=stored_key).exists():
+                stored_key = f'{branch}:{key}'
+            return WowItemVariantSnapshot.objects.create(season=season, batch_key=batch_key,
+                item=item, variant_key=stored_key, **defaults)
+        defaults = dict(defaults)
+        for field in ('stats_json', 'effects_json', 'source_json', 'crafting_options', 'compatible_slots'):
+            if field in defaults and not defaults[field]:
+                defaults[field] = getattr(row, field)
+        defaults['metadata'] = {**(row.metadata or {}), **defaults.get('metadata', {})}
+        changed = [field for field, value in defaults.items() if getattr(row, field) != value]
+        if changed:
+            for field in changed:
+                setattr(row, field, defaults[field])
+            row.save(update_fields=[*changed, 'updated_at'])
+        return row
 
     def _variant_defaults(self, payload, game_build):
         variant_type = str(payload.get('type') or payload.get('variant_type') or '')
@@ -272,6 +328,8 @@ class Command(BaseCommand):
             sources = [sources]
         return {
             'game_build': game_build,
+            'data_branch': (payload.get('metadata') or {}).get('data_branch') or (
+                'ptr' if (payload.get('metadata') or {}).get('ptr_preview') else 'retail'),
             'variant_type': variant_type,
             'item_level': int(payload.get('item_level') or 0),
             'upgrade_track': payload.get('upgrade_track') or '',

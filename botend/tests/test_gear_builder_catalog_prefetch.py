@@ -124,15 +124,15 @@ class CatalogPrefetchTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(cohort.query.select_related, {'item': {}})
         self.assertEqual(cohort._prefetch_related_lookups, ())
 
-    def test_same_item_builds_remain_separate_paginated_groups(self):
+    def test_same_item_in_one_branch_is_one_paginated_group(self):
         self.variant(self.helm, 'other-build', game_build='12.1.0.99998')
         _, full = self.compare(page_size=100)
-        self.assertEqual(full[0]['total'], 3)
+        self.assertEqual(full[0]['total'], 2)
         helm_rows = [row for row in full[0]['items'] if row['item_id'] == self.helm.item_id]
-        self.assertEqual(len(helm_rows), 2)
-        self.assertEqual({tuple({v['game_build'] for v in row['variants']}) for row in helm_rows},
-                         {('12.1.0.99998',), (self.season.game_build,)})
-        pages = [self.compare(page=n)[1][0]['items'][0] for n in (1, 2, 3)]
+        self.assertEqual(len(helm_rows), 1)
+        self.assertEqual({v['game_build'] for v in helm_rows[0]['variants']},
+                         {'12.1.0.99998', self.season.game_build})
+        pages = [self.compare(page=n)[1][0]['items'][0] for n in (1, 2)]
         self.assertEqual(pages, full[0]['items'])
 
     def test_filters_scope_ties_and_complete_groups_across_pages(self):
@@ -185,8 +185,8 @@ class CatalogPrefetchExactBuildTests(TestCase):
 
     def test_shared_base_is_not_mutated_by_two_build_projections(self):
         before = list(WowItemSnapshot.objects.values())
-        for slot, build, name in (('chest', OLD, "Voidweaver's Vestments"),
-                                  ('legs', NEW, "Voidweaver's Leggings")):
+        self.assertEqual(gb.catalog_items(class_name='Mage', spec_name='Fire', slot='chest')['total'], 0)
+        for slot, build, name in (('legs', NEW, "Voidweaver's Leggings"),):
             args = dict(class_name='Mage', spec_name='Fire', slot=slot, page_size=1)
             baseline = measured_catalog(joined=True, **args)
             candidate = measured_catalog(**args)
@@ -195,8 +195,8 @@ class CatalogPrefetchExactBuildTests(TestCase):
             row = candidate[0]['items'][0]
             self.assertEqual(row['name_en'], name)
             self.assertEqual(row['slot'], slot)
-            self.assertEqual(len(row['variants']), 9)
-            self.assertEqual({v['game_build'] for v in row['variants']}, {build})
+            self.assertEqual(len(row['variants']), 18)
+            self.assertEqual({v['game_build'] for v in row['variants']}, {OLD, NEW})
             for variant in row['variants']:
                 self.assertEqual(variant['item_identity']['game_build'], build)
                 self.assertIs(variant['item_identity']['is_ptr'], True)

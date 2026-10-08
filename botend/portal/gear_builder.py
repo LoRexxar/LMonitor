@@ -132,6 +132,7 @@ class PortalGearBuilderShareResolveAPIView(View):
                 spec_name=body.get('s') or 'Fury',
                 batch_key=body.get('b') or '',
                 entries=body.get('e') or [],
+                current=body.get('current', True) is True,
             )
         except GearBuilderError as exc:
             return _error_response(exc)

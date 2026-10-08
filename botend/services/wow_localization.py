@@ -245,8 +245,12 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
                 for kind in ('spell', 'talent', 'item')
             }
     has_reference_filter = reference_ids is not None
-    version = (current_reference_version(registry, using)
-               if has_reference_filter else version_for(game_version, registry, using))
+    explicit_branch = str(game_version or '') if game_version in ('retail', 'ptr', 'beta') else ''
+    if explicit_branch:
+        version = version_for(explicit_branch, registry, using)
+    else:
+        version = (current_reference_version(registry, using) if has_reference_filter
+                   else version_for(game_version, registry, using))
     if not version:
         return []
     game_version = version_label(version, game_version)
@@ -269,6 +273,8 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
         )
     else:
         query = query.filter(talent_version=version)
+    if explicit_branch:
+        query = query.filter(talent_version__branch=explicit_branch)
     query = query.exclude(name_zh='')
     reference_ids = reference_ids or {}
     talent_reference_ids = {int(value) for value in reference_ids.get('talent', set())}

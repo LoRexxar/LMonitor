@@ -247,7 +247,7 @@ def validate_player_baseline(player_equipment):
     scalar_keys = set()
     allowed_scalars = {
         'level', 'race', 'region', 'server', 'realm', 'role', 'position',
-        'professions', 'spec', 'talents', 'talent', 'omnium_talents',
+        'professions', 'spec', 'talents', 'talent', 'omnium_talents', 'ptr',
         'flask', 'food', 'potion', 'augmentation', 'temporary_enchant',
         'gear_strength', 'gear_crit', 'gear_haste', 'gear_mastery',
         'gear_versatility', 'gear_crit_rating', 'gear_haste_rating',
@@ -434,9 +434,9 @@ def _enrich_omnium_talents(detail):
     if not entries:
         return detail
 
-    rows = list(
-        WowTalentNodeMetadata.objects.filter(node_id__in=entry_ids).select_related('talent_version')
-    )
+    branch = 'ptr' if detail.get('is_ptr') or str((detail.get('raw_fields') or {}).get('ptr', '')) == '1' else 'retail'
+    rows = list(WowTalentNodeMetadata.objects.filter(node_id__in=entry_ids).filter(
+        Q(talent_version__branch=branch) | Q(talent_version__isnull=True)).select_related('talent_version'))
 
     def preference(row):
         version_active = bool(row.talent_version and row.talent_version.is_active)

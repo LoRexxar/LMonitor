@@ -55,7 +55,7 @@ def latest_retail_build():
 
 
 class WagoJournalSource:
-    def __init__(self, build, directory, *, offline=False, refresh=False, progress=None):
+    def __init__(self, build, directory, *, offline=False, refresh=False, progress=None, max_workers=6):
         if not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
             raise ValueError('必须指定完整游戏版本号')
         self.build = build
@@ -63,6 +63,7 @@ class WagoJournalSource:
         self.offline = offline
         self.refresh = refresh
         self.progress = progress or (lambda message: None)
+        self.max_workers = max(1, min(6, int(max_workers)))
         self.manifest = {}
         self._selected_row_ids = {}
 
@@ -113,7 +114,7 @@ class WagoJournalSource:
             path.write_text(json.dumps(rows, ensure_ascii=False), encoding='utf-8')
             self.progress(f'{table} 分段完成：{offset + count}/{total}')
             return rows
-        with ThreadPoolExecutor(max_workers=6) as pool:
+        with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             groups = list(pool.map(segment, range(0, total, chunk_size)))
         rows = [row for group in groups for row in group]
         buffer = io.StringIO(newline='')
@@ -199,7 +200,7 @@ class WagoJournalSource:
         unknown = set(table_names) - set(TABLES)
         if unknown:
             raise ValueError(f'未知冒险手册表：{", ".join(sorted(unknown))}')
-        with ThreadPoolExecutor(max_workers=3) as pool:
+        with ThreadPoolExecutor(max_workers=min(3, self.max_workers)) as pool:
             result = dict(zip(table_names, pool.map(
                 lambda table: self.table(table, 'zhCN' if table in LOCALIZED_TABLES else 'enUS'), table_names)))
         return result

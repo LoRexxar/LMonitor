@@ -1042,6 +1042,22 @@ class GearBuilderImportCommandTests(TestCase):
         self.assertTrue(self.season.is_active)
         self.assertFalse(previous.is_active)
 
+    def test_new_build_updates_same_variant_and_preserves_missing_effects(self):
+        payload = self.catalog_payload()
+        payload['items'][0]['variants'][0]['effects'] = [{'description_zh': '原特效'}]
+        self.run_import(payload, '--activate')
+        original = WowItemVariantSnapshot.objects.get()
+        payload['batch_key'] = 'new-source-batch'
+        payload['game_build'] = '12.1.0.100000'
+        payload['items'][0]['variants'][0].update(stats={'strength': 900}, effects=[])
+        self.run_import(payload, '--activate')
+        original.refresh_from_db()
+        self.assertEqual(WowItemVariantSnapshot.objects.count(), 1)
+        self.assertEqual(original.stats_json, {'strength': 900})
+        self.assertEqual(original.effects_json, [{'description_zh': '原特效'}])
+        self.season.refresh_from_db()
+        self.assertEqual(self.season.gear_batch_key, 'batch-20260831')
+
     def test_midnight_alias_is_normalized_before_creating_season(self):
         payload = self.catalog_payload()
         payload.update({
@@ -1217,9 +1233,10 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertEqual(build, '12.1.0.69497')
         self.assertEqual(status, 'raidbots_lagging')
 
-    def test_cross_patch_build_mismatch_still_blocks_activation(self):
-        with self.assertRaisesMessage(CatalogSourceError, '跨版本不一致'):
-            CurrentGearCatalogSource._resolve_catalog_build('12.1.5.70000', '12.1.0.69497')
+    def test_same_branch_different_patch_keeps_available_catalog(self):
+        build, status = CurrentGearCatalogSource._resolve_catalog_build('12.1.5.70000', '12.1.0.69497')
+        self.assertEqual(build, '12.1.0.69497')
+        self.assertEqual(status, 'raidbots_lagging')
 
     def test_special_mythic_drop_adds_344_variant_and_native_socket(self):
         item = {

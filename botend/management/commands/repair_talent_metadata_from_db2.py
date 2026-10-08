@@ -14,8 +14,8 @@ from dataclasses import dataclass
 from django.core.management.base import BaseCommand
 from django.utils import timezone
 
-from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
-from botend.wow.spell_text import resolve_spell_text
+from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion
+from botend.wow.spell_text import resolve_spell_text, SpellTextResolver
 
 
 @dataclass
@@ -33,6 +33,7 @@ class Command(BaseCommand):
     def add_arguments(self, parser):
         parser.add_argument("--dump-dir", default=".cache/wago_db2_dumps/latest", help="DB2 dump 目录")
         parser.add_argument("--class-name", default="", help="仅处理指定职业")
+        parser.add_argument('--version-key', default='', help='只修复指定版本，自动更新必须指定')
         parser.add_argument("--dry-run", action="store_true", help="只输出统计，不写入")
         parser.add_argument("--limit", type=int, default=0, help="最多处理 N 条（调试用）")
         parser.add_argument(
@@ -47,6 +48,9 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         limit = options["limit"]
         skip_snapshot = options["skip_snapshot"]
+        version = WowTalentVersion.objects.get(key=options['version_key']) if options.get('version_key') else None
+        resolver = SpellTextResolver(snapshot_build=version.current_build, branch=version.branch,
+                                     dump_dir=dump_dir) if version else None
 
         if not os.path.isdir(dump_dir):
             self.stderr.write(self.style.ERROR(f"DB2 dump 目录不存在: {dump_dir}"))
@@ -69,6 +73,8 @@ class Command(BaseCommand):
         )
 
         qs = WowTalentNodeMetadata.objects.all().order_by("id")
+        if options.get('version_key'):
+            qs = qs.filter(talent_version__key=options['version_key'])
         if class_name:
             qs = qs.filter(class_name=class_name)
         if limit:
@@ -103,7 +109,8 @@ class Command(BaseCommand):
             cand_name_zh = candidate["name_zh"][:255]
             cand_desc_raw = candidate["description_raw"]
             desc_spell_id = candidate["description_spell_id"] or candidate["primary_spell_id"]
-            cand_desc_zh = resolve_spell_text(cand_desc_raw, desc_spell_id) if cand_desc_raw else ""
+            cand_desc_zh = (resolver.resolve(cand_desc_raw, desc_spell_id) if resolver else
+                            resolve_spell_text(cand_desc_raw, desc_spell_id)) if cand_desc_raw else ""
             cand_desc_en = cand_desc_zh  # 当前本地只有 zhCN Spell CSV；先保证页面中文描述正确。
 
             if cand_name and self._should_replace_name(obj.name, cand_name):

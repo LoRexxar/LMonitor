@@ -23,11 +23,10 @@ def cache_key(kind, entry_id, difficulty, build=''):
     return f'journal-tooltip:v3:{build}:{kind}:{entry_id}:{difficulty if kind == "spell" else 0}:zhCN'
 
 
-def _local_item_tooltip(entry_id, build, *, use_current_catalog=False):
-    if not build and not use_current_catalog:
-        return None
+def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_branch=''):
     item = load_item_tooltip_metadata([{
         'item_id': entry_id,
+        'data_branch': data_branch,
         # 本赛季装备随中央目录更新，手册发布构建只约束首领和掉落关系。
         'game_build': '' if use_current_catalog else build,
         'allow_default_variant': True,
@@ -118,9 +117,9 @@ def _local_item_tooltip(entry_id, build, *, use_current_catalog=False):
     }
 
 
-def cached_tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False):
+def cached_tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False, data_branch=''):
     if kind == 'item':
-        return _local_item_tooltip(entry_id, build, use_current_catalog=use_current_catalog)
+        return _local_item_tooltip(entry_id, build, use_current_catalog=use_current_catalog, data_branch=data_branch)
     key = cache_key(kind, entry_id, difficulty, build)
     result = cache.get(key)
     if result:
@@ -237,9 +236,9 @@ def _parse_wowhead_item_tooltip(entry_id, difficulty, raw_lines, payload):
     }
 
 
-def tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False):
+def tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False, data_branch=''):
     key = cache_key(kind, entry_id, difficulty, build)
-    cached = cached_tooltip(kind, entry_id, difficulty, build, use_current_catalog=use_current_catalog)
+    cached = cached_tooltip(kind, entry_id, difficulty, build, use_current_catalog=use_current_catalog, data_branch=data_branch)
     if cached:
         return cached
     # 物品：中央变体缺失时回退到 Wowhead tooltip API

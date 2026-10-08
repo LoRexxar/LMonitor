@@ -20,6 +20,7 @@ from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import (
     MONITOR_TASK_LEASE_SECONDS,
+    start_isolated_monitor_worker,
     claim_next_monitor_task,
     complete_monitor_task_lease,
     release_monitor_task_lease,
@@ -196,6 +197,9 @@ class LMonitorCoreBackend:
 
         logger.info("[LMonitor Main] Monitor Backend Start...now {} targets in monitor.".format(left_tasks))
 
+        # 单独领取耗时的数据更新，不消耗普通监控线程池的名额。
+        start_isolated_monitor_worker(LMonitorCore().scan)
+
         # 获取线程池然后分发信息对象
         # 当有空闲线程时才继续
         i = 0
@@ -297,13 +301,13 @@ class LMonitorCore:
                         log_rejection=False,
                     )
 
-    def scan(self):
+    def scan(self, *, task_names=None):
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')
         while 1:
             try:
                 close_old_connections()
                 lease_owner = uuid4().hex
-                now_task = claim_next_monitor_task(lease_owner=lease_owner)
+                now_task = claim_next_monitor_task(lease_owner=lease_owner, task_names=task_names)
                 if not now_task:
                     time.sleep(10)
                     continue

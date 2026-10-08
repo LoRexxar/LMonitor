@@ -204,6 +204,7 @@ def detail_data(request, instance_id):
         filtered.append({**row, 'details': _present_tooltip(cached_tooltip(
             'item', row['item_id'], difficulty, source['build'],
             use_current_catalog=source['key'] == 'current',
+            data_branch=source['key'] if source['key'] in ('ptr', 'beta') else '',
         ), source)})
     result['loot'] = filtered
     overview = next((s['descriptions'].get(str(difficulty), '') for s in payload['sections']
@@ -295,6 +296,7 @@ class PortalAdventureJournalTooltipView(View):
             return JsonResponse(_present_tooltip(tooltip(
                 kind, entry_id, context['difficulty'], context['release']['build'],
                 use_current_catalog=source['key'] == 'current',
+                data_branch=source['key'] if source['key'] in ('ptr', 'beta') else '',
             ), source), json_dumps_params={'ensure_ascii': False})
         except ValueError:
             item = load_item_display_metadata([entry_id])[entry_id]

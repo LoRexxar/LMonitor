@@ -560,8 +560,11 @@ def _normalize_candidate_params(candidate_type, params):
         if item is None:
             _error('缺少精确构建装备身份', 'params')
         ref = resolve_item_identity(item, game_build=game_build, is_ptr=branch)
-        gear_swap['game_build'] = ref['game_build']
-        gear_swap['is_ptr'] = ref['is_ptr']
+        if ref:
+            gear_swap['game_build'] = ref['game_build']
+            gear_swap['is_ptr'] = ref['is_ptr']
+        else:
+            gear_swap['is_ptr'] = branch
     elif branch != _item_requires_ptr(item_id):
         _error('装备分支与中央来源冲突', 'params')
     elif branch:

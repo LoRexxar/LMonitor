@@ -86,6 +86,13 @@ def list_owned_items(user, *, class_name='', spec_name='', slot=''):
     rows = GearBuilderOwnedItem.objects.filter(user=user).select_related('variant__item')
     if slot:
         rows = rows.filter(slot_key=slot)
+    rows = list(rows)
+    from botend.services.gear_builder import current_variants
+    replacements = current_variants(row.variant for row in rows if row.variant)
+    for row in rows:
+        if row.variant_id:
+            row.variant = replacements[row.variant_id]
+            row.batch_key = row.variant.batch_key
     return [serialize_owned_item(row, class_name, spec_name) for row in rows]
 
 

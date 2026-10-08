@@ -146,8 +146,11 @@ def _current_pool(class_name, spec_name):
 def _owned_pool(user, class_name, spec_name):
     result = defaultdict(list)
     rows = GearBuilderOwnedItem.objects.filter(user=user, variant__isnull=False).select_related('variant__item')
+    rows = list(rows)
+    from botend.services.gear_builder import current_variants
+    replacements = current_variants(row.variant for row in rows)
     for row in rows:
-        variant = row.variant
+        variant = replacements[row.variant_id]
         for slot, _label in EQUIPMENT_SLOTS:
             if row.slot_key and SLOT_FAMILIES.get(slot, slot) != SLOT_FAMILIES.get(row.slot_key, row.slot_key):
                 continue
@@ -174,6 +177,8 @@ def _fixed_entries(raw_equipment, class_name, spec_name):
     variants = {
         row.id: row for row in WowItemVariantSnapshot.objects.filter(id__in=variant_ids).select_related('item')
     }
+    from botend.services.gear_builder import current_variants
+    variants = current_variants(variants.values())
     for slot, row in raw_equipment.items():
         if slot not in SLOT_LABELS or not isinstance(row, dict):
             continue

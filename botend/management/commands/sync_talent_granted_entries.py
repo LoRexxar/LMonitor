@@ -27,7 +27,7 @@ class Command(BaseCommand):
             raise CommandError(f'目标版本 build={version.current_build!r} 与 DB2 build={build!r} 不一致')
         dump_dir = Path(options['dump_dir'])
         # A dump under a different build directory must not be silently applied.
-        if dump_dir.name != build:
+        if dump_dir.name not in (build, 'current'):
             raise CommandError('DB2 目录末级必须与 --build 完全一致')
         tables = {}
         for name in DB2_GRANT_TABLES:

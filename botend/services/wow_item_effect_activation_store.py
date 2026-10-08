@@ -70,9 +70,11 @@ def merge_item_effect_activation(facts, *, is_ptr):
         item = objects[ref['item_id']]
         metadata = deepcopy(item.metadata or {})
         entries = metadata.setdefault(META_KEY, {})
-        entry = {'is_ptr': is_ptr, 'fact': deepcopy(fact)}
-        if entries.get(ref['game_build']) != entry:
-            entries[ref['game_build']] = entry
+        from botend.services.wow_data_branch import current_fact_store
+        replacement = current_fact_store(entries)
+        replacement['current_by_branch']['ptr' if is_ptr else 'retail'] = deepcopy(fact)
+        if entries != replacement:
+            metadata[META_KEY] = replacement
             item.metadata = metadata
             changed.add(item.item_id)
     for item_id in changed:
@@ -92,12 +94,14 @@ def select_activation(facts, *, is_ptr, item_id, game_build=''):
     from botend.services.wow_item_identity import build_key
     if type(is_ptr) is not bool:
         raise ValidationError('必须显式声明激活来源分支')
-    if game_build:
-        build_key(game_build)
+    current = facts.get('current_by_branch', {}).get('ptr' if is_ptr else 'retail')
+    if current:
+        if current.get('item_id') != item_id:
+            raise ValidationError('中央装备激活来源身份不一致')
+        activation_reference(current)
+        return current
     candidates = []
     for build, entry in facts.items():
-        if game_build and build != game_build:
-            continue
         if not BUILD_RE.fullmatch(str(build)):
             continue
         parts = tuple(map(int, build.split('.')))

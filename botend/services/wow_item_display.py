@@ -133,29 +133,6 @@ def _format_number(value):
     return f'{parsed:,}' if isinstance(parsed, int) else f'{parsed:,.2f}'.rstrip('0').rstrip('.')
 
 
-def exact_build_variant_is_complete(variant, build):
-    """中央目录中 PTR 精确构建变体的可展示资格。"""
-    metadata = variant.metadata if isinstance(variant.metadata, dict) else {}
-    effects = variant.effects_json if isinstance(variant.effects_json, list) else []
-    if not metadata.get('ptr_preview'):
-        return True
-    if (
-        metadata.get('stats_status') != 'exact_build_simc'
-        or metadata.get('effects_status') != 'exact_build_db2_simc'
-        or str(metadata.get('game_build') or '') != str(build or '')
-        or not isinstance(variant.stats_json, dict) or not variant.stats_json
-        or not effects
-    ):
-        return False
-    return all(
-        isinstance(effect, dict)
-        and str(effect.get('game_build') or '') == str(build or '')
-        and not effect.get('unresolved_tokens')
-        and bool(str(effect.get('description_zh') or effect.get('description') or '').strip())
-        for effect in effects
-    )
-
-
 def _source_text(source):
     if isinstance(source, str):
         return source.strip()
@@ -404,17 +381,25 @@ def item_display_metadata(
         has_identity_store, resolve_display_identity, variant_identity, project_item_identity,
     )
     identity = frozen_identity or getattr(snapshot, '_resolved_identity', None)
+    from botend.services.wow_data_branch import branch_item, variant_branch
+    if snapshot and variant is not None and not identity:
+        projected = branch_item(snapshot, variant_branch(variant))
+        if projected is not snapshot:
+            snapshot, legacy_identity = projected, True
     if snapshot and not identity and not legacy_identity and has_identity_store(snapshot):
-        if game_build or type(is_ptr) is bool:
-            identity = resolve_display_identity(snapshot, game_build=game_build, is_ptr=is_ptr)
-        elif variant is not None:
+        if variant is not None:
             identity = variant_identity(snapshot, variant)
+        elif game_build or type(is_ptr) is bool:
+            identity = resolve_display_identity(snapshot, game_build=game_build, is_ptr=is_ptr)
     if identity:
         snapshot = project_item_identity(snapshot, identity)
         game_build = identity['game_build']
-        if variant is not None and variant.game_build != game_build:
+        if frozen_identity and variant is not None and variant.game_build != game_build:
             variant = None
             stats = effects = sources = None
+    elif snapshot and variant is not None:
+        from botend.services.wow_data_branch import branch_item, variant_branch
+        snapshot = branch_item(snapshot, variant_branch(variant))
     normalized_id = _positive_int(item_id) or None
     has_structured_projection = variant is not None or stats is not None or effects is not None
     if variant is not None:
@@ -614,30 +599,33 @@ def load_item_tooltip_metadata(requests):
     variants_by_item = {}
     if season and item_ids:
         for variant in WowItemVariantSnapshot.objects.filter(
-            season=season,
-            batch_key=season.gear_batch_key,
+            season=season, batch_key=season.gear_batch_key,
             item__item_id__in=item_ids,
         ).select_related('item'):
             variants_by_item.setdefault(int(variant.item.item_id), []).append(variant)
     result = []
     from botend.services.wow_item_identity import has_identity_store, resolve_display_identity
+    from botend.services.wow_data_branch import variant_branch
     for request, (
         item_id, item_level, bonus_ids, primary_stat,
         allow_default_variant, game_build, default_order, require_complete,
     ) in zip(requests, normalized):
         context = request if isinstance(request, dict) else {}
+        if ('is_ptr' in context and type(context['is_ptr']) is not bool) or (
+                context.get('data_branch') and context['data_branch'] not in ('retail', 'ptr', 'beta')):
+            from django.core.exceptions import ValidationError
+            raise ValidationError('装备来源分支无效')
         snapshot = snapshots.get(item_id)
         identity = context.get('item_identity')
-        if not identity and not context.get('legacy_identity') and has_identity_store(snapshot):
-            if game_build or type(context.get('is_ptr')) is bool:
-                identity = resolve_display_identity(snapshot, game_build=game_build, is_ptr=context.get('is_ptr'))
-        if identity:
-            game_build = identity['game_build']
-        candidates = variants_by_item.get(item_id, [])
-        if game_build:
-            candidates = [row for row in candidates if str(row.game_build or '') == game_build]
-        if require_complete:
-            candidates = [row for row in candidates if exact_build_variant_is_complete(row, game_build)]
+        data_branch = context.get('data_branch') or ('ptr' if context.get('is_ptr') else 'retail')
+        # 数据关联只使用物品 ID 与分支；旧请求中的 build/完整版本标记不参与筛选。
+        if not context.get('data_branch') and type(context.get('is_ptr')) is not bool and snapshot:
+            branches = {variant_branch(row) for row in variants_by_item.get(item_id, [])}
+            if len(branches) == 1:
+                data_branch = next(iter(branches))
+        candidates = [row for row in variants_by_item.get(item_id, []) if variant_branch(row) == data_branch]
+        if require_complete and any(row.effects_json for row in candidates):
+            candidates = [row for row in candidates if row.effects_json]
         if item_level:
             exact = [row for row in candidates if _positive_int(row.item_level) == item_level]
             candidates = exact
@@ -652,9 +640,10 @@ def load_item_tooltip_metadata(requests):
         else:
             variant = max(candidates, key=lambda row: _variant_score(row, item_level, bonus_ids), default=None)
         snapshot = snapshots.get(item_id) or getattr(variant, 'item', None)
+        game_build = str(getattr(variant, 'game_build', '') or '')
         result.append(item_display_metadata(
             item_id, snapshot, item_level=item_level, variant=variant, primary_stat=primary_stat,
-            game_build=game_build, is_ptr=context.get('is_ptr'), frozen_identity=identity,
+            game_build=game_build, is_ptr=(data_branch == 'ptr') if data_branch != 'beta' else None, frozen_identity=identity,
             legacy_identity=context.get('legacy_identity', False),
         ))
     return result
@@ -701,7 +690,7 @@ def refresh_localized_equipment(value, *, class_name='', spec_name=''):
         return value
     localized = {
         item.item_id for item in WowItemSnapshot.objects.filter(item_id__in={iid for _, iid in rows}).only('item_id', 'metadata', 'name_zh')
-        if (item.metadata or {}).get('localization') and item.name_zh
+        if item.name_zh
     }
     selected = [(row, iid) for row, iid in rows if iid in localized]
     requests = [{

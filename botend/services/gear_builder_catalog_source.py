@@ -380,7 +380,7 @@ class CurrentGearCatalogSource:
 
     @staticmethod
     def _resolve_catalog_build(wago_build, raidbots_build):
-        """热修订号可短暂不同，但目录批次始终使用其真实 Raidbots 构建号。"""
+        """两个正式服来源允许更新不同步，始终记录实际目录构建。"""
         build_pattern = r'\d+\.\d+\.\d+\.\d+'
         if not re.fullmatch(build_pattern, str(raidbots_build or '')):
             raise CatalogSourceError(f'Raidbots 返回了异常构建号：{raidbots_build or "空"}')
@@ -388,10 +388,6 @@ class CurrentGearCatalogSource:
             raise CatalogSourceError(f'Wago 返回了异常构建号：{wago_build or "空"}')
         wago_parts = str(wago_build).split('.')
         raidbots_parts = str(raidbots_build).split('.')
-        if wago_parts[:3] != raidbots_parts[:3]:
-            raise CatalogSourceError(
-                f'Wago 构建 {wago_build} 与 Raidbots 构建 {raidbots_build} 跨版本不一致，拒绝激活目录。'
-            )
         if wago_build == raidbots_build:
             return raidbots_build, 'aligned'
         status = 'raidbots_lagging' if int(raidbots_parts[3]) < int(wago_parts[3]) else 'wago_lagging'
@@ -783,7 +779,7 @@ class CurrentGearCatalogSource:
                     })
         total = len(requests_needed)
         self.progress(f'正在从 Wowhead 补全 {total} 组中文 Tooltip/装等属性（结果会缓存）……')
-        cache_dir = self.cache_root / game_build / 'wowhead'
+        cache_dir = self._tooltip_cache_directory(game_build)
         cache_dir.mkdir(parents=True, exist_ok=True)
         completed = 0
         with ThreadPoolExecutor(max_workers=self.workers) as executor:
@@ -849,6 +845,9 @@ class CurrentGearCatalogSource:
         payload = self._get_json(url)
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
         return _tooltip_details(payload)
+
+    def _tooltip_cache_directory(self, game_build):
+        return self.cache_root / game_build / 'wowhead'
 
     def venomstone_tooltip(self, item_id, item_level, cache_dir, branch='live'):
         """毒液石新增档位使用独立缓存，避免命中旧服同装等提示。"""

@@ -181,22 +181,28 @@ def merge_item_catalog_metadata(item, metadata):
 
 def upsert_item_catalog(items, season, build):
     """仅向活动中央目录追加/更新制品声明的物品事实。"""
+    from botend.management.commands.sync_gear_builder_catalog import Command as CatalogImporter
     variant_count = 0
     for item_data in items:
         item_id = int(item_data['item_id'])
         existing = WowItemSnapshot.objects.filter(item_id=item_id).first()
-        item, _ = WowItemSnapshot.objects.update_or_create(
-            item_id=item_id,
-            defaults=_item_defaults(item_data, existing),
-        )
+        branches = {(variant.get('metadata') or {}).get('data_branch') or (
+            'ptr' if (variant.get('metadata') or {}).get('ptr_preview') else 'retail')
+            for variant in item_data['variants']}
+        if len(branches) != 1:
+            raise ValueError('单件装备资料必须明确一个来源分支')
+        item = CatalogImporter()._upsert_item(
+            {'item_id': item_id, **_item_defaults(item_data, existing)}, branch=branches.pop())
         for variant in item_data['variants']:
-            WowItemVariantSnapshot.objects.update_or_create(
+            CatalogImporter._upsert_variant(
                 season=season,
                 batch_key=season.gear_batch_key,
                 item=item,
                 variant_key=variant['key'],
                 defaults={
                     'game_build': build,
+                    'data_branch': (variant.get('metadata') or {}).get('data_branch') or (
+                        'ptr' if (variant.get('metadata') or {}).get('ptr_preview') else 'retail'),
                     'variant_type': variant.get('type') or WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
                     'item_level': int(variant.get('item_level') or 0),
                     'upgrade_track': variant.get('upgrade_track') or '',

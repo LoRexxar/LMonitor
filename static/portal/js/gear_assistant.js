@@ -162,6 +162,8 @@
     els.flask.value = "auto";
   }
   async function loadAssistantData() {
+    currentState = await WowGearState.refresh(currentState, requestJson);
+    renderEquipment();
     assistantData = await requestJson(`${endpoints.bootstrap}?class=${encodeURIComponent(currentState.className)}&spec=${encodeURIComponent(currentState.specName)}`);
     renderOwned();
     renderFlasks();
@@ -306,6 +308,11 @@
     try {
       builderBootstrap = await requestJson(endpoints.builderBootstrap);
       currentState = readDraft();
+      document.addEventListener("visibilitychange", async () => {
+        if (document.hidden) return;
+        try { currentState = await WowGearState.refresh(currentState, requestJson); renderEquipment(); }
+        catch (error) { toast(`装备资料刷新失败，已保留当前配装：${error.message}`); }
+      });
       resetLockedSlots();
       syncSelectors(); renderEquipment(); renderLibraryTabs(); setWorkbench("config"); bindEvents();
       await loadAssistantData();

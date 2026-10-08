@@ -241,8 +241,8 @@ class JournalLocalTooltipTests(TestCase):
         self.assertEqual(result['source'], 'LMonitor 装备目录')
         self.assertIn('+72 智力', result['stats'])
 
-    def test_different_build_does_not_reuse_ptr_snapshot(self):
-        self.assertIsNone(cached_tooltip('item', 281235, 14, '12.1.0.69814'))
+    def test_old_build_does_not_hide_current_item(self):
+        self.assertTrue(cached_tooltip('item', 281235, 14, '12.1.0.69814')['complete'])
 
     def test_current_catalog_accepts_refreshed_tooltip_without_old_import_markers(self):
         item = WowItemSnapshot.objects.create(
@@ -257,8 +257,8 @@ class JournalLocalTooltipTests(TestCase):
             metadata={'ptr_preview': True, 'tooltip_source': {'provider': 'wowhead'}},
         )
         # 历史 PTR 仍保持精确构建约束，本赛季跟随当前活动目录。
-        self.assertIsNone(cached_tooltip('item', 280799, 14, '12.1.5.69594'))
-        self.assertIsNone(cached_tooltip('item', 280799, 14, '12.1.5.70077'))
+        self.assertTrue(cached_tooltip('item', 280799, 14, '12.1.5.69594')['complete'])
+        self.assertTrue(cached_tooltip('item', 280799, 14, '12.1.5.70077')['complete'])
         with patch('botend.services.journal_tooltip.requests.Session', side_effect=AssertionError('不应联网')):
             result = tooltip('item', 280799, 14, '12.1.5.69594', use_current_catalog=True)
         self.assertTrue(result['complete'])

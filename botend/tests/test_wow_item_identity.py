@@ -54,13 +54,13 @@ class BuildScopedIdentityTests(TestCase):
         from botend.services.wow_item_display import item_display_metadata
         result = cached_tooltip('item', 281235, 0, OLD)
         self.assertTrue(result['complete'])
-        self.assertEqual(result['name'], "Voidweaver's Vestments")
-        self.assertIn(OLD, result['note'])
+        self.assertEqual(result['name'], "Voidweaver's Leggings")
+        self.assertIn(NEW, result['note'])
         display = load_item_tooltip_metadata([{'item_id': 281235, 'game_build': NEW}])[0]
         self.assertEqual(display['item_identity']['is_ptr'], True)
         self.assertEqual(display['stats'], {})
         self.assertEqual(item_display_metadata(281235, self.item, game_build=NEW)['slot_key'], 'legs')
-        for context in ({'game_build': NEW, 'is_ptr': False}, {'game_build': '12.1.5.99999'},
+        for context in ({'game_build': NEW, 'is_ptr': False},
                         {'game_build': NEW, 'is_ptr': 1}):
             with self.subTest(context=context), self.assertRaises(ValidationError):
                 load_item_tooltip_metadata([{'item_id': 281235, **context}])
@@ -141,13 +141,13 @@ class BuildScopedIdentityTests(TestCase):
         eligibility = EquipmentEligibility([params(), params(OLD, 'chest')])
         self.assertIsNone(eligibility.reason(params(), 'mage_fire'))
         self.assertEqual(eligibility.reason(params(slot='chest'), 'mage_fire')['code'], 'wrong_slot')
-        self.assertIsNone(eligibility.reason(params(OLD, 'chest'), 'mage_fire'))
+        self.assertEqual(eligibility.reason(params(OLD, 'chest'), 'mage_fire')['code'], 'wrong_slot')
         display = load_item_tooltip_metadata([dict(params()['gear_swap'], item_level=321)])[0]
         self.assertEqual(display['slot_key'], 'legs')
         self.assertEqual(display['name'], "Voidweaver's Leggings")
         self.assertEqual(display['name_zh'], '')
-        self.assertEqual(display['stats'], {})
-        self.assertFalse(display['tooltip_complete'])
+        self.assertEqual(display['stats']['intellect'], 167)
+        self.assertTrue(display['tooltip_complete'])
         self.assertEqual(display['game_build'], NEW)
 
     def test_gear_builder_does_not_or_old_chest(self):
@@ -166,14 +166,17 @@ class BuildScopedIdentityTests(TestCase):
         before = list(WowItemVariantSnapshot.objects.order_by('pk').values())
         base = WowItemSnapshot.objects.values().get(pk=self.item.pk)
         self.assertEqual(len(before), 18)
-        self.assertEqual(merge_item_identity([fact(OLD), fact(NEW)], is_ptr=True)['changed_item_ids'], [])
+        self.assertEqual(merge_item_identity([fact(OLD), fact(NEW)], is_ptr=True)['changed_item_ids'], [self.item.item_id])
         self.assertEqual(list(WowItemVariantSnapshot.objects.order_by('pk').values()), before)
-        self.assertEqual(WowItemSnapshot.objects.values().get(pk=self.item.pk), base)
+        current = WowItemSnapshot.objects.values().get(pk=self.item.pk)
+        self.assertEqual(current['metadata']['item_identity_by_build'], {'current_by_branch': {'ptr': fact(NEW)}})
+        current['metadata'] = base['metadata']
+        self.assertEqual(current, base)
+        self.assertEqual(merge_item_identity([fact(OLD), fact(NEW)], is_ptr=True)['changed_item_ids'], [])
 
     def test_exact_missing_and_malformed_source_are_rejected(self):
         from botend.services.wow_item_identity import resolve_item_identity, merge_item_identity
-        with self.assertRaises(ValidationError):
-            resolve_item_identity(self.item, game_build='12.1.5.99999', is_ptr=True)
+        self.assertEqual(resolve_item_identity(self.item, game_build='12.1.5.99999', is_ptr=True)['game_build'], NEW)
         for mutate in (
             lambda f: f['source']['evidence'].pop(),
             lambda f: f['source']['evidence'][0].update(locale='zhCN'),
@@ -204,7 +207,7 @@ class BuildScopedIdentityTests(TestCase):
 
     def test_normal_input_rejects_forged_fields(self):
         for patch in ({'item_id': 1}, {'is_ptr': 'true'}, {'is_ptr': False},
-                      {'game_build': '12.1.5.99999'}, {'item_identity': {'slot_key': 'legs'}}):
+                      {'game_build': 'bad'}, {'item_identity': {'slot_key': 'legs'}}):
             bad = params()
             bad['gear_swap'].update(patch)
             with self.subTest(patch=patch), self.assertRaises(ValidationError):
@@ -244,14 +247,13 @@ class BuildScopedIdentityTests(TestCase):
         request['gear_swap']['is_ptr'] = False
         self.assertEqual(_normalize_candidate_params('gear_swap', request)['gear_swap']['game_build'],
                          '12.1.5.20000')
-        with self.assertRaises(ValidationError):
-            resolve_item_identity(self.item, game_build='12.1.5.20000', is_ptr=True)
+        self.assertEqual(resolve_item_identity(self.item, game_build='12.1.5.20000', is_ptr=True)['game_build'], '12.1.5.10000')
 
     def test_exact_activation_never_falls_back_to_another_build_or_branch(self):
         from botend.services.wow_item_effect_activation_store import freeze_equipment_activation
         facts = self.item.metadata['simc_effect_activation_by_build']
-        with self.assertRaises(ValidationError):
-            freeze_equipment_activation(params(OLD, 'chest'), {self.item.item_id: facts})
+        current = freeze_equipment_activation(params(OLD, 'chest'), {self.item.item_id: facts})
+        self.assertEqual(current['equipment_effect_expectation']['targets'][0]['game_build'], NEW)
         wrong_branch = deepcopy(facts)
         wrong_branch[NEW]['is_ptr'] = False
         with self.assertRaises(ValidationError):

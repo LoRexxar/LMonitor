@@ -30,6 +30,7 @@ class Command(BaseCommand):
         parser.add_argument('--version-key', default='', help='写入指定 WowTalentVersion.key；默认使用模拟器默认版本')
         parser.add_argument('--ensure-default-versions', action='store_true', help='回填前确保内置 retail/PTR 版本存在')
         parser.add_argument('--dry-run', action='store_true', help='只输出统计，不写入')
+        parser.add_argument('--allow-inactive', action='store_true', help='允许写入尚未发布的候选版本')
 
     def handle(self, *args, **options):
         dump_dir = (options.get('dump_dir') or '').strip()
@@ -39,7 +40,8 @@ class Command(BaseCommand):
 
         if options.get('ensure_default_versions'):
             ensure_default_talent_versions(WowTalentVersion)
-        talent_version = TalentVersionResolver.resolve(version_key=version_key, usage=TalentVersionResolver.USAGE_SIMULATOR)
+        talent_version = TalentVersionResolver.resolve(version_key=version_key, usage=TalentVersionResolver.USAGE_SIMULATOR,
+                                                      allow_inactive=options.get('allow_inactive', False))
         if not talent_version:
             raise CommandError('未找到默认天赋版本，请先执行迁移创建 WowTalentVersion')
         if not dump_dir:

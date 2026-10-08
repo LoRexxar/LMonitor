@@ -46,6 +46,20 @@ class TalentVersionResolver:
 
     @classmethod
     def get_active_by_key(cls, key, allow_inactive=False):
+        # 可变元数据始终使用分支当前行，旧链接只用来识别所属分支。
+        if not allow_inactive and key not in ('retail', 'ptr', 'beta'):
+            old = WowTalentVersion.objects.filter(key=str(key or '')).first()
+            if old:
+                current = WowTalentVersion.objects.filter(key=old.branch, is_active=True).first()
+                if current:
+                    return current
+        if key in ('retail', 'ptr', 'beta') and not allow_inactive:
+            current = WowTalentVersion.objects.filter(key=key, is_active=True, status='active').first()
+            if current:
+                return current
+            current = WowTalentVersion.objects.filter(branch=key, is_active=True, status='active').order_by('-activated_at', '-id').first()
+            if current:
+                return current
         qs = WowTalentVersion.objects.filter(key=str(key or '').strip())
         if not allow_inactive:
             qs = qs.filter(is_active=True)
@@ -56,11 +70,11 @@ class TalentVersionResolver:
 
     @classmethod
     def list_active(cls):
-        return list(
-            WowTalentVersion.objects
-            .filter(is_active=True)
-            .order_by('branch', 'major_version', 'key')
-        )
+        current = {}
+        for version in WowTalentVersion.objects.filter(is_active=True).order_by('-activated_at', '-updated_at', '-id'):
+            if version.branch not in current or version.key == version.branch:
+                current[version.branch] = version
+        return sorted(current.values(), key=lambda row: row.branch)
 
     @classmethod
     def serialize(cls, version):

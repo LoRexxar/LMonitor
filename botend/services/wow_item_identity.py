@@ -145,22 +145,22 @@ def merge_item_identity(facts, *, is_ptr):
                .filter(item_id__in=[ref['item_id'] for ref in refs])}
     if set(objects) != {ref['item_id'] for ref in refs}:
         raise ValidationError('待补采装备不在中央目录中')
+    original_metadata = {item_id: deepcopy(item.metadata) for item_id, item in objects.items()}
     changed = set()
-    for fact, ref in unique.values():
+    for fact, ref in sorted(unique.values(), key=lambda pair: build_key(pair[1]['game_build'])):
         item = objects[ref['item_id']]
         metadata = deepcopy(item.metadata or {})
         entries = metadata.setdefault(META_KEY, {})
         if not isinstance(entries, dict):
             _invalid()
-        entry = {'is_ptr': is_ptr, 'fact': deepcopy(fact)}
-        existing = entries.get(ref['game_build'])
-        if existing is not None and (not isinstance(existing, dict)
-                                     or existing.get('is_ptr') is not is_ptr):
-            raise ValidationError('同构建的装备来源分支冲突')
-        if _canonical_json(existing) != _canonical_json(entry):
-            entries[ref['game_build']] = entry
+        from botend.services.wow_data_branch import current_fact_store
+        replacement = current_fact_store(entries)
+        replacement['current_by_branch']['ptr' if is_ptr else 'retail'] = deepcopy(fact)
+        if _canonical_json(entries) != _canonical_json(replacement):
+            metadata[META_KEY] = replacement
             item.metadata = metadata
             changed.add(item.item_id)
+    changed = {item_id for item_id in changed if objects[item_id].metadata != original_metadata[item_id]}
     for item_id in changed:
         objects[item_id].save(update_fields=['metadata'])
     return {'changed_item_ids': sorted(changed), 'references': refs}
@@ -176,15 +176,19 @@ def resolve_item_identity(item, *, game_build='', is_ptr=None):
     if type(is_ptr) is not bool:
         raise ValidationError('必须显式声明装备正式服/PTR分支')
     if not has_identity_store(item):
-        if game_build:
-            raise ValidationError('缺少精确构建装备身份')
         return None
     entries = item.metadata[META_KEY]
     if not isinstance(entries, dict):
         _invalid()
+    current = entries.get('current_by_branch', {}).get('ptr' if is_ptr else 'retail')
+    if current:
+        ref = identity_reference(current, is_ptr=is_ptr)
+        if ref['item_id'] != item.item_id:
+            _invalid()
+        return ref
     refs = []
     for build, entry in entries.items():
-        if game_build and build != game_build:
+        if build == 'current_by_branch':
             continue
         build_key(build)
         if not isinstance(entry, dict) or type(entry.get('is_ptr')) is not bool:
@@ -207,24 +211,29 @@ def resolve_display_identity(item, *, game_build='', is_ptr=None):
     still use resolve_item_identity and must explicitly declare their branch.
     """
     if is_ptr is None and game_build:
-        build_key(game_build)
         entries = (item.metadata or {}).get(META_KEY)
         entry = entries.get(game_build) if isinstance(entries, dict) else None
-        if not isinstance(entry, dict) or type(entry.get('is_ptr')) is not bool:
-            raise ValidationError('缺少同分支精确构建装备身份')
-        is_ptr = entry['is_ptr']
-    return resolve_item_identity(item, game_build=game_build, is_ptr=is_ptr)
+        if isinstance(entry, dict) and type(entry.get('is_ptr')) is bool:
+            is_ptr = entry['is_ptr']
+    return resolve_item_identity(item, is_ptr=is_ptr if type(is_ptr) is bool else False)
 
 
 def variant_identity(item, variant):
-    """Variant build is exact; its branch comes from the explicit central entry."""
+    """装备展示按 ID 和分支解析，来源构建不作为存在性条件。"""
     if getattr(item, '_resolved_identity', None):
         return item._resolved_identity
     if not has_identity_store(item):
         return None
     build = str(getattr(variant, 'game_build', '') or '')
     entry = (item.metadata[META_KEY] or {}).get(build, {})
-    return resolve_item_identity(item, game_build=build, is_ptr=entry.get('is_ptr'))
+    from botend.services.wow_data_branch import variant_branch
+    branch = variant_branch(variant)
+    if branch == 'beta':
+        return None
+    is_ptr = branch == 'ptr'
+    if not (variant.metadata or {}).get('data_branch') and entry.get('is_ptr') is True:
+        is_ptr = True
+    return resolve_item_identity(item, is_ptr=is_ptr)
 
 
 def project_item_identity(item, ref):

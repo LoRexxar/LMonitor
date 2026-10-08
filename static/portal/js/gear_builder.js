@@ -1368,7 +1368,7 @@
     const response = await requestJson(endpoints.share, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({...payload, e: payload.e.map((row) => Array.isArray(row) ? row.slice(0, 8) : row)}),
+      body: JSON.stringify({...payload, current: true, e: payload.e.map((row) => Array.isArray(row) ? row.slice(0, 8) : row)}),
     });
     next.equipment = response.equipment || {};
     payload.e.forEach((row) => {
@@ -1937,6 +1937,7 @@
       state.className = className;
       state.specName = specName;
       state.viewMode = viewMode;
+      state = await WowGearState.refresh(state, requestJson);
       syncSelectors(); persist(); renderAll(); await loadActiveBrowser();
     });
     els.spec_select.addEventListener("change", async () => {
@@ -1945,6 +1946,7 @@
       state.className = els.class_select.value;
       state.specName = els.spec_select.value;
       state.viewMode = viewMode;
+      state = await WowGearState.refresh(state, requestJson);
       persist(); renderAll(); await loadActiveBrowser();
     });
     els.slot_list.addEventListener("click", async (event) => {
@@ -2083,6 +2085,13 @@
       const restored = await restoreShareIfPresent();
       if (!restored) state = loadStored(state.className, state.specName);
       if (!state.batchKey) state.batchKey = bootstrap.catalog?.batch_key || "";
+      state = await WowGearState.refresh(state, requestJson);
+      persist();
+      document.addEventListener("visibilitychange", async () => {
+        if (document.hidden) return;
+        try { state = await WowGearState.refresh(state, requestJson); persist(); renderAll(); }
+        catch (error) { toast(`装备资料刷新失败，已保留当前配装：${error.message}`); }
+      });
       syncSelectors();
       savedLoadouts = readSavedLoadouts();
       renderSavedLoadouts();

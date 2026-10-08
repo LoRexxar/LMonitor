@@ -122,7 +122,7 @@ class MonitorTask(models.Model):
     type = models.IntegerField(default=0)
     env_limit = models.IntegerField(default=0)
     last_scan_time = models.DateTimeField(default=timezone.now)
-    wait_time = models.IntegerField(default=600)
+    wait_time = models.IntegerField(default=3600)
     flag = models.CharField(max_length=2000, null=True, blank=True, default=None)
     is_active = models.BooleanField(default=True)
     proxy_enabled = models.BooleanField(default=False)
@@ -2689,6 +2689,38 @@ class SpecRaidRanking(models.Model):
         return f"{self.character_name} - {self.boss_name} ({self.spec_name}) {self.dps}"
 
 
+class WowDataUpdateState(models.Model):
+    """分支发布指针；检测到版本不代表该版本已经可供页面使用。"""
+    branch = models.CharField(max_length=16, unique=True)
+    observed_build = models.CharField(max_length=32, blank=True)
+    published_build = models.CharField(max_length=32, blank=True)
+    revision = models.PositiveIntegerField(default=0)
+    status = models.CharField(max_length=24, default='pending')
+    error = models.TextField(blank=True)
+    report = models.JSONField(default=dict, blank=True)
+    checked_at = models.DateTimeField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    projections_pending = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'wow_data_update_state'
+
+
+class WowDataUpdateRun(models.Model):
+    """保留每次候选批次及失败原因，失败的候选不会成为默认版本。"""
+    branch = models.CharField(max_length=16)
+    build = models.CharField(max_length=32, blank=True)
+    status = models.CharField(max_length=24, default='running')
+    report = models.JSONField(default=dict, blank=True)
+    error = models.TextField(blank=True)
+    started_at = models.DateTimeField(default=timezone.now)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'wow_data_update_run'
+        ordering = ['-id']
+
+
 class WowTalentVersion(models.Model):
     """WoW 天赋元数据版本组。"""
     key = models.CharField(max_length=64, unique=True)
@@ -2847,6 +2879,8 @@ class WowItemVariantSnapshot(models.Model):
         related_name='gear_variants',
     )
     batch_key = models.CharField(max_length=80)
+    data_branch = models.CharField(max_length=16, default='retail', db_index=True,
+                                   choices=[('retail', '正式服'), ('ptr', '测试服'), ('beta', '内测服')])
     game_build = models.CharField(max_length=64, default='', blank=True)
     variant_key = models.CharField(max_length=160)
     variant_type = models.CharField(max_length=32, choices=TYPE_CHOICES)

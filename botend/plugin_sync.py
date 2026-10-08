@@ -1,6 +1,7 @@
 from datetime import timedelta
 from uuid import uuid4
 from zoneinfo import ZoneInfo
+from threading import Thread
 
 from django.conf import settings as django_settings
 from django.db import transaction
@@ -37,6 +38,17 @@ PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
+# 大型装备/天赋同步不占普通监控工作线程，仍共用数据库租约防重入。
+ISOLATED_MONITOR_TASKS = frozenset({'WowDataVersionMonitor'})
+
+
+def start_isolated_monitor_worker(worker):
+    """独立工作线程不占普通线程池，跨进程重复执行由任务租约拦截。"""
+    thread = Thread(target=worker, kwargs={'task_names': ISOLATED_MONITOR_TASKS},
+                    name='wow-data-update-worker', daemon=True)
+    thread.start()
+    return thread
+
 PORTAL_MONITOR_TASK_PRIORITY = {
     # 巅峰榜 Top20 是快速任务；长任务结束后必须先补它，避免按旧
     # last_scan_time 排序时被人物、排名和聚合任务连续阻塞。
@@ -49,6 +61,8 @@ PORTAL_MONITOR_TASK_PRIORITY = {
 
 
 def monitor_default_wait_time(name):
+    if name == 'WowDataVersionMonitor':
+        return 43200  # 每 12 小时轻量检测，发现更新后才下载。
     if name == 'MythicDungeonToolsMonitor':
         return 86400  # 每日检查正式发布，后台可调整间隔和开关。
     if name == 'AdventureJournalMonitor':
@@ -67,7 +81,7 @@ def monitor_default_wait_time(name):
         return 86400  # 24h
     if name in PORTAL_DATA_SCHEDULED_TASKS:
         return 86400  # 每日固定窗口由 portal_data_task_is_due 判定
-    return 600
+    return 3600  # 通用新任务模板默认 1 小时，避免意外高频运行。
 
 
 def portal_monitor_task_priority(task):
@@ -132,8 +146,8 @@ def portal_data_task_is_due(task, now=None):
     return portal_data_task_due_at(task, now=now) is not None
 
 
-def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None):
-    """Atomically reserve the globally oldest runnable task for one worker."""
+def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, task_names=None):
+    """原子领取当前工作队列中到期最久的任务；普通队列排除独立任务。"""
     claim_time = now or timezone.now()
     owner = str(lease_owner or uuid4().hex)
     ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
@@ -143,9 +157,10 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None):
         # Lock the parent task rows in a stable order.  All claimers use this
         # parent-row mutex, so creating or replacing the separate lease row is
         # serialized without exposing lease fields to long-lived plugin models.
-        runnable_tasks = list(filter_runnable_tasks(
-            MonitorTask.objects.select_for_update().filter(is_active=1).order_by('id')
-        ))
+        candidates = MonitorTask.objects.filter(is_active=1)
+        candidates = (candidates.filter(name__in=task_names) if task_names is not None
+                      else candidates.exclude(name__in=ISOLATED_MONITOR_TASKS))
+        runnable_tasks = list(filter_runnable_tasks(candidates.select_for_update().order_by('id')))
         active_lease_task_ids = set(
             MonitorTaskLease.objects.select_for_update()
             .filter(
@@ -289,7 +304,7 @@ def sync_monitortasks_from_plugin_list(
             if cur != int(desired):
                 to_fix.append((int(t.id), int(desired)))
             desired_wait_time = monitor_default_wait_time(t.name)
-            if t.wait_time != desired_wait_time and t.name != 'MaxrollClassGuideMonitor':
+            if t.wait_time != desired_wait_time and t.name not in ('MaxrollClassGuideMonitor', 'WowDataVersionMonitor'):
                 MonitorTask.objects.filter(id=t.id).update(wait_time=desired_wait_time)
 
         for tid, _desired in to_fix:
@@ -323,7 +338,8 @@ def sync_monitortasks_from_plugin_list(
             }
             if plugin_is_active:
                 # 首次部署后立即补一份数据，之后再按固定时段运行。
-                create_values['last_scan_time'] = timezone.now() - timedelta(days=2)
+                create_values['last_scan_time'] = (timezone.now() if name in ISOLATED_MONITOR_TASKS
+                                                 else timezone.now() - timedelta(days=2))
             MonitorTask.objects.create(
                 **create_values,
             )

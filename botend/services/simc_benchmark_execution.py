@@ -2046,6 +2046,8 @@ def _profile_detail_from_payload(
     )
     is_ptr = payload.get('use_ptr') is True
     detail['is_ptr'] = is_ptr
+    from botend.services.simc_player_config import _enrich_omnium_talents
+    _enrich_omnium_talents(detail)
     branch = 'ptr' if is_ptr else 'retail'
     detail['talent_version'] = _TALENT_VERSION_BY_BRANCH.get(branch, '')
     return detail

@@ -420,7 +420,11 @@ def canonical_spec(class_name, spec_name):
 
 def _variant_item(variant):
     from botend.services.wow_item_identity import variant_identity, project_item_identity
-    return project_item_identity(variant.item, variant_identity(variant.item, variant))
+    from botend.services.wow_data_branch import branch_item, variant_branch
+    item = branch_item(variant.item, variant_branch(variant))
+    if (variant.item.metadata or {}).get('branch_display', {}).get(variant_branch(variant)):
+        return item
+    return project_item_identity(item, variant_identity(item, variant))
 
 
 def slot_matches(variant, slot, class_name='', spec_name=''):
@@ -458,8 +462,8 @@ def embellishment_eligibility_reason(equipment, embellishment, slot, class_name=
             or equipment.is_intrinsic_embellishment
             or embellishment.variant_type != WowItemVariantSnapshot.TYPE_EMBELLISHMENT):
         return incompatible
-    if (equipment.season_id, equipment.batch_key, equipment.game_build) != (
-            embellishment.season_id, embellishment.batch_key, embellishment.game_build):
+    from botend.services.wow_data_branch import variant_branch
+    if variant_branch(equipment) != variant_branch(embellishment):
         return unknown
     if not embellishment.compatible_slots:
         return unknown
@@ -627,6 +631,7 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'crafting_quality': variant.crafting_quality,
         'bonus_ids': variant.bonus_ids or [],
         'game_build': variant.game_build,
+        'data_branch': variant.data_branch,
         'item_identity': getattr(item, '_resolved_identity', None),
         'compatible_slots': ([item.slot_key] if getattr(item, '_resolved_identity', None)
                              else variant.compatible_slots or []),
@@ -722,7 +727,8 @@ def catalog_items(
             continue
         if _secondary_stat_is_excluded(variant, excluded_stats):
             continue
-        grouped[(variant.item_id, variant.game_build)].append(variant)
+        from botend.services.wow_data_branch import variant_branch
+        grouped[(variant.item_id, variant_branch(variant))].append(variant)
 
     rows = [serialize_item(variants[0].item, variants, class_name, spec_name) for variants in grouped.values()]
     rows.sort(key=lambda row: (-max((v['item_level'] for v in row['variants']), default=0), row['name']))
@@ -912,7 +918,25 @@ def _resolve_share_variant(reference, expected_types, variants_by_reference):
     return None
 
 
-def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, entries):
+def current_variants(rows, season=None):
+    """仅刷新相同物品、变体、装等、分支；不替换用户选择，不回写历史记录。"""
+    rows = list(rows)
+    season = season or active_season()
+    if not season or not rows:
+        return {row.pk: row for row in rows}
+    from botend.services.wow_data_branch import variant_branch
+    latest = list(WowItemVariantSnapshot.objects.filter(
+        season=season, batch_key=season.gear_batch_key,
+        item_id__in={row.item_id for row in rows},
+    ).select_related('item'))
+    def identity(row):
+        branch = variant_branch(row)
+        return (row.item_id, row.variant_key.removeprefix(f'{branch}:'), row.item_level, branch)
+    lookup = {identity(row): row for row in latest}
+    return {row.pk: lookup.get(identity(row), row) for row in rows}
+
+
+def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, entries, current=True):
     """按批次和变体引用恢复紧凑分享数据，不保存任何用户配装。"""
     try:
         share_version = int(share_version or 0)
@@ -922,6 +946,9 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
         raise GearBuilderError('分享链接版本已过期，请使用当前配装器重新生成')
     class_name, spec_name = canonical_spec(class_name, spec_name)
     batch_key = str(batch_key or '').strip()
+    current_season = active_season() if current else None
+    if not batch_key and current_season:
+        batch_key = current_season.gear_batch_key
     if not batch_key or len(batch_key) > 160:
         raise GearBuilderError('分享链接缺少有效装备批次')
     if not isinstance(entries, list) or len(entries) > len(EQUIPMENT_SLOTS):
@@ -953,12 +980,18 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
         parsed.append((slot, item_id, equipment_ref, selected_stats, embellishment_ref, gem_refs, enchant_ref, added_socket))
         item_ids.update(reference[0] for reference in [equipment_ref, embellishment_ref, enchant_ref, *gem_refs] if reference)
 
+    selection = Q(batch_key=batch_key)
+    if current_season:
+        selection |= Q(season=current_season, batch_key=current_season.gear_batch_key)
     batch_variants = list(WowItemVariantSnapshot.objects.filter(
-        batch_key=batch_key, item__item_id__in=item_ids,
+        selection, item__item_id__in=item_ids,
     ).select_related('item'))
     variants_by_reference = {
         (row.item.item_id, row.variant_key): row for row in batch_variants
     }
+    if current_season:
+        replacements = current_variants(batch_variants, current_season)
+        variants_by_reference = {key: replacements.get(row.pk, row) for key, row in variants_by_reference.items()}
     equipment = {}
     warnings = []
     for slot, item_id, equipment_ref, selected_stats, embellishment_ref, gem_refs, enchant_ref, added_socket in parsed:
@@ -1048,7 +1081,8 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
             'addedSocket': added_socket,
             'external': False,
         }
-    return {'equipment': equipment, 'warnings': warnings[:16]}
+    return {'equipment': equipment, 'warnings': warnings[:16],
+            'batch_key': current_season.gear_batch_key if current_season else batch_key}
 
 
 def _simc_item_id(payload):

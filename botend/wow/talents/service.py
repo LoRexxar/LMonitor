@@ -301,8 +301,10 @@ class TalentBuildCodeService:
 
     @staticmethod
     def _version_cache_key(talent_version=None, version_key='', usage=TalentVersionResolver.USAGE_SIMULATOR):
-        if talent_version is not None:
-            return getattr(talent_version, 'key', None) or getattr(talent_version, 'id', None) or 'provided'
+        version = talent_version or TalentVersionResolver.resolve(version_key=version_key, usage=usage)
+        if version is not None:
+            return (getattr(version, 'key', ''), getattr(version, 'current_build', ''),
+                    str(getattr(version, 'updated_at', '')))
         return str(version_key or '') or str(usage or '')
 
     @classmethod
@@ -330,13 +332,16 @@ class TalentBuildCodeService:
         if cls._decoded_states_have_spec_apex_points(current_full_nodes or [], current_decoder_nodes or [], current_decoded_states or {}):
             return None
 
-        current_key = getattr(getattr(current_provider, 'version', None), 'key', '') or getattr(current_provider, 'version_cache_key', '')
+        current_version = getattr(current_provider, 'resolved_version', None)
+        current_key = getattr(current_version, 'key', '') or getattr(current_provider, 'version_cache_key', '')
         try:
             candidates = TalentVersionResolver.list_active()
         except Exception:
             return None
 
         for version in candidates:
+            if current_version and version.branch != current_version.branch:
+                continue
             candidate_key = getattr(version, 'key', '')
             if candidate_key and candidate_key == current_key:
                 continue

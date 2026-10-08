@@ -352,7 +352,7 @@ class SimcEquipmentTooltipContractTests(TestCase):
             '需要等级 90',
         ])
 
-    def test_exact_build_request_selects_variant_from_shared_catalog(self):
+    def test_explicit_branch_selects_variant_independent_of_build(self):
         season = SeasonMeta.objects.create(
             season_key='tooltip-build', season_name='构建隔离测试', is_active=True,
             game_build='12.1.0.1', gear_batch_key='tooltip-build-batch', gear_sync_status='ready',
@@ -370,11 +370,12 @@ class SimcEquipmentTooltipContractTests(TestCase):
                 game_build=build, variant_key=f'{build}-{level}',
                 variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
                 item_level=level, stats_json={'intellect': intellect}, effects_json=[],
+                data_branch='retail' if level == 289 else 'ptr',
             )
 
         live, ptr = load_item_tooltip_metadata([
-            {'item_id': item.item_id, 'game_build': '12.1.0.1', 'allow_default_variant': True},
-            {'item_id': item.item_id, 'game_build': '12.1.5.2', 'allow_default_variant': True},
+            {'item_id': item.item_id, 'data_branch': 'retail', 'game_build': '1.0.0.1', 'allow_default_variant': True},
+            {'item_id': item.item_id, 'data_branch': 'ptr', 'game_build': '1.0.0.1', 'allow_default_variant': True},
         ])
 
         self.assertEqual(live['item_level'], 289)

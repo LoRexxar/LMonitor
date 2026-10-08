@@ -68,7 +68,7 @@ def ensure_default_talent_versions(model_class, now=None):
         if created:
             obj = model_class.objects.create(key=key, **defaults)
         changed = created or migrated
-        if not created:
+        if not created and (migrated or not obj.current_build):
             update_fields = []
             for field, value in defaults.items():
                 # 保留已同步的真实 build；普通幂等启动不覆盖人工维护的来源备注。

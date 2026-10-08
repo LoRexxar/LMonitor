@@ -7994,6 +7994,9 @@ function generateFormFields(container) {
             inputElement.className = 'w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all duration-200';
             // 为数字类型设置step属性
             if (inputType === 'number') {
+                if (currentTableName === 'MonitorTask' && column === 'wait_time') {
+                    inputElement.value = currentFieldTypes?.[column]?.default ?? 3600;
+                }
                 if (currentFieldTypes && currentFieldTypes[column]) {
                     const fieldType = currentFieldTypes[column].type;
                     if (fieldType === 'FloatField' || fieldType === 'DecimalField') {
