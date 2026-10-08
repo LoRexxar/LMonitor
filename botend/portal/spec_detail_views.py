@@ -7,9 +7,7 @@
 无 JSON 时显示「暂时没有内容」，不做实时查询。
 """
 
-import json
 import os
-from datetime import datetime
 from django.conf import settings
 
 from django.views import View
@@ -111,16 +109,12 @@ def _talent_build_popularity_has_builds(detail, class_name='', spec_name=''):
     return True
 
 
-def _load_json(season_id, class_name, spec_name, filename):
+def _load_json(season_id, class_name, spec_name, filename, detail_key=None):
     """从聚合目录加载 JSON 文件，不存在返回 None"""
     root = AGGREGATED_DIR or os.path.join(getattr(settings, 'MEDIA_ROOT', '') or 'media', 'aggregated')
     path = os.path.join(root, str(season_id), class_name, spec_name, filename)
-    try:
-        with open(path, 'r', encoding='utf-8') as f:
-            payload = json.load(f)
-        return payload if isinstance(payload, dict) else None
-    except (OSError, ValueError):
-        return None
+    from botend.services.spec_stats_snapshot import read_projection
+    return read_projection(path, detail_key)
 
 
 def _raid_overview_json_is_stale(season, zone_groups):
@@ -292,12 +286,12 @@ class SpecDetailDungeonView(View):
                 {'dungeon_id': str(enc['id']), 'dungeon_name': _lookup_dungeon_cn(enc['name'])}
                 for enc in (ctx['season'].mplus_encounters or [])
             ]
-            data = _load_json(season_id, class_name, spec_name, 'dungeon.json') or {}
+            if dungeon_id != 'all' and dungeon_id not in {enc['dungeon_id'] for enc in ctx['dungeon_options']}:
+                raise Http404
+            data = _load_json(season_id, class_name, spec_name, 'dungeon.json', f'dungeon-{dungeon_id}') or {}
             if dungeon_id == 'all':
                 ctx['dungeon_detail'] = data.get('summary')
             else:
-                if dungeon_id not in {enc['dungeon_id'] for enc in ctx['dungeon_options']}:
-                    raise Http404
                 did = int(dungeon_id)
                 name = next(enc['dungeon_name'] for enc in ctx['dungeon_options'] if enc['dungeon_id'] == dungeon_id)
                 detail = next((item for item in data.get('dungeons', [])
@@ -316,6 +310,11 @@ class SpecDetailRaidView(View):
         ctx = _base_context(class_name, spec_name)
         season_id = ctx['season'].id if ctx['season'] else None
         boss_id = request.GET.get('boss_id')
+        if boss_id:
+            try:
+                bid = int(boss_id)
+            except (ValueError, TypeError):
+                raise Http404
         difficulty = 4 if request.GET.get('difficulty') == '4' else 5
         ctx['selected_raid_difficulty'] = difficulty
         ctx['selected_boss_id'] = boss_id
@@ -325,7 +324,8 @@ class SpecDetailRaidView(View):
         ]
 
         if season_id:
-            data = _load_json(season_id, class_name, spec_name, 'raid.json')
+            data = _load_json(season_id, class_name, spec_name, 'raid.json',
+                              f'raid-{difficulty}-{bid}' if boss_id else None)
             if data:
                 for aggregated in data.get('difficulties', []):
                     if not isinstance(aggregated, dict) or aggregated.get('difficulty') not in (4, 5):
@@ -342,10 +342,6 @@ class SpecDetailRaidView(View):
                 if not data.get('difficulties') and difficulty == 5:
                     zone_groups = data.get('zone_groups', [])
                 if boss_id:
-                    try:
-                        bid = int(boss_id)
-                    except (ValueError, TypeError):
-                        raise Http404
                     detail = None
                     for zg in zone_groups:
                         for b in zg.get('bosses', []):

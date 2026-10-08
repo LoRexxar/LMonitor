@@ -47,14 +47,14 @@ class PublicStatsSnapshotTests(SimpleTestCase):
                 patch('botend.services.wow_talent_display.refresh_aggregate_talents', side_effect=lambda data, **kw: data) as talents, \
                 patch.object(views.SpecStatsService, '_compute_dungeon_stats', return_value={'dungeon_id': 2}), \
                 patch.object(views.SpecStatsService, 'get_dungeon_summary', return_value={'sample_size': 17, 'avg': Decimal('12.5')}), \
-                patch.object(views.SpecStatsService, '_compute_raid_stats', side_effect=lambda *a, **kw: {'difficulty': kw['difficulty']}) as raid:
+                patch.object(views.SpecStatsService, '_compute_raid_stats', side_effect=lambda *a, **kw: {'boss_id': 3, 'difficulty': kw['difficulty']}) as raid:
             SpecDetailAggregationMonitor._aggregate_dungeon(season, 'Warrior', 'Arms', self.directory)
             SpecDetailAggregationMonitor._aggregate_raid(season, 'Warrior', 'Arms', self.directory)
             self.assertEqual(equipment.call_count, 2)
             self.assertEqual(talents.call_count, 2)
             self.assertEqual([call.kwargs['difficulty'] for call in raid.call_args_list], [5, 4])
         with patch('botend.services.wow_item_display.refresh_aggregate_equipment', side_effect=AssertionError('请求刷新')):
-            data = views._load_json(1, 'Warrior', 'Arms', 'dungeon.json')
+            data = views._load_json(1, 'Warrior', 'Arms', 'dungeon.json', 'dungeon-all')
             self.assertEqual(data['summary']['sample_size'], 17)
             self.assertEqual(data['summary']['avg'], 12.5)
         before = (self.directory / 'dungeon.json').read_bytes()

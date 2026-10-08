@@ -9,6 +9,7 @@ from django.core.cache import cache
 from django.urls import reverse
 
 from botend.services.spec_stats_service import SpecStatsService
+from botend.services.spec_stats_snapshot import read_projection
 
 
 class SpecOverviewService:
@@ -91,8 +92,7 @@ class SpecOverviewService:
         if cached is not None:
             return cached
         try:
-            with path.open(encoding='utf-8') as stream:
-                payload = json.load(stream)
+            payload = read_projection(path)
             if expected_ids and cls._projection_ids(module, payload) != expected_ids:
                 payload = {}
                 mtime = None

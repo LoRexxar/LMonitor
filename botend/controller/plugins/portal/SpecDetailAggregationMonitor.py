@@ -59,7 +59,9 @@ def publish_stats(path, payload, class_name, spec_name):
     payload = refresh_aggregate_equipment(payload, class_name=class_name, spec_name=spec_name)
     payload = refresh_aggregate_talents(payload, class_name=class_name, spec_name=spec_name)
     payload['generated_at'] = timezone.now().isoformat()
-    atomic_dump_json(path, payload, cls=DecimalEncoder, ensure_ascii=False)
+    from botend.services.spec_stats_snapshot import publish_projection
+    publish_projection(path, payload, lambda target, data: atomic_dump_json(
+        target, data, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False))
 
 
 class SpecDetailAggregationMonitor(BaseScan):
