@@ -647,6 +647,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 {
                     'revision': 'b' * 40,
                     'html_locale_patch_version': 1,
+                    'native_patchset_sha256': hashlib.sha256(
+                        (Path(__file__).resolve().parents[2] / 'simc_patches' /
+                         '0063-luminescent-phoenixblade.patch').read_bytes()).hexdigest(),
+                    'binary_sha256': hashlib.sha256(Path(values['simc_path']).read_bytes()).hexdigest(),
                 },
             )
             self.assertTrue(os.access(values['simc_path'], os.X_OK))
@@ -676,9 +680,19 @@ class SimcAgentConsumerTests(SimpleTestCase):
             )
             build_source = Path(root) / 'build-source'
 
-            prepare_simc_html_build_source(source, build_source)
+            # A tiny application-owned patch exercises real apply alongside the
+            # locale fixture without importing the full upstream C++ source.
+            application = Path(root) / 'application'
+            native = application / 'simc_patches' / '0063-luminescent-phoenixblade.patch'
+            native.parent.mkdir(parents=True)
+            native.write_text('diff --git a/native-fixture b/native-fixture\n'
+                              'new file mode 100644\n--- /dev/null\n+++ b/native-fixture\n'
+                              '@@ -0,0 +1 @@\n+native fixture\n')
+            with patch('simc_agent_consumer.__file__', str(application / 'simc_agent_consumer.py')):
+                prepare_simc_html_build_source(source, build_source)
 
             rendered = (build_source / 'engine' / 'report' / 'report_html_sim.cpp').read_text(encoding='utf-8')
+            self.assertEqual((build_source / 'native-fixture').read_text(), 'native fixture\n')
             self.assertIn('std::locale::classic()', rendered)
             self.assertEqual(
                 rendered.count('catch ( const std::runtime_error& )'), 2,
@@ -800,6 +814,10 @@ class SimcAgentConsumerTests(SimpleTestCase):
                 {
                     'revision': required_revision,
                     'html_locale_patch_version': 1,
+                    'native_patchset_sha256': hashlib.sha256(
+                        (Path(__file__).resolve().parents[2] / 'simc_patches' /
+                         '0063-luminescent-phoenixblade.patch').read_bytes()).hexdigest(),
+                    'binary_sha256': hashlib.sha256(Path(values['simc_path']).read_bytes()).hexdigest(),
                 },
             )
 

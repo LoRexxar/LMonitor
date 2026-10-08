@@ -1,0 +1,117 @@
+diff --git a/engine/player/unique_gear_midnight.cpp b/engine/player/unique_gear_midnight.cpp
+index c9ecfa80..82faca7a 100644
+--- a/engine/player/unique_gear_midnight.cpp
++++ b/engine/player/unique_gear_midnight.cpp
+@@ -5311,2 +5311,108 @@ void lights_justice( special_effect_t& effect )
+ }
++// Luminescent Phoenixblade: data-driven, single-enemy model.
++// 1310252 Driver; 1310255 Damage (E1); 1310258 Heal (E2).
++void luminescent_phoenixblade( special_effect_t& effect )
++{
++  if ( effect.player->sim->target_list.size() > 1 )
++    throw std::runtime_error( "Luminescent Phoenixblade currently supports single-enemy simulations only." );
++
++  effect.player->sim->error( UNVERIFIED_IMPLEMENTATION,
++    "Luminescent Phoenixblade: one active enemy and self as the modeled healing target. "
++    "Self-heal source eligibility, server-side filters, shared proc opportunity pool and local child-spell "
++    "recursion exclusion are modeled from client data and engine conventions, not verified in game." );
++
++  auto damage = create_proc_action<generic_proc_t>( "luminescent_phoenixblade_damage", effect, 1310255 );
++  damage->base_dd_min = damage->base_dd_max = effect.driver()->effectN( 1 ).average( effect );
++
++  auto heal = create_proc_action<generic_heal_t>( "luminescent_phoenixblade_heal", effect, 1310258 );
++  heal->base_dd_min = heal->base_dd_max = effect.driver()->effectN( 2 ).average( effect );
++
++  // Dispatch both children explicitly. A harmful effect.execute_action would reject friendly
++  // sources in the standard callback before the healing-source -> damage branch can run.
++  // These switches disable only implicit action/buff creation, NOT the children's callbacks.
++  effect.action_disabled = true;
++  effect.buff_disabled = true;
++
++  struct phoenixblade_cb_t : public dbc_proc_callback_t
++  {
++    action_t* damage;
++    action_t* heal;
++
++    phoenixblade_cb_t( const special_effect_t& e, action_t* d, action_t* h )
++      : dbc_proc_callback_t( e.item, e ), damage( d ), heal( h )
++    {}
++
++    player_t* unique_enemy() const
++    {
++      // Fail closed outside the supported model, rather than publishing a false zero proc gain.
++      const auto& targets = listener->sim->target_non_sleeping_list;
++      if ( targets.size() > 1 )
++        throw std::runtime_error( "Luminescent Phoenixblade currently supports single-enemy simulations only." );
++      if ( listener->is_enemy() || listener->is_sleeping() || targets.size() != 1 )
++        return nullptr;
++
++      auto enemy = targets[ 0 ];
++      return enemy && enemy->is_enemy() && !enemy->is_sleeping() ? enemy : nullptr;
++    }
++
++    action_t* reverse_action( player_t* source_target, action_state_t* state ) const
++    {
++      if ( !state || !state->action || !source_target || state->target != source_target ||
++           source_target->is_sleeping() || state->action->player != listener )
++        return nullptr;
++
++      // Local anti-recursion assumption: reject only this driver's two children.
++      // This is NOT a measured game rule. Do not disable their callbacks to other effects.
++      const auto source_id = state->action->data().id();
++      if ( source_id == 1310255 || source_id == 1310258 )
++        return nullptr;
++
++      // Require an amount-bearing direct damage/heal result; ordinary helpful auras are not heals.
++      // impact_proc_type2 uses result_total, so fully overhealed hits remain eligible.
++      // Do not widen the original proc mask to periodic events or invent an effective-heal gate.
++      if ( state->impact_proc_type2() == PROC2_INVALID )
++        return nullptr;
++
++      auto enemy = unique_enemy();
++      if ( !enemy )
++        return nullptr;
++
++      if ( state->result_type == result_amount_type::HEAL_DIRECT && source_target == listener )
++        return damage;
++      if ( state->result_type == result_amount_type::DMG_DIRECT && source_target == enemy )
++        return heal;
++      return nullptr;
++    }
++
++    void trigger( const proc_data_t& source_data, player_t* target, action_state_t* state,
++                  proc_trigger_type_e type ) override
++    {
++      // Scope/state/result/recursion checks run BEFORE roll and its shared RPPM bookkeeping.
++      if ( !reverse_action( target, state ) )
++        return;
++
++      // Preserve standard ICD, weapon, proc-source and suppression checks, then native roll.
++      // In particular, never use trigger_fn_type::TRIGGER to replace these checks.
++      dbc_proc_callback_t::trigger( source_data, target, state, type );
++    }
++
++    void execute( const spell_data_t*, player_t* target, action_state_t* state ) override
++    {
++      // The base callback queues a proc_event_t: recheck validity after that event boundary.
++      // No reroll/refund is invented if a source/destination dies or leaves the modeled scope.
++      auto action = reverse_action( target, state );
++      if ( !action )
++        return;
++
++      auto destination = action == damage ? unique_enemy() : listener;
++      if ( destination && !destination->is_sleeping() )
++        action->execute_on_target( destination );
++    }
++  };
++
++  // One callback/shared native RPPM pool is a modeling assumption. Keep driver RPPM,
++  // scale, ICD, proc_flags and proc_flags2 untouched; do not add a second chance pool.
++  new phoenixblade_cb_t( effect, damage, heal );
++}
++
+ }  // namespace weapons
+@@ -6575,2 +6681,3 @@ void register_special_effects()
+   register_special_effect( 1309762, weapons::lights_justice );
++  register_special_effect( 1310252, weapons::luminescent_phoenixblade );  // UNVERIFIED source/target rules
+   reset_version_check();

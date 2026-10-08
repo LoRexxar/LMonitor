@@ -71,6 +71,9 @@ TRUSTED_SIMC_REPOSITORY_URLS = {
 LOGGER_NAME = 'lmonitor.simc_agent'
 SIMC_HTML_REPORT_SOURCE = Path('engine') / 'report' / 'report_html_sim.cpp'
 SIMC_HTML_LOCALE_PATCH_VERSION = 1
+# This application-owned allowlist deliberately excludes Backend exporter patches.
+# No config, task or control-plane payload may supply a patch path.
+SIMC_NATIVE_PATCH = Path('simc_patches') / '0063-luminescent-phoenixblade.patch'
 SIMC_HTML_LOCALE_FALLBACK = '''  catch ( const std::runtime_error& )
   {
     // backup spelling for CI
@@ -85,17 +88,58 @@ SIMC_HTML_LOCALE_FALLBACK = '''  catch ( const std::runtime_error& )
   }'''
 
 
-def prepare_simc_html_build_source(source: Path, build_source: Path) -> None:
-    """Copy SimC source and patch the renderer only when its source is present.
+def _read_simc_native_patch() -> bytes:
+    """Read only the native patch bundled beside the running Agent entry point."""
+    path = Path(__file__).resolve().parent / SIMC_NATIVE_PATCH
+    try:
+        if path.is_symlink() or path.parent.is_symlink() or not path.is_file():
+            raise APIError(f'managed SimC native patch is missing or unsafe: {SIMC_NATIVE_PATCH}')
+        contents = path.read_bytes()
+        if not contents.strip():
+            raise APIError(f'managed SimC native patch is empty: {SIMC_NATIVE_PATCH}')
+        return contents
+    except OSError as exc:
+        raise APIError(f'cannot read managed SimC native patch: {exc}') from exc
 
-    Production SimC checkouts contain the HTML renderer.  Treat an absent source
-    as an older/alternate layout so the maintenance path retains its existing
-    build behavior; the isolated locale workaround is simply unavailable there.
+
+def _apply_simc_native_patch(build_source: Path) -> str:
+    """Apply a single frozen patch to the isolated copy, never the upstream tree."""
+    contents = _read_simc_native_patch()
+
+    def apply(*flags: str) -> subprocess.CompletedProcess[bytes]:
+        try:
+            return subprocess.run(
+                ['git', '-C', str(build_source), 'apply', *flags, '-'],
+                input=contents, capture_output=True, timeout=60, check=False,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise APIError(f'SimC native patch command failed: {exc}') from exc
+
+    checked = apply('--check')
+    if checked.returncode == 0:
+        applied = apply()
+        if applied.returncode != 0:
+            raise APIError('SimC native patch application failed: ' +
+                           applied.stderr.decode('utf-8', errors='replace')[-4000:])
+    # Reverse-check also handles an upstream that already contains this exact
+    # post-image. Ordinary conflicts are never silently treated as integrated.
+    if apply('--reverse', '--check').returncode != 0:
+        raise APIError('SimC native patch conflicts with the build source: ' +
+                       checked.stderr.decode('utf-8', errors='replace')[-4000:])
+    return hashlib.sha256(contents).hexdigest()
+
+
+def prepare_simc_html_build_source(source: Path, build_source: Path) -> str:
+    """Copy source, apply the managed native patch, then the optional locale fix.
+
+    An absent HTML renderer only disables the locale workaround, not the native
+    patch. Return the digest of the exact bytes successfully replayed/checked.
     """
     shutil.copytree(source, build_source, symlinks=True, copy_function=shutil.copyfile)
+    native_digest = _apply_simc_native_patch(build_source)
     report_path = build_source / SIMC_HTML_REPORT_SOURCE
     if not report_path.is_file():
-        return
+        return native_digest
     try:
         report = report_path.read_text(encoding='utf-8')
     except (OSError, UnicodeError) as exc:
@@ -108,6 +152,7 @@ def prepare_simc_html_build_source(source: Path, build_source: Path) -> None:
     if original not in report:
         raise APIError('SimC HTML locale fallback source is not recognized')
     report_path.write_text(report.replace(original, SIMC_HTML_LOCALE_FALLBACK, 1), encoding='utf-8')
+    return native_digest
 
 
 def agent_revision(repository: Path | None = None) -> str:
@@ -871,6 +916,7 @@ class SimcAgentConsumer:
         binary_available = _is_executable_regular_file(binary)
         marker_revision = ''
         html_locale_patch_version = 0
+        metadata = None
         marker = Path(str(binary) + '.lmonitor-build.json')
         if binary_available:
             try:
@@ -886,6 +932,14 @@ class SimcAgentConsumer:
         with self._binary_identity_lock:
             measured = self._probe_binary_identity()
             diagnostics = dict(self._binary_identity_diagnostics)
+        native_patch = {}
+        if isinstance(metadata, dict):
+            digest = metadata.get('native_patchset_sha256')
+            if (isinstance(digest, str) and re.fullmatch(r'[0-9a-f]{64}', digest)
+                    and measured.get('binary_sha256')
+                    and metadata.get('binary_sha256') == measured['binary_sha256']):
+                # Telemetry of a successful local build, not independent approval.
+                native_patch['native_patchset_sha256'] = digest
         return {
             'status': status, 'platform': self.config.platform,
             'agent_version': VERSION, 'agent_revision': agent_upstream_revision(), 'protocol_version': PROTOCOL_VERSION,
@@ -895,6 +949,7 @@ class SimcAgentConsumer:
                 'conditional_evidence_protocol_version': 1,
                 **measured,
                 **diagnostics,
+                **native_patch,
             },
             'instance_id': self.instance_id, 'current_version': marker_revision,
             'binary_available': binary_available,
@@ -931,13 +986,15 @@ class SimcAgentConsumer:
             report['binary_available']
             and report['html_locale_patch_version'] < SIMC_HTML_LOCALE_PATCH_VERSION
         )
-        if (not self.config.auto_update_simc and required_revision is None
-                and not needs_html_locale_patch):
-            return False
         if not self.config.simc_source_path:
             return False
+        native_digest = hashlib.sha256(_read_simc_native_patch()).hexdigest()
+        needs_native_patch = report['capabilities'].get('native_patchset_sha256') != native_digest
+        if (not self.config.auto_update_simc and required_revision is None
+                and not needs_html_locale_patch and not needs_native_patch):
+            return False
         now = time.monotonic()
-        if (not force and not needs_html_locale_patch
+        if (not force and not needs_html_locale_patch and not needs_native_patch
                 and now - self._last_simc_check < self.config.simc_update_interval_seconds):
             return False
         self._last_simc_check = now
@@ -994,7 +1051,8 @@ class SimcAgentConsumer:
         report = self._report()
         if (local_revision == target_revision and report['binary_available']
                 and report['current_version'] == target_revision
-                and report['html_locale_patch_version'] >= SIMC_HTML_LOCALE_PATCH_VERSION):
+                and report['html_locale_patch_version'] >= SIMC_HTML_LOCALE_PATCH_VERSION
+                and report['capabilities'].get('native_patchset_sha256') == native_digest):
             self.logger.info('SimC is current at %s', target_revision)
             return False
         if local_revision != target_revision or required_revision is not None:
@@ -1006,12 +1064,14 @@ class SimcAgentConsumer:
 
         target = Path(self.config.simc_path).expanduser().resolve()
         target.parent.mkdir(parents=True, exist_ok=True)
-        self.logger.info('compiling SimC revision %s', revision)
+        self.logger.info('compiling SimC revision %s native patch %s', revision, native_digest)
         with tempfile.TemporaryDirectory(
             prefix='.lmonitor-simc-build-', dir=str(source.parent),
         ) as build:
             build_source = Path(build) / 'source'
-            prepare_simc_html_build_source(source, build_source)
+            built_native_digest = prepare_simc_html_build_source(source, build_source)
+            if built_native_digest != native_digest:
+                raise APIError('SimC native patch changed while preparing the build')
             self._command([
                 'cmake', '-S', str(build_source), '-B', build, '-G', 'Ninja',
                 '-DBUILD_GUI=OFF', '-DCMAKE_BUILD_TYPE=Release',
@@ -1027,7 +1087,10 @@ class SimcAgentConsumer:
             probe = self._command([str(candidate)], timeout=30)
             if 'SimulationCraft' not in (probe.stdout + probe.stderr):
                 raise APIError('compiled SimC binary failed its version probe')
+            if hashlib.sha256(_read_simc_native_patch()).hexdigest() != built_native_digest:
+                raise APIError('SimC native patch changed during the build')
             fd, temporary = tempfile.mkstemp(prefix=f'.{target.name}.', dir=str(target.parent))
+            binary_digest = hashlib.sha256()
             try:
                 with os.fdopen(fd, 'wb') as output, candidate.open('rb') as source_binary:
                     while True:
@@ -1035,6 +1098,7 @@ class SimcAgentConsumer:
                         if not chunk:
                             break
                         output.write(chunk)
+                        binary_digest.update(chunk)
                     output.flush()
                     os.fsync(output.fileno())
                 if not _is_windows():
@@ -1050,6 +1114,8 @@ class SimcAgentConsumer:
         marker_tmp.write_text(json.dumps({
             'revision': revision,
             'html_locale_patch_version': SIMC_HTML_LOCALE_PATCH_VERSION,
+            'native_patchset_sha256': built_native_digest,
+            'binary_sha256': binary_digest.hexdigest(),
         }), encoding='utf-8')
         if not _is_windows():
             os.chmod(marker_tmp, 0o600)
