@@ -549,6 +549,8 @@ def publish(bundle, version, state, run, task):
 def refresh_projections(state):
     """队列写入失败仍保留待办，下次无新构建也会重试；不修改模拟历史数值。"""
     from botend.models import SimcBenchmarkPanel
+    from botend.services.gear_catalog_snapshot import invalidate_catalog_snapshots
+    invalidate_catalog_snapshots()
     from botend.services.simc_benchmark_result_snapshot import request_snapshot_refresh
     for panel_id in SimcBenchmarkPanel.objects.filter(is_active=True).values_list('pk', flat=True):
         request_snapshot_refresh(panel_id)

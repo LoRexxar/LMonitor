@@ -9,26 +9,14 @@
   python manage.py aggregate_spec_stats --season 2  # 指定赛季
 """
 
-import json
 import os
 import time
-from decimal import Decimal
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from botend.models import SeasonMeta
-from botend.constants.wow import CLASS_SPEC_MAP, DUNGEON_CN, RAID_BOSS_CN, RAID_ZONE_CN
-from botend.controller.plugins.portal.SpecDetailAggregationMonitor import atomic_dump_json
-from botend.services.spec_stats_service import (
-    SpecStatsService,
-    _lookup_dungeon_cn,
-)
-
-
-class DecimalEncoder(json.JSONEncoder):
-    def default(self, o):
-        if isinstance(o, Decimal):
-            return float(o)
-        return super().default(o)
+from botend.constants.wow import CLASS_SPEC_MAP
+from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
 
 
 class Command(BaseCommand):
@@ -54,7 +42,7 @@ class Command(BaseCommand):
         season_id = season.id
         self.stdout.write(f'聚合赛季 {season.season_key} (id={season_id})')
 
-        base_dir = os.path.join('media', 'aggregated', str(season_id))
+        base_dir = os.path.join(getattr(settings, 'MEDIA_ROOT', '') or 'media', 'aggregated', str(season_id))
         total_files = 0
         t0 = time.time()
 
@@ -74,7 +62,7 @@ class Command(BaseCommand):
                     # 2. 团本统计
                     self._aggregate_raid(season, class_name, spec_name, spec_dir)
                     # 3. 人物榜
-                    self._aggregate_leaderboard(class_name, spec_name, spec_dir)
+                    self._aggregate_leaderboard(season.id, class_name, spec_name, spec_dir)
 
                 total_files += 1 if dungeon_only else 3
                 self.stdout.write(f'  {class_name}/{spec_name} ✓')
@@ -82,69 +70,7 @@ class Command(BaseCommand):
         elapsed = time.time() - t0
         self.stdout.write(self.style.SUCCESS(f'完成: {total_files} 个文件, {elapsed:.1f}s'))
 
-    def _aggregate_dungeon(self, season, class_name, spec_name, spec_dir):
-        """聚合副本统计，每个副本 full=True（含 top5、种族分布）"""
-        if not season.mplus_encounters:
-            return
-
-        dungeons = []
-        for enc in season.mplus_encounters:
-            cn_name = _lookup_dungeon_cn(enc['name'])
-            stats = SpecStatsService._compute_dungeon_stats(
-                season.id, enc['id'], cn_name, class_name, spec_name, full=True
-            )
-            dungeons.append(stats)
-
-        path = os.path.join(spec_dir, 'dungeon.json')
-        atomic_dump_json(path, {'dungeons': dungeons}, cls=DecimalEncoder, ensure_ascii=False)
-
-    def _aggregate_raid(self, season, class_name, spec_name, spec_dir):
-        """聚合团本统计，按区域分组，每个 boss full=True（含 top5）"""
-        if not season.raid_encounters:
-            return
-
-        # 按区域分组
-        if season.raid_zones:
-            zone_groups = []
-            for rz in season.raid_zones:
-                zone_cn = RAID_ZONE_CN.get(rz.get('name', ''), rz.get('name', ''))
-                zone_bosses = []
-                for enc in rz.get('encounters', []):
-                    cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
-                    stats = SpecStatsService._compute_raid_stats(
-                        season.id, enc['id'], cn_name, class_name, spec_name, full=True
-                    )
-                    # 附加区域信息
-                    stats['raid_zone_id'] = rz.get('id')
-                    stats['raid_zone_name'] = rz.get('name', '')
-                    stats['raid_zone_cn'] = zone_cn
-                    zone_bosses.append(stats)
-                if zone_bosses:
-                    zone_groups.append({
-                        'zone_id': rz.get('id'),
-                        'zone_name': rz.get('name', ''),
-                        'zone_cn': zone_cn,
-                        'bosses': zone_bosses,
-                    })
-        else:
-            # fallback: 扁平列表
-            bosses = []
-            for enc in season.raid_encounters:
-                cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
-                stats = SpecStatsService._compute_raid_stats(
-                    season.id, enc['id'], cn_name, class_name, spec_name, full=True
-                )
-                bosses.append(stats)
-            zone_groups = [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
-
-        path = os.path.join(spec_dir, 'raid.json')
-        atomic_dump_json(path, {'zone_groups': zone_groups}, cls=DecimalEncoder, ensure_ascii=False)
-
-    def _aggregate_leaderboard(self, class_name, spec_name, spec_dir):
-        """聚合人物榜，仅输出页面展示用 Top 20。"""
-        result = SpecStatsService.get_player_list(
-            class_name, spec_name, page=1, page_size=20
-        )
-
-        path = os.path.join(spec_dir, 'leaderboard.json')
-        atomic_dump_json(path, result, cls=DecimalEncoder, ensure_ascii=False, default=str)
+    # 定时任务和手工预热使用同一生成器，避免难度与展示字段不同步。
+    _aggregate_dungeon = staticmethod(SpecDetailAggregationMonitor._aggregate_dungeon)
+    _aggregate_raid = staticmethod(SpecDetailAggregationMonitor._aggregate_raid)
+    _aggregate_leaderboard = staticmethod(SpecDetailAggregationMonitor._aggregate_leaderboard)

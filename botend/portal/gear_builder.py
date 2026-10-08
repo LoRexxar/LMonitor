@@ -76,6 +76,9 @@ class PortalGearBuilderBootstrapAPIView(View):
 class PortalGearBuilderCatalogAPIView(View):
     def get(self, request):
         try:
+            if request.GET.get('snapshot') == '1':
+                from botend.services.gear_catalog_snapshot import catalog_snapshot_response
+                return catalog_snapshot_response(request)
             payload = catalog_items(
                 class_name=request.GET.get('class') or 'Warrior',
                 spec_name=request.GET.get('spec') or 'Fury',

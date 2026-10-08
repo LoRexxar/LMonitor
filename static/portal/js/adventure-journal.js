@@ -1,5 +1,9 @@
 (() => {
+  const lootForm = document.querySelector('.journal-loot-filters');
+  const filterData = JSON.parse(document.getElementById('journal-loot-filter-data')?.textContent || 'null');
+  const snapshot = JSON.parse(document.getElementById('journal-loot-snapshot')?.textContent || 'null');
   document.querySelectorAll('form[data-auto-filter]').forEach(form => {
+    if (form === lootForm && filterData && snapshot?.state === 'ready') return;
     form.querySelectorAll('select').forEach(select => select.addEventListener('change', () => {
       if (select.name === 'class' && form.elements.spec) form.elements.spec.value = '';
       form.requestSubmit();
@@ -47,11 +51,13 @@
     }
     return itemRequests.get(key);
   };
-  let lootStarted = false;
+  let lootLoading = false;
   const loadLoot = () => {
-    if (lootStarted) return;
-    lootStarted = true;
-    const queue = Array.from(document.querySelectorAll('[data-loot-id][data-details-loaded="false"]'));
+    if (lootLoading) return;
+    const queue = Array.from(document.querySelectorAll('[data-loot-id][data-details-loaded="false"]')).filter(row => !row.hidden);
+    if (!queue.length) return;
+    lootLoading = true;
+    queue.forEach(row => { row.dataset.detailsLoaded = 'loading'; });
     const worker = async () => {
       while (queue.length) {
         const row = queue.shift();
@@ -97,9 +103,62 @@
         }
       }
     };
-    for (let i = 0; i < 4; i++) worker();
+    Promise.all(Array.from({length: 4}, worker)).finally(() => { lootLoading = false; loadLoot(); });
   };
-  if (document.querySelector('.journal-loot-table')) loadLoot();
+  if (lootForm && filterData && snapshot?.state === 'ready') {
+    const rows = Array.from(document.querySelectorAll('[data-loot-id]'));
+    const keys = ['slot', 'class', 'spec', 'item_type', 'loot_boss', 'loot_q'];
+    const apply = () => {
+      const filters = Object.fromEntries(keys.map(key => [key, lootForm.elements[key]?.value || '']));
+      let count = 0;
+      filterData.rows.forEach((item, index) => {
+        const visible = JournalLootFilter(item, filters);
+        rows[index].hidden = !visible;
+        if (visible) count++;
+      });
+      document.querySelector('[data-loot-count]').textContent = `${count} 件匹配物品 · ${filters.spec ? '已按拾取专精筛选。' : '选择职业和拾取专精，查看对应掉落。'}`;
+      document.querySelector('[data-loot-empty]').hidden = count > 0;
+      const url = new URL(location.href);
+      keys.forEach(key => { if (filters[key]) url.searchParams.set(key, filters[key]); else url.searchParams.delete(key); });
+      history.replaceState(null, '', url);
+      // 切换难度或战斗指南时保留浏览器当前选择。
+      document.querySelectorAll('.journal-battle-filters input').forEach(input => {
+        if (keys.includes(input.name)) input.value = filters[input.name];
+      });
+      document.querySelectorAll('.journal-sidebar a[href^="?"]').forEach(link => {
+        const target = new URL(link.href);
+        keys.forEach(key => { if (filters[key]) target.searchParams.set(key, filters[key]); else target.searchParams.delete(key); });
+        link.href = target.pathname + target.search;
+      });
+      loadLoot();
+    };
+    lootForm.addEventListener('submit', event => { event.preventDefault(); apply(); });
+    lootForm.addEventListener('change', event => {
+      if (event.target.name === 'class') {
+        const options = filterData.specs[event.target.value] || [];
+        const select = lootForm.elements.spec;
+        select.replaceChildren(new Option(event.target.value ? '全部专精' : '请先选择职业', ''), ...options.map(spec => new Option(spec.name, spec.id)));
+        select.disabled = !event.target.value;
+      }
+      apply();
+    });
+    lootForm.elements.loot_q.addEventListener('input', apply);
+    apply();
+  } else if (snapshot?.state === 'building') {
+    // 仅轻量轮询准备状态；数据就绪后刷新一次以加载完整展示。
+    let attempts = 0;
+    const waitForLoot = async () => {
+      try {
+        const response = await fetch(`/portal/api/adventure-journal/${document.body.dataset.journalInstance}/?difficulty=${document.body.dataset.journalDifficulty}&snapshot_status=1`);
+        if (!response.ok) throw new Error('读取失败');
+        const data = await response.json();
+        if (data.snapshot?.state === 'ready') { location.reload(); return; }
+      } catch (_) { /* 短暂失败仍可重试。 */ }
+      if (++attempts < 20) setTimeout(waitForLoot, 3000);
+      else document.querySelector('[data-loot-empty]').textContent = '掉落列表仍在准备，请稍后刷新重试。';
+    };
+    setTimeout(waitForLoot, 3000);
+  } else if (document.querySelector('.journal-loot-table')) loadLoot();
   document.getElementById('journal-expand')?.addEventListener('click', event => {
     const expanded = event.currentTarget.textContent === '收起全部';
     document.querySelectorAll('.journal-skill').forEach(detail => { detail.open = !expanded; });

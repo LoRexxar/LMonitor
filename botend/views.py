@@ -199,6 +199,10 @@ class LMonitorCoreBackend:
 
         # 单独领取耗时的数据更新，不消耗普通监控线程池的名额。
         start_isolated_monitor_worker(LMonitorCore().scan)
+        from botend.services.gear_catalog_snapshot import start_catalog_snapshot_worker
+        start_catalog_snapshot_worker()
+        from botend.services.journal_loot_snapshot import start_journal_loot_snapshot_worker
+        start_journal_loot_snapshot_worker()
 
         # 获取线程池然后分发信息对象
         # 当有空闲线程时才继续

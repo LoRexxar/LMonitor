@@ -16,6 +16,7 @@ from botend.services.journal_service import allowed_difficulties, compile_journa
 from botend.services.journal_source import TABLES, WagoJournalSource, latest_retail_build
 from botend.services.journal_text import JournalText, difficulty_text
 from botend.services.journal_items import supplement_items
+from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots, warm_journal
 
 
 def fixture():
@@ -209,6 +210,10 @@ class JournalCompilationTests(SimpleTestCase):
 class JournalInitialItemDisplayTests(TestCase):
     """首屏基础身份直接读取中央事实，不依赖完整 tooltip 或外源补取。"""
 
+    def setUp(self):
+        isolate_journal_snapshots(self)
+        warm_journal()
+
     @classmethod
     def setUpTestData(cls):
         rows, catalog, _report = compile_journal(fixture())
@@ -259,6 +264,7 @@ class JournalInitialItemDisplayTests(TestCase):
                 WowItemSnapshot.objects.filter(pk=self.item.pk).update(catalog_type=catalog_type)
                 # Fail closed if rendering ever starts fetching external metadata.
                 with patch('requests.sessions.Session.request', side_effect=AssertionError('unexpected network')):
+                    warm_journal()
                     response = self.client.get('/portal/adventure-journal/10/')
                 self.assertEqual(response.status_code, 200)
                 row = response.context['loot'][0]
@@ -302,6 +308,7 @@ class JournalInitialItemDisplayTests(TestCase):
         self.encounter.payload['loot'][0].update(name='手册中文饰品', source='wago')
         self.encounter.save(update_fields=['payload'])
         WowItemSnapshot.objects.filter(pk=self.item.pk).update(name_zh='')
+        warm_journal()
         response = self.client.get('/portal/adventure-journal/10/')
         self.assertEqual(response.context['loot'][0]['name'], '手册中文饰品')
         self.assertNotContains(response, '暂无中文名称')
@@ -316,6 +323,7 @@ class JournalInitialItemDisplayTests(TestCase):
                     self.item.delete()
                 else:
                     WowItemSnapshot.objects.filter(pk=self.item.pk).update(name_zh='', icon='')
+                warm_journal()
                 response = self.client.get('/portal/adventure-journal/10/')
                 dom = BeautifulSoup(response.content, 'html.parser').select_one('[data-loot-id="60"]')
                 self.assertEqual(dom.select_one('.journal-loot-link strong').text, 'Original Trinket')
@@ -335,9 +343,12 @@ class JournalPublicationTests(TestCase):
                 row for row in tables[table] if str(row.get(field)) in {str(value) for value in values}
             ]
             source.return_value.manifest = {}
-            return sync_journal(build='12.1.0.69587')
+            release = sync_journal(build='12.1.0.69587')
+        warm_journal()
+        return release
 
     def setUp(self):
+        isolate_journal_snapshots(self)
         self.release = self.publish()
 
     def test_sync_supplements_missing_base_item_facts_into_central_catalog(self):
@@ -479,6 +490,7 @@ class JournalPublicationTests(TestCase):
         details = {'complete': True, 'item_level': 289, 'stats': ['+118 敏捷／智力'],
                    'effects': ['使用：急速提高800，持续15秒。']}
         with patch('botend.portal.adventure_journal.cached_tooltip', return_value=details):
+            warm_journal()
             response = self.client.get('/portal/adventure-journal/10/', {'tab': 'loot'})
         self.assertContains(response, 'role="table"')
         self.assertContains(response, '装等 289')
@@ -487,6 +499,7 @@ class JournalPublicationTests(TestCase):
 
     def test_loot_spec_uses_current_item_whitelist_instead_of_whole_class(self):
         WowItemSnapshot.objects.filter(item_id=60).update(eligible_specs=['Paladin:Holy'])
+        warm_journal()
         url = '/portal/api/adventure-journal/10/'
         holy = self.client.get(url, {'class': 2, 'spec': 65}).json()
         self.assertEqual([row['item_id'] for row in holy['loot']], [60])

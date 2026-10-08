@@ -1,5 +1,6 @@
 """Cached aggregate-file read models for the public specialization overview."""
 import json
+import hashlib
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -79,13 +80,13 @@ class SpecOverviewService:
         media_root = Path(getattr(settings, 'MEDIA_ROOT', '') or 'media')
         path = media_root / 'aggregated' / str(season.id) / class_name / spec_name / cls.FILES[module]
         try:
-            projection_version = path.stat().st_mtime_ns
+            stat = path.stat()
+            # 原子替换可能保留相同修改时间；文件身份与大小也参与版本判断。
+            projection_version = (stat.st_dev, stat.st_ino, stat.st_mtime_ns, stat.st_size)
         except OSError:
             projection_version = 0
-        key = (
-            f'spec-overview:summary-v2:{module}:{season.id}:{tuple(sorted(expected_ids))}:'
-            f'{class_name}:{spec_name}:{projection_version}'
-        )
+        identity = (str(path.resolve()), sorted(expected_ids), projection_version)
+        key = 'spec-overview:summary-v3:' + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
         cached = cache.get(key)
         if cached is not None:
             return cached

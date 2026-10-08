@@ -126,7 +126,13 @@ class DungeonCombinedStatsTests(TestCase):
         self.assertIn(' IN ', queries[1]['sql'])
 
     def test_page_default_summary_and_all_single_links(self):
+        import tempfile
+        from django.core.management import call_command
         self.row()
+        isolated = self.settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='stats-page-'))
+        isolated.enable()
+        self.addCleanup(isolated.disable)
+        call_command('aggregate_spec_stats', class_name='Warrior', spec_name='Arms', dungeon_only=True)
         response = self.client.get('/portal/spec/Warrior/Arms/dungeons/')
         self.assertEqual(response.status_code, 200)
         soup = BeautifulSoup(response.content, 'html.parser')

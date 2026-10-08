@@ -12,7 +12,7 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalMythicstatsDpsRow, PortalNavigationGroup, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalNavigationGroup, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
 from botend.services.wow_hotfix_entries import continuous_entries, public_hotfix_entry
 from botend.services.wow_today_service import (
@@ -23,15 +23,7 @@ from botend.controller.plugins.wow.wago_regions import wago_region_name
 from botend.wow_i18n import cn_dungeon_from_slug
 from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, canonical_class_spec
 from botend.services.mplus_dps_rankings_service import get_current_mplus_dps_rankings_payload
-from botend.portal.mythicstats import (
-    mythicstats_spec_identity,
-    fetch_current_season_slug,
-    fetch_mythicstats_dps,
-    get_mythicstats_source_cache,
-    upsert_mythicstats_dps_rows,
-    upsert_mythicstats_meta_cache,
-    upsert_mythicstats_source_cache,
-)
+
 
 
 def _fmt_dt(dt):
@@ -1172,224 +1164,12 @@ class PortalMplusDpsRankingsAPIView(View):
 
 
 class PortalMythicstatsDpsAPIView(View):
+    """公开接口只读统一发布文件；缺数据也不联网或写数据库。"""
     def get(self, request):
-        season = (request.GET.get('season') or '').strip()
-        auto_season = (not season) or season in {"season-mn-1", "auto"}
-        if auto_season:
-            season = ""
-        dungeon_id_raw = (request.GET.get('dungeon') or '').strip()
-        period_id_raw = (request.GET.get('period') or '').strip()
-        try:
-            dungeon_id = int(dungeon_id_raw) if dungeon_id_raw else 0
-        except ValueError:
-            dungeon_id = 0
-        try:
-            period_id = int(period_id_raw) if period_id_raw else None
-        except ValueError:
-            period_id = None
-
-        def ensure_data():
-            nonlocal season
-            base = fetch_mythicstats_dps(req=None, season=season, dungeon_id=dungeon_id, period_id=None)
-            if auto_season:
-                season = base.get("season") or season
-            periods = base.get("periods") or []
-            dungeons = base.get("dungeons") or [{"id": 0, "name": "All dungeons"}]
-            upsert_mythicstats_meta_cache(season=season or base.get("season"), dungeons=dungeons, periods=periods)
-            if not periods:
-                return
-            top3 = periods[:3]
-            for idx, p in enumerate(top3):
-                pid = p.get("id")
-                if not pid:
-                    continue
-                cur = base
-                if int(pid) != int(base.get("period_id") or 0):
-                    cur = fetch_mythicstats_dps(req=None, season=season, dungeon_id=dungeon_id, period_id=int(pid))
-                period_label = cur.get("period_label") or str(pid)
-                cur_season = cur.get("season") or season
-                upsert_mythicstats_source_cache(
-                    season=cur_season,
-                    dungeon_id=dungeon_id,
-                    period_id=int(pid),
-                    source_note=cur.get("source_note") or "",
-                    key_min=cur.get("key_min"),
-                    key_max=cur.get("key_max"),
-                )
-                exists = PortalMythicstatsDpsRow.objects.filter(season=cur_season, period_id=int(pid), dungeon_id=dungeon_id).exists()
-                if idx > 0 and exists:
-                    continue
-                rankings = cur.get("rankings") or {}
-                dungeon_name = "All dungeons"
-                for d in dungeons:
-                    try:
-                        if int(d.get("id") or 0) == int(dungeon_id):
-                            dungeon_name = d.get("name") or dungeon_name
-                            break
-                    except Exception:
-                        continue
-                for role in ("damage", "tank", "healer"):
-                    rows = rankings.get(role) or []
-                    upsert_mythicstats_dps_rows(
-                        season=cur_season,
-                        period_id=int(pid),
-                        period_label=period_label,
-                        dungeon_id=dungeon_id,
-                        dungeon_name=dungeon_name,
-                        role=role,
-                        rows=rows,
-                        replace_batch=(idx == 0),
-                    )
-
-        if auto_season and not season:
-            slug, _label = fetch_current_season_slug(req=None)
-            if slug:
-                season = slug
-        if not season:
-            season = "unknown"
-
-        if not PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=dungeon_id).exists():
-            ensure_data()
-        elif period_id and not PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=dungeon_id, period_id=period_id).exists():
-            base = fetch_mythicstats_dps(req=None, season=season, dungeon_id=dungeon_id, period_id=period_id)
-            dungeons = base.get("dungeons") or [{"id": 0, "name": "All dungeons"}]
-            periods = base.get("periods") or []
-            upsert_mythicstats_meta_cache(season=season, dungeons=dungeons, periods=periods)
-            upsert_mythicstats_source_cache(
-                season=base.get("season") or season,
-                dungeon_id=dungeon_id,
-                period_id=period_id,
-                source_note=base.get("source_note") or "",
-                key_min=base.get("key_min"),
-                key_max=base.get("key_max"),
-            )
-            dungeon_name = "All dungeons"
-            for d in dungeons:
-                try:
-                    if int(d.get("id") or 0) == int(dungeon_id):
-                        dungeon_name = d.get("name") or dungeon_name
-                        break
-                except Exception:
-                    continue
-            for role in ("damage", "tank", "healer"):
-                upsert_mythicstats_dps_rows(
-                    season=base.get("season") or season,
-                    period_id=period_id,
-                    period_label=base.get("period_label") or str(period_id),
-                    dungeon_id=dungeon_id,
-                    dungeon_name=dungeon_name,
-                    role=role,
-                    rows=(base.get("rankings") or {}).get(role) or [],
-                    replace_batch=False,
-                )
-
-        period_rows = list(
-            PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=dungeon_id)
-            .values("period_id", "period_label")
-            .order_by("-period_id")
-            .distinct()[:3]
-        )
-        periods = [{"id": int(x["period_id"]), "label": x.get("period_label") or str(x["period_id"])} for x in period_rows]
-        active_period = period_id or (periods[0]["id"] if periods else None)
-        source_payload = get_mythicstats_source_cache(season=season, dungeon_id=dungeon_id, period_id=active_period or 0)
-        source_note = (source_payload.get("source_note") or "").strip()
-        key_min = source_payload.get("key_min")
-        key_max = source_payload.get("key_max")
-
-        dungeons = []
-        meta = cache.get(f"mythicstats_dps_meta:{season}")
-        if isinstance(meta, dict):
-            dungeons = meta.get("dungeons") or []
-
-        if not dungeons:
-            dungeon_rows = list(
-                PortalMythicstatsDpsRow.objects.filter(season=season)
-                .exclude(dungeon_id=0)
-                .values("dungeon_id", "dungeon_name")
-                .order_by("dungeon_id")
-                .distinct()
-            )
-            dungeons = [
-                {"id": int(x.get("dungeon_id") or 0), "name": x.get("dungeon_name") or str(x.get("dungeon_id") or "")}
-                for x in dungeon_rows
-            ]
-
-        dungeons = [{"id": 0, "name": "All dungeons"}] + [
-            {"id": int(x.get("id") or x.get("dungeon_id") or 0), "name": x.get("name") or x.get("dungeon_name") or ""}
-            for x in (dungeons or [])
-        ]
-        seen = set()
-        uniq = []
-        for d in dungeons:
-            try:
-                did = int(d.get("id") or 0)
-            except Exception:
-                did = 0
-            if did in seen:
-                continue
-            seen.add(did)
-            name = d.get("name") or ("All dungeons" if did == 0 else str(did))
-            uniq.append({"id": did, "name": name})
-        dungeons = uniq
-
-        def row_to_dict(r):
-            spec_url = (r.spec_url or "").strip()
-            if spec_url.startswith("/"):
-                spec_url = "https://mythicstats.com" + spec_url
-            elif spec_url and (not re.match(r"^https?://", spec_url, flags=re.I)):
-                spec_url = "https://mythicstats.com/" + spec_url.lstrip("/")
-            return {
-                "rank": r.rank,
-                "diff_raw": r.diff_raw,
-                "diff_value": r.diff_value,
-                "tier": r.tier,
-                "avg": r.avg_text,
-                "avg_value": r.avg_value,
-                "top": r.top_text,
-                "top_value": r.top_value,
-                "runs": r.runs_text,
-                "spec_name": r.spec_name,
-                "spec_slug": r.spec_slug,
-                "spec_url": spec_url,
-                "week": r.week,
-                "updated_at": _fmt_dt(r.updated_at),
-                **mythicstats_spec_identity(r.spec_slug),
-            }
-
-        roles = {"damage": [], "tank": [], "healer": []}
-        if active_period:
-            for role in roles.keys():
-                qs = (
-                    PortalMythicstatsDpsRow.objects.filter(
-                        season=season,
-                        dungeon_id=dungeon_id,
-                        period_id=int(active_period),
-                        role=role,
-                    )
-                    .order_by("rank")[:80]
-                )
-                roles[role] = [row_to_dict(x) for x in qs]
-
-        return JsonResponse(
-            {
-                "status": "success",
-                "data": {
-                    "season": season,
-                    "seasons": list(
-                        PortalMythicstatsDpsRow.objects.exclude(season__in=["unknown", "season-mn-1"])
-                        .values_list("season", flat=True)
-                        .distinct()
-                        .order_by("season")
-                    ),
-                    "dungeon_id": dungeon_id,
-                    "periods": periods,
-                    "active_period": active_period,
-                    "source_note": source_note,
-                    "key_min": key_min,
-                    "key_max": key_max,
-                    "source_url": "https://mythicstats.com/dps",
-                    "dungeons": dungeons,
-                    "roles": roles,
-                },
-            }
-        )
+        from botend.services.mythicstats_snapshot import read_snapshot
+        data = read_snapshot(season=request.GET.get('season', ''),
+                             dungeon_id=request.GET.get('dungeon', 0),
+                             period_id=request.GET.get('period'))
+        response = JsonResponse({'status': 'success', 'data': data})
+        response['Cache-Control'] = 'no-store' if data['snapshot']['state'] == 'pending' else 'public, max-age=60'
+        return response

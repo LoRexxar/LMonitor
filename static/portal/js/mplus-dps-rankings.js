@@ -187,7 +187,8 @@
         if (!rows.length) {
             list.hidden = true;
             status.hidden = false;
-            status.textContent = state.source === 'mythicstats' ? '当前筛选范围暂无该职责的 DPS 数据' : state.activeScope === 'overall'
+            status.textContent = state.source === 'mythicstats' ? (state.mythicPayload?.snapshot?.state === 'pending'
+                ? state.mythicPayload.snapshot.message : '当前筛选范围暂无该职责的 DPS 数据') : state.activeScope === 'overall'
                 ? '暂无覆盖全部赛季副本的专精数据'
                 : '该副本暂无可用 DPS 样本';
             return;
@@ -391,6 +392,9 @@
             sourceLink,
             element('div', 'mplus-rank-source-note', '榜单随美服每周三更新；周初日志较少，请结合日志数量参考。')
         );
+        if (payload.snapshot?.state === 'stale') {
+            method.append(element('div', 'mplus-rank-source-note', payload.snapshot.message));
+        }
         renderTabs();
         renderRankings();
     }
@@ -410,6 +414,7 @@
         const cacheKey = source === 'local' ? 'local' : query;
         try {
             let payload = source === 'local' ? state.localPayload : state.cache.get(cacheKey);
+            if (payload && source === 'mythicstats' && Date.now() - (payload.loadedAt || 0) > 60000) payload = null;
             if (!payload) {
                 const url = source === 'local' ? '/portal/api/mplus/dps-rankings/' : `/portal/api/mythicstats/dps/?${query}`;
                 const response = await fetch(url, {headers: {'Accept': 'application/json'}});
@@ -418,7 +423,10 @@
                 payload = source === 'local' ? result : result.data;
                 if (!payload || (source === 'mythicstats' && !payload.roles)) throw new Error('数据格式无效');
                 if (source === 'local') state.localPayload = payload;
-                else state.cache.set(cacheKey, payload);
+                else if (payload.snapshot?.state !== 'pending') {
+                    payload.loadedAt = Date.now();
+                    state.cache.set(cacheKey, payload);
+                }
             }
             if (requestId !== state.requestId) return;
             if (source === 'local') {
@@ -426,7 +434,7 @@
                 render(payload);
             } else {
                 renderMythicstats(payload);
-                state.cache.set(new URLSearchParams(state.filters).toString(), payload);
+                if (payload.snapshot?.state !== 'pending') state.cache.set(new URLSearchParams(state.filters).toString(), payload);
             }
             tabs.hidden = false;
         } catch (_) {

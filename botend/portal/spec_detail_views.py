@@ -10,6 +10,7 @@
 import json
 import os
 from datetime import datetime
+from django.conf import settings
 
 from django.views import View
 from django.shortcuts import render
@@ -24,7 +25,7 @@ from botend.wow.talents.build_code import TalentBuildCodeDecoder
 from botend.constants.hero_talents import spec_hero_subtree_ids
 
 
-AGGREGATED_DIR = os.path.join('media', 'aggregated')
+AGGREGATED_DIR = None
 
 
 def _validate_spec(class_name, spec_name):
@@ -112,14 +113,14 @@ def _talent_build_popularity_has_builds(detail, class_name='', spec_name=''):
 
 def _load_json(season_id, class_name, spec_name, filename):
     """从聚合目录加载 JSON 文件，不存在返回 None"""
-    path = os.path.join(AGGREGATED_DIR, str(season_id), class_name, spec_name, filename)
-    if not os.path.exists(path):
+    root = AGGREGATED_DIR or os.path.join(getattr(settings, 'MEDIA_ROOT', '') or 'media', 'aggregated')
+    path = os.path.join(root, str(season_id), class_name, spec_name, filename)
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            payload = json.load(f)
+        return payload if isinstance(payload, dict) else None
+    except (OSError, ValueError):
         return None
-    with open(path, 'r', encoding='utf-8') as f:
-        from botend.services.wow_item_display import refresh_aggregate_equipment
-        from botend.services.wow_talent_display import refresh_aggregate_talents
-        payload = refresh_aggregate_equipment(json.load(f), class_name=class_name, spec_name=spec_name)
-        return refresh_aggregate_talents(payload, class_name=class_name, spec_name=spec_name)
 
 
 def _raid_overview_json_is_stale(season, zone_groups):
@@ -291,29 +292,16 @@ class SpecDetailDungeonView(View):
                 {'dungeon_id': str(enc['id']), 'dungeon_name': _lookup_dungeon_cn(enc['name'])}
                 for enc in (ctx['season'].mplus_encounters or [])
             ]
+            data = _load_json(season_id, class_name, spec_name, 'dungeon.json') or {}
             if dungeon_id == 'all':
-                ctx['dungeon_detail'] = SpecStatsService.get_dungeon_summary(class_name, spec_name, season_id)
+                ctx['dungeon_detail'] = data.get('summary')
             else:
                 if dungeon_id not in {enc['dungeon_id'] for enc in ctx['dungeon_options']}:
                     raise Http404
                 did = int(dungeon_id)
                 name = next(enc['dungeon_name'] for enc in ctx['dungeon_options'] if enc['dungeon_id'] == dungeon_id)
-                data = _load_json(season_id, class_name, spec_name, 'dungeon.json') or {}
                 detail = next((item for item in data.get('dungeons', [])
                                if item.get('dungeon_id') == did), None)
-                if (
-                    not detail
-                    or not _talent_tree_has_hero(detail)
-                    or not _talent_tree_matches_spec(detail, class_name, spec_name)
-                    or not _talent_usage_has_point_statistics(detail)
-                    or 'secondary_stats' not in detail
-                    or not _talent_build_popularity_has_builds(detail, class_name, spec_name)
-                    or _detail_item_metadata_is_stale(detail)
-                    or 'field_sources' not in detail
-                ):
-                    detail = SpecStatsService.get_dungeon_detail(
-                        did, class_name, spec_name, season_id,
-                    )
                 ctx['dungeon_detail'] = detail or {
                     'dungeon_id': did, 'dungeon_name': name, 'sample_size': 0,
                 }
@@ -353,12 +341,11 @@ class SpecDetailRaidView(View):
                 )
                 if not data.get('difficulties') and difficulty == 5:
                     zone_groups = data.get('zone_groups', [])
-                if _raid_overview_json_is_stale(ctx['season'], zone_groups):
-                    zone_groups = SpecStatsService.get_raid_overview(
-                        class_name, spec_name, season_id, difficulty=difficulty,
-                    )
                 if boss_id:
-                    bid = int(boss_id)
+                    try:
+                        bid = int(boss_id)
+                    except (ValueError, TypeError):
+                        raise Http404
                     detail = None
                     for zg in zone_groups:
                         for b in zg.get('bosses', []):
@@ -368,18 +355,6 @@ class SpecDetailRaidView(View):
                         if detail:
                             break
                     if detail:
-                        # 兼容旧聚合 JSON：若天赋树缺英雄天赋、新维度缺失或天赋字符串为空，则实时重算该详情对象
-                        if (
-                            (not _talent_tree_has_hero(detail))
-                            or (not _talent_tree_matches_spec(detail, class_name, spec_name))
-                            or (not _talent_usage_has_point_statistics(detail))
-                            or ('secondary_stats' not in detail)
-                            or (not _talent_build_popularity_has_builds(detail, class_name, spec_name))
-                            or _detail_item_metadata_is_stale(detail)
-                        ):
-                            detail = SpecStatsService.get_raid_detail(
-                                bid, class_name, spec_name, difficulty=difficulty,
-                            ) or detail
                         ctx['boss_detail'] = detail
                     else:
                         ctx['zone_groups'] = zone_groups

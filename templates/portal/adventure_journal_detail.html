@@ -1,7 +1,7 @@
 {% load static %}
 <!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>{{ instance.name }} · 冒险手册 - 魔兽世界每日节奏</title><link rel="icon" href="/favicon.ico">
-<script src="{% static 'portal/js/portal-theme.js' %}?v=20260911_journal"></script><link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260911_journal"><link rel="stylesheet" href="{% static 'portal/css/adventure-journal.css' %}?v=20260930_labels">
+<script src="{% static 'portal/js/portal-theme.js' %}?v=20260911_journal"></script><link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260911_journal"><link rel="stylesheet" href="{% static 'portal/css/adventure-journal.css' %}?v=20261008_loot_snapshot">
 </head><body class="portal-bg journal-page" data-journal-instance="{{ instance.id }}" data-journal-boss="{{ boss.id }}" data-journal-difficulty="{{ difficulty }}">{% include 'portal/_header.html' %}
 <main class="journal-shell"><nav class="journal-breadcrumb" aria-label="面包屑"><a href="/portal/adventure-journal/">冒险手册</a><span>／</span><span>{{ instance.name }}</span></nav>
 <header class="journal-instance-heading"><div><p class="journal-eyebrow">{{ instance.kind_label }}{% if instance.tier_name %} · {{ instance.tier_name }}{% endif %}</p>{% if instance.is_current_season %}<span class="journal-source-badge journal-source-badge--current" title="{{ instance.season_label }}">本赛季</span>{% endif %}{% if source.key == "ptr" %}<span class="journal-source-badge journal-source-badge--ptr">{{ source.label }}</span>{% endif %}<h1>{{ instance.name }}</h1></div><details class="journal-lore"><summary>副本背景</summary><p>{{ instance.description|default:'游戏手册暂无副本背景说明。' }}</p></details></header>
@@ -18,16 +18,20 @@
 <label>拾取专精<select name="spec" {% if not class_id %}disabled{% endif %}><option value="">{% if class_id %}全部专精{% else %}请先选择职业{% endif %}</option>{% for s in specs %}<option value="{{ s.id }}" {% if spec_id == s.id %}selected{% endif %}>{{ s.name }}</option>{% endfor %}</select></label>
 <label>装备类型<select name="item_type"><option value="">全部类型</option>{% for t in item_types %}<option value="{{ t.id }}" {% if item_type == t.id %}selected{% endif %}>{{ t.name }}</option>{% endfor %}</select></label>
 <label>掉落首领<select name="loot_boss"><option value="">全部首领</option>{% for b in bosses %}<option value="{{ b.id }}" {% if loot_boss == b.id %}selected{% endif %}>{{ b.name }}</option>{% endfor %}</select></label><button class="journal-primary" type="submit">筛选掉落</button></form>
-<p class="journal-muted">{{ loot|length }} 件匹配物品 · {% if spec_id %}已按拾取专精筛选。{% else %}选择职业和拾取专精，查看对应掉落。{% endif %}</p>
+<p class="journal-muted" data-loot-count>{{ loot|length }} 件匹配物品 · {% if spec_id %}已按拾取专精筛选。{% else %}选择职业和拾取专精，查看对应掉落。{% endif %}</p>
 
 <p class="journal-loot-reference">属性与特效按每行参考装等展示；实际掉落装等随难度和升级变化。</p>
 <div class="journal-loot-table" role="table" aria-label="副本掉落装备">
 <div class="journal-loot-head" role="row"><span role="columnheader">装备 / 类型 / 来源</span><span role="columnheader">参考装等 / 属性</span><span role="columnheader">装备特效</span></div>
-{% for item in loot %}<div class="journal-loot-row" role="row" data-loot-id="{{ item.item_id }}" data-details-loaded="{% if item.details.complete %}true{% else %}false{% endif %}">
+{% for item in loot_catalog %}<div {% if not item.visible %}hidden{% endif %} class="journal-loot-row" role="row" data-loot-id="{{ item.item_id }}" data-details-loaded="{% if item.details.complete %}true{% else %}false{% endif %}">
 <div class="journal-loot-name" role="cell"><a class="journal-loot-link" data-tooltip-kind="item" data-tooltip-id="{{ item.item_id }}" href="{{ item.url }}" target="_blank" rel="noopener"><span class="journal-loot-symbol quality-{{ item.quality }}" aria-hidden="true">{% if item.icon_url %}<img src="{{ item.icon_url }}" loading="lazy" alt="" onerror="this.hidden=true">{% elif item.icon %}<img src="/portal/adventure-journal/art/{{ item.icon }}/?v=2" loading="lazy" alt="" onerror="this.hidden=true">{% elif item.details.icon %}<img src="{{ item.details.icon }}" loading="lazy" alt="" onerror="this.hidden=true">{% endif %}◇</span><strong class="quality-{{ item.quality }}">{{ item.name }}</strong></a><small><span class="journal-item-type">{{ item.type_name }}</span>{% if item.type_name != item.slot_name %} · {{ item.slot_name }}{% endif %}{% if item.source == "wago-enUS" and not item.name_localized %} · 暂无中文名称{% endif %}{% if item.rare %} · {{ item.rare }}{% endif %}{% if item.display_season_id or item.condition_id %} · 赛季或世界状态条件{% endif %}</small><small class="journal-drop-sources">{% for source in item.sources %}{{ source.name }}{% if not forloop.last %}、{% endif %}{% endfor %}</small></div>
 <div class="journal-loot-stats" role="cell" data-item-stats>{% if item.details.complete %}{% if item.details.item_level %}<strong>装等 {{ item.details.item_level }}</strong>{% endif %}{% for stat in item.details.stats %}<span>{{ stat }}</span>{% empty %}<span>无基础属性</span>{% endfor %}{% else %}<span class="journal-muted">正在加载属性…</span>{% endif %}</div>
 <div class="journal-loot-effects" role="cell" data-item-effects>{% if item.details.complete %}{% for effect in item.details.effects %}<p>{{ effect }}</p>{% endfor %}{% else %}<span class="journal-muted">正在加载特效…</span>{% endif %}{% if item.description %}<small>{{ item.description }}</small>{% endif %}</div>
-</div>{% empty %}<div class="journal-empty"><h3>暂无匹配掉落</h3><p>请调整筛选条件；部分旧首领在游戏手册中也没有掉落记录。</p></div>{% endfor %}</div></section>
+</div>{% endfor %}</div>
+<div class="journal-empty" data-loot-empty {% if loot %}hidden{% endif %}>{% if loot_snapshot.state == 'building' %}<h3>正在准备掉落列表…</h3><p>页面会自动更新，请稍候。</p>{% elif loot_snapshot.state == 'unavailable' %}<h3>掉落列表暂不可用</h3><p>请稍后刷新重试。</p>{% else %}<h3>暂无匹配掉落</h3><p>请调整筛选条件；部分旧首领在游戏手册中也没有掉落记录。</p>{% endif %}</div>
+{{ loot_filter_data|json_script:"journal-loot-filter-data" }}
+{{ loot_snapshot|json_script:"journal-loot-snapshot" }}
+</section>
 {% elif boss %}<section id="panel-skills" aria-label="战斗指南"><h3 class="journal-guide-title">战斗指南</h3>{% if boss.overview %}<div class="journal-overview"><h3>战斗概览</h3><p>{{ boss.overview|linebreaksbr }}</p></div>{% endif %}
 <div class="journal-role-grid">{% for item in boss.roles %}<section class="journal-role-card"><h3>{{ item.title }}</h3><p>{{ item.text|linebreaksbr }}</p></section>{% empty %}<p class="journal-muted">游戏手册未提供当前难度／职责的专属提示，请结合下方技能说明安排应对。</p>{% endfor %}</div>
 <div class="journal-section-label"><h3>技能与阶段</h3><button type="button" class="journal-text-button" id="journal-expand">展开全部</button></div>
@@ -35,4 +39,5 @@
 {% for skill in boss.skills %}{% include 'portal/_journal_skill.html' %}{% empty %}<div class="journal-empty"><p>游戏手册暂无此首领在当前筛选条件下的技能说明。</p></div>{% endfor %}</section>{% else %}<p class="journal-empty">游戏手册暂无此副本的首领记录。</p>{% endif %}
 <footer class="journal-source">数据版本：{{ source.text_build|default:source.build }} · <a href="https://wago.tools/journal/{{ instance.id }}?build={{ source.text_build|default:source.build }}" target="_blank" rel="noopener">查看 Wago 来源</a> · {{ release.updated|date:'Y-m-d H:i' }}</footer></article></div></main>
 <dialog id="journal-tooltip-dialog" aria-labelledby="journal-tooltip-title"><div class="journal-dialog-heading"><h2 id="journal-tooltip-title">物品与技能详情</h2><button type="button" id="journal-tooltip-close" aria-label="关闭详情">×</button></div><div id="journal-tooltip-content" aria-live="polite"></div></dialog>
-<script src="{% static 'portal/js/adventure-journal.js' %}?v=20261008_loot_spec"></script></body></html>
+<script src="{% static 'portal/js/journal-loot-filter.js' %}?v=20261008"></script>
+<script src="{% static 'portal/js/adventure-journal.js' %}?v=20261008_loot_snapshot"></script></body></html>

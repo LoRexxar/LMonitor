@@ -119,7 +119,7 @@ class DungeonHeroIdentityTests(SimpleTestCase):
     @patch('botend.portal.spec_detail_views.SpecStatsService.get_dungeon_detail')
     @patch('botend.portal.spec_detail_views._load_json')
     @patch('botend.portal.spec_detail_views._base_context')
-    def test_live_dungeon_view_recomputes_only_offspec_cached_hero_panel(
+    def test_dungeon_view_never_recomputes_legacy_snapshot(
             self, base_context, load_json, get_detail, render):
         from botend.portal.spec_detail_views import SpecDetailDungeonView
         base_context.return_value = {
@@ -146,8 +146,8 @@ class DungeonHeroIdentityTests(SimpleTestCase):
         get_detail.return_value = corrected
         request = RequestFactory().get('/portal/spec/Warrior/Protection/dungeons/?dungeon_id=61762')
         SpecDetailDungeonView().get(request, 'Warrior', 'Protection')
-        get_detail.assert_called_once_with(61762, 'Warrior', 'Protection', 3)
-        self.assertIs(render.call_args.args[2]['dungeon_detail'], corrected)
+        get_detail.assert_not_called()
+        self.assertIs(render.call_args.args[2]['dungeon_detail'], detail)
 
     @patch('botend.management.commands.aggregate_spec_stats.os.makedirs')
     @patch('botend.management.commands.aggregate_spec_stats.Command._aggregate_leaderboard')

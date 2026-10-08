@@ -83,6 +83,12 @@
   let candidateLoading = false;
   let candidateRequestId = 0;
   let candidateSlot = "";
+  let candidateGeneration = "";
+  let candidatePreparing = false;
+  let candidateError = "";
+  let candidateRetryTimer = 0;
+  let candidateRetryCount = 0;
+  const readCatalog = globalThis.window?.WowGearCatalog?.createLoader(url => requestJson(url));
   let searchTimer = 0;
   let enhancementGroups = {embellishments: [], gems: [], enchants: []};
   let savedLoadouts = [];
@@ -524,6 +530,11 @@
   }
 
   function renderCandidates() {
+    if ((candidatePreparing || candidateError) && !candidates.length) {
+      els.candidate_list.innerHTML = `<div class="gear-loading-state">${escapeHtml(candidateError || "装备目录正在准备，请稍候…")}</div>`;
+      els.load_more.hidden = true;
+      return;
+    }
     if (candidateLoading && !candidates.length) {
       els.candidate_list.innerHTML = '<div class="gear-loading-state">正在读取当前槽位的装备…</div>';
       return;
@@ -621,8 +632,12 @@
     if (state.mode === "owned") await loadOwnedItems();
   }
 
-  async function loadCandidates(reset = true) {
+  async function loadCandidates(reset = true, retry = false) {
     if (!reset && candidateLoading) return;
+    window.clearTimeout(candidateRetryTimer);
+    if (!retry) candidateRetryCount = 0;
+    candidatePreparing = false;
+    candidateError = "";
     const requestId = reset ? ++candidateRequestId : candidateRequestId;
     const requestedSlot = state.selectedSlot;
     const requestedPage = reset ? 1 : candidatePage + 1;
@@ -631,6 +646,7 @@
       candidates = [];
       candidateTotal = 0;
       candidateSlot = requestedSlot;
+      candidateGeneration = "";
     }
     candidateLoading = true;
     renderCandidates();
@@ -638,23 +654,39 @@
       class: state.className,
       spec: state.specName,
       slot: requestedSlot,
-      source: els.source_filter.value,
-      q: els.search_input.value.trim(),
-      page: String(requestedPage),
-      page_size: "60",
+      snapshot: "1",
     });
+    const source = els.source_filter.value;
+    const query = els.search_input.value.trim();
     const excludedSources = [...els.quick_filters.querySelectorAll("[data-exclude-source]:checked")]
       .map((control) => control.dataset.excludeSource);
     const excludedStats = [...els.quick_filters.querySelectorAll("[data-exclude-stat]:checked")]
       .map((control) => control.dataset.excludeStat);
-    if (excludedSources.length) params.set("exclude_sources", excludedSources.join(","));
-    if (excludedStats.length) params.set("exclude_stats", excludedStats.join(","));
     try {
-      const payload = await requestJson(`${endpoints.catalog}?${params}`);
+      const snapshot = await readCatalog(`${endpoints.catalog}?${params}`);
       if (requestId !== candidateRequestId) return;
+      if (snapshot.snapshot?.state === "building") {
+        candidatePreparing = true;
+        if (++candidateRetryCount <= 20) {
+          candidateRetryTimer = window.setTimeout(() => loadCandidates(true, true), 3000);
+        } else {
+          candidateError = "装备目录仍在准备，请稍后切换槽位或刷新页面重试。";
+        }
+        return;
+      }
+      const replacePage = reset || candidateGeneration !== snapshot.snapshot.generation;
+      const responsePage = replacePage ? 1 : requestedPage;
+      const payload = window.WowGearCatalog.filter(snapshot, {
+        source, query, excludedSources, excludedStats, page: responsePage, pageSize: 60,
+      });
+      if (snapshot.catalog) {
+        bootstrap.catalog = snapshot.catalog;
+        renderCatalogStatus();
+      }
       candidateSlot = requestedSlot;
-      candidates = reset ? payload.items : candidates.concat(payload.items || []);
-      candidatePage = requestedPage;
+      candidates = replacePage ? payload.items : candidates.concat(payload.items || []);
+      candidatePage = responsePage;
+      candidateGeneration = snapshot.snapshot.generation;
       candidateTotal = payload.total || 0;
       if (refreshCachedEquipmentStats(payload.items || [])) {
         persist();
@@ -663,6 +695,7 @@
     } catch (error) {
       if (requestId !== candidateRequestId) return;
       if (reset) candidates = [];
+      candidateError = error.message || "装备目录暂不可用，请稍后重试。";
       toast(error.message, true);
     } finally {
       if (requestId === candidateRequestId) {

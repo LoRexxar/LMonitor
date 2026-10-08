@@ -1,0 +1,27 @@
+"""预热或修复配装器目录 JSON 文件。"""
+from django.core.management.base import BaseCommand, CommandError
+from botend.services import gear_catalog_snapshot as snapshots
+from botend.services import gear_builder as gb
+
+
+class Command(BaseCommand):
+    help = '构建已登记的配装目录分片，或预热指定职业专精'
+
+    def add_arguments(self, parser):
+        parser.add_argument('--class', dest='class_name')
+        parser.add_argument('--spec', dest='spec_name')
+        parser.add_argument('--slot', choices=tuple(gb.SLOT_LABELS))
+        parser.add_argument('--limit', type=int, default=640)
+        parser.add_argument('--force', action='store_true')
+
+    def handle(self, *args, **options):
+        if bool(options['class_name']) != bool(options['spec_name']) or (options['slot'] and not options['class_name']):
+            raise CommandError('请同时指定 --class 和 --spec；--slot 需要指定职业专精')
+        if options['class_name']:
+            try:
+                for slot in [options['slot']] if options['slot'] else gb.SLOT_LABELS:
+                    snapshots.request_refresh(snapshots.coordinate(options['class_name'], options['spec_name'], slot))
+            except gb.GearBuilderError as exc:
+                raise CommandError(str(exc)) from exc
+        rows = snapshots.refresh_catalog_snapshots(batch_size=options['limit'], force=options['force'])
+        self.stdout.write(f'完成 {len(rows)} 个装备目录分片；失败分片保留旧版本并等待重试。')

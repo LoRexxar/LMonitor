@@ -21,3 +21,6 @@ html.portal-theme-dark .journal-page{--j-ink:#e0e8ec;--j-muted:#a7b6bf;--j-line:
 .journal-loot-nav{display:flex;justify-content:space-between;align-items:center;padding:12px 10px;margin-bottom:24px;border-bottom:1px solid var(--j-line);font-size:14px;font-weight:650}.journal-loot-nav[aria-current]{color:var(--j-accent);background:var(--j-wash);border-radius:5px}.journal-loot-nav span{font-size:11px;font-weight:400}.journal-item-type{display:inline-block;color:var(--j-accent);background:var(--j-wash);border:1px solid var(--j-line);padding:0 5px;border-radius:3px}.journal-drop-sources{font-size:11px}.journal-guide-title{font-size:16px;margin:25px 0 20px}#panel-loot>.journal-loot-filters{margin-top:22px}.journal-loot-filters label{min-width:110px}.journal-loot-filters .journal-search{flex-basis:220px}@media(max-width:760px){.journal-loot-nav{margin-bottom:14px}.journal-loot-filters label{min-width:100px}}
 
 .journal-source-badge--current{color:var(--j-accent);border-color:var(--j-accent);background:var(--j-wash)}
+
+/* 浏览器本地筛选必须覆盖行布局的 display 规则。 */
+.journal-loot-row[hidden], .journal-empty[hidden] { display: none !important; }

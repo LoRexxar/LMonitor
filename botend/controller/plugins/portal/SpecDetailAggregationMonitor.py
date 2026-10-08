@@ -8,6 +8,7 @@ import json
 import os
 import tempfile
 from decimal import Decimal
+from datetime import date, datetime
 
 from django.conf import settings
 from django.utils import timezone
@@ -27,6 +28,8 @@ class DecimalEncoder(json.JSONEncoder):
     def default(self, o):
         if isinstance(o, Decimal):
             return float(o)
+        if isinstance(o, (date, datetime)):
+            return o.isoformat()
         return super().default(o)
 
 
@@ -49,6 +52,16 @@ def atomic_dump_json(path, payload, **dump_kwargs):
         raise
 
 
+def publish_stats(path, payload, class_name, spec_name):
+    """后台统一补全装备与天赋，页面只读取已发布的展示结果。"""
+    from botend.services.wow_item_display import refresh_aggregate_equipment
+    from botend.services.wow_talent_display import refresh_aggregate_talents
+    payload = refresh_aggregate_equipment(payload, class_name=class_name, spec_name=spec_name)
+    payload = refresh_aggregate_talents(payload, class_name=class_name, spec_name=spec_name)
+    payload['generated_at'] = timezone.now().isoformat()
+    atomic_dump_json(path, payload, cls=DecimalEncoder, ensure_ascii=False)
+
+
 class SpecDetailAggregationMonitor(BaseScan):
 
     def __init__(self, req, task):
@@ -63,7 +76,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             logger.error("[SpecDetailAggregation] 无活跃赛季，跳过")
             return False
 
-        base_dir = os.path.join('media', 'aggregated', str(season.id))
+        base_dir = os.path.join(getattr(settings, 'MEDIA_ROOT', '') or 'media', 'aggregated', str(season.id))
         total_files = 0
 
         for class_name, specs in CLASS_SPEC_MAP.items():
@@ -80,7 +93,8 @@ class SpecDetailAggregationMonitor(BaseScan):
         logger.info(f"[SpecDetailAggregation] 完成: {total_files} 个文件")
         return True
 
-    def _aggregate_dungeon(self, season, class_name, spec_name, spec_dir):
+    @staticmethod
+    def _aggregate_dungeon(season, class_name, spec_name, spec_dir):
         if not season.mplus_encounters:
             return
 
@@ -93,8 +107,11 @@ class SpecDetailAggregationMonitor(BaseScan):
             dungeons.append(stats)
 
         path = os.path.join(spec_dir, 'dungeon.json')
-        atomic_dump_json(path, {'dungeons': dungeons}, cls=DecimalEncoder, ensure_ascii=False)
-    def _aggregate_raid(self, season, class_name, spec_name, spec_dir):
+        summary = SpecStatsService.get_dungeon_summary(class_name, spec_name, season.id)
+        publish_stats(path, {'dungeons': dungeons, 'summary': summary}, class_name, spec_name)
+
+    @staticmethod
+    def _aggregate_raid(season, class_name, spec_name, spec_dir):
         if not season.raid_encounters:
             return
 
@@ -136,13 +153,13 @@ class SpecDetailAggregationMonitor(BaseScan):
         heroic_zones = aggregate_difficulty(4)
 
         path = os.path.join(spec_dir, 'raid.json')
-        atomic_dump_json(path, {
+        publish_stats(path, {
             'zone_groups': mythic_zones,
             'difficulties': [
                 {'difficulty': 5, 'label': '史诗团本表现', 'zone_groups': mythic_zones},
                 {'difficulty': 4, 'label': '英雄团本表现', 'zone_groups': heroic_zones},
             ],
-        }, cls=DecimalEncoder, ensure_ascii=False)
+        }, class_name, spec_name)
 
     @staticmethod
     def refresh_leaderboard_projection(season_id, class_name, spec_name):
@@ -162,5 +179,5 @@ class SpecDetailAggregationMonitor(BaseScan):
         result['updated_at'] = timezone.now().isoformat()
 
         path = os.path.join(spec_dir, 'leaderboard.json')
-        atomic_dump_json(path, result, cls=DecimalEncoder, ensure_ascii=False, default=str)
+        publish_stats(path, result, class_name, spec_name)
         return path

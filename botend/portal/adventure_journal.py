@@ -175,6 +175,38 @@ def detail_data(request, instance_id):
     # 掉落属于副本，首领选择仅控制战斗指南；独立掉落首领筛选默认包含全部。
     if result['loot_boss'] and result['loot_boss'] not in {b.journal_id for b in bosses}:
         result['loot_boss'] = 0
+    from botend.services.journal_loot_snapshot import read_loot_projection
+    projection = read_loot_projection(release.id, instance_id, difficulty, source)
+    result.update({key: projection.get(key, []) for key in ('slots', 'item_types')})
+    result['loot_snapshot'] = projection['snapshot']
+    drops = projection.get('loot', [])
+    result['loot_total'] = projection.get('loot_total', 0)
+    for row in drops:
+        row['visible'] = loot_matches(row, result)
+    filtered = [row for row in drops if row['visible']]
+    result['loot_catalog'] = drops
+    result['loot_filter_data'] = {
+        'specs': {str(cid): specialization_options(cid) for cid, _ in CLASSES},
+        'rows': [{key: row[key] for key in ('item_id', 'slot', 'item_type', 'sources', 'search_names', 'filter_classes', 'filter_specs')}
+                 for row in drops],
+    }
+    if result['slot'] and integer(result['slot']) not in {slot['id'] for slot in result['slots']}:
+        result['slots'].append({'id': integer(result['slot']), 'name': SLOTS.get(integer(result['slot']), '其他')})
+    result['loot'] = filtered
+    overview = next((s['descriptions'].get(str(difficulty), '') for s in payload['sections']
+                     if s['type'] == 3 and not s['roles'] and difficulty in s['difficulty_ids']), '')
+    result['boss'] = {k: payload[k] for k in ('id', 'name', 'description', 'creatures')}
+    result['boss']['faction'] = payload.get('faction', 'both')
+    result['boss'].update({'overview': overview, 'skills': skill_tree, 'roles': role_sections,
+                           'loot': [r for r in filtered if boss.journal_id in {s['id'] for s in r['sources']}],
+                           'loot_total': sum(boss.journal_id in {s['id'] for s in r['sources']} for r in drops), 'skill_total': len(sections),
+                           'has_dynamic': any(s['has_dynamic'] for s in sections),
+                           'available': difficulty in payload['difficulty_ids']})
+    return result
+
+
+def build_loot_projection(release, instance_id, bosses, difficulty, source):
+    """后台构建完整副本掉落，保留旧的资格、分支和数值展示规则。"""
     by_item = {}
     for owner in bosses:
         for drop in owner.payload['loot']:
@@ -188,34 +220,21 @@ def detail_data(request, instance_id):
             row['display_season_id'] = row['display_season_id'] or drop['display_season_id']
     drops = enrich_loot_specializations(list(by_item.values()), source['key'], fallback_branch=(
         'ptr' if str(instance_id) in (release.manifest or {}).get('ptr_overlays', {}) else 'retail'))
-    result['loot_total'] = len(drops)
-    result['item_types'] = [{'id': key, 'name': name} for key, name in sorted({(d['item_type'], d['type_name']) for d in drops})]
-    result['slots'] = [{'id': slot, 'name': SLOTS.get(slot, '其他')} for slot in sorted({d['slot'] for d in drops})]
-    if result['slot'] and integer(result['slot']) not in {s['id'] for s in result['slots']}:
-        result['slots'].append({'id': integer(result['slot']), 'name': SLOTS.get(integer(result['slot']), '其他')})
     # 基础身份独立于 tooltip 完整度；只投影副本掉落，不改发布快照。
     display_metadata = load_item_display_metadata(by_item)
     filtered = []
     seen = set()
     for row in drops:
-        original_name = row['name']
+        row['search_names'] = [row['name']]
         display = display_metadata[row['item_id']]
         row['name_localized'] = bool(display['name_zh']) or bool(row.get('name_localized'))
         if display['name_zh']:
             row['name'] = display['name_zh']
         row['icon_url'] = display['icon_url']
-        if result['loot_boss'] and result['loot_boss'] not in {s['id'] for s in row['sources']}:
-            continue
-        if result['item_type'] and row['item_type'] != result['item_type']:
-            continue
-        if result['slot'] != '' and row['slot'] != integer(result['slot']):
-            continue
-        if not class_matches(row, result['class_id'], result['spec_id']):
-            continue
-        if result['loot_q'] and result['loot_q'] != str(row['item_id']) and not any(
-            result['loot_q'].casefold() in name.casefold() for name in (row['name'], original_name)
-        ):
-            continue
+        row['search_names'].append(row['name'])
+        row['filter_classes'] = [cid for cid, _ in CLASSES if class_matches(row, cid)]
+        row['filter_specs'] = [spec['id'] for cid, _ in CLASSES for spec in specialization_options(cid)
+                               if class_matches(row, cid, spec['id'])]
         identity = (row['item_id'], row['faction'], row['display_season_id'], row['condition_id'])
         if identity in seen:
             continue
@@ -225,17 +244,20 @@ def detail_data(request, instance_id):
             use_current_catalog=source['key'] == 'current',
             data_branch=source['key'] if source['key'] in ('ptr', 'beta') else '',
         ), source)})
-    result['loot'] = filtered
-    overview = next((s['descriptions'].get(str(difficulty), '') for s in payload['sections']
-                     if s['type'] == 3 and not s['roles'] and difficulty in s['difficulty_ids']), '')
-    result['boss'] = {k: payload[k] for k in ('id', 'name', 'description', 'creatures')}
-    result['boss']['faction'] = payload.get('faction', 'both')
-    result['boss'].update({'overview': overview, 'skills': skill_tree, 'roles': role_sections,
-                           'loot': [r for r in filtered if boss.journal_id in {s['id'] for s in r['sources']}],
-                           'loot_total': sum(boss.journal_id in {s['id'] for s in r['sources']} for r in drops), 'skill_total': len(sections),
-                           'has_dynamic': any(s['has_dynamic'] for s in sections),
-                           'available': difficulty in payload['difficulty_ids']})
-    return result
+    return {'loot': filtered, 'loot_total': len(drops),
+            'slots': [{'id': slot, 'name': SLOTS.get(slot, '其他')} for slot in sorted({d['slot'] for d in drops})],
+            'item_types': [{'id': key, 'name': name} for key, name in sorted({(d['item_type'], d['type_name']) for d in drops})]}
+
+
+def loot_matches(row, result):
+    """与浏览器共用已投影的职业资格，避免请求内读取装备目录。"""
+    query = result['loot_q']
+    return (not result['loot_boss'] or any(s['id'] == result['loot_boss'] for s in row['sources'])) and (
+        not result['item_type'] or row['item_type'] == result['item_type']) and (
+        result['slot'] == '' or row['slot'] == integer(result['slot'])) and (
+        not result['class_id'] or result['class_id'] in row['filter_classes']) and (
+        not result['spec_id'] or result['spec_id'] in row['filter_specs']) and (
+        not query or query == str(row['item_id']) or any(query.casefold() in name.casefold() for name in row['search_names']))
 
 
 class PortalAdventureJournalView(View):
@@ -250,7 +272,24 @@ class PortalAdventureJournalDetailView(View):
 
 class PortalAdventureJournalAPIView(View):
     def get(self, request, instance_id=None):
+        if instance_id and request.GET.get('snapshot_status') == '1':
+            from botend.services.journal_loot_snapshot import read_loot_projection
+            release = current_release()
+            if not release:
+                raise Http404
+            instance = get_object_or_404(JournalInstance, release=release, journal_id=instance_id)
+            available = instance.payload['difficulty_ids']
+            difficulty = integer(request.GET.get('difficulty'), available[0] if available else 0)
+            if difficulty not in available:
+                raise Http404
+            data = read_loot_projection(release.id, instance_id, difficulty, instance_source(release, instance_id))
+            response = JsonResponse({'snapshot': data['snapshot']})
+            response['Cache-Control'] = 'no-store'
+            return response
         result = detail_data(request, instance_id) if instance_id else catalog_data(request)
+        # HTML 需要完整目录用于本地筛选；兼容接口只返回所选结果，避免重复正文。
+        result.pop('loot_catalog', None)
+        result.pop('loot_filter_data', None)
         return JsonResponse(result, json_dumps_params={'ensure_ascii': False})
 
 

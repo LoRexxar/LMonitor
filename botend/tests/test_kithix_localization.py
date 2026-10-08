@@ -16,10 +16,12 @@ from botend.services.ptr_journal_gear_overlay import import_ptr_journal_gear_ove
 from botend.services.spec_stats_service import _compute_gear_popularity, _normalize_gear_items
 from botend.services.wow_item_display import load_item_tooltip_metadata, refresh_aggregate_equipment
 from botend.tests import test_ptr_journal_gear_overlay as overlay_tests
+from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots, warm_journal
 
 
 class KithixLocalizationTests(TestCase):
     def setUp(self):
+        isolate_journal_snapshots(self)
         overlay_tests.PtrJournalGearOverlayTests.setUp(self)
         self.original = Path(settings.BASE_DIR) / 'botend/data/ptr_kithix_unbound_12_1_5.json'
         self.artifact = self.original.with_name('kithix_localization_12_1_5.json')
@@ -61,6 +63,7 @@ class KithixLocalizationTests(TestCase):
         self.assertEqual(instance_source(release, 1324)['key'], 'current')
         request = RequestFactory().get('/portal/adventure-journal/')
         self.assertIn(1324, {row['id'] for row in catalog_data(request)['instances']})
+        warm_journal(1324)
         detail = detail_data(RequestFactory().get('/', {'difficulty': 14}), 1324)
         self.assertEqual(detail['boss']['name'], '基希克斯')
         self.assertIn('基希克斯', detail['instance']['description'])
@@ -75,6 +78,7 @@ class KithixLocalizationTests(TestCase):
         self.assertIn('虫群召唤者指环', response.json()['name'])
         self.assertNotIn('PTR', response.content.decode())
         with patch('botend.services.journal_tooltip.requests.Session', side_effect=AssertionError('不应联网')):
+            warm_journal(1324)
             response = self.client.get('/portal/api/adventure-journal/1324/tooltip/item/281615/', {'difficulty': 14})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['name'], '织影者的炉石')
@@ -116,6 +120,7 @@ class KithixLocalizationTests(TestCase):
             for effect in variant.effects_json:
                 effect.pop('game_build', None)
             variant.save(update_fields=['game_build', 'metadata', 'effects_json'])
+        warm_journal(1324)
         with patch('botend.services.journal_tooltip.requests.Session', side_effect=AssertionError('不应联网')):
             page = self.client.get('/portal/adventure-journal/1324/', {'difficulty': 14, 'tab': 'loot'})
             self.assertEqual(page.status_code, 200)

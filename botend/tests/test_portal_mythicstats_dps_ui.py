@@ -1,8 +1,9 @@
 from pathlib import Path
 from importlib import import_module
 from unittest.mock import patch
+import tempfile
 from django.apps import apps
-from django.test import SimpleTestCase, TestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 from botend.models import PortalMythicstatsDpsRow, PortalNavigationGroup, PortalNavigationItem
 from botend.portal.mythicstats import mythicstats_spec_identity
 
@@ -45,6 +46,11 @@ class PortalMythicstatsDpsUiContractsTests(SimpleTestCase):
 
 
 class PortalMythicstatsMigrationTests(TestCase):
+    def setUp(self):
+        override = override_settings(MYTHICSTATS_SNAPSHOT_ROOT=tempfile.mkdtemp(prefix='mythicstats-ui-'))
+        override.enable()
+        self.addCleanup(override.disable)
+
     def test_api_preserves_source_fields_and_adds_shared_identity(self):
         for role, slug in [('damage', 'frost-mage'), ('tank', 'blood-death-knight'), ('healer', 'holy-priest')]:
             PortalMythicstatsDpsRow.objects.create(
@@ -54,7 +60,9 @@ class PortalMythicstatsMigrationTests(TestCase):
                 top_text='367K', runs_text='16K', diff_raw='+2', diff_value=2,
                 spec_url=f'/spec/{slug}',
             )
-        with patch('botend.portal.api.fetch_mythicstats_dps') as fetch:
+        from botend.services.mythicstats_snapshot import publish_database_snapshots
+        publish_database_snapshots()
+        with patch('botend.portal.mythicstats.fetch_mythicstats_dps') as fetch:
             response = self.client.get('/portal/api/mythicstats/dps/', {'season': 'test-season', 'period': 100})
         fetch.assert_not_called()
         self.assertEqual(response.status_code, 200)

@@ -744,6 +744,39 @@ def catalog_items(
     }
 
 
+def catalog_snapshot_items(*, class_name, spec_name, slot, season):
+    """后台生成完整槽位，复用适配规则并保留每个变体的筛选与展示语义。"""
+    from botend.services.wow_data_branch import variant_branch
+    grouped = defaultdict(list)
+    positions = {}
+    if season and season.gear_batch_key:
+        for position, variant in enumerate(_catalog_queryset(season, (
+            WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+        )).select_related(None).prefetch_related('item')):
+            if (_source_track_is_valid(variant)
+                    and slot_matches(variant, slot, class_name, spec_name)
+                    and spec_matches(variant.item, class_name, spec_name, variant, slot)):
+                grouped[(variant.item_id, variant_branch(variant))].append(variant)
+                positions[variant.pk] = position
+    rows = []
+    for variants in grouped.values():
+        row = serialize_item(variants[0].item, variants, class_name, spec_name)
+        row['_search'] = [variants[0].item.name, variants[0].item.name_zh]
+        for variant, output in zip(variants, row['variants']):
+            output['_order'] = positions[variant.pk]
+            output['_filter'] = {
+                'sources': sorted({str(s.get('type') or '').casefold()
+                                   for s in (variant.source_json or []) if isinstance(s, dict)}),
+                'stats': sorted(k for k, v in normalize_stats(variant.stats_json).items() if _number(v)),
+            }
+            # 来源筛选可能使第一条变体变化，名称、描述等必须与旧接口一致。
+            display = serialize_item(variant.item, [variant], class_name, spec_name)
+            output['_item'] = {k: v for k, v in display.items() if k != 'variants' and row.get(k) != v}
+        rows.append(row)
+    return rows
+
+
 def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None):
     class_name, spec_name = canonical_spec(class_name, spec_name)
     if slot not in SLOT_LABELS:

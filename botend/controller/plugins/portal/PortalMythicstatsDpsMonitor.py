@@ -1,6 +1,6 @@
+"""由统一服务采集、保存并发布 Mythicstats 全部展示范围。"""
 from botend.controller.BaseScan import BaseScan
-from botend.models import PortalMythicstatsDpsRow
-from botend.portal.mythicstats import fetch_current_season_slug, fetch_mythicstats_dps, upsert_mythicstats_dps_rows, upsert_mythicstats_meta_cache
+from botend.services.mythicstats_snapshot import collect_snapshots
 from utils.log import logger
 
 
@@ -10,59 +10,17 @@ class PortalMythicstatsDpsMonitor(BaseScan):
         self.task = task
 
     def scan(self, url):
-        _season_hint = (url or "").strip() or (getattr(self.task, "target", "") or "").strip()
-        if _season_hint in {"season-mn-1", "auto", "-"}:
-            _season_hint = ""
-
-        season = _season_hint
-        if not season:
-            slug, _label = fetch_current_season_slug(req=self.req)
-            if slug:
-                season = slug
-
-        payload = fetch_mythicstats_dps(req=self.req, season=season, dungeon_id=0, period_id=None)
-        season = payload.get("season") or season or "unknown"
-        periods = payload.get("periods") or []
-        dungeons = payload.get("dungeons") or [{"id": 0, "name": "All dungeons"}]
-        upsert_mythicstats_meta_cache(season=season, dungeons=dungeons, periods=periods)
-
-        if not periods:
-            logger.error("[PortalMythicstatsDpsMonitor] no periods found")
+        hint = (url or '').strip() or (getattr(self.task, 'target', '') or '').strip()
+        try:
+            result = collect_snapshots(req=self.req, season_hint=hint)
+        except Exception:
+            logger.exception('[PortalMythicstatsDpsMonitor] 采集发布失败，保留上次结果')
             return False
-        logger.info(f"[PortalMythicstatsDpsMonitor] season={season} periods={len(periods)} dungeons={len(dungeons)}")
-
-        top3 = periods[:3]
-        latest = top3[0]
-        for idx, p in enumerate(top3):
-            pid = p.get("id")
-            if not pid:
-                continue
-            cur = payload
-            if int(pid) != int(payload.get("period_id") or 0):
-                cur = fetch_mythicstats_dps(req=self.req, season=season, dungeon_id=0, period_id=int(pid))
-            cur_season = season
-            exists = PortalMythicstatsDpsRow.objects.filter(season=cur_season, period_id=int(pid), dungeon_id=0).exists()
-            if idx > 0 and exists:
-                continue
-            period_label = cur.get("period_label") or str(pid)
-            rankings = cur.get("rankings") or {}
-
-            for role in ("damage", "tank", "healer"):
-                rows = rankings.get(role) or []
-                logger.info(f"[PortalMythicstatsDpsMonitor] period={pid} role={role} rows={len(rows)}")
-                upsert_mythicstats_dps_rows(
-                    season=cur_season,
-                    period_id=int(pid),
-                    period_label=period_label,
-                    dungeon_id=0,
-                    dungeon_name="All dungeons",
-                    role=role,
-                    rows=rows,
-                    replace_batch=(idx == 0),
-                )
-
-        latest_period_id = int(latest.get("id") or 0)
-        if latest_period_id:
-            self.task.flag = f"{season}@{latest_period_id}"
-            self.task.save()
-        return True
+        if result['busy']:
+            logger.info('[PortalMythicstatsDpsMonitor] 已有后台任务处理，跳过重复执行')
+            return False
+        logger.info(f"[PortalMythicstatsDpsMonitor] 发布 {result['built']} 个分片，失败 {result['failed']} 个")
+        if result['latest_published']:
+            self.task.flag = f"{result['season']}@{result['period_id']}"
+            self.task.save(update_fields=['flag'])
+        return bool(result['latest_published']) and not result['failed']
