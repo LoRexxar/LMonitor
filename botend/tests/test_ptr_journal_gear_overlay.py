@@ -15,6 +15,8 @@ from botend.services.ptr_journal_gear_overlay import (
 
 class PtrJournalGearOverlayTests(TestCase):
     def setUp(self):
+        from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots
+        isolate_journal_snapshots(self)
         release = JournalRelease.objects.create(
             build='12.1.0.69299',
             status='completed',
@@ -42,7 +44,8 @@ class PtrJournalGearOverlayTests(TestCase):
             journal_id=30,
             name='正式服测试首领',
             order=1,
-            payload={'id': 30, 'name': '正式服测试首领', 'order': 1, 'sections': [{}], 'loot': [{}]},
+            payload={'id': 30, 'name': '正式服测试首领', 'order': 1, 'sections': [], 'loot': [],
+                     'description': '', 'creatures': [], 'difficulty_ids': [14]},
         )
         JournalState.objects.create(key='wow-zhCN', active_release=release)
         self.season = SeasonMeta.objects.create(
@@ -179,6 +182,8 @@ class PtrJournalGearOverlayTests(TestCase):
             variant_key='live-existing',
         ).exists())
 
+        from botend.tests.journal_snapshot_fixtures import warm_journal
+        warm_journal()
         ptr_catalog = self.client.get('/portal/api/adventure-journal/', {'tier': ''}).json()
         ptr_instance = next(row for row in ptr_catalog['instances'] if row['id'] == 1324)
         live_instance = next(row for row in ptr_catalog['instances'] if row['id'] == 10)

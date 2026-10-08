@@ -25,10 +25,12 @@ def _directory(key):
     return snapshot_root() / digest
 
 
-def read_loot_projection(release_id, instance_id, difficulty, source):
+def read_loot_projection(release_id, instance_id, difficulty, source, *, journal_version=None):
     """冷启动只登记任务；失败保留本坐标的旧版，不回退到在线聚合。"""
     key = {'schema': SCHEMA, 'release_id': release_id, 'instance_id': instance_id,
            'difficulty': difficulty, 'source': source}
+    if journal_version is not None:
+        key['journal_version'] = journal_version
     directory = _directory(key)
     try:
         if _load(directory / 'request.json') != key:
@@ -49,6 +51,7 @@ def refresh_journal_loot_snapshots(*, batch_size=4, force=False, poll=False):
     from botend.journal_models import JournalInstance
     from botend.portal.adventure_journal import current_release, instance_source, build_loot_projection
     from botend.services.gear_catalog_snapshot import _source, snapshot_root as gear_root
+    from botend.services.journal_snapshot import loot_version
     built = []
     root = snapshot_root()
     with _lock(root / 'worker.lock', blocking=False) as acquired:
@@ -89,9 +92,17 @@ def refresh_journal_loot_snapshots(*, batch_size=4, force=False, poll=False):
                 if source != key['source']:
                     continue
                 bosses = [boss for boss in instance.encounters.all() if key['difficulty'] in boss.payload['difficulty_ids']]
+                if key.get('journal_version') and loot_version(bosses, key['difficulty']) != key['journal_version']:
+                    continue
                 payload = build_loot_projection(release, instance.journal_id, bosses, key['difficulty'], source)
                 if _source()[2] != version:
                     break
+                if key.get('journal_version'):
+                    active = current_release()
+                    if (not active or active.id != release.id or
+                            instance_source(active, instance.journal_id, season=season) != source or
+                            loot_version(list(instance.encounters.all()), key['difficulty']) != key['journal_version']):
+                        continue
                 _write(path.parent / 'data.json', {**payload, 'coordinate': key, 'source_version': version,
                     'built_at': time.time(), 'snapshot': {'state': 'ready', 'generated_at': time.time()}})
                 built.append(key)

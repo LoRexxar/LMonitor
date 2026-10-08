@@ -8,11 +8,13 @@ from django.test import override_settings
 
 def isolate_journal_snapshots(test):
     root = Path(tempfile.mkdtemp(prefix='journal-loot-test-'))
-    override = override_settings(JOURNAL_LOOT_SNAPSHOT_ROOT=root / 'journal', GEAR_CATALOG_SNAPSHOT_ROOT=root / 'gear')
+    override = override_settings(JOURNAL_LOOT_SNAPSHOT_ROOT=root / 'journal',
+                                 JOURNAL_SNAPSHOT_ROOT=root / 'catalog', GEAR_CATALOG_SNAPSHOT_ROOT=root / 'gear')
     override.enable()
     test.addCleanup(override.disable)
     return root
 
 
 def warm_journal(instance=None):
+    call_command('refresh_journal_snapshot', stdout=StringIO())
     call_command('refresh_journal_loot_snapshots', force=True, instance=instance, stdout=StringIO())

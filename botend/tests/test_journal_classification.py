@@ -81,6 +81,8 @@ class JournalClassificationTests(SimpleTestCase):
 
 class JournalClassificationViewTests(TestCase):
     def setUp(self):
+        from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots
+        isolate_journal_snapshots(self)
         tables = journal_tests.fixture()
         tables['JournalTier'] = [{'ID': str(t['id']), 'Name_lang': t['name'], 'Expansion': str(t['order'])} for t in TIERS]
         tables['JournalInstance'][0]['ID'] = '1307'
@@ -97,6 +99,7 @@ class JournalClassificationViewTests(TestCase):
         instance = JournalInstance.objects.get(release=self.release)
         instance.payload.pop('tier_links')
         instance.save(update_fields=['payload'])
+        journal_tests.warm_journal()
         before = deepcopy(instance.payload)
         self.assertEqual(self.client.get('/portal/api/adventure-journal/').json()['instances'], [])
         all_rows = self.client.get('/portal/api/adventure-journal/', {'tier': ''}).json()['instances']
@@ -115,6 +118,7 @@ class JournalClassificationViewTests(TestCase):
         instance = JournalInstance.objects.get(release=self.release)
         instance.payload['tier_links'][1]['condition_id'] = 156363
         instance.save(update_fields=['payload'])
+        journal_tests.warm_journal()
         response = self.client.get('/portal/adventure-journal/')
         self.assertContains(response, 'journal-source-badge--current')
         self.assertContains(response, '至暗之夜第 2 赛季')
@@ -126,6 +130,7 @@ class JournalClassificationViewTests(TestCase):
         instance.kind = 'raid'
         instance.payload.update(id=557, kind='raid')
         instance.save()
+        journal_tests.warm_journal()
         world = self.client.get('/portal/api/adventure-journal/', {'tier': '', 'kind': 'world'}).json()
         self.assertEqual([row['id'] for row in world['instances']], [557])
         raids = self.client.get('/portal/api/adventure-journal/', {'tier': '', 'kind': 'raid'}).json()

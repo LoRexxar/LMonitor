@@ -2,9 +2,14 @@
   const lootForm = document.querySelector('.journal-loot-filters');
   const filterData = JSON.parse(document.getElementById('journal-loot-filter-data')?.textContent || 'null');
   const snapshot = JSON.parse(document.getElementById('journal-loot-snapshot')?.textContent || 'null');
+  const catalogForm = document.querySelector('[data-catalog-filter]');
+  const catalogData = JSON.parse(document.getElementById('journal-catalog-filter-data')?.textContent || 'null');
+  const skillData = JSON.parse(document.getElementById('journal-skill-filter-data')?.textContent || 'null');
   document.querySelectorAll('form[data-auto-filter]').forEach(form => {
     if (form === lootForm && filterData && snapshot?.state === 'ready') return;
+    if (form === catalogForm && catalogData) return;
     form.querySelectorAll('select').forEach(select => select.addEventListener('change', () => {
+      if (select.name === 'role' && skillData) return;
       if (select.name === 'class' && form.elements.spec) form.elements.spec.value = '';
       form.requestSubmit();
     }));
@@ -24,6 +29,72 @@
     sessionStorage.removeItem('journal-filter-scroll');
     if (saved?.path === location.pathname) requestAnimationFrame(() => scrollTo(0, saved.y));
   } catch (_) { /* 浏览器禁用存储时仍可正常筛选。 */ }
+
+  if (catalogForm && catalogData) {
+    const cards = new Map(Array.from(document.querySelectorAll('[data-journal-id]')).map(card => [Number(card.dataset.journalId), card]));
+    const apply = () => {
+      const filters = Object.fromEntries(['q', 'tier', 'kind'].map(key => [key, catalogForm.elements[key].value]));
+      let count = 0;
+      catalogData.rows.forEach(row => {
+        const visible = JournalCatalogMatches(row, filters);
+        cards.get(row.id).hidden = !visible;
+        if (visible) count++;
+      });
+      const label = document.querySelector('[data-catalog-count]');
+      if (label) label.textContent = count;
+      document.querySelector('[data-catalog-empty]').hidden = count > 0;
+      const url = new URL(location.href);
+      ['q', 'tier', 'kind'].forEach(key => {
+        // 空资料片必须显式保留，刷新时才不会重新选回默认赛季。
+        if (key === 'tier' || filters[key]) url.searchParams.set(key, filters[key]);
+        else url.searchParams.delete(key);
+      });
+      history.replaceState(null, '', url);
+    };
+    catalogForm.addEventListener('submit', event => { event.preventDefault(); apply(); });
+    catalogForm.addEventListener('change', apply);
+    catalogForm.elements.q.addEventListener('input', apply);
+    apply();
+  }
+
+  if (skillData) {
+    const form = document.querySelector('.journal-battle-filters');
+    const escape = value => String(value || '').replaceAll('&', '&amp;').replaceAll('<', '&lt;')
+      .replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
+    const lines = value => escape(value).replace(/\r\n|\r|\n/g, '<br>');
+    const renderSkill = row => `<details class="journal-skill" ${row.children.length ? 'open' : ''} id="skill-${Number(row.id)}">
+      <summary><span>${escape(row.title || '技能说明')}</span><span class="journal-skill-tags">${[...row.role_names, ...(row.tags || [])].map(tag => `<em>${escape(tag)}</em>`).join('')}</span></summary>
+      <div class="journal-skill-body">${row.text ? `<p>${lines(row.text)}</p>` : ''}
+      ${row.spell_id ? `<a data-tooltip-kind="spell" data-tooltip-id="${Number(row.spell_id)}" class="journal-spell-link" href="https://www.wowhead.com/cn/spell=${Number(row.spell_id)}" target="_blank" rel="noopener">查看技能详情 ↗</a>` : ''}
+      ${row.children.map(renderSkill).join('')}</div></details>`;
+    const apply = () => {
+      const role = form.elements.role.value;
+      const boss = JournalSkillSelection(skillData, role);
+      document.querySelector('[data-journal-roles]').innerHTML = boss.roles.length ? boss.roles.map(row =>
+        `<section class="journal-role-card"><h3>${escape(row.title)}</h3><p>${lines(row.text)}</p></section>`).join('') :
+        '<p class="journal-muted">游戏手册未提供当前难度／职责的专属提示，请结合下方技能说明安排应对。</p>';
+      document.querySelector('[data-journal-skills]').innerHTML = boss.skills.map(renderSkill).join('') ||
+        '<div class="journal-empty"><p>游戏手册暂无此首领在当前筛选条件下的技能说明。</p></div>';
+      document.querySelector('[data-journal-dynamic]').hidden = !boss.has_dynamic;
+      document.getElementById('journal-expand').textContent = '展开全部';
+      const url = new URL(location.href);
+      if (role) url.searchParams.set('role', role); else url.searchParams.delete('role');
+      history.replaceState(null, '', url);
+      document.querySelectorAll('input[name="role"]').forEach(input => { input.value = role; });
+      document.querySelectorAll('.journal-sidebar a[href^="?"]').forEach(link => {
+        const target = new URL(link.href);
+        if (role) target.searchParams.set('role', role); else target.searchParams.delete('role');
+        link.href = target.pathname + target.search;
+      });
+    };
+    form.elements.role.addEventListener('change', apply);
+    form.addEventListener('submit', event => {
+      if (form.elements.difficulty.value === document.body.dataset.journalDifficulty) {
+        event.preventDefault(); apply();
+      }
+    });
+    apply();
+  }
 
   const itemRequests = new Map();
   const emphasizeValues = parent => {
@@ -169,7 +240,9 @@
   let pending;
   document.getElementById('journal-tooltip-close')?.addEventListener('click', () => dialog.close());
   dialog?.addEventListener('close', () => pending?.abort());
-  document.querySelectorAll('[data-tooltip-id]').forEach(link => link.addEventListener('click', async event => {
+  document.addEventListener('click', async event => {
+    const link = event.target.closest?.('[data-tooltip-id]');
+    if (!link) return;
     if (event.ctrlKey || event.metaKey || event.shiftKey || !dialog?.showModal) return;
     event.preventDefault();
     pending?.abort();
@@ -205,5 +278,5 @@
       content.textContent = '来源详情暂时不可用，请稍后重试。';
       content.append(document.createElement('br'), source);
     }
-  }));
+  });
 })();

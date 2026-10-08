@@ -29,9 +29,14 @@ class JournalLootSnapshotTests(TestCase):
         for boss in bosses:
             JournalEncounter.objects.create(instance=self.instance, journal_id=boss['id'], name=boss['name'], payload=boss)
         self.source = instance_source(self.release, 10)
+        from botend.services.journal_snapshot import refresh_journal_snapshot
+        refresh_journal_snapshot()
 
     def read(self, difficulty=1):
-        return snapshots.read_loot_projection(self.release.id, 10, difficulty, self.source)
+        from botend.services.journal_snapshot import read_index, read_instance
+        data = read_instance(read_index(), 10)
+        return snapshots.read_loot_projection(self.release.id, 10, difficulty, self.source,
+                                             journal_version=data['loot_versions'][str(difficulty)])
 
     def test_cold_and_warm_read_are_zero_queries_and_idle_poll_is_zero_queries(self):
         with self.assertNumQueries(0):

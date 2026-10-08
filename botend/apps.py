@@ -10,6 +10,8 @@ class BotendConfig(AppConfig):
         register_snapshot_signals()
         from botend.services.news_snapshot import register_news_signals
         register_news_signals()
+        from botend.services.journal_snapshot import register_journal_signals
+        register_journal_signals()
         # 部署配置由各主机维护，在应用启动时统一注册，避免遗漏独立报告页。
         from django.conf import settings
         middleware = 'botend.analytics.middleware.SiteAnalyticsMiddleware'

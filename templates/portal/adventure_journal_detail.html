@@ -33,11 +33,12 @@
 {{ loot_snapshot|json_script:"journal-loot-snapshot" }}
 </section>
 {% elif boss %}<section id="panel-skills" aria-label="战斗指南"><h3 class="journal-guide-title">战斗指南</h3>{% if boss.overview %}<div class="journal-overview"><h3>战斗概览</h3><p>{{ boss.overview|linebreaksbr }}</p></div>{% endif %}
-<div class="journal-role-grid">{% for item in boss.roles %}<section class="journal-role-card"><h3>{{ item.title }}</h3><p>{{ item.text|linebreaksbr }}</p></section>{% empty %}<p class="journal-muted">游戏手册未提供当前难度／职责的专属提示，请结合下方技能说明安排应对。</p>{% endfor %}</div>
+<div class="journal-role-grid" data-journal-roles>{% for item in boss.roles %}<section class="journal-role-card"><h3>{{ item.title }}</h3><p>{{ item.text|linebreaksbr }}</p></section>{% empty %}<p class="journal-muted">游戏手册未提供当前难度／职责的专属提示，请结合下方技能说明安排应对。</p>{% endfor %}</div>
 <div class="journal-section-label"><h3>技能与阶段</h3><button type="button" class="journal-text-button" id="journal-expand">展开全部</button></div>
-{% if boss.has_dynamic %}<p class="journal-note">部分效果会随等级或战斗条件缩放，已标为动态数值；具体伤害以游戏内当前难度为准。</p>{% endif %}
-{% for skill in boss.skills %}{% include 'portal/_journal_skill.html' %}{% empty %}<div class="journal-empty"><p>游戏手册暂无此首领在当前筛选条件下的技能说明。</p></div>{% endfor %}</section>{% else %}<p class="journal-empty">游戏手册暂无此副本的首领记录。</p>{% endif %}
+<p class="journal-note" data-journal-dynamic {% if not boss.has_dynamic %}hidden{% endif %}>部分效果会随等级或战斗条件缩放，已标为动态数值；具体伤害以游戏内当前难度为准。</p>
+<div data-journal-skills>{% for skill in boss.skills %}{% include 'portal/_journal_skill.html' %}{% empty %}<div class="journal-empty"><p>游戏手册暂无此首领在当前筛选条件下的技能说明。</p></div>{% endfor %}</div>{{ skill_filter_data|json_script:"journal-skill-filter-data" }}</section>{% else %}<p class="journal-empty">游戏手册暂无此副本的首领记录。</p>{% endif %}
 <footer class="journal-source">数据版本：{{ source.text_build|default:source.build }} · <a href="https://wago.tools/journal/{{ instance.id }}?build={{ source.text_build|default:source.build }}" target="_blank" rel="noopener">查看 Wago 来源</a> · {{ release.updated|date:'Y-m-d H:i' }}</footer></article></div></main>
 <dialog id="journal-tooltip-dialog" aria-labelledby="journal-tooltip-title"><div class="journal-dialog-heading"><h2 id="journal-tooltip-title">物品与技能详情</h2><button type="button" id="journal-tooltip-close" aria-label="关闭详情">×</button></div><div id="journal-tooltip-content" aria-live="polite"></div></dialog>
+<script src="{% static 'portal/js/journal-guide-filter.js' %}?v=20261008"></script>
 <script src="{% static 'portal/js/journal-loot-filter.js' %}?v=20261008"></script>
-<script src="{% static 'portal/js/adventure-journal.js' %}?v=20261008_loot_snapshot"></script></body></html>
+<script src="{% static 'portal/js/adventure-journal.js' %}?v=20261008_guide_snapshot"></script></body></html>

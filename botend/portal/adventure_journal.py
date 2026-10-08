@@ -1,20 +1,19 @@
 """冒险手册公开目录、首领详情及其共用数据接口。"""
 from urllib.parse import urlencode
 
-from django.db.models import Count, Q
-from django.http import FileResponse, Http404, JsonResponse
-from django.shortcuts import get_object_or_404, render
+from django.http import FileResponse, Http404, HttpResponse, JsonResponse
+from django.shortcuts import render
 from django.views import View
 
-from botend.journal_models import JournalEncounter, JournalInstance, JournalState
+from botend.journal_models import JournalState
 from botend.services.journal_service import ROLE_FLAGS, SLOTS
 from botend.services.journal_text import integer
 from botend.services.journal_loot import class_matches, equipment_type, specialization_options, enrich_loot_specializations
 from botend.services.journal_tooltip import cached_tooltip
 from botend.services.wow_item_display import load_item_display_metadata
-from botend.services.journal_classification import JournalClassification, instance_kind
 from botend.services.season_keys import canonical_season_key
 from botend.services.gear_builder import active_season
+from botend.services import journal_snapshot as journal_files
 
 
 CLASSES = [(1, '战士'), (2, '圣骑士'), (3, '猎人'), (4, '潜行者'), (5, '牧师'), (6, '死亡骑士'),
@@ -60,62 +59,46 @@ def _present_tooltip(data, source):
 
 
 def catalog_data(request):
-    release = current_release()
     query = request.GET.get('q', '').strip()[:100]
     kind = request.GET.get('kind', '')
     tier = integer(request.GET.get('tier'))
     result = {'release': None, 'instances': [], 'tiers': [], 'q': query, 'kind': kind, 'tier': tier}
-    if not release:
-        return result
-    classification = JournalClassification(release, active_season())
-    rows = JournalInstance.objects.filter(release=release).annotate(boss_count=Count('encounters')).order_by('-expansion', 'journal_id')
-    if query:
-        matching = JournalEncounter.objects.filter(instance__release=release, name__icontains=query).values('instance_id')
-        rows = rows.filter(Q(name__icontains=query) | Q(id__in=matching))
-    result['release'] = {'id': release.id, 'build': release.build, 'updated': release.completed_at,
-                         'counts': {k: release.report.get(k, 0) for k in ('instances', 'encounters', 'loot')}}
-    result['tiers'] = classification.tiers
-    result['season_label'] = classification.season_label
+    try:
+        index = journal_files.read_index()
+        catalog = journal_files.read_catalog(index)
+    except journal_files.JournalSnapshotUnavailable:
+        return {**result, 'snapshot': {'state': 'building'}}
+    result.update(release=journal_files.release_summary(index), tiers=catalog['tiers'], season_label=catalog['season_label'])
     if 'tier' not in request.GET:
-        tier = next((t['id'] for t in result['tiers'] if t['order'] == 9000), 0)
+        tier = next((row['id'] for row in result['tiers'] if row['order'] == 9000), 0)
         result['tier'] = tier
-    for row in rows:
-        classified = classification.project(row.payload)
-        if kind in KINDS and classified['kind'] != kind:
-            continue
-        if tier and tier not in classified['tier_ids']:
-            continue
-        payload = {**classified, 'boss_count': row.boss_count, 'kind_label': KINDS.get(classified['kind'], '副本'),
-                   'url': f'/portal/adventure-journal/{row.journal_id}/'}
-        counts = [n for n in row.payload.get('boss_counts', {}).values() if n] or [row.boss_count]
-        payload['boss_count_label'] = str(max(counts)) if min(counts) == max(counts) else f'{min(counts)}–{max(counts)}'
-        payload['source'] = instance_source(release, row.journal_id, season=classification.season)
-        result['instances'].append(payload)
+    rows = []
+    filters = []
+    for entry in catalog['instances']:
+        visible = (kind not in KINDS or entry['kind'] == kind) and (not tier or tier in entry['tier_ids']) and (
+            not query or any(query.casefold() in name.casefold() for name in [entry['name'], *entry['_boss_names']]))
+        row = {key: value for key, value in entry.items() if not key.startswith('_')}
+        rows.append({**row, 'visible': visible})
+        if visible:
+            result['instances'].append(row)
+        filters.append({'id': row['id'], 'kind': row['kind'], 'tier_ids': row['tier_ids'],
+                        'search_names': [row['name'], *entry['_boss_names']]})
+    result.update(instance_catalog=rows, catalog_filter_data={'rows': filters}, snapshot={'state': 'ready'})
     return result
 
 
-def detail_data(request, instance_id):
-    release = current_release()
-    if not release:
-        raise Http404('冒险手册尚未同步')
-    instance = get_object_or_404(JournalInstance, release=release, journal_id=instance_id)
-    available = instance.payload['difficulty_ids']
+def detail_data(request, instance_id, *, for_html=False):
+    index = journal_files.read_index()
+    data = journal_files.read_instance(index, instance_id)
+    instance = data['instance']
+    available = instance['difficulty_ids']
     difficulty = integer(request.GET.get('difficulty'), available[0] if available else 0)
     if difficulty not in available:
         raise Http404('此副本不支持所选难度')
     role = request.GET.get('role', '')
-    if role not in ('tank', 'healer', 'dps'):
-        role = ''
-    bosses = list(instance.encounters.all())
+    role = role if role in ('tank', 'healer', 'dps') else ''
     selected = integer(request.GET.get('boss'))
-    if selected and not any(b.journal_id == selected for b in bosses):
-        raise Http404('此首领不属于所选副本')
-    requested = next((b for b in bosses if b.journal_id == selected), None)
-    bosses = [b for b in bosses if difficulty in b.payload['difficulty_ids']]
-    boss = next((b for b in bosses if b.journal_id == selected), None)
-    if boss is None and requested:
-        boss = next((b for b in bosses if b.name == requested.name), None)
-    boss = boss or (bosses[0] if bosses else None)
+    bosses, boss = journal_files.select_boss(data, difficulty, selected)
     class_id = integer(request.GET.get('class'))
     if class_id not in {cid for cid, _ in CLASSES}:
         class_id = 0
@@ -124,59 +107,28 @@ def detail_data(request, instance_id):
     if spec_id not in {spec['id'] for spec in specs}:
         spec_id = 0
     keep = {key: request.GET[key] for key in ('slot', 'item_type', 'loot_q', 'loot_boss') if key in request.GET}
-    keep.update({'class': class_id or '', 'spec': spec_id or ''})
-    keep.update(difficulty=difficulty, role=role)
-    classification = JournalClassification(release, active_season())
-    source = instance_source(release, instance.journal_id, season=classification.season)
-    result = {'release': {'id': release.id, 'build': release.build, 'updated': release.completed_at},
-              'source': source,
-              'instance': {**classification.project(instance.payload), 'kind_label': KINDS.get(instance_kind(instance.journal_id, instance.kind), '副本'), 'source': source},
-              'bosses': [{'id': b.journal_id, 'name': b.name, 'url': '?' + urlencode({**keep, 'tab': 'skills', 'boss': b.journal_id})}
-                         for b in bosses], 'boss': None, 'difficulty': difficulty, 'role': role,
-              'difficulties': [d for d in release.manifest['catalog']['difficulties'] if d['id'] in available],
+    keep.update({'class': class_id or '', 'spec': spec_id or '', 'difficulty': difficulty, 'role': role})
+    source = instance['source']
+    result = {'release': journal_files.release_summary(index), 'source': source, 'instance': instance,
+              'bosses': [{'id': row['id'], 'name': row['name'], 'url': '?' + urlencode({**keep, 'tab': 'skills', 'boss': row['id']})}
+                         for row in bosses], 'boss': None, 'difficulty': difficulty, 'role': role,
+              'difficulties': [row for row in index['difficulties'] if row['id'] in available],
               'roles': [{'id': key, 'name': label} for _, key, label in ROLE_FLAGS],
-              'slots': [], 'classes': [{'id': cid, 'name': name} for cid, name in CLASSES],
+              'slots': [], 'classes': [{'id': cid, 'name': label} for cid, label in CLASSES],
               'slot': request.GET.get('slot', ''), 'class_id': class_id, 'spec_id': spec_id, 'specs': specs,
               'item_type': request.GET.get('item_type', ''), 'loot_boss': integer(request.GET.get('loot_boss')),
-              'loot_q': request.GET.get('loot_q', '').strip()[:100],
-              'loot': [], 'loot_total': 0, 'item_types': [],
+              'loot_q': request.GET.get('loot_q', '').strip()[:100], 'loot': [], 'loot_total': 0, 'item_types': [],
               'loot_url': '?' + urlencode({**keep, 'tab': 'loot'}),
               'tab': 'skills' if request.GET.get('tab') == 'skills' or ('tab' not in request.GET and selected) else 'loot'}
-    if instance_kind(instance.journal_id, instance.kind) == 'world':
+    if instance['kind'] == 'world':
         result['difficulties'] = [{'id': difficulty, 'name': '世界首领'}]
-    if result['class_id'] not in {cid for cid, _ in CLASSES}:
-        result['class_id'] = 0
     if not boss:
         return result
-    payload = boss.payload
-    sections = []
-    role_sections = []
-    for section in payload['sections']:
-        if difficulty not in section['difficulty_ids']:
-            continue
-        row = {k: v for k, v in section.items() if k not in ('source_text', 'descriptions', 'dynamic')}
-        row['text'] = section['descriptions'].get(str(difficulty), '')
-        row['has_dynamic'] = bool(section['dynamic'].get(str(difficulty)))
-        row['role_names'] = [label for _, key, label in ROLE_FLAGS if key in row['roles']]
-        if section['type'] == 3 and section['roles']:
-            if not role or role in section['roles']:
-                role_sections.append(row)
-        elif section['type'] != 3 and (not role or not section['roles'] or role in section['roles']):
-            sections.append(row)
-    # 过滤后重建可见层级，避免职责过滤留下不可见的父标题。
-    shown = {r['id']: r for r in sections}
-    skill_tree = []
-    for row in sections:
-        row['children'] = []
-        if row['parent'] in shown:
-            shown[row['parent']]['children'].append(row)
-        else:
-            skill_tree.append(row)
-    # 掉落属于副本，首领选择仅控制战斗指南；独立掉落首领筛选默认包含全部。
-    if result['loot_boss'] and result['loot_boss'] not in {b.journal_id for b in bosses}:
+    if result['loot_boss'] and result['loot_boss'] not in {row['id'] for row in bosses}:
         result['loot_boss'] = 0
     from botend.services.journal_loot_snapshot import read_loot_projection
-    projection = read_loot_projection(release.id, instance_id, difficulty, source)
+    projection = read_loot_projection(index['release']['id'], instance_id, difficulty, source,
+                                      journal_version=data['loot_versions'][str(difficulty)])
     result.update({key: projection.get(key, []) for key in ('slots', 'item_types')})
     result['loot_snapshot'] = projection['snapshot']
     drops = projection.get('loot', [])
@@ -190,18 +142,18 @@ def detail_data(request, instance_id):
         'rows': [{key: row[key] for key in ('item_id', 'slot', 'item_type', 'sources', 'search_names', 'filter_classes', 'filter_specs')}
                  for row in drops],
     }
-    if result['slot'] and integer(result['slot']) not in {slot['id'] for slot in result['slots']}:
+    if result['slot'] and integer(result['slot']) not in {row['id'] for row in result['slots']}:
         result['slots'].append({'id': integer(result['slot']), 'name': SLOTS.get(integer(result['slot']), '其他')})
     result['loot'] = filtered
-    overview = next((s['descriptions'].get(str(difficulty), '') for s in payload['sections']
-                     if s['type'] == 3 and not s['roles'] and difficulty in s['difficulty_ids']), '')
-    result['boss'] = {k: payload[k] for k in ('id', 'name', 'description', 'creatures')}
-    result['boss']['faction'] = payload.get('faction', 'both')
-    result['boss'].update({'overview': overview, 'skills': skill_tree, 'roles': role_sections,
-                           'loot': [r for r in filtered if boss.journal_id in {s['id'] for s in r['sources']}],
-                           'loot_total': sum(boss.journal_id in {s['id'] for s in r['sources']} for r in drops), 'skill_total': len(sections),
-                           'has_dynamic': any(s['has_dynamic'] for s in sections),
-                           'available': difficulty in payload['difficulty_ids']})
+    if not for_html or result['tab'] == 'skills':
+        skills = journal_files.read_skills(index, data, boss, difficulty)
+        result['boss'] = journal_files.filter_skills(skills, role)
+        result['skill_filter_data'] = {key: skills[key] for key in ('boss', 'sections', 'roles')}
+    else:
+        # 掉落 HTML 只需要首领身份；不加载任何战斗技能正文。
+        result['boss'] = {'id': boss['id'], 'name': boss['name']}
+    result['boss'].update(loot=[row for row in filtered if boss['id'] in {owner['id'] for owner in row['sources']}],
+                          loot_total=sum(boss['id'] in {owner['id'] for owner in row['sources']} for row in drops))
     return result
 
 
@@ -267,36 +219,44 @@ class PortalAdventureJournalView(View):
 
 class PortalAdventureJournalDetailView(View):
     def get(self, request, instance_id):
-        return render(request, 'portal/adventure_journal_detail.html', detail_data(request, instance_id))
+        try:
+            result = detail_data(request, instance_id, for_html=True)
+        except journal_files.JournalSnapshotUnavailable:
+            return HttpResponse('冒险手册资料暂不可用，请稍后刷新重试。', status=503)
+        return render(request, 'portal/adventure_journal_detail.html', result)
 
 
 class PortalAdventureJournalAPIView(View):
     def get(self, request, instance_id=None):
-        if instance_id and request.GET.get('snapshot_status') == '1':
-            from botend.services.journal_loot_snapshot import read_loot_projection
-            release = current_release()
-            if not release:
-                raise Http404
-            instance = get_object_or_404(JournalInstance, release=release, journal_id=instance_id)
-            available = instance.payload['difficulty_ids']
-            difficulty = integer(request.GET.get('difficulty'), available[0] if available else 0)
-            if difficulty not in available:
-                raise Http404
-            data = read_loot_projection(release.id, instance_id, difficulty, instance_source(release, instance_id))
-            response = JsonResponse({'snapshot': data['snapshot']})
-            response['Cache-Control'] = 'no-store'
-            return response
-        result = detail_data(request, instance_id) if instance_id else catalog_data(request)
-        # HTML 需要完整目录用于本地筛选；兼容接口只返回所选结果，避免重复正文。
-        result.pop('loot_catalog', None)
-        result.pop('loot_filter_data', None)
+        try:
+            if instance_id and request.GET.get('snapshot_status') == '1':
+                from botend.services.journal_loot_snapshot import read_loot_projection
+                index = journal_files.read_index()
+                data = journal_files.read_instance(index, instance_id)
+                available = data['instance']['difficulty_ids']
+                difficulty = integer(request.GET.get('difficulty'), available[0] if available else 0)
+                if difficulty not in available:
+                    raise Http404
+                projection = read_loot_projection(index['release']['id'], instance_id, difficulty, data['instance']['source'],
+                                                  journal_version=data['loot_versions'][str(difficulty)])
+                response = JsonResponse({'snapshot': projection['snapshot']})
+                response['Cache-Control'] = 'no-store'
+                return response
+            result = detail_data(request, instance_id) if instance_id else catalog_data(request)
+        except journal_files.JournalSnapshotUnavailable:
+            return JsonResponse({'snapshot': {'state': 'unavailable'}, 'message': '手册资料暂不可用，请稍后重试。'}, status=503)
+        for key in ('loot_catalog', 'loot_filter_data', 'instance_catalog', 'catalog_filter_data', 'skill_filter_data'):
+            result.pop(key, None)
         return JsonResponse(result, json_dumps_params={'ensure_ascii': False})
 
 
 class PortalAdventureJournalArtView(View):
     def get(self, request, file_id):
-        release = current_release()
-        if not release or file_id not in release.manifest['catalog'].get('art_ids', []):
+        try:
+            index = journal_files.read_index()
+        except journal_files.JournalSnapshotUnavailable:
+            return HttpResponse('手册图片资料暂不可用。', status=503)
+        if file_id not in index['art_ids']:
             raise Http404('图片未被当前手册引用')
         from botend.services.journal_media import cached_art
         try:
@@ -312,43 +272,32 @@ class PortalAdventureJournalTooltipView(View):
     def get(self, request, instance_id, kind, entry_id):
         if kind not in ('item', 'spell'):
             raise Http404('不支持的详情类型')
-        # 详情补充只验证引用，避免每件装备请求都重新投影整张副本掉落表。
-        release = current_release()
-        if not release:
-            raise Http404('冒险手册尚未同步')
-        instance = get_object_or_404(JournalInstance, release=release, journal_id=instance_id)
-        available = instance.payload['difficulty_ids']
-        difficulty = integer(request.GET.get('difficulty'), available[0] if available else 0)
-        if difficulty not in available:
-            raise Http404('此副本不支持所选难度')
-        owners = list(instance.encounters.all())
-        selected = integer(request.GET.get('boss'))
-        requested = next((owner for owner in owners if owner.journal_id == selected), None)
-        if selected and requested is None:
-            raise Http404('此首领不属于所选副本')
-        owners = [owner for owner in owners if difficulty in owner.payload['difficulty_ids']]
-        boss = next((owner for owner in owners if owner.journal_id == selected), None)
-        if boss is None and requested:
-            boss = next((owner for owner in owners if owner.name == requested.name), None)
-        boss = boss or next(iter(owners), None)
-        if boss is None:
-            raise Http404('没有首领')
-        source = instance_source(release, instance.journal_id)
-        context = {'difficulty': difficulty, 'release': {'build': source['build']}, 'source': source}
-        if kind == 'item':
-            rows = [row for owner in owners for row in owner.payload['loot']]
-        else:
-            rows = boss.payload['sections']
-        field = 'item_id' if kind == 'item' else 'spell_id'
-        referenced = next((row for row in rows if row[field] == entry_id and context['difficulty'] in row['difficulty_ids']), None)
-        if not referenced:
-            raise Http404('此首领当前难度未引用该物品或技能')
-        if kind == 'spell':
-            return JsonResponse({'name': referenced['title'],
-                                 'lines': referenced['descriptions'].get(str(context['difficulty']), '').splitlines(),
-                                 'source': 'Wago', 'url': f'https://wago.tools/journal/{instance_id}?build={source.get("text_build") or source["build"]}',
-                                 'note': f'{source["label"]}，按当前难度解析；动态效果以游戏内实际状态为准。'},
-                                json_dumps_params={'ensure_ascii': False})
+        try:
+            index = journal_files.read_index()
+            data = journal_files.read_instance(index, instance_id)
+            available = data['instance']['difficulty_ids']
+            difficulty = integer(request.GET.get('difficulty'), available[0] if available else 0)
+            if difficulty not in available:
+                raise Http404('此副本不支持所选难度')
+            owners, boss = journal_files.select_boss(data, difficulty, integer(request.GET.get('boss')))
+            if not boss:
+                raise Http404('没有首领')
+            source = data['instance']['source']
+            context = {'difficulty': difficulty, 'release': {'build': source['build']}, 'source': source}
+            if kind == 'spell':
+                skills = journal_files.read_skills(index, data, boss, difficulty)
+                referenced = skills['tooltips'].get(str(entry_id))
+                if not referenced:
+                    raise Http404('此首领当前难度未引用该技能')
+                return JsonResponse({'name': referenced['title'], 'lines': referenced['text'].splitlines(),
+                                     'source': 'Wago', 'url': f'https://wago.tools/journal/{instance_id}?build={source.get("text_build") or source["build"]}',
+                                     'note': f'{source["label"]}，按当前难度解析；动态效果以游戏内实际状态为准。'},
+                                    json_dumps_params={'ensure_ascii': False})
+            referenced = data['references'][str(difficulty)].get(str(entry_id))
+            if not referenced:
+                raise Http404('此副本当前难度未引用该物品')
+        except journal_files.JournalSnapshotUnavailable:
+            return JsonResponse({'message': '手册详情暂不可用，请稍后重试。'}, status=503)
         from botend.services.journal_tooltip import tooltip
         try:
             return JsonResponse(_present_tooltip(tooltip(
@@ -370,8 +319,7 @@ class PortalAdventureJournalTooltipView(View):
                 lines.append(f'需要等级 {journal_item["required_level"]}')
             if item['display_description']:
                 lines.extend(item['display_description'].splitlines())
-            source_names = [owner.name for owner in owners if any(
-                row['item_id'] == entry_id and context['difficulty'] in row['difficulty_ids'] for row in owner.payload['loot'])]
+            source_names = [owner['name'] for owner in referenced]
             lines.append('掉落首领：' + '、'.join(source_names))
             status = 'basic' if item['catalog_type'] == 'equipment' else 'not_equipment'
             note = (

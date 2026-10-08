@@ -3,6 +3,7 @@ from django.core.management.base import BaseCommand
 from botend.portal.adventure_journal import current_release, instance_source
 from botend.services.gear_builder import active_season
 from botend.services.journal_loot_snapshot import read_loot_projection, refresh_journal_loot_snapshots
+from botend.services.journal_snapshot import loot_version
 
 
 class Command(BaseCommand):
@@ -24,8 +25,10 @@ class Command(BaseCommand):
         count = 0
         for instance in instances:
             source = instance_source(release, instance.journal_id, season=season)
+            bosses = list(instance.encounters.all())
             for difficulty in instance.payload['difficulty_ids']:
-                read_loot_projection(release.id, instance.journal_id, difficulty, source)
+                read_loot_projection(release.id, instance.journal_id, difficulty, source,
+                                     journal_version=loot_version(bosses, difficulty))
                 count += 1
         built = refresh_journal_loot_snapshots(batch_size=max(count, 1), force=options['force'])
         self.stdout.write(f'本次登记 {count} 个分片，已刷新 {len(built)} 个分片')
