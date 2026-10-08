@@ -15,7 +15,6 @@ from botend.services.gear_builder import (
     GearBuilderError,
     bootstrap_payload,
     catalog_items,
-    enhancement_items,
     hydrate_shared_state,
     import_simc_profile,
     resolve_crafted_variant,
@@ -98,15 +97,10 @@ class PortalGearBuilderCatalogAPIView(View):
 class PortalGearBuilderEnhancementsAPIView(View):
     def get(self, request):
         try:
-            payload = enhancement_items(
-                class_name=request.GET.get('class') or 'Warrior',
-                spec_name=request.GET.get('spec') or 'Fury',
-                slot=request.GET.get('slot') or 'head',
-                equipment_variant_id=request.GET.get('variant_id') or None,
-            )
+            from botend.services.gear_catalog_snapshot import catalog_snapshot_response
+            return catalog_snapshot_response(request, kind='enhancements')
         except GearBuilderError as exc:
             return _error_response(exc)
-        return JsonResponse({'success': True, **payload})
 
 
 class PortalGearBuilderCraftedResolveAPIView(View):

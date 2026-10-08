@@ -792,7 +792,16 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
             batch_key=season.gear_batch_key,
         ).select_related('item').first()
 
-    groups = {'embellishments': [], 'gems': [], 'enchants': []}
+    selected = _selected_enhancement_variants(
+        _catalog_queryset(season, ('embellishment', 'gem', 'enchant')),
+        class_name, spec_name, slot, equipment_variant,
+    )
+    groups = _serialize_enhancement_groups(selected, class_name, spec_name)
+    return {'groups': groups, 'catalog': catalog_context(season)}
+
+
+def _selected_enhancement_variants(variants, class_name, spec_name, slot, equipment_variant=None):
+    """采集投影和内部目录共用资格、槽位及最高品质规则。"""
     type_to_group = {
         WowItemVariantSnapshot.TYPE_EMBELLISHMENT: 'embellishments',
         WowItemVariantSnapshot.TYPE_GEM: 'gems',
@@ -800,7 +809,7 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
     }
     grouped = defaultdict(list)
     highest_quality = {}
-    for variant in _catalog_queryset(season, tuple(type_to_group)):
+    for variant in variants:
         if not spec_matches(variant.item, class_name, spec_name, variant, slot):
             continue
         if variant.variant_type == WowItemVariantSnapshot.TYPE_EMBELLISHMENT:
@@ -829,11 +838,48 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
         grouped[(variant.variant_type, variant.item_id)].append(variant)
     for _score, variant in highest_quality.values():
         grouped[(variant.variant_type, variant.item_id)].append(variant)
+    groups = {'embellishments': [], 'gems': [], 'enchants': []}
     for (variant_type, _item_id), variants in grouped.items():
-        groups[type_to_group[variant_type]].append(serialize_item(variants[0].item, variants, class_name, spec_name))
+        groups[type_to_group[variant_type]].append(variants)
+    return groups
+
+
+def _serialize_enhancement_groups(selected, class_name, spec_name):
+    groups = {key: [serialize_item(variants[0].item, variants, class_name, spec_name) for variants in rows]
+              for key, rows in selected.items()}
     for rows in groups.values():
         rows.sort(key=lambda row: row['name'])
-    return {'groups': groups, 'catalog': catalog_context(season)}
+    return groups
+
+
+def enhancement_snapshot_payload(*, class_name, spec_name, slot, season):
+    """后台一次读取公共增强资料；配方关系只保存引用，正文不重复。"""
+    variants = list(_catalog_queryset(season, ('embellishment', 'gem', 'enchant')).select_related(None).prefetch_related('item')) if season and season.gear_batch_key else []
+    common = _selected_enhancement_variants(variants, class_name, spec_name, slot)
+    groups = _serialize_enhancement_groups(common, class_name, spec_name)
+    options, by_equipment = {}, {}
+    if season and season.gear_batch_key:
+        materials = [row for row in variants if row.variant_type == 'embellishment']
+        carriers = _catalog_queryset(season, ('crafted_equipment',)).select_related(None).prefetch_related('item')
+        for carrier in carriers:
+            selected = _selected_enhancement_variants(materials, class_name, spec_name, slot, carrier)['embellishments']
+            keys = []
+            for rows in selected:
+                key = ','.join(str(row.pk) for row in rows)
+                keys.append(key)
+                if key not in options:
+                    options[key] = serialize_item(rows[0].item, rows, class_name, spec_name)
+            if selected:
+                by_equipment[str(carrier.pk)] = sorted(keys, key=lambda key: options[key]['name'])
+    return {'groups': groups, 'embellishment_options': options, 'embellishments_by_equipment': by_equipment}
+
+
+def filter_enhancement_snapshot(payload, equipment_variant_id=None):
+    """兼容接口按同一发布文件中的配方引用筛选，不查装备表。"""
+    groups = payload.get('groups') or {'embellishments': [], 'gems': [], 'enchants': []}
+    keys = (payload.get('embellishments_by_equipment') or {}).get(str(equipment_variant_id or ''), [])
+    options = payload.get('embellishment_options') or {}
+    return {**groups, 'embellishments': [options[key] for key in keys if key in options]}
 
 
 def _resolve_crafted_rows(variant, selected_stats, embellishment, class_name, spec_name, target_slot=''):

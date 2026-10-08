@@ -27,15 +27,25 @@
     return {items: rows.slice(start, start + size), total: rows.length, snapshot: payload.snapshot};
   }
 
-  function createLoader(fetchJson, {ttlMs = 60000, maxEntries = 6, now = Date.now} = {}) {
+  function selectEnhancements(payload, variantId) {
+    const keys = payload.embellishments_by_equipment?.[String(variantId || "")] || [];
+    const options = payload.embellishment_options || {};
+    return {...payload.groups, embellishments: keys.map(key => options[key]).filter(Boolean)};
+  }
+
+  function createLoader(fetchJson, {ttlMs = 60000, maxEntries = 6, now = Date.now, kind = "equipment"} = {}) {
     const entries = new Map();
     return async function load(url) {
       const cached = entries.get(url);
       if (cached && (cached.pending || now() - cached.at < ttlMs)) return cached.promise;
       const entry = {pending: true, at: now()};
       entry.promise = Promise.resolve().then(() => fetchJson(url)).then(payload => {
+        const complete = kind === "enhancements"
+          ? ["embellishments", "gems", "enchants"].every(key => Array.isArray(payload?.groups?.[key]))
+            && payload.embellishment_options && payload.embellishments_by_equipment
+          : Array.isArray(payload?.items);
         if (!payload?.snapshot || !["ready", "building"].includes(payload.snapshot.state)
-            || (payload.snapshot.state === "ready" && !Array.isArray(payload.items))) {
+            || (payload.snapshot.state === "ready" && !complete)) {
           throw new Error("装备目录数据格式不完整，请稍后刷新重试。");
         }
         entry.pending = false;
@@ -52,5 +62,5 @@
       return entry.promise;
     };
   }
-  window.WowGearCatalog = {filter, createLoader};
+  window.WowGearCatalog = {filter, selectEnhancements, createLoader};
 })();

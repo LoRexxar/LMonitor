@@ -89,6 +89,10 @@
   let candidateRetryTimer = 0;
   let candidateRetryCount = 0;
   const readCatalog = globalThis.window?.WowGearCatalog?.createLoader(url => requestJson(url));
+  const readEnhancements = globalThis.window?.WowGearCatalog?.createLoader(url => requestJson(url), {kind: "enhancements"});
+  let enhancementRequestId = 0;
+  let enhancementRetryTimer = 0;
+  let enhancementRetryCount = 0;
   let searchTimer = 0;
   let enhancementGroups = {embellishments: [], gems: [], enchants: []};
   let savedLoadouts = [];
@@ -811,15 +815,33 @@
       : `<div class="gear-option-empty">${escapeHtml(emptyText)}</div>`;
   }
 
-  async function loadEnhancements() {
+  async function loadEnhancements(retry = false) {
+    window.clearTimeout(enhancementRetryTimer);
+    if (!retry) enhancementRetryCount = 0;
+    const requestId = ++enhancementRequestId;
     const entry = selectedEntry();
     const variantId = entry?.variant?.id || "";
     els.embellishment_list.innerHTML = els.gem_list.innerHTML = els.enchant_list.innerHTML = '<div class="gear-option-empty">正在读取兼容选项…</div>';
-    const params = new URLSearchParams({class: state.className, spec: state.specName, slot: state.selectedSlot});
-    if (variantId) params.set("variant_id", String(variantId));
+    const identity = [state.className, state.specName, state.selectedSlot].join(":");
+    const params = new URLSearchParams({class: state.className, spec: state.specName, slot: state.selectedSlot, snapshot: "1"});
+    const current = () => requestId === enhancementRequestId
+      && identity === [state.className, state.specName, state.selectedSlot].join(":")
+      && String(variantId) === String(selectedEntry()?.variant?.id || "");
     try {
-      const payload = await requestJson(`${endpoints.enhancements}?${params}`);
-      enhancementGroups = payload.groups || {embellishments: [], gems: [], enchants: []};
+      if (!readEnhancements) throw new Error("增强目录组件未加载，请刷新页面重试。");
+      const payload = await readEnhancements(`${endpoints.enhancements}?${params}`);
+      if (!current()) return;
+      if (payload.snapshot.state === "building") {
+        enhancementGroups = {embellishments: [], gems: [], enchants: []};
+        const message = enhancementRetryCount < 20 ? "正在准备增强目录，请稍候…" : "数据仍在准备，请稍后重新打开增强目录。";
+        for (const el of [els.embellishment_list, els.gem_list, els.enchant_list]) renderOptionGroup(el, [], "", message);
+        els.add_socket_option.hidden = true;
+        if (enhancementRetryCount++ < 20) enhancementRetryTimer = window.setTimeout(() => {
+          if (current() && state.mode === "enhancement") loadEnhancements(true);
+        }, 3000);
+        return;
+      }
+      enhancementGroups = window.WowGearCatalog.selectEnhancements(payload, variantId);
       if (refreshCachedEnhancementText(enhancementGroups)) {
         persist();
         renderAll();
@@ -839,6 +861,7 @@
       els.socket_summary.textContent = socketCount ? `${(entry.gems || []).length}/${socketCount} 个插槽` : "当前装备无插槽";
       syncSlotLocks();
     } catch (error) {
+      if (!current()) return;
       renderOptionGroup(els.embellishment_list, [], "embellishment", error.message);
       renderOptionGroup(els.gem_list, [], "gem", error.message);
       renderOptionGroup(els.enchant_list, [], "enchant", error.message);
@@ -985,6 +1008,7 @@
     if (entry.selectedStats.length) await resolveCraftedEntry(entry);
     persist();
     renderAll();
+    if (state.mode === "enhancement") loadEnhancements();
     if (targetSlot === state.selectedSlot) openDetail();
     toast(`${item.name} 已${replacing ? "替换" : "装备"}到${slotLabel(targetSlot)}`);
   }
@@ -1296,6 +1320,7 @@
     }
     persist();
     renderAll();
+    if (state.mode === "enhancement") loadEnhancements();
   }
 
   async function changeCraftedStat(index, value) {

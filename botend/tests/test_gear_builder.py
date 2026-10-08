@@ -132,6 +132,7 @@ class GearBuilderTestDataMixin:
             item_subclass_id=4,
             inventory_type=1,
             armor_type='板甲',
+            metadata={'crafting_reagent_slot_ids': [100]},
         )
         self.crafted = WowItemVariantSnapshot.objects.create(
             item=self.crafted_item,
@@ -167,6 +168,7 @@ class GearBuilderTestDataMixin:
             effects_json=[{'description_zh': '装备：获得裂隙之力。'}],
             unique_group='embellishment-limit',
             max_equipped=2,
+            metadata={'reagent_slot_ids': [100]},
             source_json=[{'type': 'profession', 'profession_zh': '裁缝'}],
         )
         self.gem_item = WowItemSnapshot.objects.create(
@@ -541,6 +543,7 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertNotIn(strength_two_hand.item_id, [row['item_id'] for row in arms_offhand])
 
     def test_enhancements_only_offer_embellishment_for_crafted_equipment(self):
+        self._warm_enhancements()
         drop = self.client.get('/portal/api/gear-builder/enhancements/', {
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'variant_id': self.hero.id,
         }).json()['groups']
@@ -572,6 +575,7 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
             compatible_slots=['head'], crafting_quality=1,
             metadata={'simc_name': 'quick_gem_1'},
         )
+        self._warm_enhancements()
         groups = self.client.get('/portal/api/gear-builder/enhancements/', {
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'variant_id': self.hero.id,
         }).json()['groups']
@@ -587,13 +591,24 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
             variant_key='embellishment-q1', variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
             crafting_quality=1, compatible_slots=['head'], unique_group='embellishment-limit',
             max_equipped=2, effects_json=[{'description_zh': '较低数值效果'}],
+            metadata={'reagent_slot_ids': [100]},
         )
         self.embellishment.crafting_quality = 2
         self.embellishment.save(update_fields=['crafting_quality'])
+        self._warm_enhancements()
         groups = self.client.get('/portal/api/gear-builder/enhancements/', {
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'variant_id': self.crafted.id,
         }).json()['groups']
         self.assertEqual([row['item_id'] for row in groups['embellishments']], [10003])
+
+    def _warm_enhancements(self):
+        from botend.services import gear_catalog_snapshot as snapshots
+        override = override_settings(GEAR_CATALOG_SNAPSHOT_ROOT=Path(tempfile.mkdtemp(prefix='enhancement-test-')))
+        override.enable()
+        self.addCleanup(override.disable)
+        key = snapshots.coordinate('Warrior', 'Fury', 'head', 'enhancements')
+        snapshots.request_refresh(key)
+        self.assertEqual(snapshots.refresh_catalog_snapshots(), [key])
 
     def test_crafted_resolver_applies_two_stats_and_embellishment_effect(self):
         response = self.client.post(

@@ -13,6 +13,7 @@ class Command(BaseCommand):
         parser.add_argument('--slot', choices=tuple(gb.SLOT_LABELS))
         parser.add_argument('--limit', type=int, default=640)
         parser.add_argument('--force', action='store_true')
+        parser.add_argument('--kind', choices=('all', 'equipment', 'enhancements'), default='all', help='预热装备、增强或两类目录')
 
     def handle(self, *args, **options):
         if bool(options['class_name']) != bool(options['spec_name']) or (options['slot'] and not options['class_name']):
@@ -20,8 +21,9 @@ class Command(BaseCommand):
         if options['class_name']:
             try:
                 for slot in [options['slot']] if options['slot'] else gb.SLOT_LABELS:
-                    snapshots.request_refresh(snapshots.coordinate(options['class_name'], options['spec_name'], slot))
+                    for kind in ('equipment', 'enhancements') if options['kind'] == 'all' else (options['kind'],):
+                        snapshots.request_refresh(snapshots.coordinate(options['class_name'], options['spec_name'], slot, kind))
             except gb.GearBuilderError as exc:
                 raise CommandError(str(exc)) from exc
         rows = snapshots.refresh_catalog_snapshots(batch_size=options['limit'], force=options['force'])
-        self.stdout.write(f'完成 {len(rows)} 个装备目录分片；失败分片保留旧版本并等待重试。')
+        self.stdout.write(f'完成 {len(rows)} 个目录分片；失败分片保留旧版本并等待重试。')

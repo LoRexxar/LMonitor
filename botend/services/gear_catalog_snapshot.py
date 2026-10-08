@@ -33,15 +33,19 @@ def snapshot_root():
                         Path(settings.BASE_DIR) / 'var' / 'gear-catalog'))
 
 
-def coordinate(class_name, spec_name, slot):
+def coordinate(class_name, spec_name, slot, kind='equipment'):
     class_name, spec_name = gb.canonical_spec(class_name, spec_name)
     if slot not in gb.SLOT_LABELS:
         raise gb.GearBuilderError('未知装备槽位')
-    return {'class_name': class_name, 'spec_name': spec_name, 'slot': slot}
+    if kind not in ('equipment', 'enhancements'):
+        raise gb.GearBuilderError('未知目录类型')
+    key = {'class_name': class_name, 'spec_name': spec_name, 'slot': slot}
+    return {**key, 'kind': kind} if kind == 'enhancements' else key
 
 
 def _directory(key):
-    return snapshot_root() / f"{key['class_name']}-{key['spec_name']}-{key['slot']}"
+    prefix = 'enhancements-' if key.get('kind') == 'enhancements' else ''
+    return snapshot_root() / f"{prefix}{key['class_name']}-{key['spec_name']}-{key['slot']}"
 
 
 def request_refresh(key):
@@ -95,10 +99,10 @@ def _index(key):
     return data
 
 
-def catalog_snapshot_response(request):
+def catalog_snapshot_response(request, *, kind='equipment'):
     """此读取路径不查询数据库，也不触发同步聚合。"""
     key = coordinate(request.GET.get('class') or 'Warrior',
-                     request.GET.get('spec') or 'Fury', request.GET.get('slot') or 'head')
+                     request.GET.get('spec') or 'Fury', request.GET.get('slot') or 'head', kind)
     try:
         request_refresh(key)
     except OSError:
@@ -111,6 +115,15 @@ def catalog_snapshot_response(request):
         response = JsonResponse({'success': True, 'items': [], 'snapshot': {'state': 'building'}}, status=202)
         response['Retry-After'] = '3'
         response['Cache-Control'] = 'no-store'
+        return response
+    if kind == 'enhancements' and request.GET.get('snapshot') != '1':
+        payload = _load(_directory(key) / index['file'])
+        if not isinstance(payload, dict) or payload.get('snapshot', {}).get('coordinate') != key:
+            return JsonResponse({'success': True, 'groups': {}, 'snapshot': {'state': 'building'}}, status=202)
+        response = JsonResponse({'success': True, 'catalog': payload['catalog'],
+                                 'groups': gb.filter_enhancement_snapshot(payload, request.GET.get('variant_id')),
+                                 'snapshot': payload['snapshot']})
+        response['Cache-Control'] = 'public, max-age=60'
         return response
     encodings = request.headers.get('Accept-Encoding', '').lower()
     compressed = any(part.split(';')[0].strip() == 'gzip'
@@ -178,9 +191,15 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False):
             directory = _directory(key)
             _write(directory / 'attempt.json', {'at': time.time()})
             try:
-                rows = gb.catalog_snapshot_items(**key, season=season)
-                content = {'items': rows, 'catalog': catalog,
-                           'source_groups': {k: sorted(v) for k, v in gb.QUICK_SOURCE_FILTERS.items()}}
+                if key.get('kind') == 'enhancements':
+                    identity = {name: key[name] for name in ('class_name', 'spec_name', 'slot')}
+                    content = {**gb.enhancement_snapshot_payload(**identity, season=season), 'catalog': catalog}
+                    total = sum(len(rows) for rows in content['groups'].values()) + len(content['embellishment_options'])
+                else:
+                    rows = gb.catalog_snapshot_items(**key, season=season)
+                    content = {'items': rows, 'catalog': catalog,
+                               'source_groups': {k: sorted(v) for k, v in gb.QUICK_SOURCE_FILTERS.items()}}
+                    total = len(rows)
                 content_hash = hashlib.sha256(json.dumps(content, cls=DjangoJSONEncoder, sort_keys=True,
                                                          ensure_ascii=False).encode()).hexdigest()
                 previous = _index(key)
@@ -191,7 +210,7 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False):
                     built.append(key)
                     continue
                 generation = uuid.uuid4().hex
-                payload = {'success': True, **content, 'total': len(rows),
+                payload = {'success': True, **content, 'total': total,
                            'snapshot': {'state': 'ready', 'generation': generation,
                                         'generated_at': timezone.now().isoformat(), 'coordinate': key}}
                 filename = f'{generation}.json'
