@@ -12,7 +12,7 @@ from django.db.models.functions import Substr
 from django.utils import timezone
 from datetime import timedelta
 
-from botend.models import PortalEvent, PortalMplusRun, PortalMplusSeasonCutoff, PortalNavigationGroup, PortalPeakSpecRankRow, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
+from botend.models import PortalEvent, PortalMplusSeasonCutoff, PortalNavigationGroup, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
 from botend.services.wow_hotfix_entries import continuous_entries, public_hotfix_entry
 from botend.services.wow_today_service import (
@@ -20,8 +20,7 @@ from botend.services.wow_today_service import (
     wow_today_sections_for_snapshot,
 )
 from botend.controller.plugins.wow.wago_regions import wago_region_name
-from botend.wow_i18n import cn_dungeon_from_slug
-from botend.constants.wow import CLASS_CN, SPEC_CN, SPEC_ICON, canonical_class_spec
+from botend.services.rio_rankings_snapshot import _mplus_member_to_dict, _mplus_to_dict, _peak_row_to_dict
 from botend.services.mplus_dps_rankings_service import get_current_mplus_dps_rankings_payload
 
 
@@ -270,77 +269,6 @@ def _portal_link_categories(items):
     for key in sorted(present - known):
         categories.append({'key': key, 'name': key, 'description': '自定义入口分组', 'icon_key': 'globe'})
     return categories
-
-
-def _mplus_member_to_dict(member):
-    """按职业与专精共同匹配图标，兼容已保存的 Raider.IO 队伍数据。"""
-    identity = canonical_class_spec(member.get('class_slug'), member.get('spec_slug'))
-    if not identity:
-        identity = canonical_class_spec(member.get('class'), member.get('spec'))
-    if not identity:
-        return {**member, 'spec_icon_url': ''}
-    class_name, spec_name = identity
-    return {
-        **member,
-        'class_name_cn': CLASS_CN.get(class_name, class_name),
-        'spec_name_cn': SPEC_CN.get(spec_name, spec_name),
-        'spec_icon_url': SPEC_ICON.get(identity, '').replace('/small/', '/large/'),
-    }
-
-
-def _mplus_to_dict(r):
-    party = []
-    if getattr(r, 'party_json', None):
-        try:
-            import json
-            party = json.loads(r.party_json) or []
-        except Exception:
-            party = []
-    party = [_mplus_member_to_dict(member) for member in party if isinstance(member, dict)] if isinstance(party, list) else []
-    dps = []
-    if r.dps_json:
-        try:
-            import json
-            dps = json.loads(r.dps_json) or []
-        except Exception:
-            dps = []
-    return {
-        'rank': r.rank,
-        'dungeon': r.dungeon,
-        'dungeon_slug': getattr(r, 'dungeon_slug', '') or '',
-        'dungeon_cn': cn_dungeon_from_slug(getattr(r, 'dungeon_slug', '') or '', r.dungeon),
-        'level': r.level,
-        'time_seconds': r.time_seconds,
-        'score': r.score,
-        'tank': r.tank or '',
-        'healer': r.healer or '',
-        'party': party,
-        'dps': dps,
-        'run_url': _normalize_url(getattr(r, 'run_url', '') or ''),
-        'source': r.source or '',
-        'season': r.season or '',
-        'region': r.region or '',
-    }
-
-
-def _peak_row_to_dict(r):
-    identity = canonical_class_spec(
-        getattr(r, "class_slug", ""),
-        getattr(r, "spec_slug", ""),
-    )
-    aggregate_url = ""
-    if identity:
-        class_name, spec_name = identity
-        aggregate_url = f"/portal/spec/{class_name}/{spec_name}/dungeons/"
-    return {
-        "rank": int(getattr(r, "rank", 0) or 0),
-        "name": (getattr(r, "character_name", "") or "").strip(),
-        "score": getattr(r, "score", None),
-        "score_color": (getattr(r, "score_color", "") or "").strip(),
-        "aggregate_url": aggregate_url,
-        "realm_name": (getattr(r, "realm_name", "") or "").strip(),
-        "rio_region_slug": (getattr(r, "rio_region_slug", "") or "").strip(),
-    }
 
 
 def _skilldiff_to_dict(r):
@@ -1055,94 +983,23 @@ class PortalMplusCutoffAPIView(View):
 
 class PortalMplusRankingsAPIView(View):
     def get(self, request):
-        season = (request.GET.get('season') or '').strip()
-        if not season or season in {"season-mn-1", "auto"}:
-            season = _active_rio_season()
-        region = (request.GET.get('region') or 'world').strip()
-        dungeon = (request.GET.get('dungeon') or '').strip()
-        dungeon_rows = list(
-            PortalMplusRun.objects.filter(is_active=True, season=season, region=region)
-            .exclude(dungeon_slug__isnull=True).exclude(dungeon_slug='')
-            .values('dungeon_slug', 'dungeon').order_by('dungeon_slug').distinct()
-        )
-        dungeons = [
-            {'slug': x['dungeon_slug'], 'name_cn': cn_dungeon_from_slug(x['dungeon_slug'], x['dungeon'])}
-            for x in dungeon_rows
-        ]
-        dungeon_name_map = {d['slug']: d['name_cn'] for d in dungeons}
-
-        qs = PortalMplusRun.objects.filter(is_active=True, season=season, region=region)
-        if dungeon:
-            qs = qs.filter(dungeon_slug=dungeon).order_by('rank')[:30]
-            items = [_mplus_to_dict(x) for x in qs]
-        else:
-            qs = qs.order_by('dungeon_slug', '-level', 'time_seconds')
-            best_by_dungeon = {}
-            for x in qs:
-                slug = (getattr(x, 'dungeon_slug', '') or '').strip()
-                if slug and slug not in best_by_dungeon:
-                    best_by_dungeon[slug] = x
-            items = []
-            for slug in [d['slug'] for d in dungeons]:
-                run = best_by_dungeon.get(slug)
-                if run:
-                    it = _mplus_to_dict(run)
-                    it['dungeon_cn'] = dungeon_name_map.get(slug, it.get('dungeon_cn', ''))
-                    items.append(it)
-        return JsonResponse({'status': 'success', 'data': {'dungeons': dungeons, 'items': items}})
+        from botend.services.rio_rankings_snapshot import read_rankings
+        payload = read_rankings('mplus', season=request.GET.get('season', ''),
+                                region=request.GET.get('region', 'world'), dungeon=request.GET.get('dungeon', ''),
+                                catalog=request.GET.get('catalog') == '1')
+        response = JsonResponse({'status': 'success', 'data': payload})
+        response['Cache-Control'] = 'no-store' if payload['snapshot']['state'] == 'pending' else 'public, max-age=60'
+        return response
 
 
 class PortalPeakSpecRankingsAPIView(View):
     def get(self, request):
-        role = (request.GET.get("role") or "").strip().lower()
-        if role not in {"tank", "healer", "dps"}:
-            role = "all"
-
-        season = (request.GET.get("season") or "").strip()
-        if not season or season in {"auto", "season-mn-1"}:
-            season = _active_rio_season()
-
-        region = (request.GET.get("region") or "world").strip()
-        qs = PortalPeakSpecRankRow.objects.filter(is_active=True, season=season, region=region)
-        if role != "all":
-            qs = qs.filter(spec_role=role)
-        rows = list(qs.order_by("class_slug", "spec_slug", "rank", "id"))
-
-        groups = {}
-        for r in rows:
-            key = ((getattr(r, "class_slug", "") or "").strip(), (getattr(r, "spec_slug", "") or "").strip())
-            identity = canonical_class_spec(*key)
-            aggregate_url = ""
-            canonical_class_name = (getattr(r, "class_name", "") or "").strip()
-            canonical_spec_name = (getattr(r, "spec_name", "") or "").strip()
-            if identity:
-                canonical_class_name, canonical_spec_name = identity
-                aggregate_url = f"/portal/spec/{canonical_class_name}/{canonical_spec_name}/dungeons/"
-            if key not in groups:
-                groups[key] = {
-                    "class_slug": key[0],
-                    "class_name": canonical_class_name,
-                    "spec_slug": key[1],
-                    "spec_name": canonical_spec_name,
-                    "aggregate_url": aggregate_url,
-                    "spec_role": (getattr(r, "spec_role", "") or "").strip(),
-                    "items": [],
-                    "updated_at": _fmt_dt(getattr(r, "updated_at", None)),
-                }
-            groups[key]["items"].append(_peak_row_to_dict(r))
-
-        items = list(groups.values())
-        items.sort(key=lambda x: (x.get("class_slug") or "", x.get("spec_slug") or ""))
-
-        return JsonResponse({
-            "status": "success",
-            "data": {
-                "season": season,
-                "region": region,
-                "role": role,
-                "items": items,
-            },
-        })
+        from botend.services.rio_rankings_snapshot import read_rankings
+        payload = read_rankings('peak', season=request.GET.get('season', ''),
+                                region=request.GET.get('region', 'world'), role=request.GET.get('role', ''))
+        response = JsonResponse({'status': 'success', 'data': payload})
+        response['Cache-Control'] = 'no-store' if payload['snapshot']['state'] == 'pending' else 'public, max-age=60'
+        return response
 
 
 class PortalRaidRankingsAPIView(View):

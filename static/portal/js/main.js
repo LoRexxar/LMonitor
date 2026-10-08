@@ -444,6 +444,7 @@ const PORTAL_STATE = {
   activeVideoIndex: 0,
   videoAutoTimer: null,
   activeDungeon: "",
+  mplusRankingsPayload: null,
   mplusCutoffsMeta: { season: "", updated_at: "" },
   activeExwindSource: "default",
   exwindTabsBound: false,
@@ -959,9 +960,29 @@ function renderMplusControls(dungeons) {
     sel.value = active;
     sel.addEventListener("change", () => {
       PORTAL_STATE.activeDungeon = sel.value || "";
-      loadSection("mplus_rankings");
+      renderMplusSelection();
+      updateSearchMeta();
     });
   }
+}
+
+function renderRankingSnapshotStatus(containerId, payload) {
+  const el = document.getElementById(containerId);
+  if (!el || !payload?.snapshot || payload.snapshot.state === "ready") return;
+  const note = document.createElement("div");
+  note.className = "text-sm text-slate-500 mb-2";
+  note.textContent = payload.snapshot.message || "数据尚未准备好，请稍后查看。";
+  if (payload.snapshot.state === "pending") el.replaceChildren(note);
+  else el.prepend(note);
+}
+
+function renderMplusSelection() {
+  const payload = PORTAL_STATE.mplusRankingsPayload || {};
+  const items = PORTAL_STATE.activeDungeon
+    ? (payload.runs_by_dungeon?.[PORTAL_STATE.activeDungeon] || []) : (payload.items || []);
+  PORTAL_STATE.dataBySection.mplus_rankings = items;
+  renderMplusRuns(SECTION_MAP.mplus_rankings.listId, items);
+  renderRankingSnapshotStatus(SECTION_MAP.mplus_rankings.listId, payload);
 }
 
 function renderMplusCutoffs(containerId, payload) {
@@ -1227,6 +1248,10 @@ function renderMplusRuns(containerId, items) {
   }
   const q = getSearchQuery();
   const filtered = filterItems(items, q);
+  if (!filtered.length) {
+    el.innerHTML = `<div class="text-slate-500">无匹配结果</div>`;
+    return;
+  }
 
   const fmtTime = (sec) => {
     if (!sec && sec !== 0) return "--";
@@ -1765,9 +1790,7 @@ async function loadSection(key) {
     if (key === "exwind") {
       url = getExwindUrl();
     }
-    if (key === "mplus_rankings" && PORTAL_STATE.activeDungeon) {
-      url = `${ep.url}?dungeon=${encodeURIComponent(PORTAL_STATE.activeDungeon)}`;
-    }
+    if (key === "mplus_rankings") url = `${ep.url}?catalog=1`;
     const r = await fetchJson(url);
     if (key === "daily_report") {
       PORTAL_STATE.dailyReport = r.data || null;
@@ -1790,16 +1813,17 @@ async function loadSection(key) {
       renderMplusCutoffs(ep.listId, { season: PORTAL_STATE.mplusCutoffsMeta.season, updated_at: PORTAL_STATE.mplusCutoffsMeta.updated_at, items });
     } else if (key === "mplus_rankings") {
       const payload = r.data || {};
-      const items = payload.items || [];
       const dungeons = payload.dungeons || [];
-      PORTAL_STATE.dataBySection[key] = items;
+      PORTAL_STATE.mplusRankingsPayload = payload;
+      if (!dungeons.some((dungeon) => dungeon.slug === PORTAL_STATE.activeDungeon)) PORTAL_STATE.activeDungeon = "";
       renderMplusControls(dungeons);
-      renderMplusRuns(ep.listId, items);
+      renderMplusSelection();
     } else if (key === "peak_spec_rankings") {
       const payload = r.data || {};
       PORTAL_STATE.dataBySection[key] = payload;
       renderPeakSpecControls(payload);
       renderPeakSpecGrid(ep.listId, payload);
+      renderRankingSnapshotStatus(ep.listId, payload);
     } else if (key === "events") {
       PORTAL_STATE.dataBySection[key] = r.data || [];
       renderEvents(r.data || []);
@@ -1853,7 +1877,7 @@ function bindSearch() {
         const ep = SECTION_MAP[key];
         if (ep.listId && PORTAL_STATE.dataBySection[key]) {
           if (key === "mplus_rankings") {
-            renderMplusRuns(ep.listId, PORTAL_STATE.dataBySection[key]);
+            renderMplusSelection();
           } else if (key === "mplus_cutoffs") {
             renderMplusCutoffs(ep.listId, {
               season: PORTAL_STATE.mplusCutoffsMeta.season,
@@ -1868,6 +1892,7 @@ function bindSearch() {
           } else if (key === "peak_spec_rankings") {
             renderPeakSpecControls(PORTAL_STATE.dataBySection[key]);
             renderPeakSpecGrid(ep.listId, PORTAL_STATE.dataBySection[key]);
+            renderRankingSnapshotStatus(ep.listId, PORTAL_STATE.dataBySection[key]);
           } else {
             renderSimpleList(ep.listId, PORTAL_STATE.dataBySection[key], { limit: key === "nga" ? 20 : 12 });
           }

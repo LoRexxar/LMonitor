@@ -6,6 +6,8 @@ from django.db import transaction
 from botend.controller.BaseScan import BaseScan
 from botend.constants.wow import canonical_class_spec
 from botend.models import PortalPeakSpecRankRow, SeasonMeta
+from botend.services.rio_rankings_snapshot import publish_rankings, mark_failure, snapshot_root
+from botend.services.simc_benchmark_result_snapshot import _lock
 from utils.log import logger
 
 
@@ -18,22 +20,48 @@ class PortalPeakSpecRankMonitor(BaseScan):
         self.task = task
 
     def scan(self, url):
+        with _lock(snapshot_root() / 'collect-peak.lock', blocking=False) as acquired:
+            return self._scan(url) if acquired else False
+
+    def _scan(self, url):
         season = self._resolve_season()
         if not season:
             logger.error("[PortalPeakSpecRankMonitor] 活跃 SeasonMeta.rio_season 为空，跳过巅峰榜刷新")
             return False
         region = "world"
         ok = True
+        refreshed = 0
 
         for cls in self._spec_list():
             class_slug = cls.get("class_slug") or ""
             spec_slug = cls.get("spec_slug") or ""
             if not class_slug or not spec_slug:
                 continue
-            if not self._fetch_and_upsert(season=season, region=region, class_slug=class_slug, spec_slug=spec_slug):
+            try:
+                success = self._fetch_and_upsert(season=season, region=region, class_slug=class_slug, spec_slug=spec_slug)
+            except Exception:
+                logger.exception(f'[PortalPeakSpecRankMonitor] {class_slug}/{spec_slug} 更新失败')
+                success = False
+            if not success:
                 ok = False
+            else:
+                refreshed += 1
             time.sleep(0.2)
 
+        try:
+            if refreshed:
+                publish_rankings('peak', season=season, region=region,
+                                 error='' if ok else '部分专精更新未成功，已保留对应上次数据。')
+            else:
+                mark_failure('peak', season=season)
+                ok = False
+        except Exception:
+            logger.exception('[PortalPeakSpecRankMonitor] 文件发布失败，保留上次发布')
+            try:
+                mark_failure('peak', season=season)
+            except Exception:
+                logger.exception('[PortalPeakSpecRankMonitor] 保存失败状态未成功')
+            ok = False
         if ok:
             try:
                 self.task.flag = f"{season}@{int(time.time())}"

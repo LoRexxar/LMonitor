@@ -5,9 +5,12 @@ import time
 import requests
 import urllib3
 from django.conf import settings as django_settings
+from django.db import transaction
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import PortalMplusRun, SeasonMeta
+from botend.services.rio_rankings_snapshot import publish_rankings, mark_failure, snapshot_root
+from botend.services.simc_benchmark_result_snapshot import _lock
 from utils.log import logger
 
 
@@ -26,6 +29,11 @@ class PortalMplusRunMonitor(BaseScan):
         self.task = task
 
     def scan(self, url):
+        with _lock(snapshot_root() / 'collect-mplus.lock', blocking=False) as acquired:
+            return self._scan(url) if acquired else False
+
+    def _scan(self, url):
+        season = ''
         try:
             base = (url or "").strip()
             season = self._resolve_season()
@@ -34,27 +42,57 @@ class PortalMplusRunMonitor(BaseScan):
                 return False
             region = "world"
             dungeons = self._get_season_dungeons(season) or []
+            collected = []
             if not dungeons:
                 api = base or f"https://raider.io/api/v1/mythic-plus/runs?season={season}&region={region}&dungeon=all&page=0"
                 payload = self._fetch_json(api)
-                rankings = (payload.get("rankings") or []) if payload else []
-                for row in rankings:
+                collected.extend(self._validated_rankings(payload))
+            else:
+                for d in dungeons:
+                    slug = (d.get("slug") or "").strip()
+                    if not slug:
+                        raise ValueError('来源副本缺少标识')
+                    api = base or f"https://raider.io/api/v1/mythic-plus/runs?season={season}&region={region}&dungeon={slug}&page=0"
+                    payload = self._fetch_json(api)
+                    collected.extend(self._validated_rankings(payload, slug))
+            keys = [(row['run']['dungeon']['slug'], int(row['rank'])) for row in collected]
+            if len(set(keys)) != len(keys):
+                raise ValueError('来源副本排名重复')
+            # 收齐后整体替换；抓取或写入失败不会留下半轮活跃榜单。
+            with transaction.atomic():
+                previous = PortalMplusRun.objects.filter(source='raiderio', season=season, region=region)
+                if not dungeons:
+                    # 全服第一页不能证明覆盖所有副本，只替换实际获取的范围。
+                    previous = previous.filter(dungeon_slug__in={slug for slug, rank in keys})
+                previous.update(is_active=False)
+                for row in collected:
                     self._upsert_row(row, source="raiderio", season=season, region=region)
-                return True
-
-            for d in dungeons:
-                slug = (d.get("slug") or "").strip()
-                if not slug:
-                    continue
-                api = base or f"https://raider.io/api/v1/mythic-plus/runs?season={season}&region={region}&dungeon={slug}&page=0"
-                payload = self._fetch_json(api)
-                rankings = (payload.get("rankings") or []) if payload else []
-                for row in rankings:
-                    self._upsert_row(row, source="raiderio", season=season, region=region)
-            return True
+            publish_rankings('mplus', season=season, region=region,
+                             error='' if dungeons else '副本目录暂未获取，其他副本继续展示上次数据。')
+            return bool(dungeons)
         except Exception as e:
             logger.error(f"[PortalMplusRunMonitor] error: {str(e)}")
+            if season:
+                try:
+                    mark_failure('mplus', season=season)
+                except Exception:
+                    logger.exception('[PortalMplusRunMonitor] 保存失败状态未成功')
             return False
+
+    @staticmethod
+    def _validated_rankings(payload, expected_slug=''):
+        rows = payload.get('rankings') if isinstance(payload, dict) else None
+        if not isinstance(rows, list) or not rows:
+            raise ValueError('来源榜单为空或无效，保留旧版')
+        for row in rows:
+            run = row.get('run') if isinstance(row, dict) else None
+            dungeon = run.get('dungeon') if isinstance(run, dict) else None
+            slug = dungeon.get('slug') if isinstance(dungeon, dict) else None
+            if (not slug or (expected_slug and slug != expected_slug)
+                    or not str(row.get('rank', '')).isdigit() or int(row['rank']) < 1
+                    or not (run.get('keystone_run_id') or run.get('id'))):
+                raise ValueError('来源副本、排名或纪录标识不完整')
+        return rows
 
     def _resolve_season(self):
         season = SeasonMeta.objects.filter(is_active=True).first()
