@@ -4,7 +4,9 @@ import json
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
+from django.db import connection
 from django.test import Client, SimpleTestCase, TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from botend.dashboard.api import _benchmark_safe_error_log
@@ -113,6 +115,154 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         response = self._json(self.client, 'post', '/api/simc-benchmarks/panels/', self.payload)
         self.assertEqual(response.status_code, 201, response.content)
         return SimcBenchmarkPanel.objects.get(pk=response.json()['data']['id'])
+
+    def test_execution_lifecycle_read_does_not_hydrate_task_payloads(self):
+        from botend.services.simc_benchmark_execution import summarize_execution
+
+        talent = SimcTalentString.objects.create(
+            name='Memory regression talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.payload['specs'][0]['profiles'][0]['talent_string_id'] = talent.id
+        panel = self._create_panel()
+        snapshot = {
+            'version': 2, 'case_count': 1, 'run_count': 1,
+            'cases': [{'spec_key': 'warrior_fury', 'scenario_key': 'patchwerk',
+                       'profile_key': 'raid', 'candidate_keys': ['baseline']}],
+            'candidates': [{'key': 'baseline', 'label': 'Baseline'}],
+        }
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status='running', config_snapshot=snapshot,
+            config_hash=_canonical_hash(snapshot),
+        )
+        task = SimcTask.objects.create(
+            user_id=self.staff.id, name='Large frozen benchmark task',
+            simc_profile_id=self.profile.id, backend=self.backend,
+            current_status=1, mode_params={'unused_payload': 'x' * 1024 * 1024},
+            analysis_result={'unused_analysis': 'y' * 1024 * 1024},
+            result_summary='z' * 1024 * 1024, ext=json.dumps({'progress': 37}),
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, status='running',
+            spec_key='warrior_fury', scenario_key='patchwerk', profile_key='raid',
+            coordinate_hash='c' * 64,
+        )
+        for status in ('running', 'partial'):
+            execution.status = status
+            execution.save(update_fields=['status'])
+            with self.subTest(status=status), CaptureQueriesContext(connection) as queries:
+                summary = summarize_execution(execution)
+                self.assertEqual(summary['total_cases'], 1)
+            projections = [q['sql'].split(' FROM ', 1)[0] for q in queries
+                           if q['sql'].startswith('SELECT')]
+            for field in ('mode_params', 'analysis_result', 'result_summary'):
+                self.assertFalse(
+                    any(f'"simc_task"."{field}"' in sql for sql in projections),
+                    f'lifecycle read unnecessarily selected task {field}',
+                )
+
+    def test_execution_history_prefetches_only_run_lifecycle_fields(self):
+        talent = SimcTalentString.objects.create(
+            name='History memory talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.payload['specs'][0]['profiles'][0]['talent_string_id'] = talent.id
+        panel = self._create_panel()
+        snapshot = {'version': 2, 'case_count': 1, 'run_count': 1}
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status='failed', config_snapshot=snapshot,
+            config_hash=_canonical_hash(snapshot),
+        )
+        task = SimcTask.objects.create(
+            user_id=self.staff.id, name='History read fixture',
+            simc_profile_id=self.profile.id, backend=self.backend, current_status=3,
+        )
+        SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, status='failed',
+            spec_key='warrior_fury', scenario_key='patchwerk', profile_key='raid',
+            coordinate_hash='c' * 64,
+        )
+        large = {'not_needed_for_progress': 'x' * 1024 * 1024}
+        SimulationRun.objects.create(
+            task=task, candidate_key='baseline', status='failed',
+            error_detail='Initialization failed', candidate_params=large,
+            display_metadata=large, resource_manifest=large, result_summary=large,
+        )
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get(
+                f'/api/simc-benchmarks/panels/{panel.pk}/executions/?page=1&size=20',
+            )
+        self.assertEqual(response.status_code, 200, response.content)
+        execution_row = response.json()['data']['items'][0]
+        self.assertEqual(execution_row['run_counts']['failed'], 1)
+        self.assertEqual(execution_row['failures'][0]['error'], 'Initialization failed')
+        execution_reads = [q['sql'] for q in queries
+                           if q['sql'].startswith('SELECT')
+                           and 'FROM "simc_benchmark_execution"' in q['sql']]
+        self.assertTrue(execution_reads)
+        self.assertTrue(all('GROUP BY' not in sql for sql in execution_reads),
+                        'history groups full frozen JSON rows before paging')
+        full_snapshot_reads = [sql for sql in execution_reads
+                               if '"simc_benchmark_execution"."config_snapshot"' in sql]
+        self.assertTrue(full_snapshot_reads)
+        self.assertTrue(all('ORDER BY' not in sql for sql in full_snapshot_reads),
+                        'history sorts full frozen JSON instead of paging lightweight IDs')
+        projections = [q['sql'].split(' FROM ', 1)[0] for q in queries
+                       if q['sql'].startswith('SELECT')]
+        for field in ('candidate_params', 'display_metadata', 'resource_manifest', 'result_summary'):
+            self.assertFalse(
+                any(f'"simc_simulation_run"."{field}"' in sql for sql in projections),
+                f'history prefetch unnecessarily selected run {field}',
+            )
+
+    def test_result_projection_reads_candidate_fragments_not_full_task_payloads(self):
+        from botend.services.simc_benchmark_execution import (
+            _candidate_input_identity, _reusable_candidate_tasks_by_coordinate,
+        )
+
+        talent = SimcTalentString.objects.create(
+            name='Projection memory talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.payload['specs'][0]['profiles'][0]['talent_string_id'] = talent.id
+        panel = self._create_panel()
+        plan = build_execution_plan(panel, validate_for_execution=False)
+        coordinate = plan['cases'][0]
+        candidate = coordinate['candidates'][0]
+        execution = SimcBenchmarkExecution.objects.create(
+            panel=panel, status='success', config_snapshot=plan, config_hash=_canonical_hash(plan),
+        )
+        task = SimcTask.objects.create(
+            user_id=self.staff.id, name='Projection fixture',
+            simc_profile_id=self.profile.id, profile=self.profile, apl=self.apl,
+            template=self.template, backend=self.backend, current_status=2,
+            simulation_params=coordinate['simulation_params'],
+            mode_params={'request_manifest': {'candidates': [candidate]},
+                         'unused_initial_payload': 'x' * 1024 * 1024},
+            analysis_result={'unused': 'y' * 1024 * 1024},
+        )
+        case = SimcBenchmarkCase.objects.create(
+            execution=execution, task=task, status='success',
+            spec_key=coordinate['spec_key'], scenario_key=coordinate['scenario_key'],
+            profile_key=coordinate['profile_key'], coordinate_hash='c' * 64,
+        )
+        result = SimcBenchmarkResult.objects.create(
+            case=case, candidate_key=candidate['candidate_key'], dps=1000,
+        )
+        with CaptureQueriesContext(connection) as queries:
+            matches = _reusable_candidate_tasks_by_coordinate(
+                panel, coordinate_plans=plan['cases'],
+            )
+        match = next(iter(matches.values()))[_candidate_input_identity(candidate)]
+        self.assertEqual(match['task'].pk, task.pk)
+        self.assertEqual(match['result'].pk, result.pk)
+        projections = [q['sql'].split(' FROM ', 1)[0] for q in queries
+                       if q['sql'].startswith('SELECT')]
+        for field in ('mode_params', 'analysis_result', 'result_summary', 'ext'):
+            self.assertFalse(
+                any(f', "simc_task"."{field}"' in sql for sql in projections),
+                f'result projection selected full task {field}',
+            )
 
     def test_full_run_response_exposes_preflight_failure_coordinate_and_reason(self):
         panel = self._create_panel()
@@ -502,6 +652,63 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         row = response.json()['data'][0]
         self.assertNotIn('aggregated_results', row)
         serialize.assert_not_called()
+
+    def test_panel_list_execution_id_lookup_is_unsorted_and_keeps_selection_semantics(self):
+        talent = SimcTalentString.objects.create(
+            name='Execution lookup talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.payload['specs'][0]['profiles'][0]['talent_string_id'] = talent.pk
+        panel = self._create_panel()
+        snapshot = {'version': 2, 'case_count': 7, 'run_count': 11,
+                    'frozen_payload': 'x' * (2 * 1024 * 1024)}
+        active = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot=snapshot, config_hash='a' * 64,
+            status='running',
+        )
+        newer = SimcBenchmarkExecution.objects.create(
+            panel=panel, config_snapshot={'version': 2, 'case_count': 2, 'run_count': 3},
+            config_hash='b' * 64, status='pending',
+        )
+        # Tie timestamps to protect the id tiebreaker in latest/history ordering.
+        SimcBenchmarkExecution.objects.filter(pk__in=[active.pk, newer.pk]).update(
+            created_at=timezone.now(),
+        )
+        panel.active_execution = active
+        panel.save(update_fields=['active_execution'])
+        other_panel = SimcBenchmarkPanel.objects.create(
+            name='AAA without active execution', slug='unsorted-execution-lookup',
+            created_by_id=self.staff.pk,
+        )
+        SimcBenchmarkExecution.objects.create(
+            panel=other_panel, config_snapshot={}, config_hash='c' * 64,
+        )
+        latest = SimcBenchmarkExecution.objects.create(
+            panel=other_panel, config_snapshot={'version': 2, 'case_count': 3, 'run_count': 5},
+            config_hash='d' * 64,
+        )
+        SimcBenchmarkExecution.objects.filter(panel=other_panel).update(created_at=timezone.now())
+
+        with CaptureQueriesContext(connection) as queries:
+            response = self.client.get('/api/simc-benchmarks/panels/')
+        self.assertEqual(response.status_code, 200, response.content)
+        rows = response.json()['data']
+        self.assertEqual([row['id'] for row in rows], [other_panel.pk, panel.pk])
+        by_id = {row['id']: row for row in rows}
+        self.assertEqual(by_id[panel.pk]['execution']['id'], active.pk)
+        self.assertEqual(by_id[panel.pk]['execution']['total_cases'], 7)
+        self.assertEqual(by_id[panel.pk]['execution']['total_runs'], 11)
+        self.assertEqual(by_id[other_panel.pk]['execution']['id'], latest.pk)
+        normalized_sql = [query['sql'].replace('`', '"').upper() for query in queries]
+        execution_reads = [sql for sql in normalized_sql
+                           if sql.startswith('SELECT "SIMC_BENCHMARK_EXECUTION"."ID"')]
+        self.assertEqual(len(execution_reads), 1, execution_reads)
+        self.assertNotIn('ORDER BY', execution_reads[0])
+
+        history = self.client.get(f'/api/simc-benchmarks/panels/{panel.pk}/executions/')
+        self.assertEqual(history.status_code, 200, history.content)
+        self.assertEqual([row['id'] for row in history.json()['data']['items']],
+                         [newer.pk, active.pk])
 
     def test_panel_list_exposes_current_plan_growth_separately_from_aggregate_baseline(self):
         panel = self._create_panel()
@@ -925,6 +1132,11 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_execution_pagination_is_panel_scoped_ordered_and_capped(self):
+        talent = SimcTalentString.objects.create(
+            name='Pagination talents', spec='warrior_fury', talent='Cabc',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
+        self.payload['specs'][0]['profiles'][0]['talent_string_id'] = talent.id
         panel = self._create_panel()
         other = SimcBenchmarkPanel.objects.create(
             name='Other', slug='other-dashboard-panel', created_by_id=self.staff.id,

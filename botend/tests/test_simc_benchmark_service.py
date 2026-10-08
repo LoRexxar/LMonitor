@@ -71,6 +71,50 @@ class SimcBenchmarkConfigServiceTests(TestCase):
             }],
         }
 
+    def test_weapon_trinket_set_freezes_paired_control_without_changing_single_trinkets(self):
+        from simc_equipment_control import (
+            equipment_rules, mark_equipment_input, validate_effect_policy,
+        )
+        from botend.services.simc_task_service import _normalize_candidates
+
+        WowItemSnapshot.objects.bulk_create([
+            WowItemSnapshot(
+                item_id=268213, name_zh='迈兹罗阿，督军的狂怒',
+                item_class_id=2, item_subclass_id=1, inventory_type=17,
+                metadata={'primary_stat_options': ['strength']},
+            ),
+            WowItemSnapshot(
+                item_id=270173, name_zh='祖尔金的处斩技法',
+                item_class_id=4, inventory_type=12,
+                metadata={'primary_stat_options': ['strength', 'agility']},
+            ),
+        ])
+        raw = 'main_hand=,id=268213,ilevel=334\ntrinket2=,id=270173,ilevel=334'
+        payload = dict(self.payload, candidates=self.payload['candidates'] + [{
+            'key': 'zuljan-pair', 'candidate_type': 'gear_swap', 'params': raw,
+        }])
+        panel, _ = replace_panel_config(payload, self.user_id)
+        candidates = build_execution_plan(panel)['cases'][0]['candidates']
+        normal = next(row for row in candidates if row['candidate_key'] == 'zuljan-pair')
+        control = next(row for row in candidates if row['candidate_key'] ==
+                       normal['candidate_params']['effect_baseline_key'])
+        self.assertEqual(len(candidates), 4)
+        for candidate in (normal, control):
+            validate_effect_policy(candidate['candidate_params'])
+            self.assertEqual(candidate['candidate_params']['equipment_effect_policy']['target_slots'],
+                             ['main_hand', 'trinket2'])
+            marked = mark_equipment_input(
+                'warrior=x\nspec=fury\n' + raw + '\n', ['main_hand', 'trinket2'],
+                control=candidate is control, rules=equipment_rules(),
+            )
+            self.assertIn('trinket2=lmonitor_effect_control_pending', marked)
+        _normalize_candidates(candidates)
+        single = next(row for row in candidates if row['candidate_key'] == 'trinket-1')
+        self.assertNotIn('effect_baseline_key', single['candidate_params'])
+        self.assertNotIn('equipment_effect_policy', single['candidate_params'])
+        with self.assertRaisesMessage(ValidationError, '重复槽位'):
+            _normalize_candidate_params('gear_swap', raw + '\ntrinket2=,id=123,ilevel=334')
+
     def test_published_limits_only_cover_structural_choices(self):
         self.assertEqual((MAX_SPECS, MAX_PROFILES_PER_SPEC, MAX_SCENARIOS), (40, 5, 8))
 

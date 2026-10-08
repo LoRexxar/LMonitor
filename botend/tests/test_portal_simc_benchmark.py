@@ -114,7 +114,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
         serializer.assert_called_once_with(self.public)
         self.assertNotIn('execution', payload)
 
-    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    @patch('botend.portal.simc_benchmark_api.read_panel_result_snapshot')
     def test_detail_supports_on_demand_coordinate_projection(self, serializer):
         SimcBenchmarkCandidate.objects.create(
             panel=self.public, key='trinket', label='Trinket',
@@ -159,18 +159,16 @@ class PortalSimcBenchmarkAPITests(TestCase):
             call(
                 self.public,
                 coordinate_filter={'spec_key': 'fury', 'profile_key': 'raid', 'scenario_key': 'st'},
-                include_coordinate_options=True,
-                include_details=False,
+                scenario_filter=None,
             ),
             call(
                 self.public,
                 coordinate_filter={'spec_key': 'fury', 'profile_key': 'raid', 'scenario_key': 'st'},
-                include_coordinate_options=True,
-                include_details=False,
+                scenario_filter=None,
             ),
         ])
 
-    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    @patch('botend.portal.simc_benchmark_api.read_panel_result_snapshot')
     def test_baseline_only_detail_projects_all_specs_for_selected_scenario(self, serializer):
         serializer.return_value = {
             'panel_id': self.public.id,
@@ -196,7 +194,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
         serializer.assert_called_once_with(
             self.public,
             scenario_filter='st',
-            include_coordinate_options=True,
+            coordinate_filter=None,
         )
 
     @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
@@ -890,7 +888,11 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertNotIn(')).join("\\n\\n")', self.JS)
         self.assertNotIn('const effect = group.effect', self.JS)
         self.assertNotIn('showItemTooltip', self.JS)
-        self.assertIn('?v=20260930_chart_endpoint_order', self.RESULTS_TEMPLATE)
+        self.assertIn('?v=', self.RESULTS_TEMPLATE)
+        self.assertIn('equipmentEffectUnavailable', self.JS)
+        for contract in ('equipmentEffectGain', 'gearRankingValue', 'gearChartScale',
+                         '特效提升最高的装等', '无特效对照'):
+            self.assertIn(contract, self.JS)
 
     def test_result_renderer_uses_frozen_target_count_and_duration_for_scenarios(self):
         for contract in (

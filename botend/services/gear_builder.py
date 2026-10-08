@@ -418,14 +418,65 @@ def canonical_spec(class_name, spec_name):
     return identity
 
 
+def _variant_item(variant):
+    from botend.services.wow_item_identity import variant_identity, project_item_identity
+    return project_item_identity(variant.item, variant_identity(variant.item, variant))
+
+
 def slot_matches(variant, slot, class_name='', spec_name=''):
     family = SLOT_FAMILIES.get(slot, slot)
     compatible = [str(value) for value in (variant.compatible_slots or []) if value]
-    item_slot = str(variant.item.slot_key or '')
-    matched = not compatible or slot in compatible or family in compatible or item_slot in (slot, family)
+    if variant.variant_type == WowItemVariantSnapshot.TYPE_EMBELLISHMENT:
+        # Weapon reagents describe the weapon family, not the equipped hand.
+        # The carrier's slot/spec and recipe intersection are checked separately.
+        return bool(compatible) and (slot in compatible or family in compatible
+            or (slot == 'off_hand' and 'main_hand' in compatible))
+    item = _variant_item(variant)
+    item_slot = str(item.slot_key or '')
+    if getattr(item, '_resolved_identity', None):
+        from botend.services.gear_builder_catalog_source import INVENTORY_SLOTS
+        compatible = INVENTORY_SLOTS.get(item.inventory_type, ())
+        matched = slot in compatible or family in compatible
+    else:
+        matched = not compatible or slot in compatible or family in compatible or item_slot in (slot, family)
     if not matched and slot == 'off_hand' and f'{class_name}:{spec_name}' == 'Warrior:Fury':
-        matched = int(variant.item.item_class_id or 0) == 2 and int(variant.item.inventory_type or 0) == 17
+        matched = int(item.item_class_id or 0) == 2 and int(item.inventory_type or 0) == 17
     return matched
+
+
+def embellishment_eligibility_reason(equipment, embellishment, slot, class_name='', spec_name=''):
+    """Authorize from central recipe/reagent facts; None means proven compatible.
+
+    Slot families alone cannot distinguish professions or recipes. Missing facts
+    are unknown, never an implicit universal reagent. This performs no queries.
+    """
+    unknown = {'code': 'embellishment_unknown', 'reason': '美化或制造配方关系资料不足，无法确认适用性'}
+    incompatible = {'code': 'embellishment_incompatible', 'reason': '所选美化与该制造装备不兼容'}
+    if equipment is None or embellishment is None:
+        return unknown
+    if (equipment.variant_type != WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT
+            or equipment.is_intrinsic_embellishment
+            or embellishment.variant_type != WowItemVariantSnapshot.TYPE_EMBELLISHMENT):
+        return incompatible
+    if (equipment.season_id, equipment.batch_key, equipment.game_build) != (
+            embellishment.season_id, embellishment.batch_key, embellishment.game_build):
+        return unknown
+    if not embellishment.compatible_slots:
+        return unknown
+    if (not slot_matches(embellishment, slot, class_name, spec_name)
+            or not slot_matches(equipment, slot, class_name, spec_name)):
+        return incompatible
+    item_metadata = equipment.item.metadata or {}
+    reagent_metadata = embellishment.metadata or {}
+    def ids(values):
+        if not isinstance(values, (list, tuple)):
+            return set()
+        return {int(value) for value in values if str(value).isdigit() and int(value) > 0}
+    recipe_slots = ids(item_metadata.get('crafting_reagent_slot_ids'))
+    reagent_slots = ids(reagent_metadata.get('reagent_slot_ids'))
+    if not recipe_slots or not reagent_slots:
+        return unknown
+    return None if recipe_slots.intersection(reagent_slots) else incompatible
 
 
 def _expected_primary_stat(class_name, spec_name):
@@ -453,6 +504,8 @@ def _item_primary_options(item, variant=None):
 
 
 def spec_matches(item, class_name, spec_name, variant=None, slot=''):
+    if not getattr(item, '_resolved_identity', None) and variant is not None:
+        item = _variant_item(variant)
     class_mask = int(item.allowable_class_mask or 0)
     expected_mask = CLASS_MASKS.get(str(class_name or '').casefold(), 0)
     if class_mask > 0 and expected_mask and not class_mask & expected_mask:
@@ -539,7 +592,7 @@ def _source_track_is_valid(variant):
 
 
 def serialize_variant(variant, class_name='', spec_name=''):
-    item = variant.item
+    item = _variant_item(variant)
     metadata = {**(item.metadata or {}), **(variant.metadata or {})}
     metadata.setdefault('two_handed', int(item.inventory_type or 0) == 17)
     socket_types = list(variant.socket_types or [])
@@ -573,7 +626,10 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'track_max_rank': variant.track_max_rank,
         'crafting_quality': variant.crafting_quality,
         'bonus_ids': variant.bonus_ids or [],
-        'compatible_slots': variant.compatible_slots or [],
+        'game_build': variant.game_build,
+        'item_identity': getattr(item, '_resolved_identity', None),
+        'compatible_slots': ([item.slot_key] if getattr(item, '_resolved_identity', None)
+                             else variant.compatible_slots or []),
         'socket_types': socket_types,
         'socket_count': socket_count,
         'stats': stats,
@@ -593,6 +649,8 @@ def serialize_variant(variant, class_name='', spec_name=''):
 
 def serialize_item(item, variants, class_name='', spec_name=''):
     first_variant = variants[0] if variants else None
+    if first_variant:
+        item = _variant_item(first_variant)
     display = item_display_metadata(item.item_id, item, icon_size='medium', variant=first_variant,
         stats=stats_for_identity(first_variant.stats_json, first_variant.metadata, class_name, spec_name) if first_variant else None)
     return {
@@ -651,7 +709,7 @@ def catalog_items(
         season,
         (WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
         query,
-    ):
+    ).select_related(None).prefetch_related('item'):
         if not _source_track_is_valid(variant):
             continue
         if not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
@@ -664,7 +722,7 @@ def catalog_items(
             continue
         if _secondary_stat_is_excluded(variant, excluded_stats):
             continue
-        grouped[variant.item_id].append(variant)
+        grouped[(variant.item_id, variant.game_build)].append(variant)
 
     rows = [serialize_item(variants[0].item, variants, class_name, spec_name) for variants in grouped.values()]
     rows.sort(key=lambda row: (-max((v['item_level'] for v in row['variants']), default=0), row['name']))
@@ -707,7 +765,7 @@ def enhancement_items(*, class_name, spec_name, slot, equipment_variant_id=None)
         if not spec_matches(variant.item, class_name, spec_name, variant, slot):
             continue
         if variant.variant_type == WowItemVariantSnapshot.TYPE_EMBELLISHMENT:
-            if not equipment_variant or equipment_variant.variant_type != WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT:
+            if embellishment_eligibility_reason(equipment_variant, variant, slot, class_name, spec_name):
                 continue
         if not slot_matches(variant, slot, class_name, spec_name):
             continue
@@ -761,9 +819,10 @@ def _resolve_crafted_rows(variant, selected_stats, embellishment, class_name, sp
 
     effects = list(serialize_variant(variant, class_name, spec_name)['effects'])
     if embellishment:
-        slot = target_slot or variant.item.slot_key or (variant.compatible_slots or [''])[0]
-        if embellishment.variant_type != WowItemVariantSnapshot.TYPE_EMBELLISHMENT or not slot_matches(embellishment, slot):
-            raise GearBuilderError('所选美化与该制造装备不兼容')
+        slot = target_slot or _variant_item(variant).slot_key or (variant.compatible_slots or [''])[0]
+        reason = embellishment_eligibility_reason(variant, embellishment, slot, class_name, spec_name)
+        if reason:
+            raise GearBuilderError(reason['reason'])
         effects.extend(serialize_variant(embellishment, class_name, spec_name)['effects'])
     return stats, selected, effects
 

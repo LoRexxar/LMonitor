@@ -366,6 +366,32 @@ def _normalize_item_options(raw_value):
             _error(f'装备候选包含不允许的选项: {key.strip()}', 'params')
 
 
+def _preserve_declared_gear_bonus(raw_value, declared):
+    """Make canonical bonus metadata executable, never silently discard it."""
+    if isinstance(declared, str):
+        if not re.fullmatch(r'[1-9]\d*(?:[/:][1-9]\d*)*', declared):
+            _error('装备 bonus_id 必须是正整数或原生 /: 分隔的正整数列表', 'params')
+        values = [int(value) for value in re.split(r'[/:]', declared)]
+        encoded = declared
+    elif type(declared) is int:
+        values, encoded = [declared], str(declared)
+    elif isinstance(declared, list):
+        values = declared
+        encoded = '/'.join(str(value) for value in values)
+    else:
+        _error('装备 bonus_id 类型无效', 'params')
+    if any(type(value) is not int or value <= 0 for value in values) or len(values) != len(set(values)):
+        _error('装备 bonus_id 包含无效或重复身份', 'params')
+    inline = re.findall(r'(?:^|,)\s*bonus_id=([^,]+)', raw_value, re.I)
+    if inline:
+        if len(inline) != 1 or not re.fullmatch(r'[1-9]\d*(?:[/:][1-9]\d*)*', inline[0]):
+            _error('装备行 bonus_id 无效', 'params')
+        if set(map(int, re.split(r'[/:]', inline[0]))) != set(values):
+            _error('装备行与 canonical bonus_id 冲突', 'params')
+        return raw_value
+    return raw_value + (f',bonus_id={encoded}' if values else '')
+
+
 def _item_requires_ptr(item_id):
     """Read the central item fact used to select SimC's PTR database."""
     item = WowItemSnapshot.objects.filter(item_id=item_id).values('source', 'metadata').first()
@@ -378,23 +404,53 @@ def _item_requires_ptr(item_id):
     )
 
 
+def _conditional_candidate_contract(params):
+    """Explicit A+B vs A intent; all roles/facts come from the central store."""
+    from botend.services.simc_conditional_store import freeze_referenced_conditional_contract
+    from simc_equipment_control import candidate_swaps
+
+    reference = params.get('conditional_comparison')
+    if not isinstance(reference, dict) or set(reference) != {'owner_item_id', 'contract_key'}:
+        _error('conditional_comparison 必须是完整的中央契约引用', 'params')
+    frozen = freeze_referenced_conditional_contract(**reference)
+    swaps = candidate_swaps(params)
+    if [row['slot'] for row in swaps] != frozen['policy']['target_slots']:
+        _error('conditional 装备槽位与中央契约不一致', 'params')
+    by_slot = {row['slot']: row for row in swaps}
+    for target in frozen['expectation']['targets']:
+        swap = by_slot[target['slot']]
+        item_id, _, options = _benchmark_item_identity({'gear_swap': swap})
+        bonuses = [value for key, value in options if key == 'bonus_id']
+        if (len(bonuses) > 1 or any(not re.fullmatch(r'[1-9]\d*(?:[/:][1-9]\d*)*', value)
+                                   for value in bonuses)):
+            _error('conditional bonus_id 无效', 'params')
+        bonus_ids = {int(value) for bonus in bonuses for value in re.split(r'[/:]', bonus)}
+        if (item_id != target['item_id']
+                or not set(target['required_bonus_ids']).issubset(bonus_ids)
+                or 'game_build' in swap and swap['game_build'] != target['game_build']
+                or 'is_ptr' in swap and swap['is_ptr'] != frozen['is_ptr']):
+            _error('conditional 装备身份或激活 bonus 与中央契约不一致', 'params')
+    return frozen
+
+
 def _normalize_candidate_params(candidate_type, params):
     if candidate_type != 'gear_swap':
         _error('candidate_type 只支持 gear_swap；baseline 由系统注入', 'candidate_type')
 
     if (isinstance(params, str) and len(params.strip().splitlines()) > 1
             or isinstance(params, dict) and 'gear_swaps' in params):
-        from simc_equipment_control import SLOTS, ALIASES
+        from simc_equipment_control import SLOTS, ALL_SLOTS, ALIASES
         if isinstance(params, str):
             rows, options = params.strip().splitlines(), None
         else:
-            if set(params) - {'candidate_type', 'is_base', 'gear_swaps', 'simc_options'}:
+            if set(params) - {'candidate_type', 'is_base', 'gear_swaps', 'simc_options',
+                              'conditional_comparison'}:
                 _error('装备组合包含未知字段', 'params')
             if 'candidate_type' in params and (params['candidate_type'] != 'gear_swap' or params.get('is_base') is not False):
                 _error('装备组合执行类型无效', 'params')
             rows, options = params['gear_swaps'], params.get('simc_options')
-        if not isinstance(rows, list) or not 2 <= len(rows) <= len(SLOTS):
-            _error('装备组合必须包含 2 至 14 件装备', 'params')
+        if not isinstance(rows, list) or not 2 <= len(rows) <= len(ALL_SLOTS):
+            _error(f'装备组合必须包含 2 至 {len(ALL_SLOTS)} 件装备', 'params')
         swaps = []
         for row in rows:
             if isinstance(row, dict) and 'item_id' in row:
@@ -405,11 +461,14 @@ def _normalize_candidate_params(candidate_type, params):
             swaps.append(normalized['gear_swap'])
         slots = [ALIASES.get(row['slot'], row['slot']) for row in swaps]
         if len(set(slots)) != len(slots) or any(slot not in SLOTS for slot in slots):
-            _error('装备组合不能重复槽位或包含饰品', 'params')
+            _error('装备组合不能重复槽位或包含非装备槽位', 'params')
         for swap in swaps:
             _benchmark_item_identity({'gear_swap': swap})
         result = {'candidate_type': 'gear_swap', 'is_base': False,
                   'gear_swaps': sorted(swaps, key=lambda row: row['slot'])}
+        if isinstance(params, dict) and 'conditional_comparison' in params:
+            result['conditional_comparison'] = deepcopy(params['conditional_comparison'])
+            _conditional_candidate_contract(result)
         if options is not None:
             try:
                 result['simc_options'] = normalize_controlled_simc_options(options)
@@ -419,6 +478,9 @@ def _normalize_candidate_params(candidate_type, params):
             _error('装备组合内容过长', 'params')
         return result
 
+    declared_bonus = None
+    has_declared_bonus = False
+    declared_context = {}
     if isinstance(params, str):
         if '\n' in params or '\r' in params:
             _error('装备候选不允许换行', 'params')
@@ -442,15 +504,19 @@ def _normalize_candidate_params(candidate_type, params):
             if not isinstance(params.get('gear_swap'), dict):
                 _error('gear_swap 必须是对象', 'params')
             swap = params['gear_swap']
-            if set(swap) - {'slot', 'raw_value', 'item_id', 'source', 'bonus_id', 'is_ptr'}:
+            if set(swap) - {'slot', 'raw_value', 'item_id', 'source', 'bonus_id', 'is_ptr', 'game_build'}:
                 _error('gear_swap 包含未知字段', 'params')
+            declared_context = swap
             slot, raw_value = swap.get('slot'), swap.get('raw_value')
+            has_declared_bonus = 'bonus_id' in swap
+            declared_bonus = swap.get('bonus_id')
         else:
             unknown = set(params) - {
-                'slot', 'raw_value', 'simc_options', 'benchmark_profile',
+                'slot', 'raw_value', 'simc_options', 'benchmark_profile', 'game_build', 'is_ptr',
             }
             if unknown:
                 _error(f'gear_swap 包含未知字段: {", ".join(sorted(unknown))}', 'params')
+            declared_context = params
             slot, raw_value = params.get('slot'), params.get('raw_value')
     else:
         _error('gear_swap params 必须是装备行或对象', 'params')
@@ -464,6 +530,10 @@ def _normalize_candidate_params(candidate_type, params):
         normalized = normalize_gear_candidate_value(canonical_slot, raw_value)
     except ValueError as exc:
         _error(str(exc), 'params')
+    if has_declared_bonus:
+        normalized = _preserve_declared_gear_bonus(normalized, declared_bonus)
+        if len(normalized) > MAX_GEAR_RAW_VALUE_CHARS:
+            _error('装备 bonus_id 使装备行过长', 'params')
     _normalize_item_options(normalized)
     item_match = re.search(r'(?:^|,)\s*id=(\d+)(?:,|$)', normalized, re.IGNORECASE)
     if item_match is None:  # Defensive invariant behind normalize_gear_candidate_value.
@@ -473,7 +543,28 @@ def _normalize_candidate_params(candidate_type, params):
         'slot': canonical_slot, 'raw_value': normalized,
         'item_id': item_id, 'source': 'manual',
     }
-    if _item_requires_ptr(item_id):
+    from botend.services.wow_item_identity import has_identity_store, resolve_item_identity, build_key
+    if 'item_id' in declared_context and (type(declared_context['item_id']) is not int
+                                        or declared_context['item_id'] != item_id):
+        _error('装备 canonical item_id 与装备行冲突', 'params')
+    if 'is_ptr' in declared_context and type(declared_context['is_ptr']) is not bool:
+        _error('装备 is_ptr 必须严格为布尔值', 'params')
+    if 'source' in declared_context and declared_context['source'] != 'manual':
+        _error('装备 source 必须为 manual', 'params')
+    game_build = declared_context.get('game_build', '')
+    if 'game_build' in declared_context:
+        build_key(game_build)
+    branch = declared_context.get('is_ptr', _item_requires_ptr(item_id))
+    item = WowItemSnapshot.objects.filter(item_id=item_id).first()
+    if game_build or has_identity_store(item):
+        if item is None:
+            _error('缺少精确构建装备身份', 'params')
+        ref = resolve_item_identity(item, game_build=game_build, is_ptr=branch)
+        gear_swap['game_build'] = ref['game_build']
+        gear_swap['is_ptr'] = ref['is_ptr']
+    elif branch != _item_requires_ptr(item_id):
+        _error('装备分支与中央来源冲突', 'params')
+    elif branch:
         gear_swap['is_ptr'] = True
     result = {
         'candidate_type': 'gear_swap', 'is_base': False,
@@ -572,12 +663,13 @@ def _default_talent_string(spec_key):
     return matches[0]
 
 
-def _benchmark_item_display_metadata(item_id, item_level=0, bonus_ids=()):
+def _benchmark_item_display_metadata(item_id, item_level=0, bonus_ids=(), swap=None):
     """用统一活动目录生成候选冻结前的展示字段。"""
     metadata = load_item_tooltip_metadata([{
         'item_id': item_id,
         'item_level': item_level,
         'bonus_ids': bonus_ids,
+        **{key: value for key, value in (swap or {}).items() if key in ('game_build', 'is_ptr')},
     }])[0]
     label = metadata['display_name']
     return (
@@ -811,14 +903,14 @@ def normalize_panel_payload(payload, user_id, panel=None):
             value for key, value in item_options if key in {'bonus_id', 'bonus_ids'}
         ]
         metadata_label, metadata_effect, metadata_icon_url = _benchmark_item_display_metadata(
-            item_id, item_level, bonus_ids,
+            item_id, item_level, bonus_ids, params.get('gear_swap'),
         )
         if params.get('gear_swaps'):
             descriptions, effects = [], []
             for swap in params['gear_swaps']:
                 identity = _benchmark_item_identity({'gear_swap': swap})
                 bonuses = [value for name, value in identity[2] if name == 'bonus_id']
-                name, effect, icon = _benchmark_item_display_metadata(identity[0], identity[1], bonuses)
+                name, effect, icon = _benchmark_item_display_metadata(identity[0], identity[1], bonuses, swap)
                 descriptions.append(f'{name or "物品 " + str(identity[0])} · {identity[1]}')
                 if effect:
                     effects.append(f'{name or identity[0]}\n{effect}')
@@ -1035,13 +1127,16 @@ def _freeze_equipment_rules():
     rules = deepcopy(equipment_rules())
     rules['intrinsic_item_ids'] = sorted(set(rules['intrinsic_item_ids']) | set(
         WowItemVariantSnapshot.objects.filter(is_intrinsic_embellishment=True)
-        .values_list('item_id', flat=True)
+        .values_list('item__item_id', flat=True)
     ))
     return rules
 
 
-def _freeze_case_candidates(spec_key, applicable, rules=None):
+def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=None, class_name=''):
     from simc_equipment_control import SLOTS, ALIASES, candidate_swaps, control_key
+    from botend.services.wow_item_effect_activation_store import (
+        item_activation_facts, freeze_equipment_activation,
+    )
 
     trinkets = [item for item in applicable
                 if item.params.get('gear_swap', {}).get('slot') in ('trinket1', 'trinket2')]
@@ -1058,6 +1153,29 @@ def _freeze_case_candidates(spec_key, applicable, rules=None):
         'candidate_type': 'base', 'icon_url': '', 'source_label': '',
     }
     candidates = [_candidate_snapshot(item) for item in applicable]
+    if eligibility is None:
+        from botend.services.simc_equipment_eligibility import EquipmentEligibility
+        eligibility = EquipmentEligibility([row['candidate_params'] for row in candidates])
+    from botend.services.wow_item_identity import freeze_equipment_identity
+    for candidate in candidates:
+        params = freeze_equipment_identity(candidate['candidate_params'], eligibility.items)
+        candidate['candidate_params'] = params
+        layout = eligibility.weapon_layout(params, spec_key, class_name)
+        if layout and (
+            {row['slot'] for row in layout['weapons']} == {'main_hand', 'off_hand'}
+            or not layout['titan_grip'] and any(
+                row['slot'] == 'main_hand' and row['inventory_type'] == 17
+                for row in layout['weapons']
+            )
+        ):
+            # Paired weapons may replace a 2h profile with no offhand slot.
+            # Single 1h/Titan Grip candidates retain their reuse identity.
+            params['equipment_weapon_layout'] = layout
+    activation_facts = item_activation_facts([
+        swap.get('item_id') for candidate in candidates
+        for swap in candidate_swaps(candidate['candidate_params'])
+        if swap.get('item_id')
+    ])
     preset = _freeze_trinket_benchmark_preset(spec_key, marked[0]) if marked else None
     if preset:
         baseline['candidate_params']['equipment_preset'] = deepcopy(preset)
@@ -1076,14 +1194,27 @@ def _freeze_case_candidates(spec_key, applicable, rules=None):
             continue
         if not slots or any(slot not in SLOTS for slot in slots) or len(set(slots)) != len(slots):
             _error('装备组合槽位不支持同属性特效对照')
-        params['equipment_effect_policy'] = {'version': 2, 'target_slots': slots, 'rules': deepcopy(rules)}
+        conditional = 'conditional_comparison' in params
+        if conditional:
+            frozen = _conditional_candidate_contract(params)
+            params.pop('conditional_comparison')
+            params['equipment_effect_policy'] = frozen['policy']
+            params['equipment_effect_expectation'] = frozen['expectation']
+            context = '、'.join(frozen['policy']['context_slots'])
+            changed = '、'.join(frozen['policy']['changed_slots'])
+            candidate['candidate_label'] = f'{candidate["candidate_label"]}（固定 {context}；{changed} 条件增量）'[:200]
+        else:
+            params = freeze_equipment_activation(params, activation_facts)
+            params['equipment_effect_policy'] = {'version': 2, 'target_slots': slots, 'rules': deepcopy(rules)}
+        candidate['candidate_params'] = params
         key = control_key(candidate['candidate_key'])
         if any(row['candidate_key'] == key for row in candidates):
             _error('候选标识与系统生成的无特效对照冲突')
         params['effect_baseline_key'] = key
         control = deepcopy(candidate)
         control['candidate_key'] = key
-        control['candidate_label'] = f'{candidate["candidate_label"]}（无特效对照）'[:200]
+        control_label = '保留固定上下文的对照' if conditional else '无特效对照'
+        control['candidate_label'] = f'{candidate["candidate_label"]}（{control_label}）'[:200]
         control['candidate_params'].pop('effect_baseline_key')
         control['candidate_params']['equipment_effect_control'] = True
         controls.append(control)
@@ -1306,7 +1437,10 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             accepted_keys = {item['key'] for item in accepted}
             applicable = [item for item in applicable if item.key in accepted_keys]
             excluded_candidates.extend({'spec_key': spec.spec_key, **item} for item in excluded)
-            case_candidates = _freeze_case_candidates(spec.spec_key, applicable, equipment_policy_rules)
+            case_candidates = _freeze_case_candidates(
+                spec.spec_key, applicable, equipment_policy_rules,
+                eligibility=eligibility, class_name=spec.class_name,
+            )
         for scenario in scenarios:
             for selected in profiles:
                 if not selected.talent_string_id:

@@ -102,6 +102,367 @@ class SimcAgentJobAPITests(TestCase):
                         'agent_revision': settings.SIMC_AGENT_REQUIRED_REVISION or ('a' * 40), 'protocol_version': 1,
         }, token)
 
+    def test_invalid_frozen_candidate_is_terminal_and_does_not_block_next_claim(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'missing-off-hand', 'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {'slot': 'off_hand', 'raw_value': ',id=251885,ilevel=321'},
+            }},
+            {'candidate_key': 'valid-sibling', 'candidate_params': {'candidate_type': 'base'}},
+        ])
+        # Reproduce an already-running Task after its earlier candidates finished.
+        from botend.services.simc_task_service import initialize_task_runs
+        task.current_status = 1
+        task.execution_owner = SimcTask.EXECUTION_OWNER_AGENT
+        task.started_at = timezone.now()
+        task.save()
+        initialize_task_runs(task, expected_started_at=task.started_at)
+        response = self.claim()
+        invalid = task.simulation_runs.get(candidate_key='missing-off-hand')
+        self.assertEqual(invalid.status, 'failed', response.content)
+        self.assertIn('off_hand', invalid.error_detail)
+        self.assertIsNotNone(invalid.completed_at)
+        self.assertIsNone(invalid.started_at)
+        self.assertFalse(invalid.lease_token_hash)
+        self.assertIsNone(invalid.lease_agent_id)
+        self.assertFalse(SimcTaskArtifact.objects.filter(task=task).exists())
+        self.assertEqual(response.status_code, 204)
+
+        response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        valid = task.simulation_runs.get(candidate_key='valid-sibling')
+        self.assertEqual(response.json()['run_id'], valid.pk)
+        self.assertEqual(valid.status, 'running')
+        self.assertTrue(valid.lease_token_hash)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+
+    def test_invalid_only_candidate_finalizes_task_without_worker_retry(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'missing-off-hand', 'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {'slot': 'off_hand', 'raw_value': ',id=251885,ilevel=321'},
+            }},
+        ])
+        response = self.claim()
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3, response.content)
+        self.assertIn('off_hand', task.error_detail)
+        self.assertIsNotNone(task.completed_at)
+        self.assertEqual(task.analysis_result['failed'], 1)
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(self.claim().status_code, 204)
+        self.assertFalse(SimcTask.objects.filter(source_task=task).exists())
+
+    def test_invalid_last_candidate_finalizes_running_task_with_completed_sibling(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'valid-sibling', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'missing-off-hand', 'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {'slot': 'off_hand', 'raw_value': ',id=251885,ilevel=321'},
+            }},
+        ])
+        first = self.claim()
+        self.assertEqual(first.status_code, 200, first.content)
+        completed = self.complete(first.json())
+        self.assertEqual(completed.status_code, 200, completed.content)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+        artifacts_before = list(SimcTaskArtifact.objects.filter(task=task).values())
+
+        response = self.claim()
+        self.assertEqual(response.status_code, 204, response.content)
+        task.refresh_from_db()
+        # Comparison success means at least one successful candidate, not all.
+        self.assertEqual(task.current_status, 2)
+        self.assertIsNotNone(task.completed_at)
+        self.assertIsNone(task.error_detail)
+        self.assertEqual(task.analysis_result['succeeded'], 1)
+        self.assertEqual(task.analysis_result['failed'], 1)
+        self.assertEqual(task.simulation_runs.get(candidate_key='missing-off-hand').status, 'failed')
+        self.assertEqual(list(SimcTaskArtifact.objects.filter(task=task).values()), artifacts_before)
+        self.assertEqual(self.claim().status_code, 204)
+        self.assertFalse(SimcTask.objects.filter(source_task=task).exists())
+
+    def test_invalid_candidate_preserves_running_sibling_lease_and_fence(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'valid-sibling', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'missing-off-hand', 'candidate_params': {
+                'candidate_type': 'gear_swap',
+                'gear_swap': {'slot': 'off_hand', 'raw_value': ',id=251885,ilevel=321'},
+            }},
+        ])
+        self.agent.capabilities = {'max_concurrent_runs': 2}
+        self.agent.save(update_fields=['capabilities'])
+        first = self.claim()
+        self.assertEqual(first.status_code, 200, first.content)
+        job = first.json()
+        sibling_before = SimulationRun.objects.filter(pk=job['run_id']).values().get()
+        agent_before = SimcAgent.objects.filter(pk=self.agent.pk).values().get()
+        task.refresh_from_db()
+        started_at = task.started_at
+
+        response = self.claim()
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertEqual(SimulationRun.objects.filter(pk=job['run_id']).values().get(), sibling_before)
+        self.assertEqual(SimcAgent.objects.filter(pk=self.agent.pk).values().get(), agent_before)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+        self.assertEqual(task.started_at, started_at)
+        self.assertIsNone(task.completed_at)
+        self.assertEqual(task.simulation_runs.get(candidate_key='missing-off-hand').status, 'failed')
+        self.assertFalse(SimcTaskArtifact.objects.filter(task=task).exists())
+        heartbeat = f"/api/simc-agent/v1/jobs/{job['run_id']}/heartbeat/"
+        self.assertEqual(self.post_json(heartbeat, {
+            'lease_token': job['lease_token'], 'instance_id': 'wrong-instance',
+        }).status_code, 409)
+        self.assertEqual(SimulationRun.objects.filter(pk=job['run_id']).values().get(), sibling_before)
+        self.assertEqual(self.post_json(heartbeat, {
+            'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+        }).status_code, 200)
+        completed = self.complete(job, status='failed', report=None, verify_report=False)
+        self.assertEqual(completed.status_code, 200, completed.content)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+        self.assertEqual(task.analysis_result['failed'], 2)
+
+    def test_claim_task_locks_are_primary_key_only_for_pending_and_running(self):
+        from django.db.models.query import QuerySet
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'one', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'two', 'candidate_params': {'candidate_type': 'base'}},
+        ])
+        self.agent.capabilities = {'max_concurrent_runs': 2}
+        self.agent.save(update_fields=['capabilities'])
+        real_fetch = QuerySet._fetch_all
+        locks = []
+
+        def fetch(queryset):
+            if (queryset.model is SimcTask and queryset.query.select_for_update
+                    and queryset._result_cache is None):
+                query = queryset.query
+                locks.append(query)
+                self.assertFalse(query.order_by)
+                self.assertFalse(query.annotations)
+                self.assertEqual(len(query.where.children), 1)
+                lookup = query.where.children[0]
+                self.assertEqual(lookup.lookup_name, 'exact')
+                self.assertTrue(lookup.lhs.target.primary_key)
+                self.assertEqual(lookup.rhs, task.pk)
+                self.assertFalse(any(getattr(alias, 'join_type', None)
+                                     for alias in query.alias_map.values()))
+            return real_fetch(queryset)
+
+        with patch.object(QuerySet, '_fetch_all', fetch):
+            for _ in range(2):
+                response = self.claim()
+                self.assertEqual(response.status_code, 200, response.content)
+                self.assertEqual(response.json()['task_id'], task.pk)
+        self.assertGreaterEqual(len(locks), 4)  # includes initialization's PK relock
+
+    def test_claim_revalidates_candidate_changes_before_task_lock(self):
+        from django.db import connection
+        from botend.services import simc_run_control
+        real_discover = simc_run_control._discover_claim_task_id
+        depth = len(connection.atomic_blocks)
+        changes = (
+            {'is_active': False}, {'current_status': 2}, {'current_status': 3},
+            {'execution_owner': SimcTask.EXECUTION_OWNER_LOCAL},
+            {'backend_id': self.other.pk},
+            {'is_benchmark_task': True, 'queue_priority': SimcTask.QUEUE_PRIORITY_BENCHMARK_HIGH},
+        )
+        self.agent.task_scope = SimcAgent.TASK_SCOPE_REGULAR_ONLY
+        self.agent.save(update_fields=['task_scope'])
+        for status in (0, 1):
+            for change in changes:
+                with self.subTest(status=status, change=change):
+                    task = self.task()
+                    SimcTask.objects.filter(pk=task.pk).update(
+                        current_status=status, execution_owner=SimcTask.EXECUTION_OWNER_AGENT,
+                    )
+                    run = SimulationRun.objects.create(task=task, sequence=1, status='pending')
+
+                    def discover(*args, **kwargs):
+                        self.assertEqual(len(connection.atomic_blocks), depth)
+                        candidate = real_discover(*args, **kwargs)
+                        self.assertEqual(candidate, task.pk)
+                        SimcTask.objects.filter(pk=task.pk).update(**change)
+                        return candidate
+
+                    with patch.object(simc_run_control, '_discover_claim_task_id', side_effect=discover):
+                        response = self.claim()
+                    self.assertEqual(response.status_code, 204, response.content)
+                    task.refresh_from_db()
+                    run.refresh_from_db()
+                    for field, value in change.items():
+                        self.assertEqual(getattr(task, field), value)
+                    self.assertEqual(run.status, 'pending')
+                    self.assertFalse(run.lease_token_hash)
+                    SimcTask.objects.filter(pk=task.pk).update(is_active=False)
+
+    def test_claim_revalidates_runs_scope_and_capacity_after_discovery(self):
+        from botend.services import simc_run_control
+        real_discover = simc_run_control._discover_claim_task_id
+        for action in ('consumed', 'expired', 'scope', 'capacity'):
+            with self.subTest(action=action):
+                self.agent.task_scope = SimcAgent.TASK_SCOPE_ALL
+                self.agent.save(update_fields=['task_scope'])
+                task = self.task()
+                SimcTask.objects.filter(pk=task.pk).update(
+                    current_status=1, execution_owner=SimcTask.EXECUTION_OWNER_AGENT,
+                )
+                run = SimulationRun.objects.create(task=task, sequence=1, status='pending')
+
+                def discover(*args, **kwargs):
+                    candidate = real_discover(*args, **kwargs)
+                    self.assertEqual(candidate, task.pk)
+                    if action == 'consumed':
+                        SimulationRun.objects.filter(pk=run.pk).update(status='completed')
+                    elif action == 'scope':
+                        SimcAgent.objects.filter(pk=self.agent.pk).update(
+                            task_scope=SimcAgent.TASK_SCOPE_BENCHMARK_ONLY,
+                        )
+                    else:
+                        SimulationRun.objects.create(
+                            task=task, sequence=2, candidate_key='sibling', status='running',
+                            lease_agent=self.agent,
+                            lease_expires_at=timezone.now() + timedelta(
+                                seconds=-1 if action == 'expired' else 60,
+                            ),
+                        )
+                    return candidate
+
+                with patch.object(simc_run_control, '_discover_claim_task_id', side_effect=discover):
+                    response = self.claim()
+                self.assertEqual(response.status_code, 204, response.content)
+                run.refresh_from_db()
+                self.assertEqual(run.status, 'completed' if action == 'consumed' else 'pending')
+                self.assertFalse(run.lease_token_hash)
+                SimcTask.objects.filter(pk=task.pk).update(is_active=False)
+                SimulationRun.objects.filter(task=task).update(status='completed')
+
+    def test_claim_hero_analysis_is_outside_locks_and_freezes_matching_input(self):
+        from django.db import connection
+        from botend.services.simc_hero_talents import enrich_manifest_with_actual_hero_talents
+        self.task()
+        depth = len(connection.atomic_blocks)
+        observed = []
+
+        def enrich(manifest, code, spec, **kwargs):
+            self.assertEqual(len(connection.atomic_blocks), depth)
+            reserved = SimulationRun.objects.get(status='running')
+            self.assertEqual(reserved.input_hash, hashlib.sha256(code.encode()).hexdigest())
+            observed.append(code)
+            result = enrich_manifest_with_actual_hero_talents(manifest, code, spec, **kwargs)
+            result['hero_talent_names'] = ['frozen-hero']
+            return result
+
+        with patch('botend.services.simc_run_control.enrich_manifest_with_actual_hero_talents', side_effect=enrich):
+            response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        job = response.json()
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        self.assertEqual(observed, [job['input']])
+        self.assertEqual(run.input_hash, job['input_hash'])
+        self.assertEqual(run.resource_manifest['hero_talent_names'], ['frozen-hero'])
+
+    def test_claim_hero_analysis_cancellation_or_expiry_cannot_publish(self):
+        for action in ('cancel', 'expire'):
+            with self.subTest(action=action):
+                task = self.task(name=action)
+                before = {}
+
+                def enrich(manifest, code, spec, **kwargs):
+                    run = SimulationRun.objects.get(task=task)
+                    before['manifest'] = run.resource_manifest
+                    if action == 'cancel':
+                        SimcTask.objects.filter(pk=task.pk).update(current_status=3, is_active=False)
+                        SimulationRun.objects.filter(pk=run.pk).update(status='cancelled')
+                    else:
+                        SimulationRun.objects.filter(pk=run.pk).update(lease_expires_at=timezone.now() - timedelta(seconds=1))
+                    before['expiry'] = SimulationRun.objects.get(pk=run.pk).lease_expires_at
+                    return {**manifest, 'hero_talent_names': ['must-not-publish']}
+
+                with patch('botend.services.simc_run_control.enrich_manifest_with_actual_hero_talents', side_effect=enrich):
+                    response = self.claim()
+                self.assertEqual(response.status_code, 409, response.content)
+                run = SimulationRun.objects.get(task=task)
+                self.assertEqual(run.resource_manifest, before['manifest'])
+                self.assertEqual(run.lease_expires_at, before['expiry'])
+                self.assertEqual(run.status, 'cancelled' if action == 'cancel' else 'running')
+                SimcTask.objects.filter(pk=task.pk).update(is_active=False)
+
+    def test_claim_rechecks_sibling_expiry_after_lock_wait(self):
+        from botend.services.simc_run_control import authenticate_bearer as real_authenticate
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'one', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'two', 'candidate_params': {'candidate_type': 'base'}},
+        ])
+        self.agent.capabilities = {'max_concurrent_runs': 2}
+        self.agent.save(update_fields=['capabilities'])
+        job = self.claim().json()
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        clock = {'now': run.lease_expires_at - timedelta(seconds=1)}
+
+        def authenticate(authorization, lock=False):
+            agent = real_authenticate(authorization, lock=lock)
+            if lock:
+                clock['now'] = run.lease_expires_at + timedelta(seconds=1)
+            return agent
+
+        with patch('botend.services.simc_run_control.timezone.now', side_effect=lambda: clock['now']), patch(
+            'botend.services.simc_run_control.authenticate_bearer', side_effect=authenticate,
+        ):
+            response = self.claim()
+        self.assertEqual(response.status_code, 204, response.content)
+        self.assertEqual(SimulationRun.objects.filter(task=task, status='running').count(), 1)
+
+    def test_claim_lease_starts_after_slow_composition(self):
+        from botend.services.simc_run_control import build_frozen_run_input
+        task = self.task()
+        start = timezone.now()
+        clock = {'now': start}
+
+        def compose(*args, **kwargs):
+            result = build_frozen_run_input(*args, **kwargs)
+            clock['now'] = start + timedelta(seconds=61)
+            return result
+
+        with patch('botend.services.simc_run_control.timezone.now', side_effect=lambda: clock['now']), patch(
+            'botend.services.simc_run_control.build_frozen_run_input', side_effect=compose,
+        ):
+            response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        run = SimulationRun.objects.get(task=task)
+        self.assertEqual(run.started_at, clock['now'])
+        self.assertEqual(run.lease_expires_at, clock['now'] + timedelta(seconds=60))
+
+    def test_heartbeat_uses_post_lock_clock_and_never_revives_expired_lease(self):
+        from botend.services.simc_run_control import authenticate_bearer as real_authenticate
+        job = self.claim_after_task()
+        run = SimulationRun.objects.get(pk=job['run_id'])
+        for elapsed in (10, 61):
+            with self.subTest(elapsed=elapsed):
+                old = run.lease_expires_at
+                start = old - timedelta(seconds=60)
+                clock = {'now': start}
+
+                def authenticate(authorization, lock=False):
+                    agent = real_authenticate(authorization, lock=lock)
+                    if lock:
+                        clock['now'] = start + timedelta(seconds=elapsed)
+                    return agent
+
+                with patch('botend.services.simc_run_control.timezone.now', side_effect=lambda: clock['now']), patch(
+                    'botend.services.simc_run_control.authenticate_bearer', side_effect=authenticate,
+                ):
+                    response = self.post_json(f"/api/simc-agent/v1/jobs/{run.pk}/heartbeat/", {
+                        'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+                    })
+                self.assertEqual(response.status_code, 200 if elapsed < 60 else 409, response.content)
+                run.refresh_from_db()
+                self.assertEqual(run.lease_expires_at, clock['now'] + timedelta(seconds=60) if elapsed < 60 else old)
+
     def test_claim_keeps_regular_simulation_above_high_priority_benchmark(self):
         regular = self.task(name='regular')
         benchmark = self.task(name='benchmark')
@@ -666,7 +1027,9 @@ class SimcAgentJobAPITests(TestCase):
         )
         self.assertEqual(self.complete(job).status_code, 200)
         self.assertEqual(SimcTaskArtifact.objects.filter(run=run).count(), 1)
-        duplicate = self.complete(job, status='failed', completion_id='different', token=self.other_token)
+        cross_backend = self.complete(job, status='failed', completion_id='different', token=self.other_token)
+        self.assertEqual(cross_backend.status_code, 403, cross_backend.content)
+        duplicate = self.complete(job, status='failed', completion_id='different')
         self.assertEqual(duplicate.status_code, 200, duplicate.content)
         self.assertEqual(duplicate.json(), {
             'run_id': job['run_id'], 'status': 'completed', 'idempotent': True,
@@ -678,6 +1041,15 @@ class SimcAgentJobAPITests(TestCase):
                 'size': 16, 'sha256': 'a' * 64,
                 'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
             }, self.other_token,
+        )
+        self.assertEqual(upload.status_code, 403, upload.content)
+        upload = self.post_json(
+            f"/api/simc-agent/v1/jobs/{job['run_id']}/report-upload/",
+            {
+                'lease_token': job['lease_token'], 'instance_id': 'instance-a',
+                'size': 16, 'sha256': 'a' * 64,
+                'content_md5': 'MDEyMzQ1Njc4OUFCQ0RFRg==',
+            },
         )
         self.assertEqual(upload.status_code, 200, upload.content)
         self.assertEqual(upload.json(), {
@@ -916,6 +1288,80 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(response.status_code, 503, response.content)
         self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'running')
 
+    def test_completion_parses_reports_without_holding_control_plane_locks(self):
+        from django.db import connection
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+
+        job = self.claim_after_task()
+        SimulationRun.objects.filter(pk=job['run_id']).update(
+            candidate_params={'equipment_effect_control': True},
+        )
+        depth = len(connection.atomic_blocks)
+        semantic = SimcMonitor.validate_simulation_semantics
+        observed = []
+
+        def check_semantic(*args, **kwargs):
+            self.assertEqual(len(connection.atomic_blocks), depth)
+            observed.append('semantic')
+            return semantic(*args, **kwargs)
+
+        def check_equipment(*args, **kwargs):
+            self.assertEqual(len(connection.atomic_blocks), depth)
+            observed.append('equipment')
+            return validate_equipment_effect_report(*args, **kwargs)
+
+        with patch.object(SimcMonitor, 'validate_simulation_semantics', side_effect=check_semantic), patch(
+            'botend.services.simc_equipment_effect_validation.validate_equipment_effect_report',
+            side_effect=check_equipment,
+        ):
+            response = self.complete(job)
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(observed, ['semantic', 'equipment'])
+        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'completed')
+
+    def test_completion_rechecks_cancellation_after_report_validation(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+
+        job = self.claim_after_task()
+        task = SimcTask.objects.get(pk=job['task_id'])
+        owner, _ = get_user_model().objects.get_or_create(
+            pk=task.user_id, defaults={'username': 'cancel-during-validation'},
+        )
+        case = self.benchmark_task(task, 'cancel-during-validation')
+        semantic = SimcMonitor.validate_simulation_semantics
+
+        def validate_then_cancel(*args, **kwargs):
+            result = semantic(*args, **kwargs)
+            cancel_execution(case.execution, requested_by=owner)
+            return result
+
+        with patch.object(SimcMonitor, 'validate_simulation_semantics', side_effect=validate_then_cancel):
+            response = self.complete(job)
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(response.json()['code'], 'run_cancelled')
+        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'cancelled')
+        self.assertFalse(SimcTaskArtifact.objects.filter(run_id=job['run_id']).exists())
+
+    def test_completion_rechecks_lease_expiry_after_report_validation(self):
+        from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
+
+        job = self.claim_after_task()
+        semantic = SimcMonitor.validate_simulation_semantics
+
+        def validate_then_expire(*args, **kwargs):
+            result = semantic(*args, **kwargs)
+            SimulationRun.objects.filter(pk=job['run_id']).update(
+                lease_expires_at=timezone.now() - timedelta(seconds=1),
+            )
+            return result
+
+        with patch.object(SimcMonitor, 'validate_simulation_semantics', side_effect=validate_then_expire):
+            response = self.complete(job)
+        self.assertEqual(response.status_code, 409, response.content)
+        self.assertEqual(SimulationRun.objects.get(pk=job['run_id']).status, 'running')
+        self.assertFalse(SimcTaskArtifact.objects.filter(run_id=job['run_id']).exists())
+
     def test_completion_rechecks_expiry_after_locked_agent_authentication(self):
         from botend.services.simc_run_control import authenticate_bearer as real_authenticate
 
@@ -1104,15 +1550,36 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(response.status_code, 401)
         verify.assert_not_called()
 
-    def test_claim_composition_failure_rolls_back_task_and_runs(self):
+    def test_unexpected_composition_error_rolls_back_task_and_runs(self):
         task = self.task()
         with patch('botend.services.simc_run_control.build_frozen_run_input',
-                   side_effect=ValueError('boom')):
-            response = self.claim()
-        self.assertEqual(response.status_code, 409, response.content)
+                   side_effect=RuntimeError('unexpected infrastructure failure')):
+            with self.assertRaisesRegex(RuntimeError, 'unexpected infrastructure failure'):
+                self.claim()
         task.refresh_from_db()
         self.assertEqual(task.current_status, 0)
         self.assertFalse(SimulationRun.objects.filter(task=task).exists())
+
+    def test_unexpected_composition_error_preserves_running_task_and_sibling_lease(self):
+        task = self.task(mode='comparison', candidates=[
+            {'candidate_key': 'running', 'candidate_params': {'candidate_type': 'base'}},
+            {'candidate_key': 'pending', 'candidate_params': {'candidate_type': 'base'}},
+        ])
+        self.agent.capabilities = {'max_concurrent_runs': 2}
+        self.agent.save(update_fields=['capabilities'])
+        response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        task_before = SimcTask.objects.filter(pk=task.pk).values().get()
+        runs_before = list(task.simulation_runs.order_by('pk').values())
+        agent_before = SimcAgent.objects.filter(pk=self.agent.pk).values().get()
+        with patch('botend.services.simc_run_control.build_frozen_run_input',
+                   side_effect=RuntimeError('unexpected infrastructure failure')):
+            with self.assertRaisesRegex(RuntimeError, 'unexpected infrastructure failure'):
+                self.claim()
+        self.assertEqual(SimcTask.objects.filter(pk=task.pk).values().get(), task_before)
+        self.assertEqual(list(task.simulation_runs.order_by('pk').values()), runs_before)
+        self.assertEqual(SimcAgent.objects.filter(pk=self.agent.pk).values().get(), agent_before)
+        self.assertFalse(SimcTaskArtifact.objects.filter(task=task).exists())
 
     def test_all_responses_are_no_store_including_errors(self):
         self.assertEqual(self.claim().headers['Cache-Control'], 'no-store')

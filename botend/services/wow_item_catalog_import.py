@@ -165,6 +165,20 @@ def _item_defaults(item, existing=None):
     }
 
 
+def merge_item_catalog_metadata(item, metadata):
+    """补充已验证的中央元数据，不触碰名称、分类、属性或其他原始事实。"""
+    if not isinstance(metadata, dict):
+        raise ValueError('物品元数据必须是对象')
+    merged = deepcopy(item.metadata or {})
+    merged.update(deepcopy(metadata))
+    if merged == item.metadata:
+        return False
+    item.metadata = merged
+    item.updated_at = timezone.now()
+    item.save(update_fields=('metadata', 'updated_at'))
+    return True
+
+
 def upsert_item_catalog(items, season, build):
     """仅向活动中央目录追加/更新制品声明的物品事实。"""
     variant_count = 0

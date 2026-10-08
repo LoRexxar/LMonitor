@@ -1,0 +1,1126 @@
+{
+  "183416": {
+    "run_id": 183416,
+    "code": "# SimC Base Template - Skeleton with Semantic Slot Placeholders\n# Manifest v2: Each slot resolved via composer, no silent .first() fallback\n\nfight_style=Patchwerk\nmax_time=60\ndesired_targets=5\noptimal_raid=0\noverride.arcane_intellect=0\noverride.battle_shout=0\noverride.mark_of_the_wild=0\noverride.power_word_fortitude=0\noverride.skyfury=0\noverride.chaos_brand=0\noverride.mystic_touch=0\noverride.hunters_mark=1\noverride.mortal_wounds=0\noverride.bleeding=0\noverride.bloodlust=0\niterations=10000\nthreads=4\n\nhunter=\"MID2_Hunter_Beast_Mastery\"\nspec=beast_mastery\nlevel=90\nrace=dwarf\nrole=attack\nposition=ranged_back\npotion=potion_of_recklessness_2\nflask=flask_of_the_magisters_2\nfood=silvermoon_parade\naugmentation=void_touched\ntemporary_enchant=main_hand:thalassian_phoenix_oil_2\nshoulders=jaws_of_the_skulking_viper,id=271490,bonus_id=13662,ilevel=344,redirected_base_stats=268231\nwrists=lmonitor_effect_control_pending,stats=lmonitor_unprepared\n\nhead=skulking_vipers_weeping_fangs,id=271492,bonus_id=1808/13662,ilevel=334,gem_id=240983,enchant_id=8017,redirected_base_stats=251220\nneck=aqirbane_reliquary,id=268265,bonus_id=13668/13708,ilevel=344,gem_id=240898/240898\nback=silken_voodoo_drape,id=268253,ilevel=344\nchest=skulking_vipers_scuteplate,id=271495,bonus_id=13662/13708,ilevel=344,enchant_id=7987,redirected_base_stats=271876\nhands=skulking_vipers_hidepiercers,id=271493,bonus_id=13662,ilevel=334,redirected_base_stats=160213\nwaist=farstriders_trophy_belt,id=244581,bonus_id=1808/8793/8960/12214/12384/13751/13836/9627,ilevel=331,gem_id=240898,crafted_stats=32/49\nlegs=skulking_vipers_coiled_legwraps,id=271491,bonus_id=13662,ilevel=344,enchant_id=8159,redirected_base_stats=268237\nfeet=ferocious_scaleboots,id=268233,ilevel=334\nfinger1=vile_alchemists_band,id=268249,bonus_id=13668,ilevel=334,gem_id=240898,enchant_id=7967\nfinger2=sickening_signet_of_atroxus,id=252258,bonus_id=13668,ilevel=334,gem_id=240898,enchant_id=7967\ntrinket1=gebbos_bottomless_bag,id=270164,ilevel=334\ntrinket2=zuljins_guillotine_technique,id=270173,ilevel=344\nmain_hand=caustic_repose_greatbow,id=268207,bonus_id=13708,ilevel=344,enchant_id=8041\n\ntalents=C0PAAAAAAAAAAAAAAAAAAAAAAAMmxwCsAzwwMsBAgZYMzyMDzYmxMMzYMzwMjZMziZmxMmBjpZAAAAAzAAAwYmZAmZjxGMLgtBgBA\n\n\n\n\n# This default action priority list is automatically created based on your character.\n# It is a attempt to provide you with a action list that is both simple and practicable,\n# while resulting in a meaningful and good simulation. It may not result in the absolutely highest possible dps.\n# Feel free to edit, adapt and improve it to your own needs.\n# SimulationCraft is always looking for updates and improvements to the default action lists.\n\n# Executed before combat begins. Accepts non-harmful actions only.\nactions.precombat=summon_pet\nactions.precombat+=/snapshot_stats\nactions.precombat+=/use_item,name=algethar_puzzle_box\n\n# Executed every time the actor is available.\nactions=retarget,target_if=max:target.health,line_cd=5,if=fight_style.dungeonroute\nactions+=/auto_shot\nactions+=/call_action_list,name=cds\nactions+=/call_action_list,name=trinkets\nactions+=/call_action_list,name=drst,if=talent.black_arrow&(active_enemies<2|!talent.beast_cleave&active_enemies<3)\nactions+=/call_action_list,name=drcleave,if=talent.black_arrow&(active_enemies>2|talent.beast_cleave&active_enemies>1)\nactions+=/call_action_list,name=st,if=!talent.black_arrow&(active_enemies<2|!talent.beast_cleave&active_enemies<3)\nactions+=/call_action_list,name=cleave,if=!talent.black_arrow&(active_enemies>2|talent.beast_cleave&active_enemies>1)\n\nactions.cds=invoke_external_buff,name=power_infusion,if=buff.bestial_wrath.up|cooldown.bestial_wrath.remains<30|fight_remains<16\nactions.cds+=/berserking,if=cooldown.bestial_wrath.ready|fight_remains<13\nactions.cds+=/blood_fury,if=cooldown.bestial_wrath.ready|fight_remains<16\nactions.cds+=/ancestral_call,if=cooldown.bestial_wrath.ready|fight_remains<16\nactions.cds+=/fireblood,if=cooldown.bestial_wrath.ready|fight_remains<9\nactions.cds+=/potion,if=cooldown.bestial_wrath.ready|fight_remains<31\n\n# Bestial Wrath spawns an Apex Pet which casts Bestial Wrath 1.5s after, but it does not get the Beast Cleave that was active prior to Bestial Wrath. Therefore, to ensure this hit cleaves, Wild Thrash needs to follow up Bestial Wrath.\nactions.cleave=wild_thrash,if=talent.beast_cleave&(prev_gcd.1.bestial_wrath|!buff.beast_cleave.up)\nactions.cleave+=/barbed_shot,target_if=min:dot.barbed_shot.remains|max_prio_damage,if=full_recharge_time<gcd\nactions.cleave+=/bestial_wrath,if=buff.beast_cleave.remains|!talent.beast_cleave|!talent.wild_thrash\nactions.cleave+=/wild_thrash,if=talent.beast_cleave&cooldown.bestial_wrath.remains>buff.beast_cleave.remains|!talent.beast_cleave\nactions.cleave+=/kill_command,if=buff.natures_ally.react|talent.master_handler&(active_enemies>3|howl_summon.ready)|!apex.3\nactions.cleave+=/cobra_shot,if=buff.cobra_fang.up&buff.beast_cleave.remains\nactions.cleave+=/barbed_shot,target_if=min:dot.barbed_shot.remains|max_prio_damage\nactions.cleave+=/cobra_shot,if=talent.beast_cleave&cooldown.wild_thrash.remains>gcd|!talent.beast_cleave\n\nactions.drcleave=black_arrow,if=buff.beast_cleave.remains<gcd&cooldown.bestial_wrath.remains<gcd&active_enemies>2\nactions.drcleave+=/bestial_wrath,if=buff.beast_cleave.remains|!talent.beast_cleave\nactions.drcleave+=/wild_thrash,if=talent.beast_cleave&(prev_gcd.1.bestial_wrath|!buff.beast_cleave.up|cooldown.bestial_wrath.remains>buff.beast_cleave.remains)|!talent.beast_cleave\nactions.drcleave+=/kill_command,if=cooldown.bestial_wrath.remains>full_recharge_time+gcd&buff.natures_ally.react|!apex.3\nactions.drcleave+=/barbed_shot,target_if=min:dot.barbed_shot.remains|max_prio_damage,if=full_recharge_time<1*gcd\nactions.drcleave+=/black_arrow,if=buff.withering_fire.up\nactions.drcleave+=/wailing_arrow,if=buff.withering_fire.remains<execute_time+gcd|time_to_die.remains<execute_time+gcd\nactions.drcleave+=/barbed_shot,target_if=min:dot.barbed_shot.remains|max_prio_damage\nactions.drcleave+=/black_arrow\nactions.drcleave+=/wailing_arrow\nactions.drcleave+=/cobra_shot\n\nactions.drst=barbed_shot,target_if=min:dot.barbed_shot.remains|max_prio_damage,if=(talent.bloody_frenzy&talent.snakeskin_quiver&talent.jagged_wounds)&cooldown.bestial_wrath.remains<2*gcd\nactions.drst+=/bestial_wrath\nactions.drst+=/black_arrow,if=buff.withering_fire.up&cooldown.kill_command.full_recharge_time>gcd\nactions.drst+=/kill_command,if=cooldown.bestial_wrath.remains>full_recharge_time+gcd&buff.natures_ally.react|!apex.3\nactions.drst+=/wailing_arrow,if=buff.withering_fire.remains<execute_time+2*gcd|time_to_die.remains<execute_time+gcd\nactions.drst+=/cobra_shot,if=buff.cobra_fang.at_max_stacks\nactions.drst+=/cobra_shot,if=talent.killer_cobra&buff.bestial_wrath.up&cooldown.barbed_shot.charges_fractional<1.4\nactions.drst+=/black_arrow\nactions.drst+=/barbed_shot,target_if=min:dot.barbed_shot.remains|max_prio_damage\nactions.drst+=/cobra_shot,if=cooldown.bestial_wrath.remains>gcd\n\nactions.st=barbed_shot,target_if=min:dot.barbed_shot.remains|max_prio_damage,if=cooldown.bestial_wrath.remains<gcd|full_recharge_time<gcd\nactions.st+=/bestial_wrath\nactions.st+=/wild_thrash,if=active_enemies>1\nactions.st+=/kill_command,if=howl_summon.ready|(cooldown.bestial_wrath.remains>full_recharge_time+gcd&buff.natures_ally.react|!apex.3)&(buff.howl_of_the_pack_leader_cooldown.remains>4|cooldown.kill_command.charges_fractional>1.8)\nactions.st+=/cobra_shot,if=buff.cobra_fang.at_max_stacks\nactions.st+=/barbed_shot,if=(focus<75|full_recharge_time<gcd)&!talent.serpentine_strikes|talent.serpentine_strikes\nactions.st+=/cobra_shot,if=cooldown.bestial_wrath.remains>gcd\n\nactions.trinkets=use_items,check_existing=0,slots=trinket1:trinket2,if=this_trinket.has_use_buff&(cooldown.bestial_wrath.ready|cooldown.bestial_wrath.remains<this_trinket.proc.any_dps.duration-15)|fight_remains<21\nactions.trinkets+=/use_items,check_existing=0,slots=trinket1:trinket2,if=this_trinket.has_use_damage&!potion.liquid_luster|!equipped.font_of_venomous_rage|((buff.liquid_luster.up&buff.liquid_luster.remains<6)|(fight_remains<cooldown.potion.remains&!buff.liquid_luster.up))|fight_remains<10\n\n\nhtml=simc_task_11784_run_183416.html\n# lmonitor_equipment_control_v1=eyJ2ZXJzaW9uIjogMiwgIml0ZW1zIjogeyJ3cmlzdHMiOiAiLGlkPTI0NDU4NCxpbGV2ZWw9MzM0LGNyYWZ0ZWRfc3RhdHM9Y3JpdC9oYXN0ZSxib251c19pZD0xMjM4NCJ9LCAiY29udHJvbCI6IGZhbHNlLCAicnVsZXMiOiB7InNldHMiOiBbeyJuYW1lIjogImFyY2Fub3dlYXZlX3RyYXBwaW5ncyIsICJpdGVtcyI6IFsyMzk2NjAsIDIzOTY2MiwgMjM5NjYxXSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAiYXp1cmV3ZWF2ZV92ZXN0bWVudHMiLCAiaXRlbXMiOiBbMTkzNTM2LCAxOTM1MjUsIDE5MzUyMF0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogImJpdGVfb2ZfenVsamFuIiwgIml0ZW1zIjogWzI3MDE3MywgMjY4MjA5LCAyNjgyMTNdLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJlbWJyYWNlX29mX3RoZV9jaW5kZXJiZWUiLCAiaXRlbXMiOiBbMjE5NTA3LCAyMTk1MDgsIDIxOTUwOV0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogImZ1cnlfb2ZfdGhlX3N0b3JtX3Jvb2siLCAiaXRlbXMiOiBbMjE5NTEyLCAyMTk1MTMsIDIxOTUxMV0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogImhvcml6b25fc3RyaWRlcnNfZ2FybWVudHMiLCAiaXRlbXMiOiBbMTkzNDYzLCAxOTM0NjUsIDE5MzQ1OV0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogImt5ZXZlenphc19jcnVlbF9pbXBsZW1lbnRzIiwgIml0ZW1zIjogWzIxOTg3NywgMjEyNDU2XSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAibXVyZGVyX3Jvd19tYXRlcmlhbHMiLCAiaXRlbXMiOiBbMjQ0NjEzLCAyNDQ2MTQsIDI0NDYxMl0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogInBsYXlmdWxfc3Bpcml0c19mdXIiLCAiaXRlbXMiOiBbMTkzNDU0LCAxOTM0NTgsIDE5MzQ1N10sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogInJhZ2luZ190ZW1wZXN0cyIsICJpdGVtcyI6IFsxOTk0MzQsIDE5OTQzNSwgMTk5NDM2LCAxOTk0MzMsIDE5OTQzNywgMTk5NDM4LCAxOTk0MzksIDE5OTQ0MF0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogInJhZ2luZ190ZW1wZXN0cyIsICJpdGVtcyI6IFsxOTk0MzQsIDE5OTQzNSwgMTk5NDM2LCAxOTk0MzMsIDE5OTQzNywgMTk5NDM4LCAxOTk0MzksIDE5OTQ0MF0sICJwaWVjZXMiOiA0fSwgeyJuYW1lIjogInJhZ2luZ190ZW1wZXN0cyIsICJpdGVtcyI6IFsxOTk0MzQsIDE5OTQzNSwgMTk5NDM2LCAxOTk0MzMsIDE5OTQzNywgMTk5NDM4LCAxOTk0MzksIDE5OTQ0MF0sICJwaWVjZXMiOiA2fSwgeyJuYW1lIjogInJvb3Rfd2FyZGVuc19yZWdhbGlhIiwgIml0ZW1zIjogWzI0NDYwOSwgMjQ0NjEwLCAyNDQ2MTFdLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJzaGFyZHNfb2ZfdGhlX3ZvaWQiLCAiaXRlbXMiOiBbMjM3NzMwLCAyNDIzOTIsIDIzNzcyOCwgMjM3NzM1XSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAic3VuZmlyZV9zaWxrX3RyYXBwaW5ncyIsICJpdGVtcyI6IFsyMzk2NTcsIDIzOTY1OSwgMjM5NjU4XSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAidG9ybWVudHNfZHVhbGl0eSIsICJpdGVtcyI6IFsyNTE4ODQsIDI1MTg4NV0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogInVtYnJhX3dlYXZlcnNfcG9ydGVudCIsICJpdGVtcyI6IFsxNTEzMDMsIDE1MTI5OSwgMTUxMzAyXSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAidW1icmFfd2VhdmVyc19wb3J0ZW50IiwgIml0ZW1zIjogWzE1MTMwMywgMTUxMjk5LCAxNTEzMDJdLCAicGllY2VzIjogM30sIHsibmFtZSI6ICJ2b2lkbGlnaHRfYmluZGluZ3MiLCAiaXRlbXMiOiBbMjUxMDkzLCAyNTEyMTddLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJ3b3Zlbl9jaHJvbm9jbG90aCIsICJpdGVtcyI6IFsxOTM1MjcsIDE5MzUzNywgMTkzNTEyXSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAid292ZW5fZGF3biIsICJpdGVtcyI6IFsyMjI4MDcsIDIyMjgwOF0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogIndvdmVuX2R1c2siLCAiaXRlbXMiOiBbMjIyODA5LCAyMjI4MTBdLCAicGllY2VzIjogMn1dLCAidmVyc2lvbiI6IDIsICJlZmZlY3RfaWRzIjogWzM3MTcwMCwgMzc3MzYwLCAzNzc3MDgsIDM3ODc1OCwgMzg3MzM1LCAzOTY0NDIsIDM5NjU4MSwgNDA2MjU0LCA0MDk4MzgsIDQwOTkyMywgNDExMTI2LCA0MTU0NDYsIDQxODQxMCwgNDE5MzY4LCA0MjY1NTIsIDQzNTk5MiwgNDM2MTMyLCA0NDM3MzYsIDQ0Mzc0MywgNDQzNzYwLCA0NDM3NjIsIDQ0MzkwMiwgNDUzNTAzLCA0NTM1NzMsIDQ1MzgxMywgNDU0NTU4LCA0NTQ4NTcsIDQ1NTE0NywgNDU3NjY1LCA0NTc2NzcsIDQ1ODU3MywgNDYwNTIxLCA0NjExNzcsIDQ2MzIzMiwgMTI0MTcxMSwgMTI0NDIzOCwgMTI0NDI3NiwgMTI0NTA1MiwgMTI0NTA1MywgMTI0NTA1NCwgMTI0NTA1NSwgMTI0NjI5OCwgMTI0NjMwOCwgMTI0NjMwOSwgMTI0NjMxMiwgMTI1MTgxNSwgMTI1MTkwMiwgMTI1MTkwNCwgMTI1MTkwNSwgMTI1MTkwNiwgMTI1OTA2MCwgMTI1OTY0OCwgMTI2MTk2OCwgMTI4MzY5NywgMTI5NjU1MCwgMTI5Njg3MCwgMTI5Njk4MiwgMTI5NzM4MiwgMTI5NzM4NF0sICJlbWJlbGxpc2htZW50cyI6IHsiYWRvcm5lZF9mYW5nIjogeyJib251c19pZCI6IDEzNzY3LCAic3BlbGxfaWQiOiAxMjk2ODcwfSwgImFybW9yX3NwaWtlcyI6IHsiYm9udXNfaWQiOiA4MTg4LCAic3BlbGxfaWQiOiAzOTY1ODF9LCAibHVja3lfa2V5Y2hhaW4iOiB7ImJvbnVzX2lkIjogMTI3MTUsICJzcGVsbF9pZCI6IDEyNDYyOTh9LCAidmVyZGFudF90ZXRoZXIiOiB7ImJvbnVzX2lkIjogOTYxNCwgInNwZWxsX2lkIjogNDI2NTUyfSwgImNvaWxlZF9zbmFrZWV5ZSI6IHsiYm9udXNfaWQiOiAxMzc2OSwgInNwZWxsX2lkIjogMTI5NzM4NH0sICJmYW5nX2Fkb3JubWVudHMiOiB7ImJvbnVzX2lkIjogODc5NiwgInNwZWxsX2lkIjogMzc3NzA4fSwgInZlcmRhbnRfY29uZHVpdCI6IHsiYm9udXNfaWQiOiA5NTIxLCAic3BlbGxfaWQiOiA0MTg0MTB9LCAibWVkaWNhbF93cmFwX2tpdCI6IHsiYm9udXNfaWQiOiA5NDE2LCAic3BlbGxfaWQiOiA0MDk5MjN9LCAic25ha2Vza2luX2xpbmluZyI6IHsiYm9udXNfaWQiOiAxMzc2NCwgInNwZWxsX2lkIjogMTI5NjU1MH0sICJkYXdudGhyZWFkX2xpbmluZyI6IHsiYm9udXNfaWQiOiAxMTMwMywgInNwZWxsX2lkIjogNDU3NjY1fSwgImRldm91cmluZ19iYW5kaW5nIjogeyJib251c19pZCI6IDEyNjg1LCAic3BlbGxfaWQiOiAxMjQ0MjM4fSwgImR1c2t0aHJlYWRfbGluaW5nIjogeyJib251c19pZCI6IDExMzA0LCAic3BlbGxfaWQiOiA0NTc2Nzd9LCAibTNkZHlfdHJhdmVsc2l6ZWQiOiB7ImJvbnVzX2lkIjogMTI5OTEsICJzcGVsbF9pZCI6IDEyNDYzMTJ9LCAicG9saXNoZWRfYW1tb2xpdGUiOiB7ImJvbnVzX2lkIjogMTM3NjgsICJzcGVsbF9pZCI6IDEyOTY5ODJ9LCAicmVzZXJ2ZV9wYXJhY2h1dGUiOiB7ImJvbnVzX2lkIjogOTQxMiwgInNwZWxsX2lkIjogNDA5ODM4fSwgImFyY2Fub3dlYXZlX2xpbmluZyI6IHsiYm9udXNfaWQiOiAxMjM4NCwgInNwZWxsX2lkIjogMTI4MzY5N30sICJibHVlX3NpbGtlbl9saW5pbmciOiB7ImJvbnVzX2lkIjogODkzMiwgInNwZWxsX2lkIjogMzg3MzM1fSwgImNhcHR1cmVkX3N0YXJsaWdodCI6IHsiYm9udXNfaWQiOiAxMDUyMSwgInNwZWxsX2lkIjogNDYwNTIxfSwgImRhcmttb29uX3NpZ2lsX3JvdCI6IHsiYm9udXNfaWQiOiAxMjY5MiwgInNwZWxsX2lkIjogMTI0NTA1NX0sICJkcmVhbXRlbmRlcnNfY2hhcm0iOiB7ImJvbnVzX2lkIjogOTUzMiwgInNwZWxsX2lkIjogNDE5MzY4fSwgImJsZXNzZWRfcGFuZ29fY2hhcm0iOiB7ImJvbnVzX2lkIjogMTI2ODYsICJzcGVsbF9pZCI6IDEyNTkwNjB9LCAiYmxlc3NlZF93ZWFwb25fZ3JpcCI6IHsiYm9udXNfaWQiOiAxMTEwMywgInNwZWxsX2lkIjogNDQzNzQzfSwgImRhcmttb29uX3NpZ2lsX2h1bnQiOiB7ImJvbnVzX2lkIjogMTI2OTMsICJzcGVsbF9pZCI6IDEyNDUwNTR9LCAiZGFya21vb25fc2lnaWxfdm9pZCI6IHsiYm9udXNfaWQiOiAxMzY0MCwgInNwZWxsX2lkIjogMTI0NTA1Mn0sICJodTVoX25vbmNoYWxhbnRfcHVwIjogeyJib251c19pZCI6IDEzNTU2LCAic3BlbGxfaWQiOiAxMjU5NjQ4fSwgInN1bmZpcmVfc2lsa19saW5pbmciOiB7ImJvbnVzX2lkIjogMTIzODUsICJzcGVsbF9pZCI6IDEyNDE3MTF9LCAiYjBwX2N1cmF0b3Jfb2ZfYm9vbXMiOiB7ImJvbnVzX2lkIjogMTM1ODgsICJzcGVsbF9pZCI6IDEyNjE5Njh9LCAiZGFya21vb25fc2lnaWxfYmxvb2QiOiB7ImJvbnVzX2lkIjogMTI3MDUsICJzcGVsbF9pZCI6IDEyNDUwNTN9LCAiaHVudGVyc19yaXR1YWxfc3RvbmUiOiB7ImJvbnVzX2lkIjogMTM3NzEsICJzcGVsbF9pZCI6IDEyOTczODJ9LCAicHJpbWFsX3Nwb3JlX2JpbmRpbmciOiB7ImJvbnVzX2lkIjogMTI2ODcsICJzcGVsbF9pZCI6IDEyNDQyNzZ9LCAicHJpc21hdGljX251bGxfc3RvbmUiOiB7ImJvbnVzX2lkIjogMTA1MTgsICJzcGVsbF9pZCI6IDQzNTk5Mn0sICJ0b3hpZmllZF9hcm1vcl9wYXRjaCI6IHsiYm9udXNfaWQiOiA4Nzk3LCAic3BlbGxfaWQiOiAzNzg3NTh9LCAiYjFwX3Njb3JjaGVyX29mX3NvdWxzIjogeyJib251c19pZCI6IDEyOTkwLCAic3BlbGxfaWQiOiAxMjQ2MzA5fSwgImtpbmV0aWNfYW5rbGVfcHJpbWVycyI6IHsiYm9udXNfaWQiOiAxMjcxNywgInNwZWxsX2lkIjogMTI0NjMwOH0sICJicm9uemVkX2dyaXBfd3JhcHBpbmdzIjogeyJib251c19pZCI6IDg5MzcsICJzcGVsbF9pZCI6IDM5NjQ0Mn0sICJjb25jZWFsZWRfY2hhb3NfbW9kdWxlIjogeyJib251c19pZCI6IDExMjEwLCAic3BlbGxfaWQiOiA0NTM4MTN9LCAid3JpdGhpbmdfYXJtb3JfYmFuZGluZyI6IHsiYm9udXNfaWQiOiAxMTEwOSwgInNwZWxsX2lkIjogNDQzOTAyfSwgImRhcmttb29uX3NpZ2lsX3JhZGlhbmNlIjogeyJib251c19pZCI6IDExMjk5LCAic3BlbGxfaWQiOiA0NTQ1NTh9LCAiZGFya21vb25fc2lnaWxfdml2YWNpdHkiOiB7ImJvbnVzX2lkIjogMTEzMDEsICJzcGVsbF9pZCI6IDQ1NDg1N30sICJlbGVtZW50YWxfZm9jdXNpbmdfbGVucyI6IHsiYm9udXNfaWQiOiAxMDUyMCwgInNwZWxsX2lkIjogNDYxMTc3fSwgInByaXNtYXRpY19mb2N1c2luZ19pcmlzIjogeyJib251c19pZCI6IDEzNDUzLCAic3BlbGxfaWQiOiAxMjUxOTA2fSwgImRhcmttb29uX3NpZ2lsX2FzY2Vuc2lvbiI6IHsiYm9udXNfaWQiOiAxMTMwMCwgInNwZWxsX2lkIjogNDU4NTczfSwgImRhcmttb29uX3NpZ2lsX3N5bWJpb3NpcyI6IHsiYm9udXNfaWQiOiAxMTMwMiwgInNwZWxsX2lkIjogNDYzMjMyfSwgInBvdWNoX29mX3BvY2tldF9ncmVuYWRlcyI6IHsiYm9udXNfaWQiOiAxMTIwOSwgInNwZWxsX2lkIjogNDUzNTAzfSwgIm1hZ2F6aW5lX29mX2hlYWxpbmdfZGFydHMiOiB7ImJvbnVzX2lkIjogODkxMywgInNwZWxsX2lkIjogNDE1NDQ2fSwgInBvdGlvbl9hYnNvcnB0aW9uX2luaGliaXRvciI6IHsiYm9udXNfaWQiOiA4MTc1LCAic3BlbGxfaWQiOiAzNzE3MDB9LCAic3RhdHVldHRlX29mX2ZvcmVzZWVuX3Bvd2VyIjogeyJib251c19pZCI6IDkzOTksICJzcGVsbF9pZCI6IDM3NzM2MH0sICJlbmVyZ3lfcmVkaXN0cmlidXRpb25fYmVhY29uIjogeyJib251c19pZCI6IDExMjI2LCAic3BlbGxfaWQiOiA0NTUxNDd9LCAic3RhYmlsaXppbmdfZ2Vtc3RvbmVfYmFuZG9saWVyIjogeyJib251c19pZCI6IDEzNDU0LCAic3BlbGxfaWQiOiAxMjUxOTA1fSwgImZpZ3VyaW5lX29mX3RoZV9nYXRoZXJpbmdfc3Rvcm0iOiB7ImJvbnVzX2lkIjogOTQwMCwgInNwZWxsX2lkIjogNDExMTI2fSwgInNoYWRvd2ZsYW1ldGVtcGVyZWRfYXJtb3JfcGF0Y2giOiB7ImJvbnVzX2lkIjogOTM3OSwgInNwZWxsX2lkIjogNDA2MjU0fX0sICJpbnRyaW5zaWNfaXRlbV9pZHMiOiBbMjM5NjU3LCAyMzk2NTgsIDIzOTY1OSwgMjM5NjYwLCAyMzk2NjEsIDIzOTY2MiwgMjM5NjYzLCAyMzk2NjQsIDI0MTEzOSwgMjQxMTQwLCAyNDEzNDAsIDI0NDQ2MywgMjQ0NDcyLCAyNDQ2MDEsIDI0NDYwMiwgMjQ0NjA1LCAyNDQ2MDYsIDI0NDYwOSwgMjQ0NjEwLCAyNDQ2MTEsIDI0NDYxMiwgMjQ0NjEzLCAyNDQ2MTQsIDI0NDY3OSwgMjQ2MzA0LCAyNDYzMDUsIDI0NjMwNiwgMjQ2MzA3LCAyNTEwNzMsIDI1MTUxM119fQ==\n",
+    "params": {
+      "is_base": false,
+      "gear_swap": {
+        "slot": "wrist",
+        "source": "manual",
+        "item_id": 244584,
+        "raw_value": ",id=244584,ilevel=334,crafted_stats=crit/haste,bonus_id=12384"
+      },
+      "candidate_type": "gear_swap",
+      "effect_baseline_key": "effect-control-8c5cbfeddf8a8f8a576812fabafb19a3",
+      "equipment_effect_policy": {
+        "rules": {
+          "sets": [
+            {
+              "name": "arcanoweave_trappings",
+              "items": [
+                239660,
+                239662,
+                239661
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "azureweave_vestments",
+              "items": [
+                193536,
+                193525,
+                193520
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "bite_of_zuljan",
+              "items": [
+                270173,
+                268209,
+                268213
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "embrace_of_the_cinderbee",
+              "items": [
+                219507,
+                219508,
+                219509
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "fury_of_the_storm_rook",
+              "items": [
+                219512,
+                219513,
+                219511
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "horizon_striders_garments",
+              "items": [
+                193463,
+                193465,
+                193459
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "kyevezzas_cruel_implements",
+              "items": [
+                219877,
+                212456
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "murder_row_materials",
+              "items": [
+                244613,
+                244614,
+                244612
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "playful_spirits_fur",
+              "items": [
+                193454,
+                193458,
+                193457
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "raging_tempests",
+              "items": [
+                199434,
+                199435,
+                199436,
+                199433,
+                199437,
+                199438,
+                199439,
+                199440
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "raging_tempests",
+              "items": [
+                199434,
+                199435,
+                199436,
+                199433,
+                199437,
+                199438,
+                199439,
+                199440
+              ],
+              "pieces": 4
+            },
+            {
+              "name": "raging_tempests",
+              "items": [
+                199434,
+                199435,
+                199436,
+                199433,
+                199437,
+                199438,
+                199439,
+                199440
+              ],
+              "pieces": 6
+            },
+            {
+              "name": "root_wardens_regalia",
+              "items": [
+                244609,
+                244610,
+                244611
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "shards_of_the_void",
+              "items": [
+                237730,
+                242392,
+                237728,
+                237735
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "sunfire_silk_trappings",
+              "items": [
+                239657,
+                239659,
+                239658
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "torments_duality",
+              "items": [
+                251884,
+                251885
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "umbra_weavers_portent",
+              "items": [
+                151303,
+                151299,
+                151302
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "umbra_weavers_portent",
+              "items": [
+                151303,
+                151299,
+                151302
+              ],
+              "pieces": 3
+            },
+            {
+              "name": "voidlight_bindings",
+              "items": [
+                251093,
+                251217
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "woven_chronocloth",
+              "items": [
+                193527,
+                193537,
+                193512
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "woven_dawn",
+              "items": [
+                222807,
+                222808
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "woven_dusk",
+              "items": [
+                222809,
+                222810
+              ],
+              "pieces": 2
+            }
+          ],
+          "version": 2,
+          "effect_ids": [
+            371700,
+            377360,
+            377708,
+            378758,
+            387335,
+            396442,
+            396581,
+            406254,
+            409838,
+            409923,
+            411126,
+            415446,
+            418410,
+            419368,
+            426552,
+            435992,
+            436132,
+            443736,
+            443743,
+            443760,
+            443762,
+            443902,
+            453503,
+            453573,
+            453813,
+            454558,
+            454857,
+            455147,
+            457665,
+            457677,
+            458573,
+            460521,
+            461177,
+            463232,
+            1241711,
+            1244238,
+            1244276,
+            1245052,
+            1245053,
+            1245054,
+            1245055,
+            1246298,
+            1246308,
+            1246309,
+            1246312,
+            1251815,
+            1251902,
+            1251904,
+            1251905,
+            1251906,
+            1259060,
+            1259648,
+            1261968,
+            1283697,
+            1296550,
+            1296870,
+            1296982,
+            1297382,
+            1297384
+          ],
+          "embellishments": {
+            "adorned_fang": {
+              "bonus_id": 13767,
+              "spell_id": 1296870
+            },
+            "armor_spikes": {
+              "bonus_id": 8188,
+              "spell_id": 396581
+            },
+            "lucky_keychain": {
+              "bonus_id": 12715,
+              "spell_id": 1246298
+            },
+            "verdant_tether": {
+              "bonus_id": 9614,
+              "spell_id": 426552
+            },
+            "coiled_snakeeye": {
+              "bonus_id": 13769,
+              "spell_id": 1297384
+            },
+            "fang_adornments": {
+              "bonus_id": 8796,
+              "spell_id": 377708
+            },
+            "verdant_conduit": {
+              "bonus_id": 9521,
+              "spell_id": 418410
+            },
+            "medical_wrap_kit": {
+              "bonus_id": 9416,
+              "spell_id": 409923
+            },
+            "snakeskin_lining": {
+              "bonus_id": 13764,
+              "spell_id": 1296550
+            },
+            "dawnthread_lining": {
+              "bonus_id": 11303,
+              "spell_id": 457665
+            },
+            "devouring_banding": {
+              "bonus_id": 12685,
+              "spell_id": 1244238
+            },
+            "duskthread_lining": {
+              "bonus_id": 11304,
+              "spell_id": 457677
+            },
+            "m3ddy_travelsized": {
+              "bonus_id": 12991,
+              "spell_id": 1246312
+            },
+            "polished_ammolite": {
+              "bonus_id": 13768,
+              "spell_id": 1296982
+            },
+            "reserve_parachute": {
+              "bonus_id": 9412,
+              "spell_id": 409838
+            },
+            "arcanoweave_lining": {
+              "bonus_id": 12384,
+              "spell_id": 1283697
+            },
+            "blue_silken_lining": {
+              "bonus_id": 8932,
+              "spell_id": 387335
+            },
+            "captured_starlight": {
+              "bonus_id": 10521,
+              "spell_id": 460521
+            },
+            "darkmoon_sigil_rot": {
+              "bonus_id": 12692,
+              "spell_id": 1245055
+            },
+            "dreamtenders_charm": {
+              "bonus_id": 9532,
+              "spell_id": 419368
+            },
+            "blessed_pango_charm": {
+              "bonus_id": 12686,
+              "spell_id": 1259060
+            },
+            "blessed_weapon_grip": {
+              "bonus_id": 11103,
+              "spell_id": 443743
+            },
+            "darkmoon_sigil_hunt": {
+              "bonus_id": 12693,
+              "spell_id": 1245054
+            },
+            "darkmoon_sigil_void": {
+              "bonus_id": 13640,
+              "spell_id": 1245052
+            },
+            "hu5h_nonchalant_pup": {
+              "bonus_id": 13556,
+              "spell_id": 1259648
+            },
+            "sunfire_silk_lining": {
+              "bonus_id": 12385,
+              "spell_id": 1241711
+            },
+            "b0p_curator_of_booms": {
+              "bonus_id": 13588,
+              "spell_id": 1261968
+            },
+            "darkmoon_sigil_blood": {
+              "bonus_id": 12705,
+              "spell_id": 1245053
+            },
+            "hunters_ritual_stone": {
+              "bonus_id": 13771,
+              "spell_id": 1297382
+            },
+            "primal_spore_binding": {
+              "bonus_id": 12687,
+              "spell_id": 1244276
+            },
+            "prismatic_null_stone": {
+              "bonus_id": 10518,
+              "spell_id": 435992
+            },
+            "toxified_armor_patch": {
+              "bonus_id": 8797,
+              "spell_id": 378758
+            },
+            "b1p_scorcher_of_souls": {
+              "bonus_id": 12990,
+              "spell_id": 1246309
+            },
+            "kinetic_ankle_primers": {
+              "bonus_id": 12717,
+              "spell_id": 1246308
+            },
+            "bronzed_grip_wrappings": {
+              "bonus_id": 8937,
+              "spell_id": 396442
+            },
+            "concealed_chaos_module": {
+              "bonus_id": 11210,
+              "spell_id": 453813
+            },
+            "writhing_armor_banding": {
+              "bonus_id": 11109,
+              "spell_id": 443902
+            },
+            "darkmoon_sigil_radiance": {
+              "bonus_id": 11299,
+              "spell_id": 454558
+            },
+            "darkmoon_sigil_vivacity": {
+              "bonus_id": 11301,
+              "spell_id": 454857
+            },
+            "elemental_focusing_lens": {
+              "bonus_id": 10520,
+              "spell_id": 461177
+            },
+            "prismatic_focusing_iris": {
+              "bonus_id": 13453,
+              "spell_id": 1251906
+            },
+            "darkmoon_sigil_ascension": {
+              "bonus_id": 11300,
+              "spell_id": 458573
+            },
+            "darkmoon_sigil_symbiosis": {
+              "bonus_id": 11302,
+              "spell_id": 463232
+            },
+            "pouch_of_pocket_grenades": {
+              "bonus_id": 11209,
+              "spell_id": 453503
+            },
+            "magazine_of_healing_darts": {
+              "bonus_id": 8913,
+              "spell_id": 415446
+            },
+            "potion_absorption_inhibitor": {
+              "bonus_id": 8175,
+              "spell_id": 371700
+            },
+            "statuette_of_foreseen_power": {
+              "bonus_id": 9399,
+              "spell_id": 377360
+            },
+            "energy_redistribution_beacon": {
+              "bonus_id": 11226,
+              "spell_id": 455147
+            },
+            "stabilizing_gemstone_bandolier": {
+              "bonus_id": 13454,
+              "spell_id": 1251905
+            },
+            "figurine_of_the_gathering_storm": {
+              "bonus_id": 9400,
+              "spell_id": 411126
+            },
+            "shadowflametempered_armor_patch": {
+              "bonus_id": 9379,
+              "spell_id": 406254
+            }
+          },
+          "intrinsic_item_ids": [
+            239657,
+            239658,
+            239659,
+            239660,
+            239661,
+            239662,
+            239663,
+            239664,
+            241139,
+            241140,
+            241340,
+            244463,
+            244472,
+            244601,
+            244602,
+            244605,
+            244606,
+            244609,
+            244610,
+            244611,
+            244612,
+            244613,
+            244614,
+            244679,
+            246304,
+            246305,
+            246306,
+            246307,
+            251073,
+            251513
+          ]
+        },
+        "version": 2,
+        "target_slots": [
+          "wrists"
+        ]
+      }
+    },
+    "stages": {
+      "original": {
+        "profile": "hunter=\"MID2_Hunter_Beast_Mastery\"\nsource=default\nspec=beast_mastery\nlevel=90\nrace=dwarf\nrole=attack\nposition=ranged_back\ntalents=C0PAAAAAAAAAAAAAAAAAAAAAAAMmxwCsAzwwMsBAgZYMzyMDzYmxMMzYMzwMjZMziZmxMmBjpZAAAAAzAAAwYmZAmZjxGMLgtBgBA\n\n# Default consumables\npotion=potion_of_recklessness_2\nflask=flask_of_the_magisters_2\nfood=silvermoon_parade\naugmentation=void_touched\ntemporary_enchant=main_hand:thalassian_phoenix_oil_2\n\nhead=skulking_vipers_weeping_fangs,id=271492,bonus_id=1808/13662,ilevel=334,gem_id=240983,enchant_id=8017,redirected_base_stats=251220\n# quality=epic,type=mail,stats=3910sta_126haste_75mastery_189agiint,gems=32stragiint,enchant=enchant_helm__empowered_rune_of_avoidance_2\nneck=aqirbane_reliquary,id=268265,bonus_id=13668/13708,ilevel=344,gem_id=240898/240898\n# quality=epic,stats=2466sta_107crit_107haste_107vers_107mastery,gems=16mastery_7crit_16mastery_7crit,equip=\nshoulders=jaws_of_the_skulking_viper,id=271490,bonus_id=13662,ilevel=344,redirected_base_stats=268231\n# quality=epic,type=mail,stats=3288sta_48crit_109mastery_155agiint\nback=silken_voodoo_drape,id=268253,ilevel=344\n# quality=epic,type=cloth,stats=2466sta_35haste_83mastery_116stragiint\nchest=skulking_vipers_scuteplate,id=271495,bonus_id=13662/13708,ilevel=344,enchant_id=7987,redirected_base_stats=271876\n# quality=epic,type=mail,stats=4385sta_209mastery_207agiint,enchant=enchant_chest__mark_of_the_worldsoul_2,equip=\nwrists=farstriders_plated_bracers,id=244584,bonus_id=12384,ilevel=334,crafted_stats=crit/haste\n# quality=epic,type=mail,stats=2199sta_57crit_57haste_106agiint,equip=\nhands=skulking_vipers_hidepiercers,id=271493,bonus_id=13662,ilevel=334,redirected_base_stats=160213\n# quality=epic,type=mail,stats=2932sta_66haste_85mastery_141agiint\nwaist=farstriders_trophy_belt,id=244581,bonus_id=1808/8793/8960/12214/12384/13751/13836/9627,ilevel=331,gem_id=240898,crafted_stats=32/49\n# quality=epic,type=mail,stats=2832sta_74mastery_74haste_138agiint,gems=16mastery_7crit,equip=\nlegs=skulking_vipers_coiled_legwraps,id=271491,bonus_id=13662,ilevel=344,enchant_id=8159,redirected_base_stats=268237\n# quality=epic,type=mail,stats=4385sta_144haste_65mastery_207agiint,enchant=forest_hunters_armor_kit_2\nfeet=ferocious_scaleboots,id=268233,ilevel=334\n# quality=epic,type=mail,stats=2932sta_47haste_104mastery_141agiint\nfinger1=vile_alchemists_band,id=268249,bonus_id=13668,ilevel=334,gem_id=240898,enchant_id=7967\n# quality=epic,stats=2199sta_73crit_332mastery,gems=16mastery_7crit,enchant=enchant_ring__eyes_of_the_eagle_2\nfinger2=sickening_signet_of_atroxus,id=252258,bonus_id=13668,ilevel=334,gem_id=240898,enchant_id=7967\n# quality=rare,stats=2199sta_278haste_127mastery,gems=16mastery_7crit,enchant=enchant_ring__eyes_of_the_eagle_2\ntrinket1=gebbos_bottomless_bag,id=270164,ilevel=334\n# quality=epic,stats=179stragiint,equip=\ntrinket2=zuljins_guillotine_technique,id=270173,ilevel=344\n# quality=epic,stats=197stragi,equip=\nmain_hand=caustic_repose_greatbow,id=268207,bonus_id=13708,ilevel=344,enchant_id=8041\n# quality=epic,stats=207agi_4385sta_209crit,weapon=bow_3.00speed_18min_25max,enchant=enchant_weapon__arcane_mastery_2,equip=\n\n# Gear Summary\n# gear_ilvl=338.47\n# gear_agility=2106\n# gear_stamina=40693\n# gear_crit_rating=545\n# gear_haste_rating=950\n# gear_mastery_rating=1450\n# gear_versatility_rating=107\n# gear_avoidance_rating=37\n# gear_armor=1742\n# set_bonus=midnight_season_2_2pc=1\n# set_bonus=midnight_season_2_4pc=1\n",
+        "log": "0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery'.\n0.000 Player MID2_Hunter_Beast_Mastery item 'aqirbane_reliquary' adding effect 1307906 (type=equip, index=1)\n0.000 Player MID2_Hunter_Beast_Mastery item 'skulking_vipers_scuteplate' adding effect 1307906 (type=equip, index=0)\n0.000 Player MID2_Hunter_Beast_Mastery item 'farstriders_trophy_belt' adding effect 1283697 (type=equip, index=0)\n0.000 Player MID2_Hunter_Beast_Mastery item 'farstriders_plated_bracers' adding effect 1283697 (type=equip, index=0)\n0.000 Player MID2_Hunter_Beast_Mastery item 'caustic_repose_greatbow' adding effect 1307906 (type=equip, index=0)\n0.000 Initialized set bonus: { Skulking Viper's Ambush, midnight_season_2, Beast Mastery Hunter, 2 piece bonus  }, { Skulking Viper's Ambush, midnight_season_2, Beast Mastery Hunter, 4 piece bonus  }\n0.000 Initializing special effects for Player 'MID2_Hunter_Beast_Mastery'.\n0.000 Initializing item-based special effect ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect arcanoweave_lining type=equip source=item driver=1283697 trigger=1229511\n0.000 Initializing item-based special effect arcanoweave_lining type=equip source=item driver=1283697 trigger=1229511\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect gebbos_bottomless_bag type=equip source=item driver=1292291 trigger=1292291 proc_chance=101% rppm=3 icd=0.750\n0.000 Initializing item-based special effect guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste)\n0.000 Initializing item-based special effect arcane_mastery type=equip source=enchant driver=1236721 trigger=1241729\n0.000 Initializing item-based special effect venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery_duck'.\n0.000 Creating Auras, Buffs, and Debuffs for Pet 'MID2_Hunter_Beast_Mastery_duck'.\n0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery_animal_companion'.\n0.000 Creating Auras, Buffs, and Debuffs for Pet 'MID2_Hunter_Beast_Mastery_animal_companion'.\n0.000 name=skulking_vipers_weeping_fangs id=271492 slot=head quality=epic ilevel=334 match=1 type=armor/mail stats={ 217 Armor, +3910 Sta, +126 Haste, +75 Mastery, +189 AgiInt } gems={ +32 StrAgiInt } enchant={ enchant_helm__empowered_rune_of_avoidance_2 } source=Local\n0.000 name=aqirbane_reliquary id=268265 slot=neck quality=epic ilevel=344 type=armor/misc stats={ +2466 Sta, +107 Crit, +107 Haste, +107 Vers, +107 Mastery } gems={ +16 Mastery, +7 Crit, +16 Mastery, +7 Crit } effect={ ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1305838, proc=OnEquip/1307906 }\n0.000 name=jaws_of_the_skulking_viper id=271490 slot=shoulders quality=epic ilevel=344 match=1 type=armor/mail stats={ 213 Armor, +3288 Sta, +48 Crit, +109 Mastery, +155 AgiInt } source=Local\n0.000 name=skulking_vipers_scuteplate id=271495 slot=chest quality=epic ilevel=344 match=1 type=armor/mail stats={ 310 Armor, +4385 Sta, +209 Mastery, +207 AgiInt } enchant={ enchant_chest__mark_of_the_worldsoul_2 } effect={ venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307906 }\n0.000 name=farstriders_trophy_belt id=244581 slot=waist quality=epic ilevel=331 match=1 type=armor/mail stats={ 159 Armor, +2832 Sta, +74 Mastery, +74 Haste, +138 AgiInt } gems={ +16 Mastery, +7 Crit } effect={ arcanoweave_lining type=equip source=item driver=1229511 trigger=1229511 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1283697 }\n0.000 name=skulking_vipers_coiled_legwraps id=271491 slot=legs quality=epic ilevel=344 match=1 type=armor/mail stats={ 271 Armor, +4385 Sta, +144 Haste, +65 Mastery, +207 AgiInt } enchant={ forest_hunters_armor_kit_2 } source=Local\n0.000 name=ferocious_scaleboots id=268233 slot=feet quality=epic ilevel=334 match=1 type=armor/mail stats={ 181 Armor, +2932 Sta, +47 Haste, +104 Mastery, +141 AgiInt } source=Local\n0.000 name=farstriders_plated_bracers id=244584 slot=wrists quality=epic ilevel=334 match=1 type=armor/mail stats={ 144 Armor, +2199 Sta, +57 Crit, +57 Haste, +106 AgiInt } effect={ arcanoweave_lining type=equip source=item driver=1283697 trigger=1229511 } source=Local proc_spells={ proc=OnEquip/1283697 }\n0.000 name=skulking_vipers_hidepiercers id=271493 slot=hands quality=epic ilevel=334 match=1 type=armor/mail stats={ 163 Armor, +2932 Sta, +66 Haste, +85 Mastery, +141 AgiInt } source=Local\n0.000 name=vile_alchemists_band id=268249 slot=finger1 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +73 Crit, +332 Mastery } gems={ +16 Mastery, +7 Crit } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local proc_spells={ proc=OnEquip/1305830 }\n0.000 name=sickening_signet_of_atroxus id=252258 slot=finger2 quality=rare ilevel=334 type=armor/misc stats={ +2199 Sta, +278 Haste, +127 Mastery } gems={ +16 Mastery, +7 Crit } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local\n0.000 name=gebbos_bottomless_bag id=270164 slot=trinket1 quality=epic ilevel=334 type=armor/misc stats={ +179 StrAgiInt } effect={ gebbos_bottomless_bag type=equip source=item driver=1292291 trigger=1292291 proc_chance=101% rppm=3 icd=0.750 } source=Local proc_spells={ proc=OnEquip/1292291 }\n0.000 name=zuljins_guillotine_technique id=270173 slot=trinket2 quality=epic ilevel=344 type=armor/misc stats={ +197 StrAgi } effect={ guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste) } source=Local proc_spells={ proc=OnEquip/1291728 }\n0.000 name=silken_voodoo_drape id=268253 slot=back quality=epic ilevel=344 type=armor/cloth stats={ 84 Armor, +2466 Sta, +35 Haste, +83 Mastery, +116 StrAgiInt } source=Local\n0.000 name=caustic_repose_greatbow id=268207 slot=main_hand quality=epic ilevel=344 type=unknown/bow stats={ +207 Agi, +4385 Sta, +209 Crit } damage={ 397 - 537 } speed=3.000 enchant={ enchant_weapon__arcane_mastery_2 } temporary_enchant={ 16crit_16haste } effect={ arcane_mastery type=equip source=enchant driver=1241729 trigger=1241759 stat=Mastery amount=0 duration=15.000 proc_chance=101% rppm=3 } effect={ venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307906 }",
+        "full_log_sha256": "ec3bb5971d58993930aaa4c1c2b70d5e150ffc026c120dbe53362dc409b2f212"
+      },
+      "normal": {
+        "profile": "hunter=\"MID2_Hunter_Beast_Mastery\"\nsource=default\nspec=beast_mastery\nlevel=90\nrace=dwarf\nrole=attack\nposition=ranged_back\ntalents=C0PAAAAAAAAAAAAAAAAAAAAAAAMmxwCsAzwwMsBAgZYMzyMDzYmxMMzYMzwMjZMziZmxMmBjpZAAAAAzAAAwYmZAmZjxGMLgtBgBA\n\n# Default consumables\npotion=potion_of_recklessness_2\nflask=flask_of_the_magisters_2\nfood=silvermoon_parade\naugmentation=void_touched\ntemporary_enchant=main_hand:thalassian_phoenix_oil_2\n\nhead=skulking_vipers_weeping_fangs,id=271492,bonus_id=1808/13662,ilevel=334,gem_id=240983,enchant_id=8017,redirected_base_stats=251220\n# quality=epic,type=mail,stats=3910sta_126haste_75mastery_189agiint,gems=32stragiint,enchant=enchant_helm__empowered_rune_of_avoidance_2\nneck=aqirbane_reliquary,id=268265,bonus_id=13668/13708,ilevel=344,gem_id=240898/240898\n# quality=epic,stats=2466sta_107crit_107haste_107vers_107mastery,gems=16mastery_7crit_16mastery_7crit,equip=\nshoulders=jaws_of_the_skulking_viper,id=271490,bonus_id=13662,ilevel=344,redirected_base_stats=268231\n# quality=epic,type=mail,stats=3288sta_48crit_109mastery_155agiint\nback=silken_voodoo_drape,id=268253,ilevel=344\n# quality=epic,type=cloth,stats=2466sta_35haste_83mastery_116stragiint\nchest=skulking_vipers_scuteplate,id=271495,bonus_id=13662/13708,ilevel=344,enchant_id=7987,redirected_base_stats=271876\n# quality=epic,type=mail,stats=4385sta_209mastery_207agiint,enchant=enchant_chest__mark_of_the_worldsoul_2,equip=\nwrists=farstriders_plated_bracers,id=244584,bonus_id=12384,ilevel=334,crafted_stats=crit/haste\n# quality=epic,type=mail,stats=2199sta_57crit_57haste_106agiint,equip=\nhands=skulking_vipers_hidepiercers,id=271493,bonus_id=13662,ilevel=334,redirected_base_stats=160213\n# quality=epic,type=mail,stats=2932sta_66haste_85mastery_141agiint\nwaist=lmonitor_effect_control,ilevel=331,type=mail,quality=epic,stats=138agiint_159armor_74haste_74mastery_2832sta,gem_id=240898\n# gems=16mastery_7crit\nlegs=skulking_vipers_coiled_legwraps,id=271491,bonus_id=13662,ilevel=344,enchant_id=8159,redirected_base_stats=268237\n# quality=epic,type=mail,stats=4385sta_144haste_65mastery_207agiint,enchant=forest_hunters_armor_kit_2\nfeet=ferocious_scaleboots,id=268233,ilevel=334\n# quality=epic,type=mail,stats=2932sta_47haste_104mastery_141agiint\nfinger1=vile_alchemists_band,id=268249,bonus_id=13668,ilevel=334,gem_id=240898,enchant_id=7967\n# quality=epic,stats=2199sta_73crit_332mastery,gems=16mastery_7crit,enchant=enchant_ring__eyes_of_the_eagle_2\nfinger2=sickening_signet_of_atroxus,id=252258,bonus_id=13668,ilevel=334,gem_id=240898,enchant_id=7967\n# quality=rare,stats=2199sta_278haste_127mastery,gems=16mastery_7crit,enchant=enchant_ring__eyes_of_the_eagle_2\ntrinket1=gebbos_bottomless_bag,id=270164,ilevel=334\n# quality=epic,stats=179stragiint,equip=\ntrinket2=zuljins_guillotine_technique,id=270173,ilevel=344\n# quality=epic,stats=197stragi,equip=\nmain_hand=caustic_repose_greatbow,id=268207,bonus_id=13708,ilevel=344,enchant_id=8041\n# quality=epic,stats=207agi_4385sta_209crit,weapon=bow_3.00speed_18min_25max,enchant=enchant_weapon__arcane_mastery_2,equip=\n\n# Gear Summary\n# gear_ilvl=338.47\n# gear_agility=2106\n# gear_stamina=40693\n# gear_crit_rating=545\n# gear_haste_rating=950\n# gear_mastery_rating=1450\n# gear_versatility_rating=107\n# gear_avoidance_rating=37\n# gear_armor=1742\n# set_bonus=midnight_season_2_2pc=1\n# set_bonus=midnight_season_2_4pc=1\n",
+        "log": "0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery'.\n0.000 Player MID2_Hunter_Beast_Mastery item 'aqirbane_reliquary' adding effect 1307906 (type=equip, index=1)\n0.000 Player MID2_Hunter_Beast_Mastery item 'skulking_vipers_scuteplate' adding effect 1307906 (type=equip, index=0)\n0.000 Player MID2_Hunter_Beast_Mastery item 'farstriders_plated_bracers' adding effect 1283697 (type=equip, index=0)\n0.000 Player MID2_Hunter_Beast_Mastery item 'caustic_repose_greatbow' adding effect 1307906 (type=equip, index=0)\n0.000 Initialized set bonus: { Skulking Viper's Ambush, midnight_season_2, Beast Mastery Hunter, 2 piece bonus  }, { Skulking Viper's Ambush, midnight_season_2, Beast Mastery Hunter, 4 piece bonus  }\n0.000 Initializing special effects for Player 'MID2_Hunter_Beast_Mastery'.\n0.000 Initializing item-based special effect ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect arcanoweave_lining type=equip source=item driver=1283697 trigger=1229511\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect gebbos_bottomless_bag type=equip source=item driver=1292291 trigger=1292291 proc_chance=101% rppm=3 icd=0.750\n0.000 Initializing item-based special effect guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste)\n0.000 Initializing item-based special effect arcane_mastery type=equip source=enchant driver=1236721 trigger=1241729\n0.000 Initializing item-based special effect venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery_duck'.\n0.000 Creating Auras, Buffs, and Debuffs for Pet 'MID2_Hunter_Beast_Mastery_duck'.\n0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery_animal_companion'.\n0.000 Creating Auras, Buffs, and Debuffs for Pet 'MID2_Hunter_Beast_Mastery_animal_companion'.\n0.000 name=skulking_vipers_weeping_fangs id=271492 slot=head quality=epic ilevel=334 match=1 type=armor/mail stats={ 217 Armor, +3910 Sta, +126 Haste, +75 Mastery, +189 AgiInt } gems={ +32 StrAgiInt } enchant={ enchant_helm__empowered_rune_of_avoidance_2 } source=Local\n0.000 name=aqirbane_reliquary id=268265 slot=neck quality=epic ilevel=344 type=armor/misc stats={ +2466 Sta, +107 Crit, +107 Haste, +107 Vers, +107 Mastery } gems={ +16 Mastery, +7 Crit, +16 Mastery, +7 Crit } effect={ ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1305838, proc=OnEquip/1307906 }\n0.000 name=jaws_of_the_skulking_viper id=271490 slot=shoulders quality=epic ilevel=344 match=1 type=armor/mail stats={ 213 Armor, +3288 Sta, +48 Crit, +109 Mastery, +155 AgiInt } source=Local\n0.000 name=skulking_vipers_scuteplate id=271495 slot=chest quality=epic ilevel=344 match=1 type=armor/mail stats={ 310 Armor, +4385 Sta, +209 Mastery, +207 AgiInt } enchant={ enchant_chest__mark_of_the_worldsoul_2 } effect={ venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307906 }\n0.000 name=lmonitor_effect_control id=0 slot=waist quality=epic ilevel=331 match=1 type=armor/mail stats={ 159 Armor, +138 AgiInt, +74 Haste, +74 Mastery, +2832 Sta } gems={ +16 Mastery, +7 Crit } source=Manual\n0.000 name=skulking_vipers_coiled_legwraps id=271491 slot=legs quality=epic ilevel=344 match=1 type=armor/mail stats={ 271 Armor, +4385 Sta, +144 Haste, +65 Mastery, +207 AgiInt } enchant={ forest_hunters_armor_kit_2 } source=Local\n0.000 name=ferocious_scaleboots id=268233 slot=feet quality=epic ilevel=334 match=1 type=armor/mail stats={ 181 Armor, +2932 Sta, +47 Haste, +104 Mastery, +141 AgiInt } source=Local\n0.000 name=farstriders_plated_bracers id=244584 slot=wrists quality=epic ilevel=334 match=1 type=armor/mail stats={ 144 Armor, +2199 Sta, +57 Crit, +57 Haste, +106 AgiInt } effect={ arcanoweave_lining type=equip source=item driver=1229511 trigger=1229511 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1283697 }\n0.000 name=skulking_vipers_hidepiercers id=271493 slot=hands quality=epic ilevel=334 match=1 type=armor/mail stats={ 163 Armor, +2932 Sta, +66 Haste, +85 Mastery, +141 AgiInt } source=Local\n0.000 name=vile_alchemists_band id=268249 slot=finger1 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +73 Crit, +332 Mastery } gems={ +16 Mastery, +7 Crit } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local proc_spells={ proc=OnEquip/1305830 }\n0.000 name=sickening_signet_of_atroxus id=252258 slot=finger2 quality=rare ilevel=334 type=armor/misc stats={ +2199 Sta, +278 Haste, +127 Mastery } gems={ +16 Mastery, +7 Crit } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local\n0.000 name=gebbos_bottomless_bag id=270164 slot=trinket1 quality=epic ilevel=334 type=armor/misc stats={ +179 StrAgiInt } effect={ gebbos_bottomless_bag type=equip source=item driver=1292291 trigger=1292291 proc_chance=101% rppm=3 icd=0.750 } source=Local proc_spells={ proc=OnEquip/1292291 }\n0.000 name=zuljins_guillotine_technique id=270173 slot=trinket2 quality=epic ilevel=344 type=armor/misc stats={ +197 StrAgi } effect={ guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste) } source=Local proc_spells={ proc=OnEquip/1291728 }\n0.000 name=silken_voodoo_drape id=268253 slot=back quality=epic ilevel=344 type=armor/cloth stats={ 84 Armor, +2466 Sta, +35 Haste, +83 Mastery, +116 StrAgiInt } source=Local\n0.000 name=caustic_repose_greatbow id=268207 slot=main_hand quality=epic ilevel=344 type=unknown/bow stats={ +207 Agi, +4385 Sta, +209 Crit } damage={ 397 - 537 } speed=3.000 enchant={ enchant_weapon__arcane_mastery_2 } temporary_enchant={ 16crit_16haste } effect={ arcane_mastery type=equip source=enchant driver=1241729 trigger=1241759 stat=Mastery amount=0 duration=15.000 proc_chance=101% rppm=3 } effect={ venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307906 }",
+        "full_log_sha256": "e2ea1ed98815eb5d1575987859bce3bfc6289dcf362c36f4097f57fdfda713f0"
+      },
+      "control": {
+        "profile": "hunter=\"MID2_Hunter_Beast_Mastery\"\nsource=default\nspec=beast_mastery\nlevel=90\nrace=dwarf\nrole=attack\nposition=ranged_back\ntalents=C0PAAAAAAAAAAAAAAAAAAAAAAAMmxwCsAzwwMsBAgZYMzyMDzYmxMMzYMzwMjZMziZmxMmBjpZAAAAAzAAAwYmZAmZjxGMLgtBgBA\n\n# Default consumables\npotion=potion_of_recklessness_2\nflask=flask_of_the_magisters_2\nfood=silvermoon_parade\naugmentation=void_touched\ntemporary_enchant=main_hand:thalassian_phoenix_oil_2\n\nhead=skulking_vipers_weeping_fangs,id=271492,bonus_id=1808/13662,ilevel=334,gem_id=240983,enchant_id=8017,redirected_base_stats=251220\n# quality=epic,type=mail,stats=3910sta_126haste_75mastery_189agiint,gems=32stragiint,enchant=enchant_helm__empowered_rune_of_avoidance_2\nneck=aqirbane_reliquary,id=268265,bonus_id=13668/13708,ilevel=344,gem_id=240898/240898\n# quality=epic,stats=2466sta_107crit_107haste_107vers_107mastery,gems=16mastery_7crit_16mastery_7crit,equip=\nshoulders=jaws_of_the_skulking_viper,id=271490,bonus_id=13662,ilevel=344,redirected_base_stats=268231\n# quality=epic,type=mail,stats=3288sta_48crit_109mastery_155agiint\nback=silken_voodoo_drape,id=268253,ilevel=344\n# quality=epic,type=cloth,stats=2466sta_35haste_83mastery_116stragiint\nchest=skulking_vipers_scuteplate,id=271495,bonus_id=13662/13708,ilevel=344,enchant_id=7987,redirected_base_stats=271876\n# quality=epic,type=mail,stats=4385sta_209mastery_207agiint,enchant=enchant_chest__mark_of_the_worldsoul_2,equip=\nwrists=lmonitor_effect_control,ilevel=334,type=mail,quality=epic,stats=106agiint_144armor_57crit_57haste_2199sta\nhands=skulking_vipers_hidepiercers,id=271493,bonus_id=13662,ilevel=334,redirected_base_stats=160213\n# quality=epic,type=mail,stats=2932sta_66haste_85mastery_141agiint\nwaist=lmonitor_effect_control,ilevel=331,type=mail,quality=epic,stats=138agiint_159armor_74haste_74mastery_2832sta,gem_id=240898\n# gems=16mastery_7crit\nlegs=skulking_vipers_coiled_legwraps,id=271491,bonus_id=13662,ilevel=344,enchant_id=8159,redirected_base_stats=268237\n# quality=epic,type=mail,stats=4385sta_144haste_65mastery_207agiint,enchant=forest_hunters_armor_kit_2\nfeet=ferocious_scaleboots,id=268233,ilevel=334\n# quality=epic,type=mail,stats=2932sta_47haste_104mastery_141agiint\nfinger1=vile_alchemists_band,id=268249,bonus_id=13668,ilevel=334,gem_id=240898,enchant_id=7967\n# quality=epic,stats=2199sta_73crit_332mastery,gems=16mastery_7crit,enchant=enchant_ring__eyes_of_the_eagle_2\nfinger2=sickening_signet_of_atroxus,id=252258,bonus_id=13668,ilevel=334,gem_id=240898,enchant_id=7967\n# quality=rare,stats=2199sta_278haste_127mastery,gems=16mastery_7crit,enchant=enchant_ring__eyes_of_the_eagle_2\ntrinket1=gebbos_bottomless_bag,id=270164,ilevel=334\n# quality=epic,stats=179stragiint,equip=\ntrinket2=zuljins_guillotine_technique,id=270173,ilevel=344\n# quality=epic,stats=197stragi,equip=\nmain_hand=caustic_repose_greatbow,id=268207,bonus_id=13708,ilevel=344,enchant_id=8041\n# quality=epic,stats=207agi_4385sta_209crit,weapon=bow_3.00speed_18min_25max,enchant=enchant_weapon__arcane_mastery_2,equip=\n\n# Gear Summary\n# gear_ilvl=338.47\n# gear_agility=2106\n# gear_stamina=40693\n# gear_crit_rating=545\n# gear_haste_rating=950\n# gear_mastery_rating=1450\n# gear_versatility_rating=107\n# gear_avoidance_rating=37\n# gear_armor=1742\n# set_bonus=midnight_season_2_2pc=1\n# set_bonus=midnight_season_2_4pc=1\n",
+        "log": "0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery'.\n0.000 Player MID2_Hunter_Beast_Mastery item 'aqirbane_reliquary' adding effect 1307906 (type=equip, index=1)\n0.000 Player MID2_Hunter_Beast_Mastery item 'skulking_vipers_scuteplate' adding effect 1307906 (type=equip, index=0)\n0.000 Player MID2_Hunter_Beast_Mastery item 'caustic_repose_greatbow' adding effect 1307906 (type=equip, index=0)\n0.000 Initialized set bonus: { Skulking Viper's Ambush, midnight_season_2, Beast Mastery Hunter, 2 piece bonus  }, { Skulking Viper's Ambush, midnight_season_2, Beast Mastery Hunter, 4 piece bonus  }\n0.000 Initializing special effects for Player 'MID2_Hunter_Beast_Mastery'.\n0.000 Initializing item-based special effect ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect gebbos_bottomless_bag type=equip source=item driver=1292291 trigger=1292291 proc_chance=101% rppm=3 icd=0.750\n0.000 Initializing item-based special effect guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste)\n0.000 Initializing item-based special effect arcane_mastery type=equip source=enchant driver=1236721 trigger=1241729\n0.000 Initializing item-based special effect venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery_duck'.\n0.000 Creating Auras, Buffs, and Debuffs for Pet 'MID2_Hunter_Beast_Mastery_duck'.\n0.000 Initializing items for Player 'MID2_Hunter_Beast_Mastery_animal_companion'.\n0.000 Creating Auras, Buffs, and Debuffs for Pet 'MID2_Hunter_Beast_Mastery_animal_companion'.\n0.000 name=skulking_vipers_weeping_fangs id=271492 slot=head quality=epic ilevel=334 match=1 type=armor/mail stats={ 217 Armor, +3910 Sta, +126 Haste, +75 Mastery, +189 AgiInt } gems={ +32 StrAgiInt } enchant={ enchant_helm__empowered_rune_of_avoidance_2 } source=Local\n0.000 name=aqirbane_reliquary id=268265 slot=neck quality=epic ilevel=344 type=armor/misc stats={ +2466 Sta, +107 Crit, +107 Haste, +107 Vers, +107 Mastery } gems={ +16 Mastery, +7 Crit, +16 Mastery, +7 Crit } effect={ ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1305838, proc=OnEquip/1307906 }\n0.000 name=jaws_of_the_skulking_viper id=271490 slot=shoulders quality=epic ilevel=344 match=1 type=armor/mail stats={ 213 Armor, +3288 Sta, +48 Crit, +109 Mastery, +155 AgiInt } source=Local\n0.000 name=skulking_vipers_scuteplate id=271495 slot=chest quality=epic ilevel=344 match=1 type=armor/mail stats={ 310 Armor, +4385 Sta, +209 Mastery, +207 AgiInt } enchant={ enchant_chest__mark_of_the_worldsoul_2 } effect={ venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307906 }\n0.000 name=lmonitor_effect_control id=0 slot=waist quality=epic ilevel=331 match=1 type=armor/mail stats={ 159 Armor, +138 AgiInt, +74 Haste, +74 Mastery, +2832 Sta } gems={ +16 Mastery, +7 Crit } source=Manual\n0.000 name=skulking_vipers_coiled_legwraps id=271491 slot=legs quality=epic ilevel=344 match=1 type=armor/mail stats={ 271 Armor, +4385 Sta, +144 Haste, +65 Mastery, +207 AgiInt } enchant={ forest_hunters_armor_kit_2 } source=Local\n0.000 name=ferocious_scaleboots id=268233 slot=feet quality=epic ilevel=334 match=1 type=armor/mail stats={ 181 Armor, +2932 Sta, +47 Haste, +104 Mastery, +141 AgiInt } source=Local\n0.000 name=lmonitor_effect_control id=0 slot=wrists quality=epic ilevel=334 match=1 type=armor/mail stats={ 144 Armor, +106 AgiInt, +57 Crit, +57 Haste, +2199 Sta } source=Manual\n0.000 name=skulking_vipers_hidepiercers id=271493 slot=hands quality=epic ilevel=334 match=1 type=armor/mail stats={ 163 Armor, +2932 Sta, +66 Haste, +85 Mastery, +141 AgiInt } source=Local\n0.000 name=vile_alchemists_band id=268249 slot=finger1 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +73 Crit, +332 Mastery } gems={ +16 Mastery, +7 Crit } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local proc_spells={ proc=OnEquip/1305830 }\n0.000 name=sickening_signet_of_atroxus id=252258 slot=finger2 quality=rare ilevel=334 type=armor/misc stats={ +2199 Sta, +278 Haste, +127 Mastery } gems={ +16 Mastery, +7 Crit } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local\n0.000 name=gebbos_bottomless_bag id=270164 slot=trinket1 quality=epic ilevel=334 type=armor/misc stats={ +179 StrAgiInt } effect={ gebbos_bottomless_bag type=equip source=item driver=1292291 trigger=1292291 proc_chance=101% rppm=3 icd=0.750 } source=Local proc_spells={ proc=OnEquip/1292291 }\n0.000 name=zuljins_guillotine_technique id=270173 slot=trinket2 quality=epic ilevel=344 type=armor/misc stats={ +197 StrAgi } effect={ guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste) } source=Local proc_spells={ proc=OnEquip/1291728 }\n0.000 name=silken_voodoo_drape id=268253 slot=back quality=epic ilevel=344 type=armor/cloth stats={ 84 Armor, +2466 Sta, +35 Haste, +83 Mastery, +116 StrAgiInt } source=Local\n0.000 name=caustic_repose_greatbow id=268207 slot=main_hand quality=epic ilevel=344 type=unknown/bow stats={ +207 Agi, +4385 Sta, +209 Crit } damage={ 397 - 537 } speed=3.000 enchant={ enchant_weapon__arcane_mastery_2 } temporary_enchant={ 16crit_16haste } effect={ arcane_mastery type=equip source=enchant driver=1241729 trigger=1241759 stat=Mastery amount=0 duration=15.000 proc_chance=101% rppm=3 } effect={ venomcursed_critical_strike type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307906 }",
+        "full_log_sha256": "fac64821fcd341ab31e76eee953ae0a1988bbddcd0ddd06ce6aef6a03ff4f30b"
+      }
+    }
+  },
+  "182238": {
+    "run_id": 182238,
+    "code": "# SimC Base Template - Skeleton with Semantic Slot Placeholders\n# Manifest v2: Each slot resolved via composer, no silent .first() fallback\n\nfight_style=Patchwerk\nmax_time=300\ndesired_targets=1\noptimal_raid=0\noverride.arcane_intellect=0\noverride.battle_shout=0\noverride.mark_of_the_wild=0\noverride.power_word_fortitude=0\noverride.skyfury=0\noverride.chaos_brand=0\noverride.mystic_touch=0\noverride.hunters_mark=0\noverride.mortal_wounds=0\noverride.bleeding=0\noverride.bloodlust=0\niterations=10000\nthreads=4\n\ndeathknight=\"MID2_Death_Knight_Frost\"\nspec=frost\nlevel=90\nrace=human\nrole=attack\nposition=back\npotion=potion_of_recklessness_2\nflask=flask_of_the_shattered_sun_2\nfood=silvermoon_parade\naugmentation=void_touched\ntemporary_enchant=main_hand:thalassian_phoenix_oil_2/off_hand:thalassian_phoenix_oil_2\nshoulders=baleful_graveknights_gibbets,id=271472,bonus_id=4786/12854/13691/13697,redirected_base_stats=251138\nwrists=spellbreakers_bracers,id=237834,bonus_id=8793/8960/12384/13750/13751/13836/12497,gem_id=240908\n\nhead=baleful_graveknights_casque,id=271474,bonus_id=4786/12854/13692/13698/13750,gem_id=240983,redirected_base_stats=251126\nneck=aqirbane_reliquary,id=268265,bonus_id=13335/13708/13848,gem_id=240908/240908\nback=silken_voodoo_drape,id=268253,bonus_id=13335/13848,content_tuning=883\nchest=reckless_spirit_breastplate,id=268222,bonus_id=13335/13848,enchant_id=7987,content_tuning=883\nhands=baleful_graveknights_deathgrips,id=271475,bonus_id=4786/12854/13691/13697\nwaist=girdle_of_toxic_regret,id=268259,bonus_id=13335/13750/13848,gem_id=240908,content_tuning=883\nlegs=baleful_graveknights_greaves,id=271473,bonus_id=40/13693/13698/13846,ilevel=344,enchant_id=8159,content_tuning=8078\nfeet=spellbreakers_march,id=237828,bonus_id=8790/8960/12384/13751/13836/12497\nfinger1=sickening_signet_of_atroxus,id=252258,bonus_id=12854/13335,gem_id=240908,enchant_id=7967,content_tuning=883\nfinger2=vile_alchemists_band,id=268249,bonus_id=12854/13335,gem_id=240908,enchant_id=7967,content_tuning=883\ntrinket1=voracious_heart_of_ulatek,id=270175,bonus_id=13335/13848\ntrinket2=zuljins_guillotine_technique,id=270173,bonus_id=13335/13848,content_tuning=883\nmain_hand=lmonitor_effect_control_pending,stats=lmonitor_unprepared\noff_hand=jaw_of_the_shackled_goddess,id=268202,bonus_id=13847/13848,enchant_id=3847\n\ntalents=CsPAAAAAAAAAAAAAAAAAAAAAAMAGAADYYYMiBjhZGDmZmZmZmZmBAAAAAAAAgxYgBAsMMhMWwMjhBGAGmBAwA\n\n\n\n\n# This default action priority list is automatically created based on your character.\n# It is a attempt to provide you with a action list that is both simple and practicable,\n# while resulting in a meaningful and good simulation. It may not result in the absolutely highest possible dps.\n# Feel free to edit, adapt and improve it to your own needs.\n# SimulationCraft is always looking for updates and improvements to the default action lists.\n\n# Executed before combat begins. Accepts non-harmful actions only.\n# Snapshot raid buffed stats before combat begins and pre-potting is done.\nactions.precombat=snapshot_stats\n# Evaluates a trinkets cooldown, divided by pillar of frost, empower rune weapon, or breath of sindragosa's cooldown. If it's value has no remainder return 1, else return 0.5.\nactions.precombat+=/variable,name=trinket_1_sync,op=setif,value=1,value_else=0.5,condition=trinket.1.has_use_buff&(talent.pillar_of_frost&!talent.breath_of_sindragosa&(trinket.1.cooldown.duration%%cooldown.pillar_of_frost.duration=0)|talent.breath_of_sindragosa&(cooldown.breath_of_sindragosa.duration%%trinket.1.cooldown.duration=0))\nactions.precombat+=/variable,name=trinket_2_sync,op=setif,value=1,value_else=0.5,condition=trinket.2.has_use_buff&(talent.pillar_of_frost&!talent.breath_of_sindragosa&(trinket.2.cooldown.duration%%cooldown.pillar_of_frost.duration=0)|talent.breath_of_sindragosa&(cooldown.breath_of_sindragosa.duration%%trinket.2.cooldown.duration=0))\nactions.precombat+=/variable,name=trinket_1_buffs,value=trinket.1.has_cooldown&!trinket.1.is.improvised_seaforium_pacemaker&(trinket.1.has_use_buff|trinket.1.has_buff.strength|trinket.1.has_buff.mastery|trinket.1.has_buff.versatility|trinket.1.has_buff.haste|trinket.1.has_buff.crit)\nactions.precombat+=/variable,name=trinket_2_buffs,value=trinket.2.has_cooldown&!trinket.2.is.improvised_seaforium_pacemaker&(trinket.2.has_use_buff|trinket.2.has_buff.strength|trinket.2.has_buff.mastery|trinket.2.has_buff.versatility|trinket.2.has_buff.haste|trinket.2.has_buff.crit)\nactions.precombat+=/variable,name=trinket_1_duration,value=trinket.1.proc.any_dps.duration\nactions.precombat+=/variable,name=trinket_2_duration,value=trinket.2.proc.any_dps.duration,\nactions.precombat+=/variable,name=trinket_priority,op=setif,value=2,value_else=1,condition=!variable.trinket_1_buffs&variable.trinket_2_buffs&(trinket.2.has_cooldown|!trinket.1.has_cooldown)|variable.trinket_2_buffs&((trinket.2.cooldown.duration%variable.trinket_2_duration)*(1.5+trinket.2.has_buff.strength)*(variable.trinket_2_sync)*(1+((trinket.2.ilvl-trinket.1.ilvl)%100)))>((trinket.1.cooldown.duration%variable.trinket_1_duration)*(1.5+trinket.1.has_buff.strength)*(variable.trinket_1_sync)*(1+((trinket.1.ilvl-trinket.2.ilvl)%100)))\nactions.precombat+=/variable,name=damage_trinket_priority,op=setif,value=2,value_else=1,condition=!variable.trinket_1_buffs&!variable.trinket_2_buffs&trinket.2.ilvl>=trinket.1.ilvl\nactions.precombat+=/variable,name=trinket_1_manual,value=trinket.1.is.unyielding_netherprism\nactions.precombat+=/variable,name=trinket_2_manual,value=trinket.2.is.unyielding_netherprism\n\n# Executed every time the actor is available.\nactions=auto_attack\n# Choose Action list to run\nactions+=/call_action_list,name=variables\nactions+=/call_action_list,name=trinkets\nactions+=/call_action_list,name=high_prio_actions\nactions+=/call_action_list,name=cooldowns\nactions+=/call_action_list,name=racials\nactions+=/run_action_list,name=aoe,if=active_enemies>=2\nactions+=/run_action_list,name=single_target\n\n# Aoe Rotation\nactions.aoe=frostscythe,if=buff.killing_machine.react=2&active_enemies>=variable.frostscythe_priority\nactions.aoe+=/frost_strike,target_if=max:(talent.shattering_blade&debuff.razorice.react=5),if=debuff.razorice.react=5&buff.frostbane.react\nactions.aoe+=/frostscythe,if=buff.killing_machine.react&rune>=3&active_enemies>=variable.frostscythe_priority\nactions.aoe+=/obliterate,target_if=max:(hero_tree.rider_of_the_apocalypse&debuff.chains_of_ice_trollbane_slow.react),if=buff.killing_machine.react=2|(buff.killing_machine.react&rune>=3)\nactions.aoe+=/howling_blast,if=buff.rime.react&talent.frostbound_will|!dot.frost_fever.ticking\nactions.aoe+=/frost_strike,target_if=max:(talent.shattering_blade&debuff.razorice.react=5),if=debuff.razorice.react=5&talent.shattering_blade&active_enemies<5&!variable.rp_pooling&!talent.frostbane\nactions.aoe+=/frostscythe,if=buff.killing_machine.react&!variable.rune_pooling&active_enemies>=variable.frostscythe_priority\nactions.aoe+=/obliterate,target_if=max:(hero_tree.rider_of_the_apocalypse&debuff.chains_of_ice_trollbane_slow.react),if=buff.killing_machine.react&!variable.rune_pooling\nactions.aoe+=/howling_blast,if=buff.rime.react\nactions.aoe+=/glacial_advance,if=!variable.rp_pooling&active_enemies>=3+(1*talent.deathly_blows)\nactions.aoe+=/frost_strike,if=!variable.rp_pooling\nactions.aoe+=/frostscythe,if=!variable.rune_pooling&!(talent.obliteration&buff.pillar_of_frost.up)&active_enemies>=variable.frostscythe_priority\nactions.aoe+=/obliterate,target_if=max:(hero_tree.rider_of_the_apocalypse&debuff.chains_of_ice_trollbane_slow.react),if=!variable.rune_pooling&!(talent.obliteration&buff.pillar_of_frost.up)\nactions.aoe+=/howling_blast,if=!buff.killing_machine.react&(talent.obliteration&buff.pillar_of_frost.up)\n\n# Cooldowns\nactions.cooldowns=remorseless_winter,if=variable.sending_cds&(active_enemies>1|talent.gathering_storm)|(buff.gathering_storm.stack=10&buff.remorseless_winter.remains<gcd.max)&fight_remains>10\nactions.cooldowns+=/pillar_of_frost,if=!talent.breath_of_sindragosa&variable.sending_cds&(!hero_tree.deathbringer|rune>=2)|fight_remains<20\nactions.cooldowns+=/pillar_of_frost,if=talent.breath_of_sindragosa&variable.sending_cds&variable.breath_of_sindragosa_check&(!hero_tree.deathbringer|rune>=2)\nactions.cooldowns+=/breath_of_sindragosa,use_off_gcd=1,if=!buff.breath_of_sindragosa.up&(buff.pillar_of_frost.up|fight_remains<20)\nactions.cooldowns+=/reapers_mark,target_if=first:debuff.reapers_mark_debuff.down,if=buff.pillar_of_frost.up|cooldown.pillar_of_frost.remains>5|fight_remains<20\nactions.cooldowns+=/frostwyrms_fury,if=((talent.apocalypse_now|talent.chosen_of_frostbrood)&!buff.chosen_of_frostbrood_fwf.up)&variable.sending_cds&buff.pillar_of_frost.up&buff.bonegrinder_frost.up|(fight_remains<20&!buff.chosen_of_frostbrood_haste.up)\nactions.cooldowns+=/frostwyrms_fury,if=buff.chosen_of_frostbrood_fwf.up&variable.fwf_buffs\nactions.cooldowns+=/frostwyrms_fury,if=!(talent.apocalypse_now|talent.chosen_of_frostbrood)&active_enemies=1&(talent.pillar_of_frost&buff.pillar_of_frost.up&!talent.obliteration|!talent.pillar_of_frost)&(!raid_event.adds.exists|raid_event.adds.in>cooldown.frostwyrms_fury.duration+raid_event.adds.duration)&variable.fwf_buffs|fight_remains<3\nactions.cooldowns+=/frostwyrms_fury,if=!(talent.apocalypse_now|talent.chosen_of_frostbrood)&active_enemies>=2&(talent.pillar_of_frost&buff.pillar_of_frost.up|raid_event.adds.exists&raid_event.adds.up&raid_event.adds.in<cooldown.pillar_of_frost.remains-raid_event.adds.in-raid_event.adds.duration)&variable.fwf_buffs\nactions.cooldowns+=/frostwyrms_fury,if=!(talent.apocalypse_now|talent.chosen_of_frostbrood)&talent.obliteration&(talent.pillar_of_frost&buff.pillar_of_frost.up&!main_hand.2h|!buff.pillar_of_frost.up&main_hand.2h&cooldown.pillar_of_frost.remains|!talent.pillar_of_frost)&variable.fwf_buffs&(!raid_event.adds.exists|raid_event.adds.in>cooldown.frostwyrms_fury.duration+raid_event.adds.duration)\nactions.cooldowns+=/raise_dead,use_off_gcd=1\nactions.cooldowns+=/empower_rune_weapon,if=(rune<2|!buff.killing_machine.react)&runic_power<35+(talent.icy_onslaught*buff.icy_onslaught.stack*5)\nactions.cooldowns+=/empower_rune_weapon,if=cooldown.empower_rune_weapon.full_recharge_time<=6&buff.killing_machine.react<2-(talent.killing_streak)\nactions.cooldowns+=/empower_rune_weapon,if=talent.breath_of_sindragosa&(cooldown.empower_rune_weapon.full_recharge_time-30<=cooldown.breath_of_sindragosa.remains+6)&(cooldown.breath_of_sindragosa.remains<=6)&(buff.killing_machine.react<2-(talent.killing_streak))\nactions.cooldowns+=/empower_rune_weapon,if=talent.obliteration&buff.pillar_of_frost.remains>4*gcd.max&rune<=2&buff.killing_machine.react=1\n\n# High Priority Actions\nactions.high_prio_actions=mind_freeze,if=target.debuff.casting.react\n# Use <a href='https://www.wowhead.com/spell=10060/power-infusion'>Power Infusion</a> while <a href='https://www.wowhead.com/spell=51271/pillar-of-frost'>Pillar of Frost</a> is up\nactions.high_prio_actions+=/invoke_external_buff,name=power_infusion,if=variable.cooldown_check\nactions.high_prio_actions+=/antimagic_shell,if=runic_power.deficit>40&death_knight.first_ams_cast<time\n\n# Obliteration Active Rotation  Racial Abilities\nactions.racials=blood_fury,use_off_gcd=1,if=variable.cooldown_check\nactions.racials+=/berserking,use_off_gcd=1,if=variable.cooldown_check\nactions.racials+=/arcane_pulse,if=variable.cooldown_check\nactions.racials+=/lights_judgment,if=variable.cooldown_check\nactions.racials+=/ancestral_call,use_off_gcd=1,if=variable.cooldown_check\nactions.racials+=/fireblood,use_off_gcd=1,if=variable.cooldown_check\nactions.racials+=/bag_of_tricks,if=talent.obliteration&!buff.pillar_of_frost.up&buff.unholy_strength.up\nactions.racials+=/bag_of_tricks,if=!talent.obliteration&buff.pillar_of_frost.up&(buff.unholy_strength.up&buff.unholy_strength.remains<gcd*3|buff.pillar_of_frost.remains<gcd*3)\n\n# Single Target Rotation\nactions.single_target=obliterate,if=buff.killing_machine.react=2|(buff.killing_machine.react&rune>=3)\nactions.single_target+=/howling_blast,if=buff.rime.react&talent.frostbound_will\nactions.single_target+=/frost_strike,target_if=max:(talent.shattering_blade&debuff.razorice.react=5),if=debuff.razorice.react=5&talent.shattering_blade&!variable.rp_pooling\nactions.single_target+=/howling_blast,if=buff.rime.react\nactions.single_target+=/frost_strike,if=!talent.shattering_blade&!variable.rp_pooling&runic_power.deficit<30\nactions.single_target+=/obliterate,if=buff.killing_machine.react&!variable.rune_pooling\nactions.single_target+=/frost_strike,if=!variable.rp_pooling\nactions.single_target+=/obliterate,if=!variable.rune_pooling&!(talent.obliteration&buff.pillar_of_frost.up)\nactions.single_target+=/howling_blast,if=!buff.killing_machine.react&(talent.obliteration&buff.pillar_of_frost.up)\n\n# Trinkets  Trinkets The trinket with the highest estimated value, will be used first and paired with Pillar of Frost.\nactions.trinkets=potion,use_off_gcd=1,if=variable.cooldown_check|fight_remains<25\nactions.trinkets+=/use_item,slot=trinket1,if=!trinket.1.cast_time>0&variable.trinket_1_buffs&!variable.trinket_1_manual&buff.pillar_of_frost.remains&(!trinket.2.has_cooldown|trinket.2.cooldown.remains|variable.trinket_priority=1)\nactions.trinkets+=/use_item,slot=trinket2,if=!trinket.2.cast_time>0&variable.trinket_2_buffs&!variable.trinket_2_manual&buff.pillar_of_frost.remains&(!trinket.1.has_cooldown|trinket.1.cooldown.remains|variable.trinket_priority=2)\n# Channeled buff trinkets will be used before cooldowns\nactions.trinkets+=/use_item,slot=trinket1,if=trinket.1.cast_time>0&(!hero_tree.rider_of_the_apocalypse|cooldown.frostwyrms_fury.remains)&variable.trinket_1_buffs&!variable.trinket_1_manual&cooldown.pillar_of_frost.remains<trinket.1.cast_time&(!talent.breath_of_sindragosa|variable.breath_of_sindragosa_check)&variable.sending_cds&(!trinket.2.has_cooldown|trinket.2.cooldown.remains|variable.trinket_priority=1)|variable.trinket_1_duration>=fight_remains\nactions.trinkets+=/use_item,slot=trinket2,if=trinket.2.cast_time>0&(!hero_tree.rider_of_the_apocalypse|cooldown.frostwyrms_fury.remains)&variable.trinket_2_buffs&!variable.trinket_2_manual&cooldown.pillar_of_frost.remains<trinket.2.cast_time&(!talent.breath_of_sindragosa|variable.breath_of_sindragosa_check)&variable.sending_cds&(!trinket.1.has_cooldown|trinket.1.cooldown.remains|variable.trinket_priority=2)|variable.trinket_2_duration>=fight_remains\n# If only one on use trinket provides a buff, use the other on cooldown. Or if neither trinket provides a buff, use both on cooldown.\nactions.trinkets+=/use_item,slot=trinket1,if=!variable.trinket_1_buffs&!variable.trinket_1_manual&(variable.damage_trinket_priority=1|(!trinket.2.has_cooldown|trinket.2.cooldown.remains))&((trinket.1.cast_time>0&(!talent.breath_of_sindragosa|!buff.breath_of_sindragosa.up)&!buff.pillar_of_frost.up|!trinket.1.cast_time>0)&(!variable.trinket_2_buffs|(cooldown.pillar_of_frost.remains<trinket.1.cooldown.remains))|!talent.pillar_of_frost)|fight_remains<15\nactions.trinkets+=/use_item,slot=trinket2,if=!variable.trinket_2_buffs&!variable.trinket_2_manual&(variable.damage_trinket_priority=2|(!trinket.1.has_cooldown|trinket.1.cooldown.remains))&(((trinket.2.cast_time>0&(!talent.breath_of_sindragosa|!buff.breath_of_sindragosa.up)&!buff.pillar_of_frost.up)|!trinket.2.cast_time>0)&(!variable.trinket_1_buffs|(cooldown.pillar_of_frost.remains<trinket.1.cooldown.remains))|!talent.pillar_of_frost)|fight_remains<15\nactions.trinkets+=/use_item,slot=main_hand,if=buff.pillar_of_frost.up|(buff.breath_of_sindragosa.up&cooldown.pillar_of_frost.remains)|(variable.trinket_1_buffs&variable.trinket_2_buffs&(trinket.1.cooldown.remains<cooldown.pillar_of_frost.remains|trinket.2.cooldown.remains<cooldown.pillar_of_frost.remains)&cooldown.pillar_of_frost.remains>20)|fight_remains<15\n\n# Variables\nactions.variables=variable,name=st_planning,op=setif,value=1,value_else=0,condition=active_enemies=1&(!raid_event.adds.exists|!raid_event.adds.in|raid_event.adds.in>15)\nactions.variables+=/variable,name=adds_remain,value=active_enemies>=2&(!raid_event.adds.exists|!raid_event.pull.exists&raid_event.adds.remains>5|raid_event.pull.exists&raid_event.adds.in>20)\nactions.variables+=/variable,name=sending_cds,value=(variable.st_planning|variable.adds_remain)\nactions.variables+=/variable,name=cooldown_check,value=(talent.pillar_of_frost&buff.pillar_of_frost.up)|!talent.pillar_of_frost|fight_remains<20\nactions.variables+=/variable,name=fwf_buffs,value=(buff.pillar_of_frost.remains<gcd.max|(buff.unholy_strength.up&buff.unholy_strength.remains<gcd.max)|(talent.bonegrinder.rank=2&buff.bonegrinder_frost.up&buff.bonegrinder_frost.remains<gcd.max))&(active_enemies>1|debuff.razorice.stack=5|talent.shattering_blade)\nactions.variables+=/variable,name=rune_pooling,value=hero_tree.deathbringer&cooldown.reapers_mark.remains<6&rune<3&variable.sending_cds\nactions.variables+=/variable,name=rp_pooling,value=talent.breath_of_sindragosa&cooldown.breath_of_sindragosa.remains<4*gcd.max&runic_power<60+(35+5*buff.icy_onslaught.up)-(10*rune)&variable.sending_cds\n# Frostscythe is better at 3 targets\nactions.variables+=/variable,name=frostscythe_priority,value=3\nactions.variables+=/variable,name=breath_of_sindragosa_check,value=!talent.breath_of_sindragosa|(cooldown.breath_of_sindragosa.remains>20|(cooldown.breath_of_sindragosa.remains<1*gcd.max&runic_power>=(60-20*hero_tree.deathbringer)))\n\n\nhtml=simc_task_11759_run_182238.html\n# lmonitor_equipment_control_v1=eyJ2ZXJzaW9uIjogMiwgIml0ZW1zIjogeyJtYWluX2hhbmQiOiAiLGlkPTI2ODIwMixpbGV2ZWw9MzIxLGJvbnVzX2lkPTEzODQ3In0sICJjb250cm9sIjogZmFsc2UsICJydWxlcyI6IHsic2V0cyI6IFt7Im5hbWUiOiAiYXJjYW5vd2VhdmVfdHJhcHBpbmdzIiwgIml0ZW1zIjogWzIzOTY2MCwgMjM5NjYyLCAyMzk2NjFdLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJhenVyZXdlYXZlX3Zlc3RtZW50cyIsICJpdGVtcyI6IFsxOTM1MzYsIDE5MzUyNSwgMTkzNTIwXSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAiYml0ZV9vZl96dWxqYW4iLCAiaXRlbXMiOiBbMjcwMTczLCAyNjgyMDksIDI2ODIxM10sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogImVtYnJhY2Vfb2ZfdGhlX2NpbmRlcmJlZSIsICJpdGVtcyI6IFsyMTk1MDcsIDIxOTUwOCwgMjE5NTA5XSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAiZnVyeV9vZl90aGVfc3Rvcm1fcm9vayIsICJpdGVtcyI6IFsyMTk1MTIsIDIxOTUxMywgMjE5NTExXSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAiaG9yaXpvbl9zdHJpZGVyc19nYXJtZW50cyIsICJpdGVtcyI6IFsxOTM0NjMsIDE5MzQ2NSwgMTkzNDU5XSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAia3lldmV6emFzX2NydWVsX2ltcGxlbWVudHMiLCAiaXRlbXMiOiBbMjE5ODc3LCAyMTI0NTZdLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJtdXJkZXJfcm93X21hdGVyaWFscyIsICJpdGVtcyI6IFsyNDQ2MTMsIDI0NDYxNCwgMjQ0NjEyXSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAicGxheWZ1bF9zcGlyaXRzX2Z1ciIsICJpdGVtcyI6IFsxOTM0NTQsIDE5MzQ1OCwgMTkzNDU3XSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAicmFnaW5nX3RlbXBlc3RzIiwgIml0ZW1zIjogWzE5OTQzNCwgMTk5NDM1LCAxOTk0MzYsIDE5OTQzMywgMTk5NDM3LCAxOTk0MzgsIDE5OTQzOSwgMTk5NDQwXSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAicmFnaW5nX3RlbXBlc3RzIiwgIml0ZW1zIjogWzE5OTQzNCwgMTk5NDM1LCAxOTk0MzYsIDE5OTQzMywgMTk5NDM3LCAxOTk0MzgsIDE5OTQzOSwgMTk5NDQwXSwgInBpZWNlcyI6IDR9LCB7Im5hbWUiOiAicmFnaW5nX3RlbXBlc3RzIiwgIml0ZW1zIjogWzE5OTQzNCwgMTk5NDM1LCAxOTk0MzYsIDE5OTQzMywgMTk5NDM3LCAxOTk0MzgsIDE5OTQzOSwgMTk5NDQwXSwgInBpZWNlcyI6IDZ9LCB7Im5hbWUiOiAicm9vdF93YXJkZW5zX3JlZ2FsaWEiLCAiaXRlbXMiOiBbMjQ0NjA5LCAyNDQ2MTAsIDI0NDYxMV0sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogInNoYXJkc19vZl90aGVfdm9pZCIsICJpdGVtcyI6IFsyMzc3MzAsIDI0MjM5MiwgMjM3NzI4LCAyMzc3MzVdLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJzdW5maXJlX3NpbGtfdHJhcHBpbmdzIiwgIml0ZW1zIjogWzIzOTY1NywgMjM5NjU5LCAyMzk2NThdLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJ0b3JtZW50c19kdWFsaXR5IiwgIml0ZW1zIjogWzI1MTg4NCwgMjUxODg1XSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAidW1icmFfd2VhdmVyc19wb3J0ZW50IiwgIml0ZW1zIjogWzE1MTMwMywgMTUxMjk5LCAxNTEzMDJdLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJ1bWJyYV93ZWF2ZXJzX3BvcnRlbnQiLCAiaXRlbXMiOiBbMTUxMzAzLCAxNTEyOTksIDE1MTMwMl0sICJwaWVjZXMiOiAzfSwgeyJuYW1lIjogInZvaWRsaWdodF9iaW5kaW5ncyIsICJpdGVtcyI6IFsyNTEwOTMsIDI1MTIxN10sICJwaWVjZXMiOiAyfSwgeyJuYW1lIjogIndvdmVuX2Nocm9ub2Nsb3RoIiwgIml0ZW1zIjogWzE5MzUyNywgMTkzNTM3LCAxOTM1MTJdLCAicGllY2VzIjogMn0sIHsibmFtZSI6ICJ3b3Zlbl9kYXduIiwgIml0ZW1zIjogWzIyMjgwNywgMjIyODA4XSwgInBpZWNlcyI6IDJ9LCB7Im5hbWUiOiAid292ZW5fZHVzayIsICJpdGVtcyI6IFsyMjI4MDksIDIyMjgxMF0sICJwaWVjZXMiOiAyfV0sICJ2ZXJzaW9uIjogMiwgImVmZmVjdF9pZHMiOiBbMzcxNzAwLCAzNzczNjAsIDM3NzcwOCwgMzc4NzU4LCAzODczMzUsIDM5NjQ0MiwgMzk2NTgxLCA0MDYyNTQsIDQwOTgzOCwgNDA5OTIzLCA0MTExMjYsIDQxNTQ0NiwgNDE4NDEwLCA0MTkzNjgsIDQyNjU1MiwgNDM1OTkyLCA0MzYxMzIsIDQ0MzczNiwgNDQzNzQzLCA0NDM3NjAsIDQ0Mzc2MiwgNDQzOTAyLCA0NTM1MDMsIDQ1MzU3MywgNDUzODEzLCA0NTQ1NTgsIDQ1NDg1NywgNDU1MTQ3LCA0NTc2NjUsIDQ1NzY3NywgNDU4NTczLCA0NjA1MjEsIDQ2MTE3NywgNDYzMjMyLCAxMjQxNzExLCAxMjQ0MjM4LCAxMjQ0Mjc2LCAxMjQ1MDUyLCAxMjQ1MDUzLCAxMjQ1MDU0LCAxMjQ1MDU1LCAxMjQ2Mjk4LCAxMjQ2MzA4LCAxMjQ2MzA5LCAxMjQ2MzEyLCAxMjUxODE1LCAxMjUxOTAyLCAxMjUxOTA0LCAxMjUxOTA1LCAxMjUxOTA2LCAxMjU5MDYwLCAxMjU5NjQ4LCAxMjYxOTY4LCAxMjgzNjk3LCAxMjk2NTUwLCAxMjk2ODcwLCAxMjk2OTgyLCAxMjk3MzgyLCAxMjk3Mzg0XSwgImVtYmVsbGlzaG1lbnRzIjogeyJhZG9ybmVkX2ZhbmciOiB7ImJvbnVzX2lkIjogMTM3NjcsICJzcGVsbF9pZCI6IDEyOTY4NzB9LCAiYXJtb3Jfc3Bpa2VzIjogeyJib251c19pZCI6IDgxODgsICJzcGVsbF9pZCI6IDM5NjU4MX0sICJsdWNreV9rZXljaGFpbiI6IHsiYm9udXNfaWQiOiAxMjcxNSwgInNwZWxsX2lkIjogMTI0NjI5OH0sICJ2ZXJkYW50X3RldGhlciI6IHsiYm9udXNfaWQiOiA5NjE0LCAic3BlbGxfaWQiOiA0MjY1NTJ9LCAiY29pbGVkX3NuYWtlZXllIjogeyJib251c19pZCI6IDEzNzY5LCAic3BlbGxfaWQiOiAxMjk3Mzg0fSwgImZhbmdfYWRvcm5tZW50cyI6IHsiYm9udXNfaWQiOiA4Nzk2LCAic3BlbGxfaWQiOiAzNzc3MDh9LCAidmVyZGFudF9jb25kdWl0IjogeyJib251c19pZCI6IDk1MjEsICJzcGVsbF9pZCI6IDQxODQxMH0sICJtZWRpY2FsX3dyYXBfa2l0IjogeyJib251c19pZCI6IDk0MTYsICJzcGVsbF9pZCI6IDQwOTkyM30sICJzbmFrZXNraW5fbGluaW5nIjogeyJib251c19pZCI6IDEzNzY0LCAic3BlbGxfaWQiOiAxMjk2NTUwfSwgImRhd250aHJlYWRfbGluaW5nIjogeyJib251c19pZCI6IDExMzAzLCAic3BlbGxfaWQiOiA0NTc2NjV9LCAiZGV2b3VyaW5nX2JhbmRpbmciOiB7ImJvbnVzX2lkIjogMTI2ODUsICJzcGVsbF9pZCI6IDEyNDQyMzh9LCAiZHVza3RocmVhZF9saW5pbmciOiB7ImJvbnVzX2lkIjogMTEzMDQsICJzcGVsbF9pZCI6IDQ1NzY3N30sICJtM2RkeV90cmF2ZWxzaXplZCI6IHsiYm9udXNfaWQiOiAxMjk5MSwgInNwZWxsX2lkIjogMTI0NjMxMn0sICJwb2xpc2hlZF9hbW1vbGl0ZSI6IHsiYm9udXNfaWQiOiAxMzc2OCwgInNwZWxsX2lkIjogMTI5Njk4Mn0sICJyZXNlcnZlX3BhcmFjaHV0ZSI6IHsiYm9udXNfaWQiOiA5NDEyLCAic3BlbGxfaWQiOiA0MDk4Mzh9LCAiYXJjYW5vd2VhdmVfbGluaW5nIjogeyJib251c19pZCI6IDEyMzg0LCAic3BlbGxfaWQiOiAxMjgzNjk3fSwgImJsdWVfc2lsa2VuX2xpbmluZyI6IHsiYm9udXNfaWQiOiA4OTMyLCAic3BlbGxfaWQiOiAzODczMzV9LCAiY2FwdHVyZWRfc3RhcmxpZ2h0IjogeyJib251c19pZCI6IDEwNTIxLCAic3BlbGxfaWQiOiA0NjA1MjF9LCAiZGFya21vb25fc2lnaWxfcm90IjogeyJib251c19pZCI6IDEyNjkyLCAic3BlbGxfaWQiOiAxMjQ1MDU1fSwgImRyZWFtdGVuZGVyc19jaGFybSI6IHsiYm9udXNfaWQiOiA5NTMyLCAic3BlbGxfaWQiOiA0MTkzNjh9LCAiYmxlc3NlZF9wYW5nb19jaGFybSI6IHsiYm9udXNfaWQiOiAxMjY4NiwgInNwZWxsX2lkIjogMTI1OTA2MH0sICJibGVzc2VkX3dlYXBvbl9ncmlwIjogeyJib251c19pZCI6IDExMTAzLCAic3BlbGxfaWQiOiA0NDM3NDN9LCAiZGFya21vb25fc2lnaWxfaHVudCI6IHsiYm9udXNfaWQiOiAxMjY5MywgInNwZWxsX2lkIjogMTI0NTA1NH0sICJkYXJrbW9vbl9zaWdpbF92b2lkIjogeyJib251c19pZCI6IDEzNjQwLCAic3BlbGxfaWQiOiAxMjQ1MDUyfSwgImh1NWhfbm9uY2hhbGFudF9wdXAiOiB7ImJvbnVzX2lkIjogMTM1NTYsICJzcGVsbF9pZCI6IDEyNTk2NDh9LCAic3VuZmlyZV9zaWxrX2xpbmluZyI6IHsiYm9udXNfaWQiOiAxMjM4NSwgInNwZWxsX2lkIjogMTI0MTcxMX0sICJiMHBfY3VyYXRvcl9vZl9ib29tcyI6IHsiYm9udXNfaWQiOiAxMzU4OCwgInNwZWxsX2lkIjogMTI2MTk2OH0sICJkYXJrbW9vbl9zaWdpbF9ibG9vZCI6IHsiYm9udXNfaWQiOiAxMjcwNSwgInNwZWxsX2lkIjogMTI0NTA1M30sICJodW50ZXJzX3JpdHVhbF9zdG9uZSI6IHsiYm9udXNfaWQiOiAxMzc3MSwgInNwZWxsX2lkIjogMTI5NzM4Mn0sICJwcmltYWxfc3BvcmVfYmluZGluZyI6IHsiYm9udXNfaWQiOiAxMjY4NywgInNwZWxsX2lkIjogMTI0NDI3Nn0sICJwcmlzbWF0aWNfbnVsbF9zdG9uZSI6IHsiYm9udXNfaWQiOiAxMDUxOCwgInNwZWxsX2lkIjogNDM1OTkyfSwgInRveGlmaWVkX2FybW9yX3BhdGNoIjogeyJib251c19pZCI6IDg3OTcsICJzcGVsbF9pZCI6IDM3ODc1OH0sICJiMXBfc2NvcmNoZXJfb2Zfc291bHMiOiB7ImJvbnVzX2lkIjogMTI5OTAsICJzcGVsbF9pZCI6IDEyNDYzMDl9LCAia2luZXRpY19hbmtsZV9wcmltZXJzIjogeyJib251c19pZCI6IDEyNzE3LCAic3BlbGxfaWQiOiAxMjQ2MzA4fSwgImJyb256ZWRfZ3JpcF93cmFwcGluZ3MiOiB7ImJvbnVzX2lkIjogODkzNywgInNwZWxsX2lkIjogMzk2NDQyfSwgImNvbmNlYWxlZF9jaGFvc19tb2R1bGUiOiB7ImJvbnVzX2lkIjogMTEyMTAsICJzcGVsbF9pZCI6IDQ1MzgxM30sICJ3cml0aGluZ19hcm1vcl9iYW5kaW5nIjogeyJib251c19pZCI6IDExMTA5LCAic3BlbGxfaWQiOiA0NDM5MDJ9LCAiZGFya21vb25fc2lnaWxfcmFkaWFuY2UiOiB7ImJvbnVzX2lkIjogMTEyOTksICJzcGVsbF9pZCI6IDQ1NDU1OH0sICJkYXJrbW9vbl9zaWdpbF92aXZhY2l0eSI6IHsiYm9udXNfaWQiOiAxMTMwMSwgInNwZWxsX2lkIjogNDU0ODU3fSwgImVsZW1lbnRhbF9mb2N1c2luZ19sZW5zIjogeyJib251c19pZCI6IDEwNTIwLCAic3BlbGxfaWQiOiA0NjExNzd9LCAicHJpc21hdGljX2ZvY3VzaW5nX2lyaXMiOiB7ImJvbnVzX2lkIjogMTM0NTMsICJzcGVsbF9pZCI6IDEyNTE5MDZ9LCAiZGFya21vb25fc2lnaWxfYXNjZW5zaW9uIjogeyJib251c19pZCI6IDExMzAwLCAic3BlbGxfaWQiOiA0NTg1NzN9LCAiZGFya21vb25fc2lnaWxfc3ltYmlvc2lzIjogeyJib251c19pZCI6IDExMzAyLCAic3BlbGxfaWQiOiA0NjMyMzJ9LCAicG91Y2hfb2ZfcG9ja2V0X2dyZW5hZGVzIjogeyJib251c19pZCI6IDExMjA5LCAic3BlbGxfaWQiOiA0NTM1MDN9LCAibWFnYXppbmVfb2ZfaGVhbGluZ19kYXJ0cyI6IHsiYm9udXNfaWQiOiA4OTEzLCAic3BlbGxfaWQiOiA0MTU0NDZ9LCAicG90aW9uX2Fic29ycHRpb25faW5oaWJpdG9yIjogeyJib251c19pZCI6IDgxNzUsICJzcGVsbF9pZCI6IDM3MTcwMH0sICJzdGF0dWV0dGVfb2ZfZm9yZXNlZW5fcG93ZXIiOiB7ImJvbnVzX2lkIjogOTM5OSwgInNwZWxsX2lkIjogMzc3MzYwfSwgImVuZXJneV9yZWRpc3RyaWJ1dGlvbl9iZWFjb24iOiB7ImJvbnVzX2lkIjogMTEyMjYsICJzcGVsbF9pZCI6IDQ1NTE0N30sICJzdGFiaWxpemluZ19nZW1zdG9uZV9iYW5kb2xpZXIiOiB7ImJvbnVzX2lkIjogMTM0NTQsICJzcGVsbF9pZCI6IDEyNTE5MDV9LCAiZmlndXJpbmVfb2ZfdGhlX2dhdGhlcmluZ19zdG9ybSI6IHsiYm9udXNfaWQiOiA5NDAwLCAic3BlbGxfaWQiOiA0MTExMjZ9LCAic2hhZG93ZmxhbWV0ZW1wZXJlZF9hcm1vcl9wYXRjaCI6IHsiYm9udXNfaWQiOiA5Mzc5LCAic3BlbGxfaWQiOiA0MDYyNTR9fSwgImludHJpbnNpY19pdGVtX2lkcyI6IFsyMzk2NTcsIDIzOTY1OCwgMjM5NjU5LCAyMzk2NjAsIDIzOTY2MSwgMjM5NjYyLCAyMzk2NjMsIDIzOTY2NCwgMjQxMTM5LCAyNDExNDAsIDI0MTM0MCwgMjQ0NDYzLCAyNDQ0NzIsIDI0NDYwMSwgMjQ0NjAyLCAyNDQ2MDUsIDI0NDYwNiwgMjQ0NjA5LCAyNDQ2MTAsIDI0NDYxMSwgMjQ0NjEyLCAyNDQ2MTMsIDI0NDYxNCwgMjQ0Njc5LCAyNDYzMDQsIDI0NjMwNSwgMjQ2MzA2LCAyNDYzMDcsIDI1MTA3MywgMjUxNTEzXX19\n# lmonitor_equipment_expectation_v1=eyJ0YXJnZXRzIjogW3sic2xvdCI6ICJtYWluX2hhbmQiLCAiaXRlbV9pZCI6IDI2ODIwMiwgImZhY3RfaGFzaCI6ICI0OTYzMWE1OGM4ODg4NjYyYjhiNmEzOWVjYzY3OWUxYzYyMjNiNGVkYTNjNTdiNWE5NzBmZGNhMTliMDIxZjJkIiwgImdhbWVfYnVpbGQiOiAiMTIuMS4wLjY5OTMzIiwgImV2ZW50X3NwZWxsX2lkcyI6IFsxMzA3OTI3LCAxMzA3OTI4XSwgImRyaXZlcl9zcGVsbF9pZHMiOiBbMTMwNzkyOF0sICJyZXF1aXJlZF9ib251c19pZHMiOiBbMTM4NDddfV0sICJzY2hlbWFfdmVyc2lvbiI6IDF9\n",
+    "params": {
+      "is_base": false,
+      "gear_swap": {
+        "slot": "main_hand",
+        "source": "manual",
+        "item_id": 268202,
+        "bonus_id": "13847",
+        "raw_value": ",id=268202,ilevel=321,bonus_id=13847"
+      },
+      "candidate_type": "gear_swap",
+      "effect_baseline_key": "effect-control-c044dd36e6c47943f5f274abb89af4b5",
+      "equipment_effect_policy": {
+        "rules": {
+          "sets": [
+            {
+              "name": "arcanoweave_trappings",
+              "items": [
+                239660,
+                239662,
+                239661
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "azureweave_vestments",
+              "items": [
+                193536,
+                193525,
+                193520
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "bite_of_zuljan",
+              "items": [
+                270173,
+                268209,
+                268213
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "embrace_of_the_cinderbee",
+              "items": [
+                219507,
+                219508,
+                219509
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "fury_of_the_storm_rook",
+              "items": [
+                219512,
+                219513,
+                219511
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "horizon_striders_garments",
+              "items": [
+                193463,
+                193465,
+                193459
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "kyevezzas_cruel_implements",
+              "items": [
+                219877,
+                212456
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "murder_row_materials",
+              "items": [
+                244613,
+                244614,
+                244612
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "playful_spirits_fur",
+              "items": [
+                193454,
+                193458,
+                193457
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "raging_tempests",
+              "items": [
+                199434,
+                199435,
+                199436,
+                199433,
+                199437,
+                199438,
+                199439,
+                199440
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "raging_tempests",
+              "items": [
+                199434,
+                199435,
+                199436,
+                199433,
+                199437,
+                199438,
+                199439,
+                199440
+              ],
+              "pieces": 4
+            },
+            {
+              "name": "raging_tempests",
+              "items": [
+                199434,
+                199435,
+                199436,
+                199433,
+                199437,
+                199438,
+                199439,
+                199440
+              ],
+              "pieces": 6
+            },
+            {
+              "name": "root_wardens_regalia",
+              "items": [
+                244609,
+                244610,
+                244611
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "shards_of_the_void",
+              "items": [
+                237730,
+                242392,
+                237728,
+                237735
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "sunfire_silk_trappings",
+              "items": [
+                239657,
+                239659,
+                239658
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "torments_duality",
+              "items": [
+                251884,
+                251885
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "umbra_weavers_portent",
+              "items": [
+                151303,
+                151299,
+                151302
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "umbra_weavers_portent",
+              "items": [
+                151303,
+                151299,
+                151302
+              ],
+              "pieces": 3
+            },
+            {
+              "name": "voidlight_bindings",
+              "items": [
+                251093,
+                251217
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "woven_chronocloth",
+              "items": [
+                193527,
+                193537,
+                193512
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "woven_dawn",
+              "items": [
+                222807,
+                222808
+              ],
+              "pieces": 2
+            },
+            {
+              "name": "woven_dusk",
+              "items": [
+                222809,
+                222810
+              ],
+              "pieces": 2
+            }
+          ],
+          "version": 2,
+          "effect_ids": [
+            371700,
+            377360,
+            377708,
+            378758,
+            387335,
+            396442,
+            396581,
+            406254,
+            409838,
+            409923,
+            411126,
+            415446,
+            418410,
+            419368,
+            426552,
+            435992,
+            436132,
+            443736,
+            443743,
+            443760,
+            443762,
+            443902,
+            453503,
+            453573,
+            453813,
+            454558,
+            454857,
+            455147,
+            457665,
+            457677,
+            458573,
+            460521,
+            461177,
+            463232,
+            1241711,
+            1244238,
+            1244276,
+            1245052,
+            1245053,
+            1245054,
+            1245055,
+            1246298,
+            1246308,
+            1246309,
+            1246312,
+            1251815,
+            1251902,
+            1251904,
+            1251905,
+            1251906,
+            1259060,
+            1259648,
+            1261968,
+            1283697,
+            1296550,
+            1296870,
+            1296982,
+            1297382,
+            1297384
+          ],
+          "embellishments": {
+            "adorned_fang": {
+              "bonus_id": 13767,
+              "spell_id": 1296870
+            },
+            "armor_spikes": {
+              "bonus_id": 8188,
+              "spell_id": 396581
+            },
+            "lucky_keychain": {
+              "bonus_id": 12715,
+              "spell_id": 1246298
+            },
+            "verdant_tether": {
+              "bonus_id": 9614,
+              "spell_id": 426552
+            },
+            "coiled_snakeeye": {
+              "bonus_id": 13769,
+              "spell_id": 1297384
+            },
+            "fang_adornments": {
+              "bonus_id": 8796,
+              "spell_id": 377708
+            },
+            "verdant_conduit": {
+              "bonus_id": 9521,
+              "spell_id": 418410
+            },
+            "medical_wrap_kit": {
+              "bonus_id": 9416,
+              "spell_id": 409923
+            },
+            "snakeskin_lining": {
+              "bonus_id": 13764,
+              "spell_id": 1296550
+            },
+            "dawnthread_lining": {
+              "bonus_id": 11303,
+              "spell_id": 457665
+            },
+            "devouring_banding": {
+              "bonus_id": 12685,
+              "spell_id": 1244238
+            },
+            "duskthread_lining": {
+              "bonus_id": 11304,
+              "spell_id": 457677
+            },
+            "m3ddy_travelsized": {
+              "bonus_id": 12991,
+              "spell_id": 1246312
+            },
+            "polished_ammolite": {
+              "bonus_id": 13768,
+              "spell_id": 1296982
+            },
+            "reserve_parachute": {
+              "bonus_id": 9412,
+              "spell_id": 409838
+            },
+            "arcanoweave_lining": {
+              "bonus_id": 12384,
+              "spell_id": 1283697
+            },
+            "blue_silken_lining": {
+              "bonus_id": 8932,
+              "spell_id": 387335
+            },
+            "captured_starlight": {
+              "bonus_id": 10521,
+              "spell_id": 460521
+            },
+            "darkmoon_sigil_rot": {
+              "bonus_id": 12692,
+              "spell_id": 1245055
+            },
+            "dreamtenders_charm": {
+              "bonus_id": 9532,
+              "spell_id": 419368
+            },
+            "blessed_pango_charm": {
+              "bonus_id": 12686,
+              "spell_id": 1259060
+            },
+            "blessed_weapon_grip": {
+              "bonus_id": 11103,
+              "spell_id": 443743
+            },
+            "darkmoon_sigil_hunt": {
+              "bonus_id": 12693,
+              "spell_id": 1245054
+            },
+            "darkmoon_sigil_void": {
+              "bonus_id": 13640,
+              "spell_id": 1245052
+            },
+            "hu5h_nonchalant_pup": {
+              "bonus_id": 13556,
+              "spell_id": 1259648
+            },
+            "sunfire_silk_lining": {
+              "bonus_id": 12385,
+              "spell_id": 1241711
+            },
+            "b0p_curator_of_booms": {
+              "bonus_id": 13588,
+              "spell_id": 1261968
+            },
+            "darkmoon_sigil_blood": {
+              "bonus_id": 12705,
+              "spell_id": 1245053
+            },
+            "hunters_ritual_stone": {
+              "bonus_id": 13771,
+              "spell_id": 1297382
+            },
+            "primal_spore_binding": {
+              "bonus_id": 12687,
+              "spell_id": 1244276
+            },
+            "prismatic_null_stone": {
+              "bonus_id": 10518,
+              "spell_id": 435992
+            },
+            "toxified_armor_patch": {
+              "bonus_id": 8797,
+              "spell_id": 378758
+            },
+            "b1p_scorcher_of_souls": {
+              "bonus_id": 12990,
+              "spell_id": 1246309
+            },
+            "kinetic_ankle_primers": {
+              "bonus_id": 12717,
+              "spell_id": 1246308
+            },
+            "bronzed_grip_wrappings": {
+              "bonus_id": 8937,
+              "spell_id": 396442
+            },
+            "concealed_chaos_module": {
+              "bonus_id": 11210,
+              "spell_id": 453813
+            },
+            "writhing_armor_banding": {
+              "bonus_id": 11109,
+              "spell_id": 443902
+            },
+            "darkmoon_sigil_radiance": {
+              "bonus_id": 11299,
+              "spell_id": 454558
+            },
+            "darkmoon_sigil_vivacity": {
+              "bonus_id": 11301,
+              "spell_id": 454857
+            },
+            "elemental_focusing_lens": {
+              "bonus_id": 10520,
+              "spell_id": 461177
+            },
+            "prismatic_focusing_iris": {
+              "bonus_id": 13453,
+              "spell_id": 1251906
+            },
+            "darkmoon_sigil_ascension": {
+              "bonus_id": 11300,
+              "spell_id": 458573
+            },
+            "darkmoon_sigil_symbiosis": {
+              "bonus_id": 11302,
+              "spell_id": 463232
+            },
+            "pouch_of_pocket_grenades": {
+              "bonus_id": 11209,
+              "spell_id": 453503
+            },
+            "magazine_of_healing_darts": {
+              "bonus_id": 8913,
+              "spell_id": 415446
+            },
+            "potion_absorption_inhibitor": {
+              "bonus_id": 8175,
+              "spell_id": 371700
+            },
+            "statuette_of_foreseen_power": {
+              "bonus_id": 9399,
+              "spell_id": 377360
+            },
+            "energy_redistribution_beacon": {
+              "bonus_id": 11226,
+              "spell_id": 455147
+            },
+            "stabilizing_gemstone_bandolier": {
+              "bonus_id": 13454,
+              "spell_id": 1251905
+            },
+            "figurine_of_the_gathering_storm": {
+              "bonus_id": 9400,
+              "spell_id": 411126
+            },
+            "shadowflametempered_armor_patch": {
+              "bonus_id": 9379,
+              "spell_id": 406254
+            }
+          },
+          "intrinsic_item_ids": [
+            239657,
+            239658,
+            239659,
+            239660,
+            239661,
+            239662,
+            239663,
+            239664,
+            241139,
+            241140,
+            241340,
+            244463,
+            244472,
+            244601,
+            244602,
+            244605,
+            244606,
+            244609,
+            244610,
+            244611,
+            244612,
+            244613,
+            244614,
+            244679,
+            246304,
+            246305,
+            246306,
+            246307,
+            251073,
+            251513
+          ]
+        },
+        "version": 2,
+        "target_slots": [
+          "main_hand"
+        ]
+      },
+      "equipment_effect_expectation": {
+        "targets": [
+          {
+            "slot": "main_hand",
+            "item_id": 268202,
+            "fact_hash": "49631a58c8888662b8b6a39ecc679e1c6223b4eda3c57b5a970fdca19b021f2d",
+            "game_build": "12.1.0.69933",
+            "event_spell_ids": [
+              1307927,
+              1307928
+            ],
+            "driver_spell_ids": [
+              1307928
+            ],
+            "required_bonus_ids": [
+              13847
+            ]
+          }
+        ],
+        "schema_version": 1
+      }
+    },
+    "stages": {
+      "original": {
+        "profile": "deathknight=\"MID2_Death_Knight_Frost\"\nsource=default\nspec=frost\nlevel=90\nrace=human\nrole=attack\nposition=back\ntalents=CsPAAAAAAAAAAAAAAAAAAAAAAMAGAADYYYMiBjhZGDmZmZmZmZmBAAAAAAAAgxYgBAsMMhMWwMjhBGAGmBAwA\n\n# Default consumables\npotion=potion_of_recklessness_2\nflask=flask_of_the_shattered_sun_2\nfood=silvermoon_parade\naugmentation=void_touched\ntemporary_enchant=main_hand:thalassian_phoenix_oil_2/off_hand:thalassian_phoenix_oil_2\n\nhead=baleful_graveknights_casque,id=271474,bonus_id=4786/12854/13692/13698/13750,gem_id=240983,redirected_base_stats=251126\n# ilevel=334,quality=epic,type=plate,stats=3910sta_75crit_126mastery_189strint,gems=32stragiint\nneck=aqirbane_reliquary,id=268265,bonus_id=13335/13708/13848,gem_id=240908/240908\n# ilevel=344,quality=epic,stats=2466sta_107crit_107haste_107vers_107mastery,gems=16crit_7mastery_16crit_7mastery,equip=\nshoulders=baleful_graveknights_gibbets,id=271472,bonus_id=4786/12854/13691/13697,redirected_base_stats=251138\n# ilevel=334,quality=epic,type=plate,stats=2932sta_95haste_56mastery_141strint\nback=silken_voodoo_drape,id=268253,bonus_id=13335/13848,content_tuning=883\n# ilevel=344,quality=epic,type=cloth,stats=2466sta_35haste_83mastery_116stragiint\nchest=reckless_spirit_breastplate,id=268222,bonus_id=13335/13848,enchant_id=7987,content_tuning=883\n# ilevel=344,quality=epic,type=plate,stats=4385sta_149haste_60mastery_207strint,enchant=enchant_chest__mark_of_the_worldsoul_2\nwrists=spellbreakers_bracers,id=237834,bonus_id=8793/8960/12384/13750/13751/13836/12497,gem_id=240908\n# ilevel=331,quality=epic,type=plate,stats=2124sta_56mastery_56haste_103strint,gems=16crit_7mastery,equip=\nhands=baleful_graveknights_deathgrips,id=271475,bonus_id=4786/12854/13691/13697\n# ilevel=334,quality=epic,type=plate,stats=2932sta_52crit_99mastery_141strint\nwaist=girdle_of_toxic_regret,id=268259,bonus_id=13335/13750/13848,gem_id=240908,content_tuning=883\n# ilevel=344,quality=epic,type=plate,stats=3288sta_110crit_46mastery_155strint,gems=16crit_7mastery\nlegs=baleful_graveknights_greaves,id=271473,bonus_id=40/13693/13698/13846,ilevel=344,enchant_id=8159,content_tuning=8078\n# quality=epic,type=plate,stats=4385sta_61crit_148mastery_207strint_90avoidance,enchant=forest_hunters_armor_kit_2,equip=\nfeet=spellbreakers_march,id=237828,bonus_id=8790/8960/12384/13751/13836/12497\n# ilevel=331,quality=epic,type=plate,stats=2832sta_74crit_74haste_138strint,equip=\nfinger1=sickening_signet_of_atroxus,id=252258,bonus_id=12854/13335,gem_id=240908,enchant_id=7967,content_tuning=883\n# ilevel=334,quality=epic,stats=2199sta_278haste_127mastery,gems=16crit_7mastery,enchant=enchant_ring__eyes_of_the_eagle_2\nfinger2=vile_alchemists_band,id=268249,bonus_id=12854/13335,gem_id=240908,enchant_id=7967,content_tuning=883\n# ilevel=334,quality=epic,stats=2199sta_73crit_332mastery,gems=16crit_7mastery,enchant=enchant_ring__eyes_of_the_eagle_2\ntrinket1=voracious_heart_of_ulatek,id=270175,bonus_id=13335/13848\n# ilevel=344,quality=epic,stats=149crit,use=\ntrinket2=zuljins_guillotine_technique,id=270173,bonus_id=13335/13848,content_tuning=883\n# ilevel=344,quality=epic,stats=197stragi,equip=\nmain_hand=jaw_of_the_shackled_goddess,id=268202,bonus_id=13847,ilevel=321\n# quality=epic,stats=84str_1684sta_95haste,weapon=sword_2.60speed_10min_18max,equip=\noff_hand=jaw_of_the_shackled_goddess,id=268202,bonus_id=13847/13848,enchant_id=3847\n# ilevel=344,quality=epic,stats=103str_2192sta_104haste,weapon=sword_2.60speed_229min_382max,enchant=rune_of_the_stoneskin_gargoyle,equip=\n\n# Gear Summary\n# gear_ilvl=337.81\n# gear_strength=1904\n# gear_stamina=40109\n# gear_crit_rating=829\n# gear_haste_rating=1025\n# gear_mastery_rating=1282\n# gear_versatility_rating=107\n# gear_avoidance_rating=90\n# gear_armor=2569\n# set_bonus=midnight_season_2_2pc=1\n# set_bonus=midnight_season_2_4pc=1\n",
+        "log": "0.000 Initializing items for Player 'MID2_Death_Knight_Frost'.\n0.000 Player MID2_Death_Knight_Frost item 'aqirbane_reliquary' adding effect 1307906 (type=equip, index=1)\n0.000 Player MID2_Death_Knight_Frost item 'baleful_graveknights_greaves' adding effect 1307923 (type=equip, index=0)\n0.000 Player MID2_Death_Knight_Frost item 'spellbreakers_march' adding effect 1283697 (type=equip, index=0)\n0.000 Player MID2_Death_Knight_Frost item 'spellbreakers_bracers' adding effect 1283697 (type=equip, index=0)\n0.000 Player MID2_Death_Knight_Frost item 'jaw_of_the_shackled_goddess' adding effect 1307928 (type=equip, index=0)\n0.000 Player MID2_Death_Knight_Frost item 'jaw_of_the_shackled_goddess' adding effect 1307928 (type=equip, index=0)\n0.000 Initialized set bonus: { Baleful Grave-Knight's Crucible, midnight_season_2, Frost Death Knight, 2 piece bonus  }, { Baleful Grave-Knight's Crucible, midnight_season_2, Frost Death Knight, 4 piece bonus  }\n0.000 Initializing special effects for Player 'MID2_Death_Knight_Frost'.\n0.000 Initializing item-based special effect ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect venomcursed_mastery type=equip source=item driver=1307923 trigger=1307922 stat=Mastery amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect arcanoweave_lining type=equip source=item driver=1283697 trigger=1229511\n0.000 Initializing item-based special effect arcanoweave_lining type=equip source=item driver=1283697 trigger=1229511\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect voracious_heart_of_ulatek type=use source=item driver=1297761 trigger=1297760 proc_chance=101% rppm=18 (Haste) cd=90.000 cdgrp=1141 cdgrp_duration=20.000\n0.000 Initializing item-based special effect voracious_heart_of_ulatek type=equip source=item driver=1297760 trigger=1297760\n0.000 Initializing item-based special effect guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste)\n0.000 Initializing item-based special effect venomcursed_haste type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect stoneskin_gargoyle_oh type=equip source=enchant driver=62157 trigger=62157\n0.000 Initializing item-based special effect venomcursed_haste_oh type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 name=baleful_graveknights_casque id=271474 slot=head quality=epic ilevel=334 match=1 type=armor/plate stats={ 326 Armor, +3910 Sta, +75 Crit, +126 Mastery, +189 StrInt } gems={ +32 StrAgiInt } source=Local\n0.000 name=aqirbane_reliquary id=268265 slot=neck quality=epic ilevel=344 type=armor/misc stats={ +2466 Sta, +107 Crit, +107 Haste, +107 Vers, +107 Mastery } gems={ +16 Crit, +7 Mastery, +16 Crit, +7 Mastery } effect={ ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1305838, proc=OnEquip/1307906 }\n0.000 name=baleful_graveknights_gibbets id=271472 slot=shoulders quality=epic ilevel=334 match=1 type=armor/plate stats={ 299 Armor, +2932 Sta, +95 Haste, +56 Mastery, +141 StrInt } source=Local\n0.000 name=reckless_spirit_breastplate id=268222 slot=chest quality=epic ilevel=344 match=1 type=armor/plate stats={ 466 Armor, +4385 Sta, +149 Haste, +60 Mastery, +207 StrInt } enchant={ enchant_chest__mark_of_the_worldsoul_2 } source=Local\n0.000 name=girdle_of_toxic_regret id=268259 slot=waist quality=epic ilevel=344 match=1 type=armor/plate stats={ 262 Armor, +3288 Sta, +110 Crit, +46 Mastery, +155 StrInt } gems={ +16 Crit, +7 Mastery } source=Local\n0.000 name=baleful_graveknights_greaves id=271473 slot=legs quality=epic ilevel=344 match=1 type=armor/plate stats={ 408 Armor, +4385 Sta, +61 Crit, +148 Mastery, +207 StrInt, +90 Avoidance } enchant={ forest_hunters_armor_kit_2 } effect={ venomcursed_mastery type=equip source=item driver=1307923 trigger=1307922 stat=Mastery amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307923 }\n0.000 name=spellbreakers_march id=237828 slot=feet quality=epic ilevel=331 match=1 type=armor/plate stats={ 266 Armor, +2832 Sta, +74 Crit, +74 Haste, +138 StrInt } effect={ arcanoweave_lining type=equip source=item driver=1229511 trigger=1229511 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1283697 }\n0.000 name=spellbreakers_bracers id=237834 slot=wrists quality=epic ilevel=331 match=1 type=armor/plate stats={ 213 Armor, +2124 Sta, +56 Mastery, +56 Haste, +103 StrInt } gems={ +16 Crit, +7 Mastery } effect={ arcanoweave_lining type=equip source=item driver=1283697 trigger=1229511 } source=Local proc_spells={ proc=OnEquip/1283697 }\n0.000 name=baleful_graveknights_deathgrips id=271475 slot=hands quality=epic ilevel=334 match=1 type=armor/plate stats={ 245 Armor, +2932 Sta, +52 Crit, +99 Mastery, +141 StrInt } source=Local\n0.000 name=sickening_signet_of_atroxus id=252258 slot=finger1 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +278 Haste, +127 Mastery } gems={ +16 Crit, +7 Mastery } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local\n0.000 name=vile_alchemists_band id=268249 slot=finger2 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +73 Crit, +332 Mastery } gems={ +16 Crit, +7 Mastery } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local proc_spells={ proc=OnEquip/1305830 }\n0.000 name=voracious_heart_of_ulatek id=270175 slot=trinket1 quality=epic ilevel=344 type=armor/misc stats={ +149 Crit } effect={ voracious_heart_of_ulatek type=use source=item driver=1297761 trigger=1297760 proc_chance=101% rppm=18 (Haste) cd=90.000 cdgrp=1141 cdgrp_duration=20.000 } effect={ voracious_heart_of_ulatek type=unknown source=item driver=1297760 trigger=1297760 } source=Local proc_spells={ proc=OnEquip/1297760, proc=OnUse/1297761 }\n0.000 name=zuljins_guillotine_technique id=270173 slot=trinket2 quality=epic ilevel=344 type=armor/misc stats={ +197 StrAgi } effect={ guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste) } source=Local proc_spells={ proc=OnEquip/1291728 }\n0.000 name=silken_voodoo_drape id=268253 slot=back quality=epic ilevel=344 type=armor/cloth stats={ 84 Armor, +2466 Sta, +35 Haste, +83 Mastery, +116 StrAgiInt } source=Local\n0.000 name=jaw_of_the_shackled_goddess id=268202 slot=main_hand quality=epic ilevel=321 type=one_hand/onehanded_sword stats={ +84 Str, +1684 Sta, +95 Haste } damage={ 185 - 309 } speed=2.600 temporary_enchant={ 16crit_16haste } effect={ venomcursed_haste type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307928 }\n0.000 name=jaw_of_the_shackled_goddess id=268202 slot=off_hand quality=epic ilevel=344 type=one_hand/onehanded_sword stats={ +103 Str, +2192 Sta, +104 Haste } damage={ 229 - 382 } speed=2.600 enchant={ rune_of_the_stoneskin_gargoyle } temporary_enchant={ 16crit_16haste } effect={ stoneskin_gargoyle_oh type=equip source=enchant driver=62157 trigger=62157 } effect={ venomcursed_haste_oh type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307928 }",
+        "full_log_sha256": "ba38232d27d36aad6dc1253279b9d3236dfc9b35ea415a92fee96222930eed4f"
+      },
+      "normal": {
+        "profile": "deathknight=\"MID2_Death_Knight_Frost\"\nsource=default\nspec=frost\nlevel=90\nrace=human\nrole=attack\nposition=back\ntalents=CsPAAAAAAAAAAAAAAAAAAAAAAMAGAADYYYMiBjhZGDmZmZmZmZmBAAAAAAAAgxYgBAsMMhMWwMjhBGAGmBAwA\n\n# Default consumables\npotion=potion_of_recklessness_2\nflask=flask_of_the_shattered_sun_2\nfood=silvermoon_parade\naugmentation=void_touched\ntemporary_enchant=main_hand:thalassian_phoenix_oil_2/off_hand:thalassian_phoenix_oil_2\n\nhead=baleful_graveknights_casque,id=271474,bonus_id=4786/12854/13692/13698/13750,gem_id=240983,redirected_base_stats=251126\n# ilevel=334,quality=epic,type=plate,stats=3910sta_75crit_126mastery_189strint,gems=32stragiint\nneck=aqirbane_reliquary,id=268265,bonus_id=13335/13708/13848,gem_id=240908/240908\n# ilevel=344,quality=epic,stats=2466sta_107crit_107haste_107vers_107mastery,gems=16crit_7mastery_16crit_7mastery,equip=\nshoulders=baleful_graveknights_gibbets,id=271472,bonus_id=4786/12854/13691/13697,redirected_base_stats=251138\n# ilevel=334,quality=epic,type=plate,stats=2932sta_95haste_56mastery_141strint\nback=silken_voodoo_drape,id=268253,bonus_id=13335/13848,content_tuning=883\n# ilevel=344,quality=epic,type=cloth,stats=2466sta_35haste_83mastery_116stragiint\nchest=reckless_spirit_breastplate,id=268222,bonus_id=13335/13848,enchant_id=7987,content_tuning=883\n# ilevel=344,quality=epic,type=plate,stats=4385sta_149haste_60mastery_207strint,enchant=enchant_chest__mark_of_the_worldsoul_2\nwrists=lmonitor_effect_control,ilevel=331,type=plate,quality=epic,stats=213armor_56haste_56mastery_2124sta_103strint,gem_id=240908\n# gems=16crit_7mastery\nhands=baleful_graveknights_deathgrips,id=271475,bonus_id=4786/12854/13691/13697\n# ilevel=334,quality=epic,type=plate,stats=2932sta_52crit_99mastery_141strint\nwaist=girdle_of_toxic_regret,id=268259,bonus_id=13335/13750/13848,gem_id=240908,content_tuning=883\n# ilevel=344,quality=epic,type=plate,stats=3288sta_110crit_46mastery_155strint,gems=16crit_7mastery\nlegs=baleful_graveknights_greaves,id=271473,bonus_id=40/13693/13698/13846,ilevel=344,enchant_id=8159,content_tuning=8078\n# quality=epic,type=plate,stats=4385sta_61crit_148mastery_207strint_90avoidance,enchant=forest_hunters_armor_kit_2,equip=\nfeet=lmonitor_effect_control,ilevel=331,type=plate,quality=epic,stats=266armor_74crit_74haste_2832sta_138strint\nfinger1=sickening_signet_of_atroxus,id=252258,bonus_id=12854/13335,gem_id=240908,enchant_id=7967,content_tuning=883\n# ilevel=334,quality=epic,stats=2199sta_278haste_127mastery,gems=16crit_7mastery,enchant=enchant_ring__eyes_of_the_eagle_2\nfinger2=vile_alchemists_band,id=268249,bonus_id=12854/13335,gem_id=240908,enchant_id=7967,content_tuning=883\n# ilevel=334,quality=epic,stats=2199sta_73crit_332mastery,gems=16crit_7mastery,enchant=enchant_ring__eyes_of_the_eagle_2\ntrinket1=voracious_heart_of_ulatek,id=270175,bonus_id=13335/13848\n# ilevel=344,quality=epic,stats=149crit,use=\ntrinket2=zuljins_guillotine_technique,id=270173,bonus_id=13335/13848,content_tuning=883\n# ilevel=344,quality=epic,stats=197stragi,equip=\nmain_hand=jaw_of_the_shackled_goddess,id=268202,bonus_id=13847,ilevel=321\n# quality=epic,stats=84str_1684sta_95haste,weapon=sword_2.60speed_10min_18max,equip=\noff_hand=jaw_of_the_shackled_goddess,id=268202,bonus_id=13847/13848,enchant_id=3847\n# ilevel=344,quality=epic,stats=103str_2192sta_104haste,weapon=sword_2.60speed_229min_382max,enchant=rune_of_the_stoneskin_gargoyle,equip=\n\n# Gear Summary\n# gear_ilvl=337.81\n# gear_strength=1904\n# gear_stamina=40109\n# gear_crit_rating=829\n# gear_haste_rating=1025\n# gear_mastery_rating=1282\n# gear_versatility_rating=107\n# gear_avoidance_rating=90\n# gear_armor=2569\n# set_bonus=midnight_season_2_2pc=1\n# set_bonus=midnight_season_2_4pc=1\n",
+        "log": "0.000 Initializing items for Player 'MID2_Death_Knight_Frost'.\n0.000 Player MID2_Death_Knight_Frost item 'aqirbane_reliquary' adding effect 1307906 (type=equip, index=1)\n0.000 Player MID2_Death_Knight_Frost item 'baleful_graveknights_greaves' adding effect 1307923 (type=equip, index=0)\n0.000 Player MID2_Death_Knight_Frost item 'jaw_of_the_shackled_goddess' adding effect 1307928 (type=equip, index=0)\n0.000 Player MID2_Death_Knight_Frost item 'jaw_of_the_shackled_goddess' adding effect 1307928 (type=equip, index=0)\n0.000 Initialized set bonus: { Baleful Grave-Knight's Crucible, midnight_season_2, Frost Death Knight, 2 piece bonus  }, { Baleful Grave-Knight's Crucible, midnight_season_2, Frost Death Knight, 4 piece bonus  }\n0.000 Initializing special effects for Player 'MID2_Death_Knight_Frost'.\n0.000 Initializing item-based special effect ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect venomcursed_mastery type=equip source=item driver=1307923 trigger=1307922 stat=Mastery amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect voracious_heart_of_ulatek type=use source=item driver=1297761 trigger=1297760 proc_chance=101% rppm=18 (Haste) cd=90.000 cdgrp=1141 cdgrp_duration=20.000\n0.000 Initializing item-based special effect voracious_heart_of_ulatek type=equip source=item driver=1297760 trigger=1297760\n0.000 Initializing item-based special effect guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste)\n0.000 Initializing item-based special effect venomcursed_haste type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect stoneskin_gargoyle_oh type=equip source=enchant driver=62157 trigger=62157\n0.000 Initializing item-based special effect venomcursed_haste_oh type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 name=baleful_graveknights_casque id=271474 slot=head quality=epic ilevel=334 match=1 type=armor/plate stats={ 326 Armor, +3910 Sta, +75 Crit, +126 Mastery, +189 StrInt } gems={ +32 StrAgiInt } source=Local\n0.000 name=aqirbane_reliquary id=268265 slot=neck quality=epic ilevel=344 type=armor/misc stats={ +2466 Sta, +107 Crit, +107 Haste, +107 Vers, +107 Mastery } gems={ +16 Crit, +7 Mastery, +16 Crit, +7 Mastery } effect={ ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1305838, proc=OnEquip/1307906 }\n0.000 name=baleful_graveknights_gibbets id=271472 slot=shoulders quality=epic ilevel=334 match=1 type=armor/plate stats={ 299 Armor, +2932 Sta, +95 Haste, +56 Mastery, +141 StrInt } source=Local\n0.000 name=reckless_spirit_breastplate id=268222 slot=chest quality=epic ilevel=344 match=1 type=armor/plate stats={ 466 Armor, +4385 Sta, +149 Haste, +60 Mastery, +207 StrInt } enchant={ enchant_chest__mark_of_the_worldsoul_2 } source=Local\n0.000 name=girdle_of_toxic_regret id=268259 slot=waist quality=epic ilevel=344 match=1 type=armor/plate stats={ 262 Armor, +3288 Sta, +110 Crit, +46 Mastery, +155 StrInt } gems={ +16 Crit, +7 Mastery } source=Local\n0.000 name=baleful_graveknights_greaves id=271473 slot=legs quality=epic ilevel=344 match=1 type=armor/plate stats={ 408 Armor, +4385 Sta, +61 Crit, +148 Mastery, +207 StrInt, +90 Avoidance } enchant={ forest_hunters_armor_kit_2 } effect={ venomcursed_mastery type=equip source=item driver=1307923 trigger=1307922 stat=Mastery amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307923 }\n0.000 name=lmonitor_effect_control id=0 slot=feet quality=epic ilevel=331 match=1 type=armor/plate stats={ 266 Armor, +74 Crit, +74 Haste, +2832 Sta, +138 StrInt } source=Manual\n0.000 name=lmonitor_effect_control id=0 slot=wrists quality=epic ilevel=331 match=1 type=armor/plate stats={ 213 Armor, +56 Haste, +56 Mastery, +2124 Sta, +103 StrInt } gems={ +16 Crit, +7 Mastery } source=Manual\n0.000 name=baleful_graveknights_deathgrips id=271475 slot=hands quality=epic ilevel=334 match=1 type=armor/plate stats={ 245 Armor, +2932 Sta, +52 Crit, +99 Mastery, +141 StrInt } source=Local\n0.000 name=sickening_signet_of_atroxus id=252258 slot=finger1 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +278 Haste, +127 Mastery } gems={ +16 Crit, +7 Mastery } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local\n0.000 name=vile_alchemists_band id=268249 slot=finger2 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +73 Crit, +332 Mastery } gems={ +16 Crit, +7 Mastery } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local proc_spells={ proc=OnEquip/1305830 }\n0.000 name=voracious_heart_of_ulatek id=270175 slot=trinket1 quality=epic ilevel=344 type=armor/misc stats={ +149 Crit } effect={ voracious_heart_of_ulatek type=use source=item driver=1297761 trigger=1297760 proc_chance=101% rppm=18 (Haste) cd=90.000 cdgrp=1141 cdgrp_duration=20.000 } effect={ voracious_heart_of_ulatek type=unknown source=item driver=1297760 trigger=1297760 } source=Local proc_spells={ proc=OnEquip/1297760, proc=OnUse/1297761 }\n0.000 name=zuljins_guillotine_technique id=270173 slot=trinket2 quality=epic ilevel=344 type=armor/misc stats={ +197 StrAgi } effect={ guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste) } source=Local proc_spells={ proc=OnEquip/1291728 }\n0.000 name=silken_voodoo_drape id=268253 slot=back quality=epic ilevel=344 type=armor/cloth stats={ 84 Armor, +2466 Sta, +35 Haste, +83 Mastery, +116 StrAgiInt } source=Local\n0.000 name=jaw_of_the_shackled_goddess id=268202 slot=main_hand quality=epic ilevel=321 type=one_hand/onehanded_sword stats={ +84 Str, +1684 Sta, +95 Haste } damage={ 185 - 309 } speed=2.600 temporary_enchant={ 16crit_16haste } effect={ venomcursed_haste type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307928 }\n0.000 name=jaw_of_the_shackled_goddess id=268202 slot=off_hand quality=epic ilevel=344 type=one_hand/onehanded_sword stats={ +103 Str, +2192 Sta, +104 Haste } damage={ 229 - 382 } speed=2.600 enchant={ rune_of_the_stoneskin_gargoyle } temporary_enchant={ 16crit_16haste } effect={ stoneskin_gargoyle_oh type=equip source=enchant driver=62157 trigger=62157 } effect={ venomcursed_haste_oh type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307928 }",
+        "full_log_sha256": "02b2ba09a056cea73ce0571ea08730bbb63dcc065c26751d5d22c40a9cf375cd"
+      },
+      "control": {
+        "profile": "deathknight=\"MID2_Death_Knight_Frost\"\nsource=default\nspec=frost\nlevel=90\nrace=human\nrole=attack\nposition=back\ntalents=CsPAAAAAAAAAAAAAAAAAAAAAAMAGAADYYYMiBjhZGDmZmZmZmZmBAAAAAAAAgxYgBAsMMhMWwMjhBGAGmBAwA\n\n# Default consumables\npotion=potion_of_recklessness_2\nflask=flask_of_the_shattered_sun_2\nfood=silvermoon_parade\naugmentation=void_touched\ntemporary_enchant=main_hand:thalassian_phoenix_oil_2/off_hand:thalassian_phoenix_oil_2\n\nhead=baleful_graveknights_casque,id=271474,bonus_id=4786/12854/13692/13698/13750,gem_id=240983,redirected_base_stats=251126\n# ilevel=334,quality=epic,type=plate,stats=3910sta_75crit_126mastery_189strint,gems=32stragiint\nneck=aqirbane_reliquary,id=268265,bonus_id=13335/13708/13848,gem_id=240908/240908\n# ilevel=344,quality=epic,stats=2466sta_107crit_107haste_107vers_107mastery,gems=16crit_7mastery_16crit_7mastery,equip=\nshoulders=baleful_graveknights_gibbets,id=271472,bonus_id=4786/12854/13691/13697,redirected_base_stats=251138\n# ilevel=334,quality=epic,type=plate,stats=2932sta_95haste_56mastery_141strint\nback=silken_voodoo_drape,id=268253,bonus_id=13335/13848,content_tuning=883\n# ilevel=344,quality=epic,type=cloth,stats=2466sta_35haste_83mastery_116stragiint\nchest=reckless_spirit_breastplate,id=268222,bonus_id=13335/13848,enchant_id=7987,content_tuning=883\n# ilevel=344,quality=epic,type=plate,stats=4385sta_149haste_60mastery_207strint,enchant=enchant_chest__mark_of_the_worldsoul_2\nwrists=lmonitor_effect_control,ilevel=331,type=plate,quality=epic,stats=213armor_56haste_56mastery_2124sta_103strint,gem_id=240908\n# gems=16crit_7mastery\nhands=baleful_graveknights_deathgrips,id=271475,bonus_id=4786/12854/13691/13697\n# ilevel=334,quality=epic,type=plate,stats=2932sta_52crit_99mastery_141strint\nwaist=girdle_of_toxic_regret,id=268259,bonus_id=13335/13750/13848,gem_id=240908,content_tuning=883\n# ilevel=344,quality=epic,type=plate,stats=3288sta_110crit_46mastery_155strint,gems=16crit_7mastery\nlegs=baleful_graveknights_greaves,id=271473,bonus_id=40/13693/13698/13846,ilevel=344,enchant_id=8159,content_tuning=8078\n# quality=epic,type=plate,stats=4385sta_61crit_148mastery_207strint_90avoidance,enchant=forest_hunters_armor_kit_2,equip=\nfeet=lmonitor_effect_control,ilevel=331,type=plate,quality=epic,stats=266armor_74crit_74haste_2832sta_138strint\nfinger1=sickening_signet_of_atroxus,id=252258,bonus_id=12854/13335,gem_id=240908,enchant_id=7967,content_tuning=883\n# ilevel=334,quality=epic,stats=2199sta_278haste_127mastery,gems=16crit_7mastery,enchant=enchant_ring__eyes_of_the_eagle_2\nfinger2=vile_alchemists_band,id=268249,bonus_id=12854/13335,gem_id=240908,enchant_id=7967,content_tuning=883\n# ilevel=334,quality=epic,stats=2199sta_73crit_332mastery,gems=16crit_7mastery,enchant=enchant_ring__eyes_of_the_eagle_2\ntrinket1=voracious_heart_of_ulatek,id=270175,bonus_id=13335/13848\n# ilevel=344,quality=epic,stats=149crit,use=\ntrinket2=zuljins_guillotine_technique,id=270173,bonus_id=13335/13848,content_tuning=883\n# ilevel=344,quality=epic,stats=197stragi,equip=\nmain_hand=lmonitor_effect_control,ilevel=321,quality=epic,stats=95haste_1684sta_84str,weapon=sword_2.600speed_185min_309max\noff_hand=jaw_of_the_shackled_goddess,id=268202,bonus_id=13847/13848,enchant_id=3847\n# ilevel=344,quality=epic,stats=103str_2192sta_104haste,weapon=sword_2.60speed_229min_382max,enchant=rune_of_the_stoneskin_gargoyle,equip=\n\n# Gear Summary\n# gear_ilvl=337.81\n# gear_strength=1904\n# gear_stamina=40109\n# gear_crit_rating=829\n# gear_haste_rating=1025\n# gear_mastery_rating=1282\n# gear_versatility_rating=107\n# gear_avoidance_rating=90\n# gear_armor=2569\n# set_bonus=midnight_season_2_2pc=1\n# set_bonus=midnight_season_2_4pc=1\n",
+        "log": "0.000 Initializing items for Player 'MID2_Death_Knight_Frost'.\n0.000 Player MID2_Death_Knight_Frost item 'aqirbane_reliquary' adding effect 1307906 (type=equip, index=1)\n0.000 Player MID2_Death_Knight_Frost item 'baleful_graveknights_greaves' adding effect 1307923 (type=equip, index=0)\n0.000 Player MID2_Death_Knight_Frost item 'jaw_of_the_shackled_goddess' adding effect 1307928 (type=equip, index=0)\n0.000 Initialized set bonus: { Baleful Grave-Knight's Crucible, midnight_season_2, Frost Death Knight, 2 piece bonus  }, { Baleful Grave-Knight's Crucible, midnight_season_2, Frost Death Knight, 4 piece bonus  }\n0.000 Initializing special effects for Player 'MID2_Death_Knight_Frost'.\n0.000 Initializing item-based special effect ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect venomcursed_mastery type=equip source=item driver=1307923 trigger=1307922 stat=Mastery amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701\n0.000 Initializing item-based special effect voracious_heart_of_ulatek type=use source=item driver=1297761 trigger=1297760 proc_chance=101% rppm=18 (Haste) cd=90.000 cdgrp=1141 cdgrp_duration=20.000\n0.000 Initializing item-based special effect voracious_heart_of_ulatek type=equip source=item driver=1297760 trigger=1297760\n0.000 Initializing item-based special effect guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste)\n0.000 Initializing item-based special effect stoneskin_gargoyle_oh type=equip source=enchant driver=62157 trigger=62157\n0.000 Initializing item-based special effect venomcursed_haste_oh type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2\n0.000 name=baleful_graveknights_casque id=271474 slot=head quality=epic ilevel=334 match=1 type=armor/plate stats={ 326 Armor, +3910 Sta, +75 Crit, +126 Mastery, +189 StrInt } gems={ +32 StrAgiInt } source=Local\n0.000 name=aqirbane_reliquary id=268265 slot=neck quality=epic ilevel=344 type=armor/misc stats={ +2466 Sta, +107 Crit, +107 Haste, +107 Vers, +107 Mastery } gems={ +16 Crit, +7 Mastery, +16 Crit, +7 Mastery } effect={ ward_of_the_uncoiled type=equip source=item driver=1307906 trigger=1307910 stat=Crit amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1305838, proc=OnEquip/1307906 }\n0.000 name=baleful_graveknights_gibbets id=271472 slot=shoulders quality=epic ilevel=334 match=1 type=armor/plate stats={ 299 Armor, +2932 Sta, +95 Haste, +56 Mastery, +141 StrInt } source=Local\n0.000 name=reckless_spirit_breastplate id=268222 slot=chest quality=epic ilevel=344 match=1 type=armor/plate stats={ 466 Armor, +4385 Sta, +149 Haste, +60 Mastery, +207 StrInt } enchant={ enchant_chest__mark_of_the_worldsoul_2 } source=Local\n0.000 name=girdle_of_toxic_regret id=268259 slot=waist quality=epic ilevel=344 match=1 type=armor/plate stats={ 262 Armor, +3288 Sta, +110 Crit, +46 Mastery, +155 StrInt } gems={ +16 Crit, +7 Mastery } source=Local\n0.000 name=baleful_graveknights_greaves id=271473 slot=legs quality=epic ilevel=344 match=1 type=armor/plate stats={ 408 Armor, +4385 Sta, +61 Crit, +148 Mastery, +207 StrInt, +90 Avoidance } enchant={ forest_hunters_armor_kit_2 } effect={ venomcursed_mastery type=equip source=item driver=1307923 trigger=1307922 stat=Mastery amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307923 }\n0.000 name=lmonitor_effect_control id=0 slot=feet quality=epic ilevel=331 match=1 type=armor/plate stats={ 266 Armor, +74 Crit, +74 Haste, +2832 Sta, +138 StrInt } source=Manual\n0.000 name=lmonitor_effect_control id=0 slot=wrists quality=epic ilevel=331 match=1 type=armor/plate stats={ 213 Armor, +56 Haste, +56 Mastery, +2124 Sta, +103 StrInt } gems={ +16 Crit, +7 Mastery } source=Manual\n0.000 name=baleful_graveknights_deathgrips id=271475 slot=hands quality=epic ilevel=334 match=1 type=armor/plate stats={ 245 Armor, +2932 Sta, +52 Crit, +99 Mastery, +141 StrInt } source=Local\n0.000 name=sickening_signet_of_atroxus id=252258 slot=finger1 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +278 Haste, +127 Mastery } gems={ +16 Crit, +7 Mastery } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local\n0.000 name=vile_alchemists_band id=268249 slot=finger2 quality=epic ilevel=334 type=armor/misc stats={ +2199 Sta, +73 Crit, +332 Mastery } gems={ +16 Crit, +7 Mastery } enchant={ enchant_ring__eyes_of_the_eagle_2 } effect={ eyes_of_the_eagle type=equip source=enchant driver=1236701 trigger=1236701 } source=Local proc_spells={ proc=OnEquip/1305830 }\n0.000 name=voracious_heart_of_ulatek id=270175 slot=trinket1 quality=epic ilevel=344 type=armor/misc stats={ +149 Crit } effect={ voracious_heart_of_ulatek type=use source=item driver=1297761 trigger=1297760 proc_chance=101% rppm=18 (Haste) cd=90.000 cdgrp=1141 cdgrp_duration=20.000 } effect={ voracious_heart_of_ulatek type=unknown source=item driver=1297760 trigger=1297760 } source=Local proc_spells={ proc=OnEquip/1297760, proc=OnUse/1297761 }\n0.000 name=zuljins_guillotine_technique id=270173 slot=trinket2 quality=epic ilevel=344 type=armor/misc stats={ +197 StrAgi } effect={ guillotine type=equip source=item driver=1291728 trigger=1291728 proc_chance=101% rppm=3 (Haste) } source=Local proc_spells={ proc=OnEquip/1291728 }\n0.000 name=silken_voodoo_drape id=268253 slot=back quality=epic ilevel=344 type=armor/cloth stats={ 84 Armor, +2466 Sta, +35 Haste, +83 Mastery, +116 StrAgiInt } source=Local\n0.000 name=lmonitor_effect_control id=0 slot=main_hand quality=epic ilevel=321 type=unknown/onehanded_sword stats={ +95 Haste, +1684 Sta, +84 Str } damage={ 185 - 309 } speed=2.600 temporary_enchant={ 16crit_16haste } source=Manual\n0.000 name=jaw_of_the_shackled_goddess id=268202 slot=off_hand quality=epic ilevel=344 type=one_hand/onehanded_sword stats={ +103 Str, +2192 Sta, +104 Haste } damage={ 229 - 382 } speed=2.600 enchant={ rune_of_the_stoneskin_gargoyle } temporary_enchant={ 16crit_16haste } effect={ stoneskin_gargoyle_oh type=equip source=enchant driver=62157 trigger=62157 } effect={ venomcursed_haste_oh type=equip source=item driver=1307928 trigger=1307927 stat=Haste amount=0 duration=12.000 proc_chance=101% rppm=2 } source=Local proc_spells={ proc=OnEquip/1307928 }",
+        "full_log_sha256": "da95e059105accce7301045dfeee1e449b80130ed4eaeeffd5e96e70fc76eefb"
+      }
+    }
+  }
+}

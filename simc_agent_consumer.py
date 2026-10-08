@@ -15,6 +15,7 @@ import hashlib
 import ipaddress
 import json
 import logging
+import locale
 import math
 import os
 import platform as platform_module
@@ -556,19 +557,24 @@ class HTTPTransport:
                         or address.is_reserved or address.is_unspecified):
             raise APIError('control plane returned an unsafe OSS upload URL')
         forbidden_headers = {
-            'authorization', 'cookie', 'proxy-authorization', 'host', 'content-length',
+            'authorization', 'cookie', 'proxy-authorization', 'host',
             'transfer-encoding', 'connection', 'proxy-connection', 'upgrade', 'te', 'trailer',
         }
         if type(headers) is not dict or any(
             type(key) is not str or type(value) is not str
             or key.lower() in forbidden_headers
+            or (key.lower() == 'content-length' and value != str(len(body)))
             for key, value in headers.items()
         ):
             raise APIError('control plane returned unsafe OSS upload headers')
         request = Request(url, data=body, method='PUT', headers={
             **headers, 'User-Agent': f'LMonitor-SimC-Agent/{VERSION}',
         })
-        self._request(request)
+        try:
+            self._request(request)
+        except Exception:
+            # Presigned URLs and storage error bodies are private.
+            raise APIError('OSS upload failed') from None
 
 
 class AgentAlreadyRunning(ConfigError):
@@ -644,6 +650,11 @@ class SimcAgentConsumer:
         self.stop_event = threading.Event()
         self.logger = logging.getLogger(LOGGER_NAME)
         self._last_simc_check = 0.0
+        self._binary_identity_lock = threading.RLock()
+        self._binary_identity_key = None
+        self._binary_identity: dict[str, str] = {}
+        self._binary_identity_diagnostics: dict[str, Any] = {}
+        self._binary_identity_retry_at = 0.0
         self._server_required_revision = ''
         self._maintenance_slot_path = Path(self.config.token_path).with_name('simc-maintenance-slots.json')
         self._completed_maintenance_slots = self._load_completed_maintenance_slots()
@@ -652,6 +663,7 @@ class SimcAgentConsumer:
         self._active_jobs: dict[int, Future[None]] = {}
         self._active_jobs_lock = threading.Lock()
         self.completion_outbox_path = Path(self.config.token_path).with_name('completion-outbox')
+        self._outbox_delivery_lock = threading.RLock()
 
     @property
     def authorization(self) -> str:
@@ -713,6 +725,147 @@ class SimcAgentConsumer:
             except FileNotFoundError:
                 pass
 
+    def _probe_binary_identity(self) -> dict[str, str]:
+        """Observe the installed executable; never infer identity from its marker.
+
+        Successful observations live only while the file identity is unchanged.
+        Failed probes have a short backoff, not a stale successful fallback. This
+        is telemetry, not a conditional contract, relation or execution binding.
+        """
+        binary = Path(self.config.simc_path)
+
+        def identity(file_stat):
+            return (str(binary), file_stat.st_dev, file_stat.st_ino,
+                    file_stat.st_size, file_stat.st_mtime_ns,
+                    file_stat.st_ctime_ns, file_stat.st_mode)
+
+        def failed(reason):
+            self._binary_identity = {}
+            self._binary_identity_diagnostics.update(
+                binary_identity_status='failed', binary_identity_reason=reason,
+            )
+            return {}
+
+        def identity_changed(observed, comparison_stage, expected, expected_source, *, cross_api=False):
+            # Windows path stat synthesizes executable bits; CPython 3.12's
+            # path ctime is birthtime while fstat can expose ChangeTime.
+            # Only cross-API comparisons exclude these non-comparable values.
+            # Same-API observations (and the path cache key) remain complete.
+            windows_cross_api = cross_api and _is_windows()
+            fields = ('st_dev', 'st_ino', 'st_size', 'st_mtime_ns', 'st_ctime_ns', 'st_mode')
+            differences = {}
+            for name, before, after in zip(fields, expected[1:], observed[1:]):
+                if windows_cross_api and name == 'st_ctime_ns':
+                    continue
+                if windows_cross_api and name == 'st_mode':
+                    equal = (before & ~0o111) == (after & ~0o111)
+                else:
+                    equal = before == after
+                if not equal:
+                    differences[name] = {'expected': before, 'observed': after}
+            if not differences:
+                return False
+            # Never include paths or arbitrary exception/output text.
+            self._binary_identity_diagnostics.update(
+                binary_identity_comparison_stage=comparison_stage,
+                binary_identity_expected_source=expected_source,
+                binary_identity_stat_differences=differences,
+            )
+            return True
+
+        def output_facts(stdout, stderr):
+            for name, data in (('stdout', stdout), ('stderr', stderr)):
+                if isinstance(data, bytes):
+                    self._binary_identity_diagnostics[f'binary_identity_{name}_bytes'] = len(data)
+                    self._binary_identity_diagnostics[f'binary_identity_{name}_sha256'] = hashlib.sha256(data).hexdigest()
+
+        with self._binary_identity_lock:
+            stage = 'not_available'
+            try:
+                if not _is_executable_regular_file(binary):
+                    self._binary_identity_key = None
+                    self._binary_identity_diagnostics = {}
+                    return failed('not_available')
+                key = identity(binary.stat())
+                now = time.monotonic()
+                if key == self._binary_identity_key and (
+                    self._binary_identity or now < self._binary_identity_retry_at
+                ):
+                    return dict(self._binary_identity)
+                self._binary_identity_key = key
+                self._binary_identity = {}
+                self._binary_identity_retry_at = now + 60.0
+                self._binary_identity_diagnostics = {}
+                stage = 'hash_io_error'
+                digest = hashlib.sha256()
+                with binary.open('rb') as source:
+                    fd_before = identity(os.fstat(source.fileno()))
+                    if identity_changed(fd_before, 'fstat_before_hash', key,
+                                        'path_before_hash', cross_api=True):
+                        return failed('file_changed')
+                    for chunk in iter(lambda: source.read(1024 * 1024), b''):
+                        if time.monotonic() - now > 30.0:
+                            return failed('hash_timeout')
+                        digest.update(chunk)
+                    if identity_changed(identity(os.fstat(source.fileno())), 'fstat_after_hash',
+                                        fd_before, 'fstat_before_hash'):
+                        return failed('file_changed')
+                # SimC has no --version flag. No arguments prints its own banner
+                # and exits without running a simulation or writing reports.
+                stage = 'probe_os_error'
+                probe = subprocess.run(
+                    [str(binary)], capture_output=True, text=False,
+                    timeout=5, check=False, stdin=subprocess.DEVNULL,
+                )
+                output_facts(probe.stdout, probe.stderr)
+                self._binary_identity_diagnostics['binary_identity_returncode'] = probe.returncode
+                # Match subprocess text=True's encoding and universal newlines;
+                # never replace invalid bytes or guess a Windows encoding.
+                encoding = 'utf-8' if sys.flags.utf8_mode else locale.getencoding()
+                stdout, stderr = (
+                    (data.decode(encoding, errors='strict') if isinstance(data, bytes) else data)
+                    .replace('\r\n', '\n').replace('\r', '\n')
+                    for data in (probe.stdout, probe.stderr)
+                )
+                if probe.returncode != 0:
+                    return failed('nonzero_exit')
+                stage = 'file_changed'
+                self._binary_identity_diagnostics['binary_identity_comparison_stage'] = 'path_after_probe'
+                self._binary_identity_diagnostics['binary_identity_expected_source'] = 'path_before_hash'
+                if identity_changed(identity(binary.stat()), 'path_after_probe', key, 'path_before_hash'):
+                    return failed('file_changed')
+                self._binary_identity_diagnostics.pop('binary_identity_comparison_stage', None)
+                self._binary_identity_diagnostics.pop('binary_identity_expected_source', None)
+                banners = re.findall(
+                    r'(?:^|\n)(?:Nothing to sim! )?SimulationCraft [^\r\n]+',
+                    stdout + '\n' + stderr,
+                )
+                self._binary_identity_diagnostics['binary_identity_banner_count'] = len(banners)
+                if len(banners) != 1:
+                    return failed('banner_count')
+                build = re.search(
+                    r'for World of Warcraft (\d+\.\d+\.\d+\.\d+) (?:Live|PTR)\b',
+                    banners[0],
+                )
+                if not build:
+                    return failed('build_missing')
+                observed = {'binary_sha256': digest.hexdigest(), 'dbc_build': build.group(1)}
+                revision = re.search(r'\bgit build \S+ ([0-9a-fA-F]{40})(?=[,)\s]|$)', banners[0])
+                if revision:
+                    observed['binary_revision'] = revision.group(1).lower()
+                self._binary_identity = observed
+                self._binary_identity_diagnostics = {'binary_identity_status': 'ok'}
+                return dict(observed)
+            except subprocess.TimeoutExpired as exc:
+                output_facts(exc.stdout, exc.stderr)
+                return failed('probe_timeout')
+            except UnicodeError:
+                return failed('decode_error')
+            except OSError:
+                if stage == 'not_available':
+                    self._binary_identity_diagnostics = {}
+                return failed(stage)
+
     def _report(self, status: str = 'online') -> dict[str, Any]:
         binary = Path(self.config.simc_path)
         binary_available = _is_executable_regular_file(binary)
@@ -730,10 +883,19 @@ class SimcAgentConsumer:
                     html_locale_patch_version = patch_version
             except (OSError, UnicodeError, json.JSONDecodeError):
                 pass
+        with self._binary_identity_lock:
+            measured = self._probe_binary_identity()
+            diagnostics = dict(self._binary_identity_diagnostics)
         return {
             'status': status, 'platform': self.config.platform,
             'agent_version': VERSION, 'agent_revision': agent_upstream_revision(), 'protocol_version': PROTOCOL_VERSION,
-            'capabilities': {'max_concurrent_runs': self.config.max_concurrent_runs},
+            'capabilities': {
+                'max_concurrent_runs': self.config.max_concurrent_runs,
+                # Transport support is distinct from server-side contract approval.
+                'conditional_evidence_protocol_version': 1,
+                **measured,
+                **diagnostics,
+            },
             'instance_id': self.instance_id, 'current_version': marker_revision,
             'binary_available': binary_available,
             'html_locale_patch_version': html_locale_patch_version,
@@ -1224,6 +1386,9 @@ class SimcAgentConsumer:
                 process.kill()
             except OSError:
                 pass
+            # kill() only requests termination. Reap before callers remove the
+            # work directory; Windows can retain file/directory locks until exit.
+            process.wait()
 
     @staticmethod
     def _lease_deadline(value: Any) -> float:
@@ -1242,7 +1407,8 @@ class SimcAgentConsumer:
 
     def _lease_heartbeat_loop(self, job: dict[str, Any], stopped: threading.Event,
                               lease_lost: threading.Event,
-                              process: subprocess.Popen[Any], deadline: float) -> None:
+                              process: subprocess.Popen[Any], deadline: float,
+                              on_renew=None) -> None:
         interval = max(1.0, min(self.heartbeat_interval, self.lease_seconds / 3))
         delay = min(interval, max(0.0, deadline - time.monotonic()))
         while not stopped.wait(delay):
@@ -1259,6 +1425,8 @@ class SimcAgentConsumer:
                 if not response:
                     raise APIError('lease heartbeat returned an empty response')
                 deadline = self._lease_deadline(response.get('lease_expires_at'))
+                if on_renew is not None:
+                    on_renew(deadline)
                 delay = min(interval, max(0.0, deadline - time.monotonic()))
             except Exception as exc:
                 if isinstance(exc, APIError) and exc.status in (403, 404, 409):
@@ -1278,6 +1446,88 @@ class SimcAgentConsumer:
             return value.decode('utf-8', errors='replace')
         return value if isinstance(value, str) else str(value or '')
 
+    @staticmethod
+    def _bounded_read(path: Path, limit: int) -> bytes:
+        try:
+            with path.open('rb') as source:
+                if not stat.S_ISREG(os.fstat(source.fileno()).st_mode):
+                    raise APIError('artifact is not a regular file')
+                data = source.read(limit + 1)
+            if len(data) > limit:
+                raise APIError('artifact byte limit exceeded')
+            return data
+        except OSError:
+            raise APIError('artifact unavailable') from None
+
+    def _deliver_conditional(self, path, run_id, metadata, report_name, report_bytes, evidence):
+        """Resume exactly the persisted lease/instance, never adopt a new lease."""
+        try:
+            if metadata.get('conditional_evidence') is None:
+                payload = {
+                    'lease_token': metadata['lease_token'], 'instance_id': metadata['instance_id'],
+                    'size': len(evidence), 'sha256': hashlib.sha256(evidence).hexdigest(),
+                    'content_md5': base64.b64encode(hashlib.md5(evidence, usedforsecurity=False).digest()).decode('ascii'),
+                }
+                try:
+                    ticket = self.transport.json(
+                        path=f'/api/simc-agent/v1/jobs/{run_id}/evidence-upload/',
+                        payload=payload, authorization=self.authorization,
+                    )
+                except APIError as exc:
+                    _raise_if_run_cancelled(exc)
+                    raise
+                if isinstance(ticket, dict) and ticket.get('already_completed') is True:
+                    self._discard_cancelled_completion(run_id, path)
+                    return True
+                if (not isinstance(ticket, dict) or ticket.get('protocol_version') != 1
+                        or ticket.get('method') != 'PUT' or not isinstance(ticket.get('object_key'), str)
+                        or not ticket['object_key'].startswith('simc_conditional_evidence/')
+                        or not isinstance(ticket.get('headers'), dict)
+                        or not isinstance(ticket.get('url'), str)):
+                    raise APIError('invalid private evidence ticket')
+                # No credentials/fence metadata are constructed by this client.
+                # A raw lease must never enter the private object metadata.
+                if any(metadata['lease_token'] == value for key, value in ticket['headers'].items()
+                       if key.lower().startswith('x-oss-meta-')):
+                    raise APIError('unsafe evidence metadata')
+                try:
+                    self.transport.put_bytes(url=ticket['url'], body=evidence, headers=ticket['headers'])
+                except Exception:
+                    # PUT response loss / forbid-overwrite retries are resolved
+                    # by the server's authoritative private HEAD/GET validation.
+                    pass
+                metadata['conditional_evidence'] = {
+                    'protocol_version': 1, 'object_key': ticket['object_key'],
+                    'size': len(evidence), 'sha256': payload['sha256'],
+                }
+                self._save_completion_outbox(run_id, metadata, report_name, report_bytes, evidence_bytes=evidence)
+            if metadata.get('report') is None:
+                report = self._upload_report(run_id, metadata['lease_token'], report_bytes, report_name,
+                                             instance_id=metadata['instance_id'])
+                if report is None:
+                    self._discard_cancelled_completion(run_id, path)
+                    return True
+                metadata['report'] = report
+                self._save_completion_outbox(run_id, metadata, report_name, report_bytes, evidence_bytes=evidence)
+            if not self._completion_json(run_id, metadata):
+                # Neither descriptor proves its PUT succeeded without completion's
+                # authoritative validation. Retry both with forbid-overwrite;
+                # lost successful completions retain their idempotent identity.
+                metadata['conditional_evidence'] = None
+                metadata['report'] = None
+                self._save_completion_outbox(run_id, metadata, report_name, report_bytes, evidence_bytes=evidence)
+                return False
+            path.unlink()
+            _fsync_directory(self.completion_outbox_path)
+            return True
+        except RunCancelled:
+            self._discard_cancelled_completion(run_id, path)
+            return True
+        except Exception:
+            # Do not log ticket URLs, raw reports, or provider error bodies.
+            self.logger.warning('conditional completion remains pending for Run %s', run_id)
+            return False
+
     def _completion_outbox_file(self, run_id: int, completion_id: str) -> Path:
         if type(run_id) is not int or run_id <= 0 or not re.fullmatch(r'[0-9a-f]{32}', completion_id):
             raise APIError('completion outbox identity is invalid')
@@ -1285,24 +1535,32 @@ class SimcAgentConsumer:
 
     def _save_completion_outbox(self, run_id: int, metadata: dict[str, Any],
                                 report_name: str | None = None,
-                                report_bytes: bytes | None = None) -> None:
+                                report_bytes: bytes | None = None, *,
+                                evidence_bytes: bytes | None = None) -> None:
         """Durably preserve an unacknowledged terminal completion before idling."""
         completion_id = metadata.get('completion_id')
         if not isinstance(completion_id, str):
             raise APIError('completion outbox identity is invalid')
         path = self._completion_outbox_file(run_id, completion_id)
-        if set(metadata) != {'lease_token', 'instance_id', 'completion_id', 'status', 'stdout', 'stderr', 'report'}:
+        if set(metadata) - {'conditional_evidence'} != {'lease_token', 'instance_id', 'completion_id', 'status', 'stdout', 'stderr', 'report'}:
             raise APIError('completion outbox payload is invalid')
         if (report_name is None) != (report_bytes is None):
             raise APIError('completion outbox report is invalid')
         if report_bytes is not None and (not report_name or len(report_bytes) > MAX_REPORT_BYTES):
             raise APIError('completion outbox report is invalid')
+        if evidence_bytes is not None:
+            from simc_conditional_evidence import decode
+            decode(evidence_bytes)
+            if metadata.get('status') != 'completed' or 'conditional_evidence' not in metadata:
+                raise APIError('invalid conditional completion')
         self.completion_outbox_path.mkdir(mode=0o700, parents=True, exist_ok=True)
         if self.completion_outbox_path.is_symlink() or not self.completion_outbox_path.is_dir():
             raise APIError('completion outbox must be a directory')
         encoded = json.dumps(
             {
                 'run_id': run_id, 'metadata': metadata, 'report_name': report_name,
+                **({'evidence_bytes': base64.b64encode(evidence_bytes).decode('ascii')}
+                   if evidence_bytes is not None else {}),
                 'report_bytes': (base64.b64encode(report_bytes).decode('ascii')
                                  if report_bytes is not None else None),
             }, separators=(',', ':'), ensure_ascii=False, allow_nan=False,
@@ -1311,7 +1569,9 @@ class SimcAgentConsumer:
         try:
             if not _is_windows():
                 os.fchmod(fd, 0o600)
-            os.write(fd, encoded)
+            with os.fdopen(fd, 'wb', closefd=False) as output:
+                output.write(encoded)
+                output.flush()
             os.fsync(fd)
             os.close(fd)
             fd = -1
@@ -1325,16 +1585,16 @@ class SimcAgentConsumer:
             except FileNotFoundError:
                 pass
 
-    def _load_completion_outbox(self, path: Path) -> tuple[int, dict[str, Any], str | None, bytes | None]:
+    def _load_completion_outbox(self, path: Path, *, include_evidence=False):
         if path.is_symlink() or not path.is_file():
             raise APIError('completion outbox entry must be a regular file')
         if not _is_windows() and stat.S_IMODE(path.stat().st_mode) & 0o077:
             raise APIError('completion outbox entry permissions must be 0600 or stricter')
         try:
-            value = json.loads(path.read_text(encoding='utf-8'))
+            value = json.loads(self._bounded_read(path, 40 * 1024 * 1024).decode('utf-8'))
         except (OSError, UnicodeError, json.JSONDecodeError) as exc:
             raise APIError(f'cannot read completion outbox entry: {exc}') from exc
-        if not isinstance(value, dict) or set(value) != {'run_id', 'metadata', 'report_name', 'report_bytes'}:
+        if not isinstance(value, dict) or set(value) - {'evidence_bytes'} != {'run_id', 'metadata', 'report_name', 'report_bytes'}:
             raise APIError('completion outbox entry is invalid')
         run_id, metadata = value['run_id'], value['metadata']
         report_name, encoded_report = value['report_name'], value['report_bytes']
@@ -1358,9 +1618,25 @@ class SimcAgentConsumer:
         expected = self._completion_outbox_file(run_id, completion_id)
         if path.name != expected.name:
             raise APIError('completion outbox entry identity is invalid')
-        return run_id, metadata, report_name, report_bytes
+        evidence = None
+        if 'evidence_bytes' in value:
+            from simc_conditional_evidence import decode
+            try:
+                evidence = base64.b64decode(value['evidence_bytes'], validate=True)
+                decode(evidence)
+            except Exception:
+                raise APIError('invalid outbox evidence') from None
+        if ('conditional_evidence' in metadata) != (evidence is not None):
+            raise APIError('missing outbox evidence')
+        result = (run_id, metadata, report_name, report_bytes)
+        return (*result, evidence) if include_evidence else result
 
     def flush_completion_outbox(self) -> bool:
+        # Concurrent execution slots must not drain/delete the same entry.
+        with self._outbox_delivery_lock:
+            return self._flush_completion_outbox()
+
+    def _flush_completion_outbox(self) -> bool:
         """Try all durable completions before claiming new work; retain failures."""
         if not self.completion_outbox_path.exists():
             return True
@@ -1368,7 +1644,10 @@ class SimcAgentConsumer:
             raise APIError('completion outbox must be a directory')
         delivered = True
         for path in sorted(self.completion_outbox_path.glob('*.json')):
-            run_id, metadata, report_name, report_bytes = self._load_completion_outbox(path)
+            run_id, metadata, report_name, report_bytes, evidence = self._load_completion_outbox(path, include_evidence=True)
+            if evidence is not None:
+                delivered = self._deliver_conditional(path, run_id, metadata, report_name, report_bytes, evidence) and delivered
+                continue
             if report_bytes is not None and metadata.get('report') is None:
                 if report_name is None:
                     raise APIError('completion outbox report is invalid')
@@ -1433,13 +1712,13 @@ class SimcAgentConsumer:
         return False
 
     def _upload_report(self, run_id: int, lease_token: str,
-                       report_bytes: bytes, report_name: str) -> dict[str, Any] | None:
+                       report_bytes: bytes, report_name: str, *, instance_id=None) -> dict[str, Any] | None:
         sha256 = hashlib.sha256(report_bytes).hexdigest()
         content_md5 = base64.b64encode(
             hashlib.md5(report_bytes, usedforsecurity=False).digest()
         ).decode('ascii')
         payload = {
-            'lease_token': lease_token, 'instance_id': self.instance_id,
+            'lease_token': lease_token, 'instance_id': instance_id or self.instance_id,
             'size': len(report_bytes), 'sha256': sha256, 'content_md5': content_md5,
         }
         last_error: Exception | None = None
@@ -1511,10 +1790,21 @@ class SimcAgentConsumer:
                 upload_pending = True
                 self.logger.warning('report upload deferred in durable outbox for Run %s: %s', run_id, exc)
 
+        # Keep the bounded proof prefix when noisy SimC output needs truncation.
+        # The existing tail-only protocol would otherwise silently discard it.
+        from simc_equipment_control import NATIVE_PROOF_MARKER, extract_native_proof, native_proof_marker
+        if stdout.startswith(NATIVE_PROOF_MARKER):
+            proof_prefix = native_proof_marker(extract_native_proof(stdout))
+            _, _, output_body = stdout.partition('\n')
+            completion_stdout = proof_prefix + _utf8_tail(
+                output_body, COMPLETION_TEXT_MAX_BYTES - len(proof_prefix.encode('utf-8')),
+            )
+        else:
+            completion_stdout = _utf8_tail(stdout, COMPLETION_TEXT_MAX_BYTES)
         metadata = {
             'lease_token': lease_token, 'instance_id': self.instance_id,
             'completion_id': completion_id, 'status': status,
-            'stdout': _utf8_tail(stdout, COMPLETION_TEXT_MAX_BYTES),
+            'stdout': completion_stdout,
             'stderr': _utf8_tail(stderr, COMPLETION_TEXT_MAX_BYTES),
             'report': report if status == 'completed' else None,
         }
@@ -1549,6 +1839,8 @@ class SimcAgentConsumer:
         report_bytes: bytes | None = None
         output_name: str | None = None
         status = 'failed'
+        conditional = 'conditional_authorization' in job
+        conditional_saved = False
         lease_lost = threading.Event()
         heartbeat_stop: threading.Event | None = None
         heartbeat_thread: threading.Thread | None = None
@@ -1572,6 +1864,14 @@ class SimcAgentConsumer:
             actual_hash = hashlib.sha256(input_text.encode('utf-8')).hexdigest()
             if expected_hash != actual_hash:
                 raise APIError('claim input hash mismatch')
+            # Old control planes omitted this field: retain their input semantics.
+            threads = job.get('threads')
+            if 'threads' in job and (type(threads) is not int or threads <= 0):
+                raise APIError('claim returned invalid threads')
+            if conditional and threads is not None:
+                values = re.findall(r'^\s*threads\s*=\s*([^\r\n]*)', input_text, re.MULTILINE)
+                if values != [str(threads)]:
+                    raise APIError('conditional threads differ from frozen input')
             timeout = min(
                 self._positive_number(job.get('timeout_seconds'), 'timeout_seconds'),
                 self.config.max_run_seconds,
@@ -1581,18 +1881,52 @@ class SimcAgentConsumer:
             with tempfile.TemporaryDirectory(prefix=f'simc-agent-run-{run_id}-') as work:
                 work_path = Path(work)
                 input_path = work_path / f'run-{run_id}.simc'
-                if '# lmonitor_equipment_control_v1=' in input_text:
-                    from simc_equipment_control import prepare_control_input
+                native_proof_text = ''
+                if conditional or '# lmonitor_equipment_control_v1=' in input_text:
+                    from simc_equipment_control import prepare_control_input, extract_native_proof, native_proof_marker
                     deadline = time.monotonic() + timeout
+                    lease_lock = threading.Lock()
+
+                    def record_probe_lease(confirmed_deadline):
+                        nonlocal lease_deadline
+                        # A late response from the preceding probe must not
+                        # overwrite a newer confirmed renewal.
+                        with lease_lock:
+                            lease_deadline = max(lease_deadline, confirmed_deadline)
+
+                    def probe_budget():
+                        with lease_lock:
+                            return min(lease_deadline, deadline) - time.monotonic()
 
                     def renew_probe_lease():
-                        nonlocal lease_deadline
-                        response = self.transport.json(
-                            path=f'/api/simc-agent/v1/jobs/{run_id}/heartbeat/',
-                            payload={'lease_token': lease_token, 'instance_id': self.instance_id},
-                            authorization=self.authorization,
-                        )
-                        lease_deadline = self._lease_deadline(response.get('lease_expires_at'))
+                        while not lease_lost.is_set():
+                            if probe_budget() <= 0:
+                                break
+                            try:
+                                response = self.transport.json(
+                                    path=f'/api/simc-agent/v1/jobs/{run_id}/heartbeat/',
+                                    payload={'lease_token': lease_token, 'instance_id': self.instance_id},
+                                    authorization=self.authorization,
+                                )
+                                if not response:
+                                    raise APIError('lease heartbeat returned an empty response')
+                                record_probe_lease(self._lease_deadline(response.get('lease_expires_at')))
+                            except Exception as exc:
+                                if isinstance(exc, APIError) and exc.status in (403, 404, 409):
+                                    lease_lost.set()
+                                    raise
+                                if not _is_transient_control_plane_error(exc):
+                                    raise
+                                remaining = probe_budget()
+                                if remaining <= 0:
+                                    break
+                                time.sleep(min(1.0, remaining))
+                                continue
+                            if not lease_lost.is_set() and probe_budget() > 0:
+                                return
+                            break
+                        lease_lost.set()
+                        raise APIError('装备对照初始化期间任务租约失效或任务时限耗尽')
 
                     def execute_probe(command):
                         renew_probe_lease()
@@ -1602,6 +1936,7 @@ class SimcAgentConsumer:
                         thread = threading.Thread(
                             target=self._lease_heartbeat_loop,
                             args=(job, stopped, lease_lost, probe, lease_deadline), daemon=True,
+                            kwargs={'on_renew': record_probe_lease},
                         )
                         thread.start()
                         try:
@@ -1616,14 +1951,24 @@ class SimcAgentConsumer:
 
                     input_text = prepare_control_input(
                         input_text, self.config.simc_path, work_path, execute=execute_probe,
+                        **({'conditional_authorization': job['conditional_authorization']} if conditional else {}),
                     )
+                    proof = extract_native_proof(input_text)
+                    if proof is not None:
+                        native_proof_text = native_proof_marker(proof)
                     renew_probe_lease()
                     timeout = deadline - time.monotonic()
                     if timeout <= 0:
                         raise APIError('装备对照初始化超出任务时限')
-                input_path.write_text(input_text, encoding='utf-8')
+                if conditional:
+                    input_path.write_bytes(input_text.encode('utf-8'))
+                else:
+                    input_path.write_text(input_text, encoding='utf-8')
+                json_name = f'run-{run_id}.json'
                 process = subprocess.Popen(
-                    [self.config.simc_path, input_path.name], cwd=work,
+                    [self.config.simc_path, input_path.name,
+                     *([f'html={output_name}', f'json2={json_name}'] if conditional else []),
+                     *([f'threads={threads}'] if threads is not None else [])], cwd=work,
                     stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     env=os.environ.copy(),
                 )
@@ -1640,11 +1985,13 @@ class SimcAgentConsumer:
                     self._stop_process(process)
                     raw_stdout, raw_stderr = process.communicate()
                     raw_stderr = self._text(raw_stderr) + '\nSimC execution timed out'
-                stdout, stderr = self._text(raw_stdout), self._text(raw_stderr)
+                stdout, stderr = native_proof_text + self._text(raw_stdout), self._text(raw_stderr)
                 if 'SimulationCraft has not been built with PTR data' in f'{stdout}\n{stderr}':
                     stderr = (stderr + '\nCurrent SimC binary does not support PTR data; refusing Live fallback').strip()
                     process.returncode = process.returncode or 1
                 if lease_lost.is_set():
+                    heartbeat_stop.set()
+                    heartbeat_thread.join(timeout=3)
                     return  # Never complete work after losing its fencing lease.
 
                 report_path = work_path / output_name
@@ -1653,7 +2000,7 @@ class SimcAgentConsumer:
                     if size > MAX_REPORT_BYTES:
                         stderr = (stderr + '\nSimC report exceeds the 20 MiB client limit').strip()
                     else:
-                        report_bytes = report_path.read_bytes()
+                        report_bytes = self._bounded_read(report_path, MAX_REPORT_BYTES)
                         if len(report_bytes) > MAX_REPORT_BYTES:
                             report_bytes = None
                             stderr = (stderr + '\nSimC report exceeds the 20 MiB client limit').strip()
@@ -1664,14 +2011,42 @@ class SimcAgentConsumer:
                             stderr = (stderr + '\nSimC report is not HTML').strip()
                 elif process.returncode == 0:
                     stderr = (stderr + '\nSimC did not create the requested HTML report').strip()
+                if conditional and status == 'completed':
+                    from simc_conditional_evidence import encode, MAX_PREPARED_BYTES, MAX_REPORT_BYTES as JSON_LIMIT
+                    evidence = encode(
+                        self._bounded_read(input_path, MAX_PREPARED_BYTES).decode('utf-8'),
+                        self._bounded_read(work_path / json_name, JSON_LIMIT).decode('utf-8'),
+                    )
+                    # Both artifacts reach the atomic, fsynced outbox before cleanup.
+                    self._save_completion_outbox(run_id, {
+                        'lease_token': lease_token, 'instance_id': self.instance_id,
+                        'completion_id': completion_id, 'status': 'completed',
+                        'stdout': _utf8_tail(stdout, COMPLETION_TEXT_MAX_BYTES),
+                        'stderr': _utf8_tail(stderr, COMPLETION_TEXT_MAX_BYTES),
+                        'report': None, 'conditional_evidence': None,
+                    }, output_name, report_bytes, evidence_bytes=evidence)
+                    conditional_saved = True
         except Exception as exc:
-            stderr = (stderr + f'\nSimC agent error: {exc}').strip()
+            if conditional:
+                status, report_bytes = 'failed', None
+                stdout, stderr = '', 'Conditional execution or evidence preparation failed'
+            else:
+                stderr = (stderr + f'\nSimC agent error: {exc}').strip()
 
         if lease_lost.is_set():
+            if conditional_saved:
+                self._discard_cancelled_completion(run_id, self._completion_outbox_file(run_id, completion_id))
+            if heartbeat_stop is not None:
+                heartbeat_stop.set()
+            if heartbeat_thread is not None:
+                heartbeat_thread.join(timeout=3)
             return
         try:
-            self._complete(run_id, lease_token, completion_id, status, stdout, stderr,
-                           report_bytes, output_name)
+            if conditional_saved:
+                self.flush_completion_outbox()
+            else:
+                self._complete(run_id, lease_token, completion_id, status, stdout, stderr,
+                               report_bytes, output_name)
         finally:
             if heartbeat_stop is not None:
                 heartbeat_stop.set()

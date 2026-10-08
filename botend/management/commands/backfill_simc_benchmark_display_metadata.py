@@ -247,7 +247,7 @@ class Command(BaseCommand):
             execution_query = execution_query.filter(panel=panel)
             run_query = run_query.filter(task__benchmark_case__execution__panel=panel)
         candidates = list(candidate_query.only(
-            'id', 'key', 'label', 'icon_url', 'effect', 'params',
+            'id', 'panel_id', 'key', 'label', 'icon_url', 'effect', 'params',
         ).order_by('id'))
         executions = list(execution_query.only(
             'id', 'config_snapshot', 'display_metadata',
@@ -352,6 +352,13 @@ class Command(BaseCommand):
                     SimcBenchmarkExecution.objects.bulk_update(
                         execution_updates, ['display_metadata'], batch_size=batch_size,
                     )
+                # The selected result projection reads current candidate display
+                # fields; bulk_update bypasses their post_save invalidation signal.
+                # The service queues only on commit, including any outer transaction.
+                if candidate_updates:
+                    from botend.services.simc_benchmark_result_snapshot import invalidate_result_snapshot
+                    for panel_id in sorted({candidate.panel_id for candidate in candidate_updates}):
+                        invalidate_result_snapshot(panel_id)
 
         action = 'would update' if dry_run else 'updated'
         self.stdout.write(self.style.SUCCESS(

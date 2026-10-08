@@ -10307,10 +10307,14 @@ def _benchmark_progress_case_queryset():
         'spec_key', 'scenario_key', 'profile_key',
         'spec_label', 'scenario_label', 'profile_label',
         'task__id', 'task__current_status', 'task__ext', 'task__error_detail',
-        'task__simulation_runs__id', 'task__simulation_runs__status',
-        'task__simulation_runs__error_detail',
-        'task__artifacts__id', 'task__artifacts__artifact_type',
-    ).prefetch_related('task__simulation_runs', 'task__artifacts').order_by('id')
+    ).prefetch_related(
+        models.Prefetch('task__simulation_runs', queryset=SimulationRun.objects.only(
+            'id', 'task_id', 'status', 'error_detail',
+        )),
+        models.Prefetch('task__artifacts', queryset=SimcTaskArtifact.objects.only(
+            'id', 'task_id', 'artifact_type',
+        )),
+    ).order_by('id')
 
 
 def _benchmark_failure_rows(execution, cases):
@@ -10701,7 +10705,9 @@ class SimcBenchmarkPanelListAPIView(_BenchmarkAdminAPIView):
             for panel in rows
             if panel.active_execution_id or panel.dashboard_latest_execution_id
         }
-        executions = SimcBenchmarkExecution.objects.filter(pk__in=execution_ids).only(
+        # This PK lookup only builds a dictionary. Do not filesort large frozen
+        # JSON snapshots using the model's default history ordering.
+        executions = SimcBenchmarkExecution.objects.filter(pk__in=execution_ids).order_by().only(
             'id', 'panel_id', 'trigger', 'status', 'scheduled_slot',
             'created_at', 'completed_at', 'config_snapshot', 'config_hash',
         )
@@ -11265,20 +11271,24 @@ class SimcBenchmarkPanelExecutionListAPIView(_BenchmarkAdminAPIView):
             raise ValidationError({'pagination': ['page 和 size 必须是正整数']})
         size = min(size, 50)
         case_queryset = _benchmark_progress_case_queryset()
-        queryset = panel.executions.annotate(
-            dashboard_case_count=models.Count('cases'),
-        ).prefetch_related(models.Prefetch(
-            'cases',
-            queryset=case_queryset,
-            to_attr='_dashboard_cases',
-        )).order_by('-created_at', '-id')
+        # Sort/page only IDs. Grouping or filesorting the full frozen JSON row
+        # can exceed MySQL sort memory even for one large Execution snapshot.
+        queryset = panel.executions.order_by('-created_at', '-id')
         total = queryset.count()
         offset = (page - 1) * size
-        rows = list(queryset[offset:offset + size])
+        execution_ids = list(queryset.values_list('pk', flat=True)[offset:offset + size])
+        execution_by_id = {
+            row.pk: row for row in SimcBenchmarkExecution.objects.filter(
+                pk__in=execution_ids,
+            ).order_by().prefetch_related(models.Prefetch(
+                'cases', queryset=case_queryset, to_attr='_dashboard_cases',
+            ))
+        }
+        rows = [execution_by_id[pk] for pk in execution_ids if pk in execution_by_id]
         return JsonResponse({'success': True, 'data': {
             'items': [_benchmark_execution_summary(
                 row, published_id=panel.published_execution_id,
-                case_count=row.dashboard_case_count,
+                case_count=len(row._dashboard_cases),
                 cases=row._dashboard_cases,
             ) for row in rows],
             'pagination': {'page': page, 'size': size, 'total': total,

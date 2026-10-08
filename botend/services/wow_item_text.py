@@ -95,6 +95,27 @@ def _equipment_description_lines(text):
     return tuple(lines)
 
 
+def crafting_property_text(description):
+    """Read a reagent's whole property, not its recipe/unique-equipped footer."""
+    lines, in_property = [], False
+    for line in str(description or '').splitlines():
+        line = line.strip()
+        if not in_property:
+            heading = re.fullmatch(
+                r'(?:提供下列属性|Provides the following property)\s*(?:[:：]\s*(.*))?',
+                line, re.I)
+            if not heading:
+                continue
+            in_property = True
+            line = (heading.group(1) or '').strip()
+        if re.match(r'^(?:(?:用于|Usable with|装备唯一|Unique-Equipped|-Equipped|'
+                    r'最大叠加|最大堆叠|Max Stack|售价|Sell Price)\s*[:：]|["“])', line, re.I):
+            break
+        if line:
+            lines.append(line)
+    return re.sub(r'\s+', ' ', ' '.join(lines)).strip()
+
+
 def clean_text(text, names=()):
     value = str(text or '').replace('\r\n', '\n').replace('\r', '\n')
     value = re.sub(r'(?:物品等级|Item Level)\s*[:：]?\s*[\d,.]+', '', value, flags=re.I)

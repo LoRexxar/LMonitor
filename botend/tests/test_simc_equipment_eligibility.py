@@ -103,6 +103,32 @@ class EquipmentEligibilityTaskTests(TestCase):
         equipment(123, primary=('agility',))
         equipment(456, inventory=11)
 
+    def test_legacy_gear_params_without_type_filter_plan_preview_and_task_runs(self):
+        trinket = self.panel.candidates.get(key='trinket')
+        trinket.params.pop('candidate_type')
+        trinket.save(update_fields=['params'])
+        equipment(9, inventory=16, subclass=1, primary=('intellect',), class_mask=128)
+        self.ring.params = _normalize_candidate_params('gear_swap',
+            'back=,id=9,ilevel=289\nfinger1=,id=456,ilevel=289')
+        self.ring.params.pop('candidate_type')
+        self.ring.save(update_fields=['params'])
+
+        plan = build_execution_plan(self.panel)
+        self.assertEqual([row['candidate_key'] for row in plan['cases'][0]['candidates']], ['baseline'])
+        self.assertEqual((plan['case_count'], plan['run_count']), (1, 1))
+        self.assertEqual({row['candidate_key'] for row in plan['excluded_candidates']}, {'trinket', 'ring'})
+        self.assertTrue(all(row['excluded_specs'] for row in serialize_panel_config(self.panel)['candidates']))
+        from botend.services.simc_benchmark_targeting import coordinate_key, rerun_preview
+        preview = rerun_preview(plan, {'coordinate_keys': [coordinate_key(plan['cases'][0])]})
+        self.assertEqual((preview['case_count'], preview['run_count']), (1, 1))
+        execution = self._create()
+        task = execution.cases.get().task
+        initialize_task_runs(task)
+        self.assertEqual(list(task.simulation_runs.values_list('candidate_key', flat=True)), ['baseline'])
+        eligibility = EquipmentEligibility([])
+        for candidate_type in ('base', 'option_toggle', 'talent_override'):
+            self.assertIsNone(eligibility.reason({'candidate_type': candidate_type}, 'warrior_fury'))
+
     def test_benchmark_filters_before_freezing_controls_and_task_runs(self):
         plan = build_execution_plan(self.panel)
         keys = [row['candidate_key'] for row in plan['cases'][0]['candidates']]

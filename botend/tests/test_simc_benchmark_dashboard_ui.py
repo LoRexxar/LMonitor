@@ -23,6 +23,55 @@ ITEM_LEVEL_PALETTE = [
 
 
 class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
+    def test_scenario_additional_input_roundtrips_through_rendered_editor(self):
+        from playwright.sync_api import sync_playwright
+
+        # Exercise the real rendering/collection functions without page startup,
+        # network requests or a replacement implementation of the DOM.
+        startup = "if(typeof module==='object'&&module.exports)"
+        script = JS[:JS.index(startup)] + """
+root=document.querySelector('[data-simc-benchmark-root]');
+globalThis.scenarioEditorTest={addScenario,collectPayload};
+})();
+"""
+        with sync_playwright() as playwright, playwright.chromium.launch(headless=True) as browser:
+            page = browser.new_page()
+            page.set_content('''<div data-simc-benchmark-root>
+                <form data-benchmark-form></form>
+                <div data-editor-scenarios></div>
+            </div>''')
+            page.add_script_tag(content=script)
+            page.evaluate('''scenarioEditorTest.addScenario({
+                key:'patchwerk',name:'Patchwerk',simulation_params:{
+                    max_time:120,iterations:100,additional_simc_input:'seed=41719'
+                }
+            })''')
+            card = page.locator('[data-config="scenario"]').first
+            additional = card.locator('textarea[name="additional_simc_input"]')
+            self.assertEqual(additional.count(), 1)
+            card.locator('summary').click()
+            self.assertTrue(additional.is_visible())
+            self.assertEqual(additional.input_value(), 'seed=41719')
+
+            def collected_params():
+                return page.evaluate('scenarioEditorTest.collectPayload().scenarios[0].simulation_params')
+
+            self.assertEqual(collected_params()['additional_simc_input'], 'seed=41719')
+            self.assertEqual(collected_params()['max_time'], 120)
+            additional.fill('seed=41720\ntarget_health=1')
+            self.assertEqual(collected_params()['additional_simc_input'], 'seed=41720\ntarget_health=1')
+            for blank in ('', '  \n  '):
+                additional.fill(blank)
+                self.assertNotIn('additional_simc_input', collected_params())
+            page.evaluate("scenarioEditorTest.addScenario({key:'new',name:'New'})")
+            self.assertEqual(page.locator('[data-config="scenario"]').last.locator(
+                'textarea[name="additional_simc_input"]'
+            ).input_value(), '')
+            self.assertNotIn('additional_simc_input', page.evaluate(
+                'scenarioEditorTest.collectPayload().scenarios[1].simulation_params'
+            ))
+
+
     def test_scenario_four_piece_checkbox_is_collected_from_its_rendered_dom_name(self):
         """勾选场景级四件套覆盖必须进入保存 payload，而不是因 dataset 名称漂移被忽略。"""
         render = JS[JS.index('function renderFourPieceOverride('):JS.index('function syncRaidBuffControls(')]
@@ -100,11 +149,14 @@ class SimcBenchmarkDashboardUIContractTests(unittest.TestCase):
         self.assertEqual(title.get_text(strip=True), 'SimC 基准面板')
 
     def test_shared_benchmark_assets_use_current_cache_version(self):
-        """各基准入口必须加载支持逐装备对照的最新脚本。"""
-        expected = '?v=20260930_compact_candidates'
+        """共享脚本入口使用一致的非空缓存版本，不锁定临时版本名。"""
+        versions = []
         for page in (INDEX, CONFIG_PAGE, EXECUTION_PAGE):
             script = next(line for line in page.splitlines() if 'simc-benchmark-dashboard.js' in line)
-            self.assertIn(expected, script)
+            self.assertIn('?v=', script)
+            versions.append(script.split('?v=', 1)[1].split('"', 1)[0])
+        self.assertTrue(all(versions))
+        self.assertEqual(len(set(versions)), 1)
 
     def test_active_execution_has_stop_action_in_panel_and_execution_detail(self):
         self.assertIn("['pending','running'].includes(execution.status)", JS)

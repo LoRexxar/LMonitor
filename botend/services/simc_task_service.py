@@ -166,6 +166,8 @@ CANDIDATE_PARAMS_WHITELIST = {
     'talent_candidate', 'apl_override', 'attribute_ratings', 'search',
     'simc_options', 'equipment_preset', 'option_value', 'enabled',
     'equipment_effect_control', 'effect_baseline_key', 'equipment_effect_policy',
+    'equipment_weapon_layout',
+    'equipment_effect_expectation',
     'simulation_params',
 }
 
@@ -358,7 +360,7 @@ def _normalize_params(params: Optional[Dict[str, Any]], whitelist: set) -> Optio
     return {k: v for k, v in params.items() if k in whitelist}
 
 
-def _normalize_candidates(candidates, round_number=1):
+def _normalize_candidates(candidates, round_number=1, *, trusted_item_identity=False):
     """Freeze only the controlled candidate fields needed by backend execution."""
     candidates = list(candidates or [])
     if not candidates:
@@ -371,6 +373,15 @@ def _normalize_candidates(candidates, round_number=1):
             candidate.get('candidate_params') or candidate.get('params') or {},
             CANDIDATE_PARAMS_WHITELIST,
         ) or {}
+        params = deepcopy(params)
+        from django.core.exceptions import ValidationError
+        from simc_equipment_control import candidate_swaps
+        from botend.services.wow_item_identity import validate_swap_identity_context
+        try:
+            for swap in candidate_swaps(params):
+                validate_swap_identity_context(swap, trusted_item_identity=trusted_item_identity)
+        except ValidationError as exc:
+            raise TaskCreationError('; '.join(exc.messages)) from exc
         if 'simc_options' in params:
             from botend.services.simc_candidate_options import normalize_controlled_simc_options
             try:
@@ -384,6 +395,7 @@ def _normalize_candidates(candidates, round_number=1):
             slots = [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in candidate_swaps(params)]
             if (params.get('candidate_type') != 'gear_swap'
                     or not slots or any(slot not in SLOTS for slot in slots)
+                    or (len(slots) == 1 and slots[0] in ('trinket1', 'trinket2'))
                     or ('equipment_effect_control' in params
                         and params['equipment_effect_control'] is not True)
                     or ('effect_baseline_key' in params and (
@@ -395,6 +407,19 @@ def _normalize_candidates(candidates, round_number=1):
             from simc_equipment_control import validate_effect_policy
             try:
                 validate_effect_policy(params)
+            except ValueError as exc:
+                raise TaskCreationError(str(exc)) from exc
+        if 'equipment_effect_expectation' in params:
+            from simc_equipment_control import validate_equipment_expectation, candidate_swaps, ALIASES
+            try:
+                validate_equipment_expectation(params['equipment_effect_expectation'],
+                    [ALIASES.get(swap.get('slot'), swap.get('slot')) for swap in candidate_swaps(params)])
+            except ValueError as exc:
+                raise TaskCreationError(str(exc)) from exc
+        if 'equipment_weapon_layout' in params:
+            from simc_equipment_control import validate_weapon_layout
+            try:
+                validate_weapon_layout(params)
             except ValueError as exc:
                 raise TaskCreationError(str(exc)) from exc
         if 'equipment_preset' in params:
@@ -433,7 +458,7 @@ def initialize_task_runs(task, expected_started_at=None):
         if existing:
             return existing
         mode_params = locked.mode_params if isinstance(locked.mode_params, dict) else {}
-        candidates = _normalize_candidates(mode_params.get('initial_candidates'))
+        candidates = _normalize_candidates(mode_params.get('initial_candidates'), trusted_item_identity=True)
         rows = [SimulationRun(
             task=locked,
             sequence=index,
@@ -873,7 +898,9 @@ def create_task_from_prepared(*, prepared, user_id: int, name: str,
     if options_error:
         raise TaskCreationError(options_error)
     normalized_mode_params = _normalize_params(mode_params, MODE_PARAMS_WHITELIST) or {}
-    normalized_mode_params['initial_candidates'] = _normalize_candidates(candidates)
+    normalized_mode_params['initial_candidates'] = _normalize_candidates(
+        candidates, trusted_item_identity=is_benchmark_task,
+    )
 
     with transaction.atomic():
         try:

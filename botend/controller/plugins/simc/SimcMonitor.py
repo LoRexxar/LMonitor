@@ -489,6 +489,8 @@ class SimcMonitor(BaseScan):
             validate_effect_policy(params)
             request_data['_equipment_effect_policy'] = params['equipment_effect_policy']
             request_data['_equipment_effect_control'] = params.get('equipment_effect_control') is True
+            if params.get('equipment_effect_expectation') is not None:
+                request_data['_equipment_effect_expectation'] = params['equipment_effect_expectation']
         if 'equipment_effect_control' in params:
             from simc_equipment_control import SLOTS, ALIASES
             from simc_equipment_control import candidate_swaps
@@ -506,10 +508,17 @@ class SimcMonitor(BaseScan):
             if params.get('gear_swaps'):
                 if params.get('gear_swap') is not None:
                     raise ValueError('装备组合不能同时包含单件配置')
+                from simc_equipment_control import apply_weapon_layout
+                request_data['player_equipment'] = apply_weapon_layout(
+                    request_data.get('player_equipment'), params,
+                )
                 for swap in params['gear_swaps']:
                     request_data = SimcMonitor.apply_candidate_overrides(
                         request_data, {'candidate_type': 'gear_swap', 'gear_swap': swap},
                     )
+                request_data['player_equipment'] = apply_weapon_layout(
+                    request_data.get('player_equipment'), params,
+                )
                 return request_data
             swap = params.get('gear_swap') or {}
             slot = str(swap.get('slot') or '').strip().lower()
@@ -534,7 +543,8 @@ class SimcMonitor(BaseScan):
                     lines.append(line)
             if not replaced:
                 raise ValueError(f'基准玩家块未包含可替换的装备槽位: {slot}')
-            request_data['player_equipment'] = '\n'.join(lines)
+            from simc_equipment_control import apply_weapon_layout
+            request_data['player_equipment'] = apply_weapon_layout('\n'.join(lines), params)
 
         elif candidate_type == 'talent_override':
             talent = str(params.get('talent_override') or '').strip()
@@ -1407,6 +1417,22 @@ class SimcMonitor(BaseScan):
                         == 'attribute_baseline_probe'
                     ),
                 )
+                if active_run is not None:
+                    from botend.services.simc_equipment_effect_validation import (
+                        is_equipment_effect_candidate, validate_equipment_effect_report,
+                    )
+                    if is_equipment_effect_candidate(active_run.candidate_params):
+                        from simc_equipment_control import extract_native_proof
+                        try:
+                            with open(simc_file_path, encoding='utf-8') as prepared_stream:
+                                native_proof = extract_native_proof(prepared_stream.read())
+                        except ValueError:
+                            native_proof = {}
+                        except OSError:
+                            native_proof = None  # Legacy direct calls have no prepared input.
+                        semantic_validation['equipment_effect_validation'] = validate_equipment_effect_report(
+                            report_html, active_run.candidate_params, native_proof=native_proof,
+                        )
                 if not self._persist_claimed_semantic_validation(simc_task, semantic_validation):
                     return False
                 if not semantic_validation['valid']:

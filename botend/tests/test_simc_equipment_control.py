@@ -14,7 +14,7 @@ from simc_equipment_control import (
     prepare_control_input, synthetic_item, mark_equipment_input, equipment_rules,
     embellishment_count,
 )
-from botend.models import SimcBenchmarkCandidate, WowItemSnapshot
+from botend.models import SeasonMeta, SimcBenchmarkCandidate, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.simc_benchmark_config import build_execution_plan, _normalize_candidate_params
 from botend.services.simc_benchmark_execution import (
     reconcile_execution, serialize_incremental_panel_results, serialize_public_execution,
@@ -27,15 +27,26 @@ class EquipmentControlInputTests(UnitTestCase):
     def combination_probe(self, command):
         import re
         options = dict(part.split('=', 1) for part in command[2:])
-        profile, records = [], []
+        profile, records, item_ids = [], [], []
+        input_lines = Path(command[1]).read_text(encoding='utf-8').splitlines()
         for line in Path(command[1]).read_text(encoding='utf-8').splitlines():
             slot, sep, value = line.partition('=')
             if not sep or slot not in ('wrists', 'back', 'feet', 'finger1', 'trinket2'):
                 continue
             item_id = re.search(r'\bid=(\d+)', value)
+            if item_id:
+                item_ids.append(int(item_id.group(1)))
             effect = ' proc_spells={ proc=OnEquip/1283697 }' if 'embellishment=arcanoweave_lining' in value else ''
+            # Unit-test native records must distinguish instantiated item effects
+            # from a DB proc_spells entry, just as the real SimC format does.
+            if item_id and int(item_id.group(1)) in (123, 111):
+                effect += ' effect={ fixture_effect type=equip source=item driver=99999 }'
             profile.extend([line, '# ilevel=289,quality=epic,stats=100haste'])
             records.append(f'0.000 name=x slot={slot} stats={{ +100 Haste }} source=Local{effect}')
+        for row in getattr(self, 'native_set_fixtures', equipment_rules()['sets']):
+            disabled = f'set_bonus=name={row["name"]},pc={row["pieces"]},enable=0'
+            if sum(item_id in row['items'] for item_id in item_ids) >= row['pieces'] and disabled not in input_lines:
+                records.append(f'0.000 Initialized set bonus: {{ Fixture, {row["name"]}, Generic, {row["pieces"]} piece bonus }}')
         Path(options['save']).write_text('\n'.join(profile), encoding='utf-8')
         Path(options['output']).write_text('\n'.join(records), encoding='utf-8')
         return SimpleNamespace(returncode=0, stdout='', stderr='')
@@ -54,8 +65,11 @@ class EquipmentControlInputTests(UnitTestCase):
                 self.assertIn('back=lmonitor_effect_control', result)
                 self.assertIn('feet=lmonitor_effect_control', result)
                 self.assertNotIn(MARKER, result)
-        self.assertEqual(results[0].count('embellishment='), 1)
-        self.assertEqual(results[1].count('embellishment='), 0)
+        # Raw native provenance in proof comments is not executable equipment.
+        executable = ['\n'.join(line for line in result.splitlines()
+                                if not line.startswith('#')) for result in results]
+        self.assertEqual(executable[0].count('embellishment='), 1)
+        self.assertEqual(executable[1].count('embellishment='), 0)
         self.assertIn('wrists=lmonitor_effect_control', results[1])
 
     def test_three_target_embellishments_and_stacked_sources_are_rejected(self):
@@ -84,6 +98,7 @@ class EquipmentControlInputTests(UnitTestCase):
     def test_target_set_is_disabled_but_class_set_override_is_preserved(self):
         rules = deepcopy(equipment_rules())
         rules['sets'] = [{'name': 'arcanoweave_trappings', 'pieces': 2, 'items': [123, 456]}]
+        self.native_set_fixtures = rules['sets']
         code = 'warrior=x\nwrists=,id=123,ilevel=289\nback=,id=456,ilevel=289\nset_bonus=midnight_season_1_4pc=1\n'
         marked = mark_equipment_input(code, ['wrists', 'back'], control=True, rules=rules)
         with tempfile.TemporaryDirectory() as directory:
@@ -106,40 +121,134 @@ class EquipmentControlInputTests(UnitTestCase):
             result = prepare_control_input(marked, 'simc', directory, execute=self.combination_probe)
         self.assertIn('trinket2=lmonitor_effect_control', result)
 
+    def test_legacy_control_rejects_an_unloaded_target_effect(self):
+        code = mark_control_input('warrior=x\nfinger1=id=123\n', 'finger1')
+        def execute(command):
+            options = dict(part.split('=', 1) for part in command[2:])
+            Path(options['save']).write_text('finger1=x,id=123\n# ilevel=289,quality=epic,stats=100haste\n')
+            Path(options['output']).write_text('0.000 name=x slot=finger1 stats={ +100 Haste } source=Local')
+            return SimpleNamespace(returncode=0, stdout='', stderr='')
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, '未加载原生有效'):
+                prepare_control_input(code, 'simc', directory, execute=execute)
+
     def test_native_readback_rejects_stat_drift(self):
         code = mark_control_input('warrior=x\nfinger1=id=123\n', 'finger1')
         def execute(command):
             options = dict(part.split('=', 1) for part in command[2:])
             is_control = '-control.simc' in command[1]
             amount = 101 if is_control else 100
+            effect = '' if is_control else ' effect={ fixture_effect type=equip source=item driver=99999 }'
             Path(options['save']).write_text('finger1=x,id=123\n# ilevel=289,quality=epic,stats=100haste\n')
             Path(options['output']).write_text(
-                f'0.000 name=x slot=finger1 stats={{ +{amount} Haste }} source=Local')
+                f'0.000 name=x slot=finger1 stats={{ +{amount} Haste }} source=Local' + effect)
             return SimpleNamespace(returncode=0, stdout='', stderr='')
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaisesRegex(ValueError, '不一致'):
                 prepare_control_input(code, 'simc', directory, execute=execute)
 
     def test_agent_prepares_control_before_actual_simulation_and_renews_lease(self):
+        self._run_agent_control()
+
+    def test_agent_probe_renewal_transient_errors_recover_at_all_three_boundaries(self):
+        from simc_agent_consumer import APIError
+        for boundary in range(3):
+            for status in (None, 503):
+                with self.subTest(boundary=boundary, status=status):
+                    success = {'lease_expires_at': '2999-01-01T00:00:00+00:00'}
+                    responses = [success] * boundary + [APIError('read timeout', status)] + [success] * (3 - boundary)
+                    self._run_agent_control(responses=responses, heartbeat_count=4)
+
+    def test_agent_probe_renewal_fencing_never_completes(self):
+        from simc_agent_consumer import APIError
+        for boundary in range(3):
+            for status in (403, 404, 409):
+                with self.subTest(boundary=boundary, status=status):
+                    success = {'lease_expires_at': '2999-01-01T00:00:00+00:00'}
+                    self._run_agent_control(responses=[success] * boundary + [APIError('fenced', status)],
+                                            expected=None, probes=boundary)
+
+    def test_agent_probe_renewal_exhausts_lease_or_job_budget(self):
+        from simc_agent_consumer import APIError
+        from datetime import datetime, timezone
+        for lease_seconds, job_seconds in ((2, 120), (120, 2)):
+            with self.subTest(lease_seconds=lease_seconds, job_seconds=job_seconds):
+                clock = [1000.0]
+                def sleep(seconds):
+                    clock[0] += seconds
+                expiry = datetime.fromtimestamp(1000 + lease_seconds, timezone.utc).isoformat()
+                with patch('simc_agent_consumer.time.monotonic', side_effect=lambda: clock[0]), \
+                     patch('simc_agent_consumer.time.time', side_effect=lambda: clock[0]), \
+                     patch('simc_agent_consumer.time.sleep', side_effect=sleep):
+                    consumer = self._run_agent_control(responses=APIError('offline', 503), expected=None,
+                                                      probes=0, expiry=expiry, job_seconds=job_seconds)
+                self.assertEqual(clock[0], 1002)
+                self.assertEqual(consumer.transport.json.call_count, 2)
+
+    def test_agent_real_equipment_validation_failure_still_completes_failed(self):
+        self._run_agent_control(expected='failed', probes=2, stat_drift=True)
+
+    def test_agent_background_probe_renewal_updates_synchronous_retry_budget(self):
+        from simc_agent_consumer import APIError
+        from datetime import datetime, timezone
+        import threading
+        clock = [1000.0]
+        renewed = threading.Event()
+        def response_at(timestamp):
+            return {'lease_expires_at': datetime.fromtimestamp(timestamp, timezone.utc).isoformat()}
+        responses = iter([response_at(1002), response_at(1100), APIError('timeout'),
+                          response_at(1100), response_at(1100)])
+        def respond(**kwargs):
+            response = next(responses)
+            if threading.current_thread() is not threading.main_thread():
+                renewed.set()
+            if isinstance(response, Exception):
+                raise response
+            return response
+        def first_probe_wait():
+            self.assertTrue(renewed.wait(3), 'real background heartbeat did not run')
+            clock[0] = 1003.0  # Initial lease expired, renewed lease still valid.
+            return b'', b''
+        def sleep(seconds):
+            clock[0] += seconds
+        with patch('simc_agent_consumer.time.monotonic', side_effect=lambda: clock[0]), \
+             patch('simc_agent_consumer.time.time', side_effect=lambda: clock[0]), \
+             patch('simc_agent_consumer.time.sleep', side_effect=sleep):
+            self._run_agent_control(responses=respond, heartbeat_count=5,
+                                    expiry=response_at(1002)['lease_expires_at'],
+                                    first_probe_wait=first_probe_wait)
+
+    def _run_agent_control(self, *, responses=None, heartbeat_count=3, expected='completed',
+                           probes=2, expiry='2999-01-01T00:00:00+00:00', job_seconds=120,
+                           stat_drift=False, first_probe_wait=None):
         from simc_agent_consumer import SimcAgentConsumer
         consumer = object.__new__(SimcAgentConsumer)
         consumer.config = SimpleNamespace(simc_path='simc', max_run_seconds=120)
         consumer.instance_id, consumer.agent_token = 'test', 'token'
         consumer.transport = Mock()
         consumer.transport.json.return_value = {'lease_expires_at': '2999-01-01T00:00:00+00:00'}
-        consumer._lease_heartbeat_loop = Mock()
+        consumer.transport.json.side_effect = responses
+        consumer.heartbeat_interval = consumer.lease_seconds = 120
+        if first_probe_wait is not None:
+            consumer.heartbeat_interval = 1
         consumer._complete = Mock()
         code = mark_equipment_input('warrior=x\nfinger1=id=123\nhtml=simc_task_1_run_1.html\n',
                                     ['finger1'], control=True, rules=equipment_rules())
-        executions = []
+        executions, probe_executions = [], []
         def popen(command, **kwargs):
             process = Mock(returncode=0)
             process.poll.return_value = 0
             process.communicate.return_value = (b'', b'')
             options = dict(part.split('=', 1) for part in command[2:])
             if 'save' in options:
-                Path(options['save']).write_text('finger1=x,id=123\n# ilevel=289,quality=epic,stats=100haste\n')
-                Path(options['output']).write_text('0.000 name=x slot=finger1 stats={ +100 Haste } source=Local')
+                probe_executions.append(command)
+                if len(probe_executions) == 1 and first_probe_wait is not None:
+                    process.communicate.side_effect = lambda **kwargs: first_probe_wait()
+                target = next(line for line in Path(command[1]).read_text().splitlines() if line.startswith('finger1='))
+                effect = ' effect={ fixture_effect type=equip source=item driver=99999 }' if 'id=123' in target else ''
+                Path(options['save']).write_text(target + '\n# ilevel=289,quality=epic,stats=100haste\n')
+                amount = 101 if stat_drift and len(probe_executions) == 2 else 100
+                Path(options['output']).write_text(f'0.000 name=x slot=finger1 stats={{ +{amount} Haste }} source=Local' + effect)
             else:
                 executions.append((Path(kwargs['cwd']) / command[1]).read_text())
                 (Path(kwargs['cwd']) / 'simc_task_1_run_1.html').write_text('<html>结果</html>')
@@ -148,15 +257,28 @@ class EquipmentControlInputTests(UnitTestCase):
             consumer.execute_job({
                 'run_id': 1, 'lease_token': 'test', 'input': code,
                 'input_hash': hashlib.sha256(code.encode()).hexdigest(),
-                'output_filename': 'simc_task_1_run_1.html', 'timeout_seconds': 120,
-                'lease_expires_at': '2999-01-01T00:00:00+00:00',
+                'output_filename': 'simc_task_1_run_1.html', 'timeout_seconds': job_seconds,
+                'lease_expires_at': expiry,
             })
+        self.assertEqual(len(probe_executions), probes)
+        if expected is None:
+            consumer._complete.assert_not_called()
+            self.assertEqual(executions, [])
+            return consumer
+        self.assertEqual(consumer._complete.call_count, 1)
+        self.assertEqual(consumer._complete.call_args.args[3], expected)
+        if expected == 'failed':
+            self.assertEqual(executions, [])
+            self.assertIn('不一致', consumer._complete.call_args.args[5])
+            return consumer
         self.assertEqual(len(executions), 1)
         self.assertIn('finger1=lmonitor_effect_control,', executions[0])
-        self.assertNotIn('id=123', executions[0])
+        executable_input = '\n'.join(line for line in executions[0].splitlines() if not line.startswith('#'))
+        self.assertNotIn('id=123', executable_input)
         self.assertNotIn(MARKER, executions[0])
         self.assertEqual(consumer._complete.call_args.args[3], 'completed')
-        self.assertEqual(consumer.transport.json.call_count, 3)
+        self.assertEqual(consumer.transport.json.call_count, heartbeat_count)
+        return consumer
 
     def test_native_export_preserves_resolved_armor_gems_and_weapon(self):
         profile = ('main_hand=real_weapon,id=123,ilevel=300,enchant_id=42\n'
@@ -179,11 +301,19 @@ class EquipmentControlInputTests(UnitTestCase):
         self.assertEqual(prepare_control_input('unchanged', '', ''), 'unchanged')
 
     def test_control_options_cannot_be_forged_for_trinkets(self):
-        with self.assertRaises(TaskCreationError):
-            _normalize_candidates([{'candidate_params': {
-                'candidate_type': 'gear_swap', 'equipment_effect_control': True,
-                'gear_swap': {'slot': 'trinket1'},
-            }}])
+        for swaps in ({'gear_swap': {'slot': 'trinket1'}},
+                      {'gear_swaps': [{'slot': 'trinket2'}]}):
+            with self.subTest(swaps=swaps), self.assertRaises(TaskCreationError):
+                _normalize_candidates([{'candidate_params': {
+                    'candidate_type': 'gear_swap', 'equipment_effect_control': True,
+                    **swaps,
+                }}])
+
+    def test_control_options_accept_real_weapon_trinket_combination(self):
+        params = {'candidate_type': 'gear_swap', 'equipment_effect_control': True,
+                  'gear_swaps': [{'slot': 'main_hand'}, {'slot': 'trinket1'}]}
+        result = _normalize_candidates([{'candidate_params': params}])
+        self.assertEqual(result[0]['candidate_params'], params)
 
 
 class EquipmentControlBenchmarkTests(TestCase):
@@ -218,6 +348,72 @@ class EquipmentControlBenchmarkTests(TestCase):
         self.panel.is_public = True
         self.panel.save(update_fields=['is_public'])
         return execution
+
+    def test_embellishment_result_names_use_central_effect_not_carrier(self):
+        from botend.services.simc_benchmark_execution import summarize_execution
+        season = SeasonMeta.objects.create(
+            season_key='embellishment-display', season_name='Embellishment Display',
+            mplus_zone_id=1, raid_zone_id=2, is_active=True,
+            gear_batch_key='current', game_build='12.1.0.69933')
+        carrier = WowItemSnapshot.objects.get(item_id=239660)
+        carrier.name_zh = '测试载体护腕'
+        carrier.description_zh = '腕部 板甲\n+100 急速'
+        carrier.slot_key = 'wrists'
+        # Synthetic recipe IDs, but real central rows and the shared recipe gate.
+        carrier.metadata.update(crafting_reagent_slot_ids=[202],
+                                crafting_profession_id=164, crafting_recipe_spell_id=239660)
+        carrier.save()
+        WowItemVariantSnapshot.objects.create(
+            item=carrier, season=season, batch_key=season.gear_batch_key,
+            game_build=season.game_build, variant_key='crafted-wrists-334',
+            variant_type=WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+            item_level=334, compatible_slots=['wrists'], is_intrinsic_embellishment=False)
+        WowItemSnapshot.objects.filter(item_id=123).update(name_zh='普通饰品')
+        effect = ('你的法术和技能有几率吸引一只法力浮龙，使你和一名盟友获得奥纹洞察。'
+                  '奥纹洞察会提高你和盟友的主要属性。')
+        for item_id in (240166, 240167):
+            description = f'提供下列属性：{effect}'
+            if item_id == 240166:
+                description = f'附加制作材料\n+15 配方难度\n{description}\n用于：\n至暗之夜护甲配方。'
+            material = WowItemSnapshot.objects.create(
+                item_id=item_id, catalog_type='embellishment',
+                simc_token='arcanoweave_lining', name_zh='奥纹内衬',
+                description_zh=description)
+            WowItemVariantSnapshot.objects.create(
+                item=material, season=season, batch_key=season.gear_batch_key,
+                game_build=season.game_build, variant_key=str(item_id),
+                variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
+                bonus_ids=[8960, 12384], compatible_slots=['wrists'],
+                metadata={'reagent_slot_ids': [202]})
+        for option in ('bonus_id=12384', 'embellishment=arcanoweave_lining'):
+            with self.subTest(option=option):
+                self.ring.params = _normalize_candidate_params(
+                    'gear_swap', f'wrists=,id=239660,ilevel=334,{option}')
+                self.ring.label = '旧候选名不应作为美化身份'
+                self.ring.save()
+                execution = self.finish()
+                frozen = deepcopy(execution.config_snapshot)
+                live = serialize_incremental_panel_results(self.panel)
+                public = serialize_public_execution(self.panel)
+                summary = summarize_execution(execution)
+                for rows in (live['coordinates'][0]['candidates'],
+                             public['execution']['cases'][0]['candidates'],
+                             summary['cases'][0]['runs']):
+                    label = next(row['label'] for row in rows if row['key'] == 'ring')
+                    self.assertEqual(label, '美化：奥纹内衬')
+                row = next(row for row in live['coordinates'][0]['candidates'] if row['key'] == 'ring')
+                self.assertEqual(row['tooltip'], effect)
+                self.assertEqual(row['effect'], effect)
+                public_row = next(row for row in public['execution']['cases'][0]['candidates'] if row['key'] == 'ring')
+                self.assertEqual(public_row['effect'], effect)
+                self.assertNotIn('测试载体护腕', row['tooltip'])
+                self.assertNotIn('配方难度', row['tooltip'])
+                self.assertEqual(row['dps'], 1600)
+                self.assertEqual(row['baseline_dps'], 1500)
+                self.assertEqual(next(row['label'] for row in live['coordinates'][0]['candidates']
+                                      if row['key'] == 'trinket'), '普通饰品')
+                execution.refresh_from_db()
+                self.assertEqual(execution.config_snapshot, frozen)
 
     def test_slot_aliases_save_and_freeze_controls_without_execution(self):
         import base64
@@ -310,7 +506,7 @@ class EquipmentControlBenchmarkTests(TestCase):
         self.assertEqual(_normalize_candidate_params('gear_swap', params), params)
         self.assertEqual({row['slot'] for row in params['gear_swaps']}, {'wrist', 'back'})
         for invalid in ('wrists=,id=123,ilevel=289\nwrists=,id=456,ilevel=289',
-                        'wrists=,id=123,ilevel=289\ntrinket1=,id=456,ilevel=289',
+                        'wrists=,id=123,ilevel=289\ninvalid_slot=,id=456,ilevel=289',
                         'wrists=,id=123,ilevel=289\nback=,id=456,ilevel=289,output=secret'):
             from django.core.exceptions import ValidationError
             with self.assertRaises(ValidationError):
@@ -403,24 +599,112 @@ class EquipmentControlBenchmarkTests(TestCase):
         self.assertIn(control_key('ring'), [row['key'] for row in execution.config_snapshot['candidates']])
         self.assertNotIn('equipment_effect_control', str(historical))
 
+    def test_supplement_requires_verified_effect_pair_without_changing_old_results(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        from botend.models import SimulationRun
+        from botend.services import simc_benchmark_execution as service
+
+        original = self.finish()
+        task = original.cases.get().task
+        plan = service.build_execution_plan(self.panel, lock=False)
+        for coordinate in plan['cases']:
+            coordinate['resource_version_hashes'] = service._task_resource_version_hashes(task)
+        before_runs = list(task.simulation_runs.order_by('pk').values())
+        before_display = serialize_incremental_panel_results(self.panel)
+        pair_keys = {'ring', control_key('ring')}
+        with CaptureQueriesContext(connection) as queries:
+            missing = service._incremental_coordinates(self.panel, plan)
+        self.assertEqual({c['candidate_key'] for c in missing[0]['candidates']}, pair_keys)
+        validation_sql = [q['sql'] for q in queries if 'equipment_effect_validation' in q['sql']]
+        self.assertEqual(len(validation_sql), 1)
+        self.assertIn('JSON', validation_sql[0])
+        self.assertNotIn('"candidate_params"', validation_sql[0])
+        self.assertEqual(serialize_incremental_panel_results(self.panel), before_display)
+        self.assertEqual(list(task.simulation_runs.order_by('pk').values()), before_runs)
+
+        valid = {'status': 'valid', 'valid': True, 'validation_basis': 'native_structure',
+                 'event_status': 'unverified', 'reason_codes': []}
+        normal = task.simulation_runs.get(candidate_key='ring')
+        control = task.simulation_runs.get(candidate_key=control_key('ring'))
+        for evidence in (None, {}, 'malformed', {'status': 'invalid'}, {'status': 'unverified'}):
+            with self.subTest(evidence=evidence):
+                for run, proof in ((normal, valid), (control, evidence)):
+                    summary = {**run.result_summary, 'equipment_effect_validation': proof}
+                    SimulationRun.objects.filter(pk=run.pk).update(result_summary=summary)
+                rows = service._incremental_coordinates(self.panel, plan)
+                self.assertEqual({c['candidate_key'] for c in rows[0]['candidates']}, pair_keys)
+        for run in (normal, control):
+            SimulationRun.objects.filter(pk=run.pk).update(
+                result_summary={**run.result_summary, 'equipment_effect_validation': valid})
+        self.assertEqual(service._incremental_coordinates(self.panel, plan), [])
+
+        # A bound conditional witness is reusable only as a pair, not by each
+        # side's pair_pending status; use actual validator output from evidence.
+        import gzip
+        import json
+        from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+        from botend.tests.test_simc_conditional_core import fixture
+        raw = json.loads(gzip.decompress((Path(__file__).with_name('fixtures') /
+            'conditional_run2_evidence.json.gz').read_bytes()))['sides']
+        _, _, authorization = fixture()
+        proofs = {}
+        for mode, run in (('normal', normal), ('control', control)):
+            side = raw[mode]
+            proofs[mode] = validate_equipment_effect_report(side['html'], side['params'],
+                native_proof=side['proof'], prepared_input=side['prepared'],
+                report_json=side['report'], conditional_authorization=authorization)
+            self.assertEqual(proofs[mode]['status'], 'pair_pending')
+            SimulationRun.objects.filter(pk=run.pk).update(result_summary={
+                **run.result_summary, 'equipment_effect_validation': proofs[mode]})
+        self.assertEqual(service._incremental_coordinates(self.panel, plan), [])
+        proofs['control']['conditional_witness']['context_hash'] = 'wrong-context'
+        SimulationRun.objects.filter(pk=control.pk).update(result_summary={
+            **control.result_summary, 'equipment_effect_validation': proofs['control']})
+        self.assertEqual({c['candidate_key'] for c in
+            service._incremental_coordinates(self.panel, plan)[0]['candidates']}, pair_keys)
+
+        # Fresh attempts replace the display only through the normal completion
+        # path. Legacy immutable rows are not backfilled to manufacture evidence.
+        task.simulation_runs.filter(pk__in=[normal.pk, control.pk]).update(result_summary={'dps': 1600})
+        original_rows = list(task.simulation_runs.order_by('pk').values())
+        supplement = self._create()
+        new_task = supplement.cases.get().task
+        self.assertEqual({c['candidate_key'] for c in new_task.mode_params['initial_candidates']}, pair_keys)
+        for seq, key in enumerate(('ring', control_key('ring')), 1):
+            self._run(new_task, seq, 'completed', key, dps=1600 if key == 'ring' else 1500)
+        for run in new_task.simulation_runs.all():
+            run.result_summary['equipment_effect_validation'] = valid
+            run.save(update_fields=['result_summary'])
+        new_task.current_status = 2
+        new_task.save(update_fields=['current_status'])
+        reconcile_execution(supplement)
+        self.assertEqual(service._incremental_coordinates(self.panel, plan), [])
+        self.assertEqual(list(task.simulation_runs.order_by('pk').values()), original_rows)
+        changed = deepcopy(plan)
+        changed['cases'][0]['resource_version_hashes']['apl'] = 'b' * 64
+        self.assertEqual(len(service._incremental_coordinates(self.panel, changed)[0]['candidates']),
+                         len(plan['cases'][0]['candidates']))
+
     def test_missing_control_is_not_compared_with_common_baseline_and_is_supplemented(self):
         self.finish(fail_control=True)
         live = serialize_incremental_panel_results(self.panel)
         self.assertNotIn('ring', [row['key'] for row in live['coordinates'][0]['candidates']])
         supplement = self._create()
         task = supplement.cases.get().task
-        self.assertEqual([row['candidate_key'] for row in task.mode_params['initial_candidates']],
-                         [control_key('ring')])
+        self.assertEqual({row['candidate_key'] for row in task.mode_params['initial_candidates']},
+                         {'ring', control_key('ring')})
         task.current_status = 2
         task.save(update_fields=['current_status'])
-        self._run(task, 1, 'completed', control_key('ring'), dps=1500)
+        self._run(task, 1, 'completed', 'ring', dps=1600)
+        self._run(task, 2, 'completed', control_key('ring'), dps=1500)
         reconcile_execution(supplement)
         rows = serialize_incremental_panel_results(self.panel)['coordinates'][0]['candidates']
         ring = next(row for row in rows if row['key'] == 'ring')
         self.assertEqual(ring['baseline_dps'], 1500)
         self.assertEqual(ring['gain_dps'], 100)
 
-    def test_combination_failed_control_is_supplemented_without_rerunning_successful_items(self):
+    def test_combination_failed_control_supplements_pair_without_unrelated_items(self):
         self.ring.params = _normalize_candidate_params('gear_swap',
             'wrists=,id=239660,ilevel=289,crafted_stats=crit/haste\n'
             'back=,id=239661,ilevel=289,crafted_stats=crit/haste')

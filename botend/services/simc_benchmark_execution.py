@@ -14,7 +14,7 @@ from datetime import timezone as datetime_timezone
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Count, Func, JSONField, Prefetch, Q
 from django.utils import timezone
 
 from botend.constants.hero_talents import (
@@ -36,6 +36,8 @@ from botend.services.simc_benchmark_config import (
 from botend.services.simc_composer import (
     SIMC_CLASS_RAID_BUFFS, SIMC_EXTRA_OPTIONS,
 )
+from botend.services.simc_benchmark_noise_display import apply_noise_display
+from botend.services.simc_benchmark_result_evidence import load_candidate_result_evidence
 from botend.services.simc_consumables import simc_consumable_option
 from botend.services.simc_player_config import parse_manual_player_config
 from botend.services.simc_task_service import (
@@ -43,6 +45,15 @@ from botend.services.simc_task_service import (
     _compute_content_hash, create_task, prepare_task_creation,
 )
 from botend.services.wow_item_display import load_item_tooltip_metadata
+
+
+def _identity_display_context(swap):
+    ref = swap.get('item_identity')
+    if ref:
+        return {'item_identity': ref, 'game_build': ref['game_build'], 'is_ptr': ref['is_ptr']}
+    # An old frozen candidate is not retroactively assigned today's identity.
+    return {'legacy_identity': True, **{key: swap[key] for key in ('game_build', 'is_ptr') if key in swap}}
+
 from botend.services.task_rerun import create_rerun, TaskRerunError
 from botend.services.simc_benchmark_targeting import select_rerun_coordinates
 from botend.wow.talents.default_versions import DEFAULT_TALENT_VERSIONS
@@ -292,10 +303,17 @@ def _preflight_error(coordinate, exc):
 
 def _candidate_input_identity(candidate):
     """Only executable candidate input participates in cross-execution reuse."""
+    params = candidate.get('candidate_params')
+    candidate_type = candidate.get('candidate_type')
+    # Retry manifests contain normalized execution candidates: the type lives
+    # inside their frozen params, not at the original planning envelope level.
+    # Preserve explicit types (including invalid/conflicting values) verbatim.
+    if 'candidate_type' not in candidate and isinstance(params, dict):
+        candidate_type = params.get('candidate_type')
     return _canonical_hash({
         'key': candidate.get('candidate_key'),
-        'candidate_type': candidate.get('candidate_type'),
-        'candidate_params': candidate.get('candidate_params'),
+        'candidate_type': candidate_type,
+        'candidate_params': params,
     })
 
 
@@ -377,6 +395,92 @@ def _candidate_bonus_ids(candidate):
     return tuple(sorted(normalized))
 
 
+def _embellishment_result_display(candidates):
+    """Resolve the selected effect, not its carrier, from canonical item facts."""
+    from botend.models import WowItemSnapshot, WowItemVariantSnapshot
+    from botend.services.wow_item_text import crafting_property_text
+    from simc_equipment_control import equipment_rules
+
+    selected, token_bonuses = {}, {}
+    for candidate in candidates:
+        params = candidate.get('candidate_params', candidate.get('params')) or {}
+        swap = params.get('gear_swap')
+        if (not isinstance(swap, dict) or params.get('gear_swaps')
+                or params.get('equipment_effect_control')):
+            continue
+        rules = (params.get('equipment_effect_policy') or {}).get('rules') or equipment_rules()
+        bonuses = set(_candidate_bonus_ids({'candidate_params': params}))
+        tokens = {token for token, rule in rules.get('embellishments', {}).items()
+                  if rule.get('bonus_id') in bonuses}
+        explicit = re.search(r'(?:^|,)\s*embellishment=([a-z0-9_]+)(?=,|$)',
+                             str(swap.get('raw_value') or ''))
+        if explicit:
+            tokens.add(explicit.group(1))
+        if tokens:
+            selected[candidate.get('candidate_key', candidate.get('key'))] = sorted(tokens)
+            for token in tokens:
+                bonus = rules.get('embellishments', {}).get(token, {}).get('bonus_id')
+                # 8960 is the shared embellishment marker, not an effect identity.
+                if isinstance(bonus, int) and bonus > 0 and bonus != 8960:
+                    token_bonuses.setdefault(token, set()).add(bonus)
+    if not selected:
+        return {}
+    fields = ('simc_token', 'name_zh', 'name', 'description_zh', 'description')
+    rows = list(WowItemSnapshot.objects.filter(
+        catalog_type='embellishment',
+        simc_token__in={token for tokens in selected.values() for token in tokens},
+    ).values(*fields))
+    direct_tokens = {row['simc_token'] for row in rows}
+    missing = {token: next(iter(bonuses)) for token, bonuses in token_bonuses.items()
+               if token not in direct_tokens and len(bonuses) == 1}
+    if missing:
+        # Deduplicate historical batches before a bounded, small identity read.
+        # Never resolve from a truncated catalog: that could hide ambiguity.
+        variants = list(WowItemVariantSnapshot.objects.filter(
+            variant_type=WowItemVariantSnapshot.TYPE_EMBELLISHMENT,
+            item__catalog_type='embellishment',
+        ).order_by().values('item_id', 'bonus_ids').distinct()[:2001])
+        item_tokens = {}
+        if len(variants) <= 2000:
+            for variant in variants:
+                for token, bonus in missing.items():
+                    if bonus in (variant['bonus_ids'] or []):
+                        item_tokens.setdefault(variant['item_id'], set()).add(token)
+        if item_tokens:
+            for row in WowItemSnapshot.objects.filter(
+                pk__in=item_tokens, catalog_type='embellishment',
+            ).values('pk', *fields):
+                for token in item_tokens[row['pk']]:
+                    rows.append({**row, 'simc_token': token})
+    names, effects = {}, {}
+    for row in rows:
+        name = str(row['name_zh'] or row['name'] or '').strip()
+        if name:
+            names.setdefault(row['simc_token'], set()).add(name)
+        for field in ('description_zh', 'description'):
+            text = crafting_property_text(row[field])
+            if text:
+                effects.setdefault(row['simc_token'], {}).setdefault(field, set()).add(text)
+    # Missing or ambiguous localized facts retain the exact effect token.
+    resolved = {token: next(iter(values)) for token, values in names.items() if len(values) == 1}
+    descriptions = {}
+    for token, localized in effects.items():
+        values = localized.get('description_zh') or localized.get('description', set())
+        compact = {text: re.sub(r'\s+', '', text) for text in values}
+        # Quality rows often contain a shortened translation or different line
+        # breaks. Keep an existing complete body only when every other body is
+        # identical or its whole-sentence prefix; numerical conflicts still fail.
+        complete = max(values, key=lambda text: (len(compact[text]), len(text), text))
+        if all(compact[text] == compact[complete] or (
+                compact[complete].startswith(compact[text])
+                and re.search(r'[。.!！?？]$', text)) for text in values):
+            descriptions[token] = complete
+    return {key: {
+        'label': '美化：' + ' ＋ '.join(resolved.get(token, token) for token in tokens),
+        'tooltip': '\n\n'.join(descriptions.get(token, '美化特效说明暂无可用数据') for token in tokens),
+    } for key, tokens in selected.items()}
+
+
 def _candidate_item_variant_key(candidate):
     """同装等组合共用装等分组；混合装等组合保持完整身份。"""
     params = deepcopy(candidate.get('candidate_params'))
@@ -432,10 +536,7 @@ def _candidate_display_tooltip(display, candidate):
     return f'{current}\n{effect_suffix}'
 
 
-def _task_candidate_identities(task):
-    mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
-    manifest = mode_params.get('request_manifest') if isinstance(mode_params, dict) else None
-    candidates = manifest.get('candidates') if isinstance(manifest, dict) else None
+def _candidate_identities_from_candidates(candidates):
     if not isinstance(candidates, list):
         return {}
     return {
@@ -443,6 +544,44 @@ def _task_candidate_identities(task):
         for candidate in candidates
         if isinstance(candidate, dict) and isinstance(candidate.get('candidate_key'), str)
     }
+
+
+def _task_candidate_identities(task):
+    mode_params = task.mode_params if isinstance(task.mode_params, dict) else {}
+    manifest = mode_params.get('request_manifest')
+    candidates = manifest.get('candidates') if isinstance(manifest, dict) else None
+    return _candidate_identities_from_candidates(candidates)
+
+
+def _load_task_candidate_identity_rows(task_ids):
+    """Return {id: {source_task_id, identities: {candidate_key: hash}}}.
+
+    Include all available provenance ancestors, without retaining Task models or
+    decoded manifests. Each SQL read hydrates at most 20 candidate arrays, even
+    with buffered database drivers; missing ancestors and cycles terminate safely.
+    """
+    from itertools import islice
+    from django.db.models.fields.json import KeyTransform
+
+    rows = {}
+    pending = set(task_ids)
+    attempted = set()
+    while pending:
+        batch = list(islice(pending, 20))
+        pending.difference_update(batch)
+        attempted.update(batch)
+        loaded = SimcTask.objects.filter(pk__in=batch).order_by().annotate(
+            frozen_candidates=KeyTransform(
+                'candidates', KeyTransform('request_manifest', 'mode_params'),
+            ),
+        ).values('id', 'source_task_id', 'frozen_candidates')
+        for row in loaded:
+            identities = _candidate_identities_from_candidates(row.pop('frozen_candidates'))
+            source_id = row['source_task_id']
+            rows[row['id']] = {'source_task_id': source_id, 'identities': identities}
+            if source_id and source_id not in attempted:
+                pending.add(source_id)
+    return rows
 
 
 def _task_candidate_identities_through_source_chain(task):
@@ -525,15 +664,20 @@ def _latest_source_tasks_by_coordinate(panel, coordinate_filter=None):
             if value:
                 case_filters[key] = str(value)
     cases = SimcBenchmarkCase.objects.filter(**case_filters)
-    cases = cases.select_related(
-        'task', 'task__profile_version', 'task__talent_version', 'execution',
-    ).order_by(
-        '-execution_id', '-id',
-    )
+    # Only the newest Task reference per coordinate is kept. Do not retain
+    # historical executable JSON or hydrate resource payloads before it wins.
+    cases = cases.exclude(
+        execution__status=SimcBenchmarkExecution.STATUS_CANCELLED,
+    ).exclude(execution__in=SimcBenchmarkExecution.objects.filter(
+        panel_id=panel.pk, config_snapshot__result_publication='atomic_targeted',
+    ).exclude(status=SimcBenchmarkExecution.STATUS_SUCCESS)).select_related(
+        'task', 'task__profile_version', 'task__talent_version',
+    ).defer(
+        'task__mode_params', 'task__analysis_result', 'task__result_summary', 'task__ext',
+        'task__profile_version__payload', 'task__talent_version__payload',
+    ).order_by('-execution_id', '-id')
     source_tasks = {}
-    for case in cases:
-        if not _execution_contributes_to_projection(case.execution):
-            continue
+    for case in cases.iterator(chunk_size=20):
         task = case.task
         coordinate = _coordinate_input_identity({
             'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
@@ -690,35 +834,67 @@ def _reusable_candidate_tasks_by_coordinate(
                         matches[identity] = {'task_id': task_id}
         return coordinates
     else:
-        cases = cases.select_related(
+        # Result provenance needs candidate identities, not the complete executable
+        # Task and resource payloads. Keep historical scans bounded and hydrate
+        # frozen resource payloads only when a winning row is rendered below.
+        cases = cases.exclude(
+            execution__status=SimcBenchmarkExecution.STATUS_CANCELLED,
+        ).select_related(
             'task', 'task__profile_version', 'task__apl_version',
-            'task__template_version', 'task__talent_version', 'execution',
+            'task__template_version', 'task__talent_version',
+        ).defer(
+            'task__mode_params', 'task__analysis_result',
+            'task__result_summary', 'task__ext',
+            'task__profile_version__payload', 'task__apl_version__payload',
+            'task__template_version__payload', 'task__talent_version__payload',
         ).prefetch_related('results')
-    cases = cases.order_by('-execution_id', '-id').distinct()
-    for case in cases:
-        if not _execution_contributes_to_projection(case.execution):
-            continue
-        task = case.task
-        if task is None:
-            continue
-        coordinate_payload = {
-            'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
-            'profile_key': case.profile_key, 'profile_id': task.profile_id,
-            'apl_id': task.apl_id, 'template_id': task.template_id,
-            'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
-        }
-        if include_resource_versions:
-            coordinate_payload['resource_version_hashes'] = _task_resource_version_hashes(task)
-        coordinate = _coordinate_input_identity(
-            coordinate_payload, include_resource_versions=include_resource_versions,
-        )
-        candidates = coordinates.setdefault(coordinate, {})
-        identities = _task_candidate_identities_through_source_chain(task)
-        for result in case.results.all():
-            identity = identities.get(result.candidate_key)
-            if identity and identity not in candidates:
-                candidates[identity] = {'task': task, 'result': result}
-    return coordinates
+        last_execution_id = last_case_id = None
+        while True:
+            page = cases
+            if last_execution_id is not None:
+                page = page.filter(
+                    Q(execution_id__lt=last_execution_id)
+                    | Q(execution_id=last_execution_id, id__lt=last_case_id)
+                )
+            batch = list(page.order_by('-execution_id', '-id').distinct()[:20])
+            if not batch:
+                break
+            last_execution_id, last_case_id = batch[-1].execution_id, batch[-1].pk
+            identity_rows = _load_task_candidate_identity_rows(
+                {case.task_id for case in batch if case.task_id is not None},
+            )
+            for case in batch:
+                task = case.task
+                if task is None:
+                    continue
+                coordinate_payload = {
+                    'spec_key': case.spec_key, 'scenario_key': case.scenario_key,
+                    'profile_key': case.profile_key, 'profile_id': task.profile_id,
+                    'apl_id': task.apl_id, 'template_id': task.template_id,
+                    'backend_id': task.backend_id, 'simulation_params': task.simulation_params or {},
+                }
+                if include_resource_versions:
+                    coordinate_payload['resource_version_hashes'] = _task_resource_version_hashes(task)
+                coordinate = _coordinate_input_identity(
+                    coordinate_payload, include_resource_versions=include_resource_versions,
+                )
+                chain, seen, current_id = [], set(), task.pk
+                while current_id is not None and current_id not in seen:
+                    seen.add(current_id)
+                    frozen = identity_rows.get(current_id)
+                    if frozen is None:
+                        break
+                    chain.append(frozen)
+                    current_id = frozen['source_task_id']
+                identities = {}
+                for frozen in reversed(chain):
+                    identities.update(frozen['identities'])
+                candidates = coordinates.setdefault(coordinate, {})
+                for result in case.results.all():
+                    identity = identities.get(result.candidate_key)
+                    if identity and identity not in candidates:
+                        candidates[identity] = {'task': task, 'result': result}
+        return coordinates
 
 
 def _candidate_raw_report_urls(reusable_by_coordinate):
@@ -734,7 +910,9 @@ def _candidate_raw_report_urls(reusable_by_coordinate):
         task_id__in=task_ids,
         run_id__isnull=False,
         artifact_type='html_report',
-    ).select_related('run').order_by('-created_at', '-id')
+    ).select_related('run').only(
+        'id', 'task_id', 'run_id', 'file_path', 'run__id', 'run__candidate_key',
+    ).order_by('-created_at', '-id')
     for artifact in artifacts:
         lookup = (artifact.task_id, artifact.run.candidate_key)
         if lookup in urls:
@@ -751,18 +929,112 @@ def _candidate_raw_report_urls(reusable_by_coordinate):
 
 
 def _candidate_source_run(task, candidate_key):
-    """Resolve the actual immutable Run through the retry provenance chain."""
-    current = task
+    """Resolve baseline audit evidence without retaining ancestor Task payloads."""
+    from django.db.models.fields.json import KeyTransform
+
+    current_id = task.pk if task is not None else None
     seen = set()
-    while current is not None and current.pk not in seen:
-        seen.add(current.pk)
+    while current_id is not None and current_id not in seen:
+        seen.add(current_id)
         run = SimulationRun.objects.filter(
-            task_id=current.pk, candidate_key=candidate_key, status='completed',
+            task_id=current_id, candidate_key=candidate_key, status='completed',
+        ).only('id', 'task_id').annotate(
+            frozen_backend_version=KeyTransform('backend_version', 'resource_manifest'),
         ).order_by('-sequence', '-id').first()
         if run is not None:
             return run
-        current = current.source_task
+        current_id = (
+            task.source_task_id if current_id == task.pk else
+            SimcTask.objects.filter(pk=current_id).order_by().values_list(
+                'source_task_id', flat=True,
+            ).first()
+        )
     return None
+
+
+def _apply_conditional_result_display(row, params):
+    """Describe frozen roles, never infer standalone gain from a combination."""
+    policy = params.get('equipment_effect_policy') or {}
+    if policy.get('version') != 3 or policy.get('comparison_kind') != 'conditional_increment':
+        return
+    context = '、'.join(policy['context_slots'])
+    changed = '、'.join(policy['changed_slots'])
+    comparison_label = f'固定 {context}；{changed} 条件增量'
+    suffix = f'（{comparison_label}）'
+    if not row['label'].endswith(suffix):
+        row['label'] += suffix
+    row.update({
+        'comparison_kind': 'conditional_increment',
+        'comparison_label': comparison_label,
+        'comparison_baseline_label': f'保留 {context} 特效，仅关闭 {changed} 特效',
+        'context_slots': list(policy['context_slots']),
+        'changed_slots': list(policy['changed_slots']),
+    })
+
+
+def _display_equipment_effect_gain(gain_percent):
+    """Display floor only; raw DPS/gain and immutable simulation evidence stay intact."""
+    if gain_percent is None:
+        return None
+    return gain_percent if gain_percent >= 0.1 else 0.0
+
+
+def _paired_effect_validation(normal, control):
+    if any(side.get('status') == 'pair_pending' or 'conditional_witness' in side
+           for side in (normal, control)):
+        from simc_equipment_conditional import validate_pair_witness
+        return validate_pair_witness(normal, control)
+    if normal.get('status') == 'valid' and control.get('status') == 'valid':
+        return normal
+    failed = normal if normal.get('status') != 'valid' else control
+    status = 'invalid' if 'invalid' in (normal.get('status'), control.get('status')) else 'unverified'
+    return {**failed, 'status': status, 'valid': False if status == 'invalid' else None,
+            'reason': failed.get('reason') or 'effect_pair_not_verified',
+            'normal_status': normal.get('status'), 'control_status': control.get('status')}
+
+
+def _equipment_effect_validations(requests):
+    """Read only frozen summary subkeys, resolving supplemented source chains in batches.
+
+    DPS and lifecycle still come exclusively from immutable aggregate Results.
+    Missing legacy validation is unknown; never re-download or infer from metadata.
+    """
+    from django.db.models.fields.json import KeyTransform
+
+    unknown = {'schema_version': 1, 'status': 'unverified', 'valid': None,
+               'reason': 'equipment_effect_validation_missing',
+               'reason_codes': ['equipment_effect_validation_missing']}
+    resolved = {request: deepcopy(unknown) for request in requests}
+    pending = {request: request[0] for request in resolved if request[0] is not None}
+    seen = {request: set() for request in pending}
+    while pending:
+        task_ids = set(pending.values())
+        keys = {request[1] for request in pending}
+        rows = SimulationRun.objects.filter(
+            task_id__in=task_ids, candidate_key__in=keys, status='completed',
+        ).annotate(
+            frozen_effect_validation=KeyTransform('equipment_effect_validation', 'result_summary'),
+        ).order_by('task_id', 'candidate_key', '-sequence', '-id').values_list(
+            'task_id', 'candidate_key', 'frozen_effect_validation',
+        )
+        latest = {}
+        for task_id, key, validation in rows:
+            latest.setdefault((task_id, key), validation)
+        remaining = {}
+        for request, task_id in pending.items():
+            seen[request].add(task_id)
+            if (task_id, request[1]) in latest:
+                validation = latest[(task_id, request[1])]
+                if isinstance(validation, dict) and validation.get('status') in ('valid', 'invalid', 'unverified', 'pair_pending'):
+                    resolved[request] = deepcopy(validation)
+            else:
+                remaining[request] = task_id
+        parents = dict(SimcTask.objects.filter(pk__in=set(remaining.values())).values_list(
+            'pk', 'source_task_id',
+        )) if remaining else {}
+        pending = {request: parents[task_id] for request, task_id in remaining.items()
+                   if parents.get(task_id) is not None and parents[task_id] not in seen[request]}
+    return resolved
 
 
 def _reusable_candidate_tasks(
@@ -779,7 +1051,7 @@ def _reusable_candidate_tasks(
 
 
 def _incremental_coordinates(panel, plan):
-    """Schedule only candidate input identities absent from immutable successful results."""
+    """Supplement missing results and effect pairs without frozen validation."""
     rows = []
     reusable_by_coordinate = _reusable_candidate_tasks_by_coordinate(
         panel, include_resource_versions=True, coordinate_plans=plan['cases'],
@@ -788,8 +1060,37 @@ def _incremental_coordinates(panel, plan):
         reusable = _reusable_candidate_tasks(
             panel, coordinate, reusable_by_coordinate, include_resource_versions=True,
         )
+        # A DPS Result is sufficient for display continuity, not proof that an
+        # effect pair can be skipped. Never tighten the shared display/cleanup
+        # lookup: only execution planning requires verified paired evidence.
+        definitions = {c['candidate_key']: c for c in coordinate['candidates']}
+        repair_keys, pairs, requests = set(), [], set()
+        for key, candidate in definitions.items():
+            baseline_key = (candidate.get('candidate_params') or {}).get('effect_baseline_key')
+            if not baseline_key:
+                continue
+            control = definitions.get(baseline_key)
+            normal_match = reusable.get(_candidate_input_identity(candidate))
+            control_match = reusable.get(_candidate_input_identity(control)) if control else None
+            if not normal_match or not control_match:
+                repair_keys.update((key, baseline_key))
+                continue
+            normal_request = (normal_match['task'].pk, normal_match['result'].candidate_key)
+            control_request = (control_match['task'].pk, control_match['result'].candidate_key)
+            requests.update((normal_request, control_request))
+            pairs.append((key, baseline_key, normal_request, control_request))
+        validations = {}
+        requests = sorted(requests)
+        # Bound task/key cross-product queries and project only frozen proofs.
+        for offset in range(0, len(requests), 128):
+            validations.update(_equipment_effect_validations(requests[offset:offset + 128]))
+        for key, baseline_key, normal_request, control_request in pairs:
+            if _paired_effect_validation(validations[normal_request],
+                                         validations[control_request]).get('status') != 'valid':
+                repair_keys.update((key, baseline_key))
         missing = [candidate for candidate in coordinate['candidates']
-                   if _candidate_input_identity(candidate) not in reusable]
+                   if _candidate_input_identity(candidate) not in reusable
+                   or candidate['candidate_key'] in repair_keys]
         if missing:
             row = deepcopy(coordinate)
             row['candidates'] = missing
@@ -840,13 +1141,14 @@ def create_execution(panel, trigger='manual', scheduled_slot=None, requested_by=
         if winner is not None:
             return winner
     if trigger == SimcBenchmarkExecution.TRIGGER_MANUAL:
-        active = SimcBenchmarkExecution.objects.filter(
+        # Preserve the default winner ordering without sorting large JSON snapshots.
+        active_id = SimcBenchmarkExecution.objects.filter(
             panel=current_panel, completed_at__isnull=True,
-        ).first()
-        if active is not None:
+        ).values_list('pk', flat=True).first()
+        if active_id is not None:
             if execution_mode == 'targeted':
                 raise BenchmarkExecutionConflict('面板已有未完成执行，请结束后再定向重跑')
-            return active
+            return SimcBenchmarkExecution.objects.get(pk=active_id)
 
     # No row locks are held while SimC is executed. Deduplication intentionally
     # ignores scenario/candidate differences because APL validity is resource-bound.
@@ -1058,26 +1360,35 @@ def _copy_failed_runs_for_retry(source_task, rerun_task, include_completed=False
     source_runs = list(SimulationRun.objects.filter(
         task_id=source_task.pk,
     ).order_by('sequence', 'id'))
-    expected = _expected_candidate_keys(source_task) or []
+    expected = _expected_candidate_keys(source_task)
+    if expected is None:
+        _validation_error('源 Task 缺少有效冻结候选', 'execution')
+    frozen = source_task.mode_params.get('initial_candidates')
+    if not isinstance(frozen, list) or not frozen:
+        frozen = source_task.mode_params['request_manifest']['candidates']
+    frozen_by_key = {candidate['candidate_key']: candidate for candidate in frozen}
     by_key = {run.candidate_key: run for run in source_runs}
     retry_candidates, retry_runs = [], []
     for candidate_key in expected:
         run = by_key.get(candidate_key)
         if run is not None and run.status == 'completed' and not include_completed:
             continue
-        candidate = {
-            'candidate_key': candidate_key,
-            'candidate_label': run.candidate_label if run else candidate_key,
-            'round_number': run.round_number if run else 1,
-            'candidate_params': deepcopy(run.candidate_params) if run else {},
-            'display_metadata': deepcopy(run.display_metadata) if run else {},
-        }
+        # Unmaterialized work must retain the exact frozen request, not empty
+        # params. Existing Runs remain the authority for claim-time frozen data.
+        candidate = deepcopy(frozen_by_key[candidate_key])
+        if run is not None:
+            candidate.update(
+                candidate_label=run.candidate_label, round_number=run.round_number,
+                candidate_params=deepcopy(run.candidate_params),
+                display_metadata=deepcopy(run.display_metadata),
+            )
         retry_candidates.append(candidate)
         retry_runs.append(SimulationRun(
             task=rerun_task, sequence=len(retry_runs) + 1, status='pending',
-            candidate_key=candidate_key, candidate_label=candidate['candidate_label'],
-            round_number=candidate['round_number'], candidate_params=candidate['candidate_params'],
-            display_metadata=candidate['display_metadata'],
+            candidate_key=candidate_key, candidate_label=candidate.get('candidate_label', candidate_key),
+            round_number=candidate.get('round_number', 1),
+            candidate_params=candidate.get('candidate_params', {}),
+            display_metadata=candidate.get('display_metadata', {}),
         ))
     if not retry_runs:
         _validation_error('失败子任务没有可重跑的 Run', 'execution')
@@ -1476,27 +1787,7 @@ def _reusable_result_counts_for_plans(panels, plans):
         'case__task__simulation_params',
     ).order_by('-case__execution_id', '-case_id', '-id'))
     task_ids = {row['case__task_id'] for row in results}
-    tasks = {
-        task.pk: task
-        for task in SimcTask.objects.filter(pk__in=task_ids).only(
-            'id', 'source_task_id', 'mode_params',
-        )
-    }
-    missing_source_ids = {
-        task.source_task_id for task in tasks.values()
-        if task.source_task_id and task.source_task_id not in tasks
-    }
-    while missing_source_ids:
-        loaded = list(SimcTask.objects.filter(pk__in=missing_source_ids).only(
-            'id', 'source_task_id', 'mode_params',
-        ))
-        if not loaded:
-            break
-        tasks.update((task.pk, task) for task in loaded)
-        missing_source_ids = {
-            task.source_task_id for task in loaded
-            if task.source_task_id and task.source_task_id not in tasks
-        }
+    tasks = _load_task_candidate_identity_rows(task_ids)
 
     identity_cache = {}
 
@@ -1512,10 +1803,10 @@ def _reusable_result_counts_for_plans(panels, plans):
             if task is None:
                 break
             chain.append(task)
-            current_id = task.source_task_id
+            current_id = task['source_task_id']
         identities = {}
         for task in reversed(chain):
-            identities.update(_task_candidate_identities(task))
+            identities.update(task['identities'])
         identity_cache[task_id] = identities
         return identities
 
@@ -1589,9 +1880,14 @@ def summarize_panel_coverage_counts(panels):
 
     # Old Panels predate aggregate_baseline_execution. Their largest frozen
     # snapshot remains the baseline denominator shown on the Dashboard.
+    from django.db.models.fields.json import KeyTransform
+
     executions_by_panel = {}
-    for row in SimcBenchmarkExecution.objects.filter(panel__in=panels).values(
-        'id', 'panel_id', 'config_snapshot',
+    for row in SimcBenchmarkExecution.objects.filter(panel__in=panels).order_by().annotate(
+        snapshot_case_count=KeyTransform('case_count', 'config_snapshot'),
+        snapshot_run_count=KeyTransform('run_count', 'config_snapshot'),
+    ).values(
+        'id', 'panel_id', 'snapshot_case_count', 'snapshot_run_count',
     ):
         executions_by_panel.setdefault(row['panel_id'], []).append(row)
 
@@ -1604,19 +1900,18 @@ def summarize_panel_coverage_counts(panels):
             selected = max(
                 rows,
                 key=lambda row: (
-                    int((row['config_snapshot'] or {}).get('run_count') or 0),
-                    int((row['config_snapshot'] or {}).get('case_count') or 0),
+                    int(row['snapshot_run_count'] or 0),
+                    int(row['snapshot_case_count'] or 0),
                     row['id'],
                 ),
                 default=None,
             )
         if selected is None:
             continue
-        snapshot = selected['config_snapshot'] if isinstance(selected['config_snapshot'], dict) else {}
         item = coverage[panel.pk]
         item['aggregate_baseline_execution_id'] = selected['id']
-        item['coordinates'] = int(snapshot.get('case_count') or 0)
-        item['candidate_runs'] = int(snapshot.get('run_count') or 0)
+        item['coordinates'] = int(selected['snapshot_case_count'] or 0)
+        item['candidate_runs'] = int(selected['snapshot_run_count'] or 0)
         item['plan_delta_runs'] = item['current_plan_runs'] - item['candidate_runs']
 
     result_counts = _reusable_result_counts_for_plans(panels, plans)
@@ -1848,12 +2143,60 @@ def _spec_icon_url(spec_key):
     return _SPEC_ICON_BY_NORMALIZED_KEY.get(normalized, '')
 
 
+def _apply_candidate_noise_display(rows, sources_by_key):
+    """Batch evidence only for numeric multi-level gear in one final coordinate.
+
+    Sources are the existing Result matches, not a new result-selection rule.
+    Keep baseline and unknown rows intact so the pure helper sees adjacency and
+    the ordinary coordinate baseline, without exposing private Run provenance.
+    """
+    groups = {}
+    for row in rows:
+        if row.get('type') != 'gear_swap' or row.get('key') == 'baseline':
+            continue
+        item_id, level = row.get('item_id'), row.get('item_level')
+        variant = row.get('item_variant_key') or row.get('equipment_group_key')
+        dps = row.get('dps')
+        if (type(item_id) is not int or item_id <= 0 or not variant
+                or type(level) is not int or level <= 0
+                or isinstance(dps, bool) or not isinstance(dps, (int, float))
+                or not math.isfinite(dps) or dps <= 0):
+            continue
+        if row.get('comparison_mode') == 'equipment_effect':
+            value = row.get('effect_delta_percent')
+            if (isinstance(value, bool) or not isinstance(value, (int, float))
+                    or not math.isfinite(value)):
+                continue
+        groups.setdefault((item_id, variant), []).append(row)
+    eligible = [row for group in groups.values()
+                if len({row['item_level'] for row in group}) > 1 for row in group]
+    requests, pairs = {}, {}
+    for row in eligible:
+        normal = sources_by_key.get(row['key'])
+        control_key = row.get('baseline_key')
+        control = sources_by_key.get(control_key) if control_key else None
+        if normal is None:
+            continue
+        normal_key = (normal[0], row['key'])
+        control_request = (control[0], control_key) if control is not None else None
+        requests[normal_key] = normal[1]
+        if control_request is not None:
+            requests[control_request] = control[1]
+        pairs[row['key']] = (normal_key, control_request)
+    evidence = load_candidate_result_evidence(requests) if requests else {}
+    apply_noise_display(rows, {
+        key: {'normal': evidence.get(normal), 'control': evidence.get(control)}
+        for key, (normal, control) in pairs.items()
+    })
+
+
 def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                         scenario_filter=None, spec_filter=None,
                                         include_coordinate_options=False,
-                                        include_details=True):
+                                        include_details=True, _prepared_plan=None):
     """Aggregate reusable Results as a light summary or full coordinate detail."""
-    plan = build_execution_plan(panel, lock=False)
+    # The background read-model builder shares one plan across bounded coordinates.
+    plan = _prepared_plan if _prepared_plan is not None else build_execution_plan(panel, lock=False)
     is_option_gain = (
         plan['panel'].get('benchmark_type')
         == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN
@@ -1898,6 +2241,8 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
     else:
         projected_cases = [] if coordinate_filter is not None else plan_cases
         selected_filter = historical_filter or None
+    embellishment_display = _embellishment_result_display(
+        [candidate for coordinate in projected_cases for candidate in coordinate['candidates']])
     display_candidates = []
     display_requests = []
     group_display_members = {}
@@ -1919,6 +2264,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     display_requests.append({'item_id': _candidate_item_id(member),
                                              'item_level': _candidate_item_level(member),
                                              'bonus_ids': _candidate_bonus_ids(member),
+                                             **_identity_display_context(swap),
                                              'spec_key': coordinate['spec_key']})
                 group_display_members[display_identity] = members
                 continue
@@ -1930,6 +2276,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 'item_id': item_id,
                 'item_level': _candidate_item_level(candidate),
                 'bonus_ids': _candidate_bonus_ids(candidate),
+                **_identity_display_context((candidate.get('candidate_params') or {}).get('gear_swap') or {}),
                 'spec_key': coordinate['spec_key'],
             })
     display_by_identity = dict(zip(
@@ -1953,6 +2300,20 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
         panel, selected_filter, summary_only=False,
         coordinate_plans=projected_cases,
     )
+    # Display continuity is resource/key based, never an execution-reuse grant.
+    # Central activation repair changes frozen executable hashes; retain the old
+    # result with its own validity evidence until a corrected result completes.
+    for coordinate in projected_cases:
+        matches = reusable_by_coordinate.get(_coordinate_input_identity(coordinate), {})
+        latest_by_key = {}
+        for match in matches.values():
+            latest_by_key.setdefault(match['result'].candidate_key, match)
+        for definition in coordinate['candidates']:
+            params = definition.get('candidate_params') or {}
+            if params.get('equipment_effect_expectation') or params.get('equipment_weapon_layout'):
+                previous = latest_by_key.get(definition['candidate_key'])
+                if previous is not None:
+                    matches.setdefault(_candidate_input_identity(definition), previous)
     report_urls = (
         _candidate_raw_report_urls(reusable_by_coordinate) if include_details else {}
     )
@@ -2045,7 +2406,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 result_task = match['task']
                 source_run = (
                     _candidate_source_run(result_task, candidate['candidate_key'])
-                    if include_details else None
+                    if include_details and candidate['candidate_key'] == 'baseline' else None
                 )
                 display = display_by_identity.get((
                     coordinate['spec_key'], _candidate_input_identity(candidate),
@@ -2058,6 +2419,9 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 if display_name and item_level and not (candidate.get('candidate_params') or {}).get('gear_swaps'):
                     label = f'{display_name} · {item_level}'
                 tooltip = _candidate_display_tooltip(display, candidate)
+                embellishment = embellishment_display.get(candidate['candidate_key'])
+                if embellishment:
+                    label, tooltip = embellishment['label'], embellishment['tooltip']
                 row = {
                     'key': candidate['candidate_key'],
                     'label': label,
@@ -2066,6 +2430,7 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     'source_label': candidate['source_label'],
                     'dps': float(match['result'].dps),
                 }
+                _apply_conditional_result_display(row, candidate.get('candidate_params') or {})
                 if include_details:
                     row.update({
                         'task_id': result_task.pk,
@@ -2091,8 +2456,6 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                     row['equipment_items'] = deepcopy(swaps)
                 rows.append(row)
                 if include_details and candidate['candidate_key'] == 'baseline':
-                    manifest = source_run.resource_manifest if source_run is not None else {}
-                    manifest = manifest if isinstance(manifest, dict) else {}
                     coordinate_audit = {
                         'profile_identity': (
                             result_task.profile_version.content_hash
@@ -2107,11 +2470,24 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                             result_task.template_version.content_hash
                             if result_task.template_version_id else None
                         ),
-                        'backend_version': manifest.get('backend_version'),
+                        'backend_version': (
+                            source_run.frozen_backend_version if source_run is not None else None
+                        ),
                         'simulation_params': result_task.simulation_params or {},
                     }
         if not is_option_gain:
             definitions = {item['candidate_key']: item for item in coordinate['candidates']}
+            validation_requests = {
+                (reusable[_candidate_input_identity(definitions[row['key']])]['task'].pk, row['key'])
+                for row in rows if (definitions[row['key']].get('candidate_params') or {}).get('effect_baseline_key')
+            }
+            for row in rows:
+                baseline_key = (definitions[row['key']].get('candidate_params') or {}).get('effect_baseline_key')
+                control = definitions.get(baseline_key) if baseline_key else None
+                control_match = reusable.get(_candidate_input_identity(control)) if control else None
+                if control_match:
+                    validation_requests.add((control_match['task'].pk, baseline_key))
+            effect_validations = _equipment_effect_validations(validation_requests)
             paired_rows = []
             for row in rows:
                 params = definitions[row['key']].get('candidate_params') or {}
@@ -2136,8 +2512,23 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                                          if baseline_dps > 0 else None),
                         'comparison_mode': 'equipment_effect',
                     })
+                    row['effect_validation'] = _paired_effect_validation(
+                        effect_validations[(normal['task'].pk, row['key'])],
+                        effect_validations[(match['task'].pk, baseline_key)],
+                    )
+                    if row['effect_validation'].get('status') == 'valid':
+                        row['effect_delta_percent'] = _display_equipment_effect_gain(row['gain_percent'])
+                    elif row.get('comparison_kind') == 'conditional_increment':
+                        # Raw sides stay inspectable, but an unproven conditional
+                        # pair must never publish an attributed gain.
+                        row['gain_dps'] = row['gain_percent'] = None
                 paired_rows.append(row)
             rows = paired_rows
+            _apply_candidate_noise_display(rows, {
+                definition['candidate_key']: (match['task'].pk, match['result'].dps)
+                for definition in coordinate['candidates']
+                if (match := reusable.get(_candidate_input_identity(definition))) is not None
+            })
         if is_option_gain:
             result_by_key = {row['key']: row for row in rows}
             baseline = result_by_key.get('baseline')
@@ -2241,11 +2632,9 @@ def serialize_panel_apl_ranking_results(panel, *, spec_key, scenario_key):
     def project(result):
         task = result.case.task
         source_run = _candidate_source_run(task, 'baseline')
-        manifest = source_run.resource_manifest if source_run is not None else {}
-        manifest = manifest if isinstance(manifest, dict) else {}
         if not (task.profile_version_id and task.apl_version_id and task.template_version_id):
             return None
-        backend_version = manifest.get('backend_version')
+        backend_version = source_run.frozen_backend_version if source_run is not None else None
         apl_payload = task.apl_version.payload or {}
         return {
             'spec_key': result.case.spec_key,
@@ -2317,13 +2706,75 @@ def _safe_error(value):
     return text[:_ERROR_LIMIT]
 
 
-def _execution_queryset():
-    runs = SimulationRun.objects.order_by('sequence', 'id')
-    cases = SimcBenchmarkCase.objects.select_related('task').prefetch_related(
-        Prefetch('task__simulation_runs', queryset=runs, to_attr='_benchmark_runs'),
+class _ReconcileJSONKeys(Func):
+    """Project object keys without scalar coercion or hydrating the whole document.
+
+    KeyTransform alone can conflate JSON strings such as "false" with booleans on
+    SQLite. Return a JSON object instead, preserving types for the validity/DPS
+    gates. Non-object documents retain the old isinstance(..., dict) fallback.
+    """
+    output_field = JSONField()
+
+    def __init__(self, field, keys):
+        self.keys = keys
+        super().__init__(field)
+
+    def as_sql(self, compiler, connection, **extra_context):
+        field, field_params = compiler.compile(self.source_expressions[0])
+        params = list(field_params)
+        pairs = []
+        for key in self.keys:
+            path = '$.' + json.dumps(key)
+            if connection.vendor == 'sqlite':
+                # Keep raw JSON rather than round-tripping through SQL scalars:
+                # JSON_EXTRACT loses boolean types and large-number precision.
+                value = f'JSON({field} -> %s)'
+                params.extend([key, *field_params, path])
+            else:
+                value = f'JSON_EXTRACT({field}, %s)'
+                params.extend([key, *field_params, path])
+            pairs.append(f'%s, {value}')
+        object_type = 'object' if connection.vendor == 'sqlite' else 'OBJECT'
+        sql = (
+            f"CASE WHEN JSON_TYPE({field}) = '{object_type}' "
+            f"THEN JSON_OBJECT({', '.join(pairs)}) ELSE JSON_OBJECT() END"
+        )
+        return sql, params
+
+
+def _reconcile_run_queryset():
+    return SimulationRun.objects.only(
+        'id', 'task_id', 'sequence', 'candidate_key', 'candidate_label',
+        'status', 'error_detail',
+    ).annotate(
+        _reconcile_summary=_ReconcileJSONKeys(
+            'result_summary', ('valid', 'reason', 'error', 'dps'),
+        ),
+        _reconcile_manifest=_ReconcileJSONKeys('resource_manifest', ('hero_talent_names',)),
+    ).order_by('sequence', 'id')
+
+
+def _reconcile_task_queryset():
+    # Keep the actual frozen mode_params and ext: candidate fallback/ownership and
+    # task_progress must not see fabricated or truncated mode/progress state.
+    return SimcTask.objects.only(
+        'id', 'source_task_id', 'current_status', 'error_detail', 'mode_params', 'ext',
+    ).prefetch_related(
+        Prefetch('simulation_runs', queryset=_reconcile_run_queryset(), to_attr='_benchmark_runs'),
+    )
+
+
+def _reconcile_case_queryset():
+    return SimcBenchmarkCase.objects.prefetch_related(
+        Prefetch('task', queryset=_reconcile_task_queryset()),
     ).order_by('id')
-    return SimcBenchmarkExecution.objects.select_related('panel').prefetch_related(
-        Prefetch('cases', queryset=cases, to_attr='_benchmark_cases'),
+
+
+def _execution_queryset():
+    # This loader is private to live reconciliation; full Run consumers keep their
+    # ordinary queryset and never receive these read-only projected instances.
+    return SimcBenchmarkExecution.objects.prefetch_related(
+        Prefetch('cases', queryset=_reconcile_case_queryset(), to_attr='_benchmark_cases'),
     )
 
 
@@ -2424,7 +2875,7 @@ def task_progress(task):
     return None
 
 
-def _runs_through_source_chain(task):
+def _runs_through_source_chain(task, *, compact=False):
     """Overlay retry Runs on their immutable source Task history by candidate key."""
     tasks = []
     current = task
@@ -2434,12 +2885,20 @@ def _runs_through_source_chain(task):
         seen.add(current.pk)
         if current.source_task_id is None:
             break
-        current = SimcTask.objects.select_related('source_task').get(pk=current.source_task_id)
+        sources = (_reconcile_task_queryset() if compact
+                   else SimcTask.objects.select_related('source_task'))
+        current = sources.get(pk=current.source_task_id)
     runs_by_key = {}
     for source in reversed(tasks):
+        # A retry owns its frozen candidates even before claim initializes Runs.
+        # Only candidates NOT scheduled in that attempt may inherit source Runs
+        # (the failed-only retry contract). Never republish a superseded success.
+        for key in _expected_candidate_keys(source) or []:
+            runs_by_key.pop(key, None)
         runs = getattr(source, '_benchmark_runs', None)
         if runs is None:
-            runs = SimulationRun.objects.filter(task_id=source.pk).order_by('sequence', 'id')
+            queryset = _reconcile_run_queryset() if compact else SimulationRun.objects.all()
+            runs = queryset.filter(task_id=source.pk).order_by('sequence', 'id')
         for run in runs:
             runs_by_key[run.candidate_key] = run
     return runs_by_key
@@ -2466,12 +2925,9 @@ def _summarize_live_execution(execution, *, case_id=None):
             execution = SimcBenchmarkExecution.objects.get(pk=execution.pk)
         except SimcBenchmarkExecution.DoesNotExist:
             _validation_error('Execution 不存在', 'execution')
-        runs = SimulationRun.objects.order_by('sequence', 'id')
-        cases = list(SimcBenchmarkCase.objects.filter(
+        cases = list(_reconcile_case_queryset().filter(
             execution_id=execution.pk, pk=case_id,
-        ).select_related('task').prefetch_related(
-            Prefetch('task__simulation_runs', queryset=runs, to_attr='_benchmark_runs'),
-        ).order_by('id'))
+        ))
     expected_by_coordinate = dict(_snapshot_layout(execution) or [])
     count_names = ('pending', 'running', 'success', 'partial', 'failed', 'cancelled')
     counts = {name: 0 for name in count_names}
@@ -2505,12 +2961,12 @@ def _summarize_live_execution(execution, *, case_id=None):
         if task.source_task_id is None:
             ordered_runs = list(task._benchmark_runs)
         else:
-            runs_by_key = _runs_through_source_chain(task)
+            runs_by_key = _runs_through_source_chain(task, compact=True)
             ordered_runs = [runs_by_key[key] for key in expected_keys if key in runs_by_key] \
                 if expected_keys is not None else list(runs_by_key.values())
         for run in ordered_runs:
             total_runs += 1
-            summary = run.result_summary if isinstance(run.result_summary, dict) else {}
+            summary = run._reconcile_summary
             semantic_error = ''
             if summary.get('valid') is False:
                 semantic_error = str(
@@ -2530,8 +2986,7 @@ def _summarize_live_execution(execution, *, case_id=None):
                 'status': run_status, 'dps': None,
                 '_raw_dps': None if semantic_error else summary.get('dps'),
                 '_hero_talent_names': _normalized_hero_talent_names(
-                    (run.resource_manifest or {}).get('hero_talent_names')
-                    if isinstance(run.resource_manifest, dict) else []
+                    run._reconcile_manifest.get('hero_talent_names')
                 ),
             })
         actual_keys = [run.candidate_key for run in ordered_runs]
@@ -2640,11 +3095,21 @@ def _benchmark_failed_run_rows(task):
     return rows
 
 
+def _benchmark_lifecycle_case_queryset():
+    """Read lifecycle/error evidence, never hydrate executable Task payloads."""
+    return SimcBenchmarkCase.objects.select_related('task').only(
+        'id', 'execution_id', 'task_id', 'status', 'error_detail',
+        'spec_key', 'scenario_key', 'profile_key',
+        'spec_label', 'scenario_label', 'profile_label',
+        'task__id', 'task__current_status', 'task__ext', 'task__error_detail',
+    )
+
+
 def _summarize_active_lifecycle(execution):
     """Project active progress from Case/Task lifecycle without exposing Run results."""
-    cases = list(SimcBenchmarkCase.objects.filter(
+    cases = list(_benchmark_lifecycle_case_queryset().filter(
         execution_id=execution.pk,
-    ).select_related('task').prefetch_related(
+    ).prefetch_related(
         Prefetch(
             'task__simulation_runs',
             queryset=_benchmark_failed_run_queryset(),
@@ -2694,8 +3159,8 @@ def _summarize_active_lifecycle(execution):
 def _summarize_persisted_execution(execution):
     """Build terminal output solely from Execution/Case/Result aggregate tables."""
     result_qs = SimcBenchmarkResult.objects.order_by('case_id', 'id')
-    cases = list(SimcBenchmarkCase.objects.filter(execution_id=execution.pk).select_related(
-        'task',
+    cases = list(_benchmark_lifecycle_case_queryset().filter(
+        execution_id=execution.pk,
     ).prefetch_related(
         Prefetch('results', queryset=result_qs, to_attr='_persisted_results'),
         Prefetch(
@@ -2708,6 +3173,8 @@ def _summarize_persisted_execution(execution):
         if isinstance(execution.config_snapshot, dict) else []
     labels = {item.get('key'): item.get('label') for item in definitions
               if isinstance(item, dict)}
+    labels.update({key: display['label'] for key, display in
+                   _embellishment_result_display(definitions).items()})
     rows, result_runs = [], 0
     layout = _snapshot_layout(execution) or []
     expected_by_coordinate = dict(layout)
@@ -2986,6 +3453,8 @@ def backfill_completed_case_results(execution):
                 rows.extend(case_rows)
         if rows:
             SimcBenchmarkResult.objects.bulk_create(rows)
+            from botend.services.simc_benchmark_result_snapshot import invalidate_result_snapshot
+            invalidate_result_snapshot(locked.panel_id)
         return len(rows)
 
 
@@ -3020,6 +3489,12 @@ def _append_incremental_results(execution_id, rows):
         ))
     if new_rows:
         SimcBenchmarkResult.objects.bulk_create(new_rows, batch_size=500)
+        from botend.services.simc_benchmark_result_snapshot import invalidate_result_snapshot
+        panel_id = SimcBenchmarkExecution.objects.values_list('panel_id', flat=True).get(pk=execution_id)
+        coordinates = list(SimcBenchmarkCase.objects.filter(
+            pk__in={row.case_id for row in new_rows},
+        ).values('spec_key', 'profile_key', 'scenario_key'))
+        invalidate_result_snapshot(panel_id, coordinates)
     return len(new_rows)
 
 
@@ -3427,8 +3902,19 @@ def serialize_public_execution(panel_or_execution):
     if set(frozen_by_coordinate) != set(summary_by_coordinate):
         return {'status': 'not_ready', 'execution': None}
 
+    effect_validations = _equipment_effect_validations({
+        (row['task_id'], run['key']) for row in summary['cases'] for run in row['runs']
+        if candidate_metadata[run['key']]['params'].get('effect_baseline_key')
+    })
+    effect_validations.update(_equipment_effect_validations({
+        (row['task_id'], candidate_metadata[run['key']]['params']['effect_baseline_key'])
+        for row in summary['cases'] for run in row['runs']
+        if candidate_metadata[run['key']]['params'].get('effect_baseline_key')
+    }))
+    embellishment_display = _embellishment_result_display(list(candidate_metadata.values()))
     public_cases = []
     seal_rows = []
+    noise_coordinates = []
     for row in summary['cases']:
         coordinate = (row['spec_key'], row['scenario_key'], row['profile_key'])
         frozen = frozen_by_coordinate[coordinate]
@@ -3454,12 +3940,13 @@ def serialize_public_execution(panel_or_execution):
                 continue
             candidate_row = {
                 'key': run['key'],
-                'label': str(display.get('label') or candidate['label']),
+                'label': (embellishment_display.get(run['key']) or {}).get('label') or str(display.get('label') or candidate['label']),
                 'type': candidate['candidate_type'],
                 'icon_url': str(display.get('icon_url') or candidate['icon_url']),
                 'source_label': candidate['source_label'],
                 'status': run['status'], 'dps': run['dps'],
             }
+            _apply_conditional_result_display(candidate_row, candidate['params'])
             baseline_key = candidate['params'].get('effect_baseline_key')
             if baseline_key:
                 control = next((item for item in row['runs'] if item['key'] == baseline_key), None)
@@ -3472,16 +3959,36 @@ def serialize_public_execution(panel_or_execution):
                     'gain_dps': gain, 'gain_percent': gain / baseline_dps * 100 if baseline_dps > 0 else None,
                     'comparison_mode': 'equipment_effect',
                 })
+                candidate_row['effect_validation'] = _paired_effect_validation(
+                    effect_validations[(row['task_id'], run['key'])],
+                    effect_validations[(row['task_id'], candidate['params']['effect_baseline_key'])],
+                )
+                if candidate_row['effect_validation'].get('status') == 'valid':
+                    candidate_row['effect_delta_percent'] = _display_equipment_effect_gain(candidate_row['gain_percent'])
+                elif candidate_row.get('comparison_kind') == 'conditional_increment':
+                    candidate_row['gain_dps'] = candidate_row['gain_percent'] = None
+            frozen_candidate = {'candidate_type': candidate['candidate_type'],
+                                'candidate_params': candidate['params']}
+            item_id = _candidate_item_id(frozen_candidate)
+            item_level = _candidate_item_level(frozen_candidate)
+            if item_id is not None and item_level is not None:
+                candidate_row['item_id'] = item_id
+                candidate_row['item_variant_key'] = _candidate_item_variant_key(frozen_candidate)
+            if item_level is not None:
+                candidate_row['item_level'] = item_level
             swaps = candidate['params'].get('gear_swaps')
             if swaps:
                 candidate_row['equipment_items'] = deepcopy(swaps)
-                frozen = {'candidate_type': candidate['candidate_type'], 'candidate_params': candidate['params']}
-                candidate_row['equipment_group_key'] = _candidate_item_variant_key(frozen)
-                candidate_row['item_level'] = _candidate_item_level(frozen)
-            effect = str(display.get('effect') or candidate.get('effect') or '')
+                candidate_row['equipment_group_key'] = _candidate_item_variant_key(frozen_candidate)
+                candidate_row['item_level'] = item_level
+            effect = str((embellishment_display.get(run['key']) or {}).get('tooltip')
+                         or display.get('effect') or candidate.get('effect') or '')
             if effect:
                 candidate_row['effect'] = effect
             candidates.append(candidate_row)
+        noise_coordinates.append((candidates, {
+            run['key']: (row['task_id'], run['dps']) for run in row['runs']
+        }))
         public_cases.append({
             'coordinates': {
                 'spec_key': row['spec_key'], 'scenario_key': row['scenario_key'],
@@ -3497,6 +4004,8 @@ def serialize_public_execution(panel_or_execution):
         })
     if _result_seal(seal_rows, execution.completed_at) != execution.result_hash:
         return {'status': 'not_ready', 'execution': None}
+    for candidates, sources in noise_coordinates:
+        _apply_candidate_noise_display(candidates, sources)
     return {
         'status': 'ready',
         'panel': {
