@@ -53,9 +53,7 @@ def instance_source(release, instance_id, *, season=_UNSET):
 def _present_tooltip(data, source):
     """赛季展示标签与保留的数值来源分开，避免把旧 PTR 构建伪装成正式服。"""
     if data and source['key'] == 'current':
-        return {**data, 'source': 'LMonitor 装备目录',
-                'note': data.get('note', '') if data.get('status') == 'not_equipment' else
-                f'参考装等 {data.get("item_level") or "未知"}，不代表所选难度的初始掉落装等。'}
+        return {**data, 'source': 'LMonitor 装备目录'}
     return data
 
 

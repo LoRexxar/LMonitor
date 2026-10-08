@@ -59,6 +59,7 @@
         const effects = row.querySelector('[data-item-effects]');
         try {
           const data = await fetchDetails('item', row.dataset.lootId);
+          row.querySelector('.journal-loot-link').dataset.wowItemTooltip = [...(data.lines || []), data.note || ''].join('\n');
           if (data.icon && !row.querySelector('.journal-loot-symbol img')) {
             const icon = document.createElement('img');
             icon.src = data.icon;
@@ -93,7 +94,8 @@
           row.dataset.detailsLoaded = 'true';
         } catch (_) {
           stats.textContent = '属性暂不可用';
-          effects.textContent = '特效资料暂不可用，可点击装备名称查看来源。';
+          effects.textContent = '特效资料暂不可用，可点击装备名称重试。';
+          row.querySelector('.journal-loot-link').dataset.wowItemTooltip = '属性详情暂时不可用，可点击装备名称重试。';
         }
       }
     };
@@ -118,16 +120,22 @@
     pending = controller;
     content.textContent = '正在获取详情…';
     dialog.showModal();
-    const source = document.createElement('a');
-    source.href = link.href;
-    source.target = '_blank';
-    source.rel = 'noopener';
-    source.textContent = '在 Wowhead 查看详情 ↗';
+    const source = link.dataset.tooltipKind === 'item' ? null : document.createElement('a');
+    if (source) {
+      source.href = link.href;
+      source.target = '_blank';
+      source.rel = 'noopener';
+      source.textContent = '在 Wowhead 查看详情 ↗';
+    }
     try {
       const data = await fetchDetails(link.dataset.tooltipKind, link.dataset.tooltipId);
       if (pending !== controller || controller.signal.aborted) return;
-      source.href = data.url || link.href;
-      source.textContent = `在 ${data.source || 'Wowhead'} 查看来源 ↗`;
+      if (source) {
+        source.href = data.url || link.href;
+        source.textContent = `在 ${data.source || 'Wowhead'} 查看来源 ↗`;
+      } else {
+        link.dataset.wowItemTooltip = [...(data.lines || []), data.note || ''].join('\n');
+      }
       content.replaceChildren();
       const title = document.createElement('h3');
       title.textContent = data.name;
@@ -140,11 +148,12 @@
       const note = document.createElement('p');
       note.className = 'journal-note';
       note.textContent = data.note;
-      content.append(note, source);
+      content.append(note);
+      if (source) content.append(source);
     } catch (error) {
       if (error.name === 'AbortError' || pending !== controller) return;
       content.textContent = '来源详情暂时不可用，请稍后重试。';
-      content.append(document.createElement('br'), source);
+      if (source) content.append(document.createElement('br'), source);
     }
   }));
 })();
