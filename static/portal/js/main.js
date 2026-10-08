@@ -1,7 +1,13 @@
 async function fetchJson(url) {
-  const resp = await fetch(url, { credentials: "same-origin" });
-  const data = await resp.json();
-  return data;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 10000);
+  try {
+    const resp = await fetch(url, { credentials: "same-origin", signal: controller.signal });
+    if (!resp.ok) throw new Error("数据读取未成功");
+    return await resp.json();
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function getToastRoot() {
@@ -445,6 +451,8 @@ const PORTAL_STATE = {
   videoAutoTimer: null,
   activeDungeon: "",
   mplusRankingsPayload: null,
+  sectionRequests: {},
+  sectionFailures: {},
   mplusCutoffsMeta: { season: "", updated_at: "" },
   activeExwindSource: "default",
   exwindTabsBound: false,
@@ -650,7 +658,8 @@ function renderWowTodayPanel() {
   const payload = PORTAL_STATE.wowToday || PORTAL_STATE.dataBySection.today_in_wow;
   if (!payload || !Array.isArray(payload.sections)) {
     container.dataset.state = "empty";
-    container.innerHTML = `<div class="portal-tiw-loading">今日内容正在准备中</div>`;
+    const message = PORTAL_STATE.sectionFailures.today_in_wow ? "今日内容暂时无法读取，请稍后刷新。" : "今日内容正在准备中";
+    container.innerHTML = `<div class="portal-tiw-loading">${message}</div>`;
     return;
   }
   const preferences = loadWowTodayPreferences();
@@ -751,10 +760,12 @@ function renderDailyReportCard() {
   if (!el) return;
   const report = PORTAL_STATE.dailyReport || PORTAL_STATE.dataBySection.daily_report || null;
   if (!report || !report.url) {
+    const message = PORTAL_STATE.sectionFailures.daily_report ? "日报暂时无法读取，请稍后刷新。"
+      : PORTAL_STATE.todaySourcesSettled.daily_report ? "今日日报正在准备中" : "正在加载魔兽世界日报...";
     el.innerHTML = `<article class="portal-daily-report-card portal-daily-report-card-loading">
       <div class="portal-daily-report-kicker">今日日报</div>
       <div class="portal-daily-report-main">
-        <div class="portal-daily-report-title">正在加载魔兽世界日报...</div>
+        <div class="portal-daily-report-title">${message}</div>
         <div class="portal-daily-report-meta">汇总新闻、NGA 热议与大秘境分数线</div>
       </div>
     </article>`;
@@ -1782,6 +1793,10 @@ function renderEvents(items) {
 async function loadSection(key) {
   const ep = SECTION_MAP[key];
   if (!ep) return;
+  const requestId = (PORTAL_STATE.sectionRequests[key] || 0) + 1;
+  PORTAL_STATE.sectionRequests[key] = requestId;
+  PORTAL_STATE.sectionFailures[key] = false;
+  const current = () => PORTAL_STATE.sectionRequests[key] === requestId;
 
   if (ep.listId) renderSkeleton(ep.listId, key === "nga" ? 10 : 6);
 
@@ -1792,6 +1807,7 @@ async function loadSection(key) {
     }
     if (key === "mplus_rankings") url = `${ep.url}?catalog=1`;
     const r = await fetchJson(url);
+    if (!current()) return;
     if (key === "daily_report") {
       PORTAL_STATE.dailyReport = r.data || null;
       PORTAL_STATE.dataBySection[key] = r.data || null;
@@ -1834,13 +1850,22 @@ async function loadSection(key) {
     renderTodayStrip();
     renderDailyReportCard();
   } catch (e) {
-    if (ep.listId) {
+    if (current()) {
+      PORTAL_STATE.sectionFailures[key] = true;
+      if (key === "today_in_wow") renderWowTodayPanel();
+      if (key === "daily_report") renderDailyReportCard();
+    }
+    if (current() && ep.listId) {
       const el = document.getElementById(ep.listId);
       if (el) el.innerHTML = `<div class="text-slate-500">加载失败</div>`;
     }
   } finally {
-    PORTAL_STATE.todaySourcesSettled[key] = true;
-    renderTodayStrip();
+    if (current()) {
+      PORTAL_STATE.todaySourcesSettled[key] = true;
+      renderTodayStrip();
+      if (key === "daily_report") renderDailyReportCard();
+      updateSearchMeta();
+    }
   }
 }
 
@@ -1932,23 +1957,29 @@ function bindPortalGuideInteractions() {
   });
 }
 
-async function loadAll() {
-  await loadTools();
+async function loadHomepageSections(keys, concurrency = 3) {
+  let next = 0;
+  const workers = Array.from({length: Math.min(concurrency, keys.length)}, async () => {
+    while (next < keys.length) {
+      const key = keys[next++];
+      // 单板块失败后仍处理队列中的其他板块。
+      try { await loadSection(key); } catch (_) { /* 板块自身负责展示失败状态。 */ }
+    }
+  });
+  await Promise.allSettled(workers);
+}
 
+async function loadAll() {
   bindSearch();
   bindExwindSourceTabs();
   renderExwindSourceTabs();
-  await loadSection("today_in_wow");
-  await loadSection("daily_report");
-  await loadSection("blueposts");
-  await loadSection("exwind");
-  await loadSection("wowhead");
-  await loadSection("nga");
-  await loadSection("events");
-  await loadSection("videos");
-  await loadSection("mplus_cutoffs");
-  await loadSection("mplus_rankings");
-  await loadSection("peak_spec_rankings");
+  await Promise.allSettled([
+    loadTools(),
+    loadHomepageSections([
+      "today_in_wow", "daily_report", "blueposts", "exwind", "wowhead", "nga",
+      "events", "videos", "mplus_cutoffs", "mplus_rankings", "peak_spec_rankings",
+    ]),
+  ]);
   updateSearchMeta();
 }
 
