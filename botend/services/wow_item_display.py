@@ -46,6 +46,12 @@ EQUIPMENT_TYPES = {
     WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
 }
 PRIMARY_STAT_KEYS = {'strength', 'agility', 'intellect'}
+PRIMARY_STAT_GROUPS = {
+    'stragiint': {'strength', 'agility', 'intellect'},
+    'stragi': {'strength', 'agility'},
+    'agiint': {'agility', 'intellect'},
+    'strint': {'strength', 'intellect'},
+}
 INTELLECT_SPECS = {
     'paladin_holy', 'priest_discipline', 'priest_holy', 'priest_shadow',
     'shaman_elemental', 'shaman_restoration', 'mage_arcane', 'mage_fire', 'mage_frost',
@@ -438,6 +444,18 @@ def item_display_metadata(
         primary_value = primary_values.get(primary_stat) or variant_metadata.get('primary_stat_amount')
         if _number(primary_value):
             normalized_stats[primary_stat] = _number(primary_value)
+    elif not primary_stat and primary_values and not (
+        normalized_stats.keys() & (PRIMARY_STAT_KEYS | PRIMARY_STAT_GROUPS.keys())
+    ):
+        # 无专精的目录展示使用组合主属性；候选互斥，不能逐项累计或猜不同值相等。
+        options = {
+            key: value for key, value in _normalize_stats(primary_values).items()
+            if key in PRIMARY_STAT_KEYS and value > 0
+        }
+        if options and len(set(options.values())) == 1:
+            key = next((key for key, members in PRIMARY_STAT_GROUPS.items()
+                        if members == options.keys()), next(iter(options)))
+            normalized_stats[key] = next(iter(options.values()))
     tooltip_layout = _clean_layout_text(
         description_zh.strip() or description.strip(),
         (name, name_zh),

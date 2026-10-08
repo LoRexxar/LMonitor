@@ -42,18 +42,25 @@ def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_bran
     # variant 完整时直接返回结构化数据
     if item['variant_id'] and item['tooltip_complete']:
         item_level = item['item_level']
-        data_build = item['game_build'] or build
+        # 掉落关系的 build 不能补作装备数值的构建证据。
+        data_build = item['stats_game_build'] or item['variant_metadata'].get('game_build') or ''
+        provider = (item['variant_metadata'].get('tooltip_source') or {}).get('provider')
+        branch_label = 'PTR' if is_ptr else '正式服'
+        version_label = data_build or '未记录客户端构建'
+        source_label = 'LMonitor PTR DB2 + SimulationCraft' if is_ptr else 'LMonitor 装备目录'
+        if provider == 'wowhead':
+            source_label = 'LMonitor 装备目录（Wowhead 快照）'
+        note = (
+            f'数值来自 {"Wowhead " if provider == "wowhead" else ""}{branch_label} '
+            f'{version_label} 的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
+        )
         return {
             'name': item['display_name'],
             'lines': [item['display_name'], f'物品等级 {item_level}', *item['stat_lines'], *item['effects']],
-            'source': 'LMonitor PTR DB2 + SimulationCraft' if is_ptr else 'LMonitor 装备目录',
+            'source': source_label,
             'url': '',
             'icon': item['icon_url'],
-            'note': (
-                f'数值为 PTR {data_build} 的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
-                if is_ptr else
-                f'数值为正式服 {data_build} 当前装备目录的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
-            ),
+            'note': note,
             'item_level': item_level,
             'stats': item['stat_lines'],
             'effects': item['effects'],
