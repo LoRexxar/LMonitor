@@ -6,6 +6,8 @@ import re
 
 from bs4 import BeautifulSoup, NavigableString
 from markdown_it import MarkdownIt
+from markdown_it.rules_inline import emphasis
+from markdown_it.common.utils import isWhiteSpace
 
 from botend.services.class_guide_codec import decode_component, component_html
 from botend.services.class_guide_content import clean_html, validate_blocks
@@ -17,8 +19,32 @@ COMPONENTS = {'talents', 'gear', 'rotation', 'priority', 'timeline', 'simulation
 DIRECTIVE = re.compile(r'^:::(\w[\w-]*)(?:\s+(.*))?$')
 
 
+def _guide_emphasis(state, silent):
+    """中文及来源 HTML 的星号强调只以空白划界，不以标点划界。
+
+    沿用 markdown-it 的 token、配对与嵌套机制；代码、转义、URL 由前序
+    inline 规则处理，不能在整篇字符串上替换星号。下划线仍遵守 CommonMark。
+    """
+    start, first = state.pos, len(state.delimiters)
+    matched = emphasis.tokenize(state, silent)
+    if not matched or state.src[start] != '*':
+        return matched
+    before = state.src[start - 1] if start else ' '
+    after = state.src[state.pos] if state.pos < state.posMax else ' '
+    can_open = not isWhiteSpace(ord(after))
+    can_close = not isWhiteSpace(ord(before))
+    run = state.delimiters[first:]
+    for delimiter in run:
+        delimiter.open, delimiter.close = can_open, can_close
+        # 四星可能是 2+2、3+1 或完整的四层边界；仅豁免 rule-of-three，
+        # 由原生配对器按已有嵌套决定拆分，不能强制指定为相邻粗体。
+        if len(run) == 4:
+            delimiter.length = 0
+    return True
+
+
 def html_to_markdown(value):
-    soup = BeautifulSoup(clean_html(value), 'html.parser')
+    soup = BeautifulSoup(clean_html(value), 'html.parser', preserve_whitespace_tags={'pre', 'code'})
     def text(node, depth=0):
         if isinstance(node, NavigableString):
             return str(node)
@@ -31,7 +57,10 @@ def html_to_markdown(value):
         if name in ('em', 'i'):
             if node.find_parent(['em', 'i']) or not inner.strip():
                 return inner
-            return re.match(r'^\s*', inner)[0] + '*' + inner.strip() + '*' + re.search(r'\s*$', inner)[0]
+            # 相邻斜体与粗体组合转为连续星号会丢失边界，保留安全 inline HTML。
+            return '<em>' + inner + '</em>'
+        if name in ('u', 's', 'mark'):
+            return '<' + name + '>' + inner + '</' + name + '>'
         if name == 'a' and node.get('href'):
             return '[{}](<{}>)'.format(inner, node['href'])
         if name == 'img':
@@ -53,18 +82,26 @@ def html_to_markdown(value):
             fence = '`' * max(3, max([len(m[0]) + 1 for m in re.finditer(r'`+', code)] or [3]))
             return '\n\n' + fence + '\n' + code + '\n' + fence + '\n\n'
         if name == 'code' and node.parent.name != 'pre':
-            return '`' + inner.replace('`', '\\`') + '`'
+            code = node.get_text()
+            if not code:
+                return '<code></code>'
+            fence = '`' * max([len(m[0]) + 1 for m in re.finditer(r'`+', code)] or [1])
+            # Code span 会剥掉非全空格内容两端各一个空格，增加一层来补偿；
+            # 不能用 raw inline HTML，否则内部 Markdown 标记会再次被解析。
+            padded = (code.startswith('`') or code.endswith('`') or
+                      (code.startswith(' ') and code.endswith(' ') and code.strip(' ')))
+            padding = ' ' if padded else ''
+            return fence + padding + code + padding + fence
         if name in ('h1', 'h2', 'h3', 'h4', 'h5', 'h6'):
             return '\n\n' + '#' * int(name[1]) + ' ' + inner.strip() + '\n\n'
         if name == 'table':
-            if node.select('[colspan], [rowspan]'):
-                return '\n\n' + str(node) + '\n\n'
-            rows = [[text(cell).strip().replace('|', '\\|').replace('\n', '<br>') for cell in row.find_all(['td', 'th'], recursive=False)] for row in node.select('tr')]
-            rows = [r for r in rows if r]
-            if not rows:
-                return ''
-            width = max(map(len, rows)); rows = [r + [''] * (width - len(r)) for r in rows]
-            return '\n\n' + '\n'.join(['| ' + ' | '.join(rows[0]) + ' |', '| ' + ' | '.join(['---'] * width) + ' |'] + ['| ' + ' | '.join(r) + ' |' for r in rows[1:]]) + '\n\n'
+            # Markdown 表格必须有表头，不能把无表头来源的第一条数据提升成 th。
+            # 保留已清洗 HTML，兼容逐单元格对齐、合并单元格及嵌套行内格式。
+            # 换行用等价字符引用存储，使整个表格保持单个 HTML block；否则
+            # 空行会终止 CommonMark HTML，行首 ::: 也会被扩展解析器截走。
+            table = re.sub(r'[\r\n\v\f\x1c-\x1e\x85\u2028\u2029]',
+                           lambda match: '&#{};'.format(ord(match[0])), str(node))
+            return '\n\n' + table + '\n\n'
         if name == 'hr':
             return '\n\n---\n\n'
         if name in ('p', 'div', 'figure', 'figcaption'):
@@ -138,7 +175,8 @@ def normalize_tab_markdown(source):
 def compile_markdown(source, *, _expand_tabs=True):
     if not isinstance(source, str) or len(source.encode('utf-8')) > 4000000:
         raise ValueError('Markdown 正文必须是文本，且不超过 4 MB')
-    md = MarkdownIt('commonmark', {'html': True}).enable('table')
+    md = MarkdownIt('commonmark', {'html': True}).enable(['table', 'strikethrough'])
+    md.inline.ruler.at('emphasis', _guide_emphasis)
     lines, sequence = source.splitlines(), 0
     def key():
         nonlocal sequence

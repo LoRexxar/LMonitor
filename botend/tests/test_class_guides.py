@@ -1172,6 +1172,102 @@ class GuideContentTests(SimpleTestCase):
 
 
 class GuideMarkdownTests(SimpleTestCase):
+    def test_imported_chinese_emphasis_renders_without_losing_structure(self):
+        source = ('## **12.**1补丁说明\n\n'
+                  '**4 件套：**\u200d[[talent:124778]] 提高伤害。\n\n'
+                  '请访问**[属性与特质](<https://maxroll.gg/wow/resources/stats-and-attributes>)**指南。\n\n'
+                  '**第1级****1** 提高伤害。\n\n'
+                  '*我们的**[Simcraft](<https://maxroll.gg/wow/resources/simulationcraft-and-raidbots-guide>)**指南。*\n\n'
+                  '| 用途 | 技能 |\n| --- | --- |\n| **主目标：**伤害 | [[spell:133]] |\n\n'
+                  ':::details **12.**1\n正文 **[[spell:133]]**。\n:::\n\n'
+                  '```wow-macro\n/cast [@focus] 火球术\n```')
+        from django.template.loader import render_to_string
+        soup = BeautifulSoup(render_to_string('shared/class_guide_blocks.html', {
+            'blocks': compile_markdown(source)}), 'html.parser')
+        self.assertNotIn('**', soup.get_text())
+        self.assertEqual(soup.select_one('h2 strong').get_text(), '12.')
+        self.assertEqual(soup.select_one('summary strong').get_text(), '12.')
+        self.assertIsNotNone(soup.select_one('strong a[href$="stats-and-attributes"]'))
+        self.assertIsNotNone(soup.select_one('em strong a'))
+        self.assertEqual(soup.select_one('td strong').get_text(), '主目标：')
+        self.assertIn('[[talent:124778]]', soup.get_text())
+        self.assertEqual(soup.select_one('pre code').get_text(), '/cast [@focus] 火球术')
+
+    def test_source_inline_formatting_roundtrip_preserves_adjacent_styles_and_code(self):
+        source = ('<p><strong>第1级</strong><strong>1</strong> '
+                  '<em>目标</em><em>。后续</em>'
+                  '<u>下划线</u><s>旧方案</s>'
+                  '<code>**literal** &lt;tag&gt; `x`</code></p>')
+        blocks = compile_markdown(html_to_markdown(source))
+        soup = BeautifulSoup(blocks[0]['html'], 'html.parser')
+        self.assertEqual(soup.get_text(), BeautifulSoup(source, 'html.parser').get_text())
+        self.assertEqual(soup.select_one('u').get_text(), '下划线')
+        self.assertEqual(soup.select_one('s').get_text(), '旧方案')
+        self.assertEqual(soup.select_one('code').get_text(), '**literal** <tag> `x`')
+        self.assertEqual(''.join(x.get_text() for x in soup.select('em')), '目标。后续')
+
+    def test_emphasis_does_not_reinterpret_code_escapes_urls_or_unpaired_markers(self):
+        source = ('`**示例**` 与 \\*\\*字面量\\*\\*\n\n'
+                  '[链接](https://example.com/a**b)\n\n'
+                  '**未配对\n\n```text\n**代码**\n:::details\n```\n\n'
+                  '* 标准列表\n* 第二项\n\n~~旧方案~~')
+        blocks = compile_markdown(source)
+        soup = BeautifulSoup(''.join(b.get('html', '') for b in blocks), 'html.parser')
+        self.assertEqual(soup.select_one('code').get_text(), '**示例**')
+        self.assertIn('**字面量**', soup.get_text())
+        self.assertIn('**未配对', soup.get_text())
+        self.assertEqual(soup.select_one('a')['href'], 'https://example.com/a**b')
+        self.assertEqual(len(soup.select('ul li')), 2)
+        self.assertEqual(soup.select_one('s').get_text(), '旧方案')
+
+    def test_adjacent_emphasis_keeps_mixed_nesting_and_code_whitespace(self):
+        cases = [
+            ('***第一段****第二段*', '<em><strong>第一段</strong></em><em>第二段</em>'),
+            ('****重点****后续', '<strong><strong>重点</strong></strong>后续'),
+            ('*甲**乙****丙*', '<em>甲<strong>乙</strong></em><em>丙</em>'),
+            ('**甲****乙****丙**', '<strong>甲</strong><strong>乙</strong><strong>丙</strong>'),
+        ]
+        for source, expected in cases:
+            with self.subTest(source=source):
+                self.assertEqual(compile_markdown(source)[0]['html'], '<p>' + expected + '</p>')
+        for code in ('', ' a ', '  a  ', '   ', '`x`', ' **literal** ',
+                     ' `x` ', ' ~~literal~~ ', ' **literal**', '**literal** '):
+            with self.subTest(code=code):
+                rendered = compile_markdown(html_to_markdown('<code>' + code + '</code>'))
+                soup = BeautifulSoup(rendered[0]['html'], 'html.parser', preserve_whitespace_tags={'code'})
+                self.assertEqual(soup.select_one('code').get_text(), code)
+
+    def test_preserved_tables_keep_multiline_literals_opaque(self):
+        for body in ('说明\n\n<code>**literal**</code>',
+                     '说明\n:::details\n普通文字\n:::\n',
+                     '<pre><code>首行\n\n\n**literal**\n:::details\n:::</code></pre>'):
+            with self.subTest(body=body):
+                source = '<table><tr><td>' + body + '</td></tr></table>'
+                blocks = compile_markdown(html_to_markdown(source))
+                self.assertEqual([block['type'] for block in blocks], ['html'])
+                actual = BeautifulSoup(blocks[0]['html'], 'html.parser', preserve_whitespace_tags={'pre', 'code'})
+                expected = BeautifulSoup(clean_html(source), 'html.parser', preserve_whitespace_tags={'pre', 'code'})
+                self.assertEqual(str(actual.select_one('table')), str(expected.select_one('table')))
+                self.assertFalse(actual.select('strong'))
+
+    def test_source_tables_preserve_body_rows_spans_and_safe_alignment(self):
+        source = ('<table><tbody><tr><td data-align="center">头部</td>'
+                  '<td>[[item:244007]]</td></tr><tr><td>胸部</td>'
+                  '<td style="text-align:right;color:red" onclick="evil()">附魔</td>'
+                  '</tr></tbody></table>')
+        soup = BeautifulSoup(compile_markdown(html_to_markdown(source))[0]['html'], 'html.parser')
+        self.assertEqual(len(soup.select('th')), 0)
+        self.assertEqual(len(soup.select('tbody tr')), 2)
+        self.assertEqual(soup.select_one('td')['style'], 'text-align: center')
+        self.assertEqual(soup.select('td')[-1]['style'], 'text-align: right')
+        self.assertNotIn('onclick', str(soup))
+        self.assertNotIn('color:', str(soup))
+        self.assertIn('rowspan="2"', html_to_markdown(source.replace('<td>胸部', '<td rowspan="2">胸部')))
+        aligned = BeautifulSoup(compile_markdown('| 部位 | 附魔 |\n| :---: | ---: |\n| 头部 | 附魔 |')[0]['html'], 'html.parser')
+        self.assertEqual([c['style'] for c in aligned.select('tbody td')], ['text-align: center', 'text-align: right'])
+        unsafe = clean_html('<td style="text-align:expression(evil())" data-align="url(javascript:evil())">保留正文</td>')
+        self.assertEqual(unsafe, '<td>保留正文</td>')
+
     def test_single_document_headings_and_nested_components(self):
         source = "## 概览\n\n说明 **重点** [[spell:30451]]。\n\n:::tabs\n:::tab 团本\n### 单体\n正文\n:::\n:::tab 大秘境\n:::columns\n:::column\n左栏\n:::\n:::column\n右栏\n:::\n:::\n:::\n:::\n"
         blocks = compile_markdown(source)

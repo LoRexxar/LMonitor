@@ -31,7 +31,7 @@ def safe_url(value, image=False):
 
 
 def clean_html(value, references=None):
-    soup = BeautifulSoup(str(value or ''), 'html.parser')
+    soup = BeautifulSoup(str(value or ''), 'html.parser', preserve_whitespace_tags={'pre', 'code'})
     for tag in list(soup.find_all(['script', 'style', 'iframe', 'object', 'embed', 'svg', 'form', 'button', 'input'])):
         tag.decompose()
     for tag in list(soup.find_all(True)):
@@ -74,6 +74,15 @@ def clean_html(value, references=None):
         for key in ('colspan', 'rowspan', 'start'):
             if str(tag.get(key, '')).isdigit():
                 attrs[key] = str(min(int(tag[key]), 100))
+        if tag.name in ('td', 'th'):
+            # 只重建枚举值，不透传来源 CSS；也保留 Markdown 对齐表的安全样式。
+            alignment = str(tag.get('data-align') or tag.get('align') or '').lower()
+            styles = re.findall(r'(?:^|;)\s*text-align\s*:\s*(left|center|right)\s*(?=;|$)',
+                                str(tag.get('style', '')), re.I)
+            if styles:
+                alignment = styles[-1].lower()
+            if alignment in {'left', 'center', 'right'}:
+                attrs['style'] = 'text-align: ' + alignment
         if tag.name == 'a':
             attrs['rel'] = 'noopener noreferrer'
         if tag.name == 'img':
