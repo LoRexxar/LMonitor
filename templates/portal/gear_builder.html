@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20261009_center_notice">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_builder.css' %}?v=20261009_stat_disclaimer">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -222,6 +222,7 @@
                 <div><h2>当前配装属性</h2><span id="gear-stats-context">不包含临时增益与随机第三属性</span></div>
                 <span id="gear-save-status" class="gear-save-status">保存在当前浏览器</span>
             </div>
+            <p class="gear-stats-disclaimer">以下属性为装备属性换算，不包括职业天赋中的赠送属性</p>
             <div id="gear-stat-grid" class="gear-stat-grid"></div>
             <div class="gear-effect-summary">
                 <h3>装备与强化特效</h3>

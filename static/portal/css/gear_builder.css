@@ -519,6 +519,7 @@
 .gear-stats-heading h2 { font-size: .9rem; font-weight: 820; }
 .gear-stats-heading div span { color: var(--gear-muted); font-size: .67rem; }
 .gear-save-status { color: var(--gear-green); font-size: .7rem; }
+.gear-stats-disclaimer { margin: 0; padding: 10px 16px 0; color: var(--gear-red); font-size: .8rem; font-weight: 700; line-height: 1.6; }
 .gear-stat-grid { display: flex; flex-wrap: wrap; justify-content: flex-start; }
 .gear-stat-card { flex: 0 1 auto; min-width: 210px; max-width: 100%; min-height: 82px; padding: 13px 14px; border-right: 1px solid var(--gear-border); }
 .gear-stat-card:last-child { border-right: 0; }
