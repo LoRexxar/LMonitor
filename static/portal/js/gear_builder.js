@@ -411,8 +411,11 @@
   }
 
   function replaceLoadout(next) {
-    if (state.lockedSlots.length) throw new Error("请先解锁已锁定的部位，再载入其他配装。");
     state = next;
+  }
+
+  function confirmLoadoutReplacement(record) {
+    return window.confirm(`载入配装“${record.name}”？\n将覆盖当前正在编辑的方案（包括锁定部位），未保存的修改会丢失。\n已保存的配装不受影响。`);
   }
 
   function slotFamily(slot = state.selectedSlot) {
@@ -1612,6 +1615,7 @@
   }
 
   async function loadSavedLoadout(record) {
+    if (!confirmLoadoutReplacement(record)) return;
     replaceLoadout(await hydrateSharePayload(await decodeShare(record.code)));
     syncSelectors();
     persist();
@@ -1685,6 +1689,7 @@
   }
 
   async function loadOnlineLoadout(record) {
+    if (!confirmLoadoutReplacement(record)) return;
     const payload = await requestJson(`${endpoints.onlineLoadouts}${Number(record.id)}/`);
     replaceLoadout(await hydrateSharePayload(await decodeShare(payload.loadout.code)));
     syncSelectors();
