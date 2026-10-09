@@ -743,6 +743,10 @@ class CurrentGearCatalogSource:
                     'crafting_options': {'stat_count': 2, 'stat_pool': ['crit', 'haste', 'mastery', 'versatility']},
                     'sources': sources,
                 })
+                if profile.get('venomstone'):
+                    upgraded = upgraded_variant(item['inventory_type'], item['variants'][-1])
+                    if upgraded:
+                        item['variants'].append(upgraded)
 
     @staticmethod
     def _highest_quality_enhancements(enchantments):

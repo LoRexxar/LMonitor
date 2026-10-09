@@ -1,4 +1,4 @@
-"""至暗之夜第二赛季晋升毒液石的掉落装备升级规则。"""
+"""至暗之夜第二赛季毒液石掉落升级与制造显式装等选项。"""
 from copy import deepcopy
 import re
 
@@ -12,6 +12,8 @@ TRACKS = {
 # 武器（含盾牌和副手）、饰品、项链；不包括戒指和防具。
 INVENTORY_TYPES = {2, 12, 13, 14, 15, 17, 21, 22, 23, 25, 26, 28}
 TRACK_BONUSES = set(range(12841, 12857)) | {13848}
+# 配装器指定的两档制造选项；不把掉落轨道 bonus 用到制造装备上。
+CRAFTED_LEVELS = {318: 328, 331: 340}
 
 
 def tooltip_branch(metadata, requested='auto'):
@@ -22,7 +24,24 @@ def tooltip_branch(metadata, requested='auto'):
 
 
 def upgraded_variant(inventory_type, base):
-    """只从合法的英雄/神话六阶生成八阶，不沿用旧装等属性或特效。"""
+    """掉落六阶与制造最高品质分别派生，不沿用旧装等属性或特效。"""
+    crafted = base.get('type') == 'crafted_equipment'
+    if crafted:
+        level = CRAFTED_LEVELS.get(base.get('item_level'))
+        if inventory_type not in INVENTORY_TYPES or base.get('crafting_quality') != 5 or not level:
+            return None
+        result = deepcopy(base)
+        result.update(key=f'{base["key"]}-venomstone', item_level=level, stats={}, effects=[])
+        options = result.setdefault('crafting_options', {})
+        needs_secondary = bool(options.pop('secondary_total', 0) or options.get('stat_values'))
+        options.pop('stat_values', None)
+        metadata = result.setdefault('metadata', {})
+        for key in ('primary_stat_values', 'primary_stat_amount', 'stats_status', 'effects_status',
+                    'simc_revision', 'game_build'):
+            metadata.pop(key, None)
+        metadata['venomstone'] = {'item_id': 280562, 'count': 10, 'item_level_mode': 'explicit',
+                                 'requires_secondary_total': needs_secondary}
+        return result
     rule = TRACKS.get(base.get('upgrade_track'))
     sources = {str(row.get('type') or '').casefold() for row in base.get('sources', []) if isinstance(row, dict)}
     if (inventory_type not in INVENTORY_TYPES or not rule
@@ -55,6 +74,11 @@ def apply_tooltip(variant, details, *, requires_effect=False):
         raise ValueError('毒液石 Tooltip 缺少属性和特效')
     if requires_effect and not details.get('effects'):
         raise ValueError('毒液石 Tooltip 缺少装备特效')
+    if variant.get('type') == 'crafted_equipment':
+        if ((variant.get('metadata') or {}).get('venomstone') or {}).get('requires_secondary_total') and not details.get('secondary_total'):
+            raise ValueError('毒液石 Tooltip 缺少目标装等制造副属性总量')
+        if details.get('secondary_total'):
+            variant.setdefault('crafting_options', {})['secondary_total'] = details['secondary_total']
     variant['stats'] = deepcopy(details.get('stats') or {})
     variant['effects'] = deepcopy(details.get('effects') or [])
     metadata = variant.setdefault('metadata', {})

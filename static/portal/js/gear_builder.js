@@ -298,7 +298,7 @@
   function variantLabel(variant) {
     if (!variant) return "未知变体";
     if (variant.type === "crafted_equipment") {
-      return `制造 ${variant.crafting_quality ? `${variant.crafting_quality}星` : ""} · ${variant.item_level}`;
+      return `制造 ${variant.crafting_quality ? `${variant.crafting_quality}星` : ""} · ${variant.item_level}${variant.metadata?.venomstone ? " · 晋升毒液石" : ""}`;
     }
     const rank = variant.track_rank ? ` ${variant.track_rank}/${variant.track_max_rank || variant.track_rank}` : "";
     return `${variant.track_label || variant.track || "装备"}${rank} · ${variant.item_level || "-"}${variant.metadata?.venomstone ? " · 晋升毒液石" : ""}`;
