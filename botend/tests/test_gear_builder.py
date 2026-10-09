@@ -228,10 +228,12 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
     def test_page_explains_equipment_only_stats_above_stat_grid(self):
         page = self.client.get('/portal/gear-builder/')
         notice = '以下属性为装备属性换算，不包括职业天赋中的赠送属性'
-        self.assertContains(page, notice, count=1)
+        self.assertContains(page, notice, count=2)
         html = page.content.decode()
         self.assertLess(html.index(notice), html.index('id="gear-stat-grid"'))
         self.assertGreater(html.index(notice), html.index('当前配装属性'))
+        self.assertGreater(html.rindex(notice), html.index('战斗属性'))
+        self.assertLess(html.rindex(notice), html.index('id="gear-preview-stats"'))
 
     def test_page_and_bootstrap_expose_current_catalog(self):
         page = self.client.get('/portal/gear-builder/')
