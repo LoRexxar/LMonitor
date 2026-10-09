@@ -1397,6 +1397,28 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertEqual(details['secondary_total'], 148)
         self.assertEqual(details['effects'][0]['description_zh'], '装备：测试效果。')
 
+    def test_embellishment_tooltips_preserve_full_chinese_property(self):
+        from pathlib import Path
+        from botend.services.wow_item_text import normalize_catalog_text
+        rows = json.loads((Path(__file__).parent / 'fixtures/embellishment_tooltips_zh.json').read_text())
+        expected = {
+            240165: '周期性效果的治疗和伤害可使主属性提高5点，持续15秒，最多叠加5次。',
+            251490: '所有珠宝加工修饰都以双倍强度生效。',
+            257741: '造成最多698点火焰伤害或1051点治疗效果。',
+            273063: '若此效果由爆击触发，则改为提高你最高的次要属性。',
+        }
+        for row in rows:
+            with self.subTest(item_id=row['id']):
+                details = _tooltip_details(row['payload'])
+                item = normalize_catalog_text({**details, 'catalog_type': 'embellishment',
+                    'variants': [{'effects': details['effects']}]})
+                effects = item['variants'][0]['effects']
+                self.assertEqual(len(effects), 1)
+                text = effects[0]['description_zh']
+                self.assertIn(expected[row['id']], text)
+                for unwanted in ('primaryStat', '附加制作材料', '配方难度', '用于：', '拍卖行', '售价'):
+                    self.assertNotIn(unwanted, text)
+
     def test_wowhead_tooltip_parser_keeps_embellishment_and_tier_descriptions(self):
         details = _tooltip_details({
             'name': '圣佑穿山甲护符', 'quality': 3,

@@ -16,7 +16,7 @@ import requests
 
 from botend.services.season_keys import canonical_season_key
 from botend.services.gear_builder_tier_sources import tier_set_sources
-from botend.services.wow_item_text import normalize_catalog_text
+from botend.services.wow_item_text import normalize_catalog_text, crafting_property_text
 from botend.services.gear_builder_venomstone import upgraded_variant, apply_tooltip, tooltip_branch
 
 from botend.constants.wow import SPEC_IDENTITY_MAP, localize_gear_source
@@ -191,7 +191,25 @@ def _tooltip_details(payload):
             continue
         key = 'description_zh' if re.search(r'[\u4e00-\u9fff]', text) else 'description'
         effects.append({key: text})
+    # Crafting properties are whole HTML blocks: a heading or first line alone
+    # loses the effect body and conditional continuation lines.
+    properties = []
+    for block in re.findall(r'<div\b[^>]*>(.*?)</div>', raw_tooltip, flags=re.I | re.S):
+        text = _plain_text(block)
+        if not re.match(r'^(?:提供下列属性|Provides the following property)(?:\s|[:：]|$)', text, re.I):
+            continue
+        chinese = text.startswith('提供下列属性')
+        if chinese:
+            block = re.sub(r'<!--term-->\s*primaryStat\s*<!--term-->', '主属性', block)
+        body = crafting_property_text(_plain_text(block))
+        if body:
+            key = 'description_zh' if chinese else 'description'
+            prefix = '提供下列属性：' if chinese else 'Provides the following property: '
+            properties.append({key: prefix + body})
+    effects.extend(properties)
     for line in tooltip.splitlines():
+        if properties and re.match(r'^(?:提供下列属性|Provides the following property)', line, re.I):
+            continue
         is_regular_effect = bool(
             re.match(r'^(?:装备|使用|被动|效果|提供下列属性)\s*[:：]', line)
             or re.match(r'^(?:Equip|Use|Passive|Effect)\s*:', line, flags=re.I)

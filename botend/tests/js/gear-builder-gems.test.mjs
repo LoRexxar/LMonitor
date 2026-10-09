@@ -33,5 +33,7 @@ for (const text of ['Optional Crafting Reagent', 'Recipe Difficulty', 'Usable wi
   assert.ok(!markup.includes(text), `美化列表不能混入无关描述：${text}`);
 }
 assert.equal(tooltipText(embellishment, embellishment.variants[0]), effect, '美化悬停也只显示特效');
+assert.equal(tooltipText(embellishment, {...embellishment.variants[0], effects: [{description_zh: `提供下列属性：${effect}`}]}), effect, '仅展示中文特效正文，不重复通用标题');
+assert.equal(tooltipText(embellishment, {...embellishment.variants[0], effects: [{description: 'Provides the following property: English only'}]}), '特效数据待补全', '无中文时不显示英文制作信息');
 assert.equal(tooltipText(embellishment, {...embellishment.variants[0], effects: []}), '特效数据待补全', '缺失特效不能回退到制作说明');
 console.log('宝石与美化说明验证通过：中文特效、完整标点、制作说明隔离、缺失效果与悬停去重。');

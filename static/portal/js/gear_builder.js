@@ -732,7 +732,8 @@
 
   function embellishmentDescription(variant) {
     // 美化只展示结构化特效；制作说明和旧版完整 Tooltip 不能作为特效回退。
-    const effects = (variant?.effects || []).map(effectText).map((text) => String(text).trim()).filter(Boolean);
+    const effects = (variant?.effects || []).map((effect) => effect?.description_zh || "")
+      .map((text) => String(text).replace(/^提供下列属性\s*[:：]\s*/, "").trim()).filter(Boolean);
     return [...new Set(effects)].join("\n") || "特效数据待补全";
   }
 
