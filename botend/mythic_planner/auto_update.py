@@ -239,10 +239,13 @@ def validate_candidate(payload, release, baseline=None):
                     raise ValueError(f"技能 {ability['spell_id']} 缺少中文资料。")
         for floor in dungeon['floors']:
             for poi in floor['pois']:
-                if poi['type'] == 'genericItem':
+                info = (poi['metadata'].get('source') or {}).get('info') or {}
+                if poi['type'] == 'genericItem' or (poi['type'] == 'genericAssignablePOI' and info.get('description')):
                     tip = poi['metadata'].get('tooltip') or {}
-                    if not poi['label'] or not poi['icon_url'] or not tip.get('description_zh'):
-                        raise ValueError(f"{dungeon['key']} 的交互标记缺少图标或中文说明。")
+                    text_poi = not info.get('spellId') and tip.get('source') == 'mdt_locale'
+                    complete = (tip.get('name_zh') and info.get('atlas')) if text_poi else poi['icon_url']
+                    if not poi['label'] or not complete or not tip.get('description_zh'):
+                        raise ValueError(f"{dungeon['key']}/{poi['key']} 的交互标记缺少图标或中文说明（spellId={info.get('spellId') or '无'}）。")
     if baseline:
         new = {d['key']: d for d in payload['dungeons']}
         for previous in baseline['dungeons']:

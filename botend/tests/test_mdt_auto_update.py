@@ -94,6 +94,41 @@ class MdtReleaseTests(SimpleTestCase):
     def test_poi_english_description_cannot_replace_ability_chinese(self):
         self.assertEqual(_spell_names(1, {1: {'description': 'English', 'description_zh': '中文说明'}})[2], '中文说明')
 
+    def test_locale_backed_pois_preserve_descriptions_without_spell_icons(self):
+        from botend.mythic_planner.mdt_converter import _convert_pois
+        from botend.mythic_planner.services import _serialize_poi
+        # DenOfNalorakk 6.3.4/6.3.5: same text-only offering, changed POI type.
+        info = {'name': 'Barrel of Apples', 'description': 'Acquire 6 Offerings',
+                'atlas': 'ChatBallon', 'size': 20}
+        locale = {'Barrel of Apples': '苹果桶', 'Acquire 6 Offerings': '获得6个供品'}
+        for kind in ('genericItem', 'genericAssignablePOI'):
+            with self.subTest(kind=kind):
+                source = {'type': kind, 'x': 205.51918350488, 'y': -317.40444367503, 'info': info}
+                poi = _convert_pois({1: source}, locale)[0]
+                self.assertEqual(poi['metadata']['tooltip']['description_zh'], '获得6个供品')
+                self.assertEqual(poi['metadata']['source'], source)
+                self.assertEqual(poi['icon_url'], '')
+                view = _serialize_poi(SimpleNamespace(id=1, poi_type=poi['type'], **{k: v for k, v in poi.items() if k != 'type'}))
+                self.assertEqual(view['description'], '获得6个供品')
+                self.assertEqual(view['atlas'], 'ChatBallon')
+                candidate = package()
+                candidate['dungeons'][0]['floors'][0]['pois'].append(poi)
+                metadata = candidate['data_version']['metadata']
+                release = {'tag': metadata['source_tag'], 'commit': metadata['source_commit']}
+                updater.validate_candidate(candidate, release)
+                for missing in ('description_zh', 'name_zh', 'atlas', 'spellId'):
+                    with self.subTest(invalid=missing):
+                        invalid = copy.deepcopy(candidate)
+                        broken = invalid['dungeons'][0]['floors'][0]['pois'][-1]
+                        if missing == 'atlas':
+                            broken['metadata']['source']['info']['atlas'] = ''
+                        elif missing == 'spellId':
+                            broken['metadata']['source']['info']['spellId'] = 1271545
+                        else:
+                            broken['metadata']['tooltip'][missing] = ''
+                        with self.assertRaisesRegex(ValueError, '交互标记'):
+                            updater.validate_candidate(invalid, release)
+
     def test_daily_interval_and_registration_are_idempotent(self):
         self.assertEqual(monitor_default_wait_time(updater.TASK_NAME), 86400)
         now = timezone.now()

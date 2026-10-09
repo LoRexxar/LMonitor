@@ -435,6 +435,14 @@ def _convert_pois(source_table, locale_zh, spell_snapshots=None):
                 )
                 if snapshot.get(field) not in (None, '', [])
             }
+        elif not spell_id and source_name and info.get('description'):
+            # Text/atlas POIs carry their own tooltip, not a Wowhead spell.
+            description = str(info['description'])
+            metadata['tooltip'] = {
+                'name': source_name, 'name_zh': locale_zh.get(source_name, ''),
+                'description': description, 'description_zh': locale_zh.get(description, ''),
+                'source': 'mdt_locale',
+            }
         result.append({
             'key': f'poi-{source_index}',
             'type': poi_type,
