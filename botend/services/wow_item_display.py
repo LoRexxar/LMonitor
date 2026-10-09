@@ -474,7 +474,10 @@ def item_display_metadata(
     normalized_sources = [text for text in (_source_text(row) for row in _rows(sources)) if text]
     # 语言选择依据源字段，不能把“中文清理后无独立说明”误判成“没有中文”。
     base_description = description_zh.strip() if has_chinese_description else description.strip()
-    projection_layout = tooltip_layout if has_structured_projection else ''
+    # 附魔的“使用”原文已分离为属性、特效和限制；再套装备布局会吞掉未映射属性说明。
+    projection_layout = tooltip_layout if has_structured_projection and not (
+        snapshot and snapshot.catalog_type == 'enchant'
+    ) else ''
     _layout_rows, ordered_stat_keys = _layout_detail_lines(
         projection_layout, normalized_stats, [], base_description,
     )

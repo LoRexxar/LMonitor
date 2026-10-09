@@ -13,6 +13,49 @@ from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
 
 class ItemTextSeparationTests(SimpleTestCase):
+    def test_current_enchants_render_chinese_without_losing_static_or_proc_details(self):
+        import json
+        from pathlib import Path
+        from botend.models import WowItemSnapshot, WowItemVariantSnapshot
+
+        rows = json.loads((Path(__file__).parent / 'fixtures/enchant_text_projection.json').read_text())
+        self.assertEqual(len(rows), 43)
+        projections = {}
+        for row in rows:
+            with self.subTest(item_id=row['item_id']):
+                item = WowItemSnapshot(**{key: row[key] for key in (
+                    'item_id', 'name', 'name_zh', 'description', 'description_zh')}, catalog_type='enchant')
+                variant = WowItemVariantSnapshot(item=item, variant_type='enchant',
+                    stats_json=deepcopy(row['stats_json']), effects_json=deepcopy(row['effects_json']),
+                    metadata=deepcopy(row['metadata']), variant_key=row['variant_key'])
+                projection = serialize_item(item, [variant], 'Warrior', 'Fury')
+                projections[row['item_id']] = projection
+                tooltip = projection['variants'][0]['tooltip']
+                self.assertTrue(tooltip)
+                self.assertNotRegex(tooltip, r'[A-Za-z]')
+                self.assertNotRegex(projection['description'], r'[A-Za-z]')
+                for effect in projection['variants'][0]['effects']:
+                    self.assertTrue(effect.get('description_zh'))
+                    self.assertNotRegex(effect['description_zh'], r'[A-Za-z]')
+                self.assertEqual(variant.stats_json, row['stats_json'])
+                self.assertEqual(variant.effects_json, row['effects_json'])
+                self.assertEqual(item.description_zh, row['description_zh'])
+        self.assertIn('+50 力量', projections[243977]['variants'][0]['tooltip'])
+        self.assertEqual(projections[243977]['variants'][0]['effects'], [])
+        self.assertIn('27点护甲值', projections[244643]['variants'][0]['tooltip'])
+        self.assertIn('主属性', projections[244029]['variants'][0]['tooltip'])
+        self.assertIn('67', projections[244029]['variants'][0]['tooltip'])
+        self.assertIn('15秒', projections[244029]['variants'][0]['tooltip'])
+        self.assertIn('最大法力值提高4%', projections[240155]['variants'][0]['tooltip'])
+        self.assertIn('总法力值提高5%', projections[244003]['variants'][0]['tooltip'])
+
+    def test_enhancement_without_chinese_effect_source_keeps_english_fallback(self):
+        for description_zh in ('', '一块古老的护甲片。'):
+            with self.subTest(description_zh=description_zh):
+                data = separate_item_text(description='Use: Gain 20 Haste for 10 seconds.',
+                    description_zh=description_zh, enhancement=True, recover_description_effects=True)
+                self.assertEqual(data['effects'], [{'description': 'Use: Gain 20 Haste for 10 seconds.'}])
+
     def test_delve_description_discards_other_level_stats_and_tooltip_metadata(self):
         description = '\n'.join([
             '升级：勇士 6/6', '腕部 板甲', '静态属性说明：183护甲',
