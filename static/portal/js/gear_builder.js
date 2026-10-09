@@ -173,7 +173,12 @@
   function tooltipText(item, variant) {
     if (variant?.type === "embellishment") return embellishmentDescription(variant);
     if (variant?.type === "gem" && !(variant.text_schema_version >= 2)) return gemDescription(item, variant);
-    const canonicalTooltip = String(variant?.tooltip || "").trim();
+    let canonicalTooltip = String(variant?.tooltip || "").trim();
+    if (variant?.track_label && variant?.track_rank && variant?.track_max_rank) {
+      // 基础物品原文可能保留低档位；显示等级服从后端当前变体，不改动来源原文。
+      canonicalTooltip = canonicalTooltip.replace(/^(?:升级|Upgrade(?: Level)?)\s*[:：][^\n]*$/gmi,
+        () => `升级：${variant.track_label} ${variant.track_rank}/${variant.track_max_rank}`);
+    }
     if (canonicalTooltip) {
       const numberedRaidSource = variantSources(variant).some((row) => raidBossNumber(row));
       if (!numberedRaidSource) return canonicalTooltip;
