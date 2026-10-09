@@ -1197,6 +1197,69 @@
     return {totals, lockedTotals, unlockedTotals, effects: effects.filter((row) => row.text), equipped, missingStats};
   }
 
+  function effectSummaryGroups() {
+    const groups = [
+      {key: "gems", label: "宝石", unit: "颗", empty: "未镶嵌宝石"},
+      {key: "enchants", label: "附魔", unit: "处", empty: "未应用附魔"},
+      {key: "equipment", label: "装备特效", unit: "件", empty: "暂无装备特效"},
+      {key: "embellishments", label: "美化", unit: "件", empty: "未应用美化"},
+    ].map((group) => ({...group, count: 0, stats: {}, rows: new Map()}));
+    function collect(groupIndex, applied, slot, includeStats = true, requireEffect = false) {
+      if (!applied) return;
+      const variant = applied.variant || {};
+      const descriptions = [...new Set((variant.effects || []).map(effectText).filter(Boolean))];
+      if (requireEffect && !descriptions.length && !variant.effects_missing) return;
+      const stats = includeStats ? variant.stats || {} : {};
+      const name = applied.item?.name || "未命名装备";
+      // 同名但品质、装等、属性或效果不同的对象不能合并。
+      const key = JSON.stringify([applied.item?.item_id || name, variant.id || variant.key,
+        variant.item_level, variant.crafting_quality, stats, descriptions]);
+      const group = groups[groupIndex];
+      if (!group.rows.has(key)) group.rows.set(key, {
+        name, count: 0, stats: {}, descriptions, sources: new Map(), missing: variant.effects_missing,
+      });
+      const row = group.rows.get(key);
+      row.count += 1;
+      const label = slotLabel(slot);
+      row.sources.set(label, (row.sources.get(label) || 0) + 1);
+      group.count += 1;
+      addStats(row.stats, stats);
+      addStats(group.stats, stats);
+    }
+    Object.entries(state.equipment).forEach(([slot, entry]) => {
+      if (!entry) return;
+      (entry.gems || []).forEach((gem) => collect(0, gem, slot));
+      collect(1, entry.enchant, slot);
+      // resolvedEffects 已混合装备与附加美化，分类使用各自的中央变体事实。
+      const intrinsic = Boolean(entry.variant?.is_intrinsic_embellishment);
+      collect(intrinsic ? 3 : 2, entry, slot, false, !intrinsic);
+      collect(3, entry.embellishment, slot);
+    });
+    return groups.map((group) => ({...group, rows: [...group.rows.values()].map((row) => ({
+      ...row, sources: [...row.sources].map(([slot, count]) => `${slot}${count > 1 ? ` ×${count}` : ""}`),
+    }))}));
+  }
+
+  function effectSummaryMarkup(groups) {
+    const statText = (stats) => sortedStatEntries(stats).filter(([, value]) => number(value))
+      .map(([key, value]) => `${STAT_LABELS[key] || key} ${number(value) > 0 ? "+" : ""}${formatNumber(value)}`).join(" · ");
+    return groups.map((group) => {
+      const total = statText(group.stats);
+      return `<section class="gear-effect-group" data-effect-group="${group.key}">
+        <header class="gear-effect-group-heading"><h4>${group.label}</h4><span>${group.count} ${group.unit}</span></header>
+        ${total ? `<p class="gear-effect-group-total" title="已计入上方属性，不含触发增益">常驻属性合计：${escapeHtml(total)}</p>` : ""}
+        ${group.rows.length ? `<ul class="gear-effect-group-items">${group.rows.map((row) => {
+          const stats = statText(row.stats);
+          return `<li class="gear-effect-entry"><div class="gear-effect-entry-heading"><strong>${escapeHtml(row.name)}</strong>${row.count > 1 ? `<span class="gear-effect-count">×${row.count}</span>` : ""}</div>
+            <small class="gear-effect-sources">${escapeHtml(row.sources.join("、"))}</small>
+            ${stats ? `<p class="gear-effect-static">${row.count > 1 ? "合计：" : ""}${escapeHtml(stats)}</p>` : ""}
+            ${row.descriptions.map((text) => `<p class="gear-effect-description">${escapeHtml(text)}</p>`).join("")}
+            ${!stats && !row.descriptions.length ? `<p class="gear-no-effects">${row.missing ? "特效数据待补全" : "无额外特效"}</p>` : ""}</li>`;
+        }).join("")}</ul>` : `<p class="gear-no-effects">${group.empty}</p>`}
+      </section>`;
+    }).join("");
+  }
+
   function secondaryPercentage(key, value) {
     if (!SECONDARY_STATS.has(key)) return null;
     const conversion = bootstrap?.rules?.secondary_stat_conversion?.[`${state.className}:${state.specName}`] || {};
@@ -1226,9 +1289,7 @@
         : `<small class="gear-stat-percent" title="${escapeHtml(secondaryPercentageTitle(key))}">${formatNumber(percent)}%</small>`;
       return `<div class="gear-stat-card" data-stat="${escapeHtml(key)}"><span class="gear-stat-label">${escapeHtml(STAT_LABELS[key] || "属性")}</span><div class="gear-stat-equation"><span class="gear-stat-term"><strong>${formatNumber(lockedTotals[key])}</strong><small>锁定</small></span><span class="gear-stat-operator">+</span><span class="gear-stat-term"><strong>${formatNumber(unlockedTotals[key])}</strong><small>未锁定</small></span><span class="gear-stat-operator">=</span><span class="gear-stat-term gear-stat-current"><strong>${formatNumber(value)}</strong><small>当前</small></span>${percentageMarkup}</div><span class="gear-stat-bar" style="--stat-progress:${Math.max(value ? 8 : 0, value / max * 100)}%;--stat-color:${STAT_COLORS[key] || "#64748b"}"></span></div>`;
     }).join("");
-    els.effect_list.innerHTML = effects.length
-      ? effects.map((row) => `<div class="gear-effect-line"><strong>${escapeHtml(row.slot)}：</strong>${escapeHtml(row.text)}</div>`).join("")
-      : '<span class="gear-no-effects">当前配装没有触发型特效。</span>';
+    els.effect_list.innerHTML = effectSummaryMarkup(effectSummaryGroups());
     els.stats_context.textContent = missingStats
       ? `已装备 ${equipped}/16 · ${missingStats} 件缺少静态属性数据；百分比仍包含 5% 基础暴击与 8% 基础精通`
       : `已装备 ${equipped}/16 · 含 5% 基础暴击；8% 基础精通与装备精通一并乘以当前专精系数`;
@@ -1289,9 +1350,7 @@
       const percent = secondaryPercentage(key, value);
       return `<div class="gear-preview-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><strong>${formatNumber(value)}</strong>${percent === null ? "" : `<small title="${escapeHtml(secondaryPercentageTitle(key))}">${formatNumber(percent)}%</small>`}</div>`;
     }).join("");
-    els.preview_effects.innerHTML = effects.length
-      ? effects.map((row) => `<div><strong>${escapeHtml(row.slot)}</strong><span>${escapeHtml(row.text)}</span></div>`).join("")
-      : '<span class="gear-preview-empty-effects">当前配装没有触发型特效。</span>';
+    els.preview_effects.innerHTML = effectSummaryMarkup(effectSummaryGroups());
   }
 
   function renderView() {
