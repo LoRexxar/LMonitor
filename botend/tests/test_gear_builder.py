@@ -488,6 +488,43 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         }).json()['items']
         self.assertIn(invalid_delve.id, [v['id'] for row in rows for v in row['variants']])
 
+    def test_delve_trinkets_have_no_myth_track_even_with_unlock_marker(self):
+        from botend.services.gear_builder_catalog_source import SEASON_LEVEL_PROFILES
+        from botend.services.gear_builder_venomstone import upgraded_variant
+        profile = SEASON_LEVEL_PROFILES['mid2']
+        sources = [{'type': 'delve'}]
+        marker = {'delve_myth': profile['delve_myth']}
+        item = WowItemSnapshot.objects.create(
+            item_id=10090, name='Delve Trinket', catalog_type='equipment',
+            slot_key='trinket', inventory_type=12, item_class_id=4, quality=4,
+            eligible_specs=['Warrior:Fury'],
+        )
+        rows = []
+        for track, level, rank in [('hero', 328, 8), ('myth', 334, 6), ('myth', 340, 8)]:
+            rows.append(WowItemVariantSnapshot.objects.create(
+                item=item, season=self.season, batch_key='test-batch',
+                variant_key=f'delve-{track}-{level}', variant_type='drop_equipment',
+                item_level=level, upgrade_track=track, track_rank=rank, track_max_rank=6,
+                compatible_slots=['trinket1', 'trinket2'], stats_json={'crit': 100},
+                source_json=sources, metadata=marker,
+            ))
+        for slot in ('trinket1', 'trinket2'):
+            catalog = self.client.get('/portal/api/gear-builder/catalog/', {
+                'class': 'Warrior', 'spec': 'Fury', 'slot': slot, 'source': 'all',
+            }).json()['items']
+            ids = {v['id'] for row in catalog for v in row['variants']}
+            self.assertIn(rows[0].pk, ids)
+            self.assertTrue(ids.isdisjoint({v.pk for v in rows[1:]}))
+        generated = {'inventory_type': 12, 'metadata': {}, 'variants': []}
+        CurrentGearCatalogSource._add_drop_variants(generated, profile, 'delve', sources)
+        self.assertNotIn('myth', {v['upgrade_track'] for v in generated['variants']})
+        self.assertEqual(max(v['item_level'] for v in generated['variants']), 328)
+        self.assertIsNone(upgraded_variant(12, {
+            'key': 'delve-myth-6', 'type': 'drop_equipment', 'upgrade_track': 'myth',
+            'track_rank': 6, 'track_max_rank': 6, 'item_level': 334,
+            'sources': sources, 'metadata': marker,
+        }))
+
     def test_catalog_strictly_filters_armor_primary_stat_and_weapon_slot(self):
         cloth = WowItemSnapshot.objects.create(
             item_id=10008, name='Intellect Cloth Hood', catalog_type='equipment', slot_key='head',

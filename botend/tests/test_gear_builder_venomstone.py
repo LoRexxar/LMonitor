@@ -68,7 +68,7 @@ class VenomstoneRulesTests(SimpleTestCase):
                                  [] if inventory_type in (1, 11) else [('hero', 8, 6, 328, [12848]), ('myth', 8, 6, 340, [12856])])
 
     def test_delve_myth_unlock_and_special_mythic_limits(self):
-        item = {'inventory_type': 12, 'metadata': {}, 'variants': []}
+        item = {'inventory_type': 17, 'metadata': {}, 'variants': []}
         sources = [{'type': 'delve'}]
         CurrentGearCatalogSource._add_drop_variants(item, SEASON_LEVEL_PROFILES['mid2'], 'delve', sources)
         myth = [row for row in item['variants'] if row['upgrade_track'] == 'myth']

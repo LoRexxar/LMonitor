@@ -586,14 +586,15 @@ def _secondary_stat_is_excluded(variant, excluded_stats):
 
 
 def _source_track_is_valid(variant):
-    """地下堡神话档须带本赛季解锁依据，旧批次的无依据记录仍不展示。"""
+    """地下堡饰品不开放神话；其他部位仍须有本赛季解锁依据。"""
     source_types = {
         str(row.get('type') or '').casefold()
         for row in (variant.source_json or [])
         if isinstance(row, dict) and row.get('type')
     }
     return (not (source_types == {'delve'} and str(variant.upgrade_track or '').casefold() == 'myth')
-            or bool((variant.metadata or {}).get('delve_myth')))
+            or (int(_variant_item(variant).inventory_type or 0) != 12
+                and bool((variant.metadata or {}).get('delve_myth'))))
 
 
 def serialize_variant(variant, class_name='', spec_name=''):
