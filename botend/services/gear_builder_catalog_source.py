@@ -583,7 +583,10 @@ class CurrentGearCatalogSource:
             str(row.get('type') or 'PRISMATIC').lower()
             for row in ((raw.get('socketInfo') or {}).get('sockets') or [])
         ]
-        if inventory_type in JEWELRY_INVENTORY_TYPES:
+        if inventory_type == 2 and raw.get('profession'):
+            # 制造项链的 socketInfo 已包含基础孔，不能重复叠加。
+            native_socket_types = source_socket_types or ['prismatic']
+        elif inventory_type in JEWELRY_INVENTORY_TYPES:
             # 项链与戒指固定有一个基础孔；源数据中显式声明的孔是特殊装备的额外天然孔。
             native_socket_types = (['prismatic'] + source_socket_types)[:2]
         else:

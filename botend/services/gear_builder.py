@@ -604,8 +604,11 @@ def serialize_variant(variant, class_name='', spec_name=''):
     socket_types = list(variant.socket_types or [])
     socket_count = max(int(variant.socket_count or 0), len(socket_types))
     if int(item.inventory_type or 0) in JEWELRY_INVENTORY_TYPES:
-        if not metadata.get('jewelry_socket_baseline_applied'):
-            # 兼容旧批次：旧数据保存的是源数据显式孔数量，尚未计入首饰基础孔。
+        if not metadata.get('jewelry_socket_baseline_applied') and not (
+            int(item.inventory_type or 0) == 2
+            and variant.variant_type == WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT
+        ):
+            # 旧掉落数据只保存额外天然孔；制造项链源数据已包含基础孔。
             socket_count += 1
         socket_count = min(2, max(1, socket_count))
         while len(socket_types) < socket_count:

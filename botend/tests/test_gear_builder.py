@@ -385,6 +385,34 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual((ring_variant['socket_count'], ring_variant['socket_types']), (2, ['prismatic', 'prismatic']))
         self.assertTrue(neck_variant['metadata']['jewelry_socket_baseline_applied'])
 
+    def test_crafted_neck_socket_is_total_not_extra_socket(self):
+        from botend.services.gear_builder_catalog_source import SEASON_LEVEL_PROFILES
+        raw = {'id': 240950, 'name': 'Masterwork Sindorei Amulet', 'inventoryType': 2,
+               'itemClass': 4, 'profession': {'id': 755},
+               'socketInfo': {'sockets': [{'type': 'PRISMATIC'}]}}
+        item = CurrentGearCatalogSource._base_item(raw, 'equipment', ('neck',))
+        self.assertEqual(item['metadata']['native_socket_types'], ['prismatic'])
+        dropped = {key: value for key, value in raw.items() if key != 'profession'}
+        special = CurrentGearCatalogSource._base_item(dropped, 'equipment', ('neck',))
+        self.assertEqual(special['metadata']['native_socket_types'], ['prismatic', 'prismatic'])
+        CurrentGearCatalogSource._add_crafted_variants(item, SEASON_LEVEL_PROFILES['mid2'], [{'type': 'crafted'}])
+        self.assertTrue(all(v['socket_count'] == 1 for v in item['variants']))
+        neck = WowItemSnapshot.objects.create(
+            item_id=240950, name=raw['name'], catalog_type='equipment',
+            slot_key='neck', item_class_id=4, inventory_type=2,
+        )
+        variant = WowItemVariantSnapshot.objects.create(
+            item=neck, season=self.season, batch_key='test-batch',
+            variant_key='crafted-legacy', variant_type='crafted_equipment',
+            item_level=318, crafting_quality=5, compatible_slots=['neck'],
+            socket_count=1, socket_types=['prismatic'], stats_json={'haste': 100},
+        )
+        rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'neck',
+        }).json()['items']
+        shown = next(v for row in rows for v in row['variants'] if v['id'] == variant.pk)
+        self.assertEqual((shown['socket_count'], shown['socket_types']), (1, ['prismatic']))
+
     def test_catalog_localizes_raw_english_sources(self):
         self.hero.source_json = [{
             'type': 'raid', 'instance': 'The Venomous Abyss', 'encounter': "Ula'tek",
