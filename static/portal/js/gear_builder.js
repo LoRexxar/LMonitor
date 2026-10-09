@@ -22,7 +22,7 @@
     "gear-equipped-count", "gear-mobile-count", "gear-browser-title", "gear-mode-equipment",
     "gear-mode-enhancement", "gear-mode-owned", "gear-equipment-browser", "gear-enhancement-browser", "gear-owned-browser", "gear-owned-list",
     "gear-search-input", "gear-source-filter", "gear-quick-filters", "gear-candidate-list", "gear-load-more",
-    "gear-embellishment-list", "gear-gem-list", "gear-enchant-list", "gear-socket-summary",
+    "gear-embellishment-list", "gear-gem-section", "gear-gem-list", "gear-enchant-list", "gear-socket-summary",
     "gear-add-socket-option", "gear-add-socket", "gear-add-socket-copy", "gear-stats-context",
     "gear-detail-panel", "gear-detail-content", "gear-detail-close", "gear-stat-grid",
     "gear-effect-list", "gear-save-status", "gear-import-simc", "gear-copy-simc", "gear-copy-share", "gear-clear",
@@ -530,6 +530,7 @@
     }
     els.equipment_browser.hidden = enhancement || owned;
     els.enhancement_browser.hidden = !enhancement;
+    if (enhancement) { closeDetail(); renderSocketOptions(); }
     if (els.owned_browser) els.owned_browser.hidden = !owned;
   }
 
@@ -815,10 +816,26 @@
       : `<div class="gear-option-empty">${escapeHtml(emptyText)}</div>`;
   }
 
+  function renderSocketOptions() {
+    const entry = selectedEntry();
+    const rule = entry ? socketRule() : null;
+    els.add_socket_option.hidden = !rule;
+    els.add_socket.checked = Boolean(entry?.addedSocket && rule);
+    els.add_socket.disabled = isSlotLocked();
+    if (rule) {
+      const itemName = bootstrap?.rules?.add_socket_item?.name || bootstrap?.rules?.add_socket_item?.itemName || "当前赛季插槽物品";
+      els.add_socket_copy.textContent = `${itemName} · 最多增加 ${Number(rule.max_additional || 1)} 个`;
+    }
+    const count = socketCapacity(entry);
+    els.gem_section.hidden = count <= 0;
+    els.socket_summary.textContent = count ? `${(entry.gems || []).length}/${count} 个插槽` : "当前装备无插槽";
+  }
+
   async function loadEnhancements(retry = false) {
     window.clearTimeout(enhancementRetryTimer);
     if (!retry) enhancementRetryCount = 0;
     const requestId = ++enhancementRequestId;
+    renderSocketOptions();
     const entry = selectedEntry();
     const variantId = entry?.variant?.id || "";
     els.embellishment_list.innerHTML = els.gem_list.innerHTML = els.enchant_list.innerHTML = '<div class="gear-option-empty">正在读取兼容选项…</div>';
@@ -835,7 +852,6 @@
         enhancementGroups = {embellishments: [], gems: [], enchants: []};
         const message = enhancementRetryCount < 20 ? "正在准备增强目录，请稍候…" : "数据仍在准备，请稍后重新打开增强目录。";
         for (const el of [els.embellishment_list, els.gem_list, els.enchant_list]) renderOptionGroup(el, [], "", message);
-        els.add_socket_option.hidden = true;
         if (enhancementRetryCount++ < 20) enhancementRetryTimer = window.setTimeout(() => {
           if (current() && state.mode === "enhancement") loadEnhancements(true);
         }, 3000);
@@ -850,22 +866,13 @@
       renderOptionGroup(els.embellishment_list, enhancementGroups.embellishments, "embellishment", entry?.variant?.type === "crafted_equipment" ? "当前制造装备没有兼容美化。" : "美化只能应用到制造装备。" );
       renderOptionGroup(els.gem_list, enhancementGroups.gems, "gem", entry ? "当前装备没有可用插槽或宝石。" : "请先为该槽位选择装备。" );
       renderOptionGroup(els.enchant_list, enhancementGroups.enchants, "enchant", entry ? "当前槽位没有永久附魔。" : "请先为该槽位选择装备。" );
-      const rule = entry ? socketRule() : null;
-      els.add_socket_option.hidden = !entry || !rule;
-      els.add_socket.checked = Boolean(entry?.addedSocket && rule);
-      if (rule) {
-        const itemName = bootstrap?.rules?.add_socket_item?.name || bootstrap?.rules?.add_socket_item?.itemName || "当前赛季插槽物品";
-        els.add_socket_copy.textContent = `${itemName} · 最多增加 ${Number(rule.max_additional || 1)} 个`;
-      }
-      const socketCount = socketCapacity(entry);
-      els.socket_summary.textContent = socketCount ? `${(entry.gems || []).length}/${socketCount} 个插槽` : "当前装备无插槽";
+      renderSocketOptions();
       syncSlotLocks();
     } catch (error) {
       if (!current()) return;
       renderOptionGroup(els.embellishment_list, [], "embellishment", error.message);
       renderOptionGroup(els.gem_list, [], "gem", error.message);
       renderOptionGroup(els.enchant_list, [], "enchant", error.message);
-      els.add_socket_option.hidden = true;
     }
   }
 
@@ -1009,7 +1016,7 @@
     persist();
     renderAll();
     if (state.mode === "enhancement") loadEnhancements();
-    if (targetSlot === state.selectedSlot) openDetail();
+    if (targetSlot === state.selectedSlot && state.mode !== "enhancement") openDetail();
     toast(`${item.name} 已${replacing ? "替换" : "装备"}到${slotLabel(targetSlot)}`);
   }
 

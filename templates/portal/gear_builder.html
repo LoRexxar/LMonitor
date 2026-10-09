@@ -182,13 +182,13 @@
                             <div id="gear-embellishment-list" class="gear-option-list"></div>
                         </div>
                     </details>
-                    <details class="gear-enhancement-section">
+                    <label id="gear-add-socket-option" class="gear-socket-option" hidden>
+                        <input id="gear-add-socket" type="checkbox">
+                        <span><strong>增加宝石插槽</strong><small id="gear-add-socket-copy">使用当前赛季的插槽物品</small></span>
+                    </label>
+                    <details id="gear-gem-section" class="gear-enhancement-section" hidden>
                         <summary class="gear-enhancement-heading"><h3>宝石</h3><span id="gear-socket-summary">需要装备插槽</span></summary>
                         <div class="gear-enhancement-content">
-                            <label id="gear-add-socket-option" class="gear-socket-option" hidden>
-                                <input id="gear-add-socket" type="checkbox">
-                                <span><strong>增加宝石插槽</strong><small id="gear-add-socket-copy">使用当前赛季的插槽物品</small></span>
-                            </label>
                             <div id="gear-gem-list" class="gear-option-list"></div>
                         </div>
                     </details>
@@ -317,6 +317,6 @@
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260928_shared_content"></script>
     <script src="{% static 'shared/js/wow-gear-state.js' %}?v=20261008"></script>
     <script src="{% static 'portal/js/gear-catalog.js' %}?v=20261008_enhancements"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20261008_enhancements"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20261009_sockets"></script>
 </body>
 </html>
