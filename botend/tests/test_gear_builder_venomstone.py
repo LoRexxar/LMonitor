@@ -43,9 +43,18 @@ class VenomstoneRulesTests(SimpleTestCase):
                 self.assertEqual([(v['upgrade_track'], v['track_rank'], v['track_max_rank'], v['item_level'], v['bonus_ids']) for v in extra],
                                  [] if inventory_type in (1, 11) else [('hero', 8, 6, 328, [12848]), ('myth', 8, 6, 340, [12856])])
 
-    def test_delve_and_special_mythic_limits_remain(self):
+    def test_delve_myth_unlock_and_special_mythic_limits(self):
         item = {'inventory_type': 12, 'metadata': {}, 'variants': []}
-        CurrentGearCatalogSource._add_drop_variants(item, SEASON_LEVEL_PROFILES['mid2'], 'delve', [])
+        sources = [{'type': 'delve'}]
+        CurrentGearCatalogSource._add_drop_variants(item, SEASON_LEVEL_PROFILES['mid2'], 'delve', sources)
+        myth = [row for row in item['variants'] if row['upgrade_track'] == 'myth']
+        self.assertEqual([(row['track_rank'], row['item_level']) for row in myth],
+                         [(1, 318), (2, 321), (3, 324), (4, 328), (5, 331), (6, 334), (8, 340)])
+        self.assertTrue(all(row['metadata']['delve_myth']['patch'] == '12.1.5' for row in myth))
+        self.assertTrue(all(row['sources'] == sources for row in myth))
+        item['variants'] = []
+        profile = {key: value for key, value in SEASON_LEVEL_PROFILES['mid2'].items() if key != 'delve_myth'}
+        CurrentGearCatalogSource._add_drop_variants(item, profile, 'delve', sources)
         self.assertNotIn('myth', {row['upgrade_track'] for row in item['variants']})
         self.assertEqual(max(row['item_level'] for row in item['variants']), 328)
         item['variants'] = []

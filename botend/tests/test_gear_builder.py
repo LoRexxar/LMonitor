@@ -475,6 +475,17 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         variant_ids = [variant['id'] for row in rows for variant in row['variants']]
         self.assertNotIn(invalid_delve.id, variant_ids)
 
+        from botend.services.gear_builder_catalog_source import SEASON_LEVEL_PROFILES
+        invalid_delve.variant_key = 'delve-myth-6-334'
+        invalid_delve.item_level = 334
+        invalid_delve.track_rank = 6
+        invalid_delve.metadata = {'delve_myth': SEASON_LEVEL_PROFILES['mid2']['delve_myth']}
+        invalid_delve.save()
+        rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'source': 'all',
+        }).json()['items']
+        self.assertIn(invalid_delve.id, [v['id'] for row in rows for v in row['variants']])
+
     def test_catalog_strictly_filters_armor_primary_stat_and_weapon_slot(self):
         cloth = WowItemSnapshot.objects.create(
             item_id=10008, name='Intellect Cloth Hood', catalog_type='equipment', slot_key='head',

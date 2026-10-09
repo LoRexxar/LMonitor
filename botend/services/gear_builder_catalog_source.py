@@ -31,6 +31,10 @@ WOWHEAD_TOOLTIP = 'https://nether.wowhead.com/tooltip/item/{item_id}'
 SEASON_LEVEL_PROFILES = {
     'mid2': {
         'venomstone': True,
+        'delve_myth': {
+            'patch': '12.1.5',
+            'source': 'https://news.blizzard.com/en-us/article/24307306/midnights-12-1-5-content-update-arrives-october-13',
+        },
         'tracks': {
             'champion': (292, 295, 298, 302, 305, 308),
             'hero': (305, 308, 311, 315, 318, 321),
@@ -686,7 +690,8 @@ class CurrentGearCatalogSource:
     @staticmethod
     def _add_drop_variants(item, profile, source_type, sources, special_mythic=False):
         socket_types = list((item.get('metadata') or {}).get('native_socket_types') or [])
-        allowed_tracks = ('champion', 'hero') if source_type == 'delve' else tuple(profile['tracks'])
+        allowed_tracks = (('champion', 'hero') if source_type == 'delve' and not profile.get('delve_myth')
+                          else tuple(profile['tracks']))
         for track, levels in profile['tracks'].items():
             if track not in allowed_tracks:
                 continue
@@ -699,6 +704,8 @@ class CurrentGearCatalogSource:
                     'socket_count': len(socket_types), 'socket_types': socket_types,
                     'sources': sources,
                 })
+                if source_type == 'delve' and track == 'myth':
+                    item['variants'][-1]['metadata'] = {'delve_myth': dict(profile['delve_myth'])}
                 if profile.get('venomstone'):
                     upgraded = upgraded_variant(item['inventory_type'], item['variants'][-1])
                     if upgraded:
@@ -821,7 +828,7 @@ class CurrentGearCatalogSource:
             fallback = {}
             for variant in item.get('variants') or []:
                 details = requests_needed.get((item['item_id'], _safe_int(variant.get('item_level')))) or {}
-                if (variant.get('metadata') or {}).get('venomstone'):
+                if any((variant.get('metadata') or {}).get(key) for key in ('venomstone', 'delve_myth')):
                     try:
                         apply_tooltip(variant, details, requires_effect=bool(item.get('effect_refs')) or item.get('inventory_type') == 12)
                     except ValueError as exc:

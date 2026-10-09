@@ -26,7 +26,8 @@ def upgraded_variant(inventory_type, base):
     rule = TRACKS.get(base.get('upgrade_track'))
     sources = {str(row.get('type') or '').casefold() for row in base.get('sources', []) if isinstance(row, dict)}
     if (inventory_type not in INVENTORY_TYPES or not rule
-            or (sources == {'delve'} and base.get('upgrade_track') == 'myth')
+            or (sources == {'delve'} and base.get('upgrade_track') == 'myth'
+                and not (base.get('metadata') or {}).get('delve_myth'))
             or base.get('type') != 'drop_equipment'
             or base.get('track_rank') != 6 or base.get('track_max_rank') != 6
             or base.get('item_level') != rule['base_level']):
