@@ -489,14 +489,18 @@
     return [...counts].map(([name, count]) => `${name}${count > 1 ? `×${count}` : ""}`).join("、");
   }
 
-  function enhancementSummary(entry) {
-    if (!entry) return "";
+  function enhancementLines(entry) {
+    if (!entry) return [];
     const parts = [];
     if (entry.embellishment?.item?.name) parts.push(`美化：${entry.embellishment.item.name}`);
     const gems = compactNames(entry.gems);
     if (gems) parts.push(`宝石：${gems}`);
     if (entry.enchant?.item?.name) parts.push(`附魔：${entry.enchant.item.name}`);
-    return parts.join(" · ");
+    return parts;
+  }
+
+  function enhancementSummary(entry) {
+    return enhancementLines(entry).join(" · ");
   }
 
   function renderSlots() {
@@ -1224,14 +1228,17 @@
     const entry = state.equipment[slotKey];
     const item = entry?.item;
     const variant = entry?.variant;
-    const enhancements = enhancementSummary(entry);
+    const enhancements = enhancementLines(entry);
+    const source = item ? sourceText(variant).replaceAll("\n", "；") : "";
+    const shortSource = item ? shortSourceText(variant) : "";
     const tooltip = item ? tooltipAttrs(item, variant) : "";
     return `<button type="button" class="gear-preview-slot${item ? "" : " is-empty"}" data-preview-slot="${escapeHtml(slotKey)}"${tooltip}>
       ${item ? iconMarkup(item, "gear-preview-slot-icon") : '<span class="gear-preview-slot-icon gear-preview-slot-placeholder" aria-hidden="true">◇</span>'}
       <span class="gear-preview-slot-copy">
         <span class="gear-preview-slot-label">${escapeHtml(slot.label)}</span>
         <strong>${escapeHtml(item?.name || "未装备")}</strong>
-        ${enhancements ? `<small>${escapeHtml(enhancements)}</small>` : ""}
+        ${source ? `<small class="gear-preview-slot-source" title="${escapeHtml(source)}"><span class="gear-preview-source-label">来源</span><span class="gear-preview-source-value">${escapeHtml(shortSource)}</span></small>` : ""}
+        ${enhancements.length ? `<span class="gear-preview-slot-enhancements">${enhancements.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}</span>` : ""}
       </span>
       <span class="gear-preview-slot-level">${variant?.item_level || entry?.itemLevel || "—"}</span>
     </button>`;
