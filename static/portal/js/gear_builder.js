@@ -925,12 +925,20 @@
 
   function refreshCachedEquipmentStats(rows) {
     let changed = false;
-    Object.values(state.equipment).forEach((entry) => {
+    Object.entries(state.equipment).forEach(([slot, entry]) => {
       if (!entry?.variant || entry.external) return;
       const item = rows.find((row) => Number(row.item_id) === Number(entry.item?.item_id));
       const fresh = item?.variants?.find((row) => Number(row.id) === Number(entry.variant.id)
         && Number(row.item_level) === Number(entry.variant.item_level));
       if (!fresh) return;
+      // 同一项链变体的中央孔数纠错须同步到旧配装，不改变制造绿字或锁定。
+      if (slot === "neck" && Number.isInteger(fresh.socket_count)
+          && (entry.variant.socket_count !== fresh.socket_count
+              || JSON.stringify(entry.variant.socket_types) !== JSON.stringify(fresh.socket_types))) {
+        entry.variant = {...entry.variant, socket_count: fresh.socket_count, socket_types: fresh.socket_types || []};
+        entry.gems = (entry.gems || []).slice(0, fresh.socket_count);
+        changed = true;
+      }
       if (refreshCachedItemText(entry, item, fresh)) {
         if (entry.resolvedEffects) entry.resolvedEffects = [...(fresh.effects || []), ...(entry.embellishment?.variant?.effects || [])];
         changed = true;
