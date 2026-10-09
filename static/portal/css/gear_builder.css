@@ -679,7 +679,7 @@
 .gear-online-save-row input:focus { border-color: #86a8f7; box-shadow: 0 0 0 3px rgba(37, 86, 216, .1); }
 .gear-online-list { display: grid; max-height: min(390px, 46vh); overflow-y: auto; border-bottom: 1px solid var(--gear-border); }
 .gear-online-list .gear-loadout-actions button[data-delete-online] { color: var(--gear-red); }
-.gear-toast-root { position: fixed; right: 18px; bottom: 18px; z-index: 10020; display: grid; gap: 7px; pointer-events: none; }
+.gear-toast-root { position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); width: max-content; max-width: calc(100vw - 36px); z-index: 10020; display: grid; gap: 7px; text-align: center; pointer-events: none; }
 .gear-toast { min-width: 220px; max-width: min(420px, calc(100vw - 36px)); padding: 10px 12px; border: 1px solid var(--gear-border); border-radius: 8px; background: var(--gear-surface); color: var(--gear-text); box-shadow: 0 15px 36px rgba(15, 23, 42, .18); font-size: .72rem; animation: gear-toast-in 180ms ease-out; }
 .gear-toast.is-error { border-color: #f1a7a1; color: var(--gear-red); }
 @keyframes gear-toast-in { from { opacity: 0; transform: translateY(8px); } }

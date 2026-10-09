@@ -824,7 +824,9 @@
     els.add_socket.disabled = isSlotLocked();
     if (rule) {
       const itemName = bootstrap?.rules?.add_socket_item?.name || bootstrap?.rules?.add_socket_item?.itemName || "当前赛季插槽物品";
-      els.add_socket_copy.textContent = `${itemName} · 最多增加 ${Number(rule.max_additional || 1)} 个`;
+      els.add_socket_copy.textContent = isSlotLocked()
+        ? "当前部位已锁定，请先解锁后再增加插槽。"
+        : `${itemName} · 最多增加 ${Number(rule.max_additional || 1)} 个`;
     }
     const count = socketCapacity(entry);
     els.gem_section.hidden = count <= 0;
