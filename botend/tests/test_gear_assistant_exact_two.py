@@ -338,13 +338,14 @@ class GearAssistantExactTwoTests(GearAssistantDataMixin, TestCase):
         for plan in self.optimize(equipment=fixed)['plans']:
             self.assert_exact(plan)
 
-    def test_myth_delve_duplicates_consume_two_slots(self):
+    def test_distinct_myth_delve_rings_consume_two_slots(self):
         self.crafts(('wrists', 'back'))
         ring = self.delve('finger1')
         ring.compatible_slots = ['finger1', 'finger2']
         ring.save(update_fields=['compatible_slots'])
         head = self.delve('head')
-        fixed = {slot: {'variant': {'id': ring.id}} for slot in ('finger1', 'finger2')}
+        other_ring = self.delve('finger2')
+        fixed = {'finger1': {'variant': {'id': ring.id}}, 'finger2': {'variant': {'id': other_ring.id}}}
         fixed['head'] = {'variant': {'id': head.id}}
         with self.assertRaisesRegex(GearBuilderError, '地下堡.*2'):
             self.optimize(equipment=fixed)

@@ -39,17 +39,22 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
         )
         support_slots = [slot for slot, _label in EQUIPMENT_SLOTS if slot not in {'head', 'off_hand'}]
-        support_item = WowItemSnapshot.objects.create(
-            item_id=10102, name_zh='完整配装测试装备', catalog_type='equipment',
-            eligible_specs=['Warrior:Fury'],
-        )
-        self.support_variant = WowItemVariantSnapshot.objects.create(
-            item=support_item, season=self.season, batch_key='test-batch',
-            variant_key='support-hero-6', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
-            item_level=730, upgrade_track='hero', track_rank=6, track_max_rank=6,
-            compatible_slots=support_slots, stats_json={},
-            source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
-        )
+        # Every slot needs a distinct item; the optimizer may not reuse a
+        # universal fixture across the whole loadout.
+        for index, slot in enumerate(support_slots, 10200):
+            support_item = WowItemSnapshot.objects.create(
+                item_id=index, name_zh=f'完整配装测试装备-{slot}', catalog_type='equipment',
+                eligible_specs=['Warrior:Fury'],
+            )
+            variant = WowItemVariantSnapshot.objects.create(
+                item=support_item, season=self.season, batch_key='test-batch',
+                variant_key='support-hero-6', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+                item_level=730, upgrade_track='hero', track_rank=6, track_max_rank=6,
+                compatible_slots=[slot], stats_json={},
+                source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
+            )
+            if slot == 'finger1':
+                self.support_variant = variant
         offhand_item = WowItemSnapshot.objects.create(
             item_id=10103, name_zh='高属性测试副手', catalog_type='equipment',
             eligible_specs=['Warrior:Fury'],

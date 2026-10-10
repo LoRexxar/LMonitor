@@ -350,6 +350,9 @@ def _validate_embellishments(equipment, class_name, spec_name):
 
 
 def _compatible(state, candidate, slot, identity):
+    # Item identity spans upgrade variants, crafted stats, and owned copies.
+    if candidate['variant'].item_id in state['item_ids']:
+        return False
     if state['embellishment_count'] + _embellishment_cost(candidate) > 2:
         return False
     if state['delve_myth_count'] + candidate.get('delve_myth_cost', 0) > 2:
@@ -386,6 +389,7 @@ def _extend_state(state, candidate, slot):
         stats = _add_stats(stats, normalize_stats(attachment.stats_json))
     return {
         'equipment': {**state['equipment'], slot: candidate},
+        'item_ids': state['item_ids'] | {candidate['variant'].item_id},
         'stats': stats,
         'unique': unique, 'owned': owned,
         'effect_count': state['effect_count'] + candidate['effect_count'],
@@ -473,7 +477,7 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
         pools[slot] = [option for candidate in candidates for option in prepare(candidate, slot)]
 
     def empty_state():
-        return {'equipment': {}, 'stats': {key: 0.0 for key in SECONDARY}, 'unique': {}, 'owned': {},
+        return {'equipment': {}, 'item_ids': frozenset(), 'stats': {key: 0.0 for key in SECONDARY}, 'unique': {}, 'owned': {},
                 'effect_count': 0, 'embellishment_count': 0, 'embellishment_slot_cost': 0,
                 'delve_myth_count': 0, 'delve_lower_count': 0, 'source_preference_count': 0,
                 'total_item_level': 0}
@@ -484,6 +488,10 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
         if slot not in fixed:
             continue
         candidate = pools[slot][0]
+        if candidate['variant'].item_id in reserved['item_ids']:
+            raise GearBuilderError(
+                f'锁定装备重复：同一物品只能装备 1 次（物品 ID {candidate["variant"].item.item_id}），请调整锁定装备'
+            )
         if reserved['delve_myth_count'] + candidate['delve_myth_cost'] > 2:
             raise GearBuilderError('锁定的地下堡神话装备最多只能携带 2 件，请调整锁定装备')
         if not _compatible(reserved, candidate, slot, identity):
@@ -530,7 +538,7 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
         if not beam:
             raise GearBuilderError(
                 f'“{PLAN_LABELS[mode]}”无法满足{SLOT_LABELS.get(slot, slot)}的装备约束'
-                '（美化必须携带 2 件、地下堡神话最多 2 件），未生成不完整方案'
+                '（同一物品只能装备 1 次、美化必须携带 2 件、地下堡神话最多 2 件），未生成不完整方案'
             )
     plan = min(beam, key=lambda row: (*priorities(row), _distance(row['stats'], target, conversion), -row['total_item_level']))
     plan['embellishments_in_stats'] = True
