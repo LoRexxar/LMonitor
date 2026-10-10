@@ -677,7 +677,12 @@ def _serialize_plan(mode, plan, target, conversion, class_name, spec_name):
             gems.append({'item': serialize_item(gem.item, [gem], class_name, spec_name), 'variant': serialize_variant(gem, class_name, spec_name)})
         enchant = enhancement.get('enchant')
         embellishment = enhancement.get('embellishment')
+        source_label = _source_label(variant, candidate.get('acquisition_source_type', ''), variant_payload['sources'])
+        owned_id = candidate.get('owned_id')
         equipment[slot] = {
+            'slot_label': SLOT_LABELS.get(slot, slot),
+            'acquisition_source_label': source_label,
+            'selection_origin': 'locked' if owned_id == -1 else 'owned' if owned_id else 'catalog',
             'item': item,
             'variant': variant_payload,
             'itemLevel': variant.item_level,
@@ -700,7 +705,7 @@ def _serialize_plan(mode, plan, target, conversion, class_name, spec_name):
                 'slot_label': SLOT_LABELS.get(slot, slot),
                 'name': item['name'],
                 'item_level': variant.item_level,
-                'source': _source_label(variant, candidate.get('acquisition_source_type', ''), variant_payload['sources']),
+                'source': source_label,
             })
     percentages = _percentages(plan['stats'], conversion)
     return {

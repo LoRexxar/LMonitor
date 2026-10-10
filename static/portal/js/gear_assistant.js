@@ -211,19 +211,9 @@
   function targetPayload() {
     return Object.fromEntries(Object.keys(STAT_LABELS).map((key) => [key, Number(byId(`target-${key}`).value || 0)]));
   }
-  function missingMarkup(rows) {
-    if (!rows?.length) return '<div class="assistant-plan-meta"><span>全部装备均已拥有或已锁定</span></div>';
-    return `<details class="assistant-missing"><summary>缺失装备与来源（${rows.length}）</summary><div class="assistant-missing-list">${rows.map((row) => `<div class="assistant-missing-row"><span>${escapeHtml(row.slot_label)}</span><div><strong>${escapeHtml(row.name)} · ${row.item_level || "-"}</strong><small>${escapeHtml(row.source)}</small></div></div>`).join("")}</div></details>`;
-  }
   function renderPlans(plans) {
     if (!plans?.length) return;
-    const bestDistance = Math.min(...plans.map((row) => Number(row.distance)));
-    els.results.innerHTML = plans.map((plan) => `<article class="assistant-plan${Number(plan.distance) === bestDistance ? " is-best" : ""}">
-      <header class="assistant-plan-head"><span class="assistant-plan-title"><strong>${escapeHtml(plan.name)}</strong><small>${plan.equipped_count}/16 件 · 备选 ${plan.owned_count} 件</small></span><span class="assistant-plan-badge">偏差 ${plan.distance}${Number(plan.distance) === bestDistance ? " · 最接近" : ""}</span></header>
-      <div class="assistant-plan-body"><div class="assistant-plan-stats">${Object.entries(STAT_LABELS).map(([key, label]) => `<div class="assistant-plan-stat"><span>${label}</span><strong>${Number(plan.percentages?.[key] || 0).toFixed(2)}%</strong></div>`).join("")}</div>
-      <div class="assistant-plan-meta"><span>合剂：${escapeHtml(plan.flask?.name || "无")}</span><span>特效装备 ${Number(plan.effect_count || 0)} 件</span><span>美化 ${Number(plan.embellishment_count || 0)}/2 件</span><span>地下堡神话 ${Number(plan.delve_myth_count || 0)}/2 件</span><span>${escapeHtml(plan.source_preference_label || "不偏好来源")}</span><span>宝石与附魔已计入最终属性</span></div>${missingMarkup(plan.missing_items)}</div>
-      <footer class="assistant-plan-actions"><button type="button" class="assistant-btn assistant-btn--primary" data-apply-plan="${escapeHtml(plan.key)}">应用到职业配装器</button></footer>
-    </article>`).join("");
+    els.results.innerHTML = WowGearAssistantResults.render(plans, builderBootstrap?.slots || []);
   }
   async function generate() {
     els.generate.disabled = true;
