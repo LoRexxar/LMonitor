@@ -1,4 +1,4 @@
-"""职业配装器已有装备的账号级存储服务。"""
+"""职业配装器备选装备的账号级存储服务。"""
 
 from __future__ import annotations
 
@@ -99,7 +99,7 @@ def list_owned_items(user, *, class_name='', spec_name='', slot=''):
 @transaction.atomic
 def save_owned_item(user, payload, *, set_quantity=False):
     if not isinstance(payload, dict):
-        raise GearBuilderError('已有装备内容无效')
+        raise GearBuilderError('备选装备内容无效')
     variant_id = int(payload.get('variant_id') or 0)
     variant = None
     if variant_id:
@@ -109,7 +109,7 @@ def save_owned_item(user, payload, *, set_quantity=False):
     item_id = int(payload.get('item_id') or (variant.item.item_id if variant else 0))
     slot = str(payload.get('slot') or (variant.item.slot_key if variant else ''))
     if item_id <= 0 or not slot:
-        raise GearBuilderError('已有装备缺少物品或槽位')
+        raise GearBuilderError('备选装备缺少物品或槽位')
     source = str(payload.get('source') or GearBuilderOwnedItem.SOURCE_MANUAL)
     allowed_sources = {value for value, _label in GearBuilderOwnedItem.SOURCE_CHOICES}
     if source not in allowed_sources:
@@ -149,11 +149,11 @@ def save_owned_item(user, payload, *, set_quantity=False):
 @transaction.atomic
 def save_owned_items(user, rows):
     if not isinstance(rows, list) or len(rows) > 300:
-        raise GearBuilderError('SimC 已有装备数量无效')
+        raise GearBuilderError('SimC 备选装备数量无效')
     grouped = {}
     for payload in rows:
         if not isinstance(payload, dict):
-            raise GearBuilderError('已有装备内容无效')
+            raise GearBuilderError('备选装备内容无效')
         identity = _fingerprint(payload)
         if identity not in grouped:
             grouped[identity] = {**payload, 'quantity': 0}
@@ -175,5 +175,5 @@ def clear_owned_items(user):
 def delete_owned_item(user, owned_id):
     row = GearBuilderOwnedItem.objects.filter(user=user, id=owned_id).first()
     if not row:
-        raise GearBuilderError('已有装备不存在')
+        raise GearBuilderError('备选装备不存在')
     row.delete()

@@ -75,9 +75,14 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
         self.assertContains(response, '辅助配装')
         self.assertContains(response, '开始模拟')
         self.assertContains(response, '当前配装')
-        self.assertContains(response, '已有装备')
+        self.assertContains(response, '备选装备')
+        self.assertContains(response, '清空备选装备')
+        self.assertContains(response, '优先备选装备')
+        self.assertNotContains(response, '已有装备')
         builder = self.client.get('/portal/gear-builder/')
         self.assertContains(builder, 'id="gear-mode-owned"')
+        self.assertContains(builder, '备选装备')
+        self.assertNotContains(builder, '已有装备')
         self.assertContains(builder, 'id="gear-open-assistant"')
 
     def test_login_returns_to_assistant_and_rejects_external_next(self):
@@ -171,6 +176,9 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         plans = {row['key']: row for row in response.json()['plans']}
         self.assertEqual(set(plans), {'prefer_owned', 'all', 'dungeon'})
+        self.assertEqual(plans['prefer_owned']['name'], '优先备选装备')
+        self.assertIn('优先备选装备', response.json()['explanation'])
+        self.assertNotIn('已有', response.json()['explanation'])
         self.assertEqual(plans['prefer_owned']['equipment']['head']['variant']['id'], self.hero.id)
         self.assertEqual(plans['prefer_owned']['owned_count'], 2)
         missing_ring_slots = [

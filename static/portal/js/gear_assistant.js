@@ -152,14 +152,14 @@
     const rows = assistantData?.owned_items || [];
     els.ownedTabCount.textContent = String(rows.length);
     els.ownedClear.disabled = ownedClearing || !rows.length;
-    els.ownedClear.textContent = ownedClearing ? "清空中…" : "清空已有装备";
+    els.ownedClear.textContent = ownedClearing ? "清空中…" : "清空备选装备";
     if (!rows.length) {
       els.ownedList.innerHTML = '<div class="assistant-list-empty">还没有备选装备。可在职业配装器点击“加入备选”，或导入 SimC 背包。</div>';
       return;
     }
     els.ownedList.innerHTML = rows.map((row) => {
       const icon = row.item?.icon_url ? `<img class="assistant-owned-icon" src="${escapeHtml(row.item.icon_url)}" alt="" loading="lazy">` : '<span class="assistant-owned-icon"></span>';
-      return `<div class="assistant-owned-row" data-owned-id="${row.id}">${icon}<span class="assistant-owned-copy"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.slot_label)} · ${row.item_level || "未知装等"}${row.quantity > 1 ? ` · ×${row.quantity}` : ""}</small></span><button type="button" class="assistant-owned-delete" data-delete-owned="${row.id}" aria-label="移除已有装备">×</button></div>`;
+      return `<div class="assistant-owned-row" data-owned-id="${row.id}">${icon}<span class="assistant-owned-copy"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.slot_label)} · ${row.item_level || "未知装等"}${row.quantity > 1 ? ` · ×${row.quantity}` : ""}</small></span><button type="button" class="assistant-owned-delete" data-delete-owned="${row.id}" aria-label="移除备选装备">×</button></div>`;
     }).join("");
   }
   async function clearOwnedItems() {
@@ -168,7 +168,7 @@
       toast("请等待当前模拟或导入完成后再清空。", true);
       return;
     }
-    if (!window.confirm("确定清空当前账号的全部已有装备（所有槽位）？此操作不可撤销，不会清空当前配装、锁定选择或已保存方案。")) return;
+    if (!window.confirm("确定清空当前账号的全部备选装备（所有槽位）？此操作不可撤销，不会清空当前配装、锁定选择或已保存方案。")) return;
     ownedClearing = true;
     ownedRevision += 1;
     const controls = [els.generate, els.rerun, els.importSimc, els.simcSubmit, els.classSelect, els.specSelect];
@@ -183,7 +183,7 @@
       ownedRevision += 1;
       assistantData.owned_items = [];
       markResultsStale();
-      toast(`已清空 ${payload.deleted_count || 0} 条已有装备记录。`);
+      toast(`已清空 ${payload.deleted_count || 0} 条备选装备记录。`);
     } catch (error) {
       toast(error.message, true);
     } finally {
@@ -218,7 +218,7 @@
     if (!plans?.length) return;
     const bestDistance = Math.min(...plans.map((row) => Number(row.distance)));
     els.results.innerHTML = plans.map((plan) => `<article class="assistant-plan${Number(plan.distance) === bestDistance ? " is-best" : ""}">
-      <header class="assistant-plan-head"><span class="assistant-plan-title"><strong>${escapeHtml(plan.name)}</strong><small>${plan.equipped_count}/16 件 · 已有 ${plan.owned_count} 件</small></span><span class="assistant-plan-badge">偏差 ${plan.distance}${Number(plan.distance) === bestDistance ? " · 最接近" : ""}</span></header>
+      <header class="assistant-plan-head"><span class="assistant-plan-title"><strong>${escapeHtml(plan.name)}</strong><small>${plan.equipped_count}/16 件 · 备选 ${plan.owned_count} 件</small></span><span class="assistant-plan-badge">偏差 ${plan.distance}${Number(plan.distance) === bestDistance ? " · 最接近" : ""}</span></header>
       <div class="assistant-plan-body"><div class="assistant-plan-stats">${Object.entries(STAT_LABELS).map(([key, label]) => `<div class="assistant-plan-stat"><span>${label}</span><strong>${Number(plan.percentages?.[key] || 0).toFixed(2)}%</strong></div>`).join("")}</div>
       <div class="assistant-plan-meta"><span>合剂：${escapeHtml(plan.flask?.name || "无")}</span><span>宝石与附魔已计入最终属性</span></div>${missingMarkup(plan.missing_items)}</div>
       <footer class="assistant-plan-actions"><button type="button" class="assistant-btn assistant-btn--primary" data-apply-plan="${escapeHtml(plan.key)}">应用到职业配装器</button></footer>
@@ -231,7 +231,7 @@
     els.rerun.textContent = "正在模拟…";
     els.resultLockSummary.classList.remove("is-stale");
     setWorkbench("results", {focus: true});
-    els.results.innerHTML = '<div class="assistant-empty-state"><strong>正在搜索组合</strong><span>会依次计算已有优先、全装备池和仅地下城方案。</span></div>';
+    els.results.innerHTML = '<div class="assistant-empty-state"><strong>正在搜索组合</strong><span>会依次计算备选优先、全装备池和仅地下城方案。</span></div>';
     try {
       const payload = await requestJson(endpoints.optimize, {
         method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()},
@@ -280,7 +280,7 @@
         snapshot: {name: row.name, stats: row.variant?.stats || {}, sources: row.variant?.sources || []},
       }));
       const saved = await requestJson(endpoints.owned, {method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()}, body: JSON.stringify({items})});
-      els.simcMessage.textContent = `已加入 ${saved.count || 0} 条已有装备记录。`;
+      els.simcMessage.textContent = `已加入 ${saved.count || 0} 条备选装备记录。`;
       currentState.className = parsed.identity?.class_name || currentState.className;
       currentState.specName = parsed.identity?.spec_name || currentState.specName;
       syncSelectors();
@@ -334,7 +334,7 @@
       try {
         await requestJson(`${endpoints.owned}${button.dataset.deleteOwned}/`, {method: "DELETE", headers: csrfHeaders()});
         assistantData.owned_items = assistantData.owned_items.filter((row) => String(row.id) !== button.dataset.deleteOwned);
-        renderOwned(); toast("已从已有装备中移除。");
+        renderOwned(); toast("已从备选装备中移除。");
       } catch (error) { toast(error.message, true); }
     });
     els.generate.addEventListener("click", generate);

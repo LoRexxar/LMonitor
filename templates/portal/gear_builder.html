@@ -123,7 +123,7 @@
                     <div class="gear-mode-switch" role="tablist" aria-label="选择装备或强化">
                         <button type="button" id="gear-mode-equipment" class="is-active" role="tab" aria-selected="true">装备</button>
                         <button type="button" id="gear-mode-enhancement" role="tab" aria-selected="false">强化</button>
-                        {% if request.user.is_authenticated %}<button type="button" id="gear-mode-owned" role="tab" aria-selected="false">已有装备</button>{% endif %}
+                        {% if request.user.is_authenticated %}<button type="button" id="gear-mode-owned" role="tab" aria-selected="false">备选装备</button>{% endif %}
                     </div>
                 </div>
 
@@ -201,7 +201,7 @@
                 </div>
                 {% if request.user.is_authenticated %}
                 <div id="gear-owned-browser" class="gear-owned-browser" hidden>
-                    <div class="gear-enhancement-intro"><strong>已有装备</strong><span>当前账号保存的物品；点击行直接装备到当前槽位。</span></div>
+                    <div class="gear-enhancement-intro"><strong>备选装备</strong><span>当前账号保存的物品；点击行直接装备到当前槽位。</span></div>
                     <div id="gear-owned-list" class="gear-owned-list"></div>
                 </div>
                 {% endif %}
@@ -319,6 +319,6 @@
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260928_shared_content"></script>
     <script src="{% static 'shared/js/wow-gear-state.js' %}?v=20261008"></script>
     <script src="{% static 'portal/js/gear-catalog.js' %}?v=20261008_enhancements"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20261010_owned_candidates"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20261010_candidate_wording"></script>
 </body>
 </html>

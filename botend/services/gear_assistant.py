@@ -30,7 +30,7 @@ from botend.services.gear_builder_owned import list_owned_items
 
 SECONDARY = ('crit', 'haste', 'mastery', 'versatility')
 PLAN_LABELS = {
-    'prefer_owned': '优先已有装备',
+    'prefer_owned': '优先备选装备',
     'all': '全装备池',
     'dungeon': '仅地下城装备',
 }
@@ -479,18 +479,18 @@ def _serialize_plan(mode, plan, target, conversion, class_name, spec_name):
 
 def _fallback_explanation(plans):
     best = min(plans, key=lambda row: row['distance'])
-    return f"最接近目标的是“{best['name']}”，综合偏差 {best['distance']}。优先已有装备方案会先锁定可用的已有物品，另外两套方案更适合比较潜在提升与需要补齐的来源。"
+    return f"最接近目标的是“{best['name']}”，综合偏差 {best['distance']}。优先备选装备方案会先锁定可用的备选物品，另外两套方案更适合比较潜在提升与需要补齐的来源。"
 
 
 def _ai_explanation(plans, target):
     from core.glm import GLMClient
     summary = [{
         '方案': row['name'], '偏差': row['distance'], '最终百分比': row['percentages'],
-        '已有件数': row['owned_count'], '缺失装备': len(row['missing_items']),
+        '备选件数': row['owned_count'], '缺失装备': len(row['missing_items']),
     } for row in plans]
     prompt = (
         '你是魔兽世界配装助手。只基于下面确定性计算结果，用中文写120字以内的比较建议；'
-        '不得新增装备、数值或来源。\n'
+        '不得新增装备、数值或来源。账号装备库统一称为“备选装备”。\n'
         f'目标={target}\n方案={summary}'
     )
     return (GLMClient().send_message(prompt, max_tokens=220, thinking_type='disabled') or '').strip()

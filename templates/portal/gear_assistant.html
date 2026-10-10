@@ -26,7 +26,7 @@
             <div>
                 <span class="gear-assistant-eyebrow">职业配装器 · 登录功能</span>
                 <h1>辅助配装</h1>
-                <p>锁定当前选择，用已有装备与赛季装备池逼近目标绿字。</p>
+                <p>锁定当前选择，用备选装备与赛季装备池逼近目标绿字。</p>
             </div>
             <div class="gear-assistant-controls">
                 <label><span>职业</span><select id="assistant-class"></select></label>
@@ -43,7 +43,7 @@
                 </div>
                 <div class="assistant-library-tabs" role="tablist" aria-label="装备范围">
                     <button type="button" id="assistant-tab-current" class="is-active" role="tab" aria-selected="true" aria-controls="assistant-current-pane" data-library-tab="current">当前配装 <span id="assistant-current-tab-count">0</span></button>
-                    <button type="button" id="assistant-tab-owned" role="tab" aria-selected="false" aria-controls="assistant-owned-pane" data-library-tab="owned">已有装备 <span id="assistant-owned-tab-count">0</span></button>
+                    <button type="button" id="assistant-tab-owned" role="tab" aria-selected="false" aria-controls="assistant-owned-pane" data-library-tab="owned">备选装备 <span id="assistant-owned-tab-count">0</span></button>
                 </div>
 
                 <div id="assistant-current-pane" class="assistant-library-pane" role="tabpanel" aria-labelledby="assistant-tab-current">
@@ -60,8 +60,8 @@
 
                 <div id="assistant-owned-pane" class="assistant-library-pane" role="tabpanel" aria-labelledby="assistant-tab-owned" hidden>
                     <div class="assistant-owned-toolbar">
-                        <div class="assistant-owned-intro"><strong>账号装备库</strong><span>加入备选的装备会用于“优先已有装备”方案</span></div>
-                        <button type="button" id="assistant-clear-owned" class="assistant-clear-owned" disabled>清空已有装备</button>
+                        <div class="assistant-owned-intro"><strong>账号装备库</strong><span>加入备选的装备会用于“优先备选装备”方案</span></div>
+                        <button type="button" id="assistant-clear-owned" class="assistant-clear-owned" disabled>清空备选装备</button>
                     </div>
                     <div id="assistant-owned-list" class="assistant-owned-list"></div>
                 </div>
@@ -103,7 +103,7 @@
                         </section>
 
                         <div class="assistant-generate-row">
-                            <div><strong>将生成三套方案</strong><span>优先已有装备、全装备池、仅地下城装备</span></div>
+                            <div><strong>将生成三套方案</strong><span>优先备选装备、全装备池、仅地下城装备</span></div>
                             <button type="button" id="assistant-generate" class="assistant-btn assistant-btn--primary">开始模拟</button>
                         </div>
                     </div>
@@ -137,12 +137,12 @@
                 <p>会导入当前已装备物品以及 <code>### Gear from Bags</code> 区块，不会改动公共装备目录。</p>
                 <textarea id="assistant-simc-input" rows="14" placeholder="粘贴 SimulationCraft 导出的完整 Profile"></textarea>
                 <div id="assistant-simc-message" class="assistant-dialog-message"></div>
-                <footer><button value="cancel" class="assistant-btn">取消</button><button type="button" id="assistant-simc-submit" class="assistant-btn assistant-btn--primary">解析并加入已有装备</button></footer>
+                <footer><button value="cancel" class="assistant-btn">取消</button><button type="button" id="assistant-simc-submit" class="assistant-btn assistant-btn--primary">解析并加入备选装备</button></footer>
             </form>
         </dialog>
     </main>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260813_simc_equipment_icon"></script>
     <script src="{% static 'shared/js/wow-gear-state.js' %}?v=20261008"></script>
-    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261010_owned_candidates"></script>
+    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261010_candidate_wording"></script>
 </body>
 </html>

@@ -587,7 +587,7 @@
   function renderOwnedItems() {
     if (!els.owned_list) return;
     if (!ownedItems.length) {
-      els.owned_list.innerHTML = '<div class="gear-empty-state"><div><strong>当前槽位没有已有装备</strong>可在装备候选行点击“加入备选”，或通过 SimC 导入背包装备。</div></div>';
+      els.owned_list.innerHTML = '<div class="gear-empty-state"><div><strong>当前槽位没有备选装备</strong>可在装备候选行点击“加入备选”，或通过 SimC 导入背包装备。</div></div>';
       return;
     }
     els.owned_list.innerHTML = ownedItems.map((row) => {
@@ -602,14 +602,14 @@
 
   async function loadOwnedItems() {
     if (!endpoints.ownedItems || !els.owned_list) return;
-    els.owned_list.innerHTML = '<div class="gear-loading-state">正在读取已有装备…</div>';
+    els.owned_list.innerHTML = '<div class="gear-loading-state">正在读取备选装备…</div>';
     try {
       const params = new URLSearchParams({class: state.className, spec: state.specName, slot: state.selectedSlot});
       const payload = await requestJson(`${endpoints.ownedItems}?${params}`);
       ownedItems = payload.items || [];
       renderOwnedItems();
     } catch (error) {
-      els.owned_list.innerHTML = `<div class="gear-empty-state"><div><strong>已有装备读取失败</strong>${escapeHtml(error.message)}</div></div>`;
+      els.owned_list.innerHTML = `<div class="gear-empty-state"><div><strong>备选装备读取失败</strong>${escapeHtml(error.message)}</div></div>`;
     }
   }
 
@@ -1958,7 +1958,7 @@
       await loadCandidates(true);
       els.simc_dialog.close();
       els.simc_message.textContent = "";
-      toast(`已导入 ${importedCount} 个装备槽位${skippedCount ? `，跳过 ${skippedCount} 个受锁定限制的部位` : ""}${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件已有装备` : ""}。`);
+      toast(`已导入 ${importedCount} 个装备槽位${skippedCount ? `，跳过 ${skippedCount} 个受锁定限制的部位` : ""}${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件备选装备` : ""}。`);
       (payload.warnings || []).slice(0, 3).forEach((warning) => toast(warning, true));
     } catch (error) {
       els.simc_message.textContent = error.message;
@@ -2141,7 +2141,7 @@
         event.stopPropagation();
         try {
           await requestJson(`${endpoints.ownedItems}${remove.dataset.removeOwned}/`, {method: "DELETE", headers: csrfHeaders()});
-          await loadOwnedItems(); toast("已从已有装备中移除。");
+          await loadOwnedItems(); toast("已从备选装备中移除。");
         } catch (error) { toast(error.message, true); }
         return;
       }
