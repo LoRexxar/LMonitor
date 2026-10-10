@@ -39,6 +39,7 @@
   let lastPlans = [];
   let ownedClearing = false;
   let ownedRevision = 0;
+  let hideResultTooltip = () => {};
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>'"]/g, (character) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"})[character]);
@@ -213,9 +214,11 @@
   }
   function renderPlans(plans) {
     if (!plans?.length) return;
+    hideResultTooltip();
     els.results.innerHTML = WowGearAssistantResults.render(plans, builderBootstrap?.slots || []);
   }
   async function generate() {
+    hideResultTooltip();
     els.generate.disabled = true;
     els.rerun.disabled = true;
     els.generate.textContent = "正在模拟…";
@@ -286,6 +289,7 @@
     }
   }
   function bindEvents() {
+    hideResultTooltip = WowGearAssistantResults.bindTooltips(els.results);
     els.classSelect.addEventListener("change", async () => {
       const classRow = (builderBootstrap.classes || []).find((row) => row.key === els.classSelect.value);
       currentState = loadState(classRow.key, classRow.specs?.[0]?.key || "");

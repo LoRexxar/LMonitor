@@ -16,20 +16,17 @@
   }
   function identity(entry) {
     const v = entry.variant || {};
-    // IDs alone are insufficient across quality/build/stat projections. Never merge by name.
     return JSON.stringify([entry.item?.item_id, v.id, v.key, v.item_level, v.crafting_quality, v.game_build, v.data_branch, v.bonus_ids, v.stats, v.effects]);
   }
   function effects(entry) {
     return (entry?.resolvedEffects || entry?.variant?.effects || []).map(row => typeof row === 'string' ? row : (row.description_zh || row.description || '')).filter(Boolean);
   }
-  function enhancement(entry) {
-    if (!entry?.item) return '';
-    const parts = [quality(entry), statText(entry.resolvedStats || entry.variant?.stats)].filter(Boolean);
-    return `<strong>${esc(name(entry))}</strong>${parts.length ? `<small>${esc(parts.join(' · '))}</small>` : ''}`;
+  function enhancementText(entry) {
+    const description = [name(entry), quality(entry), statText(entry.resolvedStats || entry.variant?.stats), ...effects(entry)].filter(Boolean).join(' · ');
+    return `${description}\n物品 ID ${entry.item?.item_id ?? '未提供'} · 变体 ID ${entry.variant?.id ?? '未提供'} · ${entry.variant?.key ?? '未提供'}`;
   }
-  function enhancementDetail(entry, label) {
-    if (!entry?.item) return '';
-    return `<div class="assistant-enhancement-detail"><span>${esc(label)}</span><div>${enhancement(entry)}${effects(entry).map(text => `<p>${esc(text)}</p>`).join('')}<small class="assistant-result-id">物品 ID ${esc(entry.item.item_id ?? '未提供')} · 变体 ID ${esc(entry.variant?.id ?? '未提供')} · ${esc(entry.variant?.key || '')}</small></div></div>`;
+  function tooltipAttrs(title, description) {
+    return `data-assistant-tooltip-name="${esc(title)}" data-assistant-tooltip="${esc(description)}"`;
   }
   function slotEntries(plan, slots) {
     return slots.map(slot => ({key: slot.key, label: plan.equipment?.[slot.key]?.slot_label || slot.label, entry: plan.equipment?.[slot.key]}));
@@ -46,41 +43,94 @@
   }
   function recommendations(plan, rows) {
     const flask = plan.flask;
-    const noFlask = flask?.key === 'none';
+    const flaskName = flask?.key === 'none' ? '不使用属性合剂' : flask?.name || '合剂信息未提供';
     const groups = gemGroups(rows);
-    const gemCount = groups.reduce((sum, row) => sum + row.destinations.length, 0);
-    const enchants = rows.filter(row => row.entry?.enchant?.item);
-    const beauties = rows.filter(row => row.entry?.embellishment?.item || row.entry?.variant?.is_intrinsic_embellishment);
-    return `<section class="assistant-plan-preparation" aria-label="消耗品与强化清单">
-      <div class="assistant-flask-recommendation assistant-plan-flask"><span class="assistant-section-kicker">属性合剂</span><strong>${esc(noFlask ? '不使用属性合剂' : flask?.name || '合剂信息未提供')}</strong><small>${esc(noFlask ? '无合剂属性加成' : statText(flask?.stats) || '属性加成未提供')}</small></div>
-      <div class="assistant-gem-recommendation assistant-plan-gems"><h4>宝石 <span>${gemCount} 颗</span></h4>${groups.length ? groups.map((group, index) => `<div class="assistant-gem-group" data-gem-group="${index}">${icon(group.gem)}<div>${enhancement(group.gem)}<small class="assistant-enhancement-destinations">${esc(group.destinations.join('；'))}</small></div><b>×${group.destinations.length}</b></div>`).join('') : '<p class="assistant-result-empty">本方案未镶嵌宝石</p>'}</div>
-      <details class="assistant-plan-enhancements"><summary>附魔 ${enchants.length} 处 · 美化 ${beauties.length} 件 <span>查看逐部位清单</span></summary><div class="assistant-enhancement-columns"><section><h4>附魔</h4>${enchants.length ? enchants.map(row => enhancementDetail(row.entry.enchant, row.label)).join('') : '<p class="assistant-result-empty">本方案未选择附魔</p>'}</section><section><h4>美化</h4>${beauties.length ? beauties.map(row => row.entry.variant?.is_intrinsic_embellishment ? `<div class="assistant-enhancement-detail"><span>${esc(row.label)}</span><div><strong>${esc(name(row.entry))}</strong><small>固有美化 · 详见装备特效</small></div></div>` : enhancementDetail(row.entry.embellishment, row.label)).join('') : '<p class="assistant-result-empty">本方案未选择美化</p>'}</section></div></details>
-    </section>`;
+    return `<div class="assistant-plan-preparation">
+      <div class="assistant-plan-flask assistant-choice-line"><span>合剂</span><button type="button" class="assistant-choice" ${tooltipAttrs(flaskName, statText(flask?.stats) || '无合剂属性加成')}>${esc(flaskName)}</button></div>
+      <div class="assistant-plan-gems assistant-choice-line"><span>宝石</span><div>${groups.length ? groups.map((group, index) => `<button type="button" class="assistant-choice" data-gem-group="${index}" ${tooltipAttrs(name(group.gem), `${enhancementText(group.gem)}\n${group.destinations.join('；')}`)}>${esc(name(group.gem))}${quality(group.gem) ? ` <small>${esc(quality(group.gem))}</small>` : ''} <b>×${group.destinations.length}</b></button>`).join('<span class="assistant-choice-separator">、</span>') : '<span class="assistant-result-empty">本方案未镶嵌宝石</span>'}</div></div>
+    </div>`;
   }
-  function equipmentRow({key, label, entry}) {
-    if (!entry?.item) return `<li class="assistant-result-gear is-empty" data-plan-slot="${esc(key)}"><span>${esc(label)}</span><p>未提供装备</p></li>`;
+  function equipmentDescription(entry, label) {
     const v = entry.variant || {};
     const origin = {locked: '已锁定', owned: '来自备选', catalog: '需获取'}[entry.selection_origin] || '状态未提供';
     const track = v.track_label ? `${v.track_label}${v.track_rank ? ` ${v.track_rank}/${v.track_max_rank || '?'}` : ''}` : '';
-    const meta = [entry.itemLevel || v.item_level ? `${entry.itemLevel || v.item_level} 装等` : '装等未提供', track, quality(entry), rarity[entry.item.quality]].filter(Boolean).join(' · ');
-    // resolvedStats is already resolved by the optimizer; never add gem/enchant stats here.
+    const meta = [label, `${entry.itemLevel || v.item_level || '?'} 装等`, track, quality(entry), rarity[entry.item.quality], origin].filter(Boolean).join(' · ');
+    // Resolved secondary ratings override source values; do not add enhancements again.
     const stats = statText({...v.stats, ...entry.resolvedStats});
     const selected = (entry.selectedStats || []).map(key => labels[key] || key).join(' / ');
     const gems = (entry.gems || []).filter(gem => gem?.item);
-    const enhancements = [gems.length ? `宝石：${gemGroups([{key, label, entry}]).map(group => `${name(group.gem)}${quality(group.gem) ? `（${quality(group.gem)}）` : ''} ×${group.destinations.length}`).join('；')}` : '未镶嵌宝石', entry.enchant?.item ? `附魔：${name(entry.enchant)}` : '未选择附魔', v.is_intrinsic_embellishment ? '固有美化' : entry.embellishment?.item ? `美化：${name(entry.embellishment)}` : '无美化'];
-    return `<li class="assistant-result-gear" data-plan-slot="${esc(key)}"><div class="assistant-result-slot">${esc(label)}<span class="assistant-origin ${entry.selection_origin === 'catalog' ? 'needs-item' : ''}">${esc(origin)}</span></div>${icon(entry)}<div class="assistant-result-gear-copy"><strong class="assistant-result-item-name">${esc(name(entry))}</strong><span class="assistant-result-item-meta">${esc(meta)}</span><span class="assistant-result-item-stats" title="采用后端槽位解析值；如已含强化，不再叠加下方强化明细">解析属性：${esc(stats || '无常驻属性数据')}${selected ? ` <span>· 自选 ${esc(selected)}</span>` : ''}</span><p class="assistant-result-source">来源：${esc(entry.acquisition_source_label || '获取来源未提供')}</p><p class="assistant-result-enhancements">${esc(enhancements.join(' · '))}</p><details class="assistant-item-details"><summary>属性强化与特效详情</summary><div>${gems.map((gem, index) => enhancementDetail(gem, `宝石 · 第 ${index + 1} 孔`)).join('')}${enhancementDetail(entry.enchant, '附魔')}${enhancementDetail(entry.embellishment, '附加美化')}<div class="assistant-result-effects">${effects(entry).map(text => `<p>${esc(text)}</p>`).join('') || '<p>未提供额外特效说明</p>'}</div><p class="assistant-result-id">物品 ID ${esc(entry.item.item_id ?? '未提供')} · 变体 ID ${esc(v.id ?? '未提供')} · ${esc(v.key || '')}</p></div></details></div></li>`;
+    return [meta, stats, selected && `制造自选：${selected}`, `来源：${entry.acquisition_source_label || '获取来源未提供'}`,
+      ...effects(entry),
+      ...(gems.length ? gems.map((gem, index) => `宝石 第 ${index + 1} 孔：${enhancementText(gem)}`) : ['未镶嵌宝石']),
+      entry.enchant?.item ? `附魔：${enhancementText(entry.enchant)}` : '未选择附魔',
+      v.is_intrinsic_embellishment ? '固有美化' : entry.embellishment?.item ? `美化：${enhancementText(entry.embellishment)}` : '',
+      `物品 ID ${entry.item.item_id ?? '未提供'} · 变体 ID ${v.id ?? '未提供'} · ${v.key || ''}`,
+    ].filter(Boolean).join('\n');
+  }
+  function equipmentRow({key, label, entry}) {
+    if (!entry?.item) return `<li class="assistant-result-gear" data-plan-slot="${esc(key)}"><span class="assistant-result-slot">${esc(label)}</span><span>未提供装备</span></li>`;
+    return `<li class="assistant-result-gear" data-plan-slot="${esc(key)}"><span class="assistant-result-slot">${esc(label)}</span><button type="button" class="assistant-item-trigger" ${tooltipAttrs(name(entry), equipmentDescription(entry, label))}>${icon(entry)}<span>${esc(name(entry))}</span></button><small class="assistant-result-level">${esc(entry.itemLevel || entry.variant?.item_level || '—')}</small></li>`;
   }
   function render(plans, slots) {
     const best = Math.min(...plans.map(plan => number(plan.distance)));
-    return plans.map((plan, index) => {
+    return plans.map(plan => {
       const rows = slotEntries(plan, slots);
       const equipped = rows.filter(row => row.entry?.item).length;
-      const required = rows.filter(row => row.entry?.selection_origin === 'catalog').length;
       const owned = rows.filter(row => row.entry?.selection_origin === 'owned').length;
       const locked = rows.filter(row => row.entry?.selection_origin === 'locked').length;
       const isBest = number(plan.distance) === best;
-      return `<article class="assistant-plan${isBest ? ' is-best' : ''}" data-plan-key="${esc(plan.key)}"><header class="assistant-plan-head"><span class="assistant-plan-number">${String(index + 1).padStart(2, '0')}</span><span class="assistant-plan-title"><strong>${esc(plan.name)}</strong><small>${equipped}/${slots.length} 件装备 · 锁定 ${locked} · 备选 ${owned} · 需获取 ${required}</small></span><span class="assistant-plan-badge">${isBest ? '最接近目标 · ' : ''}偏差 ${esc(plan.distance)}</span></header><div class="assistant-plan-body"><div class="assistant-plan-stats">${['crit','haste','mastery','versatility'].map(key => `<div class="assistant-plan-stat"><span>${labels[key]}</span><strong>${number(plan.percentages?.[key]).toFixed(2)}<small>%</small></strong></div>`).join('')}</div><div class="assistant-constraint-chips"><span>特效装备 ${number(plan.effect_count)} 件</span><span>美化 ${number(plan.embellishment_count)}/2 件</span><span>地下堡神话 ${number(plan.delve_myth_count)}/2 件</span><span>${esc(plan.source_preference_label || '不偏好来源')}</span></div>${recommendations(plan, rows)}<details class="assistant-plan-equipment"><summary><strong>完整装备清单</strong><span>${equipped}/${slots.length} 件 · 查看来源、强化与特效</span></summary><ul>${rows.map(equipmentRow).join('')}</ul></details></div><footer class="assistant-plan-actions"><span>以选定变体与实际获取来源为准</span><button type="button" class="assistant-btn assistant-btn--primary" data-apply-plan="${esc(plan.key)}">应用到职业配装器 <span aria-hidden="true">↗</span></button></footer></article>`;
+      return `<article class="assistant-plan${isBest ? ' is-best' : ''}" data-plan-key="${esc(plan.key)}"><header class="assistant-plan-head"><span class="assistant-plan-title"><strong>${esc(plan.name)}</strong><small>${equipped} 件 · 锁定 ${locked} · 备选 ${owned}</small></span><span class="assistant-plan-badge">${isBest ? '最接近 · ' : ''}偏差 ${esc(plan.distance)}</span></header><div class="assistant-plan-body"><div class="assistant-plan-stats">${['crit','haste','mastery','versatility'].map(key => `<div class="assistant-plan-stat"><span>${labels[key]}</span><strong>${number(plan.percentages?.[key]).toFixed(2)}%</strong></div>`).join('')}</div><div class="assistant-constraint-chips"><span>特效 ${number(plan.effect_count)}</span><span>美化 ${number(plan.embellishment_count)}/2 件</span><span>地下堡神话 ${number(plan.delve_myth_count)}/2 件</span><span>${esc(plan.source_preference_label || '不偏好来源')}</span></div>${recommendations(plan, rows)}<section class="assistant-plan-equipment" aria-label="完整装备清单"><div class="assistant-equipment-heading">装备<span>悬停或点名称查看详情</span></div><ul>${rows.map(equipmentRow).join('')}</ul></section></div><footer class="assistant-plan-actions"><button type="button" class="assistant-btn assistant-btn--primary" data-apply-plan="${esc(plan.key)}">应用到职业配装器</button></footer></article>`;
     }).join('');
   }
-  globalThis.WowGearAssistantResults = {render};
+  function bindTooltips(root) {
+    const tooltip = document.createElement('div');
+    tooltip.className = 'wow-item-tooltip assistant-compact-tooltip';
+    tooltip.id = 'assistant-item-tooltip';
+    tooltip.setAttribute('role', 'tooltip');
+    tooltip.hidden = true;
+    document.body.append(tooltip);
+    let active = null;
+    let timer;
+    const triggerFor = target => target instanceof Element ? target.closest('[data-assistant-tooltip]') : null;
+    function hide() {
+      clearTimeout(timer);
+      active?.removeAttribute('aria-describedby');
+      active = null;
+      tooltip.hidden = true;
+    }
+    function show(trigger) {
+      clearTimeout(timer);
+      active?.removeAttribute('aria-describedby');
+      active = trigger;
+      WowItemTooltip.renderContent(tooltip, {name: trigger.dataset.assistantTooltipName, description: trigger.dataset.assistantTooltip});
+      trigger.setAttribute('aria-describedby', tooltip.id);
+      tooltip.hidden = false;
+      const rect = trigger.getBoundingClientRect();
+      const gap = 8;
+      tooltip.style.left = `${Math.max(gap, Math.min(rect.left, innerWidth - tooltip.offsetWidth - gap))}px`;
+      const below = rect.bottom + gap;
+      const top = below + tooltip.offsetHeight <= innerHeight - gap ? below : rect.top - tooltip.offsetHeight - gap;
+      tooltip.style.top = `${Math.max(gap, Math.min(top, innerHeight - tooltip.offsetHeight - gap))}px`;
+    }
+    root.addEventListener('pointerover', event => {
+      const trigger = triggerFor(event.target);
+      if (event.pointerType !== 'touch' && trigger) show(trigger);
+    });
+    root.addEventListener('pointerout', event => {
+      if (event.pointerType === 'touch' || !active || active.contains(event.relatedTarget) || tooltip.contains(event.relatedTarget)) return;
+      timer = setTimeout(hide, 100);
+    });
+    tooltip.addEventListener('pointerenter', () => clearTimeout(timer));
+    tooltip.addEventListener('pointerleave', event => { if (event.pointerType !== 'touch') hide(); });
+    root.addEventListener('focusin', event => { const trigger = triggerFor(event.target); if (trigger) show(trigger); });
+    root.addEventListener('focusout', event => { if (!tooltip.contains(event.relatedTarget)) hide(); });
+    // Click always opens: focus/pointerover before a touch click must not toggle it closed.
+    root.addEventListener('click', event => { const trigger = triggerFor(event.target); if (trigger) show(trigger); });
+    document.addEventListener('click', event => { if (!root.contains(event.target) || !triggerFor(event.target)) { if (!tooltip.contains(event.target)) hide(); } });
+    document.addEventListener('keydown', event => { if (event.key === 'Escape') hide(); });
+    window.addEventListener('scroll', event => { if (!tooltip.contains(event.target)) hide(); }, true);
+    window.addEventListener('resize', hide);
+    return hide;
+  }
+  globalThis.WowGearAssistantResults = {render, bindTooltips};
 })();
