@@ -165,6 +165,13 @@ def save_owned_items(user, rows):
     return saved
 
 
+@transaction.atomic
+def clear_owned_items(user):
+    """Clear only this account's owned collection, counting owned rows only."""
+    _total, deleted_by_model = GearBuilderOwnedItem.objects.filter(user=user).delete()
+    return deleted_by_model.get(GearBuilderOwnedItem._meta.label, 0)
+
+
 def delete_owned_item(user, owned_id):
     row = GearBuilderOwnedItem.objects.filter(user=user, id=owned_id).first()
     if not row:

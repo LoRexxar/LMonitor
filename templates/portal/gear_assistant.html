@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_assistant.css' %}?v=20260902_gear_assistant_v3">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_assistant.css' %}?v=20261010_owned_candidates">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -59,7 +59,10 @@
                 </div>
 
                 <div id="assistant-owned-pane" class="assistant-library-pane" role="tabpanel" aria-labelledby="assistant-tab-owned" hidden>
-                    <div class="assistant-owned-intro"><strong>账号装备库</strong><span>模拟时会自动用于“优先已有装备”方案</span></div>
+                    <div class="assistant-owned-toolbar">
+                        <div class="assistant-owned-intro"><strong>账号装备库</strong><span>加入备选的装备会用于“优先已有装备”方案</span></div>
+                        <button type="button" id="assistant-clear-owned" class="assistant-clear-owned" disabled>清空已有装备</button>
+                    </div>
                     <div id="assistant-owned-list" class="assistant-owned-list"></div>
                 </div>
             </aside>
@@ -140,6 +143,6 @@
     </main>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260813_simc_equipment_icon"></script>
     <script src="{% static 'shared/js/wow-gear-state.js' %}?v=20261008"></script>
-    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261008_data_update"></script>
+    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261010_owned_candidates"></script>
 </body>
 </html>

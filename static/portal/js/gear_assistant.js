@@ -21,6 +21,7 @@
     fixedCount: byId("assistant-fixed-count"), fixedSummary: byId("assistant-fixed-summary"), resultLockSummary: byId("assistant-result-lock-summary"),
     equipmentList: byId("assistant-equipment-list"), currentPane: byId("assistant-current-pane"), ownedPane: byId("assistant-owned-pane"),
     currentTabCount: byId("assistant-current-tab-count"), ownedTabCount: byId("assistant-owned-tab-count"),
+    ownedClear: byId("assistant-clear-owned"),
     configView: byId("assistant-config-view"), resultsView: byId("assistant-results-view"),
     catalogStatus: byId("assistant-catalog-status"), results: byId("assistant-results"), explanation: byId("assistant-explanation"),
     importSimc: byId("assistant-import-simc"), simcDialog: byId("assistant-simc-dialog"), simcInput: byId("assistant-simc-input"),
@@ -35,6 +36,8 @@
   let lockedSlots = new Set();
   let workbenchMode = "config";
   let lastPlans = [];
+  let ownedClearing = false;
+  let ownedRevision = 0;
 
   function escapeHtml(value) {
     return String(value ?? "").replace(/[&<>'"]/g, (character) => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;"})[character]);
@@ -148,8 +151,10 @@
   function renderOwned() {
     const rows = assistantData?.owned_items || [];
     els.ownedTabCount.textContent = String(rows.length);
+    els.ownedClear.disabled = ownedClearing || !rows.length;
+    els.ownedClear.textContent = ownedClearing ? "清空中…" : "清空已有装备";
     if (!rows.length) {
-      els.ownedList.innerHTML = '<div class="assistant-list-empty">还没有已有装备。可从职业配装器加入，或导入 SimC 背包。</div>';
+      els.ownedList.innerHTML = '<div class="assistant-list-empty">还没有备选装备。可在职业配装器点击“加入备选”，或导入 SimC 背包。</div>';
       return;
     }
     els.ownedList.innerHTML = rows.map((row) => {
@@ -157,14 +162,47 @@
       return `<div class="assistant-owned-row" data-owned-id="${row.id}">${icon}<span class="assistant-owned-copy"><strong>${escapeHtml(row.name)}</strong><small>${escapeHtml(row.slot_label)} · ${row.item_level || "未知装等"}${row.quantity > 1 ? ` · ×${row.quantity}` : ""}</small></span><button type="button" class="assistant-owned-delete" data-delete-owned="${row.id}" aria-label="移除已有装备">×</button></div>`;
     }).join("");
   }
+  async function clearOwnedItems() {
+    if (ownedClearing || !assistantData?.owned_items?.length) return;
+    if (els.generate.disabled || els.simcSubmit.disabled) {
+      toast("请等待当前模拟或导入完成后再清空。", true);
+      return;
+    }
+    if (!window.confirm("确定清空当前账号的全部已有装备（所有槽位）？此操作不可撤销，不会清空当前配装、锁定选择或已保存方案。")) return;
+    ownedClearing = true;
+    ownedRevision += 1;
+    const controls = [els.generate, els.rerun, els.importSimc, els.simcSubmit, els.classSelect, els.specSelect];
+    const disabled = controls.map((control) => control.disabled);
+    controls.forEach((control) => { control.disabled = true; });
+    renderOwned();
+    try {
+      const payload = await requestJson(endpoints.owned, {
+        method: "DELETE", headers: {"Content-Type": "application/json", ...csrfHeaders()},
+        body: JSON.stringify({confirm_clear: true}),
+      });
+      ownedRevision += 1;
+      assistantData.owned_items = [];
+      markResultsStale();
+      toast(`已清空 ${payload.deleted_count || 0} 条已有装备记录。`);
+    } catch (error) {
+      toast(error.message, true);
+    } finally {
+      ownedClearing = false;
+      controls.forEach((control, index) => { control.disabled = disabled[index]; });
+      renderOwned();
+    }
+  }
   function renderFlasks() {
     els.flask.innerHTML = (assistantData?.flasks || []).map((row) => `<option value="${escapeHtml(row.key)}">${escapeHtml(row.name)}</option>`).join("");
     els.flask.value = "auto";
   }
   async function loadAssistantData() {
+    const revision = ownedRevision;
     currentState = await WowGearState.refresh(currentState, requestJson);
     renderEquipment();
-    assistantData = await requestJson(`${endpoints.bootstrap}?class=${encodeURIComponent(currentState.className)}&spec=${encodeURIComponent(currentState.specName)}`);
+    const payload = await requestJson(`${endpoints.bootstrap}?class=${encodeURIComponent(currentState.className)}&spec=${encodeURIComponent(currentState.specName)}`);
+    if (ownedClearing || revision !== ownedRevision) payload.owned_items = assistantData?.owned_items || [];
+    assistantData = payload;
     renderOwned();
     renderFlasks();
     els.catalogStatus.textContent = assistantData.catalog?.available ? `${assistantData.catalog.season_name || "当前赛季"} · 装备目录已就绪` : "装备目录尚未同步";
@@ -288,7 +326,9 @@
       renderEquipment();
       markResultsStale();
     }));
+    els.ownedClear.addEventListener("click", clearOwnedItems);
     els.ownedList.addEventListener("click", async (event) => {
+      if (ownedClearing) return;
       const button = event.target.closest("[data-delete-owned]");
       if (!button) return;
       try {

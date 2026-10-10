@@ -29,6 +29,7 @@ from botend.services.gear_builder_storage import (
     save_user_loadout,
 )
 from botend.services.gear_builder_owned import (
+    clear_owned_items,
     delete_owned_item,
     list_owned_items,
     save_owned_item,
@@ -244,9 +245,16 @@ class PortalGearBuilderOwnedItemsAPIView(View):
     def delete(self, request, owned_id=None):
         if not request.user.is_authenticated:
             return self._unauthorized()
+        if owned_id is None:
+            try:
+                body = _json_body(request)
+                if body.get('confirm_clear') is not True:
+                    raise GearBuilderError('请明确确认清空已有装备')
+                deleted_count = clear_owned_items(request.user)
+            except GearBuilderError as exc:
+                return _error_response(exc)
+            return JsonResponse({'success': True, 'deleted_count': deleted_count})
         try:
-            if owned_id is None:
-                raise GearBuilderError('缺少已有装备 ID')
             delete_owned_item(request.user, owned_id)
         except GearBuilderError as exc:
             return _error_response(exc, 404)

@@ -389,20 +389,22 @@
 .gear-candidate-copy { min-width: 0; flex: 1; }
 .gear-candidate-title { display: block; overflow: hidden; color: var(--gear-purple); font-size: .8rem; font-weight: 770; text-overflow: ellipsis; white-space: nowrap; }
 .gear-candidate-subtitle { display: block; margin-top: 3px; color: var(--gear-muted); font-size: .68rem; }
+.gear-candidate-tail { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 0; }
+.gear-candidate-actions { display: flex; justify-content: flex-end; width: 100%; }
 .gear-owned-add {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
     gap: 3px;
-    min-width: 54px;
-    height: 28px;
-    padding: 0 7px;
-    border: 1px solid #b8c8ef;
-    border-radius: 7px;
-    background: var(--gear-surface);
+    min-width: 94px;
+    min-height: 34px;
+    padding: 7px 11px;
+    border: 1px solid color-mix(in srgb, var(--gear-blue) 28%, var(--gear-border));
+    border-radius: 8px;
+    background: var(--gear-blue-soft);
     color: var(--gear-blue);
-    font-size: .62rem;
+    font-size: .7rem;
     font-weight: 760;
     line-height: 1;
     cursor: pointer;
@@ -786,7 +788,8 @@ html.portal-theme-dark .gear-owned-add.is-added { border-color: rgba(114, 214, 1
     .gear-candidate-list { max-height: none; }
     .gear-candidate-row { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; min-height: 84px; padding: 10px 12px; }
     .gear-candidate-name { grid-column: 1 / -1; }
-    .gear-owned-add { min-width: 60px; height: 34px; }
+    .gear-candidate-tail { grid-column: 1 / -1; align-items: flex-end; padding-top: 5px; border-top: 1px solid var(--gear-border); }
+    .gear-owned-add { min-height: 40px; }
     .gear-candidate-level::before { content: '装等 '; color: var(--gear-muted); font-weight: 500; }
     .gear-track { text-align: right; }
     .gear-source-copy { grid-column: 1 / -1; }

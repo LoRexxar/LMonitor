@@ -573,11 +573,11 @@
         : item.variants[0];
       const equipped = current?.item?.item_id === item.item_id && current?.variant?.id === variant?.id;
       return `<div class="gear-candidate-row${equipped ? " is-equipped" : ""}" role="button"${equipped ? ' aria-current="true"' : ""} data-select-item="${item.item_id}" data-variant-id="${variant.id}" data-candidate-slot="${escapeHtml(candidateSlot)}"${tooltipAttrs(item, variant)}>
-        <div class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(equipped ? "当前装备" : item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small></span>${endpoints.ownedItems ? `<button type="button" class="gear-owned-add" data-add-owned="${item.item_id}" data-owned-variant-id="${variant.id}" aria-label="将${escapeHtml(item.name)}加入已有装备" title="加入已有装备；再次加入会增加数量"><span class="gear-owned-add-icon" aria-hidden="true">＋</span><span class="gear-owned-add-label">已有</span></button>` : ""}</div>
+        <div class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(equipped ? "当前装备" : item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small></span></div>
         <div class="gear-candidate-level">${variant.item_level || "-"}</div>
         <div class="gear-track gear-track--${escapeHtml(variant.track || "crafted")}">${escapeHtml(variant.type === "crafted_equipment" ? `制造 ${variant.crafting_quality || ""}星` : `${variant.track_label || variant.track || "-"} ${variant.track_rank ? `${variant.track_rank}/${variant.track_max_rank}` : ""}`)}</div>
         <div class="gear-source-copy">${sourceMarkup(variant)}</div>
-        <div class="gear-stat-copy">${statMarkup(variant.stats)}</div>
+        <div class="gear-candidate-tail"><div class="gear-stat-copy">${statMarkup(variant.stats)}</div>${endpoints.ownedItems ? `<div class="gear-candidate-actions"><button type="button" class="gear-owned-add" data-add-owned="${item.item_id}" data-owned-variant-id="${variant.id}" aria-label="将${escapeHtml(item.name)}加入备选" title="加入辅助配装备选；再次加入会增加数量"><span class="gear-owned-add-icon" aria-hidden="true">＋</span><span class="gear-owned-add-label">加入备选</span></button></div>` : ""}</div>
       </div>`;
     }).join("");
     els.load_more.hidden = candidates.length >= candidateTotal;
@@ -587,7 +587,7 @@
   function renderOwnedItems() {
     if (!els.owned_list) return;
     if (!ownedItems.length) {
-      els.owned_list.innerHTML = '<div class="gear-empty-state"><div><strong>当前槽位没有已有装备</strong>可在装备候选行点击“加入已有”，或通过 SimC 导入背包装备。</div></div>';
+      els.owned_list.innerHTML = '<div class="gear-empty-state"><div><strong>当前槽位没有已有装备</strong>可在装备候选行点击“加入备选”，或通过 SimC 导入背包装备。</div></div>';
       return;
     }
     els.owned_list.innerHTML = ownedItems.map((row) => {
@@ -624,7 +624,7 @@
     if (button) {
       button.disabled = true;
       button.classList.add("is-saving");
-      button.setAttribute("aria-label", `正在将${item.name}加入已有装备`);
+      button.setAttribute("aria-label", `正在将${item.name}加入备选`);
     }
     const payload = await requestJson(endpoints.ownedItems, {
       method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()},
@@ -636,16 +636,16 @@
       button.disabled = false;
       button.querySelector(".gear-owned-add-icon").textContent = "✓";
       button.querySelector(".gear-owned-add-label").textContent = "已加入";
-      button.setAttribute("aria-label", `${item.name}已加入已有装备；再次点击会增加数量`);
+      button.setAttribute("aria-label", `${item.name}已加入备选；再次点击会增加数量`);
       window.setTimeout(() => {
         if (!button.isConnected) return;
         button.classList.remove("is-added");
         button.querySelector(".gear-owned-add-icon").textContent = "＋";
-        button.querySelector(".gear-owned-add-label").textContent = "已有";
-        button.setAttribute("aria-label", `将${item.name}加入已有装备`);
+        button.querySelector(".gear-owned-add-label").textContent = "加入备选";
+        button.setAttribute("aria-label", `将${item.name}加入备选`);
       }, 1800);
     }
-    toast(payload.created ? `${item.name} 已加入已有装备。` : `${item.name} 的已有数量已增加。`);
+    toast(payload.created ? `${item.name} 已加入辅助配装备选。` : `${item.name} 的备选数量已增加。`);
     if (state.mode === "owned") await loadOwnedItems();
   }
 
@@ -2124,7 +2124,7 @@
         if (item && variant) saveCandidateAsOwned(item, variant, ownButton).catch((error) => {
           ownButton.disabled = false;
           ownButton.classList.remove("is-saving");
-          ownButton.setAttribute("aria-label", `将${item.name}加入已有装备`);
+          ownButton.setAttribute("aria-label", `将${item.name}加入备选`);
           toast(error.message, true);
         });
         return;
