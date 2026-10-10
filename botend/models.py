@@ -2607,6 +2607,22 @@ class PlayerSpecTopPlayer(models.Model):
         return f"{self.character_name}-{self.realm} ({self.spec_name})"
 
 
+class WclCombatantSnapshot(models.Model):
+    """One raw WCL CombatantInfo fact; rankings reference report/fight identity."""
+    report_code = models.CharField(max_length=50)
+    fight_id = models.PositiveIntegerField()
+    actor_id = models.PositiveIntegerField()
+    payload_json = models.JSONField(default=dict)
+    fetched_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'wow_wcl_combatant_snapshot'
+        constraints = [models.UniqueConstraint(
+            fields=['report_code', 'fight_id', 'actor_id'],
+            name='uniq_wcl_combatant_actor',
+        )]
+
+
 class SpecDungeonRanking(models.Model):
     """M+ 副本排名原始数据，每条=一个玩家在某副本某专精的一次排名记录，来自 WCL API"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID")

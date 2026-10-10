@@ -28,7 +28,8 @@
         {% endif %}
         <details class="text-muted"><summary>字段来源与统计口径</summary>
             {% for field, source in dungeon_detail.field_sources.items %}<p>{{ source }}</p>{% endfor %}
-            <p>装备、宝石和附魔使用率以实际日志样本为分母；天赋、属性仅使用各自有效样本；缺失种族计入“未知”。目标样本量不作为统计分母。</p>
+            <p>装备、宝石和附魔使用率以实际日志样本为分母；天赋、属性仅使用各自有效样本；缺失种族计入“未知”。目标样本量不作为统计分母。同角色在不同日志中的记录分别参与统计。</p>
+            {% for stat in dungeon_detail.secondary_stats %}<p>{{ stat.label }}：{{ stat.sample_size }} 份有效日志属性；区间为第 25 至第 75 百分位，不是最小值到最大值。</p>{% endfor %}
         </details>
 
         {% if dungeon_detail.dps %}
@@ -100,7 +101,8 @@
         {% endif %}
 
         <div class="section-block secondary-stats-section">
-            <h4>属性绿字区间</h4>
+            <h4>日志属性绿字区间</h4>
+            <p class="text-muted" style="font-size:12px;">WCL 日志记录值 · 区间为 P25–P75 · 可能包含日志时点增益</p>
             {% if dungeon_detail.secondary_stats %}
             <div class="secondary-stat-grid">
                 {% for stat in dungeon_detail.secondary_stats %}
@@ -118,7 +120,7 @@
                     <div class="secondary-stat-meta">中位 {{ stat.pct.median|floatformat:1 }}% · 平均 {{ stat.pct.avg|floatformat:1 }}%</div>
                     {% endif %}
                     {% if stat.rating %}
-                    <div class="secondary-stat-meta">绿字 {{ stat.rating.p25|floatformat:0 }} - {{ stat.rating.p75|floatformat:0 }} · 中位 {{ stat.rating.median|floatformat:0 }}</div>
+                    <div class="secondary-stat-meta">绿字 {{ stat.rating.p25|floatformat:0 }} - {{ stat.rating.p75|floatformat:0 }} · 中位 {{ stat.rating.median|floatformat:0 }} · 平均 {{ stat.rating.avg|floatformat:0 }}</div>
                     {% endif %}
                 </div>
                 {% endfor %}

@@ -100,7 +100,6 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         total = 0
         empty_talent_total = 0
         now = timezone.now()
-        combatant_cache = {}
         ok = True
 
         for encounter in season.mplus_encounters:
@@ -137,7 +136,9 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 report = r.get('report', {}) or {}
                                 guild = r.get('guild', {}) or {}
 
-                                talents_payload = self._parse_rank_talents(r, combatant_cache)
+                                # Missing nodes are projected from the central log
+                                # snapshot after cohort selection, never fetched per row.
+                                talents_payload = self.parse_wcl_talents(r.get('talents', []))
                                 if not talents_payload:
                                     empty_talent_count += 1
                                     empty_talent_total += 1
@@ -210,6 +211,15 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     f"新增 {result['created']} / 更新 {result['updated']} / "
                     f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
                 )
+                from botend.services.wcl_combatant_snapshot import (
+                    collect_dungeon_combatants, select_dungeon_combatant_records,
+                )
+                identities = [(cls, spec) for cls, specs in CLASS_SPEC_MAP.items() for spec in specs]
+                selected = select_dungeon_combatant_records(season, identities, [enc_id])
+                combatants = collect_dungeon_combatants(selected, self, apply=True, log=logger.info)
+                logger.info(f"[SpecDetailRanking] M+ {enc_id} CombatantInfo: {combatants}")
+                if combatants['failed']:
+                    ok = False
             except Exception as e:
                 ok = False
                 logger.error(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 写入失败: {e}")
@@ -231,6 +241,8 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         if report_code and fight_id and character_name:
             cache_key = (report_code, int(fight_id))
             if cache_key not in combatant_cache:
+                if len(combatant_cache) >= 256:
+                    combatant_cache.clear()
                 combatant_cache[cache_key] = self.fetch_wcl_combatant_info(report_code, fight_id)
             combatant = self._find_combatant_for_ranking(combatant_cache.get(cache_key) or [], ranking)
             talents = self.parse_wcl_talent_tree((combatant or {}).get('talentTree') or [])

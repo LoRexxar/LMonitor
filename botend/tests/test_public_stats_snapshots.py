@@ -40,6 +40,24 @@ class PublicStatsSnapshotTests(SimpleTestCase):
                 if content and 'sample_size' in content:
                     self.assertEqual(result['boss_detail']['sample_size'], 8)
 
+    def test_legacy_dungeon_profile_fields_are_hidden_until_wcl_rebuild(self):
+        season = SimpleNamespace(id=1, mplus_encounters=[{'id': 2, 'name': '副本'}])
+        legacy = {'sample_size': 800, 'dps': {'avg': 123},
+                  'secondary_stats': [{'rating': {'median': 916}}],
+                  'gear_popularity': {'head': [{'id': 999}]},
+                  'race_distribution': [{'race': 'Orc'}],
+                  'field_sources': {'gear': 'Raider.IO', 'performance': 'Warcraft Logs'}}
+        (self.directory / 'dungeon.json').write_text(json.dumps({'summary': legacy}), encoding='utf-8')
+        with patch.object(views, '_base_context', return_value={'season': season}), \
+                patch.object(views, 'render', side_effect=lambda request, template, ctx: ctx):
+            detail = views.SpecDetailDungeonView().get(RequestFactory().get('/'), 'Warrior', 'Arms')['dungeon_detail']
+        self.assertNotIn('secondary_stats', detail)
+        self.assertNotIn('gear_popularity', detail)
+        self.assertNotIn('race_distribution', detail)
+        self.assertEqual(detail['dps']['avg'], 123)
+        self.assertTrue(detail['wcl_refresh_pending'])
+        self.assertNotIn('Raider.IO', str(detail['field_sources']))
+
     def test_generation_owns_display_refresh_and_both_raid_difficulties(self):
         season = SimpleNamespace(id=1, mplus_encounters=[{'id': 2, 'name': '副本'}],
                                  raid_encounters=[{'id': 3, 'name': '首领'}], raid_zones=[])

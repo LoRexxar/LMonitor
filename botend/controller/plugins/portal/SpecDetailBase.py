@@ -65,8 +65,10 @@ class SpecDetailBase(BaseScan):
 
     def _wcl_graphql(self, query, variables, retries=3):
         """执行 WCL GraphQL 查询"""
+        self._wcl_last_error = ''
         token = self._get_wcl_token()
         if not token:
+            self._wcl_last_error = 'authentication'
             return None
 
         url = "https://www.warcraftlogs.com/api/v2/client"
@@ -85,12 +87,14 @@ class SpecDetailBase(BaseScan):
                     proxies=self._proxies
                 )
                 if resp.status_code == 429:
+                    self._wcl_last_error = 'rate_limit'
                     wait = min(2 ** attempt * 2, 30)
                     logger.warning(f"[SpecDetail] WCL 429 限流，等待 {wait}s")
                     time.sleep(wait)
                     continue
                 if resp.status_code != 200:
                     logger.error(f"[SpecDetail] WCL HTTP {resp.status_code}")
+                    self._wcl_last_error = 'permission' if resp.status_code == 403 else f'http_{resp.status_code}'
                     if attempt < retries - 1:
                         time.sleep(1)
                         continue
@@ -100,12 +104,16 @@ class SpecDetailBase(BaseScan):
                 if payload.get('errors'):
                     errors = payload['errors']
                     if self._is_wcl_report_permission_error(errors):
+                        self._wcl_last_error = 'permission'
                         logger.warning(f"[SpecDetail] WCL report 无权限，跳过该日志: {errors}")
                     else:
+                        self._wcl_last_error = 'graphql'
                         logger.error(f"[SpecDetail] WCL GraphQL 错误: {errors}")
                     return None
+                self._wcl_last_error = ''
                 return payload.get('data')
             except Exception as e:
+                self._wcl_last_error = 'network'
                 logger.error(f"[SpecDetail] WCL 请求异常 (attempt {attempt+1}): {e}")
                 if attempt < retries - 1:
                     time.sleep(1)
@@ -161,43 +169,69 @@ class SpecDetailBase(BaseScan):
         return rankings
 
     def fetch_wcl_combatant_info(self, report_code, fight_id):
-        """获取单场日志的 CombatantInfo 事件，用于补充完整天赋节点。"""
+        """Fetch one report's bounded fight batch, including every events page.
+
+        Scalar callers remain supported. None means failure (not an empty log).
+        The source actor is retained verbatim with each raw CombatantInfo event.
+        """
+        self._wcl_last_error = ''
         if not report_code or not fight_id:
             return []
-
+        try:
+            fight_ids = sorted({int(value) for value in (
+                fight_id if isinstance(fight_id, (list, tuple)) else [fight_id])})
+            if not fight_ids or len(fight_ids) > 20 or min(fight_ids) <= 0:
+                raise ValueError('invalid fight batch')
+        except (TypeError, ValueError):
+            self._wcl_last_error = 'invalid_input'
+            return None
         query = """
-        query($code:String!, $fightIDs:[Int]) {
+        query($code:String!, $fightIDs:[Int], $start:Float) {
             reportData {
                 report(code:$code) {
-                    masterData {
-                        actors {
-                            id
-                            name
-                            server
-                            type
-                            subType
-                        }
-                    }
-                    events(fightIDs:$fightIDs, dataType: CombatantInfo, limit: 300) {
-                        data
+                    masterData { actors { id name server type subType } }
+                    events(fightIDs:$fightIDs, dataType: CombatantInfo,
+                           limit: 300, startTime:$start) {
+                        data nextPageTimestamp
                     }
                 }
             }
         }
         """
-        data = self._wcl_graphql(query, {
-            'code': report_code,
-            'fightIDs': [int(fight_id)],
-        })
-        report = (((data or {}).get('reportData') or {}).get('report') or {})
-        actors = ((report.get('masterData') or {}).get('actors') or [])
-        actor_map = {actor.get('id'): actor for actor in actors if actor.get('id') is not None}
-        events = (report.get('events') or {}).get('data') or []
-        for event in events:
-            actor = actor_map.get(event.get('sourceID'))
-            if actor:
-                event['source'] = actor
-        return events
+        result, cursor = [], None
+        for page in range(20):
+            data = self._wcl_graphql(query, {'code': report_code, 'fightIDs': fight_ids, 'start': cursor}, retries=2)
+            if not data:
+                self._wcl_last_error = self._wcl_last_error or 'request_failed'
+                return None
+            report = (data.get('reportData') or {}).get('report')
+            if not isinstance(report, dict):
+                self._wcl_last_error = 'report_unavailable'
+                return None
+            actors = (report.get('masterData') or {}).get('actors')
+            envelope = report.get('events')
+            if not isinstance(actors, list) or not isinstance(envelope, dict) or not isinstance(envelope.get('data'), list):
+                self._wcl_last_error = 'invalid_payload'
+                return None
+            actor_map = {actor.get('id'): actor for actor in actors if isinstance(actor, dict)}
+            for raw in envelope['data']:
+                if not isinstance(raw, dict):
+                    self._wcl_last_error = 'invalid_payload'
+                    return None
+                event = dict(raw)
+                actor = actor_map.get(event.get('sourceID'))
+                if actor:
+                    event['source'] = actor
+                result.append(event)
+            next_cursor = envelope.get('nextPageTimestamp')
+            if next_cursor is None:
+                return result
+            if not isinstance(next_cursor, (int, float)) or (cursor is not None and next_cursor <= cursor):
+                self._wcl_last_error = 'invalid_pagination'
+                return None
+            cursor = next_cursor
+        self._wcl_last_error = 'pagination_limit'
+        return None
 
     # ========== Raider.IO ==========
 
@@ -422,25 +456,9 @@ class SpecDetailBase(BaseScan):
 
     @staticmethod
     def parse_wcl_gear(gear_list):
-        """解析 WCL gear 数据为标准化格式"""
-        if not gear_list:
-            return []
-        result = []
-        for g in gear_list:
-            item = {
-                'name': g.get('name', ''),
-                'id': g.get('id'),
-                'icon': g.get('icon', ''),
-                'itemLevel': g.get('itemLevel'),
-                'quality': g.get('quality', ''),
-                'slot': g.get('slot', 'unknown'),
-                'bonusIDs': g.get('bonusIDs', []),
-            }
-            gems = g.get('gems', [])
-            if gems:
-                item['gems'] = [{'id': gem.get('id'), 'itemLevel': gem.get('itemLevel')} for gem in gems]
-            result.append(item)
-        return result
+        """Keep WCL equipment, gems and enchantment IDs without guessing item IDs."""
+        from botend.services.wcl_combatant_snapshot import combatant_gear
+        return combatant_gear(gear_list)
 
     @staticmethod
     def parse_wcl_talents(talent_list):

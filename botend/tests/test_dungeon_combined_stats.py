@@ -70,13 +70,10 @@ class DungeonCombinedStatsTests(TestCase):
                           wraps=stats_module._merge_player_profile_fields) as enrichment:
             summary = SpecStatsService.get_dungeon_summary('Warrior', 'Arms', self.season.id)
             builds.assert_not_called()
-            self.assertEqual([call.kwargs['fields'] for call in enrichment.call_args_list],
-                             [('stats_json', 'race')])
-            enrichment.reset_mock()
+            enrichment.assert_not_called()
             single = SpecStatsService.get_dungeon_detail(1, 'Warrior', 'Arms', self.season.id)
             builds.assert_called_once()
-            self.assertIn(('talent_build_code',),
-                          [call.kwargs['fields'] for call in enrichment.call_args_list])
+            enrichment.assert_not_called()
         self.assertIn('talent_build_popularity', single)
         self.assertIn('talent_build_popularity', single['field_sources'])
         self.assertNotIn('talent_build_popularity', summary)

@@ -460,14 +460,15 @@ class SpecStatsService:
             'dungeon_name': dungeon_name,
             'sample_size': 0,
             'source': 'Warcraft Logs',
+            'data_contract': 'wcl-log-v1',
             'field_sources': {
                 'performance': 'Warcraft Logs 原始日志',
                 'talent_usage': 'Warcraft Logs 日志天赋（仅有效天赋样本）',
-                **({'talent_build_popularity': '天赋构筑：同赛季同专精角色资料导入码优先，缺失时使用 WCL 导入码；不保证为日志时点构筑'}
+                **({'talent_build_popularity': 'Warcraft Logs 日志导入码；缺失不使用当前角色构筑替代'}
                    if include_talent_build_popularity else {}),
-                'gear': '同赛季同专精 Raider.IO 角色装备优先，缺失时使用 WCL 装备',
-                'secondary_stats': '同赛季同专精 Battle.net 角色属性，非日志时点属性',
-                'race': '同赛季同专精角色资料',
+                'gear': 'Warcraft Logs 对应战斗的装备、宝石与附魔',
+                'secondary_stats': 'Warcraft Logs 对应角色的 CombatantInfo 原始绿字；可能包含日志时点增益，不等同于无增益装备面板；未提供百分比时不推算',
+                'race': 'Warcraft Logs 日志种族；缺失计入未知',
             },
         }
         if not selected_records:
@@ -543,9 +544,9 @@ class SpecStatsService:
                 for f, cnt in faction_counter.most_common()
             }
 
-        # 天赋/装备热门度（概览也展示）
-        records = selected_records
-        profile_cache = {}
+        # Consume only the matching WCL fight/actor snapshot; never current profiles.
+        from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
+        records = enrich_dungeon_records(selected_records, class_name, spec_name)
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -568,40 +569,18 @@ class SpecStatsService:
             snapshot=usage_snapshot,
         )
         if include_talent_build_popularity:
-            talent_build_records = _merge_player_profile_fields(
-                records,
-                season_id,
-                class_name,
-                spec_name,
-                fields=('talent_build_code',),
-                profile_cache=profile_cache,
-            )
             stats['talent_build_popularity'] = _compute_talent_build_popularity(
-                talent_build_records,
-                class_name,
-                spec_name,
-                top_n=20 if full else 5,
+                records, class_name, spec_name, top_n=20 if full else 5,
             )
 
-        # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
-        # gear_detail_records 优先用人物榜 Raider.IO gear 回填，补齐 slot/gems_detail/enchants_detail；长度不变，分母仍是 ranking 样本数。
-        gear_detail_records = _merge_player_profile_gear(
-            records, season_id, class_name, spec_name, profile_cache=profile_cache)
-        stats['gear_popularity'] = _compute_gear_popularity(gear_detail_records, top_n=gear_limit)
-        stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
-        stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
-
-        # 人物属性/种族按当前详情页 ranking 样本回填，避免人物榜 Top20/Top200 与 100 人样本混用。
-        player_detail_records = _merge_player_profile_fields(
-            records,
-            season_id,
-            class_name,
-            spec_name,
-            fields=('stats_json', 'race'),
-            profile_cache=profile_cache,
-        )
-        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_detail_records)
-        stats['race_distribution'] = _compute_race_distribution(player_detail_records)
+        # Gear and enhancements are frozen in the same WCL observations.
+        stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
+        stats['gem_popularity'] = _compute_gem_popularity(records, top_n=20)
+        stats['enchant_popularity'] = _compute_enchant_popularity(records, top_n=20)
+        stats['secondary_stats'] = _compute_secondary_stats_distribution(records)
+        for stat in stats['secondary_stats']:
+            stat['sample_size'] = sum(bool((row.get('stats_json') or {}).get(stat['key'])) for row in records)
+        stats['race_distribution'] = _compute_race_distribution(records)
 
         if full:
             # 详细模式：Top 5 玩家（与统计口径使用同一批筛选样本）
