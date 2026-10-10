@@ -74,6 +74,7 @@
 .wow-hotfix-more-changes { padding-top: 5px; }
 .wow-hotfix-source strong { font-size: 12px; white-space: nowrap; }
 .wow-hotfix-source-top { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 6px; }
+.wow-hotfix-updated { display: block; margin: 5px 0; color: var(--portal-text-muted); font-size: 11px; line-height: 1.5; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .wow-hotfix-source-meta { display: flex; flex-direction: column; gap: 3px; min-width: 0; padding: 7px 0 3px; border-top: 1px solid var(--portal-border-subtle); color: var(--portal-text-muted); font-size: 11px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .wow-hotfix-kind { display: inline-block; padding: 3px 7px; border-radius: 5px; background: var(--portal-surface-muted); font-size: 12px; font-weight: 650; }
 .wow-hotfix-kind.is-change { color: #166534; background: #dcfce7; }

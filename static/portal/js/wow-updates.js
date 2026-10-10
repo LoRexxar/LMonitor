@@ -251,7 +251,9 @@
             const sourceMeta = element('div', 'wow-hotfix-source-meta');
             sourceMeta.append(element('span', '', `build ${item.build || '未知'}`),
                 element('span', '', `${item.branch || '-'} · ${item.region_name || '区域未核实'} / ${item.locale || '-'}`));
-            if (item.time) sourceMeta.append(element('time', '', String(item.time)));
+            const updated = element('time', 'wow-hotfix-updated',
+                `更新时间（Wago）：${item.time || '未知'}`);
+            updated.title = 'Wago 来源记录的 created_at，按源端时间原样显示；不是本站采集时间或报告生成时间。';
             if (item.spell_id !== null && item.spell_id !== undefined && item.spell_id !== '') {
                 sourceMeta.append(element('span', '', `SpellID ${item.spell_id}`));
             }
@@ -260,7 +262,7 @@
             addLink(links, 'Wago', item.source_url, true);
             const sourceDetails = element('details', 'wow-hotfix-source-details');
             sourceDetails.append(element('summary', '', '来源详情'), sourceMeta, links);
-            source.append(sourceTop, sourceDetails);
+            source.append(sourceTop, updated, sourceDetails);
             row.append(subject, fields, source);
             hotfixList.append(row);
         });
