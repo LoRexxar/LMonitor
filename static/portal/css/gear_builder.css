@@ -389,34 +389,34 @@
 .gear-candidate-copy { min-width: 0; flex: 1; }
 .gear-candidate-title { display: block; overflow: hidden; color: var(--gear-purple); font-size: .8rem; font-weight: 770; text-overflow: ellipsis; white-space: nowrap; }
 .gear-candidate-subtitle { display: block; margin-top: 3px; color: var(--gear-muted); font-size: .68rem; }
-.gear-candidate-tail { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; min-width: 0; }
+.gear-candidate-tail { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
 .gear-candidate-actions { display: flex; justify-content: flex-end; width: 100%; }
-.gear-owned-add {
+.gear-builder-page .gear-owned-add {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     flex: 0 0 auto;
-    gap: 3px;
-    min-width: 94px;
-    min-height: 34px;
-    padding: 7px 11px;
-    border: 1px solid color-mix(in srgb, var(--gear-blue) 28%, var(--gear-border));
-    border-radius: 8px;
-    background: var(--gear-blue-soft);
-    color: var(--gear-blue);
-    font-size: .7rem;
-    font-weight: 760;
+    gap: 2px;
+    min-width: 0;
+    min-height: 22px;
+    padding: 2px 4px;
+    border: 0;
+    border-radius: 4px;
+    background: transparent;
+    color: var(--gear-muted);
+    font-size: .68rem;
+    font-weight: 500;
     line-height: 1;
     cursor: pointer;
     transition: border-color 150ms ease, background 150ms ease, color 150ms ease, transform 150ms ease;
 }
-.gear-owned-add-icon { font-size: .8rem; font-weight: 580; }
-.gear-owned-add:hover { border-color: var(--gear-blue); background: var(--gear-blue-soft); }
+.gear-owned-add-icon { font-size: .72rem; font-weight: 500; }
+.gear-owned-add:hover { color: var(--gear-blue); text-decoration: underline; text-underline-offset: 3px; }
 .gear-owned-add:focus-visible { outline: 2px solid color-mix(in srgb, var(--gear-blue) 48%, transparent); outline-offset: 2px; }
 .gear-owned-add:active { transform: translateY(1px); }
 .gear-owned-add:disabled { cursor: wait; opacity: .68; transform: none; }
 .gear-owned-add.is-saving .gear-owned-add-icon { animation: gear-owned-pulse 700ms ease-in-out infinite alternate; }
-.gear-owned-add.is-added { border-color: #8ac8aa; background: #edf9f2; color: var(--gear-green); }
+.gear-owned-add.is-added { color: var(--gear-green); }
 @keyframes gear-owned-pulse { to { opacity: .32; } }
 .gear-candidate-level { font-size: .78rem; font-weight: 740; font-variant-numeric: tabular-nums; }
 .gear-track { font-size: .73rem; }
@@ -713,7 +713,7 @@ html.portal-theme-dark .gear-builder-page {
 html.portal-theme-dark .gear-select-control select,
 html.portal-theme-dark .gear-filter-select select,
 html.portal-theme-dark .gear-detail-field select { color-scheme: dark; }
-html.portal-theme-dark .gear-owned-add.is-added { border-color: rgba(114, 214, 168, .48); background: rgba(22, 138, 87, .18); color: #8de4bd; }
+html.portal-theme-dark .gear-owned-add.is-added { color: #8de4bd; }
 
 @media (min-width: 941px) and (max-width: 1380px) {
     .gear-builder-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
@@ -788,11 +788,12 @@ html.portal-theme-dark .gear-owned-add.is-added { border-color: rgba(114, 214, 1
     .gear-candidate-list { max-height: none; }
     .gear-candidate-row { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; min-height: 84px; padding: 10px 12px; }
     .gear-candidate-name { grid-column: 1 / -1; }
-    .gear-candidate-tail { grid-column: 1 / -1; align-items: flex-end; padding-top: 5px; border-top: 1px solid var(--gear-border); }
-    .gear-owned-add { min-height: 40px; }
+    .gear-candidate-tail { grid-column: 2; grid-row: 3; align-self: start; align-items: flex-end; }
+    .gear-builder-page .gear-owned-add { min-height: 28px; }
     .gear-candidate-level::before { content: '装等 '; color: var(--gear-muted); font-weight: 500; }
     .gear-track { text-align: right; }
     .gear-source-copy { grid-column: 1 / -1; }
+    .gear-candidate-row:has(.gear-owned-add) .gear-source-copy { grid-column: 1; grid-row: 3; }
     .gear-stat-copy { display: none; }
     .gear-stats-panel { margin: 14px; border-radius: 10px; }
     .gear-stat-grid { flex-direction: column; align-items: flex-start; }
