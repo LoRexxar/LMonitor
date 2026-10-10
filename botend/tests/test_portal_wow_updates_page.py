@@ -24,11 +24,12 @@ class PortalWowUpdatesPageTests(SimpleTestCase):
         self.assertIn("element('details', 'wow-hotfix-source-details')", script)
         self.assertNotIn('左右滑动表格', html.get_text(' ', strip=True))
 
-    def test_hotfix_page_declares_explicit_priority_sort_and_verified_counts(self):
+    def test_hotfix_page_defaults_to_latest_and_keeps_priority_sort_optional(self):
         html = BeautifulSoup(self.client.get(reverse('portal_wow_updates')).content, 'html.parser')
         sort = html.select_one('#wow-hotfix-sort')
         self.assertIsNotNone(sort)
-        self.assertEqual(sort.select_one('option[selected]')['value'], 'changes_first')
+        self.assertEqual(sort.select_one('option[selected]')['value'], 'latest')
+        self.assertIsNotNone(sort.select_one('option[value="changes_first"]'))
         self.assertIsNotNone(html.select_one('#wow-hotfix-breakdown'))
         script = (ROOT / 'static/portal/js/wow-updates.js').read_text(encoding='utf-8')
         self.assertIn('sort: hotfixSort.value', script)
