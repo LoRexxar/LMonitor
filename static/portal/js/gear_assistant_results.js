@@ -60,8 +60,8 @@
     const gems = (entry.gems || []).filter(gem => gem?.item);
     return [meta, stats, selected && `制造自选：${selected}`, `来源：${entry.acquisition_source_label || '获取来源未提供'}`,
       ...effects(entry),
-      ...(gems.length ? gems.map((gem, index) => `宝石 第 ${index + 1} 孔：${enhancementText(gem)}`) : ['未镶嵌宝石']),
-      entry.enchant?.item ? `附魔：${enhancementText(entry.enchant)}` : '未选择附魔',
+      ...gems.map((gem, index) => `宝石 第 ${index + 1} 孔：${enhancementText(gem)}`),
+      entry.enchant?.item ? `附魔：${enhancementText(entry.enchant)}` : '',
       v.is_intrinsic_embellishment ? '固有美化' : entry.embellishment?.item ? `美化：${enhancementText(entry.embellishment)}` : '',
     ].filter(Boolean).join('\n');
   }
