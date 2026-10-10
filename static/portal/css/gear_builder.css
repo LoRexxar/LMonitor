@@ -389,8 +389,9 @@
 .gear-candidate-copy { min-width: 0; flex: 1; }
 .gear-candidate-title { display: block; overflow: hidden; color: var(--gear-purple); font-size: .8rem; font-weight: 770; text-overflow: ellipsis; white-space: nowrap; }
 .gear-candidate-subtitle { display: block; margin-top: 3px; color: var(--gear-muted); font-size: .68rem; }
-.gear-candidate-tail { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; }
-.gear-candidate-actions { display: flex; justify-content: flex-end; width: 100%; }
+.gear-candidate-tail { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 0; }
+.gear-candidate-tail .gear-stat-copy { flex: 0 0 auto; white-space: nowrap; }
+.gear-candidate-actions { display: flex; flex: 0 0 auto; justify-content: flex-end; }
 .gear-builder-page .gear-owned-add {
     display: inline-flex;
     align-items: center;
@@ -724,7 +725,7 @@ html.portal-theme-dark .gear-owned-add.is-added { color: #8de4bd; }
 @media (max-width: 1240px) {
     .gear-builder-workspace { grid-template-columns: 290px minmax(470px, 1fr) 280px; }
     .gear-table-head,
-    .gear-candidate-row { grid-template-columns: minmax(170px, 1.2fr) 68px 78px minmax(120px, .9fr) minmax(105px, .8fr); }
+    .gear-candidate-row { grid-template-columns: minmax(170px, 1.2fr) 68px 78px minmax(120px, .9fr) minmax(120px, .8fr); }
     .gear-preview-stage { grid-template-columns: minmax(230px, 300px) minmax(190px, 1fr) minmax(230px, 300px); gap: 16px; padding: 24px 20px; }
     .gear-preview-summary { grid-template-columns: minmax(390px, .9fr) minmax(0, 1.1fr); }
 }
@@ -788,7 +789,7 @@ html.portal-theme-dark .gear-owned-add.is-added { color: #8de4bd; }
     .gear-candidate-list { max-height: none; }
     .gear-candidate-row { grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; min-height: 84px; padding: 10px 12px; }
     .gear-candidate-name { grid-column: 1 / -1; }
-    .gear-candidate-tail { grid-column: 2; grid-row: 3; align-self: start; align-items: flex-end; }
+    .gear-candidate-tail { grid-column: 2; grid-row: 3; align-self: start; justify-content: flex-end; }
     .gear-builder-page .gear-owned-add { min-height: 28px; }
     .gear-candidate-level::before { content: '装等 '; color: var(--gear-muted); font-weight: 500; }
     .gear-track { text-align: right; }
