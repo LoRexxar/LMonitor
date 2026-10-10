@@ -10,7 +10,7 @@
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
     <link rel="stylesheet" href="{% static 'shared/css/wow-item-tooltip.css' %}?v=20260813_simc_equipment_icon">
-    <link rel="stylesheet" href="{% static 'portal/css/gear_assistant.css' %}?v=20261010_owned_candidates">
+    <link rel="stylesheet" href="{% static 'portal/css/gear_assistant.css' %}?v=20261010_effect_priority">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -26,7 +26,7 @@
             <div>
                 <span class="gear-assistant-eyebrow">职业配装器 · 登录功能</span>
                 <h1>辅助配装</h1>
-                <p>锁定当前选择，用备选装备与赛季装备池逼近目标绿字。</p>
+                <p>保留锁定装备，优先携带特效装备，再匹配目标绿字。</p>
             </div>
             <div class="gear-assistant-controls">
                 <label><span>职业</span><select id="assistant-class"></select></label>
@@ -82,6 +82,13 @@
                                 <label><span>精通</span><div><input id="target-mastery" type="number" min="0" max="200" step="0.1" value="30"><b>%</b></div></label>
                                 <label><span>全能</span><div><input id="target-versatility" type="number" min="0" max="200" step="0.1" value="10"><b>%</b></div></label>
                             </div>
+                        </section>
+
+                        <section class="assistant-config-section">
+                            <div class="assistant-config-section-head"><div><h3>装备优先级与来源</h3><p>先满足特效装备携带，再匹配目标绿字；同一物品优先可获取的最高装等，同等绿字偏差优先高装等。</p></div></div>
+                            <label class="assistant-source-control"><input id="assistant-allow-mythic-last-two" type="checkbox" checked aria-describedby="assistant-mythic-source-help"><span>可获取 M 后二装备</span></label>
+                            <p id="assistant-mythic-source-help" class="assistant-rule-help">M 后二指团本最后两名首领的史诗档装备。关闭后保留可获取的较低档位，来源未确认的史诗档不推荐；已锁定与备选装备仍可使用。</p>
+                            <p class="assistant-rule-help">固有美化与附加美化合计最多 2 件，锁定装备也计入。套装说明不重复计为单件特效，需保留的套装可先锁定。</p>
                         </section>
 
                         <section class="assistant-config-section">
@@ -143,6 +150,6 @@
     </main>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260813_simc_equipment_icon"></script>
     <script src="{% static 'shared/js/wow-gear-state.js' %}?v=20261008"></script>
-    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261010_candidate_wording"></script>
+    <script src="{% static 'portal/js/gear_assistant.js' %}?v=20261010_effect_priority"></script>
 </body>
 </html>

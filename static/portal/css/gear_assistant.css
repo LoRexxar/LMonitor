@@ -97,6 +97,8 @@
 .assistant-check-row strong { font-size: 12px; }
 .assistant-check-row label { gap: 5px; white-space: nowrap; }
 .assistant-ai-control { padding: 4px 2px; }
+.assistant-source-control { display: flex; align-items: center; gap: 7px; margin-top: 14px; font-size: 12px; }
+.assistant-rule-help { margin: 7px 0 0; color: var(--assistant-muted); font-size: 11px; line-height: 1.6; }
 .assistant-generate-row { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding-top: 20px; }
 .assistant-generate-row > div { display: grid; gap: 3px; }
 .assistant-generate-row strong { font-size: 13px; }

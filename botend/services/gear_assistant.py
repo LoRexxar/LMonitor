@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
+
 from collections import defaultdict
+from heapq import heappush, heapreplace
 from itertools import combinations
 
 from botend.constants.wow import localize_gear_source
@@ -17,6 +20,7 @@ from botend.services.gear_builder import (
     _source_track_is_valid,
     active_season,
     canonical_spec,
+    embellishment_eligibility_reason,
     normalize_stats,
     secondary_stat_conversion_rules,
     serialize_item,
@@ -26,6 +30,7 @@ from botend.services.gear_builder import (
     stats_for_identity,
 )
 from botend.services.gear_builder_owned import list_owned_items
+from botend.services.wow_item_display import _effect_text
 
 
 SECONDARY = ('crit', 'haste', 'mastery', 'versatility')
@@ -89,19 +94,30 @@ def _source_types(variant):
     }
 
 
+def _has_equipment_effect(effects):
+    # Set descriptions are repeated on every piece; they are not independent
+    # per-item effects (a fifth tier piece must not gain fake effect priority).
+    set_bonus = re.compile(r'^\s*[（(]\d+[)）]\s*(?:组合|套装|Set\b)', re.IGNORECASE)
+    return any(text and not set_bonus.match(text) for text in map(_effect_text, effects))
+
+
 def _candidate(variant, class_name, spec_name, selected_stats=(), owned_id=None, owned_quantity=1):
     stats = stats_for_identity(variant.stats_json, variant.metadata, class_name, spec_name)
-    effects = variant.effects_json or []
     selected_stats = list(selected_stats or [])
     if variant.variant_type == WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT:
         stats, selected_stats, effects = _resolve_crafted_rows(
             variant, selected_stats, None, class_name, spec_name,
         )
+    else:
+        # Use Gear Builder's canonical separation, not raw JSON: ordinary
+        # green-stat lines and empty effect rows are not special effects.
+        effects = serialize_variant(variant, class_name, spec_name)['effects']
     return {
         'variant': variant,
         'stats': {key: float(stats.get(key) or 0) for key in SECONDARY},
         'selected_stats': selected_stats,
         'effects': effects,
+        'effect_count': int(_has_equipment_effect(effects)),
         'owned_id': owned_id,
         'owned_quantity': max(1, int(owned_quantity or 1)),
         'unique_group': variant.unique_group or variant.item.unique_group or '',
@@ -121,7 +137,7 @@ def _variant_candidates(variant, class_name, spec_name, owned_id=None, selected_
     return [_candidate(variant, class_name, spec_name, choice, owned_id, owned_quantity) for choice in choices]
 
 
-def _current_pool(class_name, spec_name):
+def _current_pool(class_name, spec_name, *, allow_mythic_last_two=True):
     season = active_season()
     if not season or not season.gear_batch_key:
         raise GearBuilderError('当前赛季装备目录尚未同步')
@@ -133,10 +149,16 @@ def _current_pool(class_name, spec_name):
             WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
         ),
     ).select_related('item').order_by('-item_level', '-crafting_quality')
-    # 同一物品只保留最高装等变体；品级变化不改变用户设定的目标绿字方向。
+    from botend.services.gear_assistant_sources import (
+        mythic_raid_final_encounters, obtainable_without_mythic_last_two,
+    )
+    raids = mythic_raid_final_encounters() if not allow_mythic_last_two else {}
+    # 先限制获取来源，再保留同一物品的最高可获取装等，不能丢掉低难度回退。
     best = {}
     for variant in rows:
         if not _source_track_is_valid(variant):
+            continue
+        if not allow_mythic_last_two and not obtainable_without_mythic_last_two(variant, raids):
             continue
         key = (variant.item_id, variant.variant_type)
         best.setdefault(key, variant)
@@ -208,11 +230,37 @@ def _fixed_entries(raw_equipment, class_name, spec_name):
             'added_socket': bool(row.get('addedSocket') or row.get('added_socket')),
         }
         candidate['fixed_enhancements']['gems'] = [value for value in candidate['fixed_enhancements']['gems'] if value]
+        if row.get('embellishment') and not candidate['fixed_enhancements']['embellishment']:
+            raise GearBuilderError(f'锁定的{SLOT_LABELS.get(slot, slot)}美化资料不可用')
         entries[slot] = candidate
+    _validate_embellishments(entries, class_name, spec_name)
     return entries
 
 
+def _embellishment_cost(candidate):
+    return int(bool(candidate['variant'].is_intrinsic_embellishment)) + int(bool(
+        (candidate.get('fixed_enhancements') or {}).get('embellishment')
+    ))
+
+
+def _validate_embellishments(equipment, class_name, spec_name):
+    count = sum(_embellishment_cost(candidate) for candidate in equipment.values())
+    if count > 2:
+        raise GearBuilderError('美化（含固有美化和附加美化）最多只能携带 2 件，请调整锁定装备')
+    for slot, candidate in equipment.items():
+        embellishment = (candidate.get('fixed_enhancements') or {}).get('embellishment')
+        if embellishment:
+            reason = embellishment_eligibility_reason(
+                candidate['variant'], embellishment, slot, class_name, spec_name,
+            )
+            if reason:
+                raise GearBuilderError(f'锁定的{SLOT_LABELS.get(slot, slot)}：{reason["reason"]}')
+    return count
+
+
 def _compatible(state, candidate, slot, identity):
+    if state['embellishment_count'] + _embellishment_cost(candidate) > 2:
+        return False
     owned_id = candidate.get('owned_id')
     if owned_id and owned_id > 0 and state['owned'].get(owned_id, 0) >= candidate.get('owned_quantity', 1):
         return False
@@ -230,8 +278,54 @@ def _compatible(state, candidate, slot, identity):
     return True
 
 
+def _extend_state(state, candidate, slot):
+    unique = dict(state['unique'])
+    if candidate.get('unique_group'):
+        group = candidate['unique_group']
+        unique[group] = unique.get(group, 0) + 1
+    owned = dict(state['owned'])
+    if candidate.get('owned_id') and candidate['owned_id'] > 0:
+        owned_id = candidate['owned_id']
+        owned[owned_id] = owned.get(owned_id, 0) + 1
+    return {
+        'equipment': {**state['equipment'], slot: candidate},
+        'stats': _add_stats(state['stats'], candidate['stats']),
+        'unique': unique, 'owned': owned,
+        'effect_count': state['effect_count'] + candidate['effect_count'],
+        'embellishment_count': state['embellishment_count'] + _embellishment_cost(candidate),
+        'total_item_level': state['total_item_level'] + int(candidate['variant'].item_level or 0),
+    }
+
+
+def _prune_beam(states, rank, width=600):
+    """Bound memory while preserving paths with spare embellishment capacity.
+
+    A single global top-N can discard every zero/one-embellishment path before
+    reaching mandatory later intrinsic items. Keep at most N per capacity, then
+    share the N final places across the nonempty capacity buckets.
+    """
+    buckets = defaultdict(list)
+    for index, state in enumerate(states):
+        entry = (tuple(-value for value in rank(state)), -index, state)
+        bucket = buckets[state['embellishment_count']]
+        if len(bucket) < width:
+            heappush(bucket, entry)
+        elif entry[:2] > bucket[0][:2]:
+            heapreplace(bucket, entry)
+    ordered = [sorted(bucket, reverse=True) for bucket in buckets.values()]
+    result = []
+    for index in range(width):
+        for bucket in ordered:
+            if index < len(bucket):
+                result.append(bucket[index][2])
+                if len(result) == width:
+                    return result
+    return result
+
+
 def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, target, conversion):
     identity = f'{class_name}:{spec_name}'
+    _validate_embellishments(fixed, class_name, spec_name)
     pools = {}
     for slot, _label in EQUIPMENT_SLOTS:
         if slot in fixed:
@@ -248,7 +342,8 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
         pools[slot] = [*(owned.get(slot) or []), *normal] if mode == 'prefer_owned' else normal
 
     initial_stats = {key: 0.0 for key in SECONDARY}
-    state = {'equipment': {}, 'stats': initial_stats, 'unique': {}, 'owned': {}}
+    state = {'equipment': {}, 'stats': initial_stats, 'unique': {}, 'owned': {},
+             'effect_count': 0, 'embellishment_count': 0, 'total_item_level': 0}
     for slot, _label in EQUIPMENT_SLOTS:
         candidate = fixed.get(slot)
         if not candidate:
@@ -257,16 +352,7 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
             raise GearBuilderError(
                 f'锁定的{SLOT_LABELS.get(slot, slot)}与完整配装约束冲突，未生成不完整方案'
             )
-        next_unique = dict(state['unique'])
-        if candidate.get('unique_group'):
-            group = candidate['unique_group']
-            next_unique[group] = next_unique.get(group, 0) + 1
-        state = {
-            'equipment': {**state['equipment'], slot: candidate},
-            'stats': _add_stats(state['stats'], candidate['stats']),
-            'unique': next_unique,
-            'owned': {},
-        }
+        state = _extend_state(state, candidate, slot)
     beam = [state]
     target_ratings = _target_ratings(target, conversion)
     total_slots = len(EQUIPMENT_SLOTS)
@@ -279,39 +365,31 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
             raise GearBuilderError(
                 f'“{PLAN_LABELS[mode]}”无法为{SLOT_LABELS.get(slot, slot)}找到可用装备，未生成不完整方案'
             )
-        expanded = []
-        for state in beam:
-            for candidate in choices:
-                if not _compatible(state, candidate, slot, identity):
-                    continue
-                stats = _add_stats(state['stats'], candidate['stats'])
-                equipment = {**state['equipment'], slot: candidate}
-                next_unique = dict(state['unique'])
-                if candidate.get('unique_group'):
-                    next_unique[candidate['unique_group']] = next_unique.get(candidate['unique_group'], 0) + 1
-                next_owned = dict(state['owned'])
-                if candidate.get('owned_id') and candidate['owned_id'] > 0:
-                    next_owned[candidate['owned_id']] = next_owned.get(candidate['owned_id'], 0) + 1
-                expanded.append({'equipment': equipment, 'stats': stats, 'unique': next_unique, 'owned': next_owned})
-        if not expanded:
-            raise GearBuilderError(
-                f'“{PLAN_LABELS[mode]}”无法满足{SLOT_LABELS.get(slot, slot)}的装备约束，未生成不完整方案'
-            )
         processed += 1
         progress = processed / total_slots
-        expanded.sort(key=lambda row: (
+        expanded = (
+            _extend_state(state, candidate, slot)
+            for state in beam for candidate in choices
+            if _compatible(state, candidate, slot, identity)
+        )
+        beam = _prune_beam(expanded, lambda row: (
+            -row['effect_count'],
             -sum(row['owned'].values()) if mode == 'prefer_owned' else 0,
             sum(
                 ((row['stats'][key] - target_ratings[key] * progress) / max(1, target_ratings[key], 250)) ** 2
                 for key in SECONDARY
             ),
+            -row['total_item_level'],
         ))
-        beam = expanded[:600]
-    if not beam:
-        return {'equipment': dict(fixed), 'stats': initial_stats}
+        if not beam:
+            raise GearBuilderError(
+                f'“{PLAN_LABELS[mode]}”无法满足{SLOT_LABELS.get(slot, slot)}的装备约束，未生成不完整方案'
+            )
     return min(beam, key=lambda row: (
+        -row['effect_count'],
         -sum(row['owned'].values()) if mode == 'prefer_owned' else 0,
         _distance(row['stats'], target, conversion),
+        -row['total_item_level'],
     ))
 
 
@@ -353,7 +431,9 @@ def _apply_enhancements(
     variants = _enhancement_variants(season)
     stats = dict(plan['stats'])
     enhancements = {}
-    embellishment_count = 0
+    # Reserve every intrinsic item and locked attachment before greedy additions,
+    # including attachments on slots that occur later in iteration order.
+    embellishment_count = _validate_embellishments(plan['equipment'], class_name, spec_name)
     for slot, candidate in plan['equipment'].items():
         variant = candidate['variant']
         payload = serialize_variant(variant, class_name, spec_name)
@@ -368,10 +448,10 @@ def _apply_enhancements(
         }
         if slot_data['embellishment']:
             stats = _add_stats(stats, normalize_stats(slot_data['embellishment'].stats_json))
-            embellishment_count += 1
-        elif variant.variant_type == WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT and embellishment_count < 2:
+        elif (variant.variant_type == WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT
+              and not variant.is_intrinsic_embellishment and embellishment_count < 2):
             compatible = [row for row in variants[WowItemVariantSnapshot.TYPE_EMBELLISHMENT]
-                          if slot_matches(row, slot, class_name, spec_name)]
+                          if embellishment_eligibility_reason(variant, row, slot, class_name, spec_name) is None]
             embellishment = _best_stat_option(compatible, stats, target, conversion)
             if embellishment:
                 stats = _add_stats(stats, normalize_stats(embellishment.stats_json))
@@ -407,6 +487,7 @@ def _apply_enhancements(
         enhancements[slot] = slot_data
     plan['stats'] = stats
     plan['enhancements'] = enhancements
+    plan['embellishment_count'] = embellishment_count
 
 
 def _choose_flask(plan, target, conversion, flask_key):
@@ -472,6 +553,11 @@ def _serialize_plan(mode, plan, target, conversion, class_name, spec_name):
         'equipment': equipment,
         'owned_count': owned_count,
         'equipped_count': len(equipment),
+        'effect_count': sum(candidate['effect_count'] for candidate in plan['equipment'].values()),
+        'embellishment_count': plan['embellishment_count'],
+        'average_item_level': round(sum(
+            int(candidate['variant'].item_level or 0) for candidate in plan['equipment'].values()
+        ) / max(1, len(equipment)), 2),
         'missing_items': missing,
         'flask': plan.get('flask') or FLASKS['none'],
     }
@@ -479,7 +565,11 @@ def _serialize_plan(mode, plan, target, conversion, class_name, spec_name):
 
 def _fallback_explanation(plans):
     best = min(plans, key=lambda row: row['distance'])
-    return f"最接近目标的是“{best['name']}”，综合偏差 {best['distance']}。优先备选装备方案会先锁定可用的备选物品，另外两套方案更适合比较潜在提升与需要补齐的来源。"
+    return (
+        '各方案先满足锁定、来源、专精、唯一装备及美化最多2件的约束，优先携带特效装备，再匹配目标绿字；'
+        '优先备选装备方案在特效件数相同时先考虑备选件数。目录同物品优先最高可得装等，绿字偏差相同优先总装等更高。'
+        f"本次绿字偏差最小的是“{best['name']}”，综合偏差 {best['distance']}。特效件数与绿字匹配不代表DPS提升。"
+    )
 
 
 def _ai_explanation(plans, target):
@@ -487,10 +577,14 @@ def _ai_explanation(plans, target):
     summary = [{
         '方案': row['name'], '偏差': row['distance'], '最终百分比': row['percentages'],
         '备选件数': row['owned_count'], '缺失装备': len(row['missing_items']),
+        '特效装备件数': row['effect_count'], '美化件数': row['embellishment_count'],
+        '平均装等': row['average_item_level'],
     } for row in plans]
     prompt = (
         '你是魔兽世界配装助手。只基于下面确定性计算结果，用中文写120字以内的比较建议；'
         '不得新增装备、数值或来源。账号装备库统一称为“备选装备”。\n'
+        '排序先满足硬约束，再优先特效装备，随后匹配目标绿字；优先备选方案在特效件数相同时优先备选件数。'
+        '同物品优先最高可得装等，同绿字偏差优先总装等。美化最多2件，件数及属性匹配不代表DPS提升。\n'
         f'目标={target}\n方案={summary}'
     )
     return (GLMClient().send_message(prompt, max_tokens=220, thinking_type='disabled') or '').strip()
@@ -518,7 +612,10 @@ def optimize_loadouts(user, payload):
     target = {key: max(0, min(200, float(raw_target.get(key) or 0))) for key in SECONDARY}
     if not any(target.values()):
         raise GearBuilderError('请至少填写一个目标属性百分比')
-    current, season = _current_pool(class_name, spec_name)
+    allow_mythic_last_two = payload.get('allow_mythic_last_two', True)
+    if not isinstance(allow_mythic_last_two, bool):
+        raise GearBuilderError('M 后二获取开关必须为布尔值')
+    current, season = _current_pool(class_name, spec_name, allow_mythic_last_two=allow_mythic_last_two)
     conversion = _conversion(class_name, spec_name)
     fixed = _fixed_entries(payload.get('equipment'), class_name, spec_name)
     owned = _owned_pool(user, class_name, spec_name)
@@ -548,5 +645,6 @@ def optimize_loadouts(user, payload):
         'explanation': explanation,
         'ai_used': ai_used,
         'fixed_slots': list(fixed),
+        'allow_mythic_last_two': allow_mythic_last_two,
         'catalog': {'batch_key': season.gear_batch_key, 'season_name': season.season_name},
     }
