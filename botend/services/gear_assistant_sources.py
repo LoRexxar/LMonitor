@@ -3,6 +3,7 @@ from collections import defaultdict
 
 from botend.journal_models import JournalEncounter, JournalState
 from botend.services.gear_builder_tier_sources import tier_set_sources
+from botend.services.gear_builder_venomstone import TRACKS
 
 
 def mythic_raid_final_encounters():
@@ -33,6 +34,10 @@ def mythic_raid_final_encounters():
 
 def obtainable_without_mythic_last_two(variant, raids, *, sources=None):
     if str(variant.upgrade_track or '').casefold() != 'myth':
+        return True
+    # Disabling final-boss loot excludes its exceptional 344 tier, not the
+    # ordinary Myth 6 or supported venomstone Myth 8 versions of the same item.
+    if 0 < int(variant.item_level or 0) <= TRACKS['myth']['item_level']:
         return True
     if sources is None:
         metadata = {**(variant.item.metadata or {}), **(variant.metadata or {})}

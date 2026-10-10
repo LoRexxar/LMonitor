@@ -20,16 +20,16 @@ class GearAssistantSourcesTests(GearBuilderTestDataMixin, TestCase):
         other = JournalInstance.objects.create(release=release, journal_id=1317, name='Story raid', kind='raid')
         JournalEncounter.objects.create(instance=other, journal_id=2849, name='Story', order=100,
                                        payload={'difficulty_ids': [14, 15, 233]})
+        self.hero.item_level = 321
         self.hero.upgrade_track = 'hero'
         self.hero.source_json = [{'type': 'raid', 'instance_id': 1320, 'encounter_id': 2895}]
-        self.hero.save(update_fields=['upgrade_track', 'source_json'])
-        self.myth.source_json = self.hero.source_json
-        self.myth.save(update_fields=['source_json'])
+        self.hero.save(update_fields=['item_level', 'upgrade_track', 'source_json'])
+        self.myth.delete()
         # A higher myth version of the very same item must fall back to hero.
         self.myth = self.hero.__class__.objects.create(
             item=self.hero.item, season=self.season, batch_key=self.season.gear_batch_key,
             variant_key='source-myth-final', variant_type=self.hero.variant_type,
-            item_level=self.hero.item_level + 30, upgrade_track='myth',
+            item_level=344, upgrade_track='myth', track_rank=9, track_max_rank=6,
             compatible_slots=['head'], source_json=self.hero.source_json, stats_json=self.hero.stats_json,
         )
 
@@ -41,6 +41,20 @@ class GearAssistantSourcesTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(self.highest(True).id, self.myth.id)
         self.assertEqual(self.highest(False).id, self.hero.id)
         self.assertEqual(self.highest(False).stats_json, self.hero.stats_json)
+
+    def test_last_two_standard_myth_and_venomstone_remain_obtainable(self):
+        for level, rank in ((334, 6), (340, 8)):
+            with self.subTest(level=level):
+                standard = self.hero.__class__.objects.create(
+                    item=self.hero.item, season=self.season, batch_key=self.season.gear_batch_key,
+                    variant_key=f'last-two-myth-{rank}', variant_type=self.hero.variant_type,
+                    item_level=level, upgrade_track='myth', track_rank=rank, track_max_rank=6,
+                    compatible_slots=['head'], source_json=self.hero.source_json,
+                    stats_json=self.hero.stats_json,
+                    metadata={'venomstone': True} if rank == 8 else {},
+                )
+                self.assertEqual(self.highest(False).id, standard.id)
+                self.assertEqual(self.highest(True).id, self.myth.id)
 
     def test_early_boss_dungeon_and_non_mythic_raid_are_not_filtered(self):
         for source in (
