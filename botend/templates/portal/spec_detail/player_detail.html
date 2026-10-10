@@ -28,9 +28,7 @@
         <div class="player-hero-aside">
             <div class="hero-badge hero-badge--rank">#{{ player_detail.rank }}</div>
             <div class="hero-badge hero-badge--score">{{ player_detail.score|floatformat:2 }}</div>
-            {% if player_detail.profile_url %}
-            <a href="{{ player_detail.profile_url }}" target="_blank" class="hero-link">Raider.IO</a>
-            {% endif %}
+            {% include "portal/spec_detail/_player_external_links.html" with external_links=player_detail.external_links %}
         </div>
     </section>
 
@@ -408,7 +406,11 @@
 .hero-badge { padding: 10px 14px; border-radius: 16px; font-weight: 800; }
 .hero-badge--rank { background: #fffbeb; color: #b45309; }
 .hero-badge--score { background: #eff6ff; color: #1d4ed8; font-size: 22px; }
-.hero-link { color: #2563eb; font-weight: 700; text-decoration: none; }
+.player-external-links { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
+.hero-link { display: inline-flex; align-items: center; gap: 4px; padding: 6px 9px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; color: #2563eb; font-size: 12px; font-weight: 700; text-decoration: none; white-space: nowrap; }
+.hero-link:hover { background: #eff6ff; border-color: #93c5fd; }
+.hero-link:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+@media (max-width: 760px) { .player-external-links { justify-content: flex-start; } }
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 18px; }
 .detail-card {
     background: rgba(255,255,255,.94);

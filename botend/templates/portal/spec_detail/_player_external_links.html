@@ -1,0 +1,7 @@
+{% if external_links %}
+<nav class="player-external-links" aria-label="角色站外页面">
+    {% for link in external_links %}
+    <a href="{{ link.url }}" target="_blank" rel="noopener noreferrer" class="hero-link" data-player-external="{{ link.key }}">{{ link.label }} <span aria-hidden="true">↗</span></a>
+    {% endfor %}
+</nav>
+{% endif %}

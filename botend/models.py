@@ -2549,6 +2549,21 @@ class SeasonMeta(models.Model):
         return self.season_key
 
 
+class WowRealmDirectory(models.Model):
+    """Canonical Raider.IO realm identity, shared by character link consumers."""
+    region = models.CharField(max_length=10)
+    slug = models.CharField(max_length=100)
+    name = models.CharField(max_length=128)
+    localized_name = models.CharField(max_length=128, blank=True, default='')
+    locale = models.CharField(max_length=10)
+    source_url = models.URLField(max_length=300, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_realm_directory'
+        constraints = [models.UniqueConstraint(fields=['region', 'slug'], name='wow_realm_region_slug_unique')]
+
+
 class PlayerSpecTopPlayer(models.Model):
     """人物资料缓存（Raider.IO + Battle.net），每角色每专精每赛季 1 条"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID")
