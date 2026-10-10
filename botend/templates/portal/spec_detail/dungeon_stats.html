@@ -118,6 +118,15 @@
                         <span>{{ stat.pct.p75|floatformat:1 }}%</span>
                     </div>
                     <div class="secondary-stat-meta">中位 {{ stat.pct.median|floatformat:1 }}% · 平均 {{ stat.pct.avg|floatformat:1 }}%</div>
+                    {% elif stat.rating %}
+                    <div class="secondary-stat-range" title="P25–P75 四分位区间；中线表示中位数分位，不是数值比例尺">
+                        <span>{{ stat.rating.p25|floatformat:0 }}</span>
+                        <div class="secondary-stat-bar">
+                            <div class="secondary-stat-fill" style="left:25%;width:50%;"></div>
+                            <div class="secondary-stat-marker" style="left:50%;"></div>
+                        </div>
+                        <span>{{ stat.rating.p75|floatformat:0 }}</span>
+                    </div>
                     {% endif %}
                     {% if stat.rating %}
                     <div class="secondary-stat-meta">绿字 {{ stat.rating.p25|floatformat:0 }} - {{ stat.rating.p75|floatformat:0 }} · 中位 {{ stat.rating.median|floatformat:0 }} · 平均 {{ stat.rating.avg|floatformat:0 }}</div>
