@@ -656,7 +656,7 @@ def _choose_flask(plan, target, conversion, flask_key):
     plan['flask'] = best
 
 
-def _source_label(variant, source_type='', canonical_sources=None):
+def _acquisition_sources(variant, source_type='', canonical_sources=None):
     available = getattr(variant, '_assistant_sources', None)
     if available is None:
         available = canonical_sources if canonical_sources is not None else variant.source_json or []
@@ -664,6 +664,11 @@ def _source_label(variant, source_type='', canonical_sources=None):
                and (not source_type or str(row.get('type') or '').casefold() == source_type)]
     if not sources and source_type:
         sources = [localize_gear_source({'type': source_type})]
+    return sources
+
+
+def _source_label(variant, source_type='', canonical_sources=None):
+    sources = _acquisition_sources(variant, source_type, canonical_sources)
     if not sources:
         return '来源待补充'
     row = sources[0]
@@ -690,6 +695,7 @@ def _serialize_plan(mode, plan, target, conversion, class_name, spec_name):
         equipment[slot] = {
             'slot_label': SLOT_LABELS.get(slot, slot),
             'acquisition_source_label': source_label,
+            'acquisition_sources': _acquisition_sources(variant, candidate.get('acquisition_source_type', ''), variant_payload['sources']),
             'selection_origin': 'locked' if owned_id == -1 else 'owned' if owned_id else 'catalog',
             'item': item,
             'variant': variant_payload,

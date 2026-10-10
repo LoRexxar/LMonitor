@@ -141,6 +141,7 @@
 .assistant-item-trigger > span:not(.assistant-result-icon) { min-width: 0; overflow-wrap: anywhere; }
 .assistant-result-icon { flex: 0 0 22px; width: 22px; height: 22px; object-fit: cover; border-radius: 4px; background: #eef2f7; }
 .assistant-result-icon.is-placeholder { display: grid; place-items: center; color: #a0aec0; }
+.assistant-result-source { grid-column: 2 / -1; color: #7c889b; font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; margin-top: -3px; }
 .assistant-result-level { color: #8c97a7; text-align: right; font-size: 10px; font-variant-numeric: tabular-nums; }
 .assistant-item-trigger:hover, .assistant-choice:hover { color: #2563eb; }
 .assistant-item-trigger:focus-visible, .assistant-choice:focus-visible { outline: 2px solid #5b8def; outline-offset: 2px; border-radius: 3px; }

@@ -67,14 +67,6 @@
   const PREVIEW_LEFT_SLOTS = ["head", "neck", "shoulders", "back", "chest", "wrists", "hands", "waist"];
   const PREVIEW_RIGHT_SLOTS = ["legs", "feet", "finger1", "finger2", "trinket1", "trinket2", "main_hand", "off_hand"];
   const SIMC_CRAFTED_STAT_IDS = Object.freeze({crit: 40, haste: 49, mastery: 32, versatility: 36});
-  const SOURCE_LABELS = {
-    mythic_plus: "大秘境", great_vault: "宏伟宝库", raid: "团队副本", delve: "地下堡",
-    crafted: "专业制造", profession: "专业制造", bonus_roll: "额外掉落",
-  };
-  const SOURCE_PLACE_FALLBACKS = {
-    mythic_plus: "当前大秘境", great_vault: "宏伟宝库", raid: "当前团队副本",
-    delve: "当前赛季地下堡", crafted: "专业制造", profession: "专业制造",
-  };
 
   let bootstrap = null;
   let candidates = [];
@@ -229,59 +221,19 @@
   }
 
   function variantSources(variant) {
-    const catalog = bootstrap?.tier_set_sources;
-    const setId = Number(variant?.metadata?.item_set_id);
-    const slot = variant?.compatible_slots?.[0];
-    if (catalog?.set_ids?.includes(setId) && catalog.slots?.[slot]) return catalog.slots[slot];
-    return Array.isArray(variant?.sources) ? variant.sources : [];
+    return globalThis.WowGearSources.variantSources(variant, bootstrap);
   }
 
   function sourceText(variant) {
-    const rows = variantSources(variant);
-    if (!rows.length) return "来源待补全";
-    return rows.slice(0, 2).map((row) => {
-      if (typeof row === "string") return row;
-      const type = row.type_zh || SOURCE_LABELS[row.type] || "其他来源";
-      const instance = row.instance_zh || row.instance || "";
-      const encounter = row.encounter_zh || row.boss_zh || row.encounter || row.boss || "";
-      const bossNumber = raidBossNumber(row);
-      const location = bossNumber && encounter
-        ? `${instance}${bossNumber}号 ${encounter}`
-        : [instance, encounter].filter(Boolean).join(" · ");
-      const profession = row.profession_zh || "";
-      const difficulty = row.difficulty_zh || "";
-      const parts = [type, location, profession, difficulty].filter(Boolean);
-      if (parts.length === 1 && SOURCE_PLACE_FALLBACKS[row.type]) parts.push(SOURCE_PLACE_FALLBACKS[row.type]);
-      return [...new Set(parts)].join(" · ");
-    }).join("\n");
+    return globalThis.WowGearSources.sourceText(variant, bootstrap);
   }
 
   function raidBossNumber(source) {
-    if (source?.type !== "raid" || number(source.encounter_id) <= 0) return 0;
-    const mapped = bootstrap?.raid_boss_numbers?.[source.instance_id]?.[source.encounter_id];
-    if (Number.isInteger(mapped) && mapped > 0) return mapped;
-    const order = Number(source.encounter_order);
-    // 汇总目录的跨团本偏移编号不能作为团本内序号展示。
-    return Number.isInteger(order) && order > 0 && order < 100 ? order : 0;
+    return globalThis.WowGearSources.raidBossNumber(source, bootstrap);
   }
 
   function shortSourceText(variant) {
-    if (variant?.type === "crafted_equipment") return "专业制造";
-    const sources = variantSources(variant).map((row) => {
-      if (typeof row === "string") return row;
-      const instance = row.instance_zh || row.instance || "";
-      if (row.type === "crafted" || row.type === "profession") return "专业制造";
-      if (row.type === "mythic_plus") {
-        const grouped = Number(row.instance_id) < 0 || ["大秘境", "Mythic+ Dungeons"].includes(instance);
-        return (grouped ? row.encounter_zh || row.encounter : instance) || "大秘境";
-      }
-      if (row.type === "raid") {
-        const bossNumber = raidBossNumber(row);
-        return `${instance || "团队副本"}${bossNumber ? `${bossNumber}号` : ""}`;
-      }
-      return sourceText({sources: [row]});
-    });
-    return [...new Set(sources.filter(Boolean))].slice(0, 2).join("；") || "来源待补全";
+    return globalThis.WowGearSources.shortSourceText(variant, bootstrap);
   }
 
   function sourceMarkup(variant) {

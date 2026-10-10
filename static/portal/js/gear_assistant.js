@@ -215,7 +215,7 @@
   function renderPlans(plans) {
     if (!plans?.length) return;
     hideResultTooltip();
-    els.results.innerHTML = WowGearAssistantResults.render(plans, builderBootstrap?.slots || []);
+    els.results.innerHTML = WowGearAssistantResults.render(plans, builderBootstrap?.slots || [], builderBootstrap || {});
   }
   async function generate() {
     hideResultTooltip();

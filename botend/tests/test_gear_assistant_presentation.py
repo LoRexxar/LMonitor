@@ -37,3 +37,5 @@ class GearAssistantPresentationTests(GearAssistantDataMixin, TestCase):
         self.assertEqual(head_result['selection_origin'], 'catalog')
         self.assertIn('实际获取地下城', head_result['acquisition_source_label'])
         self.assertNotIn('不能展示', head_result['acquisition_source_label'])
+        self.assertEqual([s['instance_zh'] for s in head_result['acquisition_sources']], ['实际获取地下城'])
+        self.assertEqual([s['type'] for s in head_result['acquisition_sources']], ['mythic_plus'])
