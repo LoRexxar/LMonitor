@@ -35,6 +35,39 @@ class WagoHotfixFactsTests(SimpleTestCase):
             [2, 4],
         )
 
+    def test_prefix_partition_keeps_record_equal_to_internal_prefix(self):
+        # Wago trims trailing spaces: the exact-ID terminal needs the next
+        # (build) token, not just `8418 ` or a partial parent-page sample.
+        rows = [
+            {'id': i + 1, 'push_id': 112350, 'locale': 'enUS', 'region_id': 3,
+             'table_name': 'SpellEffect', 'record_id': rid, 'build': build}
+            for i, (rid, build) in enumerate(((8418, 70235), (84180, 70235),
+                                              (84181, 70235), (84182, 70235)))
+        ]
+        queries = []
+        def fetch(url, **kwargs):
+            params = parse_qs(urlsplit(url).query)
+            query = params['search'][0]
+            queries.append(query)
+            suffix = query.removeprefix('enUS 112350').strip().split()
+            prefix = suffix[0] if suffix else ''
+            if len(suffix) == 2:
+                matched = [r for r in rows if str(r['record_id']) == prefix
+                           and str(r['build']).startswith(suffix[1])]
+            else:
+                matched = [r for r in rows if str(r['record_id']).startswith(prefix)]
+            page = int(params['page'][0])
+            # Repeated pages force conserved partitioning; the terminal row
+            # is absent from the parent sample, so copying it cannot fix this.
+            data = matched[-2:]
+            return {'filters': {'search': query}, 'hotfixes': {
+                'data': data, 'total': len(matched), 'current_page': page,
+                'last_page': max(1, (len(matched) + 1) // 2), 'per_page': 2}}
+        result = collect_hotfix_push_rows(fetch, lambda p: p, 112350,
+                                         region_id=3, locale='enUS', max_pages=1)
+        self.assertEqual(result, rows)
+        self.assertIn('enUS 112350 8418 7', queries)
+
     def test_push_prefix_search_rejects_nonconserved_totals(self):
         def fetch(url, **kwargs):
             query = parse_qs(urlsplit(url).query)['search'][0]

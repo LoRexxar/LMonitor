@@ -120,14 +120,58 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
     query_count = 0
     selected = {}
 
-    def visit(prefix, depth):
+    def fetch_bounded(url, **kwargs):
         nonlocal query_count
         query_count += 1
-        if query_count > max_queries or depth > 16:
+        if query_count > max_queries:
+            raise HotfixSourceIncomplete(f'Hotfix prefix search limit push={push_id}')
+        return fetch_text(url, **kwargs)
+
+    def store(rows, prefix, build_prefix=None):
+        for row in rows:
+            source_id = 0
+            try:
+                record_id = int(row['record_id'])
+                source_id = int(row['id'])
+                matches = (source_id > 0 and record_id > 0
+                           and str(record_id).startswith(prefix)
+                           and int(row['push_id']) == push_id
+                           and row['locale'] == locale)
+                if build_prefix is not None:
+                    matches = (matches and str(record_id) == prefix
+                               and int(row['build']) > 0
+                               and str(row['build']).startswith(build_prefix))
+            except (KeyError, TypeError, ValueError):
+                matches = False
+            if not matches:
+                raise HotfixSourceIncomplete(f'Hotfix prefix row mismatched push={push_id} prefix={prefix}')
+            if source_id in selected:
+                raise HotfixSourceIncomplete(f'Hotfix prefix duplicate source ID={source_id}')
+            selected[source_id] = row
+
+    def terminal_rows(prefix):
+        # Wago trims a trailing space. Include the next token (build) to
+        # select record_id == prefix, never the longer digit descendants.
+        count = 0
+        for digit in '0123456789':
+            query = f'{locale} {push_id} {prefix} {digit}'
+            def verified_props(text):
+                props = extract_props(text)
+                filters = props.get('filters') or {} if isinstance(props, dict) else {}
+                if not isinstance(filters, dict) or filters.get('search') != query:
+                    raise HotfixSourceIncomplete(f'Hotfix terminal search not applied query={query}')
+                return props
+            rows = _search_rows(fetch_bounded, verified_props, query, max_pages=40, timeout=timeout)
+            store(rows, prefix, build_prefix=digit)
+            count += len(rows)
+        return count
+
+    def visit(prefix, depth):
+        if depth > 16:
             raise HotfixSourceIncomplete(f'Hotfix prefix search limit push={push_id}')
         query = f'{locale} {push_id}' + (f' {prefix}' if prefix else '')
         url = 'https://wago.tools/hotfixes?' + urlencode({'search': query, 'page': 1})
-        props = extract_props(fetch_text(url, timeout=timeout))
+        props = extract_props(fetch_bounded(url, timeout=timeout))
         payload = props.get('hotfixes') if isinstance(props, dict) else None
         if not isinstance(payload, dict):
             raise HotfixSourceIncomplete(f'Hotfix prefix missing data query={query}')
@@ -144,25 +188,19 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
                 or total < 0 or len(rows) > per_page or total > pages * per_page):
             raise HotfixSourceIncomplete(f'Hotfix prefix inconsistent pagination query={query}')
         if pages == 1 and len(rows) == total:
-            for row in rows:
-                try:
-                    record_id = int(row['record_id'])
-                    source_id = int(row['id'])
-                    matches = (source_id > 0 and record_id > 0
-                               and str(record_id).startswith(prefix)
-                               and int(row['push_id']) == push_id
-                               and row['locale'] == locale)
-                except (KeyError, TypeError, ValueError):
-                    matches = False
-                if not matches:
-                    raise HotfixSourceIncomplete(f'Hotfix prefix row mismatched query={query}')
-                if source_id in selected:
-                    raise HotfixSourceIncomplete(f'Hotfix prefix duplicate source ID={source_id}')
-                selected[source_id] = row
+            store(rows, prefix)
             return total
         if total == 0 or depth >= 16:
             raise HotfixSourceIncomplete(f'Hotfix prefix incomplete: cannot split query={query}')
-        child_total = sum(visit(prefix + digit, depth + 1) for digit in '0123456789')
+        child_total = 0
+        for digit in '0123456789':
+            child_total += visit(prefix + digit, depth + 1)
+            # Each child is complete, disjoint and source-ID unique. Once
+            # they account for the full parent total, no rows remain to find.
+            if child_total >= total:
+                break
+        if prefix and child_total < total:
+            child_total += terminal_rows(prefix)
         if child_total != total:
             raise HotfixSourceIncomplete(
                 f'Hotfix prefix totals differ query={query}: children={child_total} parent={total}'
