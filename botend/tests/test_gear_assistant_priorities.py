@@ -8,7 +8,7 @@ from botend.services.gear_assistant import (
 from botend.services.gear_builder import EQUIPMENT_SLOTS, GearBuilderError
 
 
-class GearAssistantPriorityTests(TestCase):
+class GearAssistantDataMixin:
     """Exercise the real ORM/catalog/search/enhancement path, without solver mocks."""
 
     def setUp(self):
@@ -65,6 +65,13 @@ class GearAssistantPriorityTests(TestCase):
             **overrides,
         })
 
+class GearAssistantPriorityTests(GearAssistantDataMixin, TestCase):
+    def setUp(self):
+        super().setUp()
+        # Independent zero-effect intrinsic fixtures satisfy the new mandatory
+        # count without changing the effect/green-stat comparisons under test.
+        self.required = [self.variant(slot, intrinsic=True) for slot in ('wrists', 'back')]
+
     def test_set_bonus_tooltip_is_not_a_per_item_special_effect(self):
         tier = self.variant('head', stats={'crit': 900}, effects=[
             {'description_zh': '(2) 组合 狂怒: 怒击的伤害提高15%。'},
@@ -87,6 +94,7 @@ class GearAssistantPriorityTests(TestCase):
         unknown.source_json = [{'type': 'raid', 'instance_id': 999, 'encounter_id': 888}]
         unknown.save(update_fields=['upgrade_track', 'source_json'])
         locked = {slot: {'variant': {'id': row.id}} for slot, row in self.base.items()}
+        locked.update({row.compatible_slots[0]: {'variant': {'id': row.id}} for row in self.required})
         locked['head'] = {'variant': {'id': unknown.id}}
         for plan in self.optimize(equipment=locked, allow_mythic_last_two=False)['plans']:
             self.assertEqual(plan['equipment']['head']['variant']['id'], unknown.id)
@@ -111,7 +119,7 @@ class GearAssistantPriorityTests(TestCase):
             self.assertEqual(plan['equipment']['head']['variant']['id'], closer.id)
             self.assertNotEqual(closer.id, farther.id)
             self.assertEqual(plan['effect_count'], 1)
-            self.assertEqual(plan['embellishment_count'], 0)
+            self.assertEqual(plan['embellishment_count'], 2)
             self.assertEqual(plan['average_item_level'], 700)
         self.assertIn('特效', result['explanation'])
         self.assertIn('不代表', result['explanation'])
@@ -125,7 +133,7 @@ class GearAssistantPriorityTests(TestCase):
 
     def test_equal_target_distance_prefers_higher_total_item_level(self):
         higher = self.variant('head', level=740)
-        plan = _beam_plan('all', [*self.base.values(), higher], {}, {},
+        plan = _beam_plan('all', [*self.base.values(), *self.required, higher], {}, {},
                           'Warrior', 'Fury', self.target, self.conversion)
         self.assertEqual(plan['equipment']['head']['variant'].id, higher.id)
 
@@ -219,8 +227,8 @@ class GearAssistantPriorityTests(TestCase):
         self.reagent(recipe_slots=[999])
         crafted = self.variant('head', crafted=True)
         plan = self.enhancement_plan([('head', crafted, None)])
-        self.enhance(plan)
-        self.assertIsNone(plan['enhancements']['head']['embellishment'])
+        with self.assertRaisesRegex(GearBuilderError, '美化.*2'):
+            self.enhance(plan)
 
     def test_locked_intrinsic_cannot_also_have_an_attachment(self):
         reagent = self.reagent()

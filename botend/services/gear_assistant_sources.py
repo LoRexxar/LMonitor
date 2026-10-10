@@ -31,13 +31,14 @@ def mythic_raid_final_encounters():
     return result
 
 
-def obtainable_without_mythic_last_two(variant, raids):
+def obtainable_without_mythic_last_two(variant, raids, *, sources=None):
     if str(variant.upgrade_track or '').casefold() != 'myth':
         return True
-    metadata = {**(variant.item.metadata or {}), **(variant.metadata or {})}
-    sources = tier_set_sources(metadata, variant.item.slot_key)
     if sources is None:
-        sources = variant.source_json or []
+        metadata = {**(variant.item.metadata or {}), **(variant.metadata or {})}
+        sources = tier_set_sources(metadata, variant.item.slot_key)
+        if sources is None:
+            sources = variant.source_json or []
     for source in sources:
         if not isinstance(source, dict):
             continue

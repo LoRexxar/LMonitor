@@ -585,13 +585,14 @@ def _secondary_stat_is_excluded(variant, excluded_stats):
     return any(_number(stats.get(key)) for key in excluded_stats)
 
 
-def _source_track_is_valid(variant):
+def _source_track_is_valid(variant, *, source_types=None):
     """地下堡饰品不开放神话；其他部位仍须有本赛季解锁依据。"""
-    source_types = {
-        str(row.get('type') or '').casefold()
-        for row in (variant.source_json or [])
-        if isinstance(row, dict) and row.get('type')
-    }
+    if source_types is None:
+        source_types = {
+            str(row.get('type') or '').casefold()
+            for row in (variant.source_json or [])
+            if isinstance(row, dict) and row.get('type')
+        }
     return (not (source_types == {'delve'} and str(variant.upgrade_track or '').casefold() == 'myth')
             or (int(_variant_item(variant).inventory_type or 0) != 12
                 and bool((variant.metadata or {}).get('delve_myth'))))

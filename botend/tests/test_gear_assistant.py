@@ -62,6 +62,19 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
         )
 
+        for index, slot in enumerate(('wrists', 'back'), 10130):
+            item = WowItemSnapshot.objects.create(
+                item_id=index, name_zh=f'必需美化{slot}', catalog_type='crafted_equipment',
+                slot_key=slot, eligible_specs=['Warrior:Fury'],
+            )
+            WowItemVariantSnapshot.objects.create(
+                item=item, season=self.season, batch_key='test-batch',
+                variant_key=f'intrinsic-{slot}', variant_type=WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+                item_level=730, compatible_slots=[slot], is_intrinsic_embellishment=True,
+                crafting_options={'stat_count': 2, 'stat_pool': ['crit', 'haste']},
+                source_json=[{'type': 'crafted'}],
+            )
+
     def test_page_and_entry_require_login(self):
         response = self.client.get('/portal/gear-assistant/')
         self.assertEqual(response.status_code, 302)
@@ -81,7 +94,12 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
         self.assertContains(response, 'id="assistant-allow-mythic-last-two"')
         self.assertContains(response, '可获取 M 后二装备')
         self.assertContains(response, '先满足特效装备携带，再匹配目标绿字')
-        self.assertContains(response, '固有美化与附加美化合计最多 2 件')
+        self.assertContains(response, '固有美化与附加美化合计必须为 2 件')
+        self.assertContains(response, 'id="assistant-source-preference"')
+        self.assertContains(response, '优先团本')
+        self.assertContains(response, '优先大秘境')
+        self.assertContains(response, '不含团本装备')
+        self.assertContains(response, '地下堡神话档最多 2 件')
         self.assertNotContains(response, '已有装备')
         builder = self.client.get('/portal/gear-builder/')
         self.assertContains(builder, 'id="gear-mode-owned"')
@@ -190,8 +208,10 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             if row['slot'] in {'finger1', 'finger2'}
         ]
         self.assertEqual(len(missing_ring_slots), 1)
-        self.assertEqual(plans['dungeon']['equipment']['head']['variant']['id'], self.dungeon_variant.id)
-        self.assertIn('测试地城', plans['dungeon']['missing_items'][0]['source'])
+        # The former dungeon mode now includes all nonraid acquisition: the
+        # crafted proc carrier legitimately outranks the plain dungeon helmet.
+        self.assertEqual(plans['dungeon']['equipment']['head']['variant']['id'], self.crafted.id)
+        self.assertTrue(any('测试地城' in row['source'] for row in plans['dungeon']['missing_items']))
         self.assertIn(plans['all']['flask']['key'], {'none', 'crit', 'haste', 'mastery'})
         expected_slots = {slot for slot, _label in EQUIPMENT_SLOTS}
         for plan in plans.values():
