@@ -536,25 +536,22 @@
 .gear-stat-bar::after { content: ''; display: block; width: var(--stat-progress, 0%); height: 100%; border-radius: inherit; background: var(--stat-color, var(--gear-blue)); }
 .gear-effect-summary { padding: 12px 16px 15px; border-top: 1px solid var(--gear-border); }
 .gear-effect-summary h3 { font-size: .76rem; font-weight: 820; }
-.gear-effect-summary .gear-effect-groups { margin-top: 10px; }
-.gear-effect-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-items: start; }
-.gear-effect-group { --effect-accent: #a16207; min-width: 0; padding: 13px 15px; border: 1px solid var(--gear-border); border-top: 3px solid var(--effect-accent); border-radius: 9px; background: var(--gear-surface-muted); }
+.gear-effect-summary .gear-effect-groups { margin-top: 8px; }
+.gear-effect-groups { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: start; }
+.gear-effect-group { --effect-accent: #a16207; min-width: 0; padding: 9px 11px; border: 1px solid var(--gear-border); border-top: 2px solid var(--effect-accent); border-radius: 7px; background: var(--gear-surface-muted); }
 .gear-effect-group[data-effect-group="gems"] { --effect-accent: #059669; }
 .gear-effect-group[data-effect-group="enchants"] { --effect-accent: #2563eb; }
 .gear-effect-group[data-effect-group="embellishments"] { --effect-accent: #9333ea; }
 .gear-effect-group-heading { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 .gear-effect-group-heading h4 { margin: 0; color: var(--gear-text); font-size: .8rem; }
 .gear-effect-group-heading > span { color: var(--gear-muted); font-size: .72rem; white-space: nowrap; }
-.gear-effect-group-total { margin: 9px 0 0; color: var(--gear-text); font-size: .72rem; line-height: 1.65; overflow-wrap: anywhere; }
-.gear-effect-group-items { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 11px; }
-.gear-effect-entry { min-width: 0; border-top: 1px solid var(--gear-border); padding-top: 10px; }
-.gear-effect-entry-heading { display: flex; align-items: baseline; gap: 7px; color: var(--gear-text); font-size: .74rem; overflow-wrap: anywhere; }
+.gear-effect-group-total { margin: 5px 0 0; color: var(--gear-muted); font-size: .69rem; line-height: 1.5; overflow-wrap: anywhere; }
+.gear-effect-group-items { list-style: none; margin: 7px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 5px 6px; }
+.gear-effect-entry { min-width: 0; max-width: 100%; padding: 3px 7px; border: 1px solid var(--gear-border); border-radius: 5px; background: var(--gear-surface); }
+.gear-effect-entry-heading { display: flex; align-items: baseline; gap: 5px; color: var(--gear-text); font-size: .71rem; line-height: 1.5; overflow-wrap: anywhere; }
+.gear-effect-entry-heading strong { min-width: 0; font-weight: 600; }
 .gear-effect-count { flex: none; color: var(--effect-accent); font-weight: 750; }
-.gear-effect-sources { display: block; margin-top: 3px; color: var(--gear-muted); font-size: .67rem; overflow-wrap: anywhere; }
-.gear-effect-static, .gear-effect-description { margin: 5px 0 0; font-size: .71rem; line-height: 1.65; overflow-wrap: anywhere; white-space: pre-line; }
-.gear-effect-static { color: var(--gear-text); }
-.gear-effect-description { color: var(--gear-gold); }
-.gear-effect-group > .gear-no-effects { margin: 10px 0 0; }
+.gear-effect-group > .gear-no-effects { margin: 7px 0 0; }
 .gear-no-effects { color: var(--gear-muted); font-size: .7rem; }
 
 .gear-preview[hidden] { display: none; }
@@ -679,7 +676,7 @@
 .gear-preview-stat strong { margin-top: 3px; color: #172033; font-size: .86rem; font-variant-numeric: tabular-nums; }
 .gear-preview-stat small { color: #6d28d9; font-size: .59rem; }
 .gear-preview-summary > section { grid-column: 1 / -1; min-width: 0; }
-.gear-preview-effects { --gear-text: #172033; --gear-muted: #64748b; --gear-border: #d6dee9; --gear-surface-muted: #f7f9fc; --gear-gold: #875900; }
+.gear-preview-effects { --gear-text: #172033; --gear-muted: #64748b; --gear-border: #d6dee9; --gear-surface: #fff; --gear-surface-muted: #f7f9fc; --gear-gold: #875900; }
 
 .gear-dialog { width: min(650px, calc(100vw - 24px)); max-width: none; padding: 0; border: 0; border-radius: 12px; background: transparent; box-shadow: 0 26px 70px rgba(15, 23, 42, .28); }
 .gear-dialog::backdrop { background: rgba(15, 23, 42, .44); backdrop-filter: blur(3px); }

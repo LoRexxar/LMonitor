@@ -1248,14 +1248,9 @@
       return `<section class="gear-effect-group" data-effect-group="${group.key}">
         <header class="gear-effect-group-heading"><h4>${group.label}</h4><span>${group.count} ${group.unit}</span></header>
         ${total ? `<p class="gear-effect-group-total" title="已计入上方属性，不含触发增益">常驻属性合计：${escapeHtml(total)}</p>` : ""}
-        ${group.rows.length ? `<ul class="gear-effect-group-items">${group.rows.map((row) => {
-          const stats = statText(row.stats);
-          return `<li class="gear-effect-entry"><div class="gear-effect-entry-heading"><strong>${escapeHtml(row.name)}</strong>${row.count > 1 ? `<span class="gear-effect-count">×${row.count}</span>` : ""}</div>
-            <small class="gear-effect-sources">${escapeHtml(row.sources.join("、"))}</small>
-            ${stats ? `<p class="gear-effect-static">${row.count > 1 ? "合计：" : ""}${escapeHtml(stats)}</p>` : ""}
-            ${row.descriptions.map((text) => `<p class="gear-effect-description">${escapeHtml(text)}</p>`).join("")}
-            ${!stats && !row.descriptions.length ? `<p class="gear-no-effects">${row.missing ? "特效数据待补全" : "无额外特效"}</p>` : ""}</li>`;
-        }).join("")}</ul>` : `<p class="gear-no-effects">${group.empty}</p>`}
+        ${group.rows.length ? `<ul class="gear-effect-group-items">${group.rows.map((row) =>
+          `<li class="gear-effect-entry" title="${escapeHtml(row.sources.join("、"))}"><div class="gear-effect-entry-heading"><strong>${escapeHtml(row.name)}</strong>${row.count > 1 ? `<span class="gear-effect-count">×${row.count}</span>` : ""}</div></li>`
+        ).join("")}</ul>` : `<p class="gear-no-effects">${group.empty}</p>`}
       </section>`;
     }).join("");
   }

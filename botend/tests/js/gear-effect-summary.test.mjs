@@ -24,7 +24,10 @@ assert.equal(Object.keys(groups[3].stats).length, 0, '固有美化不得把装�
 const markup = effectSummaryMarkup(groups);
 for (const label of ['宝石', '附魔', '装备特效', '美化']) assert.ok(markup.includes(label));
 assert.ok(markup.includes('迅捷宝石') && markup.includes('×2'));
-assert.equal(markup.split('触发美化提升100急速').length - 1, 1, '制造已解析效果中的美化不重复混入装备特效');
+assert.ok(!markup.includes('触发美化提升100急速'), '紧凑汇总不展示特效正文');
+assert.ok(!markup.includes('gear-effect-description') && !markup.includes('gear-effect-static') && !markup.includes('gear-effect-sources'), '逐项仅显示名称和数量');
+assert.equal(groups[3].rows.flatMap(row => row.descriptions).filter(text => text === '触发美化提升100急速').length, 1, '源特效保留且不重复分类');
+assert.ok(markup.includes('常驻属性合计'), '分组属性总和仍保留一行');
 assert.ok(markup.includes('美化&lt;测试&gt;') && !markup.includes('美化<测试>'));
 assert.equal(JSON.stringify(totalsAndEffects()), totals, '分类只改变显示，不改变属性计算或装备');
 state.equipment.main_hand.gems.push({...gem, variant: {...gem.variant, id: 4, stats: {haste: 12}}});
