@@ -428,6 +428,16 @@ def _prune_beam(states, rank, width=600):
     return result
 
 
+def _plan_priorities(row, mode):
+    return (-row['effect_count'], -row['source_preference_count'],
+            -sum(row['owned'].values()) if mode == 'prefer_owned' else 0,
+            row['embellishment_slot_cost'], row['delve_lower_count'])
+
+
+def _plan_rank(row, mode, target, conversion):
+    return (*_plan_priorities(row, mode), _distance(row['stats'], target, conversion), -row['total_item_level'])
+
+
 def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, target, conversion,
                *, materials=(), source_preference='none', cache=None):
     identity = f'{class_name}:{spec_name}'
@@ -515,9 +525,7 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
         raise GearBuilderError(f'“{PLAN_LABELS[mode]}”无法满足美化必须携带 2 件，请检查锁定装备与制造配方资料')
 
     def priorities(row):
-        return (-row['effect_count'], -row['source_preference_count'],
-                -sum(row['owned'].values()) if mode == 'prefer_owned' else 0,
-                row['embellishment_slot_cost'], row['delve_lower_count'])
+        return _plan_priorities(row, mode)
 
     beam = [empty_state()]
     target_ratings = _target_ratings(target, conversion)
@@ -541,9 +549,10 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
                 '（同一物品只能装备 1 次、美化必须携带 2 件、地下堡神话最多 2 件），未生成不完整方案'
             )
     def final_rank(row):
-        return (*priorities(row), _distance(row['stats'], target, conversion), -row['total_item_level'])
+        return _plan_rank(row, mode, target, conversion)
 
     plan = min(beam, key=final_rank)
+    alternatives = [plan]
     # Progress-target pruning can lose even a better single-slot replacement.
     # One deterministic pass, at most 4096 prepared candidates per unlocked slot:
     # improve the full final rank, without claiming convergence/global optimality.
@@ -571,10 +580,14 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
                 rank = final_rank(trial)
                 if rank < best_rank:
                     best, best_rank = trial, rank
+        if best is not plan:
+            alternatives.append(best)
         plan = best
-    plan['embellishments_in_stats'] = True
-    plan['source_preference'] = preference
-    return plan
+    # Keep the original plus at most one winner per slot (<=17 states). Equipment
+    # gains may reverse after selected consumables; public ranking compares those.
+    alternatives = [dict(row, embellishments_in_stats=True, source_preference=preference)
+                    for row in alternatives]
+    return {**alternatives[-1], '_refinement_candidates': alternatives}
 
 
 def _enhancement_variants(season):
@@ -846,13 +859,16 @@ def optimize_loadouts(user, payload):
         plan = _beam_plan(mode, current, owned, fixed, class_name, spec_name, target, conversion,
                           materials=enhancements[WowItemVariantSnapshot.TYPE_EMBELLISHMENT],
                           source_preference=source_preference, cache=candidate_cache)
-        _apply_enhancements(
-            plan, season, class_name, spec_name, target, conversion,
-            bool(payload.get('include_gems', True)), bool(payload.get('include_enchants', True)),
-            bool(payload.get('lock_gems', True)), bool(payload.get('lock_enchants', True)),
-            variants=enhancements,
-        )
-        _choose_flask(plan, target, conversion, str(payload.get('flask') or 'auto'))
+        alternatives = plan.pop('_refinement_candidates')
+        for candidate in alternatives:
+            _apply_enhancements(
+                candidate, season, class_name, spec_name, target, conversion,
+                bool(payload.get('include_gems', True)), bool(payload.get('include_enchants', True)),
+                bool(payload.get('lock_gems', True)), bool(payload.get('lock_enchants', True)),
+                variants=enhancements,
+            )
+            _choose_flask(candidate, target, conversion, str(payload.get('flask') or 'auto'))
+        plan = min(alternatives, key=lambda row: _plan_rank(row, mode, target, conversion))
         plans.append(_serialize_plan(mode, plan, target, conversion, class_name, spec_name))
     explanation = _fallback_explanation(plans)
     ai_used = False

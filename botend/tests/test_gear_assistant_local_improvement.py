@@ -55,6 +55,16 @@ class GearAssistantLocalImprovementTests(GearAssistantDataMixin, TestCase):
                 self.assertEqual(plan['delve_lower_count'], 0)
                 self.assert_legal(plan)
 
+    def test_final_flask_score_keeps_original_when_equipment_only_gain_regresses(self):
+        self.target = _percentages({'crit': 100}, self.conversion)
+        for _ in range(600):
+            self.variant('head', level=331)
+        equipment_best = self.variant('head', stats={'crit': 100}, level=334)
+        for plan in self.optimize(flask='crit')['plans']:
+            # Bare gear 100 is better than 0, but mandatory +165 makes 0 better.
+            self.assertNotEqual(plan['equipment']['head']['variant']['id'], equipment_best.id)
+            self.assertEqual(plan['stats']['crit'], 165)
+
     def test_single_pass_is_safe_without_claiming_global_or_local_optimality(self):
         globally_best = self.pruning_counterexample()
         first_improvement = self.variant('head', stats={'crit': 1500}, level=334)
