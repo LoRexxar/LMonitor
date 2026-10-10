@@ -125,9 +125,32 @@ class GearAssistantExactTwoTests(GearAssistantDataMixin, TestCase):
             self.assert_exact(plan)
             self.assertEqual(plan['delve_myth_count'], 2)
 
+    def test_benchmark_provenance_is_not_an_acquisition_route(self):
+        self.crafts(('wrists', 'back'))
+        benchmark = self.sourced('head', 'benchmark', level=800,
+                                effects=[{'description_zh': '装备：攻击触发火焰。'}])
+        for plan in self.optimize()['plans']:
+            self.assertEqual(plan['equipment']['head']['variant']['id'], self.base['head'].id)
+        # A real acquisition route is sufficient; benchmark provenance is ignored.
+        benchmark.source_json.append({'type': 'mythic_plus'})
+        benchmark.save(update_fields=['source_json'])
+        for plan in self.optimize()['plans']:
+            self.assertEqual(plan['equipment']['head']['variant']['id'], benchmark.id)
+            self.assertEqual(plan['equipment']['head']['acquisition_source_type'], 'mythic_plus')
+        # User-owned/locked physical items do not need a new acquisition route.
+        benchmark.source_json = [{'type': 'benchmark'}]
+        benchmark.save(update_fields=['source_json'])
+        GearBuilderOwnedItem.objects.create(user=self.user, item_id=benchmark.item.item_id,
+                                           variant=benchmark, slot_key='head')
+        plans = {p['key']: p for p in self.optimize()['plans']}
+        self.assertEqual(plans['prefer_owned']['equipment']['head']['variant']['id'], benchmark.id)
+        self.assertEqual(plans['all']['equipment']['head']['variant']['id'], self.base['head'].id)
+        for plan in self.optimize(equipment={'head': {'variant': {'id': benchmark.id}}})['plans']:
+            self.assertEqual(plan['equipment']['head']['variant']['id'], benchmark.id)
+
     def test_generic_sources_cannot_launder_raid_into_nonraid(self):
         self.crafts(('wrists', 'back'))
-        for generic in ('great_vault', 'bonus_roll', 'unknown'):
+        for generic in ('great_vault', 'bonus_roll', 'unknown', 'benchmark'):
             with self.subTest(source=generic):
                 high = self.sourced('head', 'raid', item=self.base['head'].item, level=800,
                                     effects=[{'description_zh': '装备：攻击触发火焰。'}])

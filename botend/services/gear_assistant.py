@@ -6,7 +6,7 @@ import re
 
 from collections import defaultdict
 from heapq import heappush, heapreplace
-from itertools import combinations
+from itertools import combinations, islice
 
 from botend.constants.wow import localize_gear_source
 from botend.models import GearBuilderOwnedItem, WowItemVariantSnapshot
@@ -109,8 +109,8 @@ def _source_types(variant):
 
 def _acquisition_type(variant, mode='all', preference='none', *, recommendation=False):
     """Choose only an evidenced source; an alternative avoids spending delve quota."""
-    # Generic reward mechanisms cannot certify an independent acquisition route.
-    sources = _source_types(variant) - {'great_vault', 'bonus_roll', 'unknown'}
+    # Reward mechanisms and internal benchmark provenance are not acquisition routes.
+    sources = _source_types(variant) - {'great_vault', 'bonus_roll', 'unknown', 'benchmark'}
     if mode == 'dungeon':
         sources = sources - {'raid'}
     # Crafting is an authoritative variant type even in old catalogs without a source row.
@@ -540,7 +540,38 @@ def _beam_plan(mode, current_variants, owned, fixed, class_name, spec_name, targ
                 f'“{PLAN_LABELS[mode]}”无法满足{SLOT_LABELS.get(slot, slot)}的装备约束'
                 '（同一物品只能装备 1 次、美化必须携带 2 件、地下堡神话最多 2 件），未生成不完整方案'
             )
-    plan = min(beam, key=lambda row: (*priorities(row), _distance(row['stats'], target, conversion), -row['total_item_level']))
+    def final_rank(row):
+        return (*priorities(row), _distance(row['stats'], target, conversion), -row['total_item_level'])
+
+    plan = min(beam, key=final_rank)
+    # Progress-target pruning can lose even a better single-slot replacement.
+    # One deterministic pass, at most 4096 prepared candidates per unlocked slot:
+    # improve the full final rank, without claiming convergence/global optimality.
+    # Reuse source/highest-variant/crafted/attachment choices from the beam pools.
+    best_rank = final_rank(plan)
+    for slot in slots:
+        if slot in fixed:
+            continue
+        best = plan
+        for candidate in islice(pools[slot], 4096):
+            if candidate is plan['equipment'][slot]:
+                continue
+            # Replay in the beam's order rather than subtracting counters/stats:
+            # attachments count once, and later unique/owned/weapon constraints
+            # must be checked too. Fixed gems/enchants remain for the later stage.
+            trial = empty_state()
+            for other_slot in slots:
+                option = candidate if other_slot == slot else plan['equipment'][other_slot]
+                if not _compatible(trial, option, other_slot, identity):
+                    break
+                trial = _extend_state(trial, option, other_slot)
+            else:
+                if trial['embellishment_count'] != 2:
+                    continue
+                rank = final_rank(trial)
+                if rank < best_rank:
+                    best, best_rank = trial, rank
+        plan = best
     plan['embellishments_in_stats'] = True
     plan['source_preference'] = preference
     return plan
