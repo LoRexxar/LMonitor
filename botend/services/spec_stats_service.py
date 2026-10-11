@@ -839,7 +839,7 @@ def _dungeon_log_identity(row):
     return ('row', row.get('id') if row.get('id') is not None else id(row))
 
 
-def _select_dungeon_sample_records(qs, max_samples=100):
+def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
     """
     为 M+ 聚合选择最终样本。
 
@@ -851,6 +851,8 @@ def _select_dungeon_sample_records(qs, max_samples=100):
         'talents_json', 'talent_build_code', 'gear_json', 'faction', 'guild_name',
         'character_name', 'realm', 'region', 'dps', 'keystone_level', 'clear_time', 'score',
     )
+    if hydrate_fields is not None:
+        fields = tuple(dict.fromkeys(('id', *hydrate_fields)))
     # Median selection needs the cohort's scalar facts, not every large JSON
     # payload. Fetch talents/gear only for the final (at most 100) observations.
     selection_fields = ('id', 'report_code', 'fight_id', 'character_name',

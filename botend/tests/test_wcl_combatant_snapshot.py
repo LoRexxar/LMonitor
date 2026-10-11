@@ -111,6 +111,11 @@ class SnapshotCollectionTests(TestCase):
         fetcher.fetch_wcl_combatant_info.return_value = None
         result = collect_dungeon_combatants(rows, fetcher, apply=True)
         self.assertEqual((result['cached'], result['permission_denied'], result['failed']), (1, 2, 0))
+        # A new retry window is required after a persisted report denial.
+        from datetime import timedelta
+        from botend.models import WclCombatantFetchState
+        WclCombatantFetchState.objects.filter(report_code='Report', fight_id=0).update(
+            retry_after=timezone.now() - timedelta(seconds=1))
         fetcher._wcl_last_error = 'rate_limit'
         fetcher.reset_mock()
         result = collect_dungeon_combatants(rows, fetcher, apply=True, batch_size=1)
@@ -137,6 +142,7 @@ class SnapshotCollectionTests(TestCase):
             self.assertEqual(api.call_args_list[1].args[1]['start'], 200)
             self.assertEqual(api.call_args_list[0].args[1]['fightIDs'], [11, 12])
             self.assertIn('nextPageTimestamp', api.call_args_list[0].args[0])
+            self.assertIn('actors(type: "Player")', api.call_args_list[0].args[0])
         with patch.object(collector, '_wcl_graphql', side_effect=[page(11, 200), None]):
             self.assertIsNone(collector.fetch_wcl_combatant_info('Report', [11, 12]))
         with patch.object(collector, '_wcl_graphql', side_effect=[page(11, 200), page(12, 200)]):
@@ -174,7 +180,7 @@ class SnapshotCollectionTests(TestCase):
         with self.assertRaises(CommandError):
             call_command('backfill_wcl_dungeon_combatants', season=season.id + 1, stdout=StringIO())
 
-    def test_monitor_collects_after_each_dungeon_not_at_end(self):
+    def test_monitor_collects_after_all_successful_dungeons(self):
         from unittest.mock import patch
         from botend.models import SeasonMeta, SpecDungeonRanking
         from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
@@ -198,5 +204,5 @@ class SnapshotCollectionTests(TestCase):
              patch.object(monitor, '_fetch_rankings_with_retry', side_effect=ranking), \
              patch.object(monitor, 'fetch_wcl_combatant_info', side_effect=combatants):
             self.assertTrue(monitor._collect_dungeon_rankings(season))
-        self.assertEqual(trace, [('ranking', 1), ('combatant', 1), ('ranking', 2), ('combatant', 2)])
+        self.assertEqual(trace, [('ranking', 1), ('ranking', 2), ('combatant', 1), ('combatant', 2)])
         self.assertEqual(WclCombatantSnapshot.objects.count(), 2)

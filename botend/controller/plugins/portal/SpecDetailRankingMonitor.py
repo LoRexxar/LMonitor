@@ -4,6 +4,7 @@ M+ 副本 + 团本排名采集器
 从 WCL v2 GraphQL 获取每个副本/Boss 每个专精的 Top 100 排名原始数据
 """
 
+import math
 import time
 
 from django.utils import timezone
@@ -97,6 +98,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         logger.info(f"[SpecDetailRanking] 采集 M+ 排名: {len(season.mplus_encounters)} 副本 x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
         target_per_spec = 300
+        successful_dungeon_ids = []
         total = 0
         empty_talent_total = 0
         now = timezone.now()
@@ -109,7 +111,11 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             encounter_failed = False
 
             for class_name, specs in CLASS_SPEC_MAP.items():
+                if encounter_failed:
+                    break
                 for spec_name in specs:
+                    if encounter_failed:
+                        break
                     page = 1
                     collected = 0
                     empty_talent_count = 0
@@ -120,18 +126,37 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                             encounter_failed = True
                             time.sleep(0.3)
                             break
-                        if not rankings:
-                            time.sleep(0.3)
+                        if (not isinstance(rankings, dict)
+                                or not isinstance(rankings.get('rankings'), list)
+                                or not isinstance(rankings.get('hasMorePages'), bool)):
+                            encounter_failed = True
+                            logger.error(f'[SpecDetailRanking] M+ {enc_id}: 排名页结构无效')
                             break
 
-                        rank_list = rankings.get('rankings', []) or []
+                        rank_list = rankings['rankings']
                         if not rank_list:
+                            if rankings['hasMorePages']:
+                                encounter_failed = True
+                                logger.error(f'[SpecDetailRanking] M+ {enc_id}: 分页未结束却返回空页')
                             break
 
                         for r in rank_list:
                             if collected >= target_per_spec:
                                 break
                             try:
+                                if not isinstance(r, dict):
+                                    raise ValueError('ranking must be an object')
+                                for key in ('server', 'report', 'guild'):
+                                    if r.get(key) is not None and not isinstance(r[key], dict):
+                                        raise ValueError(f'invalid ranking {key}')
+                                for key in ('talents', 'gear', 'affixes'):
+                                    if r.get(key) is not None and not isinstance(r[key], list):
+                                        raise ValueError(f'invalid ranking {key}')
+                                amount = r.get('amount')
+                                if (isinstance(amount, bool)
+                                        or not isinstance(amount, (int, float))
+                                        or not math.isfinite(amount)):
+                                    raise ValueError('invalid ranking amount')
                                 server = r.get('server', {}) or {}
                                 report = r.get('report', {}) or {}
                                 guild = r.get('guild', {}) or {}
@@ -172,8 +197,12 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 ))
                                 collected += 1
                             except Exception as e:
-                                logger.warning(f"[SpecDetailRanking] M+ 构建记录失败: {e}")
+                                encounter_failed = True
+                                logger.warning(f"[SpecDetailRanking] M+ 构建记录失败，整本保旧: {e}")
+                                break
 
+                        if encounter_failed:
+                            break
                         if not rankings.get('hasMorePages') or len(rank_list) == 0:
                             break
                         page += 1
@@ -211,20 +240,28 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     f"新增 {result['created']} / 更新 {result['updated']} / "
                     f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
                 )
-                from botend.services.wcl_combatant_snapshot import (
-                    collect_dungeon_combatants, select_dungeon_combatant_records,
-                )
-                identities = [(cls, spec) for cls, specs in CLASS_SPEC_MAP.items() for spec in specs]
-                selected = select_dungeon_combatant_records(season, identities, [enc_id])
-                combatants = collect_dungeon_combatants(selected, self, apply=True, log=logger.info)
-                logger.info(f"[SpecDetailRanking] M+ {enc_id} CombatantInfo: {combatants}")
-                if combatants['failed']:
-                    ok = False
+                successful_dungeon_ids.append(enc_id)
             except Exception as e:
                 ok = False
                 logger.error(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 写入失败: {e}")
 
         logger.info(f"[SpecDetailRanking] M+ 排名采集完成: {total} 条, 空天赋 {empty_talent_total} 条")
+        # Gather only freshly committed scopes. Deduplicate identities and group
+        # report/fight requests across dungeons before any log-detail request.
+        if successful_dungeon_ids:
+            try:
+                from botend.services.wcl_combatant_snapshot import (
+                    collect_dungeon_combatants, select_dungeon_combatant_records,
+                )
+                identities = [(cls, spec) for cls, specs in CLASS_SPEC_MAP.items() for spec in specs]
+                selected = select_dungeon_combatant_records(season, identities, successful_dungeon_ids)
+                combatants = collect_dungeon_combatants(selected, self, apply=True, log=logger.info)
+                logger.info(f"[SpecDetailRanking] M+ 全局 CombatantInfo: {combatants}")
+                if any(combatants[key] for key in ('failed', 'permission_denied', 'missing', 'pending')):
+                    ok = False
+            except Exception as e:
+                ok = False
+                logger.error(f"[SpecDetailRanking] M+ 日志补采失败，已提交排名保留: {e}")
         return ok
 
     def _parse_rank_talents(self, ranking, combatant_cache):

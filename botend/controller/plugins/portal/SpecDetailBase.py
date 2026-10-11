@@ -189,7 +189,7 @@ class SpecDetailBase(BaseScan):
         query($code:String!, $fightIDs:[Int], $start:Float) {
             reportData {
                 report(code:$code) {
-                    masterData { actors { id name server type subType } }
+                    masterData { actors(type: "Player") { id name server type subType } }
                     events(fightIDs:$fightIDs, dataType: CombatantInfo,
                            limit: 300, startTime:$start) {
                         data nextPageTimestamp
@@ -223,7 +223,10 @@ class SpecDetailBase(BaseScan):
                 if actor:
                     event['source'] = actor
                 result.append(event)
-            next_cursor = envelope.get('nextPageTimestamp')
+            if 'nextPageTimestamp' not in envelope:
+                self._wcl_last_error = 'invalid_pagination'
+                return None
+            next_cursor = envelope['nextPageTimestamp']
             if next_cursor is None:
                 return result
             if not isinstance(next_cursor, (int, float)) or (cursor is not None and next_cursor <= cursor):

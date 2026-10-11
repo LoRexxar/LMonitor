@@ -2623,6 +2623,27 @@ class WclCombatantSnapshot(models.Model):
         )]
 
 
+class WclCombatantFetchState(models.Model):
+    """Expiring fetch outcomes, never a second source of raw combatant facts.
+
+    fight_id=0 represents report-wide permission denial; positive IDs represent
+    a complete fetch with at least one requested observation still unmatched.
+    """
+    report_code = models.CharField(max_length=50)
+    fight_id = models.PositiveIntegerField()
+    status = models.CharField(max_length=20, choices=[
+        ('permission_denied', 'Permission denied'), ('missing', 'Missing'),
+    ])
+    checked_at = models.DateTimeField(default=timezone.now)
+    retry_after = models.DateTimeField()
+
+    class Meta:
+        db_table = 'wow_wcl_combatant_fetch_state'
+        constraints = [models.UniqueConstraint(
+            fields=['report_code', 'fight_id'], name='uniq_wcl_combatant_fetch_scope',
+        )]
+
+
 class SpecDungeonRanking(models.Model):
     """M+ 副本排名原始数据，每条=一个玩家在某副本某专精的一次排名记录，来自 WCL API"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID")

@@ -1,13 +1,14 @@
 """Central raw log facts. Readers never fetch, and never trust profile attributes."""
 from collections import defaultdict
 from copy import deepcopy
+from datetime import timedelta
 import math
 import re
 
 from django.db.models import Q
 
 from botend.constants.wow import resolve_spec_identity
-from botend.models import WclCombatantSnapshot, WowItemSnapshot
+from botend.models import WclCombatantFetchState, WclCombatantSnapshot, WowItemSnapshot
 
 
 # WCL CombatantInfo uses zero-based equipment slots, not InventoryType IDs.
@@ -183,7 +184,9 @@ def select_dungeon_combatant_records(season, identities, dungeon_ids=None):
         for class_name, spec_name in identities:
             qs = SpecDungeonRanking.objects.filter(season_id=season.id, dungeon_id=dungeon_id,
                                                    class_name=class_name, spec_name=spec_name)
-            for selected in _select_dungeon_sample_records(qs, max_samples=100):
+            for selected in _select_dungeon_sample_records(
+                    qs, max_samples=100,
+                    hydrate_fields=('id', 'report_code', 'fight_id', 'character_name', 'realm', 'region')):
                 identity = _dungeon_log_identity(selected)
                 if identity in seen:
                     continue
@@ -215,11 +218,38 @@ def _validated_events(events, fight_ids):
     return {fight: list(actors.values()) for fight, actors in by_fight.items()}
 
 
-def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size=20, log=None):
-    """Explicit offline collection. At most 20 fights/report/request; retry on next run.
+# Retry policy, not an estimate of WCL request cost or account quota.
+WCL_PERMISSION_DENIED_TTL = timedelta(hours=1)
+WCL_COMBATANT_MISSING_TTL = timedelta(hours=6)
 
-    Counts partition observations, not API responses. Raw payloads are persisted
-    once centrally, never copied to ranking rows. Failed scopes retain last-good.
+
+def _load_negative_fetch_states(records, now):
+    """Read only active states for a bounded preflight batch and its reports."""
+    keys = {key for row in records if (key := _fight_key(row))}
+    if not keys:
+        return {}
+    keys.update((code, 0) for code, _ in tuple(keys))
+    where = Q()
+    for code, fight in sorted(keys):
+        where |= Q(report_code=code, fight_id=fight)
+    return {(row['report_code'], row['fight_id']): row['status']
+            for row in WclCombatantFetchState.objects.filter(where, retry_after__gt=now).values(
+                'report_code', 'fight_id', 'status')}
+
+
+def _save_negative_fetch_state(code, fight, status, checked_at):
+    ttl = WCL_PERMISSION_DENIED_TTL if status == 'permission_denied' else WCL_COMBATANT_MISSING_TTL
+    WclCombatantFetchState.objects.update_or_create(
+        report_code=code, fight_id=fight,
+        defaults={'status': status, 'checked_at': checked_at, 'retry_after': checked_at + ttl})
+
+
+def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size=20, log=None):
+    """Explicit offline collection. At most 20 fights/report/request.
+
+    Counts partition observations, not API responses; negative_cached is only a
+    diagnostic subset. Exact positive facts always win over expiring negatives.
+    Raw facts stay immutable and centralized. Dry runs never write or fetch.
     """
     from django.db import transaction
     from django.utils import timezone
@@ -228,24 +258,33 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     records = list(records)
     counts = dict(selected=len(records), cached=0, matched=0, missing=0,
                   permission_denied=0, failed=0, pending=0, snapshots_written=0,
-                  reports_requested=0, fights_requested=0)
+                  reports_requested=0, fights_requested=0, negative_cached=0)
     pending = defaultdict(lambda: defaultdict(list))
     # All-spec repair can contain tens of thousands of observations. Inspect
-    # cache hits in bounded batches, never hydrate all raw events together.
+    # facts and retry states together, never hydrate all raw events together.
     for start in range(0, len(records), 100):
         batch_records = records[start:start + 100]
         facts = _load_facts(batch_records)
+        states = _load_negative_fetch_states(batch_records, timezone.now())
         for row in batch_records:
             key = _fight_key(row)
             if not key or not row.get('realm') or not row.get('character_name') or str(row['character_name']).casefold() == 'anonymous':
                 counts['missing'] += 1
             elif match_combatant(facts.get(key, []), row, row['class_name'], row['spec_name']):
                 counts['cached'] += 1
+            elif states.get((key[0], 0)) == 'permission_denied':
+                counts['permission_denied'] += 1
+                counts['negative_cached'] += 1
+            elif states.get(key) == 'missing':
+                counts['missing'] += 1
+                counts['negative_cached'] += 1
             else:
                 pending[key[0]][key[1]].append(row)
-        del facts
+        del facts, states
     if not apply:
         counts['pending'] = sum(len(rows) for fights in pending.values() for rows in fights.values())
+        return counts
+    if not pending:
         return counts
     if fetcher is None:
         from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
@@ -260,11 +299,18 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
             try:
                 events = fetcher.fetch_wcl_combatant_info(code, batch)
                 if events is None:
-                    status = 'permission_denied' if getattr(fetcher, '_wcl_last_error', '') == 'permission' else 'failed'
-                    counts[status] += len(batch_rows)
-                    if log:
-                        log(f'WCL report={code} fights={batch} status={status} observations={len(batch_rows)}')
                     error = getattr(fetcher, '_wcl_last_error', '')
+                    if error == 'permission':
+                        _save_negative_fetch_state(code, 0, 'permission_denied', timezone.now())
+                        # All not-yet-attempted batches belong to this same report.
+                        denied = sum(len(fights[fight]) for fight in fight_ids[start:])
+                        counts['permission_denied'] += denied
+                        if log:
+                            log(f'WCL report={code} fights={batch} status=permission_denied observations={denied}')
+                        break
+                    counts['failed'] += len(batch_rows)
+                    if log:
+                        log(f'WCL report={code} fights={batch} status=failed observations={len(batch_rows)}')
                     if error in {'rate_limit', 'authentication', 'network'} or str(error).startswith('http_5'):
                         remaining = counts['selected'] - sum(counts[key] for key in (
                             'cached', 'matched', 'missing', 'permission_denied', 'failed'))
@@ -273,6 +319,8 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                             log(f'WCL aborted after {error}; unattempted_failed={remaining}')
                         return counts
                     continue
+                # fetch_wcl_combatant_info returns a list only after every page;
+                # None/invalid containers must never be interpreted as missing.
                 by_fight = _validated_events(events, batch)
                 now = timezone.now()
                 written = 0
@@ -286,12 +334,30 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                             # a partial/changed fetch must never overwrite last-good.
                             written += int(created)
                 counts['snapshots_written'] += written
-                # Independent readback proves the persisted target, including races.
-                persisted = _load_facts(batch_rows)
-                for row in batch_rows:
-                    event = match_combatant(persisted.get(_fight_key(row), []), row,
-                                            row['class_name'], row['spec_name'])
-                    counts['matched' if event else 'missing'] += 1
+                # Independent, bounded readback proves persisted matches, not just
+                # returned payloads (including get_or_create conflicts/races).
+                matched, missing = 0, 0
+                missing_fights = set()
+                for offset in range(0, len(batch_rows), 100):
+                    observations = batch_rows[offset:offset + 100]
+                    persisted = _load_facts(observations)
+                    for row in observations:
+                        key = _fight_key(row)
+                        if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
+                            matched += 1
+                        else:
+                            missing += 1
+                            missing_fights.add(key[1])
+                    del persisted
+                with transaction.atomic():
+                    # A completed fetch disproves report denial. Clear resolved
+                    # fights only; other scopes retain their independent TTLs.
+                    WclCombatantFetchState.objects.filter(
+                        report_code=code, fight_id__in=[0, *sorted(set(batch) - missing_fights)]).delete()
+                    for fight in sorted(missing_fights):
+                        _save_negative_fetch_state(code, fight, 'missing', now)
+                counts['matched'] += matched
+                counts['missing'] += missing
                 if log:
                     log(f'WCL report={code} fights={batch} written={written} observations={len(batch_rows)}')
             except Exception as exc:
