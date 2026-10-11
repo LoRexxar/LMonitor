@@ -9473,22 +9473,20 @@ class WclAnalysisTaskAPIView(View):
             data = resp.json()
             return data.get('access_token')
         except Exception as e:
-            logger.warning(f"WCL OAuth请求失败: {str(e)}")
+            logger.warning(f"WCL OAuth请求失败: {type(e).__name__}")
             return None
 
     def _wcl_graphql(self, token, query, variables):
-        url = "https://www.warcraftlogs.com/api/v2/client"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-        resp = requests.post(url, json={"query": query, "variables": variables}, headers=headers, timeout=30)
-        if resp.status_code != 200:
-            raise Exception(f"WCL GraphQL HTTP {resp.status_code}")
-        payload = resp.json()
-        if payload.get('errors'):
-            raise Exception(f"WCL GraphQL错误: {payload.get('errors')}")
-        return payload
+        from botend.services.wcl_api_budget import WclTransportError, graphql_request
+
+        self._wcl_retry_at = None
+        self._wcl_last_error = ''
+        client_id, _ = self._get_wcl_api_credentials()
+        result = graphql_request(client_id, token, query, variables)
+        self._wcl_last_error, self._wcl_retry_at = result.error, result.retry_at
+        if result.error:
+            raise WclTransportError(result)
+        return result.payload
 
     def _fetch_benchmark_summary(self, battle_data):
         dungeon_name = (battle_data.get('dungeon_name') or '').strip()

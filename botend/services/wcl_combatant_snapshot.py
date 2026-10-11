@@ -1,7 +1,7 @@
 """Central raw log facts. Readers never fetch, and never trust profile attributes."""
 from collections import defaultdict
 from copy import deepcopy
-from datetime import timedelta
+from datetime import datetime, timedelta
 import math
 import re
 
@@ -61,14 +61,17 @@ def match_combatant(events, record, class_name, spec_name):
     return matches[0] if len(matches) == 1 else None
 
 
-def _load_facts(records):
+def _load_facts(records, *, fetched_before=None):
     keys = sorted({key for row in records if (key := _fight_key(row))})
     facts = defaultdict(list)
     for start in range(0, len(keys), 100):
         where = Q()
         for code, fight in keys[start:start + 100]:
             where |= Q(report_code=code, fight_id=fight)
-        for row in WclCombatantSnapshot.objects.filter(where).values(
+        queryset = WclCombatantSnapshot.objects.filter(where)
+        if fetched_before is not None:
+            queryset = queryset.filter(fetched_at__lte=fetched_before)
+        for row in queryset.order_by('report_code', 'fight_id', 'actor_id').values(
                 'report_code', 'fight_id', 'actor_id', 'payload_json'):
             payload = row['payload_json']
             if isinstance(payload, dict) and _positive_int(payload.get('sourceID')) == row['actor_id']:
@@ -136,14 +139,15 @@ def combatant_gear(gear, enchant_catalog=None):
     return result
 
 
-def enrich_dungeon_records(records, class_name, spec_name):
+def enrich_dungeon_records(records, class_name, spec_name, *, facts=None):
     """Return independent dicts; stats/race exclusively from the exact WCL log.
 
     Missing/ambiguous facts keep ranking WCL gear, but never profile stats/race.
     This is a bounded DB-only projection; collection is an explicit separate job.
     """
     records = list(records)
-    facts = _load_facts(records)
+    if facts is None:
+        facts = _load_facts(records)
     matched = [match_combatant(facts.get(_fight_key(row), []), row, class_name, spec_name)
                for row in records]
     catalog = _enchant_catalog([{'gear': (event or {}).get('gear') or row.get('gear_json') or []}
@@ -205,13 +209,22 @@ def _validated_events(events, fight_ids):
     for event in events:
         if not isinstance(event, dict):
             raise ValueError('Invalid CombatantInfo event')
-        fight = _positive_int(event.get('fight'))
-        if fight is None and len(fight_ids) == 1:
-            fight = fight_ids[0]
-        actor = _positive_int(event.get('sourceID'))
         source = event.get('source') or {}
+        # Only explicitly identified non-players may be ignored. An absent
+        # player identity is incomplete input, not evidence that it is an NPC.
+        if isinstance(source, dict) and source.get('type') in ('NPC', 'Pet'):
+            continue
+        fight = _positive_int(event.get('fight'))
+        actor = _positive_int(event.get('sourceID'))
         if fight not in fight_ids or not actor or not isinstance(source, dict) or _positive_int(source.get('id')) != actor:
             raise ValueError('CombatantInfo fight/actor identity missing or inconsistent')
+        name, server = source.get('name'), source.get('server')
+        if (not isinstance(name, str) or not name.strip() or name.strip().casefold() == 'anonymous'
+                or not isinstance(server, str) or not _realm(server)
+                or not _positive_int(event.get('specID'))):
+            # Validate the full batch before inserting immutable actor facts or
+            # publishing a missing TTL. Never repair identities from rankings.
+            raise ValueError('CombatantInfo player name/server/spec identity incomplete')
         if actor in by_fight[fight] and by_fight[fight][actor] != event:
             raise ValueError('Conflicting CombatantInfo events for one actor')
         by_fight[fight][actor] = event
@@ -299,6 +312,14 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
             try:
                 events = fetcher.fetch_wcl_combatant_info(code, batch)
                 if events is None:
+                    retry_at = getattr(fetcher, '_wcl_retry_at', None)
+                    if isinstance(retry_at, datetime) and retry_at > timezone.now():
+                        counts['pending'] = counts['selected'] - sum(counts[key] for key in (
+                            'cached', 'matched', 'missing', 'permission_denied', 'failed'))
+                        counts['retry_at'] = retry_at.isoformat()
+                        if log:
+                            log(f'WCL deferred until {counts["retry_at"]}; pending={counts["pending"]}')
+                        return counts
                     error = getattr(fetcher, '_wcl_last_error', '')
                     if error == 'permission':
                         _save_negative_fetch_state(code, 0, 'permission_denied', timezone.now())
@@ -311,7 +332,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                     counts['failed'] += len(batch_rows)
                     if log:
                         log(f'WCL report={code} fights={batch} status=failed observations={len(batch_rows)}')
-                    if error in {'rate_limit', 'authentication', 'network'} or str(error).startswith('http_5'):
+                    if error in {'rate_limit', 'authentication', 'network', 'http_403'} or str(error).startswith('http_5'):
                         remaining = counts['selected'] - sum(counts[key] for key in (
                             'cached', 'matched', 'missing', 'permission_denied', 'failed'))
                         counts['failed'] += remaining

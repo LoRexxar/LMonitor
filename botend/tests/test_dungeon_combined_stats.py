@@ -129,7 +129,10 @@ class DungeonCombinedStatsTests(TestCase):
         isolated = self.settings(MEDIA_ROOT=tempfile.mkdtemp(prefix='stats-page-'))
         isolated.enable()
         self.addCleanup(isolated.disable)
-        call_command('aggregate_spec_stats', class_name='Warrior', spec_name='Arms', dungeon_only=True)
+        # This fixture predates collection cycles; only explicit legacy warmup
+        # may publish it. The normal collection/publication barrier stays on.
+        call_command('aggregate_spec_stats', class_name='Warrior', spec_name='Arms',
+                     dungeon_only=True, allow_legacy=True)
         response = self.client.get('/portal/spec/Warrior/Arms/dungeons/')
         self.assertEqual(response.status_code, 200)
         soup = BeautifulSoup(response.content, 'html.parser')

@@ -2644,6 +2644,45 @@ class WclCombatantFetchState(models.Model):
         )]
 
 
+class WclApiBudget(models.Model):
+    """Shared, measured API budget and a short HTTP ownership lease per client."""
+    account_key = models.CharField(max_length=64, unique=True)
+    limit_per_hour = models.FloatField(default=0)
+    spent = models.FloatField(default=0)
+    reset_at = models.DateTimeField(null=True, blank=True)
+    blocked_until = models.DateTimeField(null=True, blank=True)
+    observed_at = models.DateTimeField(null=True, blank=True)
+    lease_owner = models.CharField(max_length=32, blank=True, default='')
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    costs = models.JSONField(default=dict)
+
+    class Meta:
+        db_table = 'wow_wcl_api_budget'
+
+
+class WclCollectionCycle(models.Model):
+    """Resumable ingestion/publication control state; raw facts stay central."""
+    season = models.ForeignKey('SeasonMeta', on_delete=models.CASCADE)
+    slot = models.DateTimeField()
+    phase = models.CharField(max_length=20, default='rankings')
+    completed_scopes = models.JSONField(default=list)
+    selected_samples = models.JSONField(default=dict)
+    next_retry_at = models.DateTimeField(null=True, blank=True)
+    owner = models.CharField(max_length=32, blank=True, default='')
+    started_at = models.DateTimeField(default=timezone.now)
+    last_attempt_at = models.DateTimeField(default=timezone.now)
+    collected_at = models.DateTimeField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    counts = models.JSONField(default=dict)
+    error = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'wow_wcl_collection_cycle'
+        constraints = [models.UniqueConstraint(
+            fields=['season', 'slot'], name='uniq_wcl_cycle_season_slot',
+        )]
+
+
 class SpecDungeonRanking(models.Model):
     """M+ 副本排名原始数据，每条=一个玩家在某副本某专精的一次排名记录，来自 WCL API"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID")

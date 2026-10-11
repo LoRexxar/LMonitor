@@ -24,6 +24,8 @@ class SpecDetailBase(BaseScan):
         self.task = task
         self._wcl_token = None
         self._wcl_token_expire = 0
+        self._wcl_retry_at = None
+        self._wcl_last_error = ''
         self._battlenet_token = None
         self._battlenet_token_expire = 0
         # 代理配置
@@ -60,64 +62,32 @@ class SpecDetailBase(BaseScan):
             self._wcl_token_expire = time.time() + data.get('expires_in', 3600) - 60
             return self._wcl_token
         except Exception as e:
-            logger.error(f"[SpecDetail] WCL OAuth 异常: {e}")
+            logger.error(f"[SpecDetail] WCL OAuth 异常: {type(e).__name__}")
             return None
 
     def _wcl_graphql(self, query, variables, retries=3):
-        """执行 WCL GraphQL 查询"""
+        """Return data/None; budget deferrals carry an aware _wcl_retry_at.
+
+        ``retries`` stays source-compatible. The shared transport deliberately
+        performs no in-place retries: schedulers own checkpoint/resume policy.
+        """
+        from botend.services.wcl_api_budget import graphql_request
+
         self._wcl_last_error = ''
+        self._wcl_retry_at = None
         token = self._get_wcl_token()
         if not token:
             self._wcl_last_error = 'authentication'
             return None
-
-        url = "https://www.warcraftlogs.com/api/v2/client"
-        headers = {
-            "Authorization": f"Bearer {token}",
-            "Content-Type": "application/json"
-        }
-
-        for attempt in range(retries):
-            try:
-                resp = requests.post(
-                    url,
-                    json={"query": query, "variables": variables},
-                    headers=headers,
-                    timeout=30,
-                    proxies=self._proxies
-                )
-                if resp.status_code == 429:
-                    self._wcl_last_error = 'rate_limit'
-                    wait = min(2 ** attempt * 2, 30)
-                    logger.warning(f"[SpecDetail] WCL 429 限流，等待 {wait}s")
-                    time.sleep(wait)
-                    continue
-                if resp.status_code != 200:
-                    logger.error(f"[SpecDetail] WCL HTTP {resp.status_code}")
-                    self._wcl_last_error = 'permission' if resp.status_code == 403 else f'http_{resp.status_code}'
-                    if attempt < retries - 1:
-                        time.sleep(1)
-                        continue
-                    return None
-
-                payload = resp.json()
-                if payload.get('errors'):
-                    errors = payload['errors']
-                    if self._is_wcl_report_permission_error(errors):
-                        self._wcl_last_error = 'permission'
-                        logger.warning(f"[SpecDetail] WCL report 无权限，跳过该日志: {errors}")
-                    else:
-                        self._wcl_last_error = 'graphql'
-                        logger.error(f"[SpecDetail] WCL GraphQL 错误: {errors}")
-                    return None
-                self._wcl_last_error = ''
-                return payload.get('data')
-            except Exception as e:
-                self._wcl_last_error = 'network'
-                logger.error(f"[SpecDetail] WCL 请求异常 (attempt {attempt+1}): {e}")
-                if attempt < retries - 1:
-                    time.sleep(1)
-        return None
+        client_id = (getattr(settings, 'WCL_V2_CONFIG', {}) or {}).get('client_id')
+        result = graphql_request(client_id, token, query, variables, proxies=self._proxies)
+        self._wcl_last_error, self._wcl_retry_at = result.error, result.retry_at
+        if result.error:
+            # Never log credentials, raw request exceptions or upstream bodies.
+            log = logger.warning if result.error in ('permission', 'budget_wait', 'rate_limit') else logger.error
+            log(f"[SpecDetail] WCL {result.error}")
+            return None
+        return result.payload.get('data')
 
     def _is_wcl_report_permission_error(self, errors):
         """WCL 私有日志/无权限日志是排名样本里的可预期缺口，不写后台错误记录。"""
@@ -175,6 +145,7 @@ class SpecDetailBase(BaseScan):
         The source actor is retained verbatim with each raw CombatantInfo event.
         """
         self._wcl_last_error = ''
+        self._wcl_retry_at = None
         if not report_code or not fight_id:
             return []
         try:

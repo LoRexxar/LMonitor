@@ -182,7 +182,7 @@ class SnapshotCollectionTests(TestCase):
 
     def test_monitor_collects_after_all_successful_dungeons(self):
         from unittest.mock import patch
-        from botend.models import SeasonMeta, SpecDungeonRanking
+        from botend.models import SeasonMeta, SpecDungeonRanking, WclCollectionCycle
         from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
         season = SeasonMeta.objects.create(season_key='monitor-combatants', season_name='test', is_active=True,
                                           mplus_encounters=[{'id': 1, 'name': 'One'}, {'id': 2, 'name': 'Two'}],
@@ -196,13 +196,19 @@ class SnapshotCollectionTests(TestCase):
                                   'amount': 100, 'hardModeLevel': 20}], 'hasMorePages': False}
         def combatants(code, fights):
             trace.append(('combatant', fights[0]))
-            self.assertTrue(SpecDungeonRanking.objects.filter(dungeon_id=fights[0]).exists())
+            self.assertEqual(set(SpecDungeonRanking.objects.values_list('dungeon_id', flat=True)), {1, 2})
+            cycle = WclCollectionCycle.objects.get(season=season)
+            self.assertEqual(cycle.phase, 'combatants')
+            self.assertEqual(cycle.completed_scopes, ['dungeon:1', 'dungeon:2'])
             return [event(fights[0])]
         path = 'botend.controller.plugins.portal.SpecDetailRankingMonitor'
         with patch(path + '.CLASS_SPEC_MAP', {'DeathKnight': ['Frost']}), \
              patch(path + '.time.sleep'), \
-             patch.object(monitor, '_fetch_rankings_with_retry', side_effect=ranking), \
+             patch.object(monitor, 'fetch_wcl_rankings', side_effect=ranking), \
              patch.object(monitor, 'fetch_wcl_combatant_info', side_effect=combatants):
-            self.assertTrue(monitor._collect_dungeon_rankings(season))
+            self.assertTrue(monitor.scan(''))
         self.assertEqual(trace, [('ranking', 1), ('ranking', 2), ('combatant', 1), ('combatant', 2)])
         self.assertEqual(WclCombatantSnapshot.objects.count(), 2)
+        cycle = WclCollectionCycle.objects.get(season=season)
+        self.assertEqual(cycle.phase, 'ready')
+        self.assertEqual(cycle.counts['matched'], 2)

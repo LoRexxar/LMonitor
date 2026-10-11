@@ -7,6 +7,8 @@
 import json
 import os
 import tempfile
+from contextlib import nullcontext
+from functools import partial
 from decimal import Decimal
 from datetime import date, datetime
 
@@ -18,7 +20,10 @@ from botend.models import SeasonMeta
 from botend.constants.wow import CLASS_SPEC_MAP, RAID_BOSS_CN, RAID_ZONE_CN
 from botend.services.spec_stats_service import (
     SpecStatsService,
-    _lookup_dungeon_cn,
+)
+from botend.services.wcl_collection_cycle import (
+    CycleOwnershipLost, begin_aggregation, defer_cycle, fenced_cycle, finish_publication,
+    legacy_publication, frozen_season,
 )
 
 from utils.log import logger
@@ -52,7 +57,7 @@ def atomic_dump_json(path, payload, **dump_kwargs):
         raise
 
 
-def publish_stats(path, payload, class_name, spec_name):
+def publish_stats(path, payload, class_name, spec_name, *, cycle=None, legacy_season=None):
     """后台统一补全装备与天赋，页面只读取已发布的展示结果。"""
     from botend.services.wow_item_display import refresh_aggregate_equipment
     from botend.services.wow_talent_display import refresh_aggregate_talents
@@ -60,8 +65,13 @@ def publish_stats(path, payload, class_name, spec_name):
     payload = refresh_aggregate_talents(payload, class_name=class_name, spec_name=spec_name)
     payload['generated_at'] = timezone.now().isoformat()
     from botend.services.spec_stats_snapshot import publish_projection
-    publish_projection(path, payload, lambda target, data: atomic_dump_json(
-        target, data, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False))
+    # Enrichment may read external metadata; only final local publication holds
+    # the fence. A replacement owner can never publish through an old callback.
+    guard = (fenced_cycle(cycle, phases=('aggregating',)) if cycle else
+             legacy_publication(legacy_season) if legacy_season else nullcontext())
+    with guard:
+        publish_projection(path, payload, lambda target, data: atomic_dump_json(
+            target, data, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False))
 
 
 class SpecDetailAggregationMonitor(BaseScan):
@@ -79,41 +89,60 @@ class SpecDetailAggregationMonitor(BaseScan):
             return False
 
         base_dir = os.path.join(getattr(settings, 'MEDIA_ROOT', '') or 'media', 'aggregated', str(season.id))
-        total_files = 0
-
-        for class_name, specs in CLASS_SPEC_MAP.items():
-            for spec_name in specs:
-                spec_dir = os.path.join(base_dir, class_name, spec_name)
-                os.makedirs(spec_dir, exist_ok=True)
-
-                self._aggregate_dungeon(season, class_name, spec_name, spec_dir)
-                self._aggregate_raid(season, class_name, spec_name, spec_dir)
-                self._aggregate_leaderboard(season.id, class_name, spec_name, spec_dir)
-
-                total_files += 3
-
-        logger.info(f"[SpecDetailAggregation] 完成: {total_files} 个文件")
-        return True
+        try:
+            cycle = begin_aggregation(season, self.task)
+        except CycleOwnershipLost:
+            return False
+        try:
+            # This source is independent of WCL, including on the daily 06:00 run.
+            for class_name, specs in CLASS_SPEC_MAP.items():
+                for spec_name in specs:
+                    spec_dir = os.path.join(base_dir, class_name, spec_name)
+                    self._aggregate_leaderboard(season.id, class_name, spec_name, spec_dir)
+            if cycle is None:
+                logger.info('[SpecDetailAggregation] leaderboard refreshed; WCL not ready')
+                return True
+            season = frozen_season(cycle, season)
+            for class_name, specs in CLASS_SPEC_MAP.items():
+                for spec_name in specs:
+                    spec_dir = os.path.join(base_dir, class_name, spec_name)
+                    self._aggregate_dungeon(season, class_name, spec_name, spec_dir, cycle=cycle)
+                    self._aggregate_raid(season, class_name, spec_name, spec_dir,
+                                         publish=partial(publish_stats, cycle=cycle))
+            finish_publication(cycle)
+            return True
+        except CycleOwnershipLost:
+            logger.warning('[SpecDetailAggregation] cycle ownership lost; stop publication')
+            return False
+        except Exception as exc:
+            # Exception text may include credentials from upstream metadata URLs.
+            error = f'publication_failed:{type(exc).__name__}'
+            if cycle is not None:
+                try:
+                    defer_cycle(cycle, error)
+                except CycleOwnershipLost:
+                    pass
+            logger.error('[SpecDetailAggregation] %s', error)
+            return False
 
     @staticmethod
-    def _aggregate_dungeon(season, class_name, spec_name, spec_dir):
+    def _aggregate_dungeon(season, class_name, spec_name, spec_dir, *, cycle=None, publish=None):
         if not season.mplus_encounters:
             return
 
-        dungeons = []
-        for enc in season.mplus_encounters:
-            cn_name = _lookup_dungeon_cn(enc['name'])
-            stats = SpecStatsService._compute_dungeon_stats(
-                season.id, enc['id'], cn_name, class_name, spec_name, full=True
-            )
-            dungeons.append(stats)
-
-        path = os.path.join(spec_dir, 'dungeon.json')
-        summary = SpecStatsService.get_dungeon_summary(class_name, spec_name, season.id)
-        publish_stats(path, {'dungeons': dungeons, 'summary': summary}, class_name, spec_name)
+        from botend.services.dungeon_aggregation import aggregate_dungeon
+        kwargs = {}
+        if cycle is not None:
+            with fenced_cycle(cycle, phases=('aggregating',)):
+                pass
+            kwargs = {'selected_ids': cycle.selected_samples[f'{class_name}/{spec_name}'],
+                      'source_cutoff': cycle.collected_at}
+        return aggregate_dungeon(season, class_name, spec_name,
+            os.path.join(spec_dir, 'dungeon.json'),
+            publish or (partial(publish_stats, cycle=cycle) if cycle else publish_stats), **kwargs)
 
     @staticmethod
-    def _aggregate_raid(season, class_name, spec_name, spec_dir):
+    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None):
         if not season.raid_encounters:
             return
 
@@ -155,7 +184,7 @@ class SpecDetailAggregationMonitor(BaseScan):
         heroic_zones = aggregate_difficulty(4)
 
         path = os.path.join(spec_dir, 'raid.json')
-        publish_stats(path, {
+        (publish or publish_stats)(path, {
             'zone_groups': mythic_zones,
             'difficulties': [
                 {'difficulty': 5, 'label': '史诗团本表现', 'zone_groups': mythic_zones},

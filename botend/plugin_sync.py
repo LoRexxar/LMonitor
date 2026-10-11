@@ -101,6 +101,10 @@ def portal_data_task_due_at(task, now=None):
         return None
 
     local_now = _normalized_now(now).astimezone(PORTAL_DATA_TIMEZONE)
+    from botend.services.wcl_collection_cycle import NO_OVERRIDE, scheduled_cycle_due_at
+    override = scheduled_cycle_due_at(task, local_now)
+    if override is not NO_OVERRIDE:
+        return override
     today_slots = [
         local_now.replace(hour=hour, minute=0, second=0, microsecond=0)
         for hour in PORTAL_DATA_SCHEDULE_HOURS_BY_TASK[task.name]
@@ -189,6 +193,8 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
             task.last_scan_time = claim_time
             task.save(update_fields=('last_scan_time',))
             task._monitor_task_lease_owner = owner
+            from botend.services.wcl_collection_cycle import fence_claimed_cycle
+            fence_claimed_cycle(task, claim_time=claim_time)
             return task
     return None
 
@@ -213,6 +219,8 @@ def claim_monitor_task(task_id, now=None, *, lease_owner=None, lease_seconds=Non
         task.last_scan_time = claim_time
         task.save(update_fields=['last_scan_time'])
         task._monitor_task_lease_owner = owner
+        from botend.services.wcl_collection_cycle import fence_claimed_cycle
+        fence_claimed_cycle(task, claim_time=claim_time)
         return task
 
 

@@ -453,7 +453,8 @@ class SpecStatsService:
 
     @staticmethod
     def _compute_dungeon_records(selected_records, season_id, dungeon_id, dungeon_name,
-                                 class_name, spec_name, full=False, *, include_talent_build_popularity=True):
+                                 class_name, spec_name, full=False, *, include_talent_build_popularity=True,
+                                 enriched_records=None):
         """Shared single/combined detail statistics over actual selected records."""
         stats = {
             'dungeon_id': dungeon_id,
@@ -546,7 +547,8 @@ class SpecStatsService:
 
         # Consume only the matching WCL fight/actor snapshot; never current profiles.
         from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
-        records = enrich_dungeon_records(selected_records, class_name, spec_name)
+        records = (enriched_records if enriched_records is not None else
+                   enrich_dungeon_records(selected_records, class_name, spec_name))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -839,6 +841,13 @@ def _dungeon_log_identity(row):
     return ('row', row.get('id') if row.get('id') is not None else id(row))
 
 
+DUNGEON_SAMPLE_FIELDS = (
+    'id', 'report_code', 'fight_id',
+    'talents_json', 'talent_build_code', 'gear_json', 'faction', 'guild_name',
+    'character_name', 'realm', 'region', 'dps', 'keystone_level', 'clear_time', 'score',
+)
+
+
 def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
     """
     为 M+ 聚合选择最终样本。
@@ -846,11 +855,7 @@ def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
     规则：先按钥石层数从高到低分层，每层按 DPS 从高到低排序；每层只保留 DPS >= 该层中位数的日志，
     再从高层到低层累积，按 region+realm+character_name 去重，最终最多 max_samples 个玩家样本。
     """
-    fields = (
-        'id', 'report_code', 'fight_id',
-        'talents_json', 'talent_build_code', 'gear_json', 'faction', 'guild_name',
-        'character_name', 'realm', 'region', 'dps', 'keystone_level', 'clear_time', 'score',
-    )
+    fields = DUNGEON_SAMPLE_FIELDS
     if hydrate_fields is not None:
         fields = tuple(dict.fromkeys(('id', *hydrate_fields)))
     # Median selection needs the cohort's scalar facts, not every large JSON
