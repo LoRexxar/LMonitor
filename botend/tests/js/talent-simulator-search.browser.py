@@ -120,8 +120,17 @@ class TalentSimulatorSearchBrowserTest(unittest.TestCase):
             matches = page.locator(".talent-node-card--tree.is-search-match")
             expect(nodes).to_have_count(4)
             search = page.get_by_role("searchbox", name="搜索天赋")
-            # This is the RED boundary: the current simulator has no search UI.
             expect(search).to_have_count(1)
+            layout = search.evaluate("""el => {
+                const box = el.getBoundingClientRect();
+                const container = el.closest('.talent-tree-search');
+                return {width: box.width, height: box.height,
+                    aboveTree: container?.nextElementSibling?.id === 'talent-stage-container',
+                    inWorkspace: !!container?.closest('.talent-sim-workspace')};
+            }""")
+            self.assertTrue(layout['aboveTree'] and layout['inWorkspace'])
+            self.assertLessEqual(layout['width'], 280)
+            self.assertLessEqual(layout['height'], 34)
             status = page.locator("#talent-search-status")
             clear = page.get_by_role("button", name="清空搜索")
             before = page.evaluate("""() => ({url: location.href,

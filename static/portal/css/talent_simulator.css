@@ -105,10 +105,12 @@
 
 .talent-import-row input { flex: 1 1 0; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
 
-.talent-sim-field--search { grid-column: 1 / -1; min-width: 0; }
-.talent-search-row input { flex: 1 1 160px; min-width: 0; }
+.talent-tree-search { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+.talent-search-row { flex-wrap: nowrap; gap: 6px; width: 326px; max-width: 100%; }
+.talent-search-row input { flex: 1 1 240px; min-width: 0; height: 32px; padding: 0 10px; border-radius: 8px; font-size: 12px; }
+.talent-search-row .talent-sim-btn { flex: 0 0 auto; height: 32px; padding: 4px 10px; font-size: 12px; }
 .talent-search-row input:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
-.talent-search-status { margin-top: 7px; color: #475569; font-size: 12px; }
+.talent-search-status { color: #64748b; font-size: 12px; }
 
 .talent-sim-summary {
     margin-top: 16px;
