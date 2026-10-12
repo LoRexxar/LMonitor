@@ -119,7 +119,8 @@ class SnapshotCollectionTests(TestCase):
         fetcher._wcl_last_error = 'rate_limit'
         fetcher.reset_mock()
         result = collect_dungeon_combatants(rows, fetcher, apply=True, batch_size=1)
-        self.assertEqual(result['failed'], 2)
+        # Only the attempted request failed; undispatched work stays resumable.
+        self.assertEqual((result['failed'], result['pending']), (1, 1))
         fetcher.fetch_wcl_combatant_info.assert_called_once()
         fetcher.fetch_wcl_combatant_info.return_value = [event(12, 232), {'fight': 13}]
         result = collect_dungeon_combatants(rows, fetcher, apply=True)

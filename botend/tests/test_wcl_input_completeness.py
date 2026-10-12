@@ -75,11 +75,20 @@ class WclInputCompletenessTests(TransactionTestCase):
 
     def test_bare_http_403_aborts_remaining_reports_without_negative_cache(self):
         other = {**sample(), 'report_code': 'Other'}
-        result, fetcher, http = self.collect([sample(), other],
-                                            [Response(status=403), page([event()])])
-        self.assertEqual(http.call_count, 1)
+        # A later batch in the same report cannot already be in flight. Other
+        # reports may have been dispatched before the first 403 is observed.
+        rows = [{**sample(), 'fight_id': fight} for fight in range(1, 22)] + [other]
+        # Real budget reservations use SQLite here; concurrent transport and
+        # fatal-state isolation are covered by the pool's HTTP barrier test.
+        with patch('botend.services.wcl_combatant_snapshot._collection_worker_limit', return_value=1):
+            result, fetcher, http = self.collect(rows, [Response(status=403)] * 2)
+        self.assertIn(http.call_count, (1, 2))
         self.assertEqual(fetcher._wcl_last_error, 'http_403')
-        self.assertEqual((result['failed'], result['matched'], result['permission_denied']), (2, 0, 0))
+        self.assertEqual((result['failed'], result['matched'], result['permission_denied']),
+                         (result['fights_requested'], 0, 0))
+        self.assertEqual(result['pending'], len(rows) - result['failed'])
+        self.assertGreaterEqual(result['pending'], 1)
+        self.assertEqual(result['batches_dispatched'], http.call_count)
         self.assertFalse(WclCombatantFetchState.objects.exists())
         self.assertFalse(WclCombatantSnapshot.objects.exists())
 

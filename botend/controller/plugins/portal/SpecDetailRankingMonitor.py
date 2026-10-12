@@ -81,7 +81,16 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             # Retries read frozen IDs, never a newly selected cohort.
             from botend.services.wcl_combatant_snapshot import collect_dungeon_combatants
             records = frozen_combatant_records(self._cycle)
-            counts = collect_dungeon_combatants(records, self, apply=True, batch_size=20, log=logger.info)
+            def save_progress(counts):
+                # The collector calls this only on the main thread, at most
+                # every 30s plus start/end. Do not alter phase or retry state.
+                with fenced_cycle(self._cycle, phases=('combatants',)) as current:
+                    current.counts = counts
+                    current.save(update_fields=['counts'])
+                    self._cycle.counts = counts
+
+            counts = collect_dungeon_combatants(
+                records, self, apply=True, batch_size=20, log=logger.info, progress=save_progress)
             ok = finish_collection(self._cycle, counts)
             if ok and self.task is not None:
                 self.task.flag = f"{season.season_key}@rankings@{self._cycle.pk}"

@@ -2645,7 +2645,7 @@ class WclCombatantFetchState(models.Model):
 
 
 class WclApiBudget(models.Model):
-    """Shared, measured API budget and a short HTTP ownership lease per client."""
+    """Shared measured budget; reservations, not HTTP, serialize on this row."""
     account_key = models.CharField(max_length=64, unique=True)
     limit_per_hour = models.FloatField(default=0)
     spent = models.FloatField(default=0)
@@ -2655,9 +2655,27 @@ class WclApiBudget(models.Model):
     lease_owner = models.CharField(max_length=32, blank=True, default='')
     lease_expires_at = models.DateTimeField(null=True, blank=True)
     costs = models.JSONField(default=dict)
+    collection_workers = models.PositiveIntegerField(default=10)
+    window_generation = models.PositiveBigIntegerField(default=0)
+    charged = models.FloatField(default=0)
+    completed = models.FloatField(default=0)
 
     class Meta:
         db_table = 'wow_wcl_api_budget'
+
+
+class WclApiReservation(models.Model):
+    """Transport control only. Uncertain charges survive failure until reset."""
+    budget = models.ForeignKey(WclApiBudget, on_delete=models.CASCADE, related_name='reservations')
+    request_id = models.CharField(max_length=32, unique=True)
+    generation = models.PositiveBigIntegerField()
+    cost = models.FloatField()
+    baseline = models.FloatField(default=0)
+    expires_at = models.DateTimeField()
+    discovery = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'wow_wcl_api_reservation'
 
 
 class WclCollectionCycle(models.Model):

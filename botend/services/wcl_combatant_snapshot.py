@@ -1,9 +1,11 @@
 """Central raw log facts. Readers never fetch, and never trust profile attributes."""
-from collections import defaultdict
+from collections import defaultdict, deque
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from copy import deepcopy
 from datetime import datetime, timedelta
 import math
 import re
+import time
 
 from django.db.models import Q
 
@@ -279,14 +281,82 @@ def _save_negative_fetch_state(code, fight, status, checked_at):
         defaults={'status': status, 'checked_at': checked_at, 'retry_after': checked_at + ttl})
 
 
-def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size=20, log=None):
+def _collection_worker_limit(fetcher):
+    from django.conf import settings
+    from botend.services.wcl_api_budget import collection_worker_limit
+    client_id = (getattr(settings, 'WCL_V2_CONFIG', {}) or {}).get('client_id')
+    return max(1, min(16, int(collection_worker_limit(client_id))))
+
+
+def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
+    """Workers perform transport only; no central fact writes or shared errors."""
+    from django.db import close_old_connections, connections
+    from botend.services.wcl_api_budget import business_requests_sent
+    sent_token = business_requests_sent.set(0)
+    started = time.monotonic()
+    try:
+        if factory is not None:
+            close_old_connections()
+            fetcher = factory()
+        events = fetcher.fetch_wcl_combatant_info(code, batch)
+        error = getattr(fetcher, '_wcl_last_error', '')
+        if error == 'admission_busy' and business_requests_sent.get():
+            # Pagination may already have sent HTTP. Defer, never replay it.
+            error = 'admission_deferred'
+        return events, error, getattr(fetcher, '_wcl_retry_at', None), time.monotonic() - started
+    except Exception:
+        # No exception bodies, report codes, player names, or credentials in logs.
+        return None, 'worker_exception', None, time.monotonic() - started
+    finally:
+        business_requests_sent.reset(sent_token)
+        if factory is not None:
+            connections.close_all()
+
+
+def _persist_combatant_batch(code, batch, batch_rows, events):
+    """Validate a complete batch and read back immutable facts on the caller."""
+    from django.db import transaction
+    from django.utils import timezone
+    by_fight = _validated_events(events, batch)
+    now = timezone.now()
+    written = 0
+    with transaction.atomic():
+        for fight, payloads in by_fight.items():
+            for payload in payloads:
+                _, created = WclCombatantSnapshot.objects.get_or_create(
+                    report_code=code, fight_id=fight, actor_id=payload['sourceID'],
+                    defaults={'payload_json': payload, 'fetched_at': now})
+                written += int(created)
+    matched, missing = 0, 0
+    missing_fights = set()
+    for offset in range(0, len(batch_rows), 100):
+        observations = batch_rows[offset:offset + 100]
+        persisted = _load_facts(observations)
+        for row in observations:
+            key = _fight_key(row)
+            if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
+                matched += 1
+            else:
+                missing += 1
+                missing_fights.add(key[1])
+        del persisted
+    with transaction.atomic():
+        WclCombatantFetchState.objects.filter(
+            report_code=code, fight_id__in=[0, *sorted(set(batch) - missing_fights)]).delete()
+        for fight in sorted(missing_fights):
+            _save_negative_fetch_state(code, fight, 'missing', now)
+    return written, matched, missing
+
+
+def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size=20, log=None, progress=None):
     """Explicit offline collection. At most 20 fights/report/request.
 
     Counts partition observations, not API responses; negative_cached is only a
     diagnostic subset. Exact positive facts always win over expiring negatives.
     Raw facts stay immutable and centralized. Dry runs never write or fetch.
+    Only explicitly isolated fetchers run concurrently; validation and immutable
+    ORM persistence stay on the caller. Progress is aggregate and identifier-free.
     """
-    from django.db import transaction
     from django.utils import timezone
     if not 1 <= batch_size <= 20:
         raise ValueError('batch_size must be between 1 and 20')
@@ -324,87 +394,155 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     if fetcher is None:
         from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
         fetcher = SpecDetailBase(None, None)
-    for code, fights in pending.items():
-        counts['reports_requested'] += 1
-        fight_ids = sorted(fights)
-        for start in range(0, len(fight_ids), batch_size):
-            batch = fight_ids[start:start + batch_size]
-            batch_rows = [row for fight in batch for row in fights[fight]]
-            counts['fights_requested'] += len(batch)
-            try:
-                events = fetcher.fetch_wcl_combatant_info(code, batch)
-                if events is None:
-                    retry_at = getattr(fetcher, '_wcl_retry_at', None)
-                    if isinstance(retry_at, datetime) and retry_at > timezone.now():
-                        counts['pending'] = counts['selected'] - sum(counts[key] for key in (
-                            'cached', 'matched', 'missing', 'permission_denied', 'failed'))
-                        counts['retry_at'] = retry_at.isoformat()
-                        if log:
-                            log(f'WCL deferred until {counts["retry_at"]}; pending={counts["pending"]}')
-                        return counts
-                    error = getattr(fetcher, '_wcl_last_error', '')
-                    if error == 'permission':
+    # Only an explicit class-level factory opts a fetcher into threading. In
+    # particular, dynamic Mock attributes or arbitrary bound methods are NOT a
+    # promise of thread safety. Legacy callers execute on the calling thread.
+    prepare = getattr(type(fetcher), 'prepare_combatant_worker_factory', None)
+    factory = prepare(fetcher) if prepare else None
+    workers = 1
+    ready = deque(pending)
+    remaining = {code: deque(sorted(fights)) for code, fights in pending.items()}
+    requested_reports = set()
+    inflight = {}
+    stopped = False
+    fatal_error, fatal_retry_at = '', None
+    admission_parked = []
+    admission_rounds = 0
+    admission_last_completed = -1
+    started = last_progress = time.monotonic()
+    counts.update(batches_completed=0, batches_dispatched=0, fetch_seconds=0.0, save_seconds=0.0)
+
+    def emit_progress(force=False):
+        nonlocal last_progress
+        counts['pending'] = counts['selected'] - sum(counts[key] for key in (
+            'cached', 'matched', 'missing', 'permission_denied', 'failed'))
+        now = time.monotonic()
+        if not force and now - last_progress < 30:
+            return
+        last_progress = now
+        counts.update(workers=workers, in_flight=len(inflight),
+                      undispatched_batches=sum((len(fights) + batch_size - 1) // batch_size
+                                               for fights in remaining.values()),
+                      elapsed_seconds=round(now - started, 3))
+        if log:
+            fields = ('batches_completed', 'batches_dispatched', 'undispatched_batches',
+                      'in_flight', 'workers', 'pending', 'matched', 'missing',
+                      'permission_denied', 'failed', 'fetch_seconds', 'save_seconds', 'elapsed_seconds')
+            log('WCL combatants progress ' + ' '.join(f'{key}={counts[key]}' for key in fields))
+        if progress:
+            progress(dict(counts))
+
+    # One batch per report in flight prevents permission denial from racing
+    # another batch of the same report. Other reports remain independently live.
+    # Only <= workers futures are submitted, never one future per input batch.
+    with ThreadPoolExecutor(max_workers=16, thread_name_prefix='wcl-combatants') as pool:
+        while ready or inflight or admission_parked:
+            if admission_parked and not inflight and not stopped:
+                # Drain the wave before retrying *unsent* batches. Retry only
+                # while facts progress, with a hard round cap; external owners
+                # get a short resumable defer rather than a hot spin/90s lease.
+                completed = counts['matched'] + counts['missing'] + counts['permission_denied']
+                if admission_rounds >= 16 or completed == admission_last_completed:
+                    stopped = True
+                    fatal_error = 'admission_busy'
+                    fatal_retry_at = timezone.now() + timedelta(seconds=1)
+                    counts['retry_at'] = fatal_retry_at.isoformat()
+                else:
+                    admission_rounds += 1
+                    admission_last_completed = completed
+                    ready.extend(admission_parked)
+                    admission_parked.clear()
+            if factory and not stopped:
+                try:
+                    workers = _collection_worker_limit(fetcher)
+                except Exception as exc:
+                    # A broken control/budget read cannot justify dispatching
+                    # on a stale limit. Still persist already in-flight success.
+                    stopped = True
+                    if log:
+                        log(f'WCL combatants control_failed error_type={type(exc).__name__}')
+            if not counts['batches_dispatched']:
+                emit_progress(force=True)
+            while ready and not stopped and not admission_parked and len(inflight) < workers:
+                # Observe completed failures before filling another slot.
+                if any(future.done() for future in inflight):
+                    break
+                code = ready.popleft()
+                batch = [remaining[code].popleft() for _ in range(min(batch_size, len(remaining[code])))]
+                batch_rows = [row for fight in batch for row in pending[code][fight]]
+                if code not in requested_reports:
+                    requested_reports.add(code)
+                    counts['reports_requested'] += 1
+                counts['fights_requested'] += len(batch)
+                counts['batches_dispatched'] += 1
+                if factory:
+                    future = pool.submit(_fetch_combatant_batch, None, code, batch, factory=factory)
+                else:
+                    future = Future()
+                    future.set_result(_fetch_combatant_batch(fetcher, code, batch))
+                inflight[future] = (code, batch, batch_rows)
+            if not inflight:
+                break
+            done, _ = wait(inflight, timeout=1, return_when=FIRST_COMPLETED)
+            # Drain ALL already completed responses before any new dispatch.
+            done.update(future for future in inflight if future.done())
+            for future in done:
+                code, batch, batch_rows = inflight.pop(future)
+                try:
+                    events, error, retry_at, fetch_seconds = future.result()
+                except Exception:
+                    events, error, retry_at, fetch_seconds = None, 'worker_exception', None, 0.0
+                counts['batches_completed'] += 1
+                counts['fetch_seconds'] += fetch_seconds  # summed worker wall, not elapsed throughput
+                save_started = time.monotonic()
+                try:
+                    if events is not None:
+                        written, matched, missing = _persist_combatant_batch(code, batch, batch_rows, events)
+                        counts['snapshots_written'] += written
+                        counts['matched'] += matched
+                        counts['missing'] += missing
+                    elif error == 'admission_busy':
+                        remaining[code].extendleft(reversed(batch))
+                        admission_parked.append(code)
+                    elif error == 'admission_deferred':
+                        # Its short deadline may pass while other HTTP drains.
+                        # It is still pending, not a failed/empty observation.
+                        stopped = True
+                        retry_at = max(retry_at, timezone.now() + timedelta(seconds=1))
+                        counts['retry_at'] = max(counts.get('retry_at', ''), retry_at.isoformat())
+                        if fatal_retry_at is None or retry_at > fatal_retry_at:
+                            fatal_error, fatal_retry_at = error, retry_at
+                    elif isinstance(retry_at, datetime) and retry_at > timezone.now():
+                        stopped = True
+                        counts['retry_at'] = max(counts.get('retry_at', ''), retry_at.isoformat())
+                        if fatal_retry_at is None or retry_at > fatal_retry_at:
+                            fatal_error, fatal_retry_at = error, retry_at
+                    elif error == 'permission':
                         _save_negative_fetch_state(code, 0, 'permission_denied', timezone.now())
-                        # All not-yet-attempted batches belong to this same report.
-                        denied = sum(len(fights[fight]) for fight in fight_ids[start:])
-                        counts['permission_denied'] += denied
-                        if log:
-                            log(f'WCL report={code} fights={batch} status=permission_denied observations={denied}')
-                        break
+                        counts['permission_denied'] += len(batch_rows) + sum(
+                            len(pending[code][fight]) for fight in remaining[code])
+                        remaining[code].clear()
+                    else:
+                        counts['failed'] += len(batch_rows)
+                        if (error in {'rate_limit', 'budget_wait', 'authentication', 'network',
+                                      'http_403', 'worker_exception'} or str(error).startswith('http_5')):
+                            stopped = True
+                            fatal_error = fatal_error or error
+                except Exception as exc:
                     counts['failed'] += len(batch_rows)
                     if log:
-                        log(f'WCL report={code} fights={batch} status=failed observations={len(batch_rows)}')
-                    if error in {'rate_limit', 'authentication', 'network', 'http_403'} or str(error).startswith('http_5'):
-                        remaining = counts['selected'] - sum(counts[key] for key in (
-                            'cached', 'matched', 'missing', 'permission_denied', 'failed'))
-                        counts['failed'] += remaining
-                        if log:
-                            log(f'WCL aborted after {error}; unattempted_failed={remaining}')
-                        return counts
-                    continue
-                # fetch_wcl_combatant_info returns a list only after every page;
-                # None/invalid containers must never be interpreted as missing.
-                by_fight = _validated_events(events, batch)
-                now = timezone.now()
-                written = 0
-                with transaction.atomic():
-                    for fight, payloads in by_fight.items():
-                        for payload in payloads:
-                            _, created = WclCombatantSnapshot.objects.get_or_create(
-                                report_code=code, fight_id=fight, actor_id=payload['sourceID'],
-                                defaults={'payload_json': payload, 'fetched_at': now})
-                            # Reports are historical facts. Existing actors are immutable;
-                            # a partial/changed fetch must never overwrite last-good.
-                            written += int(created)
-                counts['snapshots_written'] += written
-                # Independent, bounded readback proves persisted matches, not just
-                # returned payloads (including get_or_create conflicts/races).
-                matched, missing = 0, 0
-                missing_fights = set()
-                for offset in range(0, len(batch_rows), 100):
-                    observations = batch_rows[offset:offset + 100]
-                    persisted = _load_facts(observations)
-                    for row in observations:
-                        key = _fight_key(row)
-                        if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
-                            matched += 1
-                        else:
-                            missing += 1
-                            missing_fights.add(key[1])
-                    del persisted
-                with transaction.atomic():
-                    # A completed fetch disproves report denial. Clear resolved
-                    # fights only; other scopes retain their independent TTLs.
-                    WclCombatantFetchState.objects.filter(
-                        report_code=code, fight_id__in=[0, *sorted(set(batch) - missing_fights)]).delete()
-                    for fight in sorted(missing_fights):
-                        _save_negative_fetch_state(code, fight, 'missing', now)
-                counts['matched'] += matched
-                counts['missing'] += missing
-                if log:
-                    log(f'WCL report={code} fights={batch} written={written} observations={len(batch_rows)}')
-            except Exception as exc:
-                counts['failed'] += len(batch_rows)
-                if log:
-                    log(f'WCL report={code} fights={batch} failed={type(exc).__name__}: {exc}')
+                        log(f'WCL combatants batch_failed error_type={type(exc).__name__}')
+                finally:
+                    counts['save_seconds'] += time.monotonic() - save_started
+                if remaining[code] and code not in admission_parked:
+                    ready.append(code)
+            emit_progress()
+            if stopped and not inflight:
+                break
+        # Publish aggregate fatal state only on the caller, after draining.
+        # Successful workers must not erase an earlier stop/retry decision.
+        if factory:
+            fetcher._wcl_last_error = fatal_error
+            fetcher._wcl_retry_at = fatal_retry_at
+        emit_progress(force=True)
     return counts

@@ -4,6 +4,7 @@ SpecDetail 采集器基类
 封装 WCL GraphQL / Raider.IO / Battle.net API 调用
 """
 
+import threading
 import time
 from urllib.parse import quote
 
@@ -24,6 +25,7 @@ class SpecDetailBase(BaseScan):
         self.task = task
         self._wcl_token = None
         self._wcl_token_expire = 0
+        self._wcl_token_lock = threading.Lock()
         self._wcl_retry_at = None
         self._wcl_last_error = ''
         self._battlenet_token = None
@@ -35,7 +37,12 @@ class SpecDetailBase(BaseScan):
     # ========== WCL v2 GraphQL ==========
 
     def _get_wcl_token(self):
-        """获取 WCL OAuth access token（带缓存）"""
+        """Serialize expiry checks and refreshes; token/expiry are one state."""
+        with self._wcl_token_lock:
+            return self._refresh_wcl_token()
+
+    def _refresh_wcl_token(self):
+        """Called with the token lock held, including the cached fast path."""
         if self._wcl_token and time.time() < self._wcl_token_expire:
             return self._wcl_token
 
@@ -84,10 +91,45 @@ class SpecDetailBase(BaseScan):
         self._wcl_last_error, self._wcl_retry_at = result.error, result.retry_at
         if result.error:
             # Never log credentials, raw request exceptions or upstream bodies.
-            log = logger.warning if result.error in ('permission', 'budget_wait', 'rate_limit') else logger.error
+            log = logger.warning if result.error in ('permission', 'budget_wait', 'rate_limit', 'admission_busy') else logger.error
             log(f"[SpecDetail] WCL {result.error}")
             return None
         return result.payload.get('data')
+
+    def prepare_combatant_worker_factory(self):
+        """Opt into concurrent details with fresh request/error state per batch.
+
+        Custom/legacy fetchers remain serial unless they explicitly implement a
+        factory. Never shallow-copy a monitor, bound override, or HTTP session.
+        Only the canonical locked OAuth cache is shared; request/error state is
+        private. Failed refreshes stop further OAuth attempts for this run.
+        """
+        for name in ('fetch_wcl_combatant_info', '_wcl_graphql', '_get_wcl_token', '_refresh_wcl_token'):
+            method = getattr(self, name)
+            canonical = getattr(SpecDetailBase, name)
+            if (getattr(method, '__func__', None) is not canonical
+                    or not hasattr(canonical, '__code__')):
+                return None
+        token = self._get_wcl_token()
+        auth_failed = not token
+        provider_lock = threading.Lock()
+        proxies = dict(self._proxies) if self._proxies else None
+
+        def shared_token():
+            nonlocal auth_failed
+            with provider_lock:
+                if auth_failed:
+                    return None
+                current = self._get_wcl_token()
+                auth_failed = not current
+                return current
+
+        def factory():
+            worker = SpecDetailBase(None, None)
+            worker._proxies = dict(proxies) if proxies else None
+            worker._get_wcl_token = shared_token
+            return worker
+        return factory
 
     def _is_wcl_report_permission_error(self, errors):
         """WCL 私有日志/无权限日志是排名样本里的可预期缺口，不写后台错误记录。"""

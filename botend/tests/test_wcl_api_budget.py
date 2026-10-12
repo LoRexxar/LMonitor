@@ -116,7 +116,7 @@ class WclBudgetTests(TransactionTestCase):
         row = self.row(lease_owner='other', lease_expires_at=self.now + timedelta(seconds=40))
         with patch('requests.post') as http:
             result = self.request(http)
-        self.assertEqual((result.error, result.retry_at), ('budget_wait', row.lease_expires_at))
+        self.assertEqual((result.error, result.retry_at), ('admission_busy', self.now + timedelta(seconds=1)))
         http.assert_not_called()
         row.lease_expires_at = self.now - timedelta(seconds=1)
         row.save()
@@ -125,14 +125,14 @@ class WclBudgetTests(TransactionTestCase):
         row.refresh_from_db()
         self.assertEqual(row.lease_owner, '')
 
-    def test_nested_consumer_cannot_enter_during_http(self):
+    def test_unknown_cost_consumer_cannot_overlap_unlearned_request(self):
         self.row()
         def post(*args, **kwargs):
             self.assertFalse(connection.in_atomic_block)
             with patch('requests.post') as second_http:
                 second = self.request(second_http)
             second_http.assert_not_called()
-            self.assertEqual(second.error, 'budget_wait')
+            self.assertEqual(second.error, 'admission_busy')
             return Response({'data': DATA})
         self.assertIsNotNone(self.request(post).payload)
 
