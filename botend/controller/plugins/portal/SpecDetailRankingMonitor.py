@@ -313,7 +313,9 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     # Explicit report permission is unavailable, not a transport failure.
                     fetched = []
                 from botend.services.wcl_combatant_snapshot import _validated_events
-                fetched = _validated_events(fetched, [int(fight_id)]).get(int(fight_id), [])
+                fetched = _validated_events(
+                    fetched, [int(fight_id)], raid_talent_fallback=True,
+                ).get(int(fight_id), [])
                 for event in fetched:
                     tree = event.get('talentTree')
                     if tree is not None and (not isinstance(tree, list)

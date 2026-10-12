@@ -201,8 +201,13 @@ def select_dungeon_combatant_records(season, identities, dungeon_ids=None):
     return records
 
 
-def _validated_events(events, fight_ids):
-    """Reject incomplete containers and conflicting duplicate actor events."""
+def _validated_events(events, fight_ids, *, raid_talent_fallback=False):
+    """Validate identities; immutable collection requires a positive spec ID.
+
+    Read-only raid talent fallback also accepts explicitly identified players
+    with integer specID=0 and both talent arrays explicitly empty. This means
+    unavailable talents, never an immutable fact or a durable missing result.
+    """
     if not isinstance(events, list):
         raise ValueError('CombatantInfo events must be a list')
     by_fight = defaultdict(dict)
@@ -219,9 +224,15 @@ def _validated_events(events, fight_ids):
         if fight not in fight_ids or not actor or not isinstance(source, dict) or _positive_int(source.get('id')) != actor:
             raise ValueError('CombatantInfo fight/actor identity missing or inconsistent')
         name, server = source.get('name'), source.get('server')
+        unavailable_raid_talents = (
+            raid_talent_fallback
+            and source.get('type') == 'Player'
+            and type(event.get('specID')) is int and event['specID'] == 0
+            and event.get('talents') == [] and event.get('talentTree') == []
+        )
         if (not isinstance(name, str) or not name.strip() or name.strip().casefold() == 'anonymous'
                 or not isinstance(server, str) or not _realm(server)
-                or not _positive_int(event.get('specID'))):
+                or (not _positive_int(event.get('specID')) and not unavailable_raid_talents)):
             # Validate the full batch before inserting immutable actor facts or
             # publishing a missing TTL. Never repair identities from rankings.
             raise ValueError('CombatantInfo player name/server/spec identity incomplete')
