@@ -201,43 +201,54 @@ def select_dungeon_combatant_records(season, identities, dungeon_ids=None):
     return records
 
 
-def _validated_events(events, fight_ids, *, raid_talent_fallback=False):
-    """Validate identities; immutable collection requires a positive spec ID.
+def _validated_events(events, fight_ids):
+    """Keep usable players from a complete response, without inventing facts.
 
-    Read-only raid talent fallback also accepts explicitly identified players
-    with integer specID=0 and both talent arrays explicitly empty. This means
-    unavailable talents, never an immutable fact or a durable missing result.
+    Known players with absent name/server/spec are unavailable for exact
+    character/spec statistics, not a failure of the other players. Broken
+    actor joins, conflicting events and malformed fields still fail the batch
+    before immutable inserts or negative caching. Both raid and M+ use this
+    contract; optional missing fields do not discard an otherwise usable actor.
     """
     if not isinstance(events, list):
         raise ValueError('CombatantInfo events must be a list')
     by_fight = defaultdict(dict)
+    seen = {}
     for event in events:
         if not isinstance(event, dict):
             raise ValueError('Invalid CombatantInfo event')
         source = event.get('source') or {}
-        # Only explicitly identified non-players may be ignored. An absent
-        # player identity is incomplete input, not evidence that it is an NPC.
+        # Missing masterData/actor joins are not evidence of unavailable data.
         if isinstance(source, dict) and source.get('type') in ('NPC', 'Pet'):
             continue
         fight = _positive_int(event.get('fight'))
         actor = _positive_int(event.get('sourceID'))
         if fight not in fight_ids or not actor or not isinstance(source, dict) or _positive_int(source.get('id')) != actor:
             raise ValueError('CombatantInfo fight/actor identity missing or inconsistent')
-        name, server = source.get('name'), source.get('server')
-        unavailable_raid_talents = (
-            raid_talent_fallback
-            and source.get('type') == 'Player'
-            and type(event.get('specID')) is int and event['specID'] == 0
-            and event.get('talents') == [] and event.get('talentTree') == []
-        )
-        if (not isinstance(name, str) or not name.strip() or name.strip().casefold() == 'anonymous'
-                or not isinstance(server, str) or not _realm(server)
-                or (not _positive_int(event.get('specID')) and not unavailable_raid_talents)):
-            # Validate the full batch before inserting immutable actor facts or
-            # publishing a missing TTL. Never repair identities from rankings.
-            raise ValueError('CombatantInfo player name/server/spec identity incomplete')
-        if actor in by_fight[fight] and by_fight[fight][actor] != event:
+        key = (fight, actor)
+        if key in seen and seen[key] != event:
             raise ValueError('Conflicting CombatantInfo events for one actor')
+        seen[key] = event
+        name, server = source.get('name'), source.get('server')
+        if any(value is not None and not isinstance(value, str) for value in (name, server)):
+            raise ValueError('Invalid CombatantInfo player name/server type')
+        spec = event.get('specID')
+        missing_spec = (spec is None or (isinstance(spec, str) and not spec.strip())
+                        or (type(spec) is int and spec == 0))
+        if not missing_spec and not _positive_int(spec):
+            raise ValueError('Invalid CombatantInfo player spec')
+        # Validate before skipping unavailable players: corrupt containers must
+        # not be hidden by one missing identity field.
+        for field in ('talents', 'talentTree', 'gear'):
+            value = event.get(field)
+            if value is not None and (not isinstance(value, list)
+                                      or any(not isinstance(item, dict) for item in value)):
+                raise ValueError(f'Invalid CombatantInfo {field}')
+        if (not name or not name.strip() or name.strip().casefold() == 'anonymous'
+                or not _realm(server) or missing_spec):
+            if source.get('type') == 'Player':
+                continue
+            raise ValueError('CombatantInfo player name/server/spec identity incomplete')
         by_fight[fight][actor] = event
     return {fight: list(actors.values()) for fight, actors in by_fight.items()}
 

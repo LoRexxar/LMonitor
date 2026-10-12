@@ -1,4 +1,4 @@
-"""Captured WCL specID=0 is unavailable raid talent data, not an M+ fact.
+"""Captured WCL specID=0 excludes one player, not the complete batch.
 
 Fixture: locally captured ranking + complete 30-player CombatantInfo batch;
 name/report/server identifiers anonymized consistently, event content retained.
@@ -108,46 +108,75 @@ class RaidUnknownSpecTests(TransactionTestCase):
             if 'characterRankings' in query:
                 dungeon = 'encounter(id: 101)' in query
                 demonology = 'specName: "Demonology"' in query
-                rows = [dungeon_rank] if dungeon and demonology else (
-                    [self.ranking] if not dungeon and not demonology else [])
+                missing_rank = {**self.ranking, 'hardModeLevel': 10,
+                                'report': {**self.ranking['report'], 'code': 'DungeonReport'}}
+                rows = ([dungeon_rank] if demonology else [missing_rank]) if dungeon else (
+                    [self.ranking] if not demonology else [])
                 return Response({'data': {'worldData': {'encounter': {'characterRankings': {
                     'rankings': rows, 'hasMorePages': False}}}}})
             if variables['code'] == 'DungeonReport':
                 cycle = WclCollectionCycle.objects.get()
                 self.assertEqual(cycle.phase, 'combatants')
                 self.assertEqual(set(cycle.completed_scopes), {'dungeon:101', 'raid:5:3455', 'raid:4:3455'})
-                return page([valid])
+                return page(self.events)
             return self.http(*args, **kwargs)
         with patch(RANKING + '.CLASS_SPEC_MAP', {'Warlock': ['Destruction', 'Demonology']}), \
              patch('requests.post', side_effect=fetch):
             self.assertTrue(self.monitor.scan(''))
         cycle = WclCollectionCycle.objects.get()
         self.assertEqual(cycle.phase, 'ready')
-        self.assertEqual((cycle.counts['selected'], cycle.counts['matched'], cycle.counts['failed']), (1, 1, 0))
-        fact = WclCombatantSnapshot.objects.get()
+        self.assertEqual((cycle.counts['selected'], cycle.counts['matched'], cycle.counts['missing'],
+                          cycle.counts['failed'], cycle.counts['snapshots_written']), (2, 1, 1, 0, 29))
+        self.assertIsNone(cycle.next_retry_at)
+        self.assertEqual(WclCombatantSnapshot.objects.count(), 29)
+        fact = WclCombatantSnapshot.objects.get(actor_id=valid['sourceID'])
         self.assertEqual(fact.report_code, 'DungeonReport')
         self.assertEqual(fact.payload_json, valid)
-        self.assertFalse(WclCombatantFetchState.objects.exists())
+        state = WclCombatantFetchState.objects.get()
+        self.assertEqual((state.report_code, state.fight_id, state.status),
+                         ('DungeonReport', self.ranking['report']['fightID'], 'missing'))
+        self.assertEqual(state.retry_after - state.checked_at, timedelta(hours=6))
         self.assertFalse(SpecRaidRanking.objects.exclude(talents_json=[]).exists())
 
-    def test_unknown_spec_is_still_rejected_by_immutable_collection(self):
-        with self.assertRaises(ValueError):
-            _validated_events(self.events, [self.ranking['report']['fightID']])
+    def test_unknown_spec_is_missing_without_discarding_valid_immutable_facts(self):
+        validated = _validated_events(self.events, [self.ranking['report']['fightID']])
+        self.assertEqual(len(validated[self.ranking['report']['fightID']]), 29)
         record = dict(report_code=self.ranking['report']['code'], fight_id=self.ranking['report']['fightID'],
             character_name=self.ranking['name'], realm=self.ranking['server']['name'], region='EU',
             class_name='Warlock', spec_name='Destruction')
         with patch('requests.post', side_effect=self.http):
             counts = collect_dungeon_combatants([record], self.monitor, apply=True)
-        self.assertEqual((counts['failed'], counts['missing'], counts['snapshots_written']), (1, 0, 0))
-        self.assertFalse(WclCombatantSnapshot.objects.exists())
-        self.assertFalse(WclCombatantFetchState.objects.exists())
+        self.assertEqual((counts['failed'], counts['missing'], counts['snapshots_written']), (0, 1, 29))
+        self.assertFalse(WclCombatantSnapshot.objects.filter(actor_id=self.target['sourceID']).exists())
+        self.assertEqual(WclCombatantFetchState.objects.get().status, 'missing')
 
-    def test_only_explicit_integer_zero_and_empty_arrays_are_unavailable(self):
+    def test_raid_missing_identity_or_talents_is_unavailable_without_retry(self):
+        cases = [('source', key, value) for key, values in (
+            ('name', [None, '', 'Anonymous', 'MISSING']),
+            ('server', [None, '', 'MISSING'])) for value in values]
+        cases += [('event', key, value) for key in ('specID', 'talents', 'talentTree')
+                  for value in (None, 'MISSING')]
+        original = deepcopy(self.target)
+        for container, key, value in cases:
+            with self.subTest(container=container, field=key, value=value):
+                self.target.clear()
+                self.target.update(deepcopy(original))
+                target = self.target['source'] if container == 'source' else self.target
+                if value == 'MISSING':
+                    target.pop(key)
+                else:
+                    target[key] = value
+                cache = {}
+                with patch('requests.post', side_effect=self.http):
+                    self.assertEqual(self.monitor._parse_rank_talents(self.ranking, cache), [])
+                self.assertEqual(len(cache), 1)
+
+    def test_malformed_types_are_not_authoritative_missing(self):
         cases = [(key, value) for key, values in (
-            ('specID', [None, False, '0', -1]),
-            ('talents', [None, {}, [{'id': 1}]]),
-            ('talentTree', [None, {}, [{'id': 1, 'rank': 1}]])) for value in values]
-        cases += [(key, 'MISSING') for key in ('specID', 'talents', 'talentTree')]
+            ('specID', [False, '0', -1, 'invalid', {}, []]),
+            ('talents', [{}, 'bad', [None]]),
+            ('talentTree', [{}, 'bad', [None]]),
+            ('gear', [{}, 'bad', [None]])) for value in values]
         original = deepcopy(self.target)
         for key, value in cases:
             with self.subTest(field=key, value=value):
@@ -166,7 +195,7 @@ class RaidUnknownSpecTests(TransactionTestCase):
     def test_unknown_spec_does_not_relax_player_fight_or_actor_identity(self):
         original = deepcopy(self.target)
         for container, key, value in (
-            ('source', 'name', ''), ('source', 'server', ''), ('source', 'server', {}),
+            ('source', 'name', 123), ('source', 'server', {}),
             ('source', 'type', None), ('source', 'id', 999999),
             ('event', 'sourceID', 999999), ('event', 'fight', 999999)):
             with self.subTest(container=container, field=key):

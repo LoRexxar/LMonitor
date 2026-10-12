@@ -107,11 +107,11 @@ class WclInputCompletenessTests(TransactionTestCase):
                                                  actor_id=232, payload_json=event())
         # Every invalid input must fail before immutable inserts or missing TTLs.
         cases = [('source', key, value) for key, values in (
-            ('name', [None, '', '  ', 123, 'Anonymous']),
-            ('server', [None, '', ' - ', {'name': 'BurningLegion'}]),
+            ('name', [123, [], {}]),
+            ('server', [{'name': 'BurningLegion'}]),
             ('id', [None, 0, 999])) for value in values]
         cases += [('event', key, value) for key, values in (
-            ('specID', [None, 0, True, 'invalid']),
+            ('specID', [True, False, -1, '0', 'invalid', {}, []]),
             ('sourceID', [None, 0, 999]),
             ('fight', [None, 0, 12])) for value in values]
         for container, key, value in cases:
@@ -147,6 +147,81 @@ class WclInputCompletenessTests(TransactionTestCase):
                 self.assertEqual(WclCombatantSnapshot.objects.get(actor_id=234).payload_json, event(234))
                 self.assertFalse(WclCombatantFetchState.objects.exists())
                 WclCombatantSnapshot.objects.exclude(pk=old.pk).delete()
+
+    def test_complete_missing_player_fields_skip_only_that_actor_after_all_pages(self):
+        cases = [('source', key, value) for key, values in (
+            ('name', [None, '', '  ', 'Anonymous', 'MISSING']),
+            ('server', [None, '', ' - ', 'MISSING'])) for value in values]
+        cases += [('event', 'specID', value) for value in (None, '', 0, 'MISSING')]
+        for container, key, value in cases:
+            with self.subTest(container=container, field=key, value=value):
+                WclCombatantSnapshot.objects.all().delete()
+                WclCombatantFetchState.objects.all().delete()
+                missing = event(234)
+                # Unknown spec is unavailable even if other fields have data.
+                missing['talentTree'] = [{'id': 777, 'rank': 1}]
+                target = missing['source'] if container == 'source' else missing
+                if value == 'MISSING':
+                    target.pop(key)
+                else:
+                    target[key] = value
+                result, _, http = self.collect([sample(233), sample(234)],
+                    [page([event(233)], 200), page([missing])])
+                self.assertEqual(http.call_count, 2)
+                self.assertEqual((result['matched'], result['missing'], result['failed'],
+                                  result['snapshots_written']), (1, 1, 0, 1))
+                self.assertEqual(WclCombatantSnapshot.objects.get().payload_json, event(233))
+                state = WclCombatantFetchState.objects.get()
+                self.assertEqual((state.report_code, state.fight_id, state.status), ('Report', 11, 'missing'))
+                self.assertEqual(state.retry_after - state.checked_at, timedelta(hours=6))
+                # Exact positives win over this fight's negative for other players.
+                repeated, _, http = self.collect([sample(233), sample(234)], [])
+                http.assert_not_called()
+                self.assertEqual((repeated['cached'], repeated['missing'], repeated['negative_cached']), (1, 1, 1))
+
+    def test_partial_stats_and_talents_keep_independent_field_denominators(self):
+        from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
+        from botend.services.spec_stats_service import SpecStatsService
+        partial = event(233)
+        partial.pop('critMelee')
+        partial.update(hasteMelee=600, talentTree=[{'id': 777, 'rank': 1}], gear=[{'id': 456}])
+        no_talents = {**event(234), 'hasteMelee': 400, 'gear': [{'id': 789}], 'talentTree': None}
+        rows = [sample(233), sample(234)]
+        result, _, _ = self.collect(rows, [page([partial, no_talents])])
+        self.assertEqual((result['matched'], result['failed'], result['snapshots_written']), (2, 0, 2))
+        records = enrich_dungeon_records(rows, 'DeathKnight', 'Frost')
+        self.assertEqual(records[0]['stats_json'], {'haste': {'rating': 600}})
+        self.assertEqual(records[0]['talents_json'][0]['node_id'], 777)
+        self.assertEqual(records[0]['gear_json'][0]['id'], 456)
+        self.assertFalse(records[1].get('talents_json'))
+        self.assertEqual(records[1]['gear_json'][0]['id'], 789)
+        stats = SpecStatsService._compute_dungeon_records(rows, 1, 101, 'Dungeon', 'DeathKnight', 'Frost')
+        secondary = {row['key']: row for row in stats['secondary_stats']}
+        self.assertEqual((secondary['crit']['sample_size'], secondary['crit']['rating']['avg']), (1, 1410))
+        self.assertEqual((secondary['haste']['sample_size'], secondary['haste']['rating']['avg']), (2, 500))
+        self.assertIsNone(secondary['haste']['pct'])
+
+    def test_missing_player_is_not_a_license_to_ignore_corrupt_batch(self):
+        missing = {**event(234), 'specID': 0}
+        conflict = {**missing, 'critMelee': 999}
+        no_source = {key: value for key, value in missing.items() if key != 'source'}
+        untyped = {**missing, 'source': {**missing['source'], 'type': None}}
+        broken_page = page([missing])
+        broken_page.payload['data']['reportData']['report']['events'].pop('nextPageTimestamp')
+        no_master = page([missing])
+        no_master.payload['data']['reportData']['report'].pop('masterData')
+        bad_container = page([missing])
+        bad_container.payload['data']['reportData']['report']['events']['data'] = {}
+        bad_event = page([missing])
+        bad_event.payload['data']['reportData']['report']['events']['data'] = [None]
+        for response in (page([no_source]), page([untyped]), page([missing, conflict]),
+                         broken_page, no_master, bad_container, bad_event, Response(status=500)):
+            with self.subTest(response=response.payload):
+                result, _, _ = self.collect([sample(233), sample(234)],
+                    [page([event(233)], 200), response, response, response])
+                self.assertEqual((result['failed'], result['missing'], result['snapshots_written']), (2, 0, 0))
+                self.assertFalse(WclCombatantSnapshot.objects.exists())
+                self.assertFalse(WclCombatantFetchState.objects.exists())
 
     def test_unrelated_actor_metadata_and_explicit_npc_do_not_block_players(self):
         # Unreferenced metadata is not a candidate fact, even if incomplete.
