@@ -333,6 +333,20 @@ class PlayerActivityTests(TestCase):
                 self.assertEqual(result['status'], 'invalid_payload')
                 self.assertEqual(RaiderIOCharacterActivity.objects.values().get(pk=row.pk), original)
 
+    def test_anonymous_player_page_does_not_search_historical_wcl_gear(self):
+        from botend.services.spec_stats_service import SpecStatsService
+        self.player.realm = 'anonymous'
+        self.player.profile_url = ''
+        self.player.gear_json = []
+        self.player.save()
+        with CaptureQueriesContext(connection) as queries:
+            detail = SpecStatsService.get_player_detail(self.player.pk)
+        self.assertEqual(detail['gear'], [])
+        self.assertEqual(detail['raiderio_activity']['status'], 'unavailable')
+        sql = ' '.join(query['sql'] for query in queries)
+        self.assertNotIn('wow_spec_dungeon_ranking', sql)
+        self.assertNotIn('wow_spec_raid_ranking', sql)
+
     def test_anonymous_command_is_unresolved_without_request_or_row(self):
         self.player.profile_url = ''; self.player.realm = 'anonymous'; self.player.save()
         out = io.StringIO()

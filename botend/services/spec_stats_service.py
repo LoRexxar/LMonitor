@@ -2659,6 +2659,11 @@ def _resolve_player_gear(player):
             'source': '人物榜 Monitor 落库',
         }
 
+    # Raider.IO's anonymous realm is not a resolvable character identity. Do
+    # not search unrelated historical logs for this placeholder's equipment.
+    if (player.realm or '').strip().casefold() == 'anonymous':
+        return {'items': [], 'source': '匿名角色未公开装备资料'}
+
     ranking = SpecDungeonRanking.objects.filter(
         character_name=player.character_name,
         class_name=player.class_name,
