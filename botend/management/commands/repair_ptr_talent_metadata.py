@@ -677,8 +677,7 @@ class Command(BaseCommand):
 
     def _clean_db2_description(self, value):
         value = value or ''
-        value = re.sub(r'\|C[0-9A-Fa-f]{8}', '', value)
-        value = value.replace('|cffffffff', '').replace('|CFFFFFFFF', '')
+        value = re.sub(r'\|[cC][0-9A-Fa-f]{8}', '', value)
         value = value.replace('|r', '').replace('|R', '')
         return self._normalize_description(value)
 
@@ -727,7 +726,10 @@ class Command(BaseCommand):
     def _is_usable_db2_description(self, value):
         """DB2 placeholders are valid source text and are resolved at render time."""
         value = value or ''
-        return bool(value.strip()) and not any(token in value for token in ('<', '|c', '|C', '|r', '|R'))
+        # Exempt only named-variable tokens from inspection, not stored text.
+        inspected = re.sub(r'\$<[A-Za-z_][A-Za-z0-9_]*>', '', value)
+        inspected = re.sub(r'\$@switch<\$(?:\d+)?[A-Za-z]\d*>', '', inspected)
+        return bool(value.strip()) and not any(token in inspected for token in ('<', '|c', '|C', '|r', '|R'))
 
     def _write_spell_snapshots(self, cache, build, now, *, branch):
         for spell_id, data in cache.items():

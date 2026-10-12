@@ -53,6 +53,7 @@ fi
 echo "=== 2. Migrate and reconcile central item catalog ==="
 
 "$PYTHON_BIN" manage.py migrate --no-input
+"$PYTHON_BIN" manage.py install_talent_db2_assets --version-key retail
 "$PYTHON_BIN" manage.py backfill_journal_item_catalog
 
 echo "=== 3. Collectstatic ==="
