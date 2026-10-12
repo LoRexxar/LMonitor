@@ -2604,6 +2604,26 @@ class RaiderIOCharacterActivity(models.Model):
         )]
 
 
+class RaiderIORunRoster(models.Model):
+    """Minimal run/roster facts shared by all characters, never a rank slot."""
+    rio_season = models.CharField(max_length=64)
+    run_id = models.PositiveBigIntegerField()
+    payload_json = models.JSONField(default=dict, blank=True)
+    fetched_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=24, default='pending')
+    lease_token = models.CharField(max_length=32, blank=True, default='')
+    roster_visible = models.BooleanField(default=True)
+    failure_count = models.PositiveIntegerField(default=0)
+    last_error = models.CharField(max_length=40, blank=True, default='')
+
+    class Meta:
+        db_table = 'wow_raiderio_run_roster'
+        constraints = [models.UniqueConstraint(
+            fields=['rio_season', 'run_id'], name='uniq_rio_run_roster')]
+
+
 class PlayerSpecTopPlayer(models.Model):
     """人物资料缓存（Raider.IO + Battle.net），每角色每专精每赛季 1 条"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID")

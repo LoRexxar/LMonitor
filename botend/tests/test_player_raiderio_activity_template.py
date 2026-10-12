@@ -20,6 +20,37 @@ class Links(HTMLParser):
             self.links.append(dict(attrs))
 
 
+class RosterMembers(HTMLParser):
+    """Observe rendered members and whether a disclosure hides them."""
+
+    def __init__(self, html):
+        super().__init__()
+        self.members = []
+        self.details_depth = 0
+        self.current = None
+        self.feed(html)
+
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "details":
+            self.details_depth += 1
+        if tag == "li" and "rio-roster__member" in attrs.get("class", "").split():
+            self.current = {"text": "", "hidden": bool(self.details_depth), "links": []}
+            self.members.append(self.current)
+        if tag == "a" and self.current is not None:
+            self.current["links"].append(attrs)
+
+    def handle_endtag(self, tag):
+        if tag == "details":
+            self.details_depth -= 1
+        if tag == "li":
+            self.current = None
+
+    def handle_data(self, data):
+        if self.current is not None:
+            self.current["text"] += data
+
+
 @override_settings(TIME_ZONE="UTC")
 class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
     def activity(self):
@@ -48,6 +79,70 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
 
     def text(self, html):
         return " ".join(unescape(strip_tags(html)).split())
+
+    def roster(self):
+        return [
+            {"name": name, "class_label": class_label, "spec_label": spec_label,
+             "role_label": role_label, "class_slug": class_slug, "spec_slug": spec_slug,
+             "profile_url": f"https://raider.io/characters/eu/test/{index}" if index else ""}
+            for index, (name, class_label, spec_label, role_label, class_slug, spec_slug) in enumerate([
+                ("坦克玩家", "战士", "防护", "坦克", "Warrior", "Protection"),
+                ("治疗玩家", "牧师", "神圣", "治疗", "Priest", "Holy"),
+                ("火法玩家", "法师", "火焰", "输出", "Mage", "Fire"),
+                ("鸟德玩家", "德鲁伊", "平衡", "输出", "Druid", "Balance"),
+                ('<script>alert("玩家")</script>', "潜行者", "狂徒", "输出", "Rogue", "Outlaw"),
+            ])
+        ]
+
+    def test_best_run_roster_is_visible_localized_and_keeps_original_result(self):
+        for timed, title in ((True, "限时阵容"), (False, "通关阵容"), (None, "队伍阵容")):
+            with self.subTest(timed=timed):
+                activity = self.activity()
+                run = activity["best_runs"]["rows"][0]
+                run.update(timed=timed, roster_status="ready", roster=self.roster())
+                # The same record in recent runs must not duplicate the roster.
+                activity["recent_runs"]["rows"] = [deepcopy(run)]
+                html = self.render(activity)
+                text = self.text(html)
+                self.assertEqual(text.count(title), 1)
+                self.assertIn("各本最高得分记录，非最高层记录", text)
+                self.assertIn("得分 321.5", text)
+                self.assertIn("29:08", text)
+                self.assertEqual(sum(link["href"] == run["url"] for link in Links(html).links), 2)
+                members = RosterMembers(html).members
+                self.assertEqual(len(members), 5)
+                for rendered, source in zip(members, run["roster"]):
+                    self.assertFalse(rendered["hidden"])
+                    for field in ("name", "class_label", "spec_label", "role_label"):
+                        self.assertIn(source[field], rendered["text"])
+                    if source["profile_url"]:
+                        self.assertEqual(len(rendered["links"]), 1)
+                        link = rendered["links"][0]
+                        self.assertEqual(link["href"], source["profile_url"])
+                        self.assertEqual(link["target"], "_blank")
+                        self.assertEqual(set(link["rel"].split()), {"noopener", "noreferrer"})
+                    else:
+                        self.assertEqual(rendered["links"], [])
+                self.assertNotIn("<script>", html)
+
+    def test_roster_missing_states_are_explicit_and_recent_has_no_placeholder(self):
+        for status, roster, message in (
+            ("pending", [], "阵容待采集"),
+            ("unavailable", [], "阵容暂不可用（来源未公开或未提供）"),
+            ("ready", [], "来源未提供阵容"),
+            ("stale", [], "阵容已过期，暂无可用成员，等待刷新"),
+            ("stale", self.roster(), "阵容已过期，保留上次可用记录，等待刷新"),
+        ):
+            with self.subTest(status=status, has_roster=bool(roster)):
+                activity = self.activity()
+                run = activity["best_runs"]["rows"][0]
+                run.update(roster_status=status, roster=roster)
+                activity["recent_runs"]["rows"][0].update(roster_status="pending", roster=[])
+                html = self.render(activity)
+                text = self.text(html)
+                self.assertEqual(text.count(message), 1)
+                self.assertEqual(len(RosterMembers(html).members), len(roster))
+                self.assertEqual(text.count("阵容待采集"), 1 if status == "pending" else 0)
 
     def test_player_page_places_four_modules_between_stats_and_talents(self):
         activity = self.activity()

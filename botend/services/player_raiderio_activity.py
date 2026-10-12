@@ -4,6 +4,7 @@ Only four raw modules are stored, once per season/region/realm/name. Profile
 gear/talents remain the existing monitor's responsibility. Missing modules do
 not erase last-good facts; source identity and current-season gates are strict.
 """
+import logging
 import math
 import re
 from datetime import timedelta
@@ -154,6 +155,8 @@ class ActivityCollector:
         cfg = getattr(settings, 'REQUEST_CONFIG', {})
         self.proxies = proxies if proxies is not None else cfg.get('proxies') if cfg.get('enable_proxy') else None
         self.stopped = False
+        from botend.services.raiderio_run_roster import RosterCollector
+        self.roster_collector = RosterCollector(transport=self.transport, proxies=self.proxies)
 
     def refresh(self, player, season, *, force=False, include_profile=False):
         if self.stopped:
@@ -177,13 +180,13 @@ class ActivityCollector:
             # A profile refresh can reuse the transport even when activity is fresh;
             # only due activity fields are attached, never another activity request.
             collect_activity = deferred is None
-            if deferred and not include_profile:
-                return {'status': deferred, 'activity_id': row.pk}
             if collect_activity:
                 row.status = 'fetching'
                 row.last_attempt_at = now
                 row.next_attempt_at = now + timedelta(minutes=2)
                 row.save(update_fields=['status', 'last_attempt_at', 'next_attempt_at'])
+        if deferred and not include_profile:
+            return self._refresh_rosters({'status': deferred, 'activity_id': row.pk}, row, season)
         fields = activity_fields(season.rio_season) if collect_activity else ''
         if include_profile:
             fields = ','.join(filter(None, ('gear,talents', fields)))
@@ -211,7 +214,7 @@ class ActivityCollector:
                 if include_profile:
                     result['profile_payload'] = data
                 if not collect_activity:
-                    return {**result, 'status': deferred}
+                    return self._refresh_rosters({**result, 'status': deferred}, row, season)
                 facts, updated = validate_payload(data, identity, season)
         except (ValueError, TypeError, KeyError, AttributeError):
             error = 'invalid_payload'
@@ -241,6 +244,26 @@ class ActivityCollector:
                 current.next_attempt_at = stamp + (TTL if current.status == 'ready' else timedelta(hours=1))
             current.save()
         result['status'] = error or current.status
+        return self._refresh_rosters(result, current, season)
+
+    def _refresh_rosters(self, result, row, season):
+        # Only published local references: failed incoming activity never leaks
+        # new runs. Run TTL/lease is independent of activity/profile freshness.
+        # Called outside the activity transaction, and never during its busy lease.
+        if self.stopped or result['status'] == 'busy':
+            return result
+        runs = row.payload_json.get('mythic_plus_best_runs')
+        if not isinstance(runs, list) or not runs:
+            return result
+        try:
+            result['roster_results'] = self.roster_collector.refresh_best_runs(runs, season.rio_season)
+        except Exception:
+            # Roster persistence/transport must not discard verified gear/talents.
+            logging.getLogger(__name__).exception('Raider.IO roster enrichment failed')
+            result['roster_results'] = [{'status': 'enrichment_error'}]
+        finally:
+            if self.roster_collector.stopped:
+                self.stopped = True
         return result
 
 
@@ -325,6 +348,10 @@ def project_player_activity(player):
         block['status'] = 'ready'
         if module in ('best_runs', 'recent_runs'):
             block['rows'] = [_run(run) for run in raw]
+            if module == 'best_runs':
+                from botend.services.raiderio_run_roster import project_run_rosters
+                for projected, roster in zip(block['rows'], project_run_rosters(raw, season.rio_season)):
+                    projected.update(roster)
         elif module == 'dungeon_counts':
             block['rows'] = [{'dungeon_name': cn_dungeon_from_slug(_slug(item['dungeon']), item['dungeon']),
                 'total': item.get('season_runs_total'), 'timed': item.get('season_runs_timed'),

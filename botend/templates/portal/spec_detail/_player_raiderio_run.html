@@ -12,4 +12,25 @@
         <span>职责 <strong>{{ run.role_label|default:"—" }}</strong></span>
         <span>完成时间 {% if run.completed_at %}<time datetime="{{ run.completed_at|date:'c' }}">{{ run.completed_at|date:"Y-m-d H:i T" }}</time>{% else %}—{% endif %}</span>
     </div>
+    {% if show_roster %}
+    <div class="rio-roster" data-status="{{ run.roster_status|default:'pending' }}">
+        <h4 class="rio-roster__title">{% if run.timed == True %}限时阵容{% elif run.timed == False %}通关阵容{% else %}队伍阵容{% endif %}</h4>
+        {% if run.roster_status == 'stale' %}
+        <p class="rio-roster__status">{% if run.roster %}阵容已过期，保留上次可用记录，等待刷新。{% else %}阵容已过期，暂无可用成员，等待刷新。{% endif %}</p>
+        {% endif %}
+        {% if run.roster %}
+        <ul class="rio-roster__members">
+            {% for member in run.roster %}
+            <li class="rio-roster__member">
+                <span class="rio-roster__role">{{ member.role_label|default:"职责未知" }}</span>
+                <span class="rio-roster__identity"><strong>{{ member.spec_label|default:"专精未知" }}</strong> <span>{{ member.class_label|default:"职业未知" }}</span></span>
+                <span class="rio-roster__name">{% if member.profile_url %}<a href="{{ member.profile_url }}" target="_blank" rel="noopener noreferrer">{{ member.name|default:"未公开姓名" }} <span aria-hidden="true">↗</span></a>{% else %}{{ member.name|default:"未公开姓名" }}{% endif %}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% elif run.roster_status != 'stale' %}
+        <p class="rio-roster__status">{% if run.roster_status == 'unavailable' %}阵容暂不可用（来源未公开或未提供）。{% elif run.roster_status == 'ready' %}来源未提供阵容。{% else %}阵容待采集。{% endif %}</p>
+        {% endif %}
+    </div>
+    {% endif %}
 </li>

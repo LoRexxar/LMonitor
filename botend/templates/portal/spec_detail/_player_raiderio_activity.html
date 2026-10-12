@@ -31,7 +31,7 @@
             <p class="rio-module__empty">来源未提供最佳记录。</p>
             {% elif activity.best_runs.rows %}
             <ul class="rio-runs rio-runs--best">
-                {% for run in activity.best_runs.rows %}{% include "portal/spec_detail/_player_raiderio_run.html" with run=run only %}{% endfor %}
+                {% for run in activity.best_runs.rows %}{% include "portal/spec_detail/_player_raiderio_run.html" with run=run show_roster=True only %}{% endfor %}
             </ul>
             {% else %}<p class="rio-module__empty">本赛季暂无最佳记录。</p>{% endif %}
         </section>

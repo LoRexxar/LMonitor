@@ -43,7 +43,7 @@
 .rio-module--wide { grid-column: 1 / -1; }
 .rio-module__empty { color: var(--portal-text-muted, #5f6c7e); font-size: 12px; margin: 10px 0 2px; }
 .rio-runs, .rio-counts, .rio-raids { list-style: none; margin: 8px 0 0; padding: 0; }
-.rio-runs--best { display: grid; column-gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rio-activity .rio-runs--best { display: grid; grid-template-columns: minmax(0, 1fr); }
 .rio-run { border-top: 1px solid var(--portal-border-subtle, #d8dde4); min-width: 0; padding: 9px 0; }
 .rio-run:last-child { padding-bottom: 0; }
 .rio-run__heading { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 8px; }
@@ -88,10 +88,36 @@ html.portal-theme-dark .rio-run__result--timed { color: #8ed6b8; }
 .rio-raids__progress { display: flex; flex-wrap: wrap; gap: 5px 20px; }
 .rio-raids__progress span { color: var(--portal-text-muted, #5f6c7e); }
 .rio-raids__progress strong { color: var(--portal-text, #242a33); }
+.rio-activity .rio-roster { margin-top: 8px; min-width: 0; }
+.rio-activity .rio-roster__title { color: var(--portal-text-secondary, #465264); font-size: 12px; font-weight: 600; margin: 0 0 4px; }
+.rio-activity .rio-roster__status { color: var(--portal-text-muted, #5f6c7e); font-size: 12px; margin: 3px 0; }
+.rio-activity .rio-roster__members { display: grid; gap: 5px; grid-template-columns: repeat(5, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
+.rio-activity .rio-roster__member {
+    align-items: baseline;
+    background: var(--portal-surface-muted, #e9edf2);
+    border: 1px solid var(--portal-border-subtle, #d8dde4);
+    border-radius: 5px;
+    display: grid;
+    gap: 2px 6px;
+    grid-template-columns: auto minmax(0, 1fr);
+    min-width: 0;
+    padding: 5px 7px;
+}
+.rio-activity .rio-roster__member > * { min-width: 0; }
+.rio-activity .rio-roster__role { color: var(--portal-text-secondary, #465264); font-size: 11px; }
+.rio-activity .rio-roster__identity { color: var(--portal-text, #242a33); font-size: 12px; }
+.rio-activity .rio-roster__identity strong { font-weight: 600; }
+.rio-activity .rio-roster__name { color: var(--portal-text-muted, #5f6c7e); font-size: 11px; grid-column: 1 / -1; }
+.rio-activity .rio-roster__name a { color: inherit; text-decoration: none; text-underline-offset: 3px; }
+.rio-activity .rio-roster__name a:hover { color: var(--portal-accent-primary, #6155b7); text-decoration: underline; }
+.rio-activity .rio-roster__name a:focus-visible { outline: 2px solid var(--portal-accent-primary, #6155b7); outline-offset: 2px; }
 @media (max-width: 760px) {
     .rio-activity__grid, .rio-runs--best { grid-template-columns: minmax(0, 1fr); }
     .rio-module { padding: 11px 12px; }
     .rio-module--wide { grid-column: auto; }
     .rio-details summary { padding: 10px 0; }
     .rio-run__name a { display: inline-block; padding: 3px 0; }
+    .rio-activity .rio-roster__members { grid-template-columns: minmax(0, 1fr); gap: 3px; }
+    .rio-activity .rio-roster__member { grid-template-columns: 2.5em minmax(0, 1fr) minmax(0, .8fr); padding: 4px 7px; }
+    .rio-activity .rio-roster__name { grid-column: auto; text-align: right; }
 }

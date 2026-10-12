@@ -56,8 +56,10 @@ class PlayerActivityTests(TestCase):
         self.assertEqual(collector.refresh(self.player, self.season)['status'], 'ready')
         sibling = self.make_player('Discipline', name='TESTER')
         self.assertEqual(collector.refresh(sibling, self.season)['status'], 'fresh')
-        self.assertEqual(transport.call_count, 1)
-        fields = transport.call_args.kwargs['params']['fields']
+        self.assertEqual(transport.call_count, 2)  # profile + independently maintained roster
+        profile_calls = [call for call in transport.call_args_list if call.args[0].endswith('/profile')]
+        self.assertEqual(len(profile_calls), 1)
+        fields = profile_calls[0].kwargs['params']['fields']
         self.assertEqual(fields, activity_fields(self.season.rio_season))
         self.assertEqual(RaiderIOCharacterActivity.objects.count(), 1)
         self.assertEqual(PlayerSpecTopPlayer.objects.values().get(pk=self.player.pk), original)
@@ -220,8 +222,9 @@ class PlayerActivityTests(TestCase):
         with patch('requests.get', transport):
             combined = monitor._fetch_profile_with_activity(self.player, self.season)
         self.assertIn('gear', combined)
-        self.assertEqual(transport.call_count, 1)
-        self.assertIn('gear,talents,mythic_plus_best_runs:all', transport.call_args.kwargs['params']['fields'])
+        self.assertEqual(transport.call_count, 2)  # one profile plus one bounded run detail
+        profile_call = next(call for call in transport.call_args_list if call.args[0].endswith('/profile'))
+        self.assertIn('gear,talents,mythic_plus_best_runs:all', profile_call.kwargs['params']['fields'])
         RaiderIOCharacterActivity.objects.update(next_attempt_at=timezone.now() - timedelta(seconds=1))
         rankings = [{'score': 4000, 'character': {'name': 'Tester',
             'class': {'name': 'Priest'}, 'spec': {'name': 'Holy', 'role': 'healer'},
@@ -229,7 +232,8 @@ class PlayerActivityTests(TestCase):
         with tempfile.TemporaryDirectory() as root, override_settings(MEDIA_ROOT=root), patch('requests.get', transport):
             monitor.preload_peak_rankings(rio_season=self.season.rio_season,
                 class_name='Priest', spec_name='Holy', rankings=rankings)
-        self.assertEqual(transport.call_count, 2)
+        self.assertEqual(transport.call_count, 3)
+        self.assertEqual(sum(call.args[0].endswith('/profile') for call in transport.call_args_list), 2)
         current = PlayerSpecTopPlayer.objects.values().get(pk=self.player.pk)
         for field in ('gear_json', 'talents_json', 'stats_json', 'last_updated'):
             self.assertEqual(current[field], original[field])
@@ -244,14 +248,17 @@ class PlayerActivityTests(TestCase):
         monitor = SpecDetailPlayerMonitor(None, task)
         monitor.PLAYER_RANKING_LIMIT = 1
         ranking = {'score': 4000, 'character': {'name': 'Tester',
-            'path': '/characters/eu/test-realm/Tester',
-            'realm': {'name': 'Test Realm'}, 'region': {'slug': 'eu'}}}
+            'path': f'/characters/{self.player.region}/test-realm/Tester',
+            'realm': {'name': 'Test Realm'}, 'region': {'slug': self.player.region}}}
         profile_requests = []
 
         def transport(url, **kwargs):
             if url.endswith('/characters/profile'):
                 profile_requests.append(kwargs['params']['fields'])
                 body = data
+            elif url.endswith('/run-details'):
+                from botend.tests.test_raiderio_run_roster import details
+                body = details(kwargs['params']['id'])
             else:
                 self.assertIn('raider.io', url)
                 body = {'rankings': {'rankedCharacters': [ranking]}}
@@ -316,6 +323,18 @@ class PlayerActivityTests(TestCase):
                       'avatar_url', 'profile_url', 'stats_json', 'last_updated'):
             self.assertEqual(getattr(self.player, field), original[field], field)
         self.assertEqual(RaiderIOCharacterActivity.objects.get().last_error, 'invalid_payload')
+
+    def test_cn_daily_scan_activity_only_also_collects_roster(self):
+        from botend.models import RaiderIORunRoster
+        self.player.region = 'cn'
+        self.player.profile_url = self.player.profile_url.replace('/eu/', '/cn/')
+        self.player.save()
+        data = payload()
+        data['region'], data['profile_url'] = 'cn', self.player.profile_url
+        requests = self._scan_profile_response(data)
+        self.assertEqual(requests, [activity_fields(self.season.rio_season)])
+        self.assertEqual(RaiderIORunRoster.objects.get().status, 'ready')
+        self.assertEqual(len(RaiderIORunRoster.objects.get().payload_json['roster']), 5)
 
     def test_deferred_profile_also_requires_verified_identity(self):
         collector = ActivityCollector(transport=self.transport())
