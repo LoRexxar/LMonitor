@@ -10,6 +10,9 @@
         specSelect: document.getElementById('talent-spec-select'),
         importInput: document.getElementById('talent-import-input'),
         importBtn: document.getElementById('talent-import-btn'),
+        searchInput: document.getElementById('talent-search-input'),
+        searchClear: document.getElementById('talent-search-clear'),
+        searchStatus: document.getElementById('talent-search-status'),
         resetBtn: document.getElementById('talent-reset-btn'),
         copyUrlBtn: document.getElementById('talent-copy-url-btn'),
         copyCodeBtn: document.getElementById('talent-copy-code-btn'),
@@ -137,6 +140,7 @@
         hideTooltip();
         els.codeOutput.textContent = '正在加载当前天赋字符串…';
         els.stageContainer.innerHTML = '<div class="talent-loading">正在加载天赋树...</div>';
+        updateSearch();
         const params = new URLSearchParams({class: state.className, spec: state.specName});
         if (state.versionKey) params.set('version', state.versionKey);
         if (state.buildCode) params.set('code', state.buildCode);
@@ -152,6 +156,7 @@
             state.treeLoading = false;
             els.resetBtn.disabled = false;
             els.stageContainer.innerHTML = '<div class="talent-loading">天赋树加载失败，请重试</div>';
+            updateSearch();
             els.codeOutput.textContent = '当前导入字符串不可用';
             return;
         } finally {
@@ -163,6 +168,7 @@
             state.treeLoading = false;
             els.resetBtn.disabled = false;
             els.stageContainer.innerHTML = `<div class="talent-loading">${escapeHtml(data.error || '加载失败')}</div>`;
+            updateSearch();
             els.codeOutput.textContent = '当前导入字符串不可用';
             return;
         }
@@ -269,12 +275,43 @@
         loadTree();
     }
 
+    function nodeMatchesSearch(node, query) {
+        if (!node || !query) return false;
+        // Consume the canonical payload, including every choice/apex entry,
+        // rather than just the currently selected option or its icon label.
+        return [node, ...(node.choice_options || [])].some(entry =>
+            ['display_name', 'name_zh', 'name', 'display_desc', 'description_zh', 'description']
+                .some(field => String(entry[field] || '').toLowerCase().includes(query))
+        );
+    }
+
+    function updateSearch() {
+        const raw = els.searchInput?.value || '';
+        const query = raw.trim().toLowerCase();
+        let matches = 0;
+        const cards = els.stageContainer.querySelectorAll('.talent-node-card--tree');
+        for (const card of cards) {
+            const matched = nodeMatchesSearch(state.nodes.get(card.dataset.nodeKey), query);
+            card.classList.toggle('is-search-match', matched);
+            if (matched) matches += 1;
+        }
+        if (els.searchClear) els.searchClear.disabled = !raw;
+        if (els.searchStatus) {
+            els.searchStatus.textContent = !query
+                ? '搜索当前天赋树的名称和描述（含备选天赋）'
+                : state.treeLoading ? '正在加载天赋树…'
+                : !cards.length ? '当前没有可搜索的天赋节点'
+                : matches ? `匹配 ${matches} 个节点` : '未找到匹配的天赋';
+        }
+    }
+
     function renderStage() {
         const model = state.payload.render_model || {};
         const trees = model.trees || [];
         const nodeCount = trees.reduce((total, tree) => total + (tree.nodes || []).length, 0);
         if (!nodeCount) {
             els.stageContainer.innerHTML = '<div class="talent-loading">当前版本暂无该专精天赋元数据，请先导入/回填对应版本的 DB2 数据。</div>';
+            updateSearch();
             return;
         }
         const layout = model.layout || {};
@@ -321,6 +358,7 @@
         wrapper.appendChild(stage);
         els.stageContainer.innerHTML = '';
         els.stageContainer.appendChild(wrapper);
+        updateSearch();
     }
 
     function renderHeroChoicePanel(stage, width, height) {
@@ -1029,6 +1067,12 @@
         state.buildCode = extractCode(els.importInput.value);
         state.profileId = '';
         loadTree();
+    });
+    els.searchInput?.addEventListener('input', updateSearch);
+    els.searchClear?.addEventListener('click', () => {
+        els.searchInput.value = '';
+        updateSearch();
+        els.searchInput.focus();
     });
     els.importInput.addEventListener('keydown', event => {
         if (event.key === 'Enter') {

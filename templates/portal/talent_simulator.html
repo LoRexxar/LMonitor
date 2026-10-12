@@ -15,7 +15,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
-    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20260923_choice_source">
+    <link rel="stylesheet" href="{% static 'portal/css/talent_simulator.css' %}?v=20261012_search">
     {% endif %}
 </head>
 <body class="{% if mini_mode %}talent-mini-body{% else %}portal-bg font-sans{% endif %}">
@@ -68,6 +68,14 @@
                     <button type="button" id="talent-import-btn" class="talent-sim-btn talent-sim-btn--ghost">导入</button>
                 </div>
             </div>
+            <div class="talent-sim-field talent-sim-field--search">
+                <label for="talent-search-input">搜索天赋</label>
+                <div class="talent-search-row">
+                    <input id="talent-search-input" type="search" placeholder="输入天赋名称或描述关键词" autocomplete="off" aria-describedby="talent-search-status">
+                    <button type="button" id="talent-search-clear" class="talent-sim-btn talent-sim-btn--ghost" disabled>清空搜索</button>
+                </div>
+                <div id="talent-search-status" class="talent-search-status" role="status" aria-live="polite" aria-atomic="true">搜索当前天赋树的名称和描述（含备选天赋）</div>
+            </div>
         </section>
 
         <section class="talent-sim-summary portal-card">
@@ -105,7 +113,7 @@
     {% endif %}
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
     {% if not mini_mode %}
-    <script src="{% static 'portal/js/talent_simulator.js' %}?v=39"></script>
+    <script src="{% static 'portal/js/talent_simulator.js' %}?v=20261012_search"></script>
     {% endif %}
 </body>
 </html>
