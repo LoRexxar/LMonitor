@@ -92,7 +92,8 @@ def _profile_url(character):
             or parts[:2] != ['', 'characters'] or parts[2] not in ('us', 'eu', 'kr', 'tw', 'cn')
             or parts[2] != character.get('region', {}).get('slug')
             or parts[3] != character.get('realm', {}).get('slug')
-            or parts[3] == 'anonymous' or not re.fullmatch(r'[a-z0-9-]+', parts[3])
+            or not parts[3] or parts[3] in ('anonymous', '.', '..')
+            or any(c in parts[3] for c in '/\\?#')
             or normalized_name(parts[4]) != normalized_name(character.get('name', ''))
             or not parts[4] or any(c in parts[4] for c in '/\\?#')):
         raise ValueError('invalid member path')

@@ -83,6 +83,31 @@ class RunRosterTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             RaiderIORunRoster.objects.create(rio_season=row.rio_season, run_id=row.run_id)
 
+    def test_unicode_realm_path_preserves_verified_five_member_roster(self):
+        from urllib.parse import quote
+        from botend.services.raiderio_run_roster import validate_details
+        data = details()
+        character = data['roster'][0]['character']
+        realm = 'свежеватель-душ'
+        character['realm']['slug'] = realm
+        for path_realm in (realm, quote(realm, safe='')):
+            with self.subTest(path_realm=path_realm):
+                character['path'] = f'/characters/eu/{path_realm}/Member0'
+                facts = validate_details(data, self.run, self.season.rio_season)
+                row, _ = RaiderIORunRoster.objects.update_or_create(
+                    rio_season=self.season.rio_season, run_id=123,
+                    defaults={'payload_json': facts, 'fetched_at': timezone.now(), 'status': 'ready'})
+                projected = project_run_rosters([self.run], self.season.rio_season)[0]
+                self.assertEqual(projected['roster_status'], 'ready')
+                self.assertEqual(len(projected['roster']), 5)
+                self.assertEqual(projected['roster'][0]['profile_url'], 'https://raider.io' + character['path'])
+        for invalid_realm in ('..', 'bad/realm', 'bad\\realm', 'bad?realm', 'bad#realm'):
+            with self.subTest(invalid_realm=invalid_realm):
+                character['realm']['slug'] = invalid_realm
+                character['path'] = f'/characters/eu/{quote(invalid_realm, safe="")}/Member0'
+                with self.assertRaises(ValueError):
+                    validate_details(data, self.run, self.season.rio_season)
+
     def test_strict_reference_rejects_conflicting_and_malformed_tokens(self):
         self.assertEqual(run_reference(self.run, 'season-mn-2'), 123)
         for changes in ({'keystone_run_id': 124}, {'keystone_run_id': True}, {'keystone_run_id': '123'},
