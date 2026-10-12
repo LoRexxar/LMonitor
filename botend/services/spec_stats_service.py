@@ -848,12 +848,21 @@ DUNGEON_SAMPLE_FIELDS = (
 )
 
 
+def _dungeon_sample_level_floor(rows):
+    """Inclusive floor for one season/class/spec/dungeon cohort, never gap-fill.
+
+    Frozen callers must pass only their frozen rows, not today's candidate pool.
+    """
+    return max((row.get('keystone_level') or 0 for row in rows), default=0) - 2
+
+
 def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
     """
     为 M+ 聚合选择最终样本。
 
     规则：先按钥石层数从高到低分层，每层按 DPS 从高到低排序；每层只保留 DPS >= 该层中位数的日志，
-    再从高层到低层累积，按 region+realm+character_name 去重，最终最多 max_samples 个玩家样本。
+    再从高层到低层累积，最低只到本范围最高层减 2（含），不足不再向下补样；
+    按 region+realm+character_name 去重，最终最多 max_samples 个玩家样本。
     """
     fields = DUNGEON_SAMPLE_FIELDS
     if hydrate_fields is not None:
@@ -866,6 +875,7 @@ def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
     if not rows:
         return []
 
+    level_floor = _dungeon_sample_level_floor(rows)
     by_level = defaultdict(list)
     seen_logs = set()
     for row in rows:
@@ -879,6 +889,8 @@ def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
     selected = []
     seen_players = set()
     for level in sorted(by_level.keys(), reverse=True):
+        if level < level_floor:
+            break
         level_rows = sorted(by_level[level], key=lambda r: r.get('dps') or 0, reverse=True)
         dps_values = sorted([r.get('dps') or 0 for r in level_rows])
         median_dps = _percentile(dps_values, 50)

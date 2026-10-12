@@ -21,7 +21,7 @@ from botend.wow.talents.versioning import TalentVersionResolver
 
 
 # Bump when selection, aggregation, source interpretation or display code changes.
-ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v1'
+ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v2-level-floor'
 _NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at'}
 
 
@@ -231,6 +231,8 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
 
     selected_ids is {str(dungeon_id): [ranking_id, ...]} in frozen selector order.
     Missing frozen rows/scopes fail closed rather than silently changing cohort.
+    Legacy frozen cohorts only lose rows below their own highest level minus 2;
+    references/order remain intact, with no reselection or replacement logs.
     source_cutoff limits central facts, but the wall clock itself is not hashed.
     publish(path, payload, class_name, spec_name) must publish a stats projection.
     """
@@ -255,6 +257,9 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
                 queryset, [{'id': pk} for pk in ids], stats.DUNGEON_SAMPLE_FIELDS)
             if len(selected) != len(ids):
                 raise ValueError('Frozen dungeon ranking references are missing')
+            level_floor = stats._dungeon_sample_level_floor(selected)
+            selected = [row for row in selected
+                        if (row.get('keystone_level') or 0) >= level_floor]
         by_dungeon[dungeon_id] = selected
     selected = [row for rows in by_dungeon.values() for row in rows]
     facts = combatants._load_facts(selected, fetched_before=source_cutoff)

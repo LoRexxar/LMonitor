@@ -394,6 +394,57 @@ class DungeonAggregationReuseTests(TestCase):
         self.assertFalse(self.aggregate()['reused'])
         self.assert_talent_text('新名称新名称')
 
+    def test_frozen_cohort_drops_below_local_floor_without_reselecting_and_reuses(self):
+        high = self.row(name='High', keystone_level=20,
+                        gear_json=[{'id': 123, 'slot': 'head', 'gems': [{'id': 456}]}])
+        middle = self.row(name='Middle', keystone_level=19)
+        middle_high = self.row(name='MiddleHigh', keystone_level=19, dps=900)
+        floor = self.row(name='Floor', keystone_level=18)
+        low = self.row(name='Excluded17', keystone_level=17, dps=99999, fight_id=2)
+        local_high = self.row(dungeon=2, name='Local12', keystone_level=12)
+        local_floor = self.row(dungeon=2, name='Local10', keystone_level=10)
+        local_low = self.row(dungeon=2, name='Excluded9', keystone_level=9, dps=99999)
+        self.fact(high, rating=100)
+        self.fact(low, rating=99999)
+        # Neither new highs nor eligible replacements may change a frozen cohort.
+        self.row(name='Unfrozen99', keystone_level=99, dps=99999)
+        self.row(name='Unfrozen18', keystone_level=18)
+        selected = {'1': [floor.pk, low.pk, middle.pk, high.pk, middle_high.pk],
+                    '2': [local_low.pk, local_floor.pk, local_high.pk]}
+        original_refs = {key: list(ids) for key, ids in selected.items()}
+        with patch.object(stats, '_select_dungeon_sample_records', side_effect=AssertionError('reselect')), \
+             patch.object(stats.SpecStatsService, '_compute_dungeon_records',
+                          wraps=stats.SpecStatsService._compute_dungeon_records) as compute:
+            first = self.aggregate(selected_ids=selected)
+        self.assertEqual(first['selected'], 6)
+        self.assertEqual(selected, original_refs)
+        self.assertEqual([row['id'] for row in compute.call_args_list[0].args[0]],
+                         [floor.pk, middle.pk, high.pk, middle_high.pk])
+        self.assertEqual([row['id'] for row in compute.call_args_list[1].args[0]],
+                         [local_floor.pk, local_high.pk])
+        self.assertEqual([self.detail(i)['sample_size'] for i in (1, 2)], [4, 2])
+        summary = self.detail()
+        self.assertEqual(summary['sample_size'], 6)
+        self.assertEqual(summary['missing_sample_size'], 194)
+        self.assertEqual([row['sample_size'] for row in summary['dungeon_samples']], [4, 2])
+        self.assertEqual(self.detail(1)['gem_popularity'][0]['pct'], 25)
+        self.assertEqual(summary['gem_popularity'][0]['pct'], round(100 / 6, 1))
+        crit = next(row for row in summary['secondary_stats'] if row['key'] == 'crit')
+        self.assertEqual(crit['sample_size'], 1)
+        self.assertEqual(crit['rating']['avg'], 100)
+        before = {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                  for p in self.path.parent.rglob('*.json')}
+        with patch.object(stats, '_select_dungeon_sample_records', side_effect=AssertionError('reselect')), \
+             patch.object(stats.SpecStatsService, '_compute_dungeon_records', side_effect=AssertionError('recompute')), \
+             patch.object(facts, 'enrich_dungeon_records', side_effect=AssertionError('reenrich')):
+            second = self.aggregate(selected_ids=selected)
+        self.assertTrue(second['reused'])
+        self.assertEqual(first['generation'], second['generation'])
+        self.assertEqual(first['generated_at'], second['generated_at'])
+        self.assertEqual(selected, original_refs)
+        self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                                  for p in self.path.parent.rglob('*.json')})
+
     def test_frozen_order_and_late_fact_cutoff(self):
         early = self.row(name='Early', dps=100)
         late = self.row(dungeon=2, name='Late', dps=900)
@@ -420,7 +471,7 @@ class DungeonAggregationReuseTests(TestCase):
             SpecDungeonRanking(season_id=self.season.id, dungeon_id=1, dungeon_name='One',
                 class_name='Warrior', spec_name='Arms', character_name=f'P{i % 200}',
                 realm='Realm', region='eu', report_code='R', fight_id=i + 1,
-                dps=i + 100, keystone_level=20 if i < 90 else 10)
+                dps=i + 100, keystone_level=20 if i < 90 else 18)
             for i in range(300)])
         queryset = SpecDungeonRanking.objects.filter(season_id=self.season.id, dungeon_id=1)
         original = stats._select_dungeon_sample_records(queryset)
