@@ -1,0 +1,15 @@
+<li class="rio-run">
+    <div class="rio-run__heading">
+        <strong class="rio-run__name">{% if run.url %}<a href="{{ run.url }}" target="_blank" rel="noopener noreferrer">{{ run.dungeon_name }} <span aria-hidden="true">↗</span></a>{% else %}{{ run.dungeon_name }}{% endif %}</strong>
+        <span class="rio-run__level">+{{ run.level }}</span>
+        <span class="rio-run__score">得分 <strong>{% if run.score != None %}{{ run.score|floatformat:1 }}{% else %}—{% endif %}</strong></span>
+    </div>
+    <div class="rio-run__facts">
+        <span class="rio-run__result{% if run.timed == True %} rio-run__result--timed{% endif %}">{% if run.timed == True %}已限时{% elif run.timed == False %}未限时{% else %}限时未知{% endif %}</span>
+        <span>用时 <strong>{{ run.clear_time|default:"—" }}</strong></span>
+        <span>升级 <strong>{{ run.upgrades|default_if_none:"—" }}</strong></span>
+        <span>当场专精 <strong>{{ run.spec_label|default:"—" }}</strong></span>
+        <span>职责 <strong>{{ run.role_label|default:"—" }}</strong></span>
+        <span>完成时间 {% if run.completed_at %}<time datetime="{{ run.completed_at|date:'c' }}">{{ run.completed_at|date:"Y-m-d H:i T" }}</time>{% else %}—{% endif %}</span>
+    </div>
+</li>

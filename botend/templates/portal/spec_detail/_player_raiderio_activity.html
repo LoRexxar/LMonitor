@@ -1,0 +1,109 @@
+{% if activity %}
+<section id="player-rio-activity" class="rio-activity" aria-labelledby="rio-activity-title" data-status="{{ activity.status }}">
+    <header class="rio-activity__header">
+        <div>
+            <h2 id="rio-activity-title">角色赛季记录 <span>{{ activity.season_name }}</span></h2>
+            <p class="rio-activity__note">可跨专精，不限于当前榜单专精。</p>
+        </div>
+        <span class="rio-activity__source">来源 {{ activity.source_label }}</span>
+    </header>
+    {% if activity.status != 'ready' %}
+    <p class="rio-activity__status">
+        {% if activity.status == 'stale' %}数据已过期，保留上次可用记录，等待刷新。
+        {% elif activity.status == 'partial' %}部分数据缺失，已展示可用记录。
+        {% elif activity.status == 'pending' %}等待采集，暂无完整的角色赛季记录。
+        {% elif activity.status == 'unavailable' %}活动数据暂不可用，已有记录仍保留展示。
+        {% endif %}
+    </p>
+    {% endif %}
+    <div class="rio-activity__timestamps">
+        <span>源更新时间 {% if activity.source_updated_at %}<time datetime="{{ activity.source_updated_at|date:'c' }}">{{ activity.source_updated_at|date:"Y-m-d H:i T" }}</time>{% else %}—{% endif %}</span>
+        <span>本站采集时间 {% if activity.fetched_at %}<time datetime="{{ activity.fetched_at|date:'c' }}">{{ activity.fetched_at|date:"Y-m-d H:i T" }}</time>{% else %}—{% endif %}</span>
+    </div>
+
+    <div class="rio-activity__grid">
+        <section class="rio-module rio-module--wide" aria-labelledby="rio-best-title">
+            <div class="rio-module__header">
+                <h3 id="rio-best-title">各副本最佳成绩</h3>
+                <span class="rio-activity__note">各本最高得分记录，非最高层记录</span>
+            </div>
+            {% if activity.best_runs.status == 'missing' %}
+            <p class="rio-module__empty">来源未提供最佳记录。</p>
+            {% elif activity.best_runs.rows %}
+            <ul class="rio-runs rio-runs--best">
+                {% for run in activity.best_runs.rows %}{% include "portal/spec_detail/_player_raiderio_run.html" with run=run only %}{% endfor %}
+            </ul>
+            {% else %}<p class="rio-module__empty">本赛季暂无最佳记录。</p>{% endif %}
+        </section>
+
+        <section class="rio-module" aria-labelledby="rio-recent-title">
+            <h3 id="rio-recent-title">最近大秘境记录</h3>
+            <p class="rio-activity__note">最多 10 条 IO 收录的完成记录，并非完整历史。</p>
+            {% if activity.recent_runs.status == 'missing' %}
+            <p class="rio-module__empty">来源未提供近期记录。</p>
+            {% elif activity.recent_runs.rows %}
+            <details class="rio-details">
+                <summary>查看最近记录 <span>{{ activity.recent_runs.rows|length }} 条</span></summary>
+                <ul class="rio-runs">
+                    {% for run in activity.recent_runs.rows %}{% include "portal/spec_detail/_player_raiderio_run.html" with run=run only %}{% endfor %}
+                </ul>
+            </details>
+            {% else %}<p class="rio-module__empty">本赛季暂无收录记录。</p>{% endif %}
+        </section>
+
+        <section class="rio-module" aria-labelledby="rio-counts-title">
+            <h3 id="rio-counts-title">赛季副本经历</h3>
+            <p class="rio-activity__note">限时比例以已完成次数为分母，不含未完成尝试。</p>
+            {% if activity.dungeon_counts.status == 'missing' %}
+            <p class="rio-module__empty">来源未提供赛季副本次数。</p>
+            {% else %}
+            <div class="rio-count-totals">
+                <span>已完成 <strong>{{ activity.dungeon_counts.total|default_if_none:"—" }}</strong></span>
+                <span>限时 <strong>{{ activity.dungeon_counts.timed|default_if_none:"—" }}</strong></span>
+                <span>限时比例 <strong>{% if activity.dungeon_counts.timed_percent != None %}{{ activity.dungeon_counts.timed_percent|floatformat:1 }}%{% else %}—{% endif %}</strong></span>
+            </div>
+            {% if activity.dungeon_counts.rows %}
+            <details class="rio-details">
+                <summary>按副本查看 <span>{{ activity.dungeon_counts.rows|length }} 个副本</span></summary>
+                <ul class="rio-counts">
+                    {% for row in activity.dungeon_counts.rows %}
+                    <li>
+                        <strong>{{ row.dungeon_name }}</strong>
+                        <div class="rio-counts__facts">
+                            <span>已完成 <strong>{{ row.total|default_if_none:"—" }}</strong></span>
+                            <span>限时 <strong>{{ row.timed|default_if_none:"—" }}</strong></span>
+                            <span>限时比例 <strong>{% if row.timed_percent != None %}{{ row.timed_percent|floatformat:1 }}%{% else %}—{% endif %}</strong></span>
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </details>
+            {% else %}<p class="rio-module__empty">本赛季暂无副本次数记录。</p>{% endif %}
+            {% endif %}
+        </section>
+
+        <section class="rio-module rio-module--wide" aria-labelledby="rio-raid-title">
+            <div class="rio-module__header">
+                <h3 id="rio-raid-title">当前团本进度</h3>
+                <span class="rio-activity__note">已击败首领 / 来源提供的首领总数</span>
+            </div>
+            {% if activity.raid_progression.status == 'missing' %}
+            <p class="rio-module__empty">来源未提供当前团本进度。</p>
+            {% elif activity.raid_progression.rows %}
+            <ul class="rio-raids">
+                {% for raid in activity.raid_progression.rows %}
+                <li>
+                    <strong class="rio-raids__name">{{ raid.name }}</strong>
+                    <div class="rio-raids__progress">
+                        <span>普通 <strong>{{ raid.normal|default_if_none:"—" }}/{{ raid.total_bosses|default_if_none:"—" }}</strong></span>
+                        <span>英雄 <strong>{{ raid.heroic|default_if_none:"—" }}/{{ raid.total_bosses|default_if_none:"—" }}</strong></span>
+                        <span>史诗 <strong>{{ raid.mythic|default_if_none:"—" }}/{{ raid.total_bosses|default_if_none:"—" }}</strong></span>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+            {% else %}<p class="rio-module__empty">暂无当前团本进度。</p>{% endif %}
+        </section>
+    </div>
+</section>
+{% endif %}

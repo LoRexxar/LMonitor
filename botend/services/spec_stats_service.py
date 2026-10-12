@@ -6,6 +6,7 @@
 
 from collections import Counter, defaultdict
 from botend.services.player_external_links import build_player_external_links
+from botend.services.player_raiderio_activity import project_player_activity
 from django.db import connection
 from django.db.models import Avg, Max, Min, StdDev
 
@@ -333,6 +334,7 @@ class SpecStatsService:
             'avatar_url': player.avatar_url,
             'profile_url': player.profile_url,
             'external_links': build_player_external_links(player),
+            'raiderio_activity': project_player_activity(player),
             'achievement_points': player.achievement_points,
             'item_level': player.item_level or avg_ilvl,
             'gear': gear_items,

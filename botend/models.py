@@ -1,4 +1,5 @@
 from botend.localization_managers import TalentStructureManager
+from botend.raiderio_identity import activity_identity_digest, normalized_name
 import hashlib
 import secrets
 import uuid
@@ -2562,6 +2563,45 @@ class WowRealmDirectory(models.Model):
     class Meta:
         db_table = 'wow_realm_directory'
         constraints = [models.UniqueConstraint(fields=['region', 'slug'], name='wow_realm_region_slug_unique')]
+
+
+class RaiderIOCharacterActivity(models.Model):
+    """One season/character source fact, independent of ranking specialization."""
+    season = models.ForeignKey(SeasonMeta, on_delete=models.CASCADE)
+    region = models.CharField(max_length=10)
+    realm_slug = models.CharField(max_length=100)
+    character_name = models.CharField(max_length=100)
+    identity_digest = models.CharField(max_length=64, editable=False)
+    payload_json = models.JSONField(default=dict, blank=True)
+    module_fetched_at = models.JSONField(default=dict, blank=True)
+    fetched_at = models.DateTimeField(null=True, blank=True)
+    source_updated_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=24, default='pending')
+    failure_count = models.PositiveIntegerField(default=0)
+    last_error = models.CharField(max_length=40, blank=True, default='')
+
+    def save(self, *args, **kwargs):
+        # Identity changes are persisted as a unit, including their exact key.
+        identity_fields = {'region', 'realm_slug', 'character_name'}
+        update_fields = kwargs.get('update_fields')
+        if update_fields is None or (identity_fields | {'identity_digest'}).intersection(update_fields):
+            self.region = self.region.strip().lower()
+            self.realm_slug = self.realm_slug.strip().lower()
+            self.character_name = normalized_name(self.character_name)
+            self.identity_digest = activity_identity_digest(
+                self.region, self.realm_slug, self.character_name)
+            if update_fields is not None:
+                kwargs['update_fields'] = set(update_fields) | identity_fields | {'identity_digest'}
+        return super().save(*args, **kwargs)
+
+    class Meta:
+        db_table = 'wow_raiderio_character_activity'
+        constraints = [models.UniqueConstraint(
+            fields=['season', 'identity_digest'],
+            name='uniq_rio_activity_character',
+        )]
 
 
 class PlayerSpecTopPlayer(models.Model):

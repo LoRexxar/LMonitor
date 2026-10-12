@@ -6,6 +6,7 @@
 
 import time
 import unicodedata
+from types import SimpleNamespace
 
 from django.utils import timezone
 from django.db import IntegrityError, transaction
@@ -42,6 +43,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
     def scan(self, url):
         logger.info("[SpecDetailPlayer] 开始采集人物榜")
+        self._activity_collector = None
 
         season = SeasonMeta.objects.filter(is_active=True).first()
         if not season:
@@ -116,6 +118,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                 'stats_crawl_status': stats_status,
                                 'last_updated': timezone.now(),
                             }
+                            if existing and player.get('_profile_refresh_failed'):
+                                # Ranking data remains usable, but absent/rejected profile
+                                # data is not an authoritative empty profile or a refresh.
+                                defaults = {key: defaults[key] for key in ('rank', 'score')}
                             self._preserve_complete_talents_when_new_payload_is_downgrade(existing, defaults, class_name, spec_name)
                             if existing:
                                 defaults['class_name'] = class_name
@@ -159,6 +165,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
     def _fetch_top_players(self, class_name, spec_name, season):
         """从 Raider.IO 获取全球榜单玩家，优先使用世界榜。"""
+        self._activity_season = SeasonMeta.objects.filter(is_active=True, rio_season=season).first()
         players = self._fetch_world_top_players(class_name, spec_name, season)
 
         if len(players) < self.PLAYER_RANKING_LIMIT:
@@ -330,6 +337,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     f"[SpecDetailPlayer] 新入榜人物初始化失败 "
                     f"{class_name}/{spec_name}/{profile.character_name}: {exc}"
                 )
+
+        # Activity has an independent TTL and never refreshes existing profile facts.
+        # Initialize new profiles first so one combined request can fill both scopes.
+        try:
+            self.refresh_top20_activity(season, class_name, spec_name)
+        except Exception as exc:
+            logger.warning(f"[SpecDetailPlayer] activity refresh failed: {type(exc).__name__}")
 
         from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
         SpecDetailAggregationMonitor.refresh_leaderboard_projection(
@@ -575,8 +589,39 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 return True
         return False
 
+    def _get_activity_collector(self):
+        from botend.services.player_raiderio_activity import ActivityCollector
+        if not getattr(self, '_activity_collector', None):
+            self._activity_collector = ActivityCollector(proxies=self._proxies)
+        return self._activity_collector
+
+    def _fetch_profile_with_activity(self, profile, season):
+        result = self._get_activity_collector().refresh(profile, season, include_profile=True)
+        if result['status'] == 'unresolved' and (profile.realm or '').lower() != 'anonymous':
+            # Preserve legacy gear/talent behavior; unresolved identity is never used
+            # to collect or publish activity. Anonymous characters stay private.
+            return self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
+        return result.get('profile_payload')
+
+    def refresh_top20_activity(self, season, class_name, spec_name):
+        from botend.services.player_raiderio_activity import top20_candidates
+        collector = self._get_activity_collector()
+        results = []
+        for candidate in top20_candidates(season, class_name=class_name, spec_name=spec_name):
+            result = collector.refresh(candidate['player'], season)
+            results.append({'player_ids': candidate['player_ids'], **result})
+            if collector.stopped:
+                break
+        return results
+
     def _enrich_profile_model_from_raiderio(self, profile):
-        char_data = self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
+        rank = getattr(profile, 'rank', None)
+        season = (SeasonMeta.objects.filter(pk=profile.season_id, is_active=True).first()
+                  if isinstance(rank, int) and 1 <= rank <= 20 else None)
+        if season:
+            char_data = self._fetch_profile_with_activity(profile, season)
+        else:
+            char_data = self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
         if not char_data:
             return False
 
@@ -725,12 +770,22 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             if not all([region, realm, name]):
                 continue
 
-            if region.lower() == 'cn':
-                continue
-
             try:
-                char_data = self.fetch_raiderio_character(region, realm, name)
+                season = getattr(self, '_activity_season', None)
+                if season:
+                    identity = SimpleNamespace(season_id=season.pk, region=region, realm=realm,
+                        character_name=name, profile_url=player.get('profile_url'))
+                    if region.lower() == 'cn':
+                        # Preserve the existing CN profile branch, but activity is supported.
+                        self._get_activity_collector().refresh(identity, season)
+                        continue
+                    char_data = self._fetch_profile_with_activity(identity, season)
+                else:
+                    if region.lower() == 'cn':
+                        continue
+                    char_data = self.fetch_raiderio_character(region, realm, name)
                 if not char_data:
+                    player['_profile_refresh_failed'] = True
                     continue
 
                 self._pending_build_code = None  # 重置 build_code
@@ -797,6 +852,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     self._pending_build_code = None
 
             except Exception as e:
+                player['_profile_refresh_failed'] = True
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
 
             time.sleep(0.2)  # Raider.IO rate limit

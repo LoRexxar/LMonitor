@@ -1,0 +1,97 @@
+/* Character-level Raider.IO facts. Shared Portal tokens cover both themes. */
+.rio-activity {
+    color: var(--portal-text, #242a33);
+    font-size: 13px;
+    line-height: 1.5;
+    margin: 0 0 18px;
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+.rio-activity *, .rio-activity *::before, .rio-activity *::after { box-sizing: border-box; }
+.rio-activity__header, .rio-module__header {
+    align-items: baseline;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    justify-content: space-between;
+}
+.rio-activity h2 { color: inherit; font-size: 17px; font-weight: 700; margin: 0; }
+.rio-activity h2 span { color: var(--portal-text-muted, #5f6c7e); font-size: 13px; font-weight: 400; }
+.rio-activity h3 { color: inherit; font-size: 14px; font-weight: 700; margin: 0; }
+.rio-activity__note, .rio-activity__source, .rio-activity__timestamps {
+    color: var(--portal-text-muted, #5f6c7e);
+    font-size: 12px;
+}
+.rio-activity__note { margin: 4px 0; }
+.rio-activity__source { flex: 0 0 auto; }
+.rio-activity__timestamps { display: flex; flex-wrap: wrap; gap: 2px 18px; margin: 7px 0 10px; }
+.rio-activity__status {
+    background: var(--portal-surface-accent, #e9e8f7);
+    border-left: 3px solid var(--portal-accent-primary, #6155b7);
+    color: var(--portal-text-secondary, #465264);
+    margin: 8px 0;
+    padding: 6px 10px;
+}
+.rio-activity__grid { align-items: start; display: grid; gap: 10px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rio-module {
+    background: var(--portal-surface-raised, #fafbfc);
+    border: 1px solid var(--portal-border-subtle, #d8dde4);
+    border-radius: 10px;
+    min-width: 0;
+    padding: 12px 14px;
+}
+.rio-module--wide { grid-column: 1 / -1; }
+.rio-module__empty { color: var(--portal-text-muted, #5f6c7e); font-size: 12px; margin: 10px 0 2px; }
+.rio-runs, .rio-counts, .rio-raids { list-style: none; margin: 8px 0 0; padding: 0; }
+.rio-runs--best { display: grid; column-gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.rio-run { border-top: 1px solid var(--portal-border-subtle, #d8dde4); min-width: 0; padding: 9px 0; }
+.rio-run:last-child { padding-bottom: 0; }
+.rio-run__heading { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 8px; }
+.rio-run__name { flex: 1 1 10em; min-width: 0; }
+.rio-run__name a { color: var(--portal-text, #242a33); text-decoration: none; text-underline-offset: 3px; }
+.rio-run__name a:hover { color: var(--portal-accent-primary, #6155b7); text-decoration: underline; }
+.rio-run__level { background: var(--portal-surface-muted, #e9edf2); border-radius: 4px; font-weight: 700; padding: 0 5px; }
+.rio-run__score { color: var(--portal-text-muted, #5f6c7e); font-size: 12px; }
+.rio-run__facts, .rio-counts__facts, .rio-count-totals {
+    color: var(--portal-text-muted, #5f6c7e);
+    display: flex;
+    flex-wrap: wrap;
+    font-size: 12px;
+    gap: 3px 12px;
+    margin-top: 5px;
+}
+.rio-run__facts > span, .rio-counts__facts > span { min-width: 0; }
+.rio-activity strong, .rio-activity time { font-variant-numeric: tabular-nums; }
+.rio-run__facts strong, .rio-counts__facts strong, .rio-count-totals strong { color: var(--portal-text-secondary, #465264); font-weight: 600; }
+.rio-run__result { color: var(--portal-text-secondary, #465264); }
+.rio-run__result--timed { color: #176850; }
+html.portal-theme-dark .rio-run__result--timed { color: #8ed6b8; }
+.rio-count-totals { margin: 9px 0 4px; }
+.rio-count-totals strong { font-size: 15px; }
+.rio-details { margin-top: 7px; }
+.rio-details summary {
+    border-radius: 4px;
+    color: var(--portal-accent-primary, #6155b7);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 6px 0;
+}
+.rio-details summary span { color: var(--portal-text-muted, #5f6c7e); margin-left: 6px; }
+.rio-details summary:hover { text-decoration: underline; text-underline-offset: 3px; }
+.rio-details summary:focus-visible, .rio-run__name a:focus-visible { outline: 2px solid var(--portal-accent-primary, #6155b7); outline-offset: 3px; }
+.rio-details .rio-runs, .rio-details .rio-counts { margin-top: 0; }
+.rio-counts li { border-top: 1px solid var(--portal-border-subtle, #d8dde4); padding: 8px 0; }
+.rio-counts li:last-child { padding-bottom: 0; }
+.rio-raids li { align-items: baseline; border-top: 1px solid var(--portal-border-subtle, #d8dde4); display: flex; flex-wrap: wrap; gap: 6px 18px; padding: 8px 0; }
+.rio-raids li:last-child { padding-bottom: 0; }
+.rio-raids__name { flex: 1 1 14em; min-width: 0; }
+.rio-raids__progress { display: flex; flex-wrap: wrap; gap: 5px 20px; }
+.rio-raids__progress span { color: var(--portal-text-muted, #5f6c7e); }
+.rio-raids__progress strong { color: var(--portal-text, #242a33); }
+@media (max-width: 760px) {
+    .rio-activity__grid, .rio-runs--best { grid-template-columns: minmax(0, 1fr); }
+    .rio-module { padding: 11px 12px; }
+    .rio-module--wide { grid-column: auto; }
+    .rio-details summary { padding: 10px 0; }
+    .rio-run__name a { display: inline-block; padding: 3px 0; }
+}
