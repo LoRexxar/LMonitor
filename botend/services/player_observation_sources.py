@@ -139,7 +139,7 @@ zero. This endpoint describes current scored runs, never historical score delta.
 
 
 class _ActivityOnlyCollector(ActivityCollector):
-    def _refresh_rosters(self, result, row, season):
+    def _refresh_rosters(self, result, row, season, player):
         # Observation discovery owns its own best+recent union and hard budget.
         return result
 

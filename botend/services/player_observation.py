@@ -162,7 +162,7 @@ def _context(player):
     identity = player_identity(player)
     if not identity or identity['character_name'] == 'anonymous':
         return None
-    season = SeasonMeta.objects.filter(pk=player.season_id, is_active=True).only('id', 'rio_season').first()
+    season = SeasonMeta.objects.filter(pk=player.season_id, is_active=True).only('id', 'rio_season', 'raid_encounters').first()
     if not season or not season.rio_season:
         return None
     # Re-read ranking eligibility; neither the caller's rank nor its spec gates a character.
@@ -186,7 +186,7 @@ def _context(player):
         return None
     activity = RaiderIOCharacterActivity.objects.filter(season_id=season.pk,
         identity_digest=activity_identity_digest(**identity)).only('id', 'season_id', 'identity_digest',
-        'payload_json', 'module_fetched_at', 'fetched_at', 'source_updated_at', 'status', 'last_error').first()
+        'payload_json', 'module_fetched_at', 'fetched_at', 'source_updated_at', 'status', 'last_error', 'scored_runs_json').first()
     return (season, identity, activity, candidate.class_name) if activity else None
 
 
@@ -601,8 +601,12 @@ def project_player_observation(player):
     if not context:
         return None
     row = PlayerObservationAnalysis.objects.filter(activity_id=context[2].pk).first()
-    if row is None:
+    if row is None and 'raid_first_kills' not in context[2].payload_json:
         return None
+    from botend.services.player_raid_observation import project_raid_observation
+    view['raid_judgement'] = project_raid_observation(context[2], context[0], context[1])
+    if row is None:
+        return view
     current = _build(context)
     view.update(coverage=current['coverage'], season_counts=current['season_counts'], limitations=current['limitations'], source_stamps=current['source_stamps'])
     if not row.result_json:

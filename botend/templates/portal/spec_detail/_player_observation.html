@@ -1,43 +1,32 @@
 {% if observation %}
 <section id="player-observation" class="player-observation" aria-labelledby="player-observation-title" data-status="{{ observation.status }}">
     <header class="player-observation__header">
-        <h2 id="player-observation-title">玩家观察 · AI 辅助</h2>
+        <h2 id="player-observation-title">玩家观察</h2>
         {% if observation.generated_at %}<time class="player-observation__meta" datetime="{{ observation.generated_at|date:'c' }}">{{ observation.generated_at|date:"m-d H:i" }}</time>{% endif %}
     </header>
     {% if observation.status == 'ready' or observation.status == 'stale' %}
-    {% if observation.status == 'stale' %}<p class="player-observation__meta">观察已过期，待更新。</p>{% endif %}
-    <ul class="player-observation__items player-observation__judgements" aria-label="三项判定">
-        {% for judgement in observation.display_judgements %}
-        <li class="player-observation__item" data-judgement="{{ judgement.code }}" data-supported="{{ judgement.supported|yesno:'true,false' }}">
-            <div class="player-observation__label-row">
-                <h3>{{ judgement.label }}</h3>
-                <strong>{{ judgement.value }}</strong>
-            </div>
-            {% if judgement.supported %}
-            <p class="player-observation__meta">依据：{{ judgement.reason }}</p>
-            {% if judgement.evidence %}
-            <details class="player-observation__details">
-                <summary>查看证据</summary>
-                <ul class="player-observation__evidence">
-                    {% for evidence in judgement.evidence %}
-                    <li><span>{{ evidence.text }}</span>
-                        {% if evidence.run_url %}<a href="{{ evidence.run_url }}" target="_blank" rel="noopener noreferrer">通关来源</a>{% endif %}
-                    </li>
-                    {% endfor %}
-                </ul>
-            </details>
-            {% endif %}
-            {% endif %}
-        </li>
-        {% empty %}<li class="player-observation__empty">证据不足</li>{% endfor %}
-    </ul>
-    {% if observation.has_supported_judgements %}<p class="player-observation__note">仅代表公开样本；当前成绩非历史加分。</p>{% endif %}
+    {% if observation.status == 'stale' %}<p class="player-observation__meta">大秘境观察已过期，待更新。</p>{% endif %}
     {% elif observation.status == 'pending' %}
-    <p class="player-observation__empty">尚未生成玩家观察。</p>
+    <p class="player-observation__empty">大秘境观察尚未生成。</p>
     {% elif observation.status == 'error' %}
-    <p class="player-observation__empty">玩家观察生成失败，暂不展示结论。</p>
+    <p class="player-observation__empty">大秘境观察生成失败，暂不展示其结论。</p>
     {% else %}
-    <p class="player-observation__empty">玩家观察暂不可用。</p>
+    <p class="player-observation__empty">大秘境观察暂不可用。</p>
+    {% endif %}
+    {% if observation.status == 'ready' or observation.status == 'stale' or observation.raid_judgement %}
+    <ul class="player-observation__items player-observation__judgements" aria-label="玩家判定">
+        {% if observation.status == 'ready' or observation.status == 'stale' %}
+        {% for judgement in observation.display_judgements %}
+        {% include 'portal/spec_detail/_player_observation_judgement.html' with judgement=judgement only %}
+        {% empty %}<li class="player-observation__empty">证据不足</li>{% endfor %}
+        {% endif %}
+        {% if observation.raid_judgement %}
+        {% include 'portal/spec_detail/_player_observation_judgement.html' with judgement=observation.raid_judgement only %}
+        {% endif %}
+    </ul>
+    {% endif %}
+    {% if observation.status == 'ready' or observation.status == 'stale' %}
+    {% if observation.has_supported_judgements %}<p class="player-observation__note">仅代表公开样本；当前成绩非历史加分。</p>{% endif %}
     {% endif %}
 </section>
 {% endif %}

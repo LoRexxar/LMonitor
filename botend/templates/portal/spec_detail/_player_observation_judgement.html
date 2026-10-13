@@ -1,0 +1,23 @@
+<li class="player-observation__item" data-judgement="{{ judgement.code }}" data-supported="{{ judgement.supported|yesno:'true,false' }}">
+    <div class="player-observation__label-row">
+        <h3>{{ judgement.label }}</h3>
+        <strong>{{ judgement.value }}</strong>
+    </div>
+    {% if judgement.supported %}
+    <p class="player-observation__meta">依据：{{ judgement.reason }}</p>
+    {% if judgement.evidence %}
+    <details class="player-observation__details">
+        <summary>查看证据</summary>
+        <ul class="player-observation__evidence">
+            {% for evidence in judgement.evidence %}
+            <li><span>{{ evidence.text }}</span>
+                {% if evidence.run_url %}<a href="{{ evidence.run_url }}" target="_blank" rel="noopener noreferrer">通关来源</a>{% endif %}
+                {% if evidence.source_url %}<a href="{{ evidence.source_url }}" target="_blank" rel="noopener noreferrer">首杀来源</a>{% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </details>
+    {% endif %}
+    {% if judgement.note %}<p class="player-observation__note">{{ judgement.note }}</p>{% endif %}
+    {% endif %}
+</li>
