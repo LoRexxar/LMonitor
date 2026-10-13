@@ -71,7 +71,7 @@ def _aggregate_gems(gear_items):
         for g in gems:
             if not isinstance(g, dict):
                 continue
-            name = g.get('name') or f"#{g.get('id', '?')}"
+            name = g.get('display_name') or g.get('name_zh') or g.get('name') or f"#{g.get('id', '?')}"
             if name not in gem_counter:
                 gem_counter[name] = {
                     'name': name,
@@ -86,17 +86,29 @@ def _aggregate_gems(gear_items):
 
 def _aggregate_enchants(gear_items):
     """从装备列表聚合附魔，按槽位展示"""
+    from botend.services.wow_item_display import load_enchantment_catalog
+    catalog = load_enchantment_catalog(
+        e.get('enchantment_id') for item in gear_items
+        for e in item.get('enchants_detail') or [] if isinstance(e, dict)
+    )
     result = []
     for item in gear_items:
         enchants = item.get('enchants_detail') or []
         for e in enchants:
             if not isinstance(e, dict):
                 continue
-            name = e.get('name') or f"#{e.get('id', '?')}"
+            enchantment_id = _coerce_item_id(e.get('enchantment_id'))
+            meta = catalog.get(enchantment_id) or {}
+            name = (e.get('display_name') or e.get('name_zh') or e.get('name')
+                    or meta.get('name_zh') or meta.get('name'))
+            if not name:
+                name = (f'附魔 #{enchantment_id}（名称待补全）' if enchantment_id
+                        else f"#{e['id']}" if e.get('id') else '附魔名称未提供')
             result.append({
                 'name': name,
-                'icon': _normalize_icon_name(e.get('icon', '')),
-                'id': e.get('id'),
+                'icon': _normalize_icon_name(e.get('icon') or meta.get('icon', '')),
+                'id': e.get('id') or meta.get('item_id'),
+                'enchantment_id': enchantment_id,
                 'slot': item.get('slot', ''),
             })
     return result

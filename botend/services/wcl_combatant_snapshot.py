@@ -104,13 +104,8 @@ def _enchant_catalog(events):
                 for field in ('permanentEnchant', 'temporaryEnchant'):
                     if eid := _positive_int(item.get(field)):
                         ids.add(eid)
-    matches = defaultdict(list)
-    if ids:
-        for row in WowItemSnapshot.objects.filter(enchantment_id__in=ids).values(
-                'enchantment_id', 'item_id', 'name', 'name_zh', 'icon'):
-            matches[row['enchantment_id']].append(row)
-    # A many-to-one enchantment/scroll mapping cannot prove a particular item.
-    return {eid: rows[0] for eid, rows in matches.items() if len(rows) == 1}
+    from botend.services.wow_item_display import load_enchantment_catalog
+    return load_enchantment_catalog(ids)
 
 
 def combatant_gear(gear, enchant_catalog=None):

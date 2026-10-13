@@ -1670,7 +1670,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 eff_idx = int(rec.get('effect_index') or 0)
             key = (sid, int(eff_idx or 0))
             e = {}
-            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura'), ('EffectMiscValue_0', 'misc_value')):
                 try:
                     e[nk] = int(str((row or {}).get(k) or '').strip() or '0')
                 except Exception:
@@ -1765,7 +1765,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         spell_id=sid,
                         effect_index=eff_idx,
                         effect=patch.get('effect'),
-                        effect_aura=patch.get('effect_aura'),
+                        effect_aura=patch.get('effect_aura'), misc_value=patch.get('misc_value'),
                         base_points=patch.get('base_points') or '',
                         coefficient=patch.get('coefficient') or '',
                         pvp_multiplier=patch.get('pvp_multiplier') or '',
@@ -1777,7 +1777,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 WowSpellEffectSnapshot,
                 eff_objs,
                 unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
-                update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+                update_fields=['effect', 'effect_aura', 'misc_value', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
             )
 
         WowSpellSnapshotState.objects.update_or_create(
@@ -2431,7 +2431,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         eff_idx = 0
                     key = (spell_id, eff_idx)
                     e = {}
-                    for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+                    for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura'), ('EffectMiscValue_0', 'misc_value')):
                         v = (meta or {}).get(k)
                         if v is None or v == '':
                             v = (after or {}).get(k)
@@ -2577,7 +2577,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         spell_id=spell_id,
                         effect_index=effect_index,
                         effect=patch.get('effect'),
-                        effect_aura=patch.get('effect_aura'),
+                        effect_aura=patch.get('effect_aura'), misc_value=patch.get('misc_value'),
                         base_points=patch.get('base_points') or '',
                         coefficient=patch.get('coefficient') or '',
                         pvp_multiplier=patch.get('pvp_multiplier') or '',
@@ -2592,6 +2592,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 update_fields=[
                     'effect',
                     'effect_aura',
+                    'misc_value',
                     'base_points',
                     'coefficient',
                     'pvp_multiplier',
@@ -5069,7 +5070,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 eff_idx = int(rec.get('effect_index') or 0)
             key = (sid, int(eff_idx or 0))
             e = {}
-            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura'), ('EffectMiscValue_0', 'misc_value')):
                 try:
                     e[nk] = int(str((row or {}).get(k) or '').strip() or '0')
                 except Exception:
@@ -5193,7 +5194,7 @@ class WagoSkillDiffMonitor(BaseScan):
                             spell_id=sid,
                             effect_index=eff_idx,
                             effect=patch.get('effect'),
-                            effect_aura=patch.get('effect_aura'),
+                            effect_aura=patch.get('effect_aura'), misc_value=patch.get('misc_value'),
                             base_points=patch.get('base_points') or '',
                             coefficient=patch.get('coefficient') or '',
                             pvp_multiplier=patch.get('pvp_multiplier') or '',
@@ -5205,7 +5206,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     WowSpellEffectSnapshot,
                     eff_objs,
                     unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
-                    update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+                    update_fields=['effect', 'effect_aura', 'misc_value', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
                 )
             WowSpellSnapshotState.objects.update_or_create(
                 branch=branch,
@@ -5274,7 +5275,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         spell_id=spell_id,
                         effect_index=effect_index,
                         effect=patch.get('effect'),
-                        effect_aura=patch.get('effect_aura'),
+                        effect_aura=patch.get('effect_aura'), misc_value=patch.get('misc_value'),
                         base_points=patch.get('base_points') or '',
                         coefficient=patch.get('coefficient') or '',
                         pvp_multiplier=patch.get('pvp_multiplier') or '',
@@ -5286,7 +5287,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 WowSpellEffectSnapshot,
                 eff_objs,
                 unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
-                update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+                update_fields=['effect', 'effect_aura', 'misc_value', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
             )
 
         WowSpellSnapshotState.objects.update_or_create(

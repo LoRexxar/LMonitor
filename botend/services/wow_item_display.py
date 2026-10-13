@@ -690,6 +690,42 @@ def load_item_display_metadata(item_ids):
     }
 
 
+def load_enchantment_catalog(enchantment_ids):
+    """Resolve explicit Enchantment IDs through the central item relation only."""
+    ids = {_positive_int(value) for value in enchantment_ids} - {0}
+    matches = {}
+    if ids:
+        for row in WowItemSnapshot.objects.filter(enchantment_id__in=ids).values(
+                'enchantment_id', 'item_id', 'name', 'name_zh', 'icon'):
+            matches.setdefault(row['enchantment_id'], []).append(row)
+    # Multiple scrolls cannot establish one particular item; never pick arbitrarily.
+    result = {eid: rows[0] for eid, rows in matches.items() if len(rows) == 1}
+    missing = ids - matches.keys()
+    if not missing:
+        return result
+
+    # Runes/oils may have no scroll item. Use the actual enchant effect relation,
+    # never a same-numbered ItemID/SpellID or an unrelated effect's misc value.
+    from botend.models import WowSpellEffectSnapshot, WowSpellSnapshot
+    spell_ids = {}
+    for row in WowSpellEffectSnapshot.objects.filter(
+            branch='wow', locale__in=['zhCN', 'enUS'], effect__in=[53, 54],
+            misc_value__in=missing).values('misc_value', 'spell_id'):
+        spell_ids.setdefault(row['misc_value'], set()).add(row['spell_id'])
+    unique = {eid: next(iter(sids)) for eid, sids in spell_ids.items() if len(sids) == 1}
+    names = {}
+    if unique:
+        for row in WowSpellSnapshot.objects.filter(
+                branch='wow', locale__in=['enUS', 'zhCN'], spell_id__in=unique.values()
+        ).order_by('locale').values('spell_id', 'name', 'name_zh', 'icon'):
+            if row['name_zh'] or row['name']:
+                names[row['spell_id']] = row
+    for eid, sid in unique.items():
+        if sid in names:
+            result[eid] = {**names[sid], 'enchantment_id': eid, 'item_id': None}
+    return result
+
+
 def refresh_localized_equipment(value, *, class_name='', spec_name=''):
     """批量刷新已修复物品的旧聚合展示，保留样本数、占比和装等。"""
     rows = []

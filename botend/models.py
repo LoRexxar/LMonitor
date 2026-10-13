@@ -690,6 +690,7 @@ class WowSpellEffectSnapshot(models.Model):
     effect_index = models.IntegerField(default=0)
     effect = models.IntegerField(null=True, blank=True)
     effect_aura = models.IntegerField(null=True, blank=True)
+    misc_value = models.IntegerField(null=True, blank=True, db_index=True, help_text="SpellEffect.EffectMiscValue_0；附魔效果关联 Enchantment ID")
     base_points = models.CharField(max_length=64, default="", blank=True)
     coefficient = models.CharField(max_length=64, default="", blank=True)
     pvp_multiplier = models.CharField(max_length=64, default="", blank=True)
