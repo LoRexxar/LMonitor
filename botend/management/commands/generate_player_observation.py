@@ -49,7 +49,8 @@ class Command(BaseCommand):
                 sources = None
                 if options['refresh_sources']:
                     from botend.services.player_observation_sources import refresh_observation_sources
-                    sources = refresh_observation_sources(player, max_runs=18, max_characters=40)
+                    sources = refresh_observation_sources(player, max_runs=18, max_characters=40,
+                                                          force=True, refresh_recent=True)
                     self.stdout.write(json.dumps({'phase': 'sources', 'result': sources}, ensure_ascii=False))
                     if sources.get('status') not in ('ready', 'fresh', 'partial'):
                         raise CommandError('来源补采已停止；本轮不继续调用AI。')

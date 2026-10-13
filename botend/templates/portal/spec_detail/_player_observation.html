@@ -25,6 +25,31 @@
         {% endfor %}
     </ul>
     {% endif %}
+    {% if observation.progression %}
+    <div class="player-observation__progression" data-progression="{{ observation.progression.status }}" aria-label="递进核验">
+        <h3>四人核心轮换 → 近期限时递进核验</h3>
+        <p class="player-observation__meta">{{ observation.progression.scope }}</p>
+        <ol class="player-observation__items">
+            {% for step in observation.progression.steps %}
+            <li class="player-observation__item">
+                <div class="player-observation__label-row"><h4>{{ step.label }}</h4><strong>{{ step.status }}</strong></div>
+                <p>{{ step.text }}</p>
+            </li>
+            {% endfor %}
+        </ol>
+        <details class="player-observation__details">
+            <summary>近期逐场核验与判定门槛</summary>
+            <p class="player-observation__meta">{{ observation.progression.method }}</p>
+            <ul class="player-observation__evidence">
+                {% for evidence in observation.progression.details %}
+                <li data-progressive-run="{{ evidence.run_id }}"><span>{{ evidence.text }}</span>
+                    <a href="{{ evidence.run_url }}" target="_blank" rel="noopener noreferrer">查看通关来源</a>
+                </li>
+                {% empty %}<li>没有可验证的近期核心阵容；缺失不视为没有发生。</li>{% endfor %}
+            </ul>
+        </details>
+    </div>
+    {% endif %}
     <p class="player-observation__meta player-observation__timestamp">生成时间 {% if observation.generated_at %}<time datetime="{{ observation.generated_at|date:'c' }}">{{ observation.generated_at|date:"Y-m-d H:i T" }}</time>{% else %}—{% endif %}</p>
     <div class="player-observation__coverage" aria-label="样本覆盖">
         <span>最佳记录 <strong>{{ observation.coverage.best_runs|default_if_none:"—" }}</strong></span>

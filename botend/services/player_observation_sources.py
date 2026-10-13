@@ -275,12 +275,15 @@ def _characters(facts, subject_digest):
                                     activity_identity_digest(**item['identity']))), len(conflicts)
 
 
-def refresh_observation_sources(player, *, max_runs=MAX_RUNS, max_characters=MAX_CHARACTERS, force=False):
+def refresh_observation_sources(player, *, max_runs=MAX_RUNS, max_characters=MAX_CHARACTERS, force=False, refresh_recent=False):
     """Return JSON-safe statuses. Explicit call only; no automatic monitor.
 
 Hard upper limits: one due activity request + max_runs unique roster requests +
 max_characters unique scored requests. force refreshes scored snapshots, NOT
 fresh ID-complete rosters, profile gear, privacy tombstones, or active backoffs.
+refresh_recent explicitly refreshes a successful activity snapshot even within
+TTL, so a progressive manual check sees the latest recent records. It never
+bypasses an activity error backoff or an active lease.
 """
     if type(max_runs) is not int or not 1 <= max_runs <= MAX_RUNS:
         raise ValueError('max_runs must be 1..18')
@@ -313,8 +316,8 @@ fresh ID-complete rosters, profile gear, privacy tombstones, or active backoffs.
     batch = _SourceBatch(result['api_budget'])
     try:
         activity_collector = _ActivityOnlyCollector(transport=batch.get, proxies=batch.proxies)
-        result['activity'] = activity_collector.refresh(primary, season, include_profile=False)
-        if batch.stop_event.is_set() or result['activity']['status'] == 'busy':
+        result['activity'] = activity_collector.refresh(primary, season, include_profile=False, refresh_ready=refresh_recent)
+        if batch.stop_event.is_set() or result['activity']['status'] not in ('ready', 'fresh', 'partial'):
             result['status'] = 'rate_limited' if batch.rate_limited else result['activity']['status']
             return result
         activity = RaiderIOCharacterActivity.objects.get(season=season, identity_digest=digest)

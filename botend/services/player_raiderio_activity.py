@@ -158,7 +158,7 @@ class ActivityCollector:
         from botend.services.raiderio_run_roster import RosterCollector
         self.roster_collector = RosterCollector(transport=self.transport, proxies=self.proxies)
 
-    def refresh(self, player, season, *, force=False, include_profile=False):
+    def refresh(self, player, season, *, force=False, include_profile=False, refresh_ready=False):
         if self.stopped:
             return {'status': 'batch_stopped'}
         identity = player_identity(player)
@@ -175,7 +175,7 @@ class ActivityCollector:
             if row.next_attempt_at and row.next_attempt_at > now:
                 if row.status == 'fetching':
                     deferred = 'busy'
-                elif not force:
+                elif not (force or (refresh_ready and row.status == 'ready')):
                     deferred = 'fresh' if row.status == 'ready' else 'backoff'
             # A profile refresh can reuse the transport even when activity is fresh;
             # only due activity fields are attached, never another activity request.
