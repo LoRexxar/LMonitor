@@ -159,7 +159,7 @@ payload.actors[0].actions = [{
             noncrit_contribution_by_target: {'2': 90}, crit_contribution_by_target: {'2': 160}}]},
 }];
 const expectedHtml = render();
-assert.match(expectedHtml, /伤害期望：基础期望（含暴击） 120 ≈ 120/);
+assert.match(expectedHtml, /基础期望（含暴击） 120 ≈ 120/);
 assert.doesNotMatch(expectedHtml, /80\.00%|20\.00%（暴击）/);
 assert.doesNotMatch(expectedHtml, /旧快照|公式未完整解析|证据不完整/);
 const criticalRow = structuredClone(payload.actors[0].actions[0]);
@@ -359,7 +359,8 @@ setExpectationComponents([
     expectationComponent(1988.3682, 0.2, 2.04),
     expectationComponent(994.1841, 0.2, 2.04),
 ]);
-assert.match(renderText(), /基础期望（含暴击） \(2401\.948786 \+ 1200\.974393\) ≈ 3602\.923178/);
+assert.match(renderText(), /基础期望（含暴击） 3602\.923178 ≈ 3602\.923178/);
+assert.match(renderText(), /基础归一化伤害：2982\.5523含暴击、暴伤的基础期望：3602\.923178/);
 assert.doesNotMatch(renderText(), /80\.00%|20\.00%（暴击）|证据不完整|公式未完整解析/);
 const sources = [{source_spell_id: 101, source_name: '加成甲'},
     {source_spell_id: 102, source_name: '<加成乙>'}];
@@ -367,7 +368,9 @@ setExpectationComponents([
     expectationComponent(100, 0.2, 2, [1.1, 1.1], sources),
     expectationComponent(50, 0.4, 2.5, [1.1, 1.1], sources),
 ]);
-assert.match(renderText(), /基础期望（含暴击） \(120 \+ 80\) × 1\.1（加成甲） × 1\.1（&lt;加成乙>） ≈ 242/);
+assert.match(renderText(), /基础归一化伤害：150含暴击、暴伤的基础期望：200/);
+assert.match(renderText(), /基础期望（含暴击） 200 × 1\.1（加成甲） × 1\.1（&lt;加成乙>） ≈ 242/);
+assert.doesNotMatch(render(), /伤害期望：|text-indigo-900/);
 assert.doesNotMatch(renderText(), /× 1\.21|公式未完整解析|证据不完整/);
 // 数值相同而来源不同的天赋，以及不同倍率，均不能提取成共同乘数。
 setExpectationComponents([
@@ -377,11 +380,13 @@ setExpectationComponents([
 ]);
 assert.match(renderText(), /\(基础期望（含暴击） 120 × 1\.1（加成甲）\) \+ \(基础期望（含暴击） 60 × 1\.1（&lt;加成乙>）\) \+ \(基础期望（含暴击） 60 × 1\.2\) ≈ 270/);
 setExpectationComponents([expectationComponent(100, 0, 2), expectationComponent(50, 1, 2.5)]);
-assert.match(renderText(), /基础期望（含暴击） \(100 \+ 125\) ≈ 225/);
+assert.match(renderText(), /基础期望（含暴击） 225 ≈ 225/);
 payload.actors[0].actions[0].product.final_normalized_damage = 226;
 assert.match(renderText(), /暴击期望证据不完整/);
+assert.match(renderText(), /含暴击、暴伤的基础期望：未解析/);
 assert.doesNotMatch(renderText(), /伤害期望：/);
 setExpectationComponents([expectationComponent(100, 0.2, 2, [0])]);
 assert.match(renderText(), /基础期望（含暴击） 100 × 0 ≈ 0/);
+assert.match(renderText(), /含暴击、暴伤的基础期望：未解析/);
 assert.doesNotMatch(renderText(), /NaN|Infinity|公式未完整解析|证据不完整/);
 console.log('多段暴击基础期望、独立天赋倍率、不同来源分组及零伤害边界通过。');

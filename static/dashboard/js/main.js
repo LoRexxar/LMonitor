@@ -6331,7 +6331,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const finalDamage = selectedFinalDamage;
         let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';
         if (hasFiniteSimcSkillDamageNumber(normalizedBase)) {
-            baseDamageCell = formatSimcSkillDamageNumber(normalizedBase);
+            baseDamageCell = `<div><span class="text-xs text-stone-500">基础归一化伤害：</span>${formatSimcSkillDamageFactor(normalizedBase)}</div>`;
         }
         let formulaCell = '<span class="text-stone-500">公式未解析</span>';
         const formulaComponents = Array.isArray(product.formula_components)
@@ -6343,6 +6343,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const formulaGroups = new Map();
         const formulaBaseLabel = includesCrit ? '基础期望（含暴击）' : '基础伤害';
         let expectationComplete = formulaComponents.length > 0;
+        let baseExpectationComplete = true;
         let expectedSum = 0;
         formulaComponents.forEach(component => {
             const baseDamage = component.base_damage;
@@ -6395,6 +6396,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 const group = formulaGroups.get(key) || {directTargetDamage: true, finalDamage: 0};
                 group.finalDamage += includesCrit ? expected : componentFinal;
                 formulaGroups.set(key, group);
+                baseExpectationComplete = false;
                 return;
             }
             const multiTargetFactor = targetCount !== '1'
@@ -6410,6 +6412,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             // 将已验证的暴击期望折入基础值，保留原有独立增伤与护甲乘区。
             // 多目标使用其实际贡献比例，不能套用单目标暴击率。
             const expectationFactor = includesCrit && componentFinal !== 0 ? expected / componentFinal : 1;
+            if (includesCrit && componentFinal === 0 && baseDamage !== 0) {
+                // 零伤害无法反推出暴击倍率，不补造基础期望。
+                baseExpectationComplete = false;
+            }
             const expectedBase = baseDamage * expectationFactor;
             const displayedDamage = includesCrit ? expected : componentFinal;
             const explainedExpectation = explainedDamage * expectationFactor;
@@ -6421,7 +6427,6 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const factorKey = JSON.stringify([runtimeFactors, runtimeFactorSources, multiTargetFactor, armorMultiplier]);
             const group = formulaGroups.get(factorKey) || {
                 baseDamage: 0,
-                baseTerms: [],
                 finalDamage: 0,
                 runtimeFactors,
                 runtimeFactorSources,
@@ -6429,7 +6434,6 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 armorMultiplier,
             };
             group.baseDamage += expectedBase;
-            group.baseTerms.push(expectedBase);
             group.finalDamage += displayedDamage;
             formulaGroups.set(factorKey, group);
         });
@@ -6449,9 +6453,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 : '';
             const armorFormula = group.armorMultiplier !== null && group.armorMultiplier !== 1
                 ? ` × ${formatSimcSkillDamageFactor(group.armorMultiplier)}（护甲）` : '';
-            const baseFormula = includesCrit && group.baseTerms.length > 1
-                ? `(${group.baseTerms.map(formatSimcSkillDamageFactor).join(' + ')})`
-                : formatSimcSkillDamageFactor(group.baseDamage);
+            const baseFormula = formatSimcSkillDamageFactor(group.baseDamage);
             const term = `${formulaBaseLabel} ${baseFormula}${factorFormula}${armorFormula}${multiTargetFormula}`;
             return formulaGroups.size > 1 ? `(${term})` : term;
         });
@@ -6463,8 +6465,14 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         expectationComplete = expectationComplete && hasFiniteSimcSkillDamageNumber(finalDamage)
             && Number.isFinite(expectedSum)
             && Math.abs(expectedSum - finalDamage) <= 1e-8 * Math.max(1, Math.abs(finalDamage));
+        if (includesCrit) {
+            const baseExpectation = Array.from(formulaGroups.values()).reduce((total, group) => total + group.baseDamage, 0);
+            const baseExpectationText = formulaComplete && expectationComplete && baseExpectationComplete
+                && Number.isFinite(baseExpectation) ? formatSimcSkillDamageFactor(baseExpectation) : '未解析';
+            baseDamageCell += `<div class="mt-1"><span class="text-xs text-stone-500">含暴击、暴伤的基础期望：</span>${baseExpectationText}</div>`;
+        }
         if (formulaComplete && (!includesCrit || expectationComplete) && formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
-            formulaCell = `${includesCrit ? '伤害期望：' : ''}${formulaTerms.join(' + ')} ≈ ${formatSimcSkillDamageFactor(finalDamage)}`;
+            formulaCell = `${formulaTerms.join(' + ')} ≈ ${formatSimcSkillDamageFactor(finalDamage)}`;
         } else if (!formulaComplete && formulaComponents.length) {
             formulaCell = '<span class="text-amber-800">公式未完整解析：DBC 基础值与运行时乘区未能解释全部伤害</span>';
         }
