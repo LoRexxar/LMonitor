@@ -220,6 +220,17 @@ class PlayerObservationTests(TestCase):
             with self.assertRaisesRegex(InvalidResult, 'invalid_conclusion'):
                 _validate(json.dumps(result), data)
 
+    def test_single_json_fence_is_transport_format_not_free_text(self):
+        from botend.services.player_observation import generate_observation, InvalidResult, _validate
+        data = self.evidence()
+        raw = self.engine().send_message(json.dumps(data), max_tokens=1800, thinking_type='disabled')
+        wrapped = '```json\n' + raw + '\n```'
+        self.assertEqual(_validate(wrapped, data), _validate(raw, data))
+        self.assertEqual(generate_observation(self.player, engine=Mock(send_message=Mock(return_value=wrapped)))['status'], 'ready')
+        for bad in ('说明\n' + wrapped, wrapped + '\n更多文字', '```python\n' + raw + '\n```', wrapped + wrapped):
+            with self.subTest(raw=bad), self.assertRaises(InvalidResult):
+                _validate(bad, data)
+
     def test_free_text_fabrications_rejected(self):
         from botend.services.player_observation import InvalidResult, _validate
         data = self.evidence()

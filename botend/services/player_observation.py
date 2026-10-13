@@ -354,6 +354,11 @@ def _object(pairs):
 def _validate(raw, evidence):
     if not isinstance(raw, str) or len(raw) > 16000:
         raise InvalidResult('invalid_schema')
+    # Some project models wrap an otherwise valid JSON response in one fence.
+    # Strip only that exact transport wrapper; never search prose for JSON.
+    raw = raw.strip()
+    if raw.startswith('```json\n') and raw.endswith('\n```'):
+        raw = raw[len('```json\n'):-len('\n```')]
     try:
         result = json.loads(raw, object_pairs_hook=_object, parse_constant=lambda _: (_ for _ in ()).throw(InvalidResult('invalid_schema')))
     except (ValueError, TypeError, RecursionError):
