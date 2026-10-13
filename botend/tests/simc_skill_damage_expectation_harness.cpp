@@ -8,11 +8,13 @@
 enum result_amount_type { DMG_DIRECT, DMG_OVER_TIME };
 enum { RESULT_HIT, RESULT_CRIT, CACHE_ATTACK_CRIT_CHANCE, CACHE_SPELL_CRIT_CHANCE };
 struct dbc_t { double all_crit_base(int, int) { return 0.05; } };
+struct action_t;
 struct player_t {
   dbc_t data, *dbc = &data;
   int type = 1, invalidations = 0;
   double all_crit_multiplier = 1, spell_crit_multiplier = 1, spell_crit_flat = 0;
   struct {
+    double armor_coeff = 3430;
     struct { double crit_rating = 500; } stats;
     double attack_crit_chance = 0.15, spell_crit_chance = 0.10;
   } current;
@@ -23,6 +25,8 @@ struct player_t {
   }
 };
 struct action_state_t {
+  action_t* action = nullptr;
+  double target_armor = 0;
   inline static int releases = 0;
   player_t* target = nullptr;
   unsigned n_targets = 0, chain_target = 0;
@@ -32,11 +36,15 @@ struct action_state_t {
   static void release(action_state_t* state) { ++releases; delete state; }
 };
 struct action_t {
+  player_t owner, *player = &owner;
+  double armor = 0;
   bool may_crit = true, tick_may_crit = true, fail = false;
   int snapshots = 0, direct_calls = 0, tick_calls = 0, bonus_calls = 0;
   double extra_chance = 0;
   action_state_t* get_state() { return new action_state_t; }
   void snapshot_state(action_state_t* state, result_amount_type) {
+    state->action = this;
+    state->target_armor = armor;
     ++snapshots;
     state->chance = (state->chain_target == 0 ? 0.2 : 0.8) + extra_chance;
   }
@@ -115,4 +123,29 @@ int main() {
   try { skill_damage_target_amount(action, &player, 1, 0, false); }
   catch (const std::runtime_error&) { thrown = true; }
   assert(thrown && action_state_t::releases == 7);
+
+  action.fail = false;
+  action.extra_chance = 0;
+  action.armor = 1470;
+  auto physical = skill_damage_target_amount(action, &player, 1, 0, false);
+  close(physical.hit, 70); close(physical.crit, 140);
+  close(physical.noncrit_contribution + physical.crit_contribution, 84);
+  // 周期分量即便传入残留护甲快照，也不能被护甲削减。
+  auto bleed = skill_damage_target_amount(action, &player, 1, 0, true);
+  close(bleed.hit, 10); close(bleed.crit, 20);
+  // 法术或忽略护甲技能的原生快照中 target_armor 为零。
+  action.armor = 0;
+  auto ignored = skill_damage_target_amount(action, &player, 1, 0, false);
+  close(ignored.hit, 100); close(ignored.crit, 200);
+  // 破甲改变护甲值后必须重算，不能固定乘 0.7。
+  action.armor = 735;
+  auto reduced = skill_damage_target_amount(action, &player, 1, 0, false);
+  close(reduced.hit, 100 * 3430.0 / 4165.0);
+  // 极高护甲沿用原生 85% 上限。
+  action.armor = 1e9;
+  close(skill_damage_target_amount(action, &player, 1, 0, false).hit, 15);
+  action.may_crit = false;
+  action.armor = 1470;
+  auto no_crit = skill_damage_target_amount(action, &player, 1, 0, false);
+  close(no_crit.hit, 70); close(no_crit.crit, 70); close(no_crit.crit_contribution, 0);
 }

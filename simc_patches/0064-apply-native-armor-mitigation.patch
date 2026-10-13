@@ -1,0 +1,49 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -596,2 +596,3 @@
+     double native_base_damage = 0.0;
++    double armor_multiplier = 1.0;
+     bool single_target_eligible = true;
+@@ -750,2 +751,15 @@
+   return result;
++}
++
++// 复用原生护甲公式；动作快照已处理伤害类型、忽略护甲及穿甲。
++// 周期伤害与 player_t::target_mitigation 一致，不进入护甲结算。
++double skill_damage_armor_multiplier( const action_state_t* state, bool periodic )
++{
++  if ( periodic || state->target_armor == 0.0 ) return 1.0;
++  const double armor = state->target_armor;
++  const double coefficient = state->action->player->current.armor_coeff;
++  if ( !std::isfinite( armor ) || armor < 0.0 ||
++       !std::isfinite( coefficient ) || coefficient <= 0.0 )
++    throw std::runtime_error( "护甲结算参数无效" );
++  return 1.0 - util::calculate_armor_resist( armor, coefficient );
+ }
+@@ -834,2 +848,5 @@
+     }
++    const double armor_multiplier = skill_damage_armor_multiplier( state, periodic );
++    value.hit *= armor_multiplier;
++    value.crit *= armor_multiplier;
+     value.noncrit_contribution = value.hit * ( 1.0 - chance );
+@@ -981,2 +998,5 @@
+         amount.direct_amount.crit = amount.direct_amount.hit;
++      amount.direct_amount.armor_multiplier = skill_damage_armor_multiplier( state, false );
++      amount.direct_amount.hit *= amount.direct_amount.armor_multiplier;
++      amount.direct_amount.crit *= amount.direct_amount.armor_multiplier;
+       amount.direct_amount.expected = amount.direct_amount.hit * ( 1.0 - amount.direct_amount.crit_chance ) +
+@@ -2148,2 +2168,3 @@
+     out << ",\"native_base_damage\":"; write_skill_damage_json_number( out, c.native_base_damage );
++    out << ",\"armor_multiplier\":"; write_skill_damage_json_number( out, c.armor_multiplier );
+     out << ",\"runtime_layers\":{";
+@@ -2420,3 +2441,3 @@
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":22,\"simc_revision\":";
++  out << "{\"schema_version\":23,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+@@ -2547,3 +2568,3 @@
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":22,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":23,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );

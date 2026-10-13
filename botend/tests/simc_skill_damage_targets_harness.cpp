@@ -10,7 +10,11 @@
 template<class T, class U> T as(U value) { return static_cast<T>(value); }
 enum result_amount_type { DMG_DIRECT, DMG_OVER_TIME };
 enum { RESULT_HIT, RESULT_CRIT };
-struct player_t { double multiplier = 1, chance = 0.2; };
+struct player_t {
+  double multiplier = 1, chance = 0.2, armor = 0;
+  struct { double armor_coeff = 3430; } current;
+};
+struct action_t;
 struct target_vector {
   std::vector<player_t*> values;
   const auto& data() const { return values; }
@@ -21,6 +25,8 @@ struct sim_t {
   target_vector target_non_sleeping_list;
 };
 struct action_state_t {
+  action_t* action = nullptr;
+  double target_armor = 0;
   player_t* target = nullptr;
   unsigned n_targets = 0, chain_target = 0;
   int result = RESULT_HIT;
@@ -35,6 +41,7 @@ struct action_t {
   bool may_crit = true, tick_may_crit = true;
   int snapshots = 0;
   bool secondary_only = false;
+  player_t owner, *player = &owner;
   struct { bool is_valid = true; } target_cache;
   int n_targets() { return 3; }
   std::vector<player_t*> target_list() {
@@ -45,7 +52,9 @@ struct action_t {
     return targets;
   }
   action_state_t* get_state() { return new action_state_t; }
-  void snapshot_state(action_state_t*, result_amount_type) {
+  void snapshot_state(action_state_t* state, result_amount_type) {
+    state->action = this;
+    state->target_armor = state->target->armor;
     assert(sim->active_enemies == sim->desired_targets);
     ++snapshots;
   }
@@ -116,4 +125,14 @@ int main() {
   assert(thrown && sim.active_enemies == 1 && sim.desired_targets == 1);
   assert(sim.target_non_sleeping_list.values == std::vector<player_t*>{&targets[0]});
   assert(!action.target_cache.is_valid);
+
+  // 各目标护甲独立结算；主目标有破甲，副目标保留标准护甲。
+  action.fail_target = nullptr;
+  targets[0].armor = 735;
+  targets[1].armor = 1470;
+  targets[2].armor = 3430;
+  skill_damage_populate_target_scenarios(action, amount);
+  close(amount.direct_amount.target_expected[2], 320 * 3430.0 / 4165.0 + 84);
+  close(amount.direct_amount.target_expected[5], 320 * 3430.0 / 4165.0 + 84 + 60);
+  close(amount.tick_amount.target_expected[5], 56);
 }

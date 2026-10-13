@@ -303,3 +303,24 @@ payload.actors[0].global_skill_effects.push(structuredClone(payload.actors[0].gl
 render();
 assert.equal((element('simc-skill-damage-global-modifiers').innerHTML.match(/>类别效果（2层）</g) || []).length, 2);
 console.log('全局卡优先类别明细、保留条件/单位，缺值诚实降级且无前端去重。');
+
+// 物理护甲独立显示，不能藏入基础值或暴击期望，也不能给旧数据补造 30%。
+payload.actors[0].actions = [{spell_id:1, display_name:'护甲测试', variant:{}, product:{
+    damage_metric:'critical_expectation', normalized_base_damage:100,
+    final_normalized_damage:84, final_normalized_damage_by_target:{'1':84,'2':168},
+    formula_components:[{base_damage:100, runtime_factors:[], armor_multiplier:0.7,
+        noncrit_damage:70, crit_damage:140, crit_chance:0.2,
+        noncrit_contribution:56, crit_contribution:28, final_damage:84,
+        noncrit_damage_by_target:{'1':70,'2':140}, crit_damage_by_target:{'1':140,'2':280},
+        noncrit_contribution_by_target:{'1':56,'2':112}, crit_contribution_by_target:{'1':28,'2':56},
+        final_damage_by_target:{'1':84,'2':168}}],
+}}];
+target.dataset.targetCount='1';
+assert.match(renderText(), /基础伤害 100 × 0\.7（护甲） ≈ 70/);
+assert.doesNotMatch(renderText(), /公式未完整解析|未计护甲/);
+target.dataset.targetCount='2';
+assert.match(renderText(), /× 0\.7（护甲） × 2（多目标） ≈ 140/);
+assert.doesNotMatch(renderText(), /公式未完整解析/);
+delete payload.actors[0].actions[0].product.formula_components[0].armor_multiplier;
+assert.match(renderText(), /旧版数据，未计护甲/);
+console.log('护甲因子、单目标与多目标公式以及旧版数据提示通过。');

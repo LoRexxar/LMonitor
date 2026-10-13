@@ -4532,6 +4532,18 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         action['scenarios'] = []
 
         direct = action['baseline']['direct']
+        for invalid_armor in (None, 0, -0.1, 1.1, float('nan'), True):
+            direct['armor_multiplier'] = invalid_armor
+            with self.assertRaisesRegex(ValueError, '护甲结算因子'):
+                service._validate_export(payload)
+        direct.pop('armor_multiplier')
+        with self.assertRaisesRegex(ValueError, '护甲结算因子'):
+            service._validate_export(payload)
+        direct['armor_multiplier'] = 1.0
+        action['baseline']['tick'] = {**direct, 'armor_multiplier': 0.7}
+        with self.assertRaisesRegex(ValueError, '周期伤害必须为 1'):
+            service._validate_export(payload)
+        action['baseline']['tick'] = None
         target_hit = direct.pop('target_hit')
         with self.assertRaisesRegex(ValueError, '多目标伤害'):
             service._validate_export(with_target_crit_evidence(payload))

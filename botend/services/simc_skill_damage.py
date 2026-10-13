@@ -865,6 +865,7 @@ _AMOUNT_COMPONENT_FIELDS = (
 )
 _AMOUNT_COMPONENT_SIGNATURE_FIELDS = (
     *_AMOUNT_COMPONENT_FIELDS,
+    'armor_multiplier',
     'crit_chance_uncapped', 'can_crit', 'target_hit', 'base_damage_layers', 'runtime_layers',
     'target_crit', 'target_expected', 'target_noncrit_contribution', 'target_crit_contribution',
 )
@@ -1109,8 +1110,8 @@ def _uniform_amount_ratios(reference, selected):
             return None
         if left['damage_equivalent_count'] <= 0 or right['damage_equivalent_count'] <= 0:
             return None
-        for field in ('crit_multiplier', 'crit_chance', 'damage_equivalent_count'):
-            if not _fact_equal(left[field], right[field]):
+        for field in ('crit_multiplier', 'crit_chance', 'damage_equivalent_count', 'armor_multiplier'):
+            if not _fact_equal(left.get(field), right.get(field)):
                 return None
         for field in ('hit', 'crit', 'expected'):
             left_value = float(left[field])
@@ -4084,7 +4085,11 @@ def project_skill_damage_product_payload(payload):
                     # 原生目标过滤器明确排除了单目标场景，分量仍可对副目标造成伤害。
                     weighted_final = weighted_hit = weighted_crit = 0.0
                     runtime_factors.append(0.0)
-                runtime_product = math.prod(runtime_factors)
+                # 护甲属于目标结算，不参与全局增伤剥离；旧导出缺少该证据时保留旧口径。
+                armor_multiplier = component.get('armor_multiplier')
+                runtime_product = math.prod(runtime_factors) * (
+                    armor_multiplier if _finite_number(armor_multiplier) else 1.0
+                )
                 native_base = component.get('native_base_damage')
                 formula_base = native_base * count if _finite_number(native_base) else weighted_base
                 formula_complete = math.isclose(
@@ -4142,6 +4147,8 @@ def project_skill_damage_product_payload(payload):
                     'noncrit_contribution': weighted_hit * (1.0 - chance),
                     'crit_contribution': weighted_crit * chance,
                 }
+                if _finite_number(armor_multiplier):
+                    formula_component['armor_multiplier'] = armor_multiplier
                 for field, source in (
                     ('noncrit_damage_by_target', 'current_talent_damage_by_target'),
                     ('crit_damage_by_target', 'crit_damage_by_target'),
@@ -4232,8 +4239,8 @@ def project_global_skill_effects_for_display(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 22
-    DATASET_SCHEMA_REVISION = 45
+    EXPORTER_SCHEMA_REVISION = 23
+    DATASET_SCHEMA_REVISION = 46
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
     WIRE_SCHEMA_REVISION = 1
@@ -4873,6 +4880,10 @@ class SimcSkillDamageSnapshotService:
                     raise ValueError('exporter 数学期望字段无效。')
                 if 'native_base_damage' in component and not _finite_number(component['native_base_damage']):
                     raise ValueError('exporter 原生基础伤害必须为有限数值。')
+                armor_multiplier = component.get('armor_multiplier')
+                if (not _finite_number(armor_multiplier) or not 0 < armor_multiplier <= 1
+                        or (component_name == 'tick' and armor_multiplier != 1)):
+                    raise ValueError('exporter 护甲结算因子缺失或无效；周期伤害必须为 1。')
                 if not isinstance(component.get('can_crit'), bool):
                     raise ValueError('exporter can_crit 必须为布尔值。')
                 base_damage_layers = component.get('base_damage_layers')

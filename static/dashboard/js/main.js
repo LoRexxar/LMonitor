@@ -6354,13 +6354,16 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const runtimeFactors = Array.isArray(component.runtime_factors)
                 ? component.runtime_factors.filter(hasFiniteSimcSkillDamageNumber)
                 : [];
+            const armorMultiplier = hasFiniteSimcSkillDamageNumber(component.armor_multiplier)
+                ? component.armor_multiplier : null;
+            const armorFactor = armorMultiplier === null ? 1 : armorMultiplier;
             if (!hasFiniteSimcSkillDamageNumber(baseDamage)
                 || !hasFiniteSimcSkillDamageNumber(componentFinal)) {
                 formulaComplete = false;
                 return;
             }
             // 单目标为零时不能相除求倍率，直接列出该目标数下的实算分量。
-            const explainedSingle = runtimeFactors.reduce((value, factor) => value * factor, baseDamage);
+            const explainedSingle = runtimeFactors.reduce((value, factor) => value * factor, baseDamage) * armorFactor;
             if (targetCount !== '1' && componentSingleTarget === 0 && componentFinal !== 0
                 && Number.isFinite(explainedSingle) && Math.abs(explainedSingle) <= 1e-8) {
                 const key = 'direct-target-damage';
@@ -6374,17 +6377,18 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 && componentSingleTarget !== 0
                 ? componentFinal / componentSingleTarget
                 : 1;
-            const explainedDamage = runtimeFactors.reduce((value, factor) => value * factor, baseDamage) * multiTargetFactor;
+            const explainedDamage = explainedSingle * multiTargetFactor;
             if (!Number.isFinite(explainedDamage)
                 || Math.abs(explainedDamage - componentFinal) > 1e-8 * Math.max(1, Math.abs(componentFinal))) {
                 formulaComplete = false;
             }
-            const factorKey = JSON.stringify([runtimeFactors, multiTargetFactor]);
+            const factorKey = JSON.stringify([runtimeFactors, multiTargetFactor, armorMultiplier]);
             const group = formulaGroups.get(factorKey) || {
                 baseDamage: 0,
                 finalDamage: 0,
                 runtimeFactors,
                 multiTargetFactor,
+                armorMultiplier,
             };
             group.baseDamage += baseDamage;
             group.finalDamage += componentFinal;
@@ -6400,7 +6404,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const multiTargetFormula = targetCount !== '1'
                 ? ` × ${formatSimcSkillDamageFactor(group.multiTargetFactor)}（多目标）`
                 : '';
-            const term = `${formulaBaseLabel} ${formatSimcSkillDamageFactor(group.baseDamage)}${factorFormula}${multiTargetFormula}`;
+            const armorFormula = group.armorMultiplier !== null && group.armorMultiplier !== 1
+                ? ` × ${formatSimcSkillDamageFactor(group.armorMultiplier)}（护甲）` : '';
+            const term = `${formulaBaseLabel} ${formatSimcSkillDamageFactor(group.baseDamage)}${factorFormula}${armorFormula}${multiTargetFormula}`;
             return formulaGroups.size > 1 ? `(${term})` : term;
         });
         const hitTotal = Array.from(formulaGroups.values()).reduce((total, group) => total + group.finalDamage, 0);
@@ -6408,6 +6414,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             formulaCell = `${formulaTerms.join(' + ')} ≈ ${formatSimcSkillDamageFactor(includesCrit ? hitTotal : finalDamage)}`;
         } else if (!formulaComplete && formulaComponents.length) {
             formulaCell = '<span class="text-amber-800">公式未完整解析：DBC 基础值与运行时乘区未能解释全部伤害</span>';
+        }
+        if (formulaComponents.some(component => !hasFiniteSimcSkillDamageNumber(component.armor_multiplier))) {
+            formulaCell += ' <span class="text-amber-800">旧版数据，未计护甲</span>';
         }
         if (includesCrit) {
             const expectationTerms = [];

@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -13,11 +14,32 @@ from botend.services.simc_skill_damage import (
 )
 
 
+def native_armor_snippets(source):
+    """同时提取补丁助手与原生公式，避免测试替身另写护甲算法。"""
+    engine = Path(os.environ['SIMC_SKILL_DAMAGE_SOURCE']).parent
+    util_source = (engine / 'util/util.cpp').read_text(encoding='utf-8')
+    cap = re.search(r'constexpr auto MAX_ARMOR_DAMAGE_REDUCTION = [^;]+;',
+                    (engine / 'sc_enums.hpp').read_text(encoding='utf-8')).group()
+    snippets = []
+    for text, marker in ((util_source, 'double calculate_armor_resist('),
+                         (source, 'double skill_damage_armor_multiplier(')):
+        start = text.index(marker)
+        end = text.index('{', start) + 1
+        depth = 1
+        while depth:
+            depth += (text[end] == '{') - (text[end] == '}')
+            end += 1
+        snippets.append(text[start:end])
+    # 原生默认参数位于头文件；此处只恢复声明默认值。
+    snippets[0] = snippets[0].replace('double multipler )', 'double multipler = 1.0 )')
+    return [cap + '\nnamespace util { using std::clamp;\n' + snippets[0] + '\n}', snippets[1]]
+
+
 class SkillDamageNativeExpectationTests(SimpleTestCase):
     @skipUnless(os.environ.get('SIMC_SKILL_DAMAGE_SOURCE') and shutil.which('g++'), '需要指定已应用补丁的 SimC 源文件及 g++')
     def test_actual_cpp_preserves_extra_crit_and_weights_each_target(self):
         source = Path(os.environ['SIMC_SKILL_DAMAGE_SOURCE']).read_text(encoding='utf-8')
-        snippets = []
+        snippets = native_armor_snippets(source)
         for marker, suffix in (
             ('void skill_damage_normalize_crit(', ''),
             ('struct skill_damage_target_amount_t', ';'),
@@ -43,7 +65,7 @@ class SkillDamageNativeExpectationTests(SimpleTestCase):
     @skipUnless(os.environ.get('SIMC_SKILL_DAMAGE_SOURCE') and shutil.which('g++'), '需要指定已应用补丁的 SimC 源文件及 g++')
     def test_actual_cpp_uses_independent_targets_and_restores_scenario_state(self):
         source = Path(os.environ['SIMC_SKILL_DAMAGE_SOURCE']).read_text(encoding='utf-8')
-        snippets = []
+        snippets = native_armor_snippets(source)
         for marker, suffix in (
             ('struct skill_damage_target_amount_t', ';'),
             ('skill_damage_target_amount_t skill_damage_target_amount(', ''),
@@ -83,6 +105,8 @@ def with_target_crit_evidence(payload):
                     continue
                 for kind in ('direct', 'tick'):
                     component = amount.get(kind)
+                    if isinstance(component, dict):
+                        component.setdefault('armor_multiplier', 1.0)
                     if not isinstance(component, dict) or not isinstance(component.get('target_hit'), dict):
                         continue
                     if isinstance(component.get('runtime_layers'), dict):
@@ -127,6 +151,36 @@ def project(*actions):
 
 
 class SkillDamageExpectationTests(SimpleTestCase):
+    def test_armor_preserves_base_and_explains_post_mitigation_expectation(self):
+        action = skill(70, 140, 0.2)
+        component = action['baseline']['direct']
+        component.update(native_base_damage=100, armor_multiplier=0.7)
+        action['dbc_scaling']['direct'].update(normalized_base=100, attack_power_coefficient=1)
+        row = project(action)
+        self.assertEqual(row['product']['normalized_base_damage'], 100)
+        self.assertEqual(row['product']['final_normalized_damage'], 84)
+        self.assertEqual(row['product']['final_normalized_damage_by_target']['5'], 420)
+        formula = row['product']['formula_components'][0]
+        self.assertEqual(formula['base_damage'], 100)
+        self.assertEqual(formula['armor_multiplier'], 0.7)
+        self.assertEqual(formula['runtime_factors'], [])
+        self.assertNotIn('status', formula)
+
+    def test_legacy_amount_is_not_silently_multiplied_by_fixed_armor(self):
+        action = skill()
+        action['baseline']['direct'].pop('armor_multiplier')
+        row = project(action)
+        self.assertEqual(row['product']['final_normalized_damage'], 120)
+        self.assertNotIn('armor_multiplier', row['product']['formula_components'][0])
+
+    def test_physical_and_bleed_components_keep_independent_armor(self):
+        direct = skill(70, 140, 0.2)
+        direct['baseline']['direct'].update(native_base_damage=100, armor_multiplier=0.7)
+        bleed = skill(10, 20, 0.2, count=4, component='tick', token='bleed')
+        row = project(direct, bleed)
+        self.assertEqual(row['product']['final_normalized_damage'], 132)
+        self.assertEqual([part['armor_multiplier'] for part in row['product']['formula_components']], [0.7, 1])
+
     def test_twenty_percent_crit_changes_final_damage_to_expectation(self):
         row = project(skill())
         self.assertEqual(row['product']['final_normalized_damage'], 120)
