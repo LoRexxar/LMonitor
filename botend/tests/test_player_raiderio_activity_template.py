@@ -125,6 +125,21 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
                         self.assertEqual(rendered["links"], [])
                 self.assertNotIn("<script>", html)
 
+    def test_best_run_single_line_summary_drops_redundant_facts_only_for_best(self):
+        run = self.activity()['best_runs']['rows'][0]
+        run.update(roster_status='ready', roster=self.roster())
+        template = 'portal/spec_detail/_player_raiderio_run.html'
+        compact = render_to_string(template, {'run': run, 'show_roster': True})
+        recent = render_to_string(template, {'run': run, 'show_roster': False})
+        for label in ('升级', '当场专精', '职责 ', '完成时间'):
+            self.assertNotIn(label, self.text(compact))
+            self.assertIn(label, self.text(recent))
+        for value in ('测试副本', '+12', '321.5', '已限时', '29:08'):
+            self.assertIn(value, self.text(compact))
+        self.assertIn('class="rio-run rio-run--compact"', compact)
+        self.assertEqual(len(RosterMembers(compact).members), 5)
+        self.assertEqual(len(RosterMembers(recent).members), 0)
+
     def test_roster_missing_states_are_explicit_and_recent_has_no_placeholder(self):
         for status, roster, message in (
             ("pending", [], "阵容待采集"),
@@ -199,6 +214,8 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
         activity = self.activity()
         zero = activity["best_runs"]["rows"][0]
         zero.update(score=0, upgrades=0, timed=False, spec_label="", role_label="")
+        # Full metadata remains a recent-run contract, not the compact best row.
+        activity["recent_runs"]["rows"].append(deepcopy(zero))
         unknown = activity["recent_runs"]["rows"][0]
         unknown.update(score=None, upgrades=None, timed=None, completed_at=None,
                        dungeon_name='<script>alert("name")</script>', spec_label='<img src=x onerror="bad">')

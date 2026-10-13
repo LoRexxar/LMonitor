@@ -43,7 +43,7 @@
 .rio-module--wide { grid-column: 1 / -1; }
 .rio-module__empty { color: var(--portal-text-muted, #5f6c7e); font-size: 12px; margin: 10px 0 2px; }
 .rio-runs, .rio-counts, .rio-raids { list-style: none; margin: 8px 0 0; padding: 0; }
-.rio-activity .rio-runs--best { display: grid; grid-template-columns: minmax(0, 1fr); }
+.rio-activity .rio-runs--best { overflow-x: auto; scrollbar-width: thin; }
 .rio-run { border-top: 1px solid var(--portal-border-subtle, #d8dde4); min-width: 0; padding: 9px 0; }
 .rio-run:last-child { padding-bottom: 0; }
 .rio-run__heading { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 8px; }
@@ -114,6 +114,17 @@ html.portal-theme-dark .rio-run__result--timed { color: #8ed6b8; }
 .rio-activity .rio-roster__name a { color: inherit; text-decoration: none; text-underline-offset: 3px; }
 .rio-activity .rio-roster__name a:hover { color: var(--portal-accent-primary, #6155b7); text-decoration: underline; }
 .rio-activity .rio-roster__name a:focus-visible { outline: 2px solid var(--portal-accent-primary, #6155b7); outline-offset: 2px; }
+/* One complete best-run row; narrow screens scroll rather than lose members. */
+.rio-activity .rio-run--compact { display: flex; align-items: center; gap: 12px; min-width: max-content; white-space: nowrap; }
+.rio-activity .rio-run--compact .rio-run__heading { flex-wrap: nowrap; align-items: center; flex-shrink: 0; }
+.rio-activity .rio-run--compact .rio-run__name { flex: 0 0 9em; }
+.rio-activity .rio-run--compact .rio-run__level { min-width: 2.8em; text-align: center; }
+.rio-activity .rio-run--compact .rio-run__score { min-width: 5.5em; }
+.rio-activity .rio-run--compact .rio-run__facts { flex-wrap: nowrap; margin: 0; flex-shrink: 0; }
+.rio-activity .rio-run--compact .rio-roster { flex-wrap: nowrap; margin: 0; position: relative; }
+.rio-activity .rio-run--compact .rio-roster__title { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.rio-activity .rio-run--compact .rio-roster__members { flex-wrap: nowrap; }
+.rio-activity .rio-run--compact .rio-roster__member { flex-shrink: 0; }
 @media (max-width: 760px) {
     .rio-activity__grid, .rio-runs--best { grid-template-columns: minmax(0, 1fr); }
     .rio-module { padding: 11px 12px; }
