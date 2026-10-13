@@ -67,6 +67,17 @@ delete payload.actors[0].global_skill_effects[0].hero_subtree_id;
 element('simc-skill-damage-hero-tree').value = '60';
 render();
 const globalHtml = element('simc-skill-damage-global-modifiers').innerHTML;
+// 同倍率的不同来源必须分别显示，来源名称按普通文本转义。
+const savedFormula = payload.actors[0].actions[0].product;
+payload.actors[0].actions[0].product = {
+    normalized_base_damage: 100, final_normalized_damage: 121,
+    formula_components: [{base_damage: 100, runtime_factors: [1.1, 1.1], final_damage: 121,
+        runtime_factor_sources: [{source_spell_id: 101, source_name: '加成甲'},
+            {source_spell_id: 102, source_name: '<加成乙>'}]}],
+};
+assert.match(renderText(), /100 × 1\.1（加成甲） × 1\.1（&lt;加成乙>）/);
+payload.actors[0].actions[0].product = savedFormula;
+render();
 assert.match(element('simc-skill-damage-body').innerHTML, /data-wow-item-tooltip="攻击目标并造成伤害。"/);
 assert.match(globalHtml, /data-wow-item-tooltip="提高你造成的伤害。"/);
 assert.match(globalHtml, /全局伤害效果/);

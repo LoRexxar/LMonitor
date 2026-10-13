@@ -1,0 +1,100 @@
+diff --git a/engine/skill_damage_scope_contract.inc b/engine/skill_damage_scope_contract.inc
+--- a/engine/skill_damage_scope_contract.inc
++++ b/engine/skill_damage_scope_contract.inc
+@@ -2,8 +2,8 @@
+ #pragma once
+ constexpr const char* skill_damage_scope_revision = "1d3897ef4adefc8e47a43989eed81b6618ce7bef";
+ constexpr const char* skill_damage_scope_build = "12.1.0.69814";
+-constexpr const char* skill_damage_scope_sha256 = "e7465835bfbd44a9c5a4596da445ed293479a87bd4c79c2b27aeeb7af821eede";
+-struct skill_damage_scope_effect_t { unsigned spell, index, id, family; bool global; };
++constexpr const char* skill_damage_scope_sha256 = "befcf0f1660b93bffcde6ed8b968ee0ad4ebddddc40d51d7fa879975e6e46d0c";
++struct skill_damage_scope_effect_t { unsigned spell, index, id, family; bool global; bool shared = false; };
+ constexpr skill_damage_scope_effect_t skill_damage_scope_effects[] = {
+   {772, 1, 310, 4, false},
+   {845, 1, 357, 4, false},
+@@ -1737,6 +1737,7 @@
+   {362980, 1, 902053, 224, true},
+   {1238855, 1, 1236176, 107, true},
+   {1238855, 2, 1236177, 107, true},
++  {1126, 1, 404, 7, true, true},
+ };
+ struct skill_damage_scope_parent_t { unsigned parent, spell, index; };
+ constexpr skill_damage_scope_parent_t skill_damage_scope_parents[] = {
+@@ -2111,7 +2112,7 @@
+   {1301410, false, true},
+   {1308647, false, true},
+ };
+-struct skill_damage_scope_display_t { unsigned family; const char* specialization; const char* json; };
++struct skill_damage_scope_display_t { unsigned family; const char* specialization; const char* json; bool shared = false; };
+ constexpr skill_damage_scope_display_t skill_damage_scope_display[] = {
+   {224, "devastation", "{\"effect_id\":\"reviewed_scope:\u5929\u8d4b:370845:115635\",\"source_type\":\"reviewed_scope\",\"source_name\":\"\u7ec7\u6cd5\u8005\u7edf\u5fa1\",\"display_name\":\"\u7ec7\u6cd5\u8005\u7edf\u5fa1\",\"source_spell_ids\":[370845],\"specializations\":[\"devastation\"],\"source_class\":\"evoker\",\"source_kind\":\"talent\",\"scope_evidence\":\"reviewed_dbc_native_effect_scope\",\"excluded_before_probe\":true,\"partial_state\":false,\"projections\":[],\"global_components\":[{\"spell_id\":370845,\"effect_index\":1,\"effect_id\":982398}],\"local_components\":[],\"local_skill_bindings\":[],\"lower_skill_policy\":\"exclude_global_keep_explicit_local\",\"local_scope_evidence\":null,\"effect_details\":[{\"label\":\"\u66b4\u51fb\u4f24\u5bb3\",\"source_spell_id\":370845,\"effect_index\":1,\"evidence\":\"dbc_native\",\"base_value\":30,\"conditional\":false,\"value_kind\":\"percent\"}],\"runtime_condition\":\"\u542f\u7528\u76f8\u5e94\u5929\u8d4b\u65f6\"}"},
+   {224, "devastation", "{\"effect_id\":\"reviewed_scope:\u5929\u8d4b:371038:115641\",\"source_type\":\"reviewed_scope\",\"source_name\":\"\u950b\u9510\u4fb5\u653b\",\"display_name\":\"\u950b\u9510\u4fb5\u653b\",\"source_spell_ids\":[371038],\"specializations\":[\"devastation\"],\"source_class\":\"evoker\",\"source_kind\":\"talent\",\"scope_evidence\":\"reviewed_dbc_native_effect_scope\",\"excluded_before_probe\":true,\"partial_state\":true,\"projections\":[],\"global_components\":[{\"spell_id\":371038,\"effect_index\":1,\"effect_id\":982697}],\"local_components\":[{\"spell_id\":371038,\"effect_index\":2,\"effect_id\":1300036}],\"local_skill_bindings\":[{\"spell_id\":371038,\"effect_index\":2,\"effect_id\":1300036,\"skill_spell_ids\":[444089],\"evidence\":\"DBC \u90e8\u5206\u6280\u80fd\u9009\u62e9\u5668\"}],\"lower_skill_policy\":\"exclude_global_keep_explicit_local\",\"local_scope_evidence\":\"\u5df2\u89e3\u6790\u6280\u80fd\u5e94\u7528\u5173\u7cfb\",\"effect_details\":[{\"label\":\"\u66b4\u51fb\u7387\",\"source_spell_id\":371038,\"effect_index\":1,\"evidence\":\"dbc_native\",\"base_value\":2,\"conditional\":false,\"value_kind\":\"percentage_points\"}],\"runtime_condition\":\"\u542f\u7528\u76f8\u5e94\u5929\u8d4b\u65f6\"}"},
+@@ -2439,4 +2440,5 @@
+   {53, "windwalker", "{\"effect_id\":\"mastery_aura:115636:269\",\"source_type\":\"reviewed_scope\",\"source_kind\":\"passive\",\"source_name\":\"Mastery: Combo Strikes\",\"display_name\":\"\u8e0f\u98ce\u6b66\u50e7\u7cbe\u901a\",\"source_spell_ids\":[115636],\"source_class\":\"monk\",\"specializations\":[\"windwalker\"],\"scope_evidence\":\"reviewed_dbc_native_effect_scope\",\"excluded_before_probe\":true,\"partial_state\":false,\"projections\":[],\"global_components\":[{\"spell_id\":115636,\"effect_index\":1,\"effect_id\":129554}],\"local_components\":[],\"local_skill_bindings\":[],\"lower_skill_policy\":\"exclude_global_keep_explicit_local\",\"effect_details\":[{\"label\":\"\u8fde\u51fb\u4f24\u5bb3\",\"source_spell_id\":115636,\"effect_index\":1,\"base_value\":0.0,\"coefficient\":0.0232875,\"value_kind\":\"mastery\",\"conditional\":true,\"evidence\":\"dbc_native\",\"normalized_mastery_percent\":50.0,\"runtime_condition\":\"\u89e6\u53d1\u8fde\u51fb\u65f6\"}],\"runtime_condition\":\"\u5f53\u524d\u4e13\u7cbe\u7cbe\u901a\uff1b\u6309\u4e0b\u5217\u7c7b\u522b\u4e0e\u6761\u4ef6\u751f\u6548\"}"},
+   {224, "devastation", "{\"effect_id\":\"mastery_aura:362980:1467\",\"source_type\":\"reviewed_scope\",\"source_kind\":\"passive\",\"source_name\":\"Mastery: Giantkiller\",\"display_name\":\"\u6e6e\u706d\u5524\u9b54\u5e08\u7cbe\u901a\",\"source_spell_ids\":[362980],\"source_class\":\"evoker\",\"specializations\":[\"devastation\"],\"scope_evidence\":\"reviewed_dbc_native_effect_scope\",\"excluded_before_probe\":true,\"partial_state\":false,\"projections\":[],\"global_components\":[{\"spell_id\":362980,\"effect_index\":1,\"effect_id\":902053}],\"local_components\":[],\"local_skill_bindings\":[],\"lower_skill_policy\":\"exclude_global_keep_explicit_local\",\"effect_details\":[{\"label\":\"\u76ee\u6807\u8840\u91cf\u4f24\u5bb3\u52a0\u6210\",\"source_spell_id\":362980,\"effect_index\":1,\"base_value\":0.0,\"coefficient\":0.015,\"value_kind\":\"mastery\",\"conditional\":true,\"evidence\":\"dbc_native\",\"normalized_mastery_percent\":50.0,\"runtime_condition\":\"\u76ee\u6807\u6ee1\u8840\u65f6\uff1b\u968f\u76ee\u6807\u8840\u91cf\u964d\u4f4e\uff0c\u6700\u4f4e\u4e3a\u6240\u5217\u52a0\u6210\u768430%\"}],\"runtime_condition\":\"\u5f53\u524d\u4e13\u7cbe\u7cbe\u901a\uff1b\u6309\u4e0b\u5217\u7c7b\u522b\u4e0e\u6761\u4ef6\u751f\u6548\"}"},
+   {107, "devourer", "{\"effect_id\":\"mastery_aura:1238855:1480\",\"source_type\":\"reviewed_scope\",\"source_kind\":\"passive\",\"source_name\":\"Mastery: Monster Within\",\"display_name\":\"\u566c\u706d\u6076\u9b54\u730e\u624b\u7cbe\u901a\",\"source_spell_ids\":[1238855],\"source_class\":\"demonhunter\",\"specializations\":[\"devourer\"],\"scope_evidence\":\"reviewed_dbc_native_effect_scope\",\"excluded_before_probe\":true,\"partial_state\":false,\"projections\":[],\"global_components\":[{\"spell_id\":1238855,\"effect_index\":1,\"effect_id\":1236176},{\"spell_id\":1238855,\"effect_index\":2,\"effect_id\":1236177}],\"local_components\":[],\"local_skill_bindings\":[],\"lower_skill_policy\":\"exclude_global_keep_explicit_local\",\"effect_details\":[{\"label\":\"\u541e\u566c\u4e13\u7cbe\u901a\u7528\u4f24\u5bb3\uff1a\u76f4\u63a5\u4f24\u5bb3\",\"source_spell_id\":1238855,\"effect_index\":1,\"base_value\":0.0,\"coefficient\":0.01,\"value_kind\":\"mastery\",\"conditional\":false,\"evidence\":\"dbc_native\",\"normalized_mastery_percent\":50.0},{\"label\":\"\u541e\u566c\u4e13\u7cbe\u901a\u7528\u4f24\u5bb3\uff1a\u5468\u671f\u4f24\u5bb3\",\"source_spell_id\":1238855,\"effect_index\":2,\"base_value\":0.0,\"coefficient\":0.01,\"value_kind\":\"mastery\",\"conditional\":false,\"evidence\":\"dbc_native\",\"normalized_mastery_percent\":50.0}],\"runtime_condition\":\"\u5f53\u524d\u4e13\u7cbe\u7cbe\u901a\uff1b\u6309\u4e0b\u5217\u7c7b\u522b\u4e0e\u6761\u4ef6\u751f\u6548\"}"},
++  {7, "", "{\"effect_id\":\"shared_aura:1126\",\"source_type\":\"reviewed_scope\",\"source_kind\":\"passive\",\"source_name\":\"Mark of the Wild\",\"display_name\":\"\u91ce\u6027\u5370\u8bb0\",\"source_spell_ids\":[1126],\"scope_evidence\":\"reviewed_dbc_native_effect_scope\",\"excluded_before_probe\":true,\"partial_state\":false,\"global_components\":[{\"spell_id\":1126,\"effect_index\":1,\"effect_id\":404}],\"local_components\":[],\"local_skill_bindings\":[],\"projections\":[],\"lower_skill_policy\":\"exclude_global_keep_explicit_local\",\"runtime_condition\":\"\u56e2\u961f\u5149\u73af\uff1b\u8986\u76d6\u6240\u6709\u804c\u4e1a\",\"effect_details\":[{\"label\":\"\u5168\u80fd\",\"source_spell_id\":1126,\"effect_index\":1,\"base_value\":3,\"value_kind\":\"percentage_points\",\"conditional\":false,\"evidence\":\"dbc_native\"}]}", true},
+ };
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1646,7 +1646,7 @@
+   const auto family = dbc::get_class_spell_family(player->type);
+   // 所有本职业已复核分量都在初始化前处理，包含非天赋父节点的自身 Buff。
+   for ( const auto& fact : skill_damage_scope_effects )
+-    if ( fact.global && fact.family == static_cast<unsigned>(family) )
++    if ( fact.global && (fact.shared || fact.family == static_cast<unsigned>(family)) )
+       player->exclude_skill_damage_effect(dbc::find_spell(player->sim, fact.spell)->effectN(fact.index));
+ }
+ 
+@@ -1914,6 +1914,15 @@
+ // Each probe runs on the normally initialized actor. Fatal action bugs are
+ // isolated by the Django exporter runner at actor-process granularity; never
+ // fork from inside SimC.
++// 归一化全能为零，避免默认团队属性或装备全能改变技能比较标尺。
++void skill_damage_normalize_versatility( player_t& player )
++{
++  player.current.versatility -= player.cache.damage_versatility();
++  player.invalidate_cache(CACHE_VERSATILITY);
++  if (std::abs(player.cache.damage_versatility()) > 1.0e-9)
++    throw std::runtime_error("Skill damage versatility normalization failed");
++}
++
+ void skill_damage_normalize_crit( player_t& player )
+ {
+   // 基础暴击固定 20%，保留职业/天赋的暴击修正；装备暴击等级不进入归一化。
+@@ -1979,6 +1988,7 @@
+     condition.buff->current_value = condition.buff->default_value;
+     condition.buff->invalidate_cache();
+   }
++  skill_damage_normalize_versatility(*action.player);
+   const auto amount = skill_damage_runtime_amount( action );
+   for ( const auto& condition : conditions )
+   {
+@@ -2611,7 +2621,7 @@
+   out << "{\"schema_version\":26,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+-         "\"crit_percent\":20,\"mastery_percent\":50}";
++         "\"crit_percent\":20,\"mastery_percent\":50,\"versatility_percent\":0}";
+   out << ",\"probe\":\"runtime_snapshot_probe\",\"state_isolation\":\"actor_process_recursive_isolation\",\"actors\":[";
+   bool first_actor = true;
+   for ( player_t* player : sim.player_no_pet_list )
+@@ -2636,7 +2646,7 @@
+     bool first_reviewed = true;
+     const auto player_spec = util::tokenize_fn( dbc::specialization_string( player->specialization() ) );
+     for (const auto& fact : skill_damage_scope_display)
+-      if (fact.family == static_cast<unsigned>(dbc::get_class_spell_family(player->type)) &&
++      if ((fact.shared || fact.family == static_cast<unsigned>(dbc::get_class_spell_family(player->type))) &&
+           (!fact.specialization[ 0 ] || player_spec == fact.specialization))
+       { if (!first_reviewed) out << ','; first_reviewed=false; out << fact.json; }
+     out << ']';
+@@ -2645,7 +2655,7 @@
+     bool first_scope = true;
+     for ( const auto& fact : skill_damage_scope_effects )
+     {
+-      if (!fact.global || fact.family != static_cast<unsigned>(dbc::get_class_spell_family(player->type))) continue;
++      if (!fact.global || (!fact.shared && fact.family != static_cast<unsigned>(dbc::get_class_spell_family(player->type)))) continue;
+       const auto& actual = dbc::find_spell(player, fact.spell)->effectN(fact.index);
+       if (actual.base_value() != 0.0 || (actual.type() == E_SCHOOL_DAMAGE &&
+           (actual.sp_coeff() != 0.0 || actual.ap_coeff() != 0.0 || actual.m_coefficient() != 0.0)))

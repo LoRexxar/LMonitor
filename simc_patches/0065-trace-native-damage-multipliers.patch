@@ -1,0 +1,4340 @@
+diff --git a/engine/action/absorb.cpp b/engine/action/absorb.cpp
+--- a/engine/action/absorb.cpp
++++ b/engine/action/absorb.cpp
+@@ -84,17 +84,17 @@
+     }));
+ }
+ 
+-double absorb_t::composite_da_multiplier(const action_state_t* s) const
++damage_multiplier_t absorb_t::composite_da_multiplier(const action_state_t* s) const
+ {
+-  double m = action_multiplier() * action_da_multiplier() *
++  damage_multiplier_t m = action_multiplier() * action_da_multiplier() *
+     player->composite_player_absorb_multiplier(s);
+ 
+   return m;
+ }
+ 
+-double absorb_t::composite_ta_multiplier(const action_state_t* s) const
++damage_multiplier_t absorb_t::composite_ta_multiplier(const action_state_t* s) const
+ {
+-  double m = action_multiplier() * action_ta_multiplier() *
++  damage_multiplier_t m = action_multiplier() * action_ta_multiplier() *
+     player->composite_player_absorb_multiplier(s);
+ 
+   return m;
+diff --git a/engine/action/absorb.hpp b/engine/action/absorb.hpp
+--- a/engine/action/absorb.hpp
++++ b/engine/action/absorb.hpp
+@@ -29,8 +29,8 @@
+   size_t available_targets(std::vector< player_t* >&) const override;
+   int num_targets() const override;
+ 
+-  double composite_da_multiplier(const action_state_t* s) const override;
+-  double composite_ta_multiplier(const action_state_t* s) const override;
++  damage_multiplier_t composite_da_multiplier(const action_state_t* s) const override;
++  damage_multiplier_t composite_ta_multiplier(const action_state_t* s) const override;
+   double composite_versatility(const action_state_t* state) const override;
+   double composite_target_multiplier( player_t* target ) const override;
+ };
+\ No newline at end of file
+diff --git a/engine/action/action.cpp b/engine/action/action.cpp
+--- a/engine/action/action.cpp
++++ b/engine/action/action.cpp
+@@ -781,11 +781,11 @@
+   // handle parsed base damage modifiers
+   auto base_dd_mod = player->get_passive_value( spell_data, "direct_damage" );
+   base_dd_adder += base_dd_mod[ 1 ];
+-  base_dd_multiplier *= base_dd_mod[ 2 ];
++  base_dd_multiplier *= player->get_passive_damage_multiplier(spell_data, "direct_damage");
+ 
+   auto base_td_mod = player->get_passive_value( spell_data, "periodic_damage" );
+   base_td_adder += base_td_mod[ 1 ];
+-  base_td_multiplier *= base_td_mod[ 2 ];
++  base_td_multiplier *= player->get_passive_damage_multiplier(spell_data, "periodic_damage");
+ 
+   // handle parsed crit modifiers
+   auto crit_mod = player->get_passive_value( spell_data, "crit" );
+@@ -4982,12 +4982,12 @@
+   return player_school_multiplier;
+ }
+ 
+-double action_t::composite_da_multiplier( const action_state_t* ) const
++damage_multiplier_t action_t::composite_da_multiplier( const action_state_t* ) const
+ {
+   return action_multiplier() * action_da_multiplier();
+ }
+ 
+-double action_t::composite_ta_multiplier( const action_state_t* ) const
++damage_multiplier_t action_t::composite_ta_multiplier( const action_state_t* ) const
+ {
+   return action_multiplier() * action_ta_multiplier();
+ }
+diff --git a/engine/action/action.hpp b/engine/action/action.hpp
+--- a/engine/action/action.hpp
++++ b/engine/action/action.hpp
+@@ -6,6 +6,7 @@
+ #pragma once
+ 
+ #include "config.hpp"
++#include "action/damage_multiplier.hpp"
+ 
+ #include "action/action_callback.hpp"
+ #include "dbc/data_definitions.hh"
+@@ -382,13 +383,13 @@
+   double base_td;
+ 
+   /// base direct damage multiplier
+-  double base_dd_multiplier;
++  damage_multiplier_t base_dd_multiplier;
+ 
+   /// base tick damage multiplier
+-  double base_td_multiplier;
++  damage_multiplier_t base_td_multiplier;
+ 
+   /// base damage multiplier (direct and tick damage)
+-  double base_multiplier;
++  damage_multiplier_t base_multiplier;
+ 
+   double base_hit;
+   double base_crit;
+@@ -902,13 +903,13 @@
+   virtual double radius_() const
+   { return radius; }
+ 
+-  virtual double action_multiplier() const
++  virtual damage_multiplier_t action_multiplier() const
+   { return base_multiplier; }
+ 
+-  virtual double action_da_multiplier() const
++  virtual damage_multiplier_t action_da_multiplier() const
+   { return base_dd_multiplier; }
+ 
+-  virtual double action_ta_multiplier() const
++  virtual damage_multiplier_t action_ta_multiplier() const
+   { return base_td_multiplier; }
+ 
+   virtual double composite_hit() const
+@@ -971,10 +972,10 @@
+   virtual double composite_player_multiplier( const action_state_t* ) const;
+ 
+   /// List-based direct damage multipliers that specifically affect the action
+-  virtual double composite_da_multiplier( const action_state_t* ) const;
++  virtual damage_multiplier_t composite_da_multiplier( const action_state_t* ) const;
+ 
+   /// List-based tick damage multipliers that specifically affect the action
+-  virtual double composite_ta_multiplier( const action_state_t* ) const;
++  virtual damage_multiplier_t composite_ta_multiplier( const action_state_t* ) const;
+ 
+   // Multiplier for Rolling Periodic DoTs
+   virtual double composite_rolling_ta_multiplier( const action_state_t* ) const;
+diff --git a/engine/action/action_state.hpp b/engine/action/action_state.hpp
+--- a/engine/action/action_state.hpp
++++ b/engine/action/action_state.hpp
+@@ -9,6 +9,7 @@
+ #include <string>
+ #include <iosfwd>
+ #include "config.hpp"
++#include "action/damage_multiplier.hpp"
+ #include "util/generic.hpp"
+ #include "sc_enums.hpp"
+ #include "dbc/data_enums.hh"
+@@ -47,8 +48,8 @@
+   double          spell_power;
+   // Snapshotted multipliers
+   double          versatility;
+-  double          da_multiplier;
+-  double          ta_multiplier;
++  damage_multiplier_t da_multiplier;
++  damage_multiplier_t ta_multiplier;
+   double          rolling_ta_multiplier;
+   double          player_multiplier;
+   double          versus_multiplier;
+@@ -87,13 +88,13 @@
+   virtual double composite_versatility() const
+   { return versatility; }
+ 
+-  virtual double composite_da_multiplier() const
++  virtual damage_multiplier_t composite_da_multiplier() const
+   {
+     return da_multiplier * player_multiplier * versus_multiplier * persistent_multiplier * target_da_multiplier *
+            versatility * pet_multiplier * target_pet_multiplier;
+   }
+ 
+-  virtual double composite_ta_multiplier() const
++  virtual damage_multiplier_t composite_ta_multiplier() const
+   {
+     return ta_multiplier * player_multiplier * versus_multiplier * persistent_multiplier * target_ta_multiplier *
+            versatility * pet_multiplier * target_pet_multiplier;
+diff --git a/engine/action/attack.cpp b/engine/action/attack.cpp
+--- a/engine/action/attack.cpp
++++ b/engine/action/attack.cpp
+@@ -135,9 +135,9 @@
+   return da;
+ }
+ 
+-double attack_t::action_multiplier() const
+-{
+-  double mul = action_t::action_multiplier();
++damage_multiplier_t attack_t::action_multiplier() const
++{
++  damage_multiplier_t mul = action_t::action_multiplier();
+ 
+   if ( !special )
+   {
+diff --git a/engine/action/attack.hpp b/engine/action/attack.hpp
+--- a/engine/action/attack.hpp
++++ b/engine/action/attack.hpp
+@@ -31,7 +31,7 @@
+   double dodge_chance( double /* expertise */, player_t* t ) const override;
+ 
+   double bonus_da( const action_state_t* ) const override;
+-  double action_multiplier() const override;
++  damage_multiplier_t action_multiplier() const override;
+ 
+   double composite_target_multiplier( player_t* ) const override;
+   double composite_hit() const override;
+diff --git a/engine/action/damage_multiplier.hpp b/engine/action/damage_multiplier.hpp
+new file mode 100644
+--- /dev/null
++++ b/engine/action/damage_multiplier.hpp
+@@ -0,0 +1,61 @@
++// 伤害乘数随实际运算传播；赋值覆盖会同时丢弃旧来源，禁止按最终数值反推。
++#pragma once
++#include <vector>
++#include <string>
++#include <utility>
++#include <type_traits>
++
++struct damage_factor_t
++{
++  double factor;
++  unsigned spell_id = 0, effect_index = 0;
++  std::string name;
++};
++
++struct damage_multiplier_t
++{
++  inline static thread_local bool enabled = false;
++  double value = 1.0;
++  std::vector<damage_factor_t> factors;
++  damage_multiplier_t() = default;
++  damage_multiplier_t(double v) : value(v)
++  { if (enabled && v != 1.0) factors.push_back({v, 0, 0, ""}); }
++  operator double() const { return value; }
++  damage_multiplier_t& operator*=(const damage_multiplier_t& rhs)
++  {
++    if (this == &rhs) { auto copy = rhs; return *this *= copy; }
++    value *= rhs.value;
++    factors.insert(factors.end(), rhs.factors.begin(), rhs.factors.end());
++    return *this;
++  }
++  damage_multiplier_t& operator/=(const damage_multiplier_t& rhs)
++  {
++    if (this == &rhs) { auto copy = rhs; return *this /= copy; }
++    value /= rhs.value;
++    for (auto factor : rhs.factors) { factor.factor = 1.0 / factor.factor; factors.push_back(factor); }
++    return *this;
++  }
++  // 加法不是独立乘区，保留数值但不伪造可乘的来源。
++  damage_multiplier_t& operator+=(double rhs) { *this = damage_multiplier_t(value + rhs); return *this; }
++  damage_multiplier_t& operator-=(double rhs) { *this = damage_multiplier_t(value - rhs); return *this; }
++  friend damage_multiplier_t operator*(damage_multiplier_t a, const damage_multiplier_t& b) { return a *= b; }
++  template<class T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
++  friend damage_multiplier_t operator*(damage_multiplier_t a, T b) { return a *= damage_multiplier_t(b); }
++  template<class T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
++  friend damage_multiplier_t operator*(T a, damage_multiplier_t b) { return damage_multiplier_t(a) *= b; }
++  friend damage_multiplier_t operator/(damage_multiplier_t a, const damage_multiplier_t& b) { return a /= b; }
++  template<class T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
++  friend damage_multiplier_t operator/(damage_multiplier_t a, T b) { return a /= damage_multiplier_t(b); }
++  template<class T, std::enable_if_t<std::is_arithmetic_v<T>, int> = 0>
++  friend damage_multiplier_t operator/(T a, damage_multiplier_t b) { return damage_multiplier_t(a) /= b; }
++};
++
++inline damage_multiplier_t damage_factor(double value, unsigned spell, unsigned index, const char* name)
++{
++  damage_multiplier_t result(value);
++  if (!result.factors.empty()) result.factors[0] = {value, spell, index, name};
++  return result;
++}
++
++template<class T, std::enable_if_t<std::is_same_v<T, damage_multiplier_t>, int> = 0>
++inline double format_as(const T& value) { return value.value; }
+diff --git a/engine/action/dot.cpp b/engine/action/dot.cpp
+--- a/engine/action/dot.cpp
++++ b/engine/action/dot.cpp
+@@ -562,7 +562,7 @@
+   {
+     return make_dot_expr( "dot_multiplier",
+       []( dot_t* dot ) {
+-        return dot->state ? dot->state->ta_multiplier : 0;
++        return dot->state ? static_cast<double>(dot->state->ta_multiplier) : 0;
+       } );
+   }
+   else if ( name_str == "pmultiplier" )
+diff --git a/engine/action/heal.cpp b/engine/action/heal.cpp
+--- a/engine/action/heal.cpp
++++ b/engine/action/heal.cpp
+@@ -83,17 +83,17 @@
+   record_healing = player->record_healing();
+ }
+ 
+-double heal_t::composite_da_multiplier( const action_state_t* s ) const
+-{
+-  double m = action_multiplier() * action_da_multiplier() * player->cache.player_heal_multiplier( s ) *
++damage_multiplier_t heal_t::composite_da_multiplier( const action_state_t* s ) const
++{
++  damage_multiplier_t m = action_multiplier() * action_da_multiplier() * player->cache.player_heal_multiplier( s ) *
+              player->composite_player_dh_multiplier( get_school() );
+ 
+   return m;
+ }
+ 
+-double heal_t::composite_ta_multiplier( const action_state_t* s ) const
+-{
+-  double m = action_multiplier() * action_ta_multiplier() * player->cache.player_heal_multiplier( s ) *
++damage_multiplier_t heal_t::composite_ta_multiplier( const action_state_t* s ) const
++{
++  damage_multiplier_t m = action_multiplier() * action_ta_multiplier() * player->cache.player_heal_multiplier( s ) *
+              player->composite_player_th_multiplier( get_school() );
+ 
+   return m;
+diff --git a/engine/action/heal.hpp b/engine/action/heal.hpp
+--- a/engine/action/heal.hpp
++++ b/engine/action/heal.hpp
+@@ -46,8 +46,8 @@
+   double calculate_direct_amount( action_state_t* state ) const override;
+   double calculate_tick_amount( action_state_t* state, double dmg_multiplier ) const override;
+   int num_targets() const override;
+-  double composite_da_multiplier( const action_state_t* s ) const override;
+-  double composite_ta_multiplier( const action_state_t* s ) const override;
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override;
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override;
+   double composite_target_multiplier( player_t* ) const override;
+   double composite_player_critical_multiplier( const action_state_t* /* s */ ) const override;
+   double composite_versatility( const action_state_t* state ) const override;
+diff --git a/engine/action/parse_effects.cpp b/engine/action/parse_effects.cpp
+--- a/engine/action/parse_effects.cpp
++++ b/engine/action/parse_effects.cpp
+@@ -771,6 +771,7 @@
+ 
+ double parse_effects_t::get_effect_value( const player_effect_t& i, bool benefit ) const
+ {
++  if (_player->skill_damage_effect_excluded(i.eff->id())) return 0.0;
+   if ( !i.simple )
+     return get_effect_value_full( i, benefit );
+ 
+@@ -788,6 +789,7 @@
+ 
+ double parse_effects_t::get_effect_value_full( const player_effect_t& i, bool benefit ) const
+ {
++  if (_player->skill_damage_effect_excluded(i.eff->id())) return 0.0;
+   if ( i.func && !i.func() )
+     return 0.0;
+ 
+@@ -819,6 +821,7 @@
+ 
+ double parse_effects_t::get_effect_value( const target_effect_t& i, actor_target_data_t* td ) const
+ {
++  if (_player->skill_damage_effect_excluded(i.eff->id())) return 0.0;
+   if ( auto check = i.func( td ) )
+   {
+     auto eff_val = i.value * check;
+diff --git a/engine/action/parse_effects.hpp b/engine/action/parse_effects.hpp
+--- a/engine/action/parse_effects.hpp
++++ b/engine/action/parse_effects.hpp
+@@ -992,7 +992,7 @@
+     return c;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
+   {
+     auto ta = BASE::composite_ta_multiplier( s );
+ 
+@@ -1003,19 +1003,19 @@
+         auto val = get_effect_value( i, true );
+         BASE::sim->print_debug( "{} ta_multiplier_effects: {} from {}{}", *this, val, *i.eff,
+                                 i.func ? " (Conditional)" : "" );
+-        ta *= 1.0 + val;
++        ta *= damage_factor(1.0 + val, i.eff->spell_id(), i.eff->index()+1, i.eff->spell()->name_cstr());
+       }
+     }
+     else
+     {
+       for ( const auto& i : ta_multiplier_effects )
+-        ta *= 1.0 + get_effect_value( i, true );
++        ta *= damage_factor(1.0 + get_effect_value(i, true), i.eff->spell_id(), i.eff->index()+1, i.eff->spell()->name_cstr());
+     }
+ 
+     return ta;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto da = BASE::composite_da_multiplier( s );
+ 
+@@ -1026,13 +1026,13 @@
+         auto val = get_effect_value( i, true );
+         BASE::sim->print_debug( "{} da_multiplier_effects: {} from {}{}", *this, val, *i.eff,
+                                 i.func ? " (Conditional)" : "" );
+-        da *= 1.0 + val;
++        da *= damage_factor(1.0 + val, i.eff->spell_id(), i.eff->index()+1, i.eff->spell()->name_cstr());
+       }
+     }
+     else
+     {
+       for ( const auto& i : da_multiplier_effects )
+-        da *= 1.0 + get_effect_value( i, true );
++        da *= damage_factor(1.0 + get_effect_value(i, true), i.eff->spell_id(), i.eff->index()+1, i.eff->spell()->name_cstr());
+     }
+ 
+     return da;
+diff --git a/engine/class_modules/monk/sc_monk.cpp b/engine/class_modules/monk/sc_monk.cpp
+--- a/engine/class_modules/monk/sc_monk.cpp
++++ b/engine/class_modules/monk/sc_monk.cpp
+@@ -2368,9 +2368,9 @@
+       aoe = 0;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t *state ) const override
+-    {
+-      double mul = monk_spell_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t *state ) const override
++    {
++      damage_multiplier_t mul = monk_spell_t::composite_da_multiplier( state );
+ 
+       auto chain_state = debug_cast<const state_t *>( state );
+       mul *= pow( chain_multiplier, chain_state->count );
+diff --git a/engine/class_modules/monk/sc_monk_pets.cpp b/engine/class_modules/monk/sc_monk_pets.cpp
+--- a/engine/class_modules/monk/sc_monk_pets.cpp
++++ b/engine/class_modules/monk/sc_monk_pets.cpp
+@@ -273,9 +273,9 @@
+     {
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double am = pet_melee_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t am = pet_melee_t::action_multiplier();
+       am *= 1.0 + o()->talent.conduit_of_the_celestials.xuens_bond->effectN( 1 ).percent();
+       return am;
+     }
+@@ -291,9 +291,9 @@
+       merge_report = false;
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double am = pet_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t am = pet_spell_t::action_multiplier();
+       am *= 1.0 + o()->talent.conduit_of_the_celestials.xuens_bond->effectN( 1 ).percent();
+       return am;
+     }
+@@ -322,7 +322,7 @@
+       return 0.0;
+     }
+ 
+-    double action_ta_multiplier() const override
++    damage_multiplier_t action_ta_multiplier() const override
+     {
+       double atam = pet_spell_t::action_ta_multiplier();
+       atam *= 1.0 + o()->talent.conduit_of_the_celestials.xuens_bond->effectN( 1 ).percent();
+@@ -398,9 +398,9 @@
+     may_crit = true;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = pet_melee_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = pet_melee_attack_t::action_multiplier();
+     am *= 1.0 + o()->talent.brewmaster.walk_with_the_ox->effectN( 1 ).percent();
+     return am;
+   }
+diff --git a/engine/class_modules/paladin/sc_paladin.cpp b/engine/class_modules/paladin/sc_paladin.cpp
+--- a/engine/class_modules/paladin/sc_paladin.cpp
++++ b/engine/class_modules/paladin/sc_paladin.cpp
+@@ -345,9 +345,9 @@
+     ground_aoe  = true;
+   }
+ 
+-  double consecration_tick_t::action_multiplier() const
+-  {
+-    double m = paladin_spell_t::action_multiplier();
++  damage_multiplier_t consecration_tick_t::action_multiplier() const
++  {
++    damage_multiplier_t m = paladin_spell_t::action_multiplier();
+     if ( p()->talents.vision_of_sanctity->ok() )
+     {
+       if ( paladin_spell_t::num_targets() == 1 )
+@@ -383,9 +383,9 @@
+     split_aoe_damage        = true;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = paladin_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = paladin_spell_t::action_multiplier();
+     m *= p()->buffs.lightsmith.divine_guidance->stack();
+     return m;
+   }
+@@ -402,9 +402,9 @@
+     base_multiplier         = .3;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = paladin_heal_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = paladin_heal_t::action_multiplier();
+     m *= p()->buffs.lightsmith.divine_guidance->stack();
+     return m;
+   }
+@@ -1118,9 +1118,9 @@
+     return paladin_melee_attack_t::cost();
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = paladin_melee_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = paladin_melee_attack_t::action_multiplier();
+     am *= 1.0 + p()->buffs.lightsmith.blessed_assurance->stack_value();
+     return am;
+   }
+@@ -1140,9 +1140,9 @@
+     {
+       paladin_heal_t::tick( d );
+     }
+-    double composite_ta_multiplier(const action_state_t* s) const override
+-    {
+-      double m = paladin_heal_t::composite_ta_multiplier( s );
++    damage_multiplier_t composite_ta_multiplier(const action_state_t* s) const override
++    {
++      damage_multiplier_t m = paladin_heal_t::composite_ta_multiplier( s );
+       return m;
+     }
+   };
+@@ -1291,9 +1291,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = holy_power_consumer_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = holy_power_consumer_t::action_multiplier();
+     if ( p()->buffs.shining_light_free->up() && p()->buffs.divine_purpose->up() )
+       // Shining Light does not benefit from divine purpose
+       am /= 1.0 + p()->spells.divine_purpose_buff->effectN( 2 ).percent();
+@@ -2099,7 +2099,7 @@
+       return new state_t( this, target );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       auto da = paladin_melee_attack_t::composite_da_multiplier( s );
+       auto s_ = static_cast<const state_t*>( s );
+@@ -2429,9 +2429,9 @@
+     return m;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = paladin_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = paladin_spell_t::composite_da_multiplier( s );
+     // If we're faking Solidarity, we double the amount
+     if ( p()->talents.lightsmith.solidarity->ok() && p()->options.fake_solidarity )
+       m *= 1.0 + p()->buffs.lightsmith.fake_solidarity->stack();
+@@ -2447,9 +2447,9 @@
+     callbacks=false;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = paladin_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = paladin_spell_t::composite_da_multiplier( s );
+     if (p()->options.fake_solidarity)
+     {
+       m *= 1.0 + p()->fake_lesser_weapon_set.size() - 1.0;
+@@ -2477,9 +2477,9 @@
+     return m;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = paladin_heal_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = paladin_heal_t::composite_da_multiplier( s );
+     // If we're faking Solidarity, we double the amount
+     if ( p()->talents.lightsmith.solidarity->ok() && p()->options.fake_solidarity )
+       m *= 1.0 + p()->buffs.lightsmith.fake_solidarity->stack();
+@@ -2963,18 +2963,18 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = paladin_melee_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = paladin_melee_attack_t::composite_da_multiplier( state );
+     if ( p()->buffs.valor->up() && state->chain_target == 0 )
+     {
+       m *= 1.0 + p()->buffs.valor->data().effectN( 1 ).percent() * p()->buffs.valor->stack();
+     }
+     return m;
+   }
+-  double action_multiplier() const override
+-  {
+-    double am = paladin_melee_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = paladin_melee_attack_t::action_multiplier();
+ 
+     if ( p()->talents.instrument_of_the_divine->ok() && p()->resources.current[RESOURCE_HOLY_POWER] > 3.0 )
+     {
+diff --git a/engine/class_modules/paladin/sc_paladin.hpp b/engine/class_modules/paladin/sc_paladin.hpp
+--- a/engine/class_modules/paladin/sc_paladin.hpp
++++ b/engine/class_modules/paladin/sc_paladin.hpp
+@@ -1254,9 +1254,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = ab::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = ab::action_multiplier();
+ 
+     if ( p()->specialization() == PALADIN_RETRIBUTION )
+     {
+@@ -1887,7 +1887,7 @@
+ {
+   golden_path_t* heal_tick;
+   consecration_tick_t( util::string_view name, paladin_t* p );
+-  double action_multiplier() const override;
++  damage_multiplier_t action_multiplier() const override;
+   double composite_target_multiplier( player_t* target ) const override;
+ };
+ }  // namespace paladin
+diff --git a/engine/class_modules/paladin/sc_paladin_protection.cpp b/engine/class_modules/paladin/sc_paladin_protection.cpp
+--- a/engine/class_modules/paladin/sc_paladin_protection.cpp
++++ b/engine/class_modules/paladin/sc_paladin_protection.cpp
+@@ -259,9 +259,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = paladin_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = paladin_spell_t::action_multiplier();
+     if ( p()->talents.focused_enmity->ok() )
+     {
+       if ( paladin_spell_t::num_targets() == 1 )
+@@ -270,9 +270,9 @@
+     return m;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = paladin_spell_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = paladin_spell_t::composite_da_multiplier( state );
+     if ( state->chain_target == 0 )
+     {
+       m *= 1.0 + p()->talents.ferren_marcuss_fervor->effectN( 1 ).percent();
+@@ -376,7 +376,7 @@
+       return new state_t( this, target );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       auto da = paladin_spell_t::composite_da_multiplier( s );
+       auto s_ = static_cast<const state_t*>( s );
+@@ -584,7 +584,7 @@
+       return new state_t( this, target );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       auto da = paladin_melee_attack_t::composite_da_multiplier( s );
+       auto s_ = static_cast<const state_t*>( s );
+@@ -626,7 +626,7 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto da = paladin_melee_attack_t::composite_da_multiplier( s );
+     da *= 1.0 + p()->buffs.lightsmith.blessed_assurance->stack_value();
+diff --git a/engine/class_modules/paladin/sc_paladin_retribution.cpp b/engine/class_modules/paladin/sc_paladin_retribution.cpp
+--- a/engine/class_modules/paladin/sc_paladin_retribution.cpp
++++ b/engine/class_modules/paladin/sc_paladin_retribution.cpp
+@@ -333,9 +333,9 @@
+       aoe                 = -1;
+       reduced_aoe_targets = 8;
+     }
+-    double composite_da_multiplier(const action_state_t* s) const override
+-    {
+-      double da = paladin_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier(const action_state_t* s) const override
++    {
++      damage_multiplier_t da = paladin_spell_t::composite_da_multiplier( s );
+       if (s->chain_target == 0)
+       {
+         da *= 1.0 + p()->talents.light_within_3->effectN( 1 ).percent();
+diff --git a/engine/class_modules/priest/sc_priest.cpp b/engine/class_modules/priest/sc_priest.cpp
+--- a/engine/class_modules/priest/sc_priest.cpp
++++ b/engine/class_modules/priest/sc_priest.cpp
+@@ -232,9 +232,9 @@
+     return priest().buffs.insidious_ire->check();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_da_multiplier( s );
+ 
+     if ( insidious_ire_active() )
+     {
+@@ -1104,9 +1104,9 @@
+     return player->resources.max[ RESOURCE_HEALTH ] * self_damage_coeff;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_da_multiplier( s );
+ 
+     if ( priest().talents.tithe_evasion.enabled() )
+     {
+@@ -1162,9 +1162,9 @@
+     spell_power_mod.direct     = swd_spell->effectN( 1 ).sp_coeff();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_da_multiplier( s );
+ 
+     if ( parent_chain_number > 0 )
+       m *= priest().talents.shared.deaths_torment->effectN( 2 ).percent();
+@@ -1289,9 +1289,9 @@
+     return ea;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = ab::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = ab::composite_da_multiplier( s );
+ 
+     if ( cast_state( s )->chain_number > 0 )
+     {
+@@ -1568,9 +1568,9 @@
+     triggers_atonement = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_da_multiplier( s );
+ 
+     if ( parent_stacks > 0 )
+     {
+@@ -1637,9 +1637,9 @@
+     return m;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_da_multiplier( s );
+ 
+     m *= 1.0 + priest().buffs.collapsing_void->check_stack_value();
+ 
+@@ -1965,9 +1965,9 @@
+     return priest_absorb_t::ready();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_absorb_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_absorb_t::composite_da_multiplier( s );
+ 
+     if ( priest().buffs.weal_and_woe->check() )
+     {
+@@ -2161,9 +2161,9 @@
+     priest().allies_with_atonement.register_callback( [ this ]( player_t* ) { target_cache.is_valid = false; } );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_absorb_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_absorb_t::composite_da_multiplier( s );
+ 
+     if ( priest().buffs.weal_and_woe->check() )
+     {
+diff --git a/engine/class_modules/priest/sc_priest.hpp b/engine/class_modules/priest/sc_priest.hpp
+--- a/engine/class_modules/priest/sc_priest.hpp
++++ b/engine/class_modules/priest/sc_priest.hpp
+@@ -1346,7 +1346,7 @@
+     target        = &player;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto cdm = base_t::composite_da_multiplier( s );
+ 
+@@ -1359,7 +1359,7 @@
+     return cdm;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
+   {
+     auto ctm = base_t::composite_ta_multiplier( s );
+ 
+@@ -1414,7 +1414,7 @@
+     target = &player;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto cdm = base_t::composite_da_multiplier( s );
+ 
+@@ -1427,7 +1427,7 @@
+     return cdm;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
+   {
+     auto ctm = base_t::composite_ta_multiplier( s );
+ 
+diff --git a/engine/class_modules/priest/sc_priest_discipline.cpp b/engine/class_modules/priest/sc_priest_discipline.cpp
+--- a/engine/class_modules/priest/sc_priest_discipline.cpp
++++ b/engine/class_modules/priest/sc_priest_discipline.cpp
+@@ -269,7 +269,7 @@
+       return static_cast<const state_t*>( s );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       double d = priest_spell_t::composite_da_multiplier( s );
+ 
+@@ -339,7 +339,7 @@
+       return static_cast<const state_t*>( s );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       double d = priest_heal_t::composite_da_multiplier( s );
+ 
+diff --git a/engine/class_modules/priest/sc_priest_pets.cpp b/engine/class_modules/priest/sc_priest_pets.cpp
+--- a/engine/class_modules/priest/sc_priest_pets.cpp
++++ b/engine/class_modules/priest/sc_priest_pets.cpp
+@@ -782,9 +782,9 @@
+     triggers_atonement         = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_pet_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_pet_spell_t::composite_da_multiplier( s );
+ 
+     m *= mod;
+ 
+@@ -936,9 +936,9 @@
+     affected_by_shadow_weaving = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_pet_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_pet_spell_t::composite_da_multiplier( s );
+ 
+     return m;
+   }
+@@ -1110,9 +1110,9 @@
+     merge_pet_stats( p().o(), p(), *this );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_pet_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_pet_spell_t::composite_da_multiplier( s );
+ 
+     // Only hit for 30% of the damage when hitting off-targets.
+     if ( target != s->target )
+diff --git a/engine/class_modules/priest/sc_priest_shadow.cpp b/engine/class_modules/priest/sc_priest_shadow.cpp
+--- a/engine/class_modules/priest/sc_priest_shadow.cpp
++++ b/engine/class_modules/priest/sc_priest_shadow.cpp
+@@ -48,9 +48,9 @@
+     return priest().talents.shadow.insidious_ire.enabled() && priest().buffs.insidious_ire->check();
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_ta_multiplier( s );
+ 
+     if ( insidious_ire_active() )
+     {
+@@ -386,9 +386,9 @@
+       return m;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m               = priest_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m               = priest_spell_t::composite_da_multiplier( s );
+       auto* apparition_state = cast_state( s );
+ 
+       // Base action variant mod (e.g., Void Apparitions) and trigger-specific mod (e.g., S2 4pc)
+@@ -699,7 +699,7 @@
+       mental_fortitude_percentage = priest().talents.shadow.mental_fortitude->effectN( 1 ).percent();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* ) const override
+     {
+       return 1.0;
+     }
+@@ -843,9 +843,9 @@
+     return priest().buffs.insidious_ire->check();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_da_multiplier( s );
+     m *= cast_effectiveness_multiplier;
+ 
+     if ( set_bonus_effectiveness_active )
+@@ -861,9 +861,9 @@
+     return m;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_ta_multiplier( s );
+ 
+     m *= cast_effectiveness_multiplier;
+ 
+@@ -1476,9 +1476,9 @@
+     return priest().buffs.insidious_ire->check();
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = priest_spell_t::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = priest_spell_t::composite_ta_multiplier( s );
+ 
+     if ( insidious_ire_active() )
+     {
+@@ -1654,7 +1654,7 @@
+   }
+ 
+   // Disable multipliers from double dipping
+-  double composite_da_multiplier( const action_state_t* ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* ) const override
+   {
+     return 1.0;
+   }
+diff --git a/engine/class_modules/sc_death_knight.cpp b/engine/class_modules/sc_death_knight.cpp
+--- a/engine/class_modules/sc_death_knight.cpp
++++ b/engine/class_modules/sc_death_knight.cpp
+@@ -4025,9 +4025,9 @@
+       return m;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = pet_spell_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = pet_spell_t::composite_da_multiplier( state );
+ 
+       if ( was_instant )
+         m *= dk()->talent.unholy.all_will_serve->effectN( 1 ).percent();
+@@ -4149,9 +4149,9 @@
+       snapshot_coagulopathy = 0.0;
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = drw_action_t::composite_ta_multiplier( state );
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = drw_action_t::composite_ta_multiplier( state );
+ 
+       // DRW snapshots the coag stacks when the weapon demises, so if DRW is down, use the snapshot value
+       if ( dk()->buffs.dancing_rune_weapon->up() )
+@@ -4445,9 +4445,9 @@
+     {
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = magus_spell_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = magus_spell_t::composite_da_multiplier( state );
+ 
+       if ( dk()->sets->has_set_bonus( DEATH_KNIGHT_UNHOLY, MID2, B4 ) &&
+            state->target->health_percentage() <=
+@@ -4501,9 +4501,9 @@
+     {
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = magus_spell_t::composite_ta_multiplier( state );
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = magus_spell_t::composite_ta_multiplier( state );
+ 
+       if ( dk()->sets->has_set_bonus( DEATH_KNIGHT_UNHOLY, MID2, B4 ) &&
+            state->target->health_percentage() <= dk()->sets->set( DEATH_KNIGHT_UNHOLY, MID2, B4 )->effectN( 3 ).base_value() )
+@@ -5291,9 +5291,9 @@
+       consumed_km = false;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = horseman_melee_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = horseman_melee_t::composite_da_multiplier( state );
+       // Copy of logic used in obliterate_strike_t to apply mastery
+       if ( dk()->spec.frostreaper->ok() && get_school() == SCHOOL_FROST )
+       {
+@@ -6293,9 +6293,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = action_base_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = action_base_t::composite_da_multiplier( state );
+     if ( p()->talent.deathbringer.wave_of_souls->ok() && this->get_school() == SCHOOL_SHADOWFROST )
+     {
+       death_knight_td_t* td = get_td( state->target );
+@@ -7002,12 +7002,12 @@
+     return 1.0;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* /* s */ ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* /* s */ ) const override
+   {
+     return 1.0 * da_value_mod;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* /* s */ ) const override
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* /* s */ ) const override
+   {
+     return 1.0 * ta_value_mod;
+   }
+@@ -7030,10 +7030,10 @@
+     background = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     // first stack is decremented by the consuming action, handle extra stacks here
+-    double m = death_knight_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t m = death_knight_spell_t::composite_da_multiplier( s );
+ 
+     int starting_stacks = p()->buffs.inexorable_assault->stack();
+ 
+@@ -7800,9 +7800,9 @@
+     }
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double mult = death_knight_spell_t::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t mult = death_knight_spell_t::composite_ta_multiplier( s );
+ 
+     if ( p()->talent.sanlayn.inevitable.ok() )
+       mult *= 1.0 + ( std::min( inevitable_mult * ( 100.0 - s->target->health_percentage() ),
+@@ -8250,9 +8250,9 @@
+       empowered--;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = death_knight_spell_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = death_knight_spell_t::composite_da_multiplier( state );
+     if ( empowered )
+     {
+       const double multiplier_effect = p()->specialization() == DEATH_KNIGHT_FROST
+@@ -8308,9 +8308,9 @@
+     make_event<delayed_execute_event_t>( *sim, p(), second_hit, execute_state->target, 500_ms );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = death_knight_spell_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = death_knight_spell_t::composite_da_multiplier( state );
+     if ( empowered )
+     {
+       const double multiplier_effect = p()->specialization() == DEATH_KNIGHT_FROST
+@@ -8350,9 +8350,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = death_knight_spell_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = death_knight_spell_t::composite_da_multiplier( state );
+     return m * stacks;
+   }
+ 
+@@ -8444,9 +8444,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = death_knight_spell_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = death_knight_spell_t::composite_da_multiplier( state );
+ 
+     if ( state->chain_target == 0 )
+     {
+@@ -9214,9 +9214,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = death_knight_spell_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = death_knight_spell_t::composite_da_multiplier( state );
+     
+     // Breath of Sindragosa has a hidden modifier to deal -20% to secondary targets
+     if ( state->chain_target > 0 )
+@@ -9586,9 +9586,9 @@
+     target     = p;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = death_knight_heal_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = death_knight_heal_t::action_multiplier();
+ 
+     m *= p()->buffs.bone_shield->check();
+ 
+@@ -9972,9 +9972,9 @@
+     return std::max( min_heal, cur_heal );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = death_knight_heal_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = death_knight_heal_t::action_multiplier();
+ 
+     m *= 1.0 + p()->buffs.hemostasis->stack_value();
+ 
+@@ -10592,9 +10592,9 @@
+     cooldown->duration = 0_ms;  // handled by the actions
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = death_knight_spell_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = death_knight_spell_t::composite_da_multiplier( state );
+     if ( p()->talent.frost.chosen_of_frostbrood_1.ok() && state->chain_target == 0 )
+     {
+       m *= 1.0 + p()->talent.frost.chosen_of_frostbrood_1->effectN( 1 ).percent();
+@@ -10734,9 +10734,9 @@
+     weapon               = w;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m      = death_knight_melee_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m      = death_knight_melee_attack_t::composite_da_multiplier( state );
+     const auto ri = get_td( state->target )->debuff.razorice;
+ 
+     if ( sb )
+@@ -10774,9 +10774,9 @@
+     aoe        = -1;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m      = death_knight_melee_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m      = death_knight_melee_attack_t::composite_da_multiplier( state );
+     const auto ri = get_td( state->target )->flag.razorice_consumed;
+ 
+     double target_reduction = 1 - ( state->chain_target * p()->talent.frost.frostbane->effectN( 4 ).percent() );
+@@ -11504,9 +11504,9 @@
+     return m;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = death_knight_spell_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = death_knight_spell_t::composite_da_multiplier( state );
+ 
+     bool is_northwinds_target = p()->talent.frost.northwinds->ok() && state->chain_target == 1;
+ 
+@@ -11770,9 +11770,9 @@
+     inexorable_assault = get_action<inexorable_assault_damage_t>( "inexorable_assault", p );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = death_knight_melee_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = death_knight_melee_attack_t::composite_da_multiplier( state );
+     // The phsyical portion of Obliterate does not list Frozen Heart in it's list of affecting spells so needs manual intervention when frostreaper applies.
+     if ( p()->spec.frostreaper->ok() && get_school() == SCHOOL_FROST &&
+          !data().affected_by( p()->mastery.frozen_heart ) )
+diff --git a/engine/class_modules/sc_demon_hunter.cpp b/engine/class_modules/sc_demon_hunter.cpp
+--- a/engine/class_modules/sc_demon_hunter.cpp
++++ b/engine/class_modules/sc_demon_hunter.cpp
+@@ -2314,9 +2314,9 @@
+     ab::init_finished();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = ab::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = ab::composite_da_multiplier( s );
+ 
+     if ( affected_by.demonic_presence.direct )
+     {
+@@ -2334,7 +2334,7 @@
+       size_t rolls          = as<size_t>( dh()->talent.havoc.chaotic_disposition->effectN( 1 ).base_value() );
+       double damage_percent = dh()->talent.havoc.chaotic_disposition->effectN( 3 ).percent();
+ 
+-      double da = 0;
++      damage_multiplier_t da = 0;
+       for ( size_t i = 0; i < rolls; i++ )
+       {
+         if ( dh()->rng().roll( chance ) )
+@@ -2361,9 +2361,9 @@
+     return m;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = ab::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = ab::composite_ta_multiplier( s );
+ 
+     if ( affected_by.demonic_presence.periodic )
+     {
+@@ -2381,7 +2381,7 @@
+       size_t rolls          = as<size_t>( dh()->talent.havoc.chaotic_disposition->effectN( 1 ).base_value() );
+       double damage_percent = dh()->talent.havoc.chaotic_disposition->effectN( 3 ).percent();
+ 
+-      double da = 0;
++      damage_multiplier_t da = 0;
+       for ( size_t i = 0; i < rolls; i++ )
+       {
+         if ( dh()->rng().roll( chance ) )
+@@ -3367,9 +3367,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = BASE::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = BASE::composite_da_multiplier( s );
+ 
+     if ( BASE::dh()->talent.annihilator.otherworldly_focus->ok() )
+     {
+@@ -3941,9 +3941,9 @@
+       reduced_aoe_targets = reduced_targets;
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = demon_hunter_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = demon_hunter_spell_t::action_multiplier();
+ 
+       if ( dh()->talent.havoc.isolated_prey->ok() && targets_in_range_list( target_list() ).size() == 1 )
+       {
+@@ -4140,9 +4140,9 @@
+       aoe               = -1;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = demon_hunter_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = demon_hunter_spell_t::composite_da_multiplier( s );
+ 
+       if ( parent_dot )
+       {
+@@ -4637,12 +4637,12 @@
+     immolation_aura            = ias->immolation_aura;
+   }
+ 
+-  double composite_da_multiplier() const override
++  damage_multiplier_t composite_da_multiplier() const override
+   {
+     return action_state_t::composite_da_multiplier() * growing_inferno_multiplier;
+   }
+ 
+-  double composite_ta_multiplier() const override
++  damage_multiplier_t composite_ta_multiplier() const override
+   {
+     return action_state_t::composite_ta_multiplier() * growing_inferno_multiplier;
+   }
+@@ -5634,9 +5634,9 @@
+     reduced_aoe_targets = data().effectN( 3 ).base_value();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = demon_hunter_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = demon_hunter_spell_t::composite_da_multiplier( s );
+ 
+     // Focused Hatred increases _surge damage when hitting less than 6 targets
+     if ( dh()->talent.scarred.focused_hatred->ok() && s->n_targets <= 5 )
+@@ -6328,9 +6328,9 @@
+       aoe               = -1;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = base_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = base_t::composite_da_multiplier( s );
+ 
+       if ( dh()->talent.devourer.focused_ray->ok() &&
+            s->n_targets <= as<unsigned int>( dh()->talent.devourer.focused_ray->effectN( 2 ).base_value() ) )
+@@ -6504,9 +6504,9 @@
+       return cm;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = base_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = base_t::composite_da_multiplier( s );
+ 
+       if ( s->chain_target == 0 )
+       {
+@@ -6737,9 +6737,9 @@
+       dh()->spawn_soul_fragment( soul_generation_proc, soul_fragment::LESSER, number_of_souls_to_spawn );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = base_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = base_t::composite_da_multiplier( s );
+ 
+       if ( dh()->talent.devourer.singular_strikes->ok() && s->chain_target == 0 )
+       {
+@@ -7073,9 +7073,9 @@
+       aoe               = 0;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = base_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = base_t::composite_da_multiplier( s );
+       m *= 1.0 + dh()->talent.havoc.first_blood->effectN( 1 ).percent();
+       return m;
+     }
+@@ -7861,9 +7861,9 @@
+       affected_by.chaotic_disposition = p->talent.havoc.chaotic_disposition->ok();
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double am = demon_hunter_attack_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t am = demon_hunter_attack_t::action_multiplier();
+ 
+       am *= 1.0 + dh()->buff.unbound_chaos->value();
+ 
+@@ -7926,9 +7926,9 @@
+       reduced_aoe_targets = p->spec.fel_rush_damage->effectN( 2 ).base_value();
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double am = base_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t am = base_t::action_multiplier();
+ 
+       am *= 1.0 + dh()->buff.unbound_chaos->value();
+ 
+@@ -8179,9 +8179,9 @@
+       }
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = base_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = base_t::composite_da_multiplier( s );
+ 
+       if ( s->chain_target == 0 && dh()->talent.vengeance.focused_cleave->ok() )
+       {
+diff --git a/engine/class_modules/sc_druid.cpp b/engine/class_modules/sc_druid.cpp
+--- a/engine/class_modules/sc_druid.cpp
++++ b/engine/class_modules/sc_druid.cpp
+@@ -4179,7 +4179,7 @@
+       target_filter_callback = secondary_targets_only();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       auto _state = cast_state( s );
+       auto energy_mul = 1.0;
+@@ -4389,7 +4389,7 @@
+     cp_spender_t::snapshot_state( s, rt );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto da = cp_spender_t::composite_da_multiplier( s );
+     auto energy_mul = 1.0 + cast_state( s )->energy_mod;
+@@ -4508,7 +4508,7 @@
+ {
+   DRUID_ABILITY( maim_t, cp_spender_t, "maim", p->talent.maim ) {}
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     return cp_spender_t::composite_da_multiplier( s ) * cast_state( s )->combo_points;
+   }
+@@ -4764,7 +4764,7 @@
+     return tl;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     return cp_spender_t::composite_da_multiplier( s ) * ( 1.0 + cast_state( s )->combo_points );
+   }
+@@ -4918,7 +4918,7 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto da = cat_attack_t::composite_da_multiplier( s );
+     auto state = cast_state( s );
+@@ -5705,7 +5705,7 @@
+     base_t::snapshot_state( s, rt );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     return base_t::composite_da_multiplier( s ) * ( 1.0 + cast_state( s )->rage_mod );
+   }
+@@ -8268,7 +8268,7 @@
+       background = proc = dual = true;
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       auto am = druid_spell_t::action_multiplier();
+ 
+diff --git a/engine/class_modules/sc_evoker.cpp b/engine/class_modules/sc_evoker.cpp
+--- a/engine/class_modules/sc_evoker.cpp
++++ b/engine/class_modules/sc_evoker.cpp
+@@ -848,9 +848,9 @@
+       return m;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = spell_t::composite_da_multiplier( s );
+ 
+       m *= 1.0 + p()->cache.mastery_value();
+ 
+@@ -3862,9 +3862,9 @@
+       trigger_gcd = base_execute_time;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double da = base_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t da = base_t::composite_da_multiplier( s );
+ 
+       if ( evoker()->talent.ricocheting_pyroclast.ok() )
+       {
+@@ -5131,7 +5131,7 @@
+     return da;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto da = base_t::composite_da_multiplier( s );
+ 
+@@ -5469,7 +5469,7 @@
+       return n == 1 ? 0 : n;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       auto m = base_t::composite_da_multiplier( s );
+ 
+@@ -5559,7 +5559,7 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto da = evoker_spell_t::composite_da_multiplier( s );
+ 
+@@ -5617,7 +5617,7 @@
+     return azure_strike_base_t::action_ready();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     auto da = azure_strike_base_t::composite_da_multiplier( s );
+ 
+@@ -5679,9 +5679,9 @@
+       split_aoe_damage = true;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double da = evoker_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t da = evoker_spell_t::composite_da_multiplier( s );
+ 
+       if ( p()->talent.ricocheting_pyroclast.ok() )
+       {
+@@ -5714,9 +5714,9 @@
+       split_aoe_damage = true;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double da = evoker_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t da = evoker_spell_t::composite_da_multiplier( s );
+ 
+       if ( p()->talent.ricocheting_pyroclast.ok() )
+       {
+@@ -5792,9 +5792,9 @@
+     return std::min( mass_eruption_max_targets, tl_size );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double da = essence_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t da = essence_spell_t::composite_da_multiplier( s );
+ 
+     if ( p()->talent.ricocheting_pyroclast.ok() )
+     {
+@@ -5986,9 +5986,9 @@
+     {
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double da = empowered_release_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t da = empowered_release_spell_t::composite_da_multiplier( s );
+ 
+       if ( p()->talent.tectonic_locus.ok() && s->chain_target == 0 )
+       {
+@@ -6526,7 +6526,7 @@
+       p()->buff.mass_disintegrate_stacks->decrement();
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
+   {
+     auto ta = essence_spell_t::composite_ta_multiplier( s );
+ 
+@@ -6986,7 +6986,7 @@
+   {
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
+   {
+     auto ta = residual_action_t::composite_ta_multiplier( s );
+ 
+@@ -7147,7 +7147,7 @@
+       return new state_t( this, target );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       auto da = essence_spell_t::composite_da_multiplier( s );
+       auto s_ = static_cast<const state_t*>( s );
+@@ -7419,7 +7419,7 @@
+     background                                   = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     return cast_state( s )->evoker->talent.fate_mirror->effectN( 1 ).percent() +
+            cast_state( s )->evoker->buff.magnified_fate->check_value();
+@@ -7445,7 +7445,7 @@
+     background                                   = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+   {
+     return cast_state( s )->evoker->talent.fate_mirror->effectN( 1 ).percent();
+   }
+@@ -7471,9 +7471,9 @@
+     spell_power_mod.direct            = 2.69;  // Hardcoded for some reason, 29/12/2025
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double da = base::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t da = base::composite_da_multiplier( s );
+ 
+     da *= 1.0 + p( s )->talent.mighty_inferno->effectN( 1 ).percent();
+ 
+@@ -7495,9 +7495,9 @@
+     base_crit_bonus = 0.0;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = p( s )->talent.temporal_wound->effectN( 1 ).percent();
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = p( s )->talent.temporal_wound->effectN( 1 ).percent();
+ 
+     if ( p( s )->close_as_clutchmates )
+       m *= 1.0 + p( s )->spec.close_as_clutchmates->effectN( 1 ).percent();
+@@ -7799,9 +7799,9 @@
+     spell_power_mod.direct            = 0.3;  // Hardcoded for some reason, 19/05/2023
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double da = base::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t da = base::composite_da_multiplier( s );
+ 
+     da *= 1.0 + p( s )->buff.reactive_hide->check_stack_value();
+     da *= 1.0 + p( s )->talent.regenerative_chitin->effectN( 2 ).percent();
+diff --git a/engine/class_modules/sc_hunter.cpp b/engine/class_modules/sc_hunter.cpp
+--- a/engine/class_modules/sc_hunter.cpp
++++ b/engine/class_modules/sc_hunter.cpp
+@@ -1372,9 +1372,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double am = ab::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t am = ab::composite_da_multiplier( s );
+ 
+     if ( affected_by.bestial_wrath.direct )
+       am *= 1 + p()->buffs.bestial_wrath->check_value();
+@@ -1410,9 +1410,9 @@
+     return am;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double am = ab::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t am = ab::composite_ta_multiplier( s );
+ 
+     if ( affected_by.bestial_wrath.tick )
+       am *= 1 + p()->buffs.bestial_wrath->check_value();
+@@ -2569,9 +2569,9 @@
+       ab::sim->print_debug( "{} action {} set to trigger Dire Beast with {}% chance", ab::player->name(), ab::name(), dire_beast_chance * 100 );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double am = ab::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t am = ab::composite_da_multiplier( s );
+ 
+     if ( affected_by.bestial_wrath.direct )
+       am *= 1 + o()->buffs.bestial_wrath->check_value();
+@@ -2600,9 +2600,9 @@
+     return am;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double am = ab::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t am = ab::composite_ta_multiplier( s );
+ 
+     if ( affected_by.bestial_wrath.tick )
+       am *= 1 + o()->buffs.bestial_wrath->check_value();
+@@ -2762,9 +2762,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double da = hunter_pet_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t da = hunter_pet_attack_t::composite_da_multiplier( s );
+ 
+     // TODO 16/2/25: Alpha Predator and Pack Mentality are being combined additively before being applied.
+     // 2026-01-18:   Still present.
+@@ -2802,9 +2802,9 @@
+ {
+   kill_command_sv_t( hunter_main_pet_t* p ) : hunter_pet_attack_t( "kill_command", p, p->o()->talents.kill_command_sv_pet ) {}
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double da = hunter_pet_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t da = hunter_pet_attack_t::composite_da_multiplier( s );
+ 
+     if ( o()->buffs.howl_of_the_pack_leader_wyvern->check()
+       || o()->buffs.howl_of_the_pack_leader_boar->check()
+@@ -2842,9 +2842,9 @@
+     reduced_aoe_targets      = data().effectN( 2 ).base_value();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double dm = hunter_pet_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t dm = hunter_pet_attack_t::composite_da_multiplier( s );
+ 
+     if ( s->n_targets >= o()->talents.wild_thrash_player->effectN( 2 ).base_value() )
+       dm *= 1 + o()->talents.wild_thrash_player->effectN( 1 ).percent();
+@@ -2877,9 +2877,9 @@
+     base_dd_multiplier *= effectiveness;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double dm = hunter_pet_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t dm = hunter_pet_attack_t::composite_da_multiplier( s );
+ 
+     if ( s->n_targets > 1 )
+       dm *= 1 + ( s->n_targets - 1 ) * o()->talents.two_against_many->effectN( 2 ).percent();
+@@ -3056,9 +3056,9 @@
+     return p() -> resources.current[RESOURCE_FOCUS] > 50;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = basic_attack_base_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = basic_attack_base_t::action_multiplier();
+ 
+     const bool used_wild_hunt = use_wild_hunt();
+     if ( used_wild_hunt )
+@@ -3231,9 +3231,9 @@
+     return p()->get_target_data( t )->dots.rend_flesh;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double am = hunter_pet_attack_t::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t am = hunter_pet_attack_t::composite_ta_multiplier( s );
+ 
+     // 2026-02-07: Rend Flesh is double-dipping Spirit Bond's modifier.
+     if ( o()->mastery.spirit_bond.ok() )
+@@ -4024,9 +4024,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = auto_attack_base_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = auto_attack_base_t::action_multiplier();
+ 
+     if ( player -> buffs.heavens_nemesis )
+       am *= 1 + player -> buffs.heavens_nemesis -> stack_value();
+@@ -4111,9 +4111,9 @@
+ 
+   arcane_shot_base_t( util::string_view n, hunter_t* p ) : hunter_ranged_attack_t( n, p, p->specs.arcane_shot ) {}
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double am = hunter_ranged_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t am = hunter_ranged_attack_t::composite_da_multiplier( s );
+ 
+     am *= 1 + p()->buffs.precise_shots->check_stack_value();
+ 
+@@ -4281,9 +4281,9 @@
+     return c;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double am = hunter_ranged_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t am = hunter_ranged_attack_t::composite_da_multiplier( s );
+   
+     // Can't use check_stack_value() as Kill Shot uses a different effect for its mod
+     am *= 1 + ( p()->buffs.precise_shots->check() * p()->talents.precise_shots_buff->effectN( 2 ).percent() );  
+@@ -4320,9 +4320,9 @@
+     return hunter_ranged_attack_t::target_ready( candidate_target ) && ( candidate_target->health_percentage() <= health_threshold_pct );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = hunter_ranged_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = hunter_ranged_attack_t::action_multiplier();
+ 
+     return am;
+   }
+@@ -4403,9 +4403,9 @@
+       bounce_tally++;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double am = hunter_ranged_attack_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t am = hunter_ranged_attack_t::composite_da_multiplier( s );
+ 
+       // Moonlight Chakram has a unique Tip buff and is not affected by base Tip (260286) so apply it here.
+       if ( p()->buffs.tip_of_the_spear_chakram->up() )
+@@ -4970,9 +4970,9 @@
+     p()->trigger_natures_ally_3();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = hunter_ranged_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = hunter_ranged_attack_t::composite_da_multiplier( s );
+ 
+     if ( p()->buffs.hogstrider->up() )
+       m *= 1 + p()->talents.hogstrider_buff->effectN( 1 ).percent();
+@@ -5230,9 +5230,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = hunter_ranged_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = hunter_ranged_attack_t::composite_da_multiplier( s );
+ 
+     m *= 1 + p()->buffs.precise_shots->check_stack_value();
+ 
+@@ -5311,16 +5311,16 @@
+     return new state_t( this, target );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = hunter_ranged_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = hunter_ranged_attack_t::action_multiplier();
+ 
+     return am;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = hunter_ranged_attack_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = hunter_ranged_attack_t::composite_da_multiplier( s );
+ 
+     m *= 1 + p()->buffs.bulletstorm->value();
+ 
+@@ -5684,9 +5684,9 @@
+       }
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = hunter_ranged_attack_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = hunter_ranged_attack_t::composite_da_multiplier( s );
+ 
+       if ( p()->buffs.focus_fire->up() )
+         m *= 1 + p()->talents.focus_fire_buff->effectN( 1 ).percent();
+@@ -6163,9 +6163,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = auto_attack_base_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = auto_attack_base_t::action_multiplier();
+ 
+     double bonus = p()->cache.mastery() * p()->mastery.spirit_bond -> effectN( 5 ).mastery_value();
+     bonus *= 1 + p()->mastery.spirit_bond_buff->effectN( 1 ).percent();
+@@ -6316,9 +6316,9 @@
+       p()->buffs.raptor_swipe->expire();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double am = raptor_strike_base_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t am = raptor_strike_base_t::composite_da_multiplier( s );
+ 
+       if ( p()->talents.raptor_swipe_2.ok() && s->chain_target == 0 )
+         am *= 1 + p()->talents.raptor_swipe_2->effectN( 2 ).percent();
+@@ -6393,9 +6393,9 @@
+       decrements_tip_of_the_spear = false;
+     }
+     
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double dm = hunter_ranged_attack_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t dm = hunter_ranged_attack_t::composite_da_multiplier( s );
+ 
+       if ( p()->buffs.tip_of_the_spear_boomstick->up() )
+         dm *= 1 + p()->talents.tip_of_the_spear_boomstick_buff->effectN( 1 ).percent();
+@@ -7154,9 +7154,9 @@
+         background = dual = true;
+       }
+ 
+-      double composite_ta_multiplier( const action_state_t* s ) const override
++      damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
+       {
+-        double am = hunter_spell_t::composite_ta_multiplier( s );
++        damage_multiplier_t am = hunter_spell_t::composite_ta_multiplier( s );
+ 
+         if ( as<double>( s->n_targets ) > reduced_aoe_targets )
+           am *= std::sqrt( reduced_aoe_targets / s->n_targets );
+@@ -7233,9 +7233,9 @@
+         p()->cooldowns.boomstick->adjust( -p()->talents.lethal_calibration->effectN( 1 ).time_value() );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double am = hunter_ranged_attack_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t am = hunter_ranged_attack_t::composite_da_multiplier( s );
+ 
+       if ( s->chain_target == 0 )
+       {
+diff --git a/engine/class_modules/sc_mage.cpp b/engine/class_modules/sc_mage.cpp
+--- a/engine/class_modules/sc_mage.cpp
++++ b/engine/class_modules/sc_mage.cpp
+@@ -1123,9 +1123,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = mage_pet_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = mage_pet_spell_t::action_multiplier();
+ 
+     if ( is_mage_spell )
+     {
+@@ -1680,9 +1680,9 @@
+       salvo_source = p()->get_proc( fmt::format( "Arcane Salvo applied ({})", data().name_cstr() ) );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = spell_t::action_multiplier();
+ 
+     if ( affected_by.arcane_surge )
+       m *= 1.0 + p()->buffs.arcane_surge->check_value();
+@@ -1705,9 +1705,9 @@
+     return m;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = spell_t::composite_da_multiplier( s );
+ 
+     if ( affected_by.savant )
+       m *= 1.0 + p()->cache.mastery() * p()->spec.savant->effectN( 5 ).mastery_value();
+@@ -2368,9 +2368,9 @@
+     return c;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = custom_state_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = custom_state_spell_t::composite_da_multiplier( s );
+ 
+     m *= 1.0 + p()->buffs.hyperthermia_damage->check_stack_value();
+ 
+@@ -2780,9 +2780,9 @@
+     snapshot_charges = -1;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = arcane_mage_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = arcane_mage_spell_t::composite_da_multiplier( s );
+ 
+     if ( s->n_targets > 1 )
+       m *= 1.0 + ( s->n_targets - 1 ) * p()->talents.resonance->effectN( 1 ).percent();
+@@ -2790,9 +2790,9 @@
+     return m;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = arcane_mage_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = arcane_mage_spell_t::action_multiplier();
+ 
+     am *= arcane_charge_multiplier( true );
+     am *= 1.0 + p()->buffs.arcane_salvo->check_stack_value();
+@@ -2860,9 +2860,9 @@
+     p()->buffs.cumulative_power->expire();
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = arcane_mage_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = arcane_mage_spell_t::action_multiplier();
+ 
+     am *= arcane_charge_multiplier();
+     am *= 1.0 + p()->buffs.cumulative_power->check_stack_value();
+@@ -2936,9 +2936,9 @@
+       p()->trigger_clearcasting( p()->talents.prismatic_bolt_2->effectN( 1 ).percent() );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = arcane_mage_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = arcane_mage_spell_t::action_multiplier();
+ 
+     am *= 1.0 + p()->buffs.cumulative_power->check_stack_value();
+ 
+@@ -3021,9 +3021,9 @@
+       make_event( *sim, 500_ms, [ this, t = effect_target ] { arcane_pulse_echo->execute_on_target( t ); } );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = arcane_mage_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = arcane_mage_spell_t::action_multiplier();
+ 
+     am *= 1.0 + p()->buffs.cumulative_power->check_stack_value();
+ 
+@@ -3164,9 +3164,9 @@
+       trigger_meteorite( target );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = custom_state_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = custom_state_spell_t::action_multiplier();
+ 
+     am *= 1.0 + p()->buffs.overpowered_missiles->check_value();
+     if ( p()->buffs.arcane_charge->check() )
+@@ -3312,9 +3312,9 @@
+     triggers.spellfire_sphere = true;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = arcane_mage_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = arcane_mage_spell_t::action_multiplier();
+ 
+     double max_mana_mult = data().effectN( 2 ).base_value();
+     max_mana_mult *= 1.0 + p()->talents.mana_bomb->effectN( 1 ).percent();
+@@ -3779,9 +3779,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = super_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = super_t::composite_da_multiplier( s );
+ 
+     if ( apply_frostfire_empowerment( s ) )
+       m *= 1.0 + this->p()->buffs.frostfire_empowerment->data().effectN( 3 ).percent();
+@@ -3845,9 +3845,9 @@
+     return c;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = filler_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = filler_spell_t::composite_da_multiplier( s );
+ 
+     if ( !p()->buffs.combustion->check() )
+       m *= master_of_flame_mult;
+@@ -3889,9 +3889,9 @@
+       pyromaniac_action = get_action<flamestrike_pyromaniac_t>( "flamestrike_pyromaniac", p );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = hot_streak_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = hot_streak_spell_t::composite_da_multiplier( s );
+ 
+     unsigned scaling_targets = std::min( s->n_targets, as<unsigned>( p()->talents.fuel_the_fire->effectN( 3 ).base_value() ) );
+     m *= 1.0 + p()->talents.fuel_the_fire->effectN( 2 ).percent() * scaling_targets;
+@@ -3946,9 +3946,9 @@
+       make_event( *sim, 1.0_s, [ this, t = s->target ] { p()->action.glacial_assault->execute_on_target( t ); } );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = custom_state_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = custom_state_spell_t::composite_da_multiplier( s );
+ 
+     if ( cast_state( s )->data.brain_freeze )
+       m *= 1.0 + p()->buffs.brain_freeze->data().effectN( 2 ).percent();
+@@ -4359,9 +4359,9 @@
+     base_aoe_multiplier = old_mult;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = mage_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = mage_spell_t::action_multiplier();
+ 
+     am *= 1.0 + p()->buffs.permafrost_lances->check_value();
+     if ( this == p()->action.shatter.ice_lance && p()->state.fingers_of_frost_active )
+@@ -4394,9 +4394,9 @@
+       reduced_aoe_targets = p->spec.winters_end->effectN( 1 ).base_value();
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = mage_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = mage_spell_t::action_multiplier();
+ 
+     am *= 1.0 + p()->buffs.permafrost_lances->check_value();
+ 
+@@ -4858,9 +4858,9 @@
+       duality_gs = get_action<duality_glacial_spike_t>( "duality_glacial_spike", p );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = fire_mage_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = fire_mage_spell_t::composite_da_multiplier( s );
+ 
+     m *= 1.0 + p()->buffs.hyperthermia_damage->check_stack_value();
+ 
+@@ -5053,9 +5053,9 @@
+     return fire_mage_spell_t::execute_time();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = fire_mage_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = fire_mage_spell_t::composite_da_multiplier( s );
+ 
+     if ( scorch_execute_active( s->target ) )
+       m *= 1.0 + p()->talents.scald->effectN( 2 ).percent();
+@@ -5365,9 +5365,9 @@
+     freezing_stacks = as<int>( p->talents.infused_splinters->effectN( 4 ).base_value() );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = mage_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = mage_spell_t::action_multiplier();
+ 
+     am *= 1.0 + p()->cache.mastery() * p()->spec.savant->effectN( 6 ).mastery_value();
+ 
+diff --git a/engine/class_modules/sc_rogue.cpp b/engine/class_modules/sc_rogue.cpp
+--- a/engine/class_modules/sc_rogue.cpp
++++ b/engine/class_modules/sc_rogue.cpp
+@@ -2331,9 +2331,9 @@
+     return 1.0;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = ab::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = ab::composite_da_multiplier( state );
+ 
+     m *= combo_point_da_multiplier( state );
+ 
+@@ -2470,9 +2470,9 @@
+     return m;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = ab::composite_ta_multiplier( state );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = ab::composite_ta_multiplier( state );
+ 
+     // Registered Damage Buffs
+     for ( auto damage_buff : periodic_damage_buffs )
+@@ -3445,9 +3445,9 @@
+     return c;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = rogue_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = rogue_attack_t::action_multiplier();
+ 
+     // Registered Damage Buffs
+     for ( auto damage_buff : auto_attack_damage_buffs )
+@@ -3705,9 +3705,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = rogue_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = rogue_attack_t::composite_da_multiplier( state );
+ 
+     if ( p()->position() == POSITION_BACK )
+     {
+@@ -3914,9 +3914,9 @@
+       }
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = rogue_attack_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = rogue_attack_t::composite_da_multiplier( state );
+ 
+       if ( p()->talent.trickster.nimble_flurry->ok() && p()->buffs.flawless_form->check() )
+       {
+@@ -4020,9 +4020,9 @@
+       p()->buffs.mid1_outlaw_4pc->trigger();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = rogue_attack_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = rogue_attack_t::composite_da_multiplier( state );
+ 
+       if ( state->target == state->action->target )
+         m *= data().effectN( 2 ).percent();
+@@ -4193,9 +4193,9 @@
+     add_child( p->active.poison_bomb );
+   }
+   
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = rogue_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = rogue_attack_t::composite_da_multiplier( state );
+ 
+     if ( p()->talent.assassination.rapid_injection->ok() && p()->buffs.envenom->check() )
+     {
+@@ -4408,9 +4408,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = rogue_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = rogue_attack_t::action_multiplier();
+ 
+     if ( p()->talent.assassination.flying_daggers.ok() )
+     {
+@@ -4844,9 +4844,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = rogue_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = rogue_attack_t::composite_da_multiplier( state );
+ 
+     // 2028-08-31 -- Currently appears to double-dip from both Mastery and Implacable in-game
+     if ( p()->bugs )
+@@ -4858,9 +4858,9 @@
+     return m;
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = rogue_attack_t::composite_ta_multiplier( state );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = rogue_attack_t::composite_ta_multiplier( state );
+ 
+     // 2028-08-31 -- Currently appears to double-dip from Implacable in-game
+     if ( p()->bugs )
+@@ -4934,9 +4934,9 @@
+     return c;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = rogue_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = rogue_attack_t::action_multiplier();
+ 
+     m *= 1.0 + p()->buffs.opportunity->value();
+ 
+@@ -5300,9 +5300,9 @@
+       }
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = rogue_attack_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = rogue_attack_t::composite_da_multiplier( state );
+ 
+       if ( secondary_trigger_type == secondary_trigger::SECRET_TECHNIQUE_CLONE )
+       {
+@@ -5588,9 +5588,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = rogue_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = rogue_attack_t::action_multiplier();
+ 
+     if ( p()->stealthed( STEALTH_BASIC ) )
+     {
+@@ -5752,9 +5752,9 @@
+       affected_by.lingering_shadow.direct = true;
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = rogue_attack_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = rogue_attack_t::action_multiplier();
+ 
+       if ( p()->stealthed( STEALTH_STANCE ) )
+       {
+@@ -5795,9 +5795,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = rogue_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = rogue_attack_t::action_multiplier();
+ 
+     if ( p()->stealthed( STEALTH_STANCE ) )
+     {
+@@ -6201,9 +6201,9 @@
+     dual = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = residual_action_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = residual_action_t::composite_da_multiplier( state );
+ 
+     // 2023-11-10 -- Doomblade is intended to be dynamically affected by Lethal Dose
+     if ( rogue->talent.assassination.lethal_dose->ok() )
+@@ -6604,7 +6604,7 @@
+     affected_by.zoldyck_insignia = true; // 2026-01-04 -- Noted in Midnight patch notes
+   }
+ 
+-  double action_multiplier() const override
++  damage_multiplier_t action_multiplier() const override
+   {
+     auto m = rogue_attack_t::action_multiplier();
+ 
+diff --git a/engine/class_modules/sc_shaman.cpp b/engine/class_modules/sc_shaman.cpp
+--- a/engine/class_modules/sc_shaman.cpp
++++ b/engine/class_modules/sc_shaman.cpp
+@@ -2763,7 +2763,7 @@
+     ab::snapshot_state( s, rt );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
+   {
+     auto m = ab::composite_da_multiplier( state );
+ 
+@@ -2784,9 +2784,9 @@
+     return m;
+   }
+ 
+-  double action_da_multiplier() const override  // TODO Hawk: This is automated right?
+-  {
+-    double m = ab::action_da_multiplier();
++  damage_multiplier_t action_da_multiplier() const override  // TODO Hawk: This is automated right?
++  {
++    damage_multiplier_t m = ab::action_da_multiplier();
+ 
+     if ( ( affected_by_elemental_unity_fe_da && p()->talent.elemental_unity.ok() && p()->buff.fire_elemental->check() &&
+            !p()->talent.primal_elementalist.ok() ) )
+@@ -2826,9 +2826,9 @@
+     return m;
+   }
+ 
+-  double action_ta_multiplier() const override
+-  {
+-    double m = ab::action_ta_multiplier();
++  damage_multiplier_t action_ta_multiplier() const override
++  {
++    damage_multiplier_t m = ab::action_ta_multiplier();
+     if ( affected_by_elemental_unity_fe_ta && p()->talent.elemental_unity.ok() &&
+          !p()->talent.primal_elementalist.ok() )
+     {
+@@ -3242,9 +3242,9 @@
+     lr_event = nullptr;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = base_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = base_t::action_multiplier();
+ 
+     if ( affected_by_master_of_the_elements && p()->talent.master_of_the_elements.ok() )
+     {
+@@ -3701,9 +3701,9 @@
+     }
+   }
+ 
+-  double action_da_multiplier() const override
+-  {
+-    double m = T_ACTION::action_da_multiplier();
++  damage_multiplier_t action_da_multiplier() const override
++  {
++    damage_multiplier_t m = T_ACTION::action_da_multiplier();
+ 
+     if ( affected_by_elemental_unity_fe_da && o()->talent.elemental_unity.ok() &&
+          o()->buff.fire_elemental->check())
+@@ -3720,9 +3720,9 @@
+     return m;
+   }
+ 
+-  double action_ta_multiplier() const override
+-  {
+-    double m = T_ACTION::action_ta_multiplier();
++  damage_multiplier_t action_ta_multiplier() const override
++  {
++    damage_multiplier_t m = T_ACTION::action_ta_multiplier();
+ 
+     if ( affected_by_elemental_unity_fe_ta && o()->talent.elemental_unity.ok() )
+     {
+@@ -4182,9 +4182,9 @@
+       damage_amp = player->o()->find_spell( 157375 )->effectN( 2 ).percent();
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = pet_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = pet_spell_t::action_multiplier();
+       m *= std::pow( 1.0 + damage_amp, tick_number );
+       return m;
+     }
+@@ -4353,9 +4353,9 @@
+       base_crit = 1.0;
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = pet_spell_t<ancestor_t>::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = pet_spell_t<ancestor_t>::action_multiplier();
+ 
+       m *= this->composite_crit_chance();
+ 
+@@ -4547,9 +4547,9 @@
+     may_proc_ability_procs = false;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = shaman_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = shaman_attack_t::action_multiplier();
+ 
+     if ( p()->buff.crash_lightning->up() )
+     {
+@@ -4679,9 +4679,9 @@
+   action_state_t* new_state() override
+   { return new stormstrike_attack_state_t( this, target ); }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = shaman_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = shaman_attack_t::action_multiplier();
+ 
+     if ( strike_type == strike_variant::STORMFLURRY )
+     {
+@@ -4881,9 +4881,9 @@
+     cast_state( s )->variant_flags( parent->variant_flags() );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = shaman_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = shaman_spell_t::action_multiplier();
+ 
+     if ( p()->buff.ascendance->up() )
+     {
+@@ -5204,9 +5204,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = shaman_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = shaman_attack_t::action_multiplier();
+ 
+     // Flametongue imbue only increases Lava Lash damage if it is imbued on the off-hand
+     // weapon
+@@ -6037,9 +6037,9 @@
+     return shaman_attack_t::create_expression( expression_str );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = shaman_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = shaman_attack_t::composite_da_multiplier( state );
+ 
+     if ( state->chain_target == 0 &&
+          p()->sets->has_set_bonus( SHAMAN_ENHANCEMENT, TWW2, B4 ) )
+@@ -6598,9 +6598,9 @@
+     return shaman_spell_t::benefit_from_maelstrom_weapon();
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = shaman_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = shaman_spell_t::action_multiplier();
+ 
+     if ( is_variant( spell_variant::PRIMORDIAL_STORM ) )
+     {
+@@ -6836,9 +6836,9 @@
+     elemental_overload_spell_t::impact( s );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = elemental_overload_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = elemental_overload_spell_t::action_multiplier();
+ 
+     if ( is_variant( spell_variant::ASCENDANCE ) )
+     {
+@@ -7188,9 +7188,9 @@
+     shaman_spell_t::impact( s );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = shaman_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = shaman_spell_t::action_multiplier();
+ 
+     if ( is_variant( spell_variant::PURGING_FLAMES ) && p()->bugs )
+     {
+@@ -7396,9 +7396,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = shaman_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = shaman_spell_t::action_multiplier();
+ 
+     if ( is_variant( spell_variant::PRIMORDIAL_STORM ) )
+     {
+@@ -7597,9 +7597,9 @@
+     return m;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = elemental_overload_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = elemental_overload_spell_t::action_multiplier();
+ 
+ 
+     if ( is_variant( spell_variant::FUSION_OF_ELEMENTS ) )
+@@ -7663,9 +7663,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = shaman_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = shaman_spell_t::action_multiplier();
+ 
+     if ( is_variant( spell_variant::FUSION_OF_ELEMENTS ) )
+     {
+@@ -7903,9 +7903,9 @@
+ 
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = earthquake_damage_base_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = earthquake_damage_base_t::action_multiplier();
+ 
+     if ( p()->buff.ascendance->up() )
+     {
+@@ -9186,18 +9186,18 @@
+     return o()->get_target_data( target );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = T::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = T::action_multiplier();
+ 
+     m *= pulse_multiplier;
+ 
+     return m;
+   }
+ 
+-  double action_da_multiplier() const override
+-  {
+-    double m = T::action_da_multiplier();
++  damage_multiplier_t action_da_multiplier() const override
++  {
++    damage_multiplier_t m = T::action_da_multiplier();
+ 
+     if ( affected_by_totemic_rebound_da )
+     {
+@@ -9207,9 +9207,9 @@
+     return m;
+   }
+ 
+-  double action_ta_multiplier() const override
+-  {
+-    double m = T::action_ta_multiplier();
++  damage_multiplier_t action_ta_multiplier() const override
++  {
++    damage_multiplier_t m = T::action_ta_multiplier();
+ 
+     return m;
+   }
+@@ -9421,9 +9421,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = spell_totem_action_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = spell_totem_action_t::action_multiplier();
+ 
+     if ( o()->buff.ascendance->up() && o()->talent.oversurge.ok() )
+     {
+@@ -9455,7 +9455,7 @@
+     snapshot_flags = update_flags = snapshot_flags | STATE_MUL_PET;
+   }
+ 
+-  double action_da_multiplier() const override
++  damage_multiplier_t action_da_multiplier() const override
+   {
+     auto m = spell_totem_action_t::action_da_multiplier();
+ 
+diff --git a/engine/class_modules/sc_warrior.cpp b/engine/class_modules/sc_warrior.cpp
+--- a/engine/class_modules/sc_warrior.cpp
++++ b/engine/class_modules/sc_warrior.cpp
+@@ -1263,9 +1263,9 @@
+     return ab::n_targets();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double dm = ab::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t dm = ab::composite_da_multiplier( s );
+ 
+     if ( affected_by.sweeping_strikes && s->chain_target > 0 )
+     {
+@@ -2655,9 +2655,9 @@
+     return warrior_attack_t::n_targets();
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = warrior_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = warrior_attack_t::action_multiplier();
+ 
+     if ( p()->talents.fury.vicious_contempt->ok() && ( target->health_percentage() < 35 ) )
+     {
+@@ -2895,9 +2895,9 @@
+     return warrior_attack_t::n_targets();
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = warrior_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = warrior_attack_t::action_multiplier();
+ 
+     if ( p()->talents.fury.vicious_contempt->ok() && ( target->health_percentage() < 35 ) )
+     {
+@@ -3201,9 +3201,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+ 
+     if ( p()->talents.slayer.culling_cyclone->ok() )
+       m *= 1.0 + ( p()->talents.slayer.culling_cyclone->effectN( 1 ).percent() / p()->sim->target_non_sleeping_list.size() );
+@@ -3484,9 +3484,9 @@
+     parse_options( options_str );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+     if ( p()->talents.arms.fervor_of_battle.ok() && from_fervor )
+     {
+       m *= 1.0 + p()->talents.arms.fervor_of_battle->effectN( 2 ).percent();
+@@ -3662,9 +3662,9 @@
+     return m;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+ 
+     if ( p()->talents.colossus.one_against_many->ok() )
+     {
+@@ -3992,9 +3992,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+     if ( p()->talents.fury.meat_cleaver->ok() && p()->talents.mountain_thane.crashing_thunder.ok() &&
+           p()->sim->target_non_sleeping_list.size() >= p()->talents.fury.meat_cleaver->effectN( 2 ).base_value() )
+       m *= 1.0 + p()->talents.fury.meat_cleaver->effectN( 1 ).percent();
+@@ -4128,9 +4128,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+     if ( p()->talents.fury.meat_cleaver->ok() && p()->talents.mountain_thane.crashing_thunder.ok() &&
+           p()->sim->target_non_sleeping_list.size() >= p()->talents.fury.meat_cleaver->effectN( 2 ).base_value() )
+       m *= 1.0 + p()->talents.fury.meat_cleaver->effectN( 1 ).percent();
+@@ -4237,9 +4237,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = warrior_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = warrior_attack_t::action_multiplier();
+ 
+     if ( cost_rage == 0 )  // If it was free, it's a full damage execute.
+       am *= 2.0;
+@@ -4944,9 +4944,9 @@
+     return warrior_attack_t::n_targets();
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = warrior_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = warrior_attack_t::action_multiplier();
+ 
+     if ( p()->talents.fury.cruelty->ok() && p()->buff.enrage->check() )
+     {
+@@ -5111,9 +5111,9 @@
+     return warrior_attack_t::n_targets();
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = warrior_attack_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = warrior_attack_t::action_multiplier();
+ 
+     if ( p()->talents.fury.cruelty->ok() && p()->buff.enrage->check() )
+     {
+@@ -5328,9 +5328,9 @@
+     reduced_aoe_targets = p->talents.fury.odyns_fury->effectN( 6 ).base_value();
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* state ) const override
+-  {
+-    double ta = warrior_attack_t::composite_ta_multiplier( state );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t ta = warrior_attack_t::composite_ta_multiplier( state );
+ 
+     if ( num_targets > reduced_aoe_targets )
+     {
+@@ -5531,9 +5531,9 @@
+     dual = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+ 
+     if ( p()->talents.fury.rampaging_berserker_2->ok() && p()->buff.recklessness->check() )
+       m *= 1.0 + p()->talents.fury.rampaging_berserker_2->effectN( 2 ).percent();
+@@ -6086,9 +6086,9 @@
+     return warrior_attack_t::ready();
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+ 
+     if ( p()->talents.colossus.one_against_many->ok() )
+     {
+@@ -6394,9 +6394,9 @@
+     }
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+ 
+     if ( p()->talents.colossus.one_against_many->ok() )
+     {
+@@ -6445,9 +6445,9 @@
+     background = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+ 
+     // TODO this does not seem to currently work on PTR, so stub it out
+     // if ( p()->sim->dbc->wowv() > wowv_t { 11, 2, 0 } )
+@@ -6551,9 +6551,9 @@
+       rend->execute_on_target( state->target );
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+     if ( p()->talents.fury.meat_cleaver->ok() && p()->sim->target_non_sleeping_list.size() >= p()->talents.fury.meat_cleaver->effectN( 2 ).base_value() )
+       m *= 1.0 + p()->talents.fury.meat_cleaver->effectN( 1 ).percent();
+ 
+@@ -6678,9 +6678,9 @@
+     background = true;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* state ) const override
+-  {
+-    double m = warrior_attack_t::composite_da_multiplier( state );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++  {
++    damage_multiplier_t m = warrior_attack_t::composite_da_multiplier( state );
+ 
+     if ( p()->talents.colossus.one_against_many->ok() && p()->specialization() == WARRIOR_ARMS )
+     {
+diff --git a/engine/class_modules/warlock/sc_warlock_actions.cpp b/engine/class_modules/warlock/sc_warlock_actions.cpp
+--- a/engine/class_modules/warlock/sc_warlock_actions.cpp
++++ b/engine/class_modules/warlock/sc_warlock_actions.cpp
+@@ -473,9 +473,9 @@
+       }
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = action_base_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = action_base_t::action_multiplier();
+ 
+       if ( destruction() && affected_by.chaotic_energies )
+       {
+@@ -511,9 +511,9 @@
+       return m;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = action_base_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = action_base_t::composite_da_multiplier( s );
+ 
+       // NOTE: 2026-07-11 Diabolist guardians do not count towards Sacrificed Souls talent (bug?)
+       if ( demonology() && affected_by.sacrificed_souls )
+@@ -898,9 +898,9 @@
+       }
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = warlock_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = warlock_spell_t::action_multiplier();
+ 
+       if ( time_to_execute == 0_ms && p()->buffs.nightfall->check() )
+         m *= 1.0 + p()->talents.nightfall_buff->effectN( 2 ).percent();
+@@ -1339,9 +1339,9 @@
+         impact_action = new soul_anathema_t( p );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+       if ( demonology() && p()->hero.demoniacs_fervor.ok() && s->chain_target == 0 )
+         m *= 1.0 + p()->hero.demoniacs_fervor->effectN( 1 ).percent();
+@@ -1618,9 +1618,9 @@
+       }
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+       // The base effect of Through the Felvine is automatically applied by the parse_effects system
+       // However, it is necessary to manually apply its duplicate effect during Malevolence
+@@ -1633,9 +1633,9 @@
+       return m;
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_ta_multiplier( s );
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_ta_multiplier( s );
+ 
+       // The base effect of Through the Felvine is automatically applied by the parse_effects system
+       // However, it is necessary to manually apply its duplicate effect during Malevolence
+@@ -1731,9 +1731,9 @@
+         applied_dot->base_dd_multiplier = 0.0;
+       }
+ 
+-      double composite_da_multiplier( const action_state_t* s ) const override
+-      {
+-        double m = warlock_spell_t::composite_da_multiplier( s );
++      damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++      {
++        damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+         // The base effect of Through the Felvine is automatically applied by the parse_effects system
+         // However, it is necessary to manually apply its duplicate effect during Malevolence
+@@ -2229,9 +2229,9 @@
+       return m;
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_ta_multiplier( s );
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_ta_multiplier( s );
+ 
+       m *= debug_cast<const malefic_grasp_state_t*>( s )->td_multiplier;
+ 
+@@ -2374,9 +2374,9 @@
+       return m;
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_ta_multiplier( s );
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_ta_multiplier( s );
+ 
+       m *= debug_cast<const drain_soul_state_t*>( s )->td_multiplier;
+ 
+@@ -2704,9 +2704,9 @@
+       timespan_t travel_time() const override
+       { return meteor_time; }
+ 
+-      double composite_da_multiplier( const action_state_t* s ) const override
+-      {
+-        double m = warlock_spell_t::composite_da_multiplier( s );
++      damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++      {
++        damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+         int last_hit_random_target = debug_cast<const hog_impact_state_t*>( s )->state.last_hit_random_target;
+ 
+@@ -2757,9 +2757,9 @@
+         warlock_spell_t::execute();
+       }
+ 
+-      double action_multiplier() const override
+-      {
+-        double m = warlock_spell_t::action_multiplier();
++      damage_multiplier_t action_multiplier() const override
++      {
++        damage_multiplier_t m = warlock_spell_t::action_multiplier();
+ 
+         double gloom = 0.0;
+ 
+@@ -2990,9 +2990,9 @@
+         background = dual = true;
+       }
+ 
+-      double action_multiplier() const override
+-      {
+-        double m = warlock_spell_t::action_multiplier();
++      damage_multiplier_t action_multiplier() const override
++      {
++        damage_multiplier_t m = warlock_spell_t::action_multiplier();
+ 
+         // NOTE: 2026-02-17 The Imp Gang Boss Wild Imps implosions do not do 100% more damage (bug?)
+         if ( !p()->bugs && debug_cast<pets::demonology::wild_imp_pet_t*>( next_imp )->buffs.imp_gang_boss->check() )
+@@ -4410,9 +4410,9 @@
+       return m;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+       m *= 1.0 + player->cache.spell_crit_chance();
+ 
+@@ -4506,9 +4506,9 @@
+         p()->buffs.backdraft->trigger();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+       if ( p()->talents.conflagration_of_chaos.ok() )
+         m *= 1.0 + player->cache.spell_crit_chance();
+@@ -4833,9 +4833,9 @@
+       p()->buffs.fiendish_cruelty->decrement();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+       if ( p()->talents.conflagration_of_chaos.ok() )
+         m *= 1.0 + player->cache.spell_crit_chance();
+@@ -4885,9 +4885,9 @@
+       }
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+       if ( s->chain_target != 0 )
+         m *= p()->talents.channel_demonfire_tick->effectN( 2 ).sp_coeff() / p()->talents.channel_demonfire_tick->effectN( 1 ).sp_coeff();
+@@ -5152,9 +5152,9 @@
+       base_dd_multiplier *= effectiveness;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+       if ( s->chain_target != 0 )
+         m *= p()->talents.echo_of_sargeras->effectN( 2 ).sp_coeff() / p()->talents.echo_of_sargeras->effectN( 1 ).sp_coeff();
+@@ -5354,9 +5354,9 @@
+       reduced_aoe_targets = as<int>( p->hero.diabolic_oculi->effectN( 1 ).base_value() );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_spell_t::composite_da_multiplier( s );
+ 
+       m *= p()->buffs.demonic_oculi->check();
+ 
+diff --git a/engine/class_modules/warlock/sc_warlock_pets.cpp b/engine/class_modules/warlock/sc_warlock_pets.cpp
+--- a/engine/class_modules/warlock/sc_warlock_pets.cpp
++++ b/engine/class_modules/warlock/sc_warlock_pets.cpp
+@@ -2312,18 +2312,18 @@
+     debug_cast<chaos_tear_t*>( p() )->bolts--;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = warlock_pet_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = warlock_pet_spell_t::composite_da_multiplier( s );
+ 
+     m *= 1.0 + p()->current_pet_stats.composite_spell_crit;
+ 
+     return m;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = warlock_pet_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = warlock_pet_spell_t::action_multiplier();
+ 
+     double min_percentage = p()->o()->talents.chaos_incarnate.ok() ? p()->o()->talents.chaos_incarnate->effectN( 1 ).percent() : 0.5;
+     double chaotic_energies_rng = rng().range( min_percentage , 1.0 );
+@@ -2379,18 +2379,18 @@
+   double composite_crit_chance() const override
+   { return 1.0; }
+ 
+-  double composite_da_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = warlock_pet_spell_t::composite_da_multiplier( s );
++  damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = warlock_pet_spell_t::composite_da_multiplier( s );
+ 
+     m *= 1.0 + p()->current_pet_stats.composite_spell_crit;
+ 
+     return m;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = warlock_pet_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = warlock_pet_spell_t::action_multiplier();
+ 
+     double min_percentage = p()->o()->talents.chaos_incarnate.ok() ? p()->o()->talents.chaos_incarnate->effectN( 1 ).percent() : 0.5;
+     double chaotic_energies_rng = rng().range( min_percentage , 1.0 );
+@@ -2648,9 +2648,9 @@
+     double composite_crit_damage_bonus_multiplier() const override
+     { return p()->bugs ? 1.0 : warlock_pet_spell_t::composite_crit_damage_bonus_multiplier(); }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_pet_spell_t::composite_da_multiplier( s ); // base value
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_pet_spell_t::composite_da_multiplier( s ); // base value
+ 
+       if ( p()->o()->demonology() )
+       {
+@@ -2725,9 +2725,9 @@
+       travel_speed = p->o()->hero.chaos_salvo_missile->missile_speed();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_pet_spell_t::composite_da_multiplier( s ); // base value
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_pet_spell_t::composite_da_multiplier( s ); // base value
+ 
+       if ( p()->o()->demonology() )
+       {
+@@ -2821,9 +2821,9 @@
+       base_costs[ RESOURCE_ENERGY ] = 0.0;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = warlock_pet_spell_t::composite_da_multiplier( s ); // base value
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = warlock_pet_spell_t::composite_da_multiplier( s ); // base value
+ 
+       if ( p()->o()->demonology() )
+       {
+diff --git a/engine/player/azerite_data.cpp b/engine/player/azerite_data.cpp
+--- a/engine/player/azerite_data.cpp
++++ b/engine/player/azerite_data.cpp
+@@ -1731,9 +1731,9 @@
+       }
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double am = proc_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t am = proc_spell_t::action_multiplier();
+ 
+       am *= 1.0 + building_pressure -> check_stack_value();
+       am *= 1.0 + rolling_thunder -> check_value();
+@@ -3224,9 +3224,9 @@
+       tick_may_crit = true;
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double am = proc_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t am = proc_spell_t::action_multiplier();
+ 
+       am *= 2.0 - this->target->health_percentage() / 100.0;
+ 
+@@ -3985,7 +3985,7 @@
+         essence.spell_ref( 1U, essence_spell::BASE, essence_type::MINOR ).effectN( 2 ).average( essence.item() );
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     { return proc_spell_t::action_multiplier() * cast_number * multiplier; }
+   };
+ 
+@@ -5702,9 +5702,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = azerite_essence_major_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = azerite_essence_major_t::action_multiplier();
+ 
+     if ( damage_buff )
+     {
+diff --git a/engine/player/player.cpp b/engine/player/player.cpp
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -15307,6 +15307,20 @@
+ }
+ }
+ 
++damage_multiplier_t player_t::get_passive_damage_multiplier(const spell_data_t& spell, std::string_view field) const
++{
++  if (is_pet()) return get_owner_or_self()->get_passive_damage_multiplier(spell, field);
++  const auto field_type = get_type_from_field(field);
++  for (const auto& mod : passive_spell_modifiers_)
++    if (mod.id == static_cast<int>(spell.id()) && mod.field_id == field_type)
++    {
++      damage_multiplier_t result(mod.pct);
++      if (damage_multiplier_t::enabled && !mod.damage_sources.empty()) result.factors = mod.damage_sources;
++      return result;
++    }
++  return 1.0;
++}
++
+ std::array<double, 3> player_t::get_passive_value( const spell_data_t& spell, std::string_view field, double mul ) const
+ {
+   assert( !is_pet() || get_owner_or_self() != this );
+@@ -15467,12 +15481,33 @@
+ 
+   it->flat += flat_val;
+   it->pct *= 1.0 + pct_val;
++  if (damage_multiplier_t::enabled && damage_source_effect_ && pct_val != 0.0)
++  {
++    const auto* effect = damage_source_effect_;
++    if (damage_source_remove_)
++    {
++      auto& rows = it->damage_sources;
++      rows.erase(std::remove_if(rows.begin(), rows.end(), [&](const auto& row) {
++        return row.spell_id == effect->spell_id() && row.effect_index == effect->index()+1;
++      }), rows.end());
++    }
++    else it->damage_sources.push_back({1.0+pct_val, effect->spell_id(), effect->index()+1, effect->spell()->name_cstr()});
++  }
++
+ 
+   return { prev, *it };
+ }
+ 
+ bool player_t::register_passive_effect( const spelleffect_data_t& modifying_eff, bool remove )
+ {
++  // 递归注册或注销时恢复外层来源，记录发生在实际应用点。
++  struct source_guard_t {
++    player_t& p; const spelleffect_data_t* old; bool removing;
++    ~source_guard_t() { p.damage_source_effect_=old; p.damage_source_remove_=removing; }
++  } source_guard{*this, damage_source_effect_, damage_source_remove_};
++  damage_source_effect_ = &modifying_eff;
++  damage_source_remove_ = remove;
++
+   if ( !remove && range::contains( skill_damage_excluded_effect_ids_, modifying_eff.id() ) ) return false;
+   auto modifying_spell = modifying_eff.spell();
+   auto sub_type = modifying_eff.subtype();
+diff --git a/engine/player/player.hpp b/engine/player/player.hpp
+--- a/engine/player/player.hpp
++++ b/engine/player/player.hpp
+@@ -6,6 +6,7 @@
+ #pragma once
+ 
+ #include "config.hpp"
++#include "action/damage_multiplier.hpp"
+ 
+ #include "actor.hpp"
+ #include "assessor.hpp"
+@@ -851,12 +852,15 @@
+     int id;
+     int field_id;
+     double orig, flat, pct;
++    std::vector<damage_factor_t> damage_sources;
+     modified_value_t( int id, int field_id, double orig, double flat = 0.0, double pct = 1.0 )
+       : id( id ), field_id( field_id ), orig( orig ), flat( flat ), pct( pct )
+     {}
+ 
+     double value() const { return ( orig + flat ) * pct; }
+   };
++  const spelleffect_data_t* damage_source_effect_ = nullptr;
++  bool damage_source_remove_ = false;
+   std::vector<modified_value_t> passive_spell_modifiers_;
+   std::vector<modified_value_t> passive_power_modifiers_;
+   std::vector<modified_value_t> passive_effect_modifiers_;
+@@ -906,6 +910,7 @@
+   std::vector<std::string> registered_passive_debug_printout;
+   bool disable_class_spell_auto_cloning;
+ 
++  damage_multiplier_t get_passive_damage_multiplier(const spell_data_t&, std::string_view) const;
+   // return { orig, flat, pct }
+   std::array<double, 3> get_passive_value( const spell_data_t&, std::string_view field, double mul = 1.0 ) const;
+   std::array<double, 3> get_passive_value( const spellpower_data_t&, std::string_view field ) const;
+@@ -929,6 +934,8 @@
+   void parse_passive_item_effect( const spell_data_t* );
+   void register_passive_item_effect_override( const spelleffect_data_t&, double );
+   void exclude_skill_damage_effect( const spelleffect_data_t& );
++  bool skill_damage_effect_excluded(unsigned id) const
++  { return range::contains(get_owner_or_self()->skill_damage_excluded_effect_ids_, id); }
+ 
+   player_t( sim_t* sim, player_e type, util::string_view name, race_e race_e );
+   ~player_t() override;
+diff --git a/engine/player/unique_gear.cpp b/engine/player/unique_gear.cpp
+--- a/engine/player/unique_gear.cpp
++++ b/engine/player/unique_gear.cpp
+@@ -2558,7 +2558,7 @@
+     update_flags = 0;
+   }
+ 
+-  double composite_da_multiplier( const action_state_t* ) const override
++  damage_multiplier_t composite_da_multiplier( const action_state_t* ) const override
+   { return explosion_multiplier; }
+ };
+ 
+diff --git a/engine/player/unique_gear_bfa.cpp b/engine/player/unique_gear_bfa.cpp
+--- a/engine/player/unique_gear_bfa.cpp
++++ b/engine/player/unique_gear_bfa.cpp
+@@ -3274,7 +3274,7 @@
+       return false;
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       dot_t* sv_dot = target->find_dot( "shiver_venom", player );
+       if ( !sv_dot )
+@@ -3823,7 +3823,7 @@
+       base_dd_min = base_dd_max = e.driver()->effectN( 1 ).average( e.item );
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       return generic_proc_t::action_multiplier() * buff->check();
+     }
+@@ -4187,7 +4187,7 @@
+       base_dd_min = base_dd_max = primary.driver()->effectN( 1 ).average( primary.item );
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       return generic_proc_t::action_multiplier() * proc_cb->find_debuff( target )->check();
+     }
+@@ -5302,9 +5302,9 @@
+       cooldown->duration        = timespan_t::zero();
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = proc_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = proc_spell_t::action_multiplier();
+ 
+       m *= 1.0 + buff->stack_value();
+ 
+diff --git a/engine/player/unique_gear_dragonflight.cpp b/engine/player/unique_gear_dragonflight.cpp
+--- a/engine/player/unique_gear_dragonflight.cpp
++++ b/engine/player/unique_gear_dragonflight.cpp
+@@ -1206,7 +1206,7 @@
+       return 1.0 + ( as<int>( index ) - 5 ) * 0.1;
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       return DF_darkmoon_proc_t::action_multiplier() * get_mult( deck->top_index );
+     }
+@@ -2098,7 +2098,7 @@
+         generic_proc_t::set_target( t );
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
+     {
+       return generic_proc_t::composite_ta_multiplier( s ) * ( 1.0 + gathering->check_stack_value() );
+     }
+@@ -2591,7 +2591,7 @@
+       aoe = -1;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+        double d = proc_spell_t::composite_da_multiplier( s );
+ 
+@@ -2683,9 +2683,9 @@
+       reduced_aoe_targets = 5;  // from logs, not found in spell data
+     }
+ 
+-     double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = proc_spell_t::composite_da_multiplier( s );
++     damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = proc_spell_t::composite_da_multiplier( s );
+ 
+       m *= 1.0 + ( stack_buff -> stack() * 0.1 );
+ 
+@@ -2761,9 +2761,9 @@
+       return tl;
+     }
+ 
+-     double composite_da_multiplier( const action_state_t* s ) const override
++     damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+      {
+-       double m = proc_spell_t::composite_da_multiplier( s );
++       damage_multiplier_t m = proc_spell_t::composite_da_multiplier( s );
+ 
+        // Damage increases by 10% per target based on in game testing
+        m *= 1.0 + ( std::min( cap, s->n_targets ) - 1 ) * 0.1;
+@@ -3445,9 +3445,9 @@
+       split_aoe_damage = true;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = proc_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = proc_spell_t::composite_da_multiplier( s );
+       // Damage increased linerally by number of stacks
+       m *= buff_stacks;
+ 
+@@ -4603,9 +4603,9 @@
+       base_dd_min = base_dd_max = e.player->find_spell( 401303 )->effectN( 1 ).average( e.item ) * 0.6;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( state );
+ 
+       m *= 1.0 + combat_buff->check_stack_value();
+       m *= 1.0 + no_combat_buff->check_stack_value();
+@@ -5663,9 +5663,9 @@
+       base_dd_min = base_dd_max = e.driver()->effectN( 2 ).average( e.item );
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = generic_proc_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = generic_proc_t::action_multiplier();
+       m *= damage_buff->check();
+       return m;
+     }
+@@ -7013,9 +7013,9 @@
+       stats->type       = stats_e::STATS_NEUTRAL;
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* state ) const override
+-    {
+-      double m        = generic_proc_t::composite_ta_multiplier( state );
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m        = generic_proc_t::composite_ta_multiplier( state );
+       double base_mod = 1.0 + e.driver()->effectN( 3 ).percent();
+ 
+       // Currently appears to increase the damage done multiplicatively by 20% per stack of the buff
+@@ -7059,9 +7059,9 @@
+       add_child( aoe_damage );
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* state ) const override
+-    {
+-      double m        = generic_proc_t::composite_ta_multiplier( state );
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m        = generic_proc_t::composite_ta_multiplier( state );
+       double base_mod = 1.0 + e.driver()->effectN( 3 ).percent();
+ 
+       // Currently appears to increase the damage done multiplicatively by 20% per stack of the buff
+@@ -8164,9 +8164,9 @@
+       base_dd_min = base_dd_max = effect.driver()->effectN( 1 ).average( effect.item );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( state );
+ 
+       if ( state->target->health_percentage() > hp_percent )
+       {
+@@ -8334,9 +8334,9 @@
+       impact_action = dot;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( state );
+ 
+       m *= 1.0 + buff->check_stack_value();
+ 
+@@ -8354,9 +8354,9 @@
+       background = proc = split_aoe_damage = true;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( state );
+ 
+       m *= 1.0 + buff->check_stack_value();
+ 
+@@ -9154,9 +9154,9 @@
+     {
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( state );
+ 
+       m *= 1.0 + buff->check_stack_value();
+ 
+@@ -9979,9 +9979,9 @@
+     }
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = BASE::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = BASE::action_multiplier();
+ 
+     m *= 1.0 + entropic_fel_stone_multiplier;
+ 
+diff --git a/engine/player/unique_gear_legion.cpp b/engine/player/unique_gear_legion.cpp
+--- a/engine/player/unique_gear_legion.cpp
++++ b/engine/player/unique_gear_legion.cpp
+@@ -524,9 +524,9 @@
+     {
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double am = proc_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t am = proc_spell_t::action_multiplier();
+ 
+       double distance = player -> get_player_distance( *target );
+       am *= ( std::min( distance, 20.0 ) / 20.0 ); // Does less damage the closer player is to target.
+@@ -915,9 +915,9 @@
+         spell_t::execute();
+       }
+ 
+-      double action_multiplier() const override
++      damage_multiplier_t action_multiplier() const override
+       {
+-        double am = spell_t::action_multiplier();
++        damage_multiplier_t am = spell_t::action_multiplier();
+         if ( pair_buffed )
+         {
+           am *= 1.3;
+@@ -1442,9 +1442,9 @@
+ 
+   // Base damage is multiplied by the base weapon speed, and a spec specific multiplier (above)
+   // TODO: Dual wielders probably could have different speed weapons, code presumes main hand always
+-  double action_multiplier() const override
+-  {
+-    double m = proc_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = proc_spell_t::action_multiplier();
+ 
+     m *= spec_multiplier();
+ 
+@@ -2940,9 +2940,9 @@
+       recursive_strikes_buff( buff_t::find( e.player, "recursive_strikes" ) )
+     { }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = proc_attack_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = proc_attack_t::action_multiplier();
+ 
+       m *= 1.0 + ( recursive_strikes_buff -> check() - 1 );
+ 
+@@ -3840,9 +3840,9 @@
+     base_dd_min = base_dd_max = effect.driver() -> effectN( 1 ).average( item );
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double am = proc_spell_t::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t am = proc_spell_t::action_multiplier();
+ 
+     am *= driver_buff -> check_value();
+ 
+@@ -3951,7 +3951,7 @@
+       }
+ 
+       // Override so ONLY base_multiplier takes effect.
+-      double composite_da_multiplier( const action_state_t* ) const override
++      damage_multiplier_t composite_da_multiplier( const action_state_t* ) const override
+       {
+         return base_multiplier;
+       }
+@@ -3960,7 +3960,7 @@
+       {
+         auto d = cb->get_debuff( target );
+ 
+-        base_dd_min = base_dd_max = std::min( base_dd_min, d->current_value / base_multiplier );
++        base_dd_min = base_dd_max = std::min( base_dd_min, static_cast<double>(d->current_value / base_multiplier) );
+ 
+         proc_spell_t::execute();
+ 
+diff --git a/engine/player/unique_gear_midnight.cpp b/engine/player/unique_gear_midnight.cpp
+--- a/engine/player/unique_gear_midnight.cpp
++++ b/engine/player/unique_gear_midnight.cpp
+@@ -241,9 +241,9 @@
+       target_debuff             = e.driver()->effectN( 1 ).trigger();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( s );
+ 
+       if ( auto debuff = find_debuff( s->target ) )
+         m *= 1.0 + debuff->check() * mul;
+@@ -1491,9 +1491,9 @@
+       dot_max_stack = 1;  // Override Max Stacks to 1, this behavior is handled by the asyncronous debuff
+     }
+ 
+-    double composite_ta_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = generic_proc_t::composite_ta_multiplier( s );
++    damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_ta_multiplier( s );
+ 
+       if ( auto debuff = find_debuff( s->target ) )
+         m *= debuff->check();
+@@ -2571,9 +2571,9 @@
+       return RESULT_CRIT;
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( s );
+ 
+       // Assume this uses the highest crit chance
+       if ( player->cache.spell_crit_chance() > player->cache.attack_crit_chance() )
+@@ -4070,7 +4070,7 @@
+       base_multiplier *= role_mult( e );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       return generic_proc_t::composite_da_multiplier( s ) * health_bonus;
+     }
+@@ -5058,9 +5058,9 @@
+       get_debuff( s->target )->trigger();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( state );
+ 
+       if ( auto _debuff = find_debuff( state->target ) )
+         m *= 1.0 + _debuff->check_stack_value();
+@@ -6181,9 +6181,9 @@
+     add_child( venomfang_burst );
+   }
+ 
+-  double composite_ta_multiplier( const action_state_t* s ) const override
+-  {
+-    double m = generic_proc_t::composite_ta_multiplier( s );
++  damage_multiplier_t composite_ta_multiplier( const action_state_t* s ) const override
++  {
++    damage_multiplier_t m = generic_proc_t::composite_ta_multiplier( s );
+ 
+     if ( auto debuff = find_debuff( s->target ) )
+       m *= debuff->check();
+diff --git a/engine/player/unique_gear_shadowlands.cpp b/engine/player/unique_gear_shadowlands.cpp
+--- a/engine/player/unique_gear_shadowlands.cpp
++++ b/engine/player/unique_gear_shadowlands.cpp
+@@ -448,9 +448,9 @@
+       max_scaling_targets = as<unsigned>( e.player->find_spell( 345211 )->effectN( 2 ).base_value() );
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = proc_spell_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = proc_spell_t::action_multiplier();
+ 
+       // This may actually be added as flat damage using the coefficients,
+       // but for a trinket like this it is difficult to verify this.
+@@ -1795,9 +1795,9 @@
+       base_dd_min = base_dd_max = e.trigger()->effectN( 1 ).average( e.item );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double am = proc_spell_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t am = proc_spell_t::composite_da_multiplier( s );
+ 
+       am *= std::pow( tick_factor, tick_number );
+ 
+diff --git a/engine/player/unique_gear_thewarwithin.cpp b/engine/player/unique_gear_thewarwithin.cpp
+--- a/engine/player/unique_gear_thewarwithin.cpp
++++ b/engine/player/unique_gear_thewarwithin.cpp
+@@ -1425,7 +1425,7 @@
+       };
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       // 125% per stack is applied exponentially
+       return generic_proc_t::action_multiplier() * std::pow( mult, stack->check() );
+@@ -3026,9 +3026,9 @@
+       base_multiplier *= role_mult( e );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* state ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( state );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* state ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( state );
+ 
+       m *= 1.0 + mult;
+ 
+@@ -3161,9 +3161,9 @@
+       base_multiplier *= role_mult( e );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = generic_proc_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = generic_proc_t::composite_da_multiplier( s );
+ 
+       m *= dot->get_dot( s->target )->current_stack();
+ 
+@@ -4662,9 +4662,9 @@
+     }
+ 
+     // Pet melee attacks seem to still scale with aura 380 and 531
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = melee_attack_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = melee_attack_t::composite_da_multiplier( s );
+       m *= this->player->cast_pet()->owner->cache.pet_damage_multiplier( s, player->type == PLAYER_GUARDIAN );
+       return m;
+     }
+@@ -5142,7 +5142,7 @@
+       base_multiplier *= role_mult( e );
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       // hard scripted values, not in spell data
+       return generic_proc_t::action_multiplier() * ( player->composite_movement_speed() + 17 ) * 0.04;
+@@ -5213,7 +5213,7 @@
+       new dbc_proc_callback_t( e.player, *equip );
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       return generic_proc_t::action_multiplier() * counter->check();
+     }
+@@ -5493,7 +5493,7 @@
+       base_multiplier *= role_mult( e );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       double v = generic_proc_t::composite_da_multiplier( s );
+ 
+@@ -6977,7 +6977,7 @@
+       base_dd_min = base_dd_max = driver_spell->effectN( 2 ).average( effect );
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+       auto m = spell_t::composite_da_multiplier( s );
+ 
+@@ -7140,9 +7140,9 @@
+     }
+ 
+     // Pet melee attacks seem to still scale with aura 380 and 531
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = melee_attack_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = melee_attack_t::composite_da_multiplier( s );
+       m *= this->player->cast_pet()->owner->composite_player_pet_damage_multiplier( s, player->type == PLAYER_GUARDIAN );
+       return m;
+     }
+@@ -7501,9 +7501,9 @@
+         base_dd_min = base_dd_max = data->effectN( 3 ).average( e.item );
+       }
+ 
+-      double composite_da_multiplier( const action_state_t* s ) const override
+-      {
+-        double m = generic_proc_t::composite_da_multiplier( s );
++      damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++      {
++        damage_multiplier_t m = generic_proc_t::composite_da_multiplier( s );
+ 
+         if ( radiance_buff->check() )
+             m *= 2;
+@@ -8102,9 +8102,9 @@
+       aoe = 1 + as<int>( effect.driver()->effectN( 5 ).base_value() );
+     }
+ 
+-    double action_multiplier() const override
+-    {
+-      double m = generic_proc_t::action_multiplier();
++    damage_multiplier_t action_multiplier() const override
++    {
++      damage_multiplier_t m = generic_proc_t::action_multiplier();
+ 
+       if ( max_stack->check() )
+         m *= effect.driver()->effectN( 4 ).base_value();
+@@ -8732,9 +8732,9 @@
+       radius                    = e.player->find_spell( 1239809 )->effectN( 1 ).radius_max();
+     }
+ 
+-    double composite_da_multiplier( const action_state_t* s ) const override
+-    {
+-      double m = generic_aoe_proc_t::composite_da_multiplier( s );
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
++    {
++      damage_multiplier_t m = generic_aoe_proc_t::composite_da_multiplier( s );
+ 
+       m *= 1.0 + ( ( player->composite_mastery() - player->base.mastery ) / 100 );
+ 
+@@ -9079,7 +9079,7 @@
+       counter->trigger();
+     }
+ 
+-    double action_multiplier() const override
++    damage_multiplier_t action_multiplier() const override
+     {
+       return generic_aoe_proc_t::action_multiplier() * ( 1 + counter->check() );
+     }
+@@ -11141,9 +11141,9 @@
+     BASE::background = true;
+   }
+ 
+-  double action_multiplier() const override
+-  {
+-    double m = BASE::action_multiplier();
++  damage_multiplier_t action_multiplier() const override
++  {
++    damage_multiplier_t m = BASE::action_multiplier();
+ 
+     if ( has_fathomdwellers )
+     {
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -50,7 +50,12 @@
+ #include <limits>
+ #include <regex>
+ #include <set>
++#ifdef _WIN32
++#include <io.h>
++#include <windows.h>
++#else
+ #include <unistd.h>
++#endif
+ 
+ #ifdef SC_SIGACTION
+ #include <csignal>
+@@ -58,6 +63,27 @@
+ #endif
+ 
+ namespace { // anonymous namespace ==========================================
++
++// Windows 的提交接口需要可写描述符，不能用只读句柄代替 POSIX fsync。
++int simc_export_sync(int fd)
++{
++#ifdef _WIN32
++  return ::_commit(fd);
++#else
++  return ::fsync(fd);
++#endif
++}
++
++int simc_export_replace(const std::string& source, const std::string& target)
++{
++#ifdef _WIN32
++  return ::MoveFileExW(io::widen(source).c_str(), io::widen(target).c_str(),
++                       MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) ? 0 : -1;
++#else
++  return std::rename(source.c_str(), target.c_str());
++#endif
++}
++
+ 
+ #ifdef SC_SIGACTION
+ // POSIX-only signal handler ================================================
+@@ -549,11 +575,15 @@
+   out.flush();
+   if ( !out ) { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to write APL metadata export file" ); }
+   out.close();
+-  int fd = ::open( temporary.c_str(), O_RDONLY );
+-  if ( fd < 0 || ::fsync( fd ) != 0 )
++#ifdef _WIN32
++  int fd = ::_open(temporary.c_str(), _O_RDWR | _O_BINARY);
++#else
++  int fd = ::open(temporary.c_str(), O_RDONLY);
++#endif
++  if ( fd < 0 || simc_export_sync(fd) != 0 )
+   { if ( fd >= 0 ) ::close( fd ); std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to fsync APL metadata export file" ); }
+   ::close( fd );
+-  if ( std::rename( temporary.c_str(), target.c_str() ) != 0 )
++  if ( simc_export_replace( temporary, target ) != 0 )
+   { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to atomically replace APL metadata export file" ); }
+ }
+ 
+@@ -569,6 +599,7 @@
+     double factor = 1.0;
+   };
+ 
++  std::vector<damage_factor_t> factor_sources;
+   double action_multiplier = 1.0;
+   double aoe_multiplier = 1.0;
+   double player_multiplier = 1.0;
+@@ -764,6 +795,7 @@
+ {
+   skill_damage_runtime_layers_t layers;
+   layers.action_multiplier = periodic ? state->ta_multiplier : state->da_multiplier;
++  layers.factor_sources = periodic ? state->ta_multiplier.factors : state->da_multiplier.factors;
+   // 原生 AoE 钩子即使在单目标也可含技能自己的系数。
+   layers.aoe_multiplier = periodic ? 1.0 : state->action->composite_aoe_multiplier( state );
+   layers.player_multiplier = state->player_multiplier;
+@@ -2131,6 +2163,20 @@
+     out << ",\"single_target_eligible\":" << (c.single_target_eligible ? "true" : "false");
+     out << ",\"native_base_damage\":"; write_skill_damage_json_number( out, c.native_base_damage );
+     out << ",\"armor_multiplier\":"; write_skill_damage_json_number( out, c.armor_multiplier );
++    out << ",\"runtime_factor_sources\":[";
++    bool first_factor = true;
++    for (const auto& f : c.runtime_layers.factor_sources)
++    {
++      if (!first_factor) out << ',';
++      first_factor = false;
++      out << "{\"layer\":";
++      apl_metadata_json_string(out, periodic ? "ta_multiplier" : "da_multiplier");
++      out << ",\"factor\":"; write_skill_damage_json_number(out, f.factor);
++      out << ",\"source_spell_id\":" << f.spell_id << ",\"effect_index\":" << f.effect_index;
++      out << ",\"source_name\":"; apl_metadata_json_string(out, f.name);
++      out << ",\"evidence\":\"native_multiplier_dataflow_v1\"}";
++    }
++    out << ']';
+     out << ",\"runtime_layers\":{";
+     out << ( periodic ? "\"ta_multiplier\":" : "\"da_multiplier\":" );
+     write_skill_damage_json_number( out, c.runtime_layers.action_multiplier );
+@@ -2403,7 +2449,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":23,\"simc_revision\":";
++  out << "{\"schema_version\":24,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2530,7 +2576,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":23,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":24,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50}";
+@@ -2987,10 +3033,14 @@
+   out.flush();
+   if ( !out ) { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to write skill damage export file" ); }
+   out.close();
+-  int fd = ::open( temporary.c_str(), O_RDONLY );
+-  if ( fd < 0 || ::fsync( fd ) != 0 ) { if ( fd >= 0 ) ::close( fd ); std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to fsync skill damage export file" ); }
++#ifdef _WIN32
++  int fd = ::_open(temporary.c_str(), _O_RDWR | _O_BINARY);
++#else
++  int fd = ::open(temporary.c_str(), O_RDONLY);
++#endif
++  if ( fd < 0 || simc_export_sync(fd) != 0 ) { if ( fd >= 0 ) ::close( fd ); std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to fsync skill damage export file" ); }
+   ::close( fd );
+-  if ( std::rename( temporary.c_str(), target.c_str() ) != 0 ) { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to atomically replace skill damage export file" ); }
++  if ( simc_export_replace( temporary, target ) != 0 ) { std::remove( temporary.c_str() ); throw std::runtime_error( "Unable to atomically replace skill damage export file" ); }
+ }
+ 
+ [[maybe_unused]] sim_signal_handler_t handler;
+diff --git a/engine/sim/sim.cpp b/engine/sim/sim.cpp
+--- a/engine/sim/sim.cpp
++++ b/engine/sim/sim.cpp
+@@ -2629,6 +2629,7 @@
+ 
+ void sim_t::init()
+ {
++  damage_multiplier_t::enabled = !skill_damage_export_file.empty();
+   const auto start_time = chrono::wall_clock::now();
+ 
+   if ( initialized )

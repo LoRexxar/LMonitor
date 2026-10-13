@@ -107,6 +107,19 @@ def with_target_crit_evidence(payload):
                     component = amount.get(kind)
                     if isinstance(component, dict):
                         component.setdefault('armor_multiplier', 1.0)
+                        layer = 'da_multiplier' if kind == 'direct' else 'ta_multiplier'
+                        if layer in (component.get('runtime_layers') or {}):
+                            from botend.services.simc_skill_factor_sources import factor_source_layers
+                            component['runtime_layers'].setdefault('aoe_multiplier', 1.0)
+                            declared = [key for key in factor_source_layers(kind) if key in component['runtime_layers']]
+                            component['runtime_factor_source_layers'] = declared
+                            component['runtime_factor_sources'] = [{
+                                'layer': key, 'factor': component['runtime_layers'][key], 'source_spell_id': 0,
+                                'effect_index': 0, 'source_name': '',
+                                'evidence': 'native_multiplier_dataflow_v1',
+                                'source_kind': 'native_operation',
+                                'source_file': 'engine/action/action.cpp', 'source_line': 1,
+                            } for key in declared if component['runtime_layers'][key] != 1.0]
                     if not isinstance(component, dict) or not isinstance(component.get('target_hit'), dict):
                         continue
                     if isinstance(component.get('runtime_layers'), dict):

@@ -31,6 +31,9 @@ from botend.services.simc_skill_activation_context import (
     materialize_activation_pair,
 )
 from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
+from botend.services.simc_skill_factor_sources import (
+    formula_factor_rows, validate_excluded_sources, validate_factor_sources,
+)
 from botend.services.simc_player_config import (
     EQUIPMENT_SLOT_ALIASES, EQUIPMENT_SLOTS, canonical_simc_profile_identity,
     simc_spec_slug,
@@ -158,6 +161,13 @@ def localize_skill_damage_payload(payload):
         and not isinstance(condition.get('spell_id'), bool)
         and condition.get('spell_id') > 0
     )
+    spell_ids.update(
+        source['source_spell_id']
+        for actor in actors for action in actor.get('actions') or []
+        for component in (action.get('product') or {}).get('formula_components') or []
+        for source in component.get('runtime_factor_sources') or []
+        if type(source.get('source_spell_id')) is int and source['source_spell_id'] > 0
+    )
     tokens = set()
     for actor in actors:
         for effect in actor.get('global_skill_effects') or []:
@@ -255,6 +265,13 @@ def localize_skill_damage_payload(payload):
                           + [talent_name, apl_name] + [spell_names.get(sid) for sid in spell_ids])
             return next((value for value in candidates if _contains_cjk(value)), '')
 
+        for action in actor.get('actions') or []:
+            for component in (action.get('product') or {}).get('formula_components') or []:
+                for source in component.get('runtime_factor_sources') or []:
+                    if source.get('source_spell_id'):
+                        source['display_name'] = state_name(
+                            [source['source_spell_id']], '', {'buff', 'debuff', 'talent'},
+                        ) or source.get('source_name', '')
         for effect in actor.get('global_skill_effects') or []:
             if not isinstance(effect, dict):
                 continue
@@ -4059,18 +4076,9 @@ def project_skill_damage_product_payload(payload):
                         str(target_count): component_target_damage[str(target_count)] * count
                         for target_count in _SKILL_DAMAGE_TARGET_COUNTS
                     }
-                runtime_layers = component.get('runtime_layers') or {}
                 runtime_factors = []
-                factor_layers = component.get('runtime_factor_layers')
-                runtime_factor_rows = (
-                    factor_layers if isinstance(factor_layers, list)
-                    else [
-                        {'layer': layer_name, 'factor': value}
-                        for layer_name, value in (
-                            runtime_layers.items() if isinstance(runtime_layers, dict) else ()
-                        )
-                    ]
-                )
+                runtime_factor_rows = formula_factor_rows(component, component_name)
+                formula_sources = []
                 for factor_row in runtime_factor_rows:
                     if not isinstance(factor_row, dict):
                         continue
@@ -4080,11 +4088,13 @@ def project_skill_damage_product_payload(payload):
                         continue
                     if not math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12):
                         runtime_factors.append(value)
+                        formula_sources.append(copy.deepcopy(factor_row))
 
                 if component.get('single_target_eligible') is False:
                     # 原生目标过滤器明确排除了单目标场景，分量仍可对副目标造成伤害。
                     weighted_final = weighted_hit = weighted_crit = 0.0
                     runtime_factors.append(0.0)
+                    formula_sources.append({'factor': 0.0, 'layer': 'target_eligibility'})
                 # 护甲属于目标结算，不参与全局增伤剥离；旧导出缺少该证据时保留旧口径。
                 armor_multiplier = component.get('armor_multiplier')
                 runtime_product = math.prod(runtime_factors) * (
@@ -4147,6 +4157,11 @@ def project_skill_damage_product_payload(payload):
                     'noncrit_contribution': weighted_hit * (1.0 - chance),
                     'crit_contribution': weighted_crit * chance,
                 }
+                if 'runtime_factor_sources' in component:
+                    formula_component['runtime_factor_sources'] = formula_sources
+                    if 'runtime_factor_source_layers' in component:
+                        formula_component['runtime_factor_source_layers'] = copy.deepcopy(
+                            component['runtime_factor_source_layers'])
                 if _finite_number(armor_multiplier):
                     formula_component['armor_multiplier'] = armor_multiplier
                 for field, source in (
@@ -4239,8 +4254,8 @@ def project_global_skill_effects_for_display(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 23
-    DATASET_SCHEMA_REVISION = 46
+    EXPORTER_SCHEMA_REVISION = 26
+    DATASET_SCHEMA_REVISION = 49
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
     WIRE_SCHEMA_REVISION = 1
@@ -4257,6 +4272,7 @@ class SimcSkillDamageSnapshotService:
         'spell_power': _SKILL_DAMAGE_PRIMARY_STAT_BASE,
         'crit_percent': 20.0,
         'mastery_percent': 50.0,
+        'versatility_percent': 0.0,
     }
 
     def __init__(self, snapshot, *, backend=None):
@@ -4910,6 +4926,7 @@ class SimcSkillDamageSnapshotService:
                 ):
                     raise ValueError('exporter runtime layers 结构或数值无效。')
                 passive_effects = runtime_layers.get('specialization_passive_effects')
+                validate_factor_sources(component, component_name, require_complete=True)
                 if not isinstance(passive_effects, list) or any(
                     not isinstance(effect, dict)
                     or set(effect) != {
@@ -5217,6 +5234,7 @@ class SimcSkillDamageSnapshotService:
                     if not math.isclose(coefficients[2], expected_base, rel_tol=1e-9, abs_tol=1e-6):
                         raise ValueError('exporter DBC SpellEffect 归一化基础伤害无效。')
                 validate_amount(action.get('baseline'), context='baseline')
+            validate_excluded_sources(actor)
 
     def _run_profile_target_resilient(
         self, profile, talents, *, scaffold_talents, talent_prerequisites, target_health,

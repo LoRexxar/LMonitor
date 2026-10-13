@@ -13,6 +13,11 @@ DAMAGE_HOOKS={'composite_player_multiplier','composite_player_target_multiplier'
               'composite_player_critical_damage_multiplier','action_multiplier',
               'composite_da_multiplier','composite_ta_multiplier','composite_target_multiplier',
               'composite_crit_damage_bonus_multiplier','composite_crit_multiplier','n_targets'}
+DAMAGE_HOOKS.update({'action_da_multiplier','action_ta_multiplier','composite_persistent_multiplier',
+                    'composite_target_da_multiplier','composite_target_ta_multiplier',
+                    'composite_player_pet_damage_multiplier','composite_player_target_pet_damage_multiplier',
+                    'composite_owner_pet_damage_multiplier','composite_owner_pet_target_damage_multiplier',
+                    'composite_aoe_multiplier','composite_versus_multiplier'})
 
 
 def damage_function_spans(text):
@@ -20,7 +25,7 @@ def damage_function_spans(text):
     cleaned=re.sub(r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"',
                    lambda m:''.join('\n' if c=='\n' else ' ' for c in m[0]),text)
     spans=[]
-    pattern=r'\b(?:double|int|unsigned)\s+([\w:]+)\s*\([^{};]*\)\s*(?:(?:const|override|final|noexcept)\s*)*\{'
+    pattern=r'\b(?:double|damage_multiplier_t|int|unsigned)\s+([\w:<>]+)\s*\([^{};]*\)\s*(?:(?:const|override|final|noexcept)\s*)*\{'
     for match in re.finditer(pattern,cleaned):
         name=match[1].split('::')[-1]
         if name not in DAMAGE_HOOKS:continue

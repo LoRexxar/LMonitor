@@ -6354,6 +6354,9 @@ function renderSimcSkillDamageSnapshot(snapshot) {
             const runtimeFactors = Array.isArray(component.runtime_factors)
                 ? component.runtime_factors.filter(hasFiniteSimcSkillDamageNumber)
                 : [];
+            const runtimeFactorSources = Array.isArray(component.runtime_factor_sources)
+                && component.runtime_factor_sources.length === runtimeFactors.length
+                ? component.runtime_factor_sources : [];
             const armorMultiplier = hasFiniteSimcSkillDamageNumber(component.armor_multiplier)
                 ? component.armor_multiplier : null;
             const armorFactor = armorMultiplier === null ? 1 : armorMultiplier;
@@ -6382,11 +6385,12 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 || Math.abs(explainedDamage - componentFinal) > 1e-8 * Math.max(1, Math.abs(componentFinal))) {
                 formulaComplete = false;
             }
-            const factorKey = JSON.stringify([runtimeFactors, multiTargetFactor, armorMultiplier]);
+            const factorKey = JSON.stringify([runtimeFactors, runtimeFactorSources, multiTargetFactor, armorMultiplier]);
             const group = formulaGroups.get(factorKey) || {
                 baseDamage: 0,
                 finalDamage: 0,
                 runtimeFactors,
+                runtimeFactorSources,
                 multiTargetFactor,
                 armorMultiplier,
             };
@@ -6399,7 +6403,11 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 return `多目标分量 ${formatSimcSkillDamageFactor(group.finalDamage)}`;
             }
             const factorFormula = group.runtimeFactors
-                .map(factor => ` × ${formatSimcSkillDamageFactor(factor)}`)
+                .map((factor, index) => {
+                    const source = group.runtimeFactorSources[index];
+                    const name = source && (source.display_name || source.source_name);
+                    return ` × ${formatSimcSkillDamageFactor(factor)}${name ? `（${escapeHtml(name)}）` : ''}`;
+                })
                 .join('');
             const multiTargetFormula = targetCount !== '1'
                 ? ` × ${formatSimcSkillDamageFactor(group.multiTargetFactor)}（多目标）`
