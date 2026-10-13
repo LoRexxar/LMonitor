@@ -50,6 +50,8 @@ class RaidObservationProjectionTests(TestCase):
             self.assertEqual(view['raid_judgement']['value'], '团本消费选手')
             html = render_to_string('portal/spec_detail/_player_observation.html', {'observation':view})
             self.assertIn('团本消费选手', html)
+            for placeholder in ('证据不足', '尚未生成', '生成失败', '暂不可用'):
+                self.assertNotIn(placeholder, html)
             self.assertIn('史诗7、8号', html)
             self.assertIn('首次击杀', html)
             self.assertIn('不代表已确认付费', html)
@@ -79,7 +81,7 @@ class RaidObservationProjectionTests(TestCase):
         self.activity.refresh_from_db()
         self.assertNotIn('raid_first_kills', self.activity.payload_json)
 
-    def test_invalid_stale_private_wrong_scope_or_unmatched_only_show_insufficient(self):
+    def test_invalid_stale_private_wrong_scope_or_unmatched_are_hidden(self):
         from botend.services.player_raid_observation import project_raid_observation
         variants = []
         for changes in ({'visible':False}, {'rio_season':'old'}, {'identity_digest':'other'},
@@ -104,7 +106,7 @@ class RaidObservationProjectionTests(TestCase):
             self.assertEqual(judgement['evidence'], [])
             html = render_to_string('portal/spec_detail/_player_observation.html',
                 {'observation':{'status':'pending','raid_judgement':judgement}})
-            self.assertEqual(html.count('证据不足'), 1)
+            self.assertEqual(html.strip(), '')
             self.assertNotIn('依据：', html)
             self.assertNotIn('<details', html)
 

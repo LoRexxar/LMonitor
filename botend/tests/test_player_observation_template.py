@@ -59,8 +59,8 @@ class PlayerObservationTemplateTests(SimpleTestCase):
         html = self.render(observation)
         markup = ObservationMarkup(html)
         visible = ''.join(text for text, depth in markup.text if not depth)
-        self.assertEqual(html.count('data-judgement='), 3)
-        self.assertEqual(visible.count('证据不足'), 2)
+        self.assertEqual(html.count('data-judgement='), 1)
+        self.assertNotIn('证据不足', html)
         self.assertIn('五人固定车队', visible)
         self.assertIn('依据：同样五人共同出现8/10场。', visible)
         for unwanted in ('无效', '限时经历', '最佳记录', '样本覆盖', '重复未知结论', '旧的否定结论'):
@@ -74,11 +74,21 @@ class PlayerObservationTemplateTests(SimpleTestCase):
         self.assertEqual(set(links[0]['rel'].split()), {'noopener', 'noreferrer'})
         self.assertNotIn('>fixed_team<', html)
 
-    def test_all_unsupported_are_three_bare_insufficient_rows(self):
+    def test_unsupported_raid_is_hidden_beside_supported_mplus(self):
+        observation = self.observation()
+        observation['raid_judgement'] = {'code':'raid_consumer', 'supported':False,
+            'label':'团本消费', 'value':'证据不足', 'reason':'不应展示的依据'}
+        html = self.render(observation)
+        self.assertIn('五人固定车队', html)
+        self.assertNotIn('raid_consumer', html)
+        self.assertNotIn('证据不足', html)
+        self.assertNotIn('不应展示', html)
+
+    def test_all_unsupported_hide_the_entire_observation_section(self):
         evidence = self.evidence()
         evidence['judgements'][2].update(status='未支持带人判断', reason='无效长解释')
         html = self.render(self.observation(evidence))
-        self.assertEqual(html.count('证据不足'), 3)
+        self.assertEqual(html.strip(), '')
         for unwanted in ('依据：', '<details', '<a ', '无效', '非历史加分', '置信度'):
             self.assertNotIn(unwanted, html)
 
@@ -87,7 +97,7 @@ class PlayerObservationTemplateTests(SimpleTestCase):
         evidence['metrics']['team_pattern']['kind'] = 'suspected_four'
         evidence['eligible_labels'] = [{'code':'rotating_core', 'label':'疑似四人带人队伍', 'evidence_ids':['fixed_team']}]
         html = self.render(self.observation(evidence))
-        self.assertEqual(html.count('证据不足'), 3)
+        self.assertEqual(html.strip(), '')
         self.assertNotIn('疑似四人带人队伍', html)
         self.assertNotIn('依据：', html)
 
@@ -110,7 +120,10 @@ class PlayerObservationTemplateTests(SimpleTestCase):
             observation = self.observation()
             observation['status'] = status
             html = self.render(observation)
-            self.assertIn(message, html)
+            if status == 'stale':
+                self.assertIn(message, html)
+            else:
+                self.assertEqual(html.strip(), '')
             if status != 'stale':
                 self.assertNotIn('五人固定车队', html)
                 self.assertNotIn('<a ', html)
