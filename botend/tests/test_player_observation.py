@@ -257,7 +257,7 @@ class PlayerObservationTests(TestCase):
         self.assertEqual(set(decisions), {'assistance', 'off_spec', 'rotation'})
         self.assertEqual(decisions['assistance']['status'], '支持')
         self.assertEqual(decisions['off_spec']['status'], '证据不足')
-        self.assertEqual(decisions['rotation']['status'], '未见明显迹象')
+        self.assertEqual(decisions['rotation']['verdict'], '五人固定车队')
         self.assertIn('高分队友协助', view['conclusion'])
         for item in decisions.values():
             self.assertTrue(item['reason'])
@@ -274,6 +274,50 @@ class PlayerObservationTests(TestCase):
         view = project_player_observation(self.player)
         self.assertEqual(view['judgements'][0]['status'], '证据不足')
         self.assertNotIn('未见明显被带迹象', view['conclusion'])
+
+    def test_fixed_five_and_repeated_four_person_rotation_are_distinguished(self):
+        data = self.evidence()
+        self.assertEqual(data['metrics']['team_pattern']['kind'], 'fixed_five')
+        self.assertIn('五人固定车队', data['judgements'][2]['verdict'])
+        # One substitution is not enough to infer a carry team.
+        row = RaiderIORunRoster.objects.get(run_id=125)
+        raw = row.payload_json
+        raw['roster'][4]['character'].update(id=105, name='Member5', path='/characters/eu/test-realm/Member5')
+        row.payload_json = raw; row.save()
+        self.assertEqual(self.evidence()['metrics']['team_pattern']['kind'], 'rotating_core')
+        # Same four players, three different fifth players, repeated beyond one swap.
+        runs = []
+        for index in range(8):
+            run = copy.deepcopy(self.runs[0]); rid = 200 + index
+            run.update(keystone_run_id=rid, url=f'https://raider.io/mythic-plus-runs/season-mn-2/{rid}')
+            raw = details(rid); raw.update(mythic_level=20, num_chests=1)
+            member_index = 4 if index < 5 else (5 if index < 7 else 6)
+            for i, member in enumerate(raw['roster']):
+                n = member_index if i == 4 else i
+                member['character'].update(id=100+n, name=f'Member{n}', path=f'/characters/eu/test-realm/Member{n}')
+            RaiderIORunRoster.objects.create(rio_season=self.season.rio_season, run_id=rid, payload_json=raw, fetched_at=timezone.now(), roster_visible=True, status='ready')
+            runs.append(run)
+        self.activity.payload_json = {'mythic_plus_best_runs': runs, 'mythic_plus_recent_runs': runs}
+        self.activity.save()
+        data = self.evidence()
+        pattern = data['metrics']['team_pattern']
+        self.assertEqual(pattern['kind'], 'suspected_four')
+        self.assertEqual(pattern['lineup_counts'], [5, 2, 1])
+        self.assertEqual(pattern['outside_members'], 3)
+        self.assertIn('疑似四人带人队伍', data['judgements'][2]['verdict'])
+        self.assertIn('本人为稳定核心成员', data['conclusion_options']['public_sample']['text'])
+        label = next(x for x in data['eligible_labels'] if x['code'] == 'rotating_core')
+        self.assertEqual(label['confidence_max'], '低')
+
+    def test_previous_prompt_stays_visible_without_regeneration_but_retracts_changed_sources(self):
+        from botend.services.player_observation import generate_observation, project_player_observation
+        with patch('botend.services.player_observation.PROMPT_VERSION', 3):
+            self.assertEqual(generate_observation(self.player, engine=self.engine())['status'], 'ready')
+        before = PlayerObservationAnalysis.objects.get().generated_at
+        self.assertEqual(project_player_observation(self.player)['status'], 'stale')
+        self.assertEqual(PlayerObservationAnalysis.objects.get().generated_at, before)
+        RaiderIORunRoster.objects.filter(run_id=124).update(roster_visible=False)
+        self.assertEqual(project_player_observation(self.player)['status'], 'pending')
 
     def test_current_eligibility_rechecked_not_stale_player_rank(self):
         from botend.services.player_observation import build_evidence
