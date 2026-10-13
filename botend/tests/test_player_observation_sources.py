@@ -212,6 +212,20 @@ class ObservationSourcesTests(TestCase):
         self.assertEqual([c[0].rsplit('/', 1)[-1] for c in self.calls],
                          ['profile', 'run-details', 'mythic-plus-scored-runs'])
 
+    def test_explicit_recent_refresh_updates_ready_only_and_respects_backoff(self):
+        before = PlayerSpecTopPlayer.objects.values().get(pk=self.player.pk)
+        result = self.refresh(max_runs=1, max_characters=1, force=True, refresh_recent=True)
+        self.assertEqual(result['activity']['status'], 'ready')
+        self.assertEqual([c[0].rsplit('/', 1)[-1] for c in self.calls], ['profile', 'mythic-plus-scored-runs'])
+        self.assertLessEqual(result['api_requests'], result['api_budget'])
+        self.assertEqual(PlayerSpecTopPlayer.objects.values().get(pk=self.player.pk), before)
+        for status, expected in (('error', 'backoff'), ('fetching', 'busy')):
+            self.calls.clear()
+            RaiderIOCharacterActivity.objects.filter(pk=self.activity.pk).update(status=status,
+                next_attempt_at=timezone.now()+timedelta(hours=1))
+            self.assertEqual(self.refresh(force=True, refresh_recent=True)['status'], expected)
+            self.assertEqual(self.calls, [])
+
     def test_missing_paths_invalid_rosters_and_conflicting_character_ids_not_guessed(self):
         data = roster(); data['roster'][4]['character']['path'] = ''
         self.row.payload_json = data; self.row.save()

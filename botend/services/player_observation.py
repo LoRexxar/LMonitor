@@ -18,9 +18,10 @@ from botend.constants.wow import SPEC_IDENTITY_MAP, canonical_class_spec
 from botend.models import PlayerObservationAnalysis, PlayerSpecTopPlayer, RaiderIOCharacterActivity, RaiderIORunRoster, SeasonMeta
 from botend.raiderio_identity import activity_identity_digest
 from botend.services.player_raiderio_activity import player_identity
+from botend.services.player_observation_progression import build_progression, current_record
 from botend.services.raiderio_run_roster import run_reference, validate_details
 
-PROMPT_VERSION = 4
+PROMPT_VERSION = 5
 SCORE_TTL = timedelta(hours=48)
 LEASE_TTL = timedelta(minutes=15)
 BACKOFF = timedelta(minutes=30)
@@ -30,9 +31,10 @@ SYSTEM_PROMPT = '''你是魔兽世界大秘境玩家观察分析员。任务是�
 分析顺序：
 1. 先判断组队类型与本人角色。metrics.team_pattern区分五人固定、核心反复轮换及偶尔替补；样本中同一五人阵容占绝大多数时优先“五人固定车队”，不能因一次替补就判带人。稳定四人加反复更换的第五席可推断“疑似四人带人队伍”；稳定三人加两个轮换席位同理。仅从eligible_labels选择已有事实支持的标签，不改后端阈值。
 2. 区分“本人疑似被带”和“本人属于疑似带人队的稳定核心”，两者不是一回事。subject_role为core_member时明确本人是核心成员，不把轮换位置的推断转嫁给本人。阵容模式支持的带人推断最高低置信；朋友互助、练号和轮换替补是替代解释。无法确认付费不等于不能给疑似带人标签，但不能断言收费、工作室或现实身份。
-3. 本人被带迹象只看同赛季同副本当前限时成绩差距及重复次数，不用角色总分减单场分数；目前没出现信号不等于证明从未被带。缺失不当零。
-4. 副专精需要可靠跨专精成绩对比。低于当前上限的旧通关，不单独证明副专精；缺证据只让这一项未知，不把整个报告写成无法判断。
-5. 先呈现最有区分度的组队/被带标签，再列补充事实；不要以“限时经历”占据主要结论。每个推断引用具体证据，保留样本范围和替代解释。
+3. 疑似四人核心必须递进分析metrics.progression：先检查近期核心反复完成明显低于四人当前同本计分上限的场次，再在这些场次中检查低分第五人的重复频次与不同人数。只用近期样本作频率分母，不掺入最佳记录。supported代表两项代理信号共同支持；weakened必须弱化带人判断；insufficient明确缺的是核心或第五人资料，不能把缺失当零或仍只重复第一层阵容结论。当前快照不证明历史当场加分；即使双信号满足也不是商业收费证据。
+4. 本人被带迹象只看同赛季同副本当前限时成绩差距及重复次数，不用角色总分减单场分数；目前没出现信号不等于证明从未被带。缺失不当零。
+5. 副专精需要可靠跨专精成绩对比。低于当前上限的旧通关，不单独证明副专精；缺证据只让这一项未知，不把整个报告写成无法判断。
+6. 先呈现最有区分度的组队/被带标签，再列补充事实；不要以“限时经历”占据主要结论。每个推断引用具体证据，保留样本范围和替代解释。
 输出契约：只返回JSON对象，顶层仅observations和conclusion_id。observations最多六条，每条仅code、confidence、reason_id、limitation_ids、evidence_ids。
 code只从eligible_labels选择；confidence为低/中/高且不超过confidence_max；evidence_ids恰为该标签全部关键证据，不省略也不跨标签引用。
 reason_id从该标签reason_options选择，limitation_ids从该标签limitation_options选择，包含全部required_limitation_ids、最多三条且不重复。
@@ -78,9 +80,13 @@ LABEL_OPTIONS = {
     'rotating_core': {
         'reason_options': {
             'core_roster': '已知限时阵容中存在重复共同出现的核心成员，其余成员组合发生变化。',
-            'carry_pattern': '稳定核心之外的席位反复更换，模式上疑似带人队伍；本人处于这个稳定核心中，而非被识别出的轮换席位。'},
+            'carry_pattern': '稳定核心之外的席位反复更换，模式上疑似带人队伍；本人处于这个稳定核心中，而非被识别出的轮换席位。',
+            'carry_supported': '阵容初筛之后，近期限时记录同时出现核心反复低于当前同本计分上限、这些场次反复出现明显低分第五人的信号，进一步支持疑似带人模式。',
+            'carry_weakened': '阵容初筛出现四人核心轮换，但近期递进核验没有同时支持两项信号，因此弱化带人判断，保留核心轮换事实。',
+            'carry_incomplete': '已从阵容初筛继续检查近期限时记录；核心或第五人的有效比较样本不足，尚不能确认两项信号共同出现。'},
         'limitation_options': {
             'other_groups': '朋友或临时组队也可能形成重复核心，不能据此确定组织关系或动机。',
+            'current_not_history': '当前同副本成绩比较不是历史当场加分；后续进步、朋友互助和练号仍是替代解释。',
             'sample_scope': '仅代表已公开的限时阵容样本。'},
         'required_limitation_ids': ['other_groups'],
     },
@@ -119,6 +125,10 @@ def _judgements(evidence):
         label = next(item['label'] for item in evidence['eligible_labels'] if item['code'] == 'rotating_core')
         verdict = label + '（低置信）；本人为稳定核心成员' if pattern['kind'].startswith('suspected_') else label
         rotation = ('支持', verdict, facts['rotating_core'])
+        progression = metrics.get('progression')
+        if progression:
+            status = {'supported': '支持', 'weakened': '未支持带人判断', 'insufficient': '带人证据不足'}[progression['status']]
+            rotation = (status, progression['verdict'], facts['rotating_core'] + ' ' + ' '.join(step['text'] for step in progression['steps']))
     elif team_count >= 3 and team_count * 2 >= timed:
         rotation = ('未见明显迹象', '未见稳定核心带轮换席位的明显模式',
             f"{team_count} 场已知限时阵容未形成共同出现至少 3 次、覆盖至少一半阵容且外围成员有变化的三至四人核心。")
@@ -131,7 +141,7 @@ def _judgements(evidence):
         {'code': 'off_spec', 'label': '是否疑似副专精', 'status': '证据不足', 'verdict': '暂不能判为副专精', 'reason': spec_reason},
         {'code': 'rotation', 'label': '组队类型与本人角色', 'status': rotation[0], 'verdict': rotation[1], 'reason': rotation[2]},
     ]
-    if rotation[0] == '支持':
+    if rotation[0] == '支持' or metrics.get('progression'):
         primary = '综合判定：' + rotation[1] + '。'
     elif 'repeated_teammates' in labels:
         primary = '有重复队友，但尚未形成明确的固定核心轮换模式。'
@@ -320,12 +330,9 @@ def _build(context):
         teams.append((run_id, team))
         records = {}
         for key, _ in keyed:
-            matched = [record for record in scores.get(key, []) if record['dungeon']['id'] == clean['dungeon'].get('id') and record['dungeon']['slug'] == clean['dungeon'].get('slug')]
-            if len(matched) == 1:
-                timed_records = [record for record in (matched[0], matched[0].get('alternate'))
-                                 if record is not None and record['num_chests'] > 0]
-                if timed_records:
-                    records[key] = max(timed_records, key=lambda record: (record['mythic_level'], record['score']))
+            record, _ = current_record(scores.get(key, []), clean['dungeon'])
+            if record:
+                records[key] = record
         if len(records) != 5:
             continue
         comparable.append(run_id)
@@ -367,6 +374,7 @@ def _build(context):
     dominant_five, dominant_count = max(five_counts.items(), key=lambda item: (item[1], tuple(sorted(item[0])))) if five_counts else (None, 0)
     pattern = {'kind': 'unknown', 'subject_role': None, 'dominant_five_runs': dominant_count,
                'total_rosters': len(teams)}
+    selected_core = None
     if dominant_count >= 3 and dominant_count * 5 >= len(teams) * 4:
         pattern.update(kind='fixed_five', subject_role='fixed_member')
         add('fixed_team', '五人固定车队', '中',
@@ -380,6 +388,8 @@ def _build(context):
         frequent_rotation = count >= 5 and alternate_runs >= 3 and (len(combinations) >= 3 or alternate_runs * 3 >= count)
         outside_members = len({member for lineup in combinations for member in lineup})
         kind = ('suspected_four' if len(core) == 4 else 'suspected_three') if frequent_rotation else 'rotating_core'
+        if kind == 'suspected_four':
+            selected_core = core
         label = ('疑似四人带人队伍' if len(core) == 4 else '疑似三人带人队伍') if frequent_rotation else '固定核心＋轮换成员'
         pattern.update(kind=kind, subject_role='core_member', core_size=len(core), core_runs=count,
                        lineup_counts=lineup_counts, outside_members=outside_members, alternate_runs=alternate_runs)
@@ -388,6 +398,20 @@ def _build(context):
             [runs[key]['url'] for key, team in teams if core <= team])
         reason_key = 'carry_pattern' if frequent_rotation else 'core_roster'
         labels[-1]['reason_options'] = {reason_key: LABEL_OPTIONS['rotating_core']['reason_options'][reason_key]}
+    progression = build_progression(core=selected_core, recent=recent, runs=runs, rosters=rosters,
+        scores=scores, score_times=score_times, fetched_at=activity.module_fetched_at.get('mythic_plus_recent_runs') or activity.fetched_at,
+        rio_season=season.rio_season, now=now)
+    if progression:
+        label = next(item for item in labels if item['code'] == 'rotating_core')
+        reason_key = {'supported': 'carry_supported', 'weakened': 'carry_weakened', 'insufficient': 'carry_incomplete'}[progression['status']]
+        label['reason_options'] = {reason_key: LABEL_OPTIONS['rotating_core']['reason_options'][reason_key]}
+        label['required_limitation_ids'] = ['other_groups', 'current_not_history']
+        if progression['status'] == 'weakened':
+            label['label'] = '四人核心轮换（近期未支持带人判断）'
+        evidence.append({'id': 'carry_followup', 'run_url': '',
+            'text': progression['scope'] + ' '.join(step['text'] for step in progression['steps']) + progression['method']})
+        evidence.extend({key: item[key] for key in ('id', 'text', 'run_url')} for item in progression['details'])
+        label['evidence_ids'].extend(['carry_followup'] + [item['id'] for item in progression['details']])
     if len(specs) >= 2:
         add('multiple_specs', '多专精活动', '高', f'本人的已验证当场阵容或近期记录显示 {len(specs)} 种专精；不以当前专精回填历史。', [runs[key]['url'] for key in sorted(spec_refs)])
     if not comparable:
@@ -400,7 +424,7 @@ def _build(context):
             if set(value['required_codes']) <= {label['code'] for label in labels}},
         'limitations': limitations, 'metrics': {'highest_timed_level': highest['mythic_level'] if highest else None,
             'assisted_runs': assisted, 'comparable_runs': comparable, 'comparisons': comparisons,
-            'timed_roster_runs': len(teams), 'observed_spec_count': len(specs), 'team_pattern': pattern},
+            'timed_roster_runs': len(teams), 'observed_spec_count': len(specs), 'team_pattern': pattern, 'progression': progression},
         'source_stamps': {'activity_fetched_at': _stamp(activity.fetched_at), 'source_updated_at': _stamp(activity.source_updated_at),
             'module_fetched_at': activity.module_fetched_at, 'rosters': sorted(roster_refs, key=lambda r: r['run_id']),
             'scores': sorted(score_refs, key=lambda r: r['activity_id'])},
@@ -556,8 +580,8 @@ def project_player_observation(player):
         # Keep only the verified v3 publication when every source and its old
         # derived metrics are unchanged; privacy/data changes still retract it.
         previous = row.evidence_json
-        compatible = (row.prompt_version == 3 and isinstance(previous, dict)
-            and previous.get('prompt_version') == 3
+        compatible = (row.prompt_version in (3, 4) and isinstance(previous, dict)
+            and previous.get('prompt_version') == row.prompt_version
             and all(previous.get(key) == current.get(key) for key in ('source_stamps', 'coverage', 'season_counts'))
             and isinstance(previous.get('metrics'), dict)
             and all(value == current['metrics'].get(key) for key, value in previous['metrics'].items())
@@ -572,7 +596,7 @@ def project_player_observation(player):
         return view
     labels = {item['code']: item['label'] for item in current['eligible_labels']}
     refs = {item['id']: item for item in current['evidence']}
-    view.update(status='stale' if row.prompt_version != PROMPT_VERSION or row.last_error or current['source_failed'] else 'ready', generated_at=row.generated_at, conclusion=current['conclusion_options'][result['conclusion_id']]['text'], judgements=current['judgements'])
+    view.update(status='stale' if row.prompt_version != PROMPT_VERSION or row.last_error or current['source_failed'] else 'ready', generated_at=row.generated_at, conclusion=current['conclusion_options'][result['conclusion_id']]['text'], judgements=current['judgements'], progression=current['metrics'].get('progression'))
     for item in result['observations']:
         view['observations'].append({'label': labels[item['code']], 'confidence': item['confidence'], 'reason': LABEL_OPTIONS[item['code']]['reason_options'][item['reason_id']],
             'limitations': [LABEL_OPTIONS[item['code']]['limitation_options'][key] for key in item['limitation_ids']], 'evidence': [refs[key] for key in item['evidence_ids']]})
