@@ -512,6 +512,9 @@
 .gear-option-row { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; padding: 6px 9px; border: 1px solid var(--gear-border); border-radius: 7px; background: var(--gear-surface); cursor: pointer; }
 .gear-option-row:hover { border-color: #94aff1; background: var(--gear-blue-soft); }
 .gear-option-row:focus-within { outline: 2px solid rgba(37, 86, 216, .2); outline-offset: 1px; }
+.gear-option-row--quantity { grid-template-columns: minmax(0, 1fr) 52px; }
+.gear-option-row--quantity .gear-gem-choice { display: grid; grid-template-columns: 16px minmax(0, 1fr); align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.gear-option-row--quantity .gear-gem-count { width: 52px; min-height: 24px; padding: 2px; border: 1px solid var(--gear-border); border-radius: 5px; background: var(--gear-surface); color: var(--gear-text); font: inherit; font-size: .64rem; }
 .gear-option-copy { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .gear-option-name { flex: 0 0 auto; color: var(--gear-text); font-size: .72rem; font-weight: 760; }
 .gear-option-stat { display: block; min-width: 0; overflow: hidden; color: var(--gear-muted); font-size: .64rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }

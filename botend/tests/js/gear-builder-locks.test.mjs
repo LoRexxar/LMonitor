@@ -14,6 +14,8 @@ const context = {
 };
 const marker = '  initialize();';
 assert.ok(source.includes(marker), '必须找到配装器初始化入口');
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(new URL('../../../static/shared/js/wow-gear-sources.js', import.meta.url), 'utf8'), context);
 vm.runInNewContext(source.replace(marker, `
   const renderCachedDetail = renderDetail;
   persist = renderAll = renderDetail = openDetail = loadEnhancements = toast = () => {};
@@ -23,7 +25,7 @@ vm.runInNewContext(source.replace(marker, `
     setState(value) { state = normalizeState(value); },
     setRequest(value) { requestJson = value; },
     setCandidates(value) { candidates = value; },
-    normalizeState, toggleSlotLock, addItem, applyEnhancement, switchVariant,
+    normalizeState, toggleSlotLock, addItem, applyEnhancement, setGemCount, optionRow, switchVariant,
     variantLabel, simcEquipmentLine, loadSavedLoadout, loadOnlineLoadout,
     changeCraftedStat, removeEnhancement, compactShareState, hydrateSharePayload,
     resolveCraftedEntry, replaceLoadout, totalsAndEffects, refreshCachedEquipmentStats, renderCachedDetail, refreshCachedEnhancementText,
@@ -202,3 +204,53 @@ assert.equal(api.state.equipment.main_hand.variant.id, 100, '修正数值不更�
 assert.equal(api.state.equipment.main_hand.variant.item_level, 334);
 assert.match(api.state.equipment.main_hand.variant.effects[0].description_zh, /756急速/);
 assert.match(api.state.equipment.main_hand.resolvedEffects[0].description_zh, /756急速/);
+
+// 双孔项链可镶嵌相同宝石，数量在属性、保存和导出中都必须保留。
+const neckItem = {item_id: 268265, name: '亚基克星藏骨匣'};
+const neckVariant = {id: 46820, key: 'neck-myth', type: 'drop_equipment', socket_count: 2, stats: {haste: 100}};
+const repeatGem = {item_id: 20001, name: '测试急速宝石'};
+const repeatVariant = {id: 20001, key: 'gem-repeat', type: 'gem', stats: {haste: 17}};
+const otherGem = {item_id: 20002, name: '测试精通宝石'};
+const otherVariant = {id: 20002, key: 'gem-other', type: 'gem', stats: {mastery: 17}};
+api.setState({selectedSlot: 'neck', equipment: {neck: {item: neckItem, variant: neckVariant, gems: []}}});
+assert.doesNotMatch(api.optionRow({...repeatGem, variants: [repeatVariant]}, 'gem'), /gear-gem-count/, '未勾选宝石保持原复选框布局');
+api.setGemCount(repeatGem, repeatVariant, 2);
+assert.deepEqual(plain(api.state.equipment.neck.gems.map(gem => gem.item.item_id)), [20001, 20001]);
+assert.equal(api.totalsAndEffects().totals.haste, 134, '两颗相同宝石的属性分别累加');
+assert.match(api.optionRow({...repeatGem, variants: [repeatVariant]}, 'gem'), /value="2" selected/, '数量控件回显两颗');
+assert.match(api.optionRow({...repeatGem, variants: [repeatVariant]}, 'gem'), /type="checkbox"[^>]* checked/, '双槽也保留已勾选的复选框');
+for (const kind of ['enchant', 'embellishment']) {
+  assert.doesNotMatch(api.optionRow({...repeatGem, variants: [repeatVariant]}, kind), /gear-gem-count|gear-option-row--quantity/, '双槽装备的附魔与美化不使用数量样式');
+}
+assert.match(api.simcEquipmentLine('neck', api.state.equipment.neck), /gem_id=20001\/20001/, '导出保留重复宝石');
+const repeatedShare = api.compactShareState(api.state);
+assert.deepEqual(plain(repeatedShare.e[0][5]), [[20001, 'gem-repeat'], [20001, 'gem-repeat']], '分享引用不去重');
+api.setState(plain(api.state));
+assert.equal(api.state.equipment.neck.gems.length, 2, '保存后恢复仍保留两颗');
+api.setGemCount(otherGem, otherVariant, 1);
+assert.equal(api.state.equipment.neck.gems.length, 2, '满槽时不能挤掉其他宝石或超额镶嵌');
+api.setGemCount(repeatGem, repeatVariant, 1);
+api.setGemCount(otherGem, otherVariant, 1);
+api.setGemCount(repeatGem, repeatVariant, 2);
+assert.deepEqual(plain(api.state.equipment.neck.gems.map(gem => gem.item.item_id)), [20001, 20002], '增加数量不得覆盖另一颗宝石');
+api.setGemCount(repeatGem, repeatVariant, 0);
+assert.deepEqual(plain(api.state.equipment.neck.gems.map(gem => gem.item.item_id)), [20002], '清除只移除所选宝石');
+api.toggleSlotLock('neck');
+api.setGemCount(otherGem, otherVariant, 0);
+assert.equal(api.state.equipment.neck.gems.length, 1, '锁定阻止数量变更');
+api.toggleSlotLock('neck');
+api.setGemCount(otherGem, otherVariant, 0);
+const uniqueVariant = {...repeatVariant, unique_group: '唯一宝石测试', max_equipped: 1};
+api.setGemCount(repeatGem, uniqueVariant, 2);
+assert.equal(api.state.equipment.neck.gems.length, 0, '装备唯一宝石不能重复镶嵌');
+api.state.equipment.head = {item, variant, gems: [{item: otherGem, variant: {...otherVariant, unique_group: '唯一宝石测试'}}]};
+api.setGemCount(repeatGem, uniqueVariant, 1);
+assert.equal(api.state.equipment.neck.gems.length, 0, '唯一分组限制包含其他装备上的宝石');
+api.state.equipment.neck.variant.socket_count = 1;
+assert.match(api.optionRow({...otherGem, variants: [otherVariant]}, 'gem'), /type="checkbox"/, '单孔装备保留复选操作');
+api.state.equipment.neck.gems = [{item: otherGem, variant: otherVariant}];
+for (const capacity of [0, 1, 3]) {
+  api.state.equipment.neck.variant.socket_count = capacity;
+  assert.doesNotMatch(api.optionRow({...otherGem, variants: [otherVariant]}, 'gem'), /gear-gem-count|gear-option-row--quantity/, '非双槽装备即使已选宝石也保持原样式');
+}
+console.log('重复宝石数量、插槽上限、单颗移除、锁定、属性及分享导出验证通过。');

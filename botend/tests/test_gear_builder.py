@@ -751,6 +751,23 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(entry['enchant']['variant']['id'], self.enchant.id)
         self.assertTrue(entry['addedSocket'])
 
+    def test_share_restores_two_identical_gems_without_deduplication(self):
+        self.hero.socket_count = 2
+        self.hero.socket_types = ['prismatic', 'prismatic']
+        self.hero.save(update_fields=['socket_count', 'socket_types'])
+        reference = [self.gem_item.item_id, self.gem.variant_key]
+        response = self.client.post(
+            '/portal/api/gear-builder/resolve-share/',
+            data=json.dumps({'v': 4, 'c': 'Warrior', 's': 'Fury', 'b': 'test-batch',
+                             'e': [['head', self.helm.item_id, self.hero.variant_key, [], None,
+                                    [reference, reference], None, 0]]}),
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual([gem['variant']['id'] for gem in response.json()['equipment']['head']['gems']],
+                         [self.gem.pk, self.gem.pk])
+        self.assertEqual(response.json()['warnings'], [])
+
     def test_v4_share_selects_exact_variant_key_without_database_id(self):
         response = self.client.post(
             '/portal/api/gear-builder/resolve-share/',

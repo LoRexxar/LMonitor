@@ -683,10 +683,15 @@
       : Number(entry?.[kind]?.variant?.id) === Number(variant?.id) ? 1 : 0;
     const description = kind === "embellishment" ? embellishmentDescription(variant) : gemDescription(item, variant);
     const itemDescription = kind !== "embellishment" && item.text_schema_version >= 2 ? item.description : "";
-    return `<label class="gear-option-row"${tooltipAttrs(item, variant)}>
-      <input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>
-      <span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small>${itemDescription ? `<small class="gear-option-description">${escapeHtml(itemDescription)}</small>` : ""}</span>
-    </label>`;
+    const control = `<input class="gear-option-check" type="checkbox" data-add-enhancement="${kind}" data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${selectedCount ? " checked" : ""}>`;
+    const copy = `<span class="gear-option-copy"><strong class="gear-option-name">${escapeHtml(item.name)}${selectedCount > 1 ? ` ×${selectedCount}` : ""}</strong><small class="gear-option-stat">${escapeHtml(description)}</small>${itemDescription ? `<small class="gear-option-description">${escapeHtml(itemDescription)}</small>` : ""}</span>`;
+    // 仅双槽装备已勾选的宝石补充数量控件，其他选项沿用原复选框布局。
+    if (kind === "gem" && socketCapacity(entry) === 2 && selectedCount) {
+      const availableCount = gemCountLimit(variant, entry);
+      const quantity = `<select class="gear-gem-count" aria-label="${escapeHtml(item.name)}镶嵌数量" data-add-enhancement="gem" data-gem-count data-item-id="${item.item_id}" data-variant-id="${variant?.id || ""}"${isSlotLocked() ? " disabled" : ""}>${[1, 2].map((count) => `<option value="${count}"${count === selectedCount ? " selected" : ""}${count > availableCount ? " disabled" : ""}>${count} 颗</option>`).join("")}</select>`;
+      return `<div class="gear-option-row gear-option-row--quantity"${tooltipAttrs(item, variant)}><label class="gear-gem-choice">${control}${copy}</label>${quantity}</div>`;
+    }
+    return `<label class="gear-option-row"${tooltipAttrs(item, variant)}>${control}${copy}</label>`;
   }
 
   function statMarkupText(stats) {
@@ -1042,6 +1047,44 @@
     renderAll();
     if (state.mode === "enhancement") loadEnhancements();
     toast(`${item.name} 已应用到${slotLabel(state.selectedSlot)}`);
+  }
+
+  function gemCountLimit(variant, entry = selectedEntry()) {
+    if (!entry) return 0;
+    const currentCount = (entry.gems || []).filter((gem) => Number(gem.variant?.id) === Number(variant.id)).length;
+    let limit = socketCapacity(entry) - (entry.gems || []).length + currentCount;
+    if (variant.unique_group && Number(variant.max_equipped) > 0) {
+      let equipped = 0;
+      Object.values(state.equipment).forEach((row) => (row?.gems || []).forEach((gem) => {
+        if (row === entry && Number(gem.variant?.id) === Number(variant.id)) return;
+        if (gem.variant?.unique_group === variant.unique_group) equipped++;
+      }));
+      limit = Math.min(limit, Number(variant.max_equipped) - equipped);
+    }
+    return Math.max(0, limit);
+  }
+
+  function setGemCount(item, variant, count) {
+    if (blockLockedSlot()) return;
+    const error = validateEnhancement("gem", variant);
+    if (error) { toast(error, true); return; }
+    const entry = selectedEntry();
+    const gems = entry.gems || [];
+    const matches = (gem) => Number(gem.variant?.id) === Number(variant.id);
+    const currentCount = gems.filter(matches).length;
+    if (!Number.isInteger(count) || count < 0 || count > gemCountLimit(variant, entry)) {
+      toast("宝石数量超过可用插槽或装备唯一上限，请先减少其他宝石。", true);
+      loadEnhancements();
+      return;
+    }
+    if (count === currentCount) return;
+    let retained = 0;
+    entry.gems = gems.filter((gem) => !matches(gem) || ++retained <= count);
+    for (let index = currentCount; index < count; index++) entry.gems.push(compactEnhancement(item, variant));
+    persist();
+    renderAll();
+    if (state.mode === "enhancement") loadEnhancements();
+    toast(`${item.name} 已镶嵌 ${count} 颗`);
   }
 
   async function resolveCraftedEntry(entry) {
@@ -2124,6 +2167,14 @@
       const sourceRows = root === els.embellishment_list ? enhancementGroups.embellishments : root === els.gem_list ? enhancementGroups.gems : enhancementGroups.enchants;
       const item = sourceRows?.find((row) => Number(row.item_id) === Number(control.dataset.itemId));
       const variant = item?.variants?.find((row) => Number(row.id) === Number(control.dataset.variantId));
+      if (control.hasAttribute("data-gem-count")) {
+        if (item && variant) setGemCount(item, variant, Number(control.value));
+        return;
+      }
+      if (groupKey === "gem" && socketCapacity() === 2) {
+        if (item && variant) setGemCount(item, variant, control.checked ? 1 : 0);
+        return;
+      }
       if (!control.checked) {
         if (groupKey === "gem") {
           const index = (selectedEntry()?.gems || []).findIndex((row) => Number(row.variant?.id) === Number(control.dataset.variantId));

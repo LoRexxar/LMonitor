@@ -5,6 +5,8 @@ import vm from 'node:vm';
 // 调用页面真实格式化函数，验证整段提示清理时不误删有效特效。
 const source = fs.readFileSync(new URL('../../../static/portal/js/gear_builder.js', import.meta.url), 'utf8');
 const context = {document: {querySelector: () => ({dataset: {}}), getElementById: () => ({})}};
+vm.createContext(context);
+vm.runInContext(fs.readFileSync(new URL('../../../static/shared/js/wow-gear-sources.js', import.meta.url), 'utf8'), context);
 vm.runInNewContext(source.replace('  initialize();', 'globalThis.qa = {gemDescription, tooltipText, optionRow};'), context);
 const {gemDescription, tooltipText, optionRow} = context.qa;
 const upgraded = {
