@@ -702,6 +702,13 @@ def _catalog_queryset(season, variant_types, query=''):
     return qs.order_by('-item_level', 'item__name_zh', 'item__name', 'variant_key')
 
 
+def _is_ptr_equipment(variant):
+    """公开装备候选排除 PTR，兼容分支字段及旧目录中的预览标记。"""
+    metadata = variant.metadata or {}
+    return (variant.data_branch == 'ptr' or metadata.get('data_branch') == 'ptr'
+            or bool(metadata.get('ptr_preview')))
+
+
 def catalog_items(
     *, class_name, spec_name, slot, source_type='all', query='', page=1, page_size=60,
     excluded_sources=(), excluded_stats=(),
@@ -721,7 +728,7 @@ def catalog_items(
         (WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
         query,
     ).select_related(None).prefetch_related('item'):
-        if not _source_track_is_valid(variant):
+        if _is_ptr_equipment(variant) or not _source_track_is_valid(variant):
             continue
         if not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
             variant.item, class_name, spec_name, variant, slot,
@@ -760,7 +767,7 @@ def catalog_snapshot_items(*, class_name, spec_name, slot, season):
             WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
             WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
         )).select_related(None).prefetch_related('item')):
-            if (_source_track_is_valid(variant)
+            if (not _is_ptr_equipment(variant) and _source_track_is_valid(variant)
                     and slot_matches(variant, slot, class_name, spec_name)
                     and spec_matches(variant.item, class_name, spec_name, variant, slot)):
                 grouped[(variant.item_id, variant_branch(variant))].append(variant)

@@ -9,6 +9,8 @@
     for (const item of payload.items || []) {
       if (search && Number(item.item_id) !== numericId && !(item._search || []).some(name => String(name || "").toLowerCase().includes(search))) continue;
       const variants = (item.variants || []).filter(variant => {
+        // 旧快照重建期间也不展示 PTR 装备，保留同物品的正式服变体。
+        if (variant.data_branch === "ptr" || variant.metadata?.data_branch === "ptr" || variant.metadata?.ptr_preview) return false;
         const facts = variant._filter || {};
         const sources = facts.sources || [];
         return (!source || source === "all" || sources.includes(source.toLowerCase()))

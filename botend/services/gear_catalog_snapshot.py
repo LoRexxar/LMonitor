@@ -23,7 +23,7 @@ from botend.models import WowItemSnapshot, WowItemVariantSnapshot
 from botend.services import gear_builder as gb
 from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 logger = logging.getLogger(__name__)
 _thread = None
 _thread_lock = threading.Lock()

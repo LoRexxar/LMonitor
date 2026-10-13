@@ -20,6 +20,48 @@ from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
 
 class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
+    def test_ptr_flags_are_hidden_in_catalog_and_published_snapshot_without_deletion(self):
+        baseline = gb.catalog_items(**self.key)
+        originals = list(WowItemVariantSnapshot.objects.filter(pk__in=[self.hero.pk, self.crafted.pk]))
+        ptr_ids = []
+        for original in originals:
+            for index, flags in enumerate((
+                {'data_branch': 'ptr'},
+                {'metadata': {'data_branch': 'ptr'}},
+                {'metadata': {'ptr_preview': True}},
+            )):
+                values = {field.attname: getattr(original, field.attname)
+                          for field in original._meta.concrete_fields
+                          if not field.primary_key and field.name not in ('created_at', 'updated_at')}
+                values.update(flags, variant_key=f'ptr-test-{original.pk}-{index}')
+                ptr_ids.append(WowItemVariantSnapshot.objects.create(**values).pk)
+        # 只有 PTR 的物品也不能进入候选列表。
+        self.myth.data_branch = 'ptr'
+        self.myth.save(update_fields=['data_branch'])
+        expected_ids = {self.hero.pk, self.crafted.pk}
+        actual = gb.catalog_items(**self.key)
+        self.assertEqual(actual['total'], baseline['total'])
+        self.assertEqual({v['id'] for row in actual['items'] for v in row['variants']}, expected_ids)
+        self.build()
+        payload = self.body(self.client.get(self.url))
+        self.assertEqual({v['id'] for row in payload['items'] for v in row['variants']}, expected_ids)
+        self.assertEqual(WowItemVariantSnapshot.objects.filter(pk__in=ptr_ids).count(), len(ptr_ids))
+        self.hero.metadata = {'ptr_preview': True}
+        self.hero.save(update_fields=['metadata', 'updated_at'])
+        self.assertEqual(gb.catalog_items(**self.key)['total'], 1)
+        self.assertEqual(snapshots.refresh_catalog_snapshots(), [self.key])
+        self.assertEqual([row['item_id'] for row in self.body(self.client.get(self.url))['items']],
+                         [self.crafted_item.item_id])
+
+    def test_previous_schema_is_unavailable_until_rebuilt(self):
+        with patch.object(snapshots, 'SCHEMA_VERSION', snapshots.SCHEMA_VERSION - 1):
+            old = self.build()
+        with self.assertNumQueries(0):
+            self.assertEqual(self.client.get(self.url).status_code, 202)
+        self.assertEqual(snapshots.refresh_catalog_snapshots(), [self.key])
+        self.assertNotEqual(snapshots._index(self.key)['generation'], old['generation'])
+        self.assertEqual(self.client.get(self.url).status_code, 200)
+
     def test_scoped_command_does_not_consume_other_registered_coordinates(self):
         other = snapshots.coordinate('Mage', 'Fire', 'chest')
         enhancement = snapshots.coordinate('Warrior', 'Fury', 'head', 'enhancements')
@@ -148,7 +190,7 @@ class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
             self.assertEqual(response.content, b'')
 
     def test_browser_filters_equal_existing_catalog_including_variants_and_pages(self):
-        # 保留同 ID 分支、同名排序、宝库隐藏组和地下堡无效轨道。
+        # 覆盖同 ID 的 PTR 排除、同名排序、宝库隐藏组和地下堡无效轨道。
         for key, source, stats, level in (
             ('vault', 'great_vault', {'strength': 100, 'versatility': 10}, 730),
             ('delve-invalid', 'delve', {'strength': 100}, 740),
