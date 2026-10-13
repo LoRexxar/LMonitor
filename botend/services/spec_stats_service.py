@@ -327,9 +327,12 @@ class SpecStatsService:
         # 种族中文
         race_cn = _translate_race(player.race)
 
+        # Observation projection is local-only; generation is an explicit command.
+        from botend.services.player_observation import project_player_observation
         return {
             'id': player.id,
             'rank': player.rank,
+            'observation': project_player_observation(player),
             'character_name': player.character_name,
             'realm': player.realm,
             'region': player.region,

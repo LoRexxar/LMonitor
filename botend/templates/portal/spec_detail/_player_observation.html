@@ -1,0 +1,73 @@
+{% if observation %}
+<section id="player-observation" class="player-observation" aria-labelledby="player-observation-title" data-status="{{ observation.status }}">
+    <header class="player-observation__header">
+        <h2 id="player-observation-title">玩家观察 · AI 辅助</h2>
+        {% if observation.status == 'ready' or observation.status == 'stale' %}
+        {% if observation.model_label %}<span class="player-observation__meta">{{ observation.model_label }}</span>{% endif %}
+        {% endif %}
+    </header>
+    {% if observation.status == 'ready' or observation.status == 'stale' %}
+    {% if observation.status == 'stale' %}
+    <p class="player-observation__status">观察已过期，以下保留上次生成结果，等待后台更新。</p>
+    {% endif %}
+    <p class="player-observation__meta player-observation__timestamp">生成时间 {% if observation.generated_at %}<time datetime="{{ observation.generated_at|date:'c' }}">{{ observation.generated_at|date:"Y-m-d H:i T" }}</time>{% else %}—{% endif %}</p>
+    <div class="player-observation__coverage" aria-label="样本覆盖">
+        <span>最佳记录 <strong>{{ observation.coverage.best_runs|default_if_none:"—" }}</strong></span>
+        <span>最近记录 <strong>{{ observation.coverage.recent_runs|default_if_none:"—" }}</strong></span>
+        <span>去重记录 <strong>{{ observation.coverage.unique_runs|default_if_none:"—" }}</strong></span>
+        <span>限时记录 <strong>{{ observation.coverage.timed_runs|default_if_none:"—" }}</strong></span>
+        <span>阵容记录 <strong>{{ observation.coverage.roster_runs|default_if_none:"—" }}</strong></span>
+        <span>可比较记录 <strong>{{ observation.coverage.comparison_runs|default_if_none:"—" }}</strong></span>
+        <span>当前成绩角色 <strong>{{ observation.coverage.score_characters|default_if_none:"—" }} / {{ observation.coverage.total_characters|default_if_none:"—" }}</strong></span>
+        <span>赛季已完成 <strong>{{ observation.season_counts.total|default_if_none:"—" }}</strong></span>
+        <span>赛季限时 <strong>{{ observation.season_counts.timed|default_if_none:"—" }}</strong></span>
+    </div>
+    {% if observation.conclusion %}
+    <p class="player-observation__conclusion">{{ observation.conclusion }}</p>
+    {% elif not observation.observations %}
+    <p class="player-observation__empty">暂无可展示的观察结论。</p>
+    {% endif %}
+    {% if observation.observations %}
+    <ul class="player-observation__items">
+        {% for item in observation.observations %}
+        <li class="player-observation__item">
+            <div class="player-observation__label-row">
+                <h3>{{ item.label }}</h3>
+                <span class="player-observation__confidence">{{ item.confidence }}置信度</span>
+            </div>
+            <details class="player-observation__details">
+                <summary>理由与逐条证据</summary>
+                {% if item.reason %}<p>{{ item.reason }}</p>{% endif %}
+                {% if item.evidence %}
+                <ul class="player-observation__evidence">
+                    {% for evidence in item.evidence %}
+                    <li>
+                        <span class="player-observation__evidence-id">{{ evidence.id }}</span>
+                        <span>{{ evidence.text }}</span>
+                        {% if evidence.run_url %}<a href="{{ evidence.run_url }}" target="_blank" rel="noopener noreferrer">查看通关来源<span class="player-observation__sr-only">（新窗口）</span></a>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% endif %}
+                {% if item.limitations %}<p class="player-observation__meta">解读限制：{% for limitation in item.limitations %}{{ limitation }}{% if not forloop.last %}；{% endif %}{% endfor %}</p>{% endif %}
+            </details>
+        </li>
+        {% endfor %}
+    </ul>
+    {% endif %}
+    <p class="player-observation__note">样本非完整赛季；当前成绩非历史加分；无法判定付费或工作室。</p>
+    {% if observation.limitations %}
+    <details class="player-observation__details player-observation__limitations">
+        <summary>样本与解读限制</summary>
+        <ul>{% for limitation in observation.limitations %}<li>{{ limitation }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    {% elif observation.status == 'pending' %}
+    <p class="player-observation__empty">尚未生成玩家观察，等待后台处理。</p>
+    {% elif observation.status == 'error' %}
+    <p class="player-observation__empty">玩家观察生成失败，暂不展示结论。</p>
+    {% else %}
+    <p class="player-observation__empty">玩家观察暂不可用，暂无可展示的结论。</p>
+    {% endif %}
+</section>
+{% endif %}

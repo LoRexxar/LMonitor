@@ -2575,6 +2575,9 @@ class RaiderIOCharacterActivity(models.Model):
     identity_digest = models.CharField(max_length=64, editable=False)
     payload_json = models.JSONField(default=dict, blank=True)
     module_fetched_at = models.JSONField(default=dict, blank=True)
+    scored_runs_json = models.JSONField(default=dict, blank=True,
+        help_text='当前计分记录；独立于历史活动摘要，不表示通关当时的分数增量')
+    scored_runs_fetched_at = models.DateTimeField(null=True, blank=True)
     fetched_at = models.DateTimeField(null=True, blank=True)
     source_updated_at = models.DateTimeField(null=True, blank=True)
     last_attempt_at = models.DateTimeField(null=True, blank=True)
@@ -2603,6 +2606,26 @@ class RaiderIOCharacterActivity(models.Model):
             fields=['season', 'identity_digest'],
             name='uniq_rio_activity_character',
         )]
+
+
+class PlayerObservationAnalysis(models.Model):
+    """One derived, evidence-bound AI interpretation per central character."""
+    activity = models.OneToOneField(RaiderIOCharacterActivity, on_delete=models.CASCADE,
+        related_name='observation_analysis')
+    evidence_hash = models.CharField(max_length=64, blank=True, default='')
+    evidence_json = models.JSONField(default=dict, blank=True)
+    result_json = models.JSONField(default=dict, blank=True)
+    prompt_version = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=24, default='pending')
+    generated_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    lease_token = models.CharField(max_length=32, blank=True, default='')
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=40, blank=True, default='')
+
+    class Meta:
+        db_table = 'wow_player_observation_analysis'
 
 
 class RaiderIORunRoster(models.Model):

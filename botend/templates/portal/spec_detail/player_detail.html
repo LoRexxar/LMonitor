@@ -6,6 +6,7 @@
 
 {% block extra_head %}
 <link rel="stylesheet" href="{% static 'portal/css/player-raiderio-activity.css' %}?v=20261013_roster_line_v4">
+<link rel="stylesheet" href="{% static 'portal/css/player-observation.css' %}?v=20261013_observation_v1">
 {% endblock %}
 
 {% block content %}
@@ -71,6 +72,7 @@
     </div>
 
     {% include "portal/spec_detail/_player_raiderio_activity.html" with activity=player_detail.raiderio_activity only %}
+    {% include "portal/spec_detail/_player_observation.html" with observation=player_detail.observation only %}
 
     {% if player_detail.talent_render_model or player_detail.talent_groups %}
     <section class="detail-card detail-card--full">

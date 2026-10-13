@@ -139,6 +139,9 @@ def validate_details(data, run, rio_season):
             raise ValueError('invalid member')
         source = member['character']
         character = {key: _text(source.get(key)) for key in ('name', 'path')}
+        # Legacy central facts omit this field; present IDs must be real integers.
+        if 'id' in source:
+            character['id'] = _positive(source['id'])
         for key, fields in (('class', ('id', 'name', 'slug')), ('spec', ('id', 'name', 'slug', 'role')),
                             ('realm', ('slug',)), ('region', ('slug',))):
             character[key] = _identity_part(source.get(key), fields)
