@@ -6341,9 +6341,31 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         let formulaComplete = formulaComponents.length > 0
             && formulaComponents.every(component => component.status !== 'incomplete');
         const formulaGroups = new Map();
-        const formulaBaseLabel = '基础伤害';
+        const formulaBaseLabel = includesCrit ? '基础期望（含暴击）' : '基础伤害';
+        let expectationComplete = formulaComponents.length > 0;
+        let expectedSum = 0;
         formulaComponents.forEach(component => {
             const baseDamage = component.base_damage;
+            const selectedValue = (single, multiple) => targetCount === '1' ? component[single] : component[multiple]?.[targetCount];
+            const expected = selectedValue('final_damage', 'final_damage_by_target');
+            if (includesCrit) {
+                const normal = selectedValue('noncrit_contribution', 'noncrit_contribution_by_target');
+                const critical = selectedValue('crit_contribution', 'crit_contribution_by_target');
+                if (![normal, critical, expected].every(hasFiniteSimcSkillDamageNumber)
+                    || Math.abs(normal + critical - expected) > 1e-8 * Math.max(1, Math.abs(expected))) {
+                    expectationComplete = false;
+                }
+                expectedSum += expected;
+                if (targetCount === '1') {
+                    const {crit_chance: chance, noncrit_damage: hit, crit_damage: crit} = component;
+                    if (![chance, hit, crit].every(hasFiniteSimcSkillDamageNumber)
+                        || chance < 0 || chance > 1
+                        || Math.abs(hit * (1 - chance) - normal) > 1e-8 * Math.max(1, Math.abs(normal))
+                        || Math.abs(crit * chance - critical) > 1e-8 * Math.max(1, Math.abs(critical))) {
+                        expectationComplete = false;
+                    }
+                }
+            }
             const componentSingleTarget = includesCrit ? component.noncrit_damage : component.final_damage;
             const componentDamageByTarget = includesCrit ? component.noncrit_damage_by_target : component.final_damage_by_target;
             const componentFinal = targetCount === '1'
@@ -6371,7 +6393,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 && Number.isFinite(explainedSingle) && Math.abs(explainedSingle) <= 1e-8) {
                 const key = 'direct-target-damage';
                 const group = formulaGroups.get(key) || {directTargetDamage: true, finalDamage: 0};
-                group.finalDamage += componentFinal;
+                group.finalDamage += includesCrit ? expected : componentFinal;
                 formulaGroups.set(key, group);
                 return;
             }
@@ -6385,22 +6407,35 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 || Math.abs(explainedDamage - componentFinal) > 1e-8 * Math.max(1, Math.abs(componentFinal))) {
                 formulaComplete = false;
             }
+            // 将已验证的暴击期望折入基础值，保留原有独立增伤与护甲乘区。
+            // 多目标使用其实际贡献比例，不能套用单目标暴击率。
+            const expectationFactor = includesCrit && componentFinal !== 0 ? expected / componentFinal : 1;
+            const expectedBase = baseDamage * expectationFactor;
+            const displayedDamage = includesCrit ? expected : componentFinal;
+            const explainedExpectation = explainedDamage * expectationFactor;
+            if (!Number.isFinite(expectedBase) || !Number.isFinite(explainedExpectation)
+                || !hasFiniteSimcSkillDamageNumber(displayedDamage)
+                || Math.abs(explainedExpectation - displayedDamage) > 1e-8 * Math.max(1, Math.abs(displayedDamage))) {
+                formulaComplete = false;
+            }
             const factorKey = JSON.stringify([runtimeFactors, runtimeFactorSources, multiTargetFactor, armorMultiplier]);
             const group = formulaGroups.get(factorKey) || {
                 baseDamage: 0,
+                baseTerms: [],
                 finalDamage: 0,
                 runtimeFactors,
                 runtimeFactorSources,
                 multiTargetFactor,
                 armorMultiplier,
             };
-            group.baseDamage += baseDamage;
-            group.finalDamage += componentFinal;
+            group.baseDamage += expectedBase;
+            group.baseTerms.push(expectedBase);
+            group.finalDamage += displayedDamage;
             formulaGroups.set(factorKey, group);
         });
         const formulaTerms = Array.from(formulaGroups.values()).map(group => {
             if (group.directTargetDamage) {
-                return `多目标分量 ${formatSimcSkillDamageFactor(group.finalDamage)}`;
+                return `多目标${includesCrit ? '期望' : ''}分量 ${formatSimcSkillDamageFactor(group.finalDamage)}`;
             }
             const factorFormula = group.runtimeFactors
                 .map((factor, index) => {
@@ -6414,56 +6449,30 @@ function renderSimcSkillDamageSnapshot(snapshot) {
                 : '';
             const armorFormula = group.armorMultiplier !== null && group.armorMultiplier !== 1
                 ? ` × ${formatSimcSkillDamageFactor(group.armorMultiplier)}（护甲）` : '';
-            const term = `${formulaBaseLabel} ${formatSimcSkillDamageFactor(group.baseDamage)}${factorFormula}${armorFormula}${multiTargetFormula}`;
+            const baseFormula = includesCrit && group.baseTerms.length > 1
+                ? `(${group.baseTerms.map(formatSimcSkillDamageFactor).join(' + ')})`
+                : formatSimcSkillDamageFactor(group.baseDamage);
+            const term = `${formulaBaseLabel} ${baseFormula}${factorFormula}${armorFormula}${multiTargetFormula}`;
             return formulaGroups.size > 1 ? `(${term})` : term;
         });
-        const hitTotal = Array.from(formulaGroups.values()).reduce((total, group) => total + group.finalDamage, 0);
-        if (formulaComplete && formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
-            formulaCell = `${formulaTerms.join(' + ')} ≈ ${formatSimcSkillDamageFactor(includesCrit ? hitTotal : finalDamage)}`;
+        const formulaTotal = Array.from(formulaGroups.values()).reduce((total, group) => total + group.finalDamage, 0);
+        if (hasFiniteSimcSkillDamageNumber(finalDamage)
+            && Math.abs(formulaTotal - finalDamage) > 1e-8 * Math.max(1, Math.abs(finalDamage))) {
+            formulaComplete = false;
+        }
+        expectationComplete = expectationComplete && hasFiniteSimcSkillDamageNumber(finalDamage)
+            && Number.isFinite(expectedSum)
+            && Math.abs(expectedSum - finalDamage) <= 1e-8 * Math.max(1, Math.abs(finalDamage));
+        if (formulaComplete && (!includesCrit || expectationComplete) && formulaTerms.length && hasFiniteSimcSkillDamageNumber(finalDamage)) {
+            formulaCell = `${includesCrit ? '伤害期望：' : ''}${formulaTerms.join(' + ')} ≈ ${formatSimcSkillDamageFactor(finalDamage)}`;
         } else if (!formulaComplete && formulaComponents.length) {
             formulaCell = '<span class="text-amber-800">公式未完整解析：DBC 基础值与运行时乘区未能解释全部伤害</span>';
         }
         if (formulaComponents.some(component => !hasFiniteSimcSkillDamageNumber(component.armor_multiplier))) {
             formulaCell += ' <span class="text-amber-800">旧版数据，未计护甲</span>';
         }
-        if (includesCrit) {
-            const expectationTerms = [];
-            let expectedSum = 0;
-            let expectationComplete = formulaComponents.length > 0;
-            formulaComponents.forEach(component => {
-                const selectedValue = (single, multiple) => targetCount === '1' ? component[single] : component[multiple]?.[targetCount];
-                const normal = selectedValue('noncrit_contribution', 'noncrit_contribution_by_target');
-                const critical = selectedValue('crit_contribution', 'crit_contribution_by_target');
-                const expected = selectedValue('final_damage', 'final_damage_by_target');
-                if (![normal, critical, expected].every(hasFiniteSimcSkillDamageNumber)
-                    || Math.abs(normal + critical - expected) > 1e-8 * Math.max(1, Math.abs(expected))) {
-                    expectationComplete = false;
-                    return;
-                }
-                expectedSum += expected;
-                if (targetCount === '1') {
-                    const chance = component.crit_chance;
-                    const hit = component.noncrit_damage;
-                    const crit = component.crit_damage;
-                    if (![chance, hit, crit].every(hasFiniteSimcSkillDamageNumber)
-                        || chance < 0 || chance > 1
-                        || Math.abs(hit * (1 - chance) - normal) > 1e-8 * Math.max(1, Math.abs(normal))
-                        || Math.abs(crit * chance - critical) > 1e-8 * Math.max(1, Math.abs(critical))) {
-                        expectationComplete = false;
-                        return;
-                    }
-                    expectationTerms.push(`${formatSimcSkillDamageFactor(hit)} × ${formatSimcSkillDamagePercent((1 - chance) * 100)} + ${formatSimcSkillDamageFactor(crit)} × ${formatSimcSkillDamagePercent(chance * 100)}（暴击）`);
-                } else {
-                    expectationTerms.push(`${formatSimcSkillDamageFactor(normal)}（非暴击部分）+ ${formatSimcSkillDamageFactor(critical)}（暴击部分）`);
-                }
-            });
-            if (expectationComplete && hasFiniteSimcSkillDamageNumber(finalDamage)
-                && Math.abs(expectedSum - finalDamage) <= 1e-8 * Math.max(1, Math.abs(finalDamage))) {
-                const terms = expectationTerms.map(term => expectationTerms.length > 1 ? `(${term})` : term).join(' + ');
-                formulaCell += `<div class="mt-1 text-xs text-indigo-900">伤害期望：${terms} ≈ ${formatSimcSkillDamageFactor(finalDamage)}</div>`;
-            } else {
-                formulaCell += '<div class="mt-1 text-xs text-amber-800">暴击期望证据不完整</div>';
-            }
+        if (includesCrit && !expectationComplete) {
+            formulaCell += '<div class="mt-1 text-xs text-amber-800">暴击期望证据不完整</div>';
         }
         const legacyNotice = includesCrit ? '' : '<div class="text-xs font-normal text-amber-800">旧快照为非暴击值，需重新生成</div>';
         return `<tr class="align-top hover:bg-stone-50"><td class="min-w-[220px] px-3 py-3">${skillMeta}</td><td class="min-w-[190px] px-3 py-3">${variantCell}</td><td class="min-w-[180px] px-3 py-3 font-mono">${baseDamageCell}</td><td class="min-w-[260px] px-3 py-3 font-mono">${formulaCell}</td><td class="px-3 py-3 font-mono font-bold text-blue-900">${formatSimcSkillDamageNumber(finalDamage)}${legacyNotice}</td></tr>`;

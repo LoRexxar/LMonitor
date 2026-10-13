@@ -159,7 +159,8 @@ payload.actors[0].actions = [{
             noncrit_contribution_by_target: {'2': 90}, crit_contribution_by_target: {'2': 160}}]},
 }];
 const expectedHtml = render();
-assert.match(expectedHtml, /伤害期望：100 × 80(?:\.00)?% \+ 200 × 20(?:\.00)?%（暴击） ≈ 120/);
+assert.match(expectedHtml, /伤害期望：基础期望（含暴击） 120 ≈ 120/);
+assert.doesNotMatch(expectedHtml, /80\.00%|20\.00%（暴击）/);
 assert.doesNotMatch(expectedHtml, /旧快照|公式未完整解析|证据不完整/);
 const criticalRow = structuredClone(payload.actors[0].actions[0]);
 criticalRow.display_name = '高暴击伤害测试';
@@ -169,12 +170,12 @@ criticalRow.product.final_normalized_damage_by_target['1'] = 130;
 Object.assign(criticalRow.product.formula_components[0], {crit_damage: 250, crit_contribution: 50, final_damage: 130});
 payload.actors[0].actions.push(criticalRow);
 const sortedHtml = render();
-assert.match(sortedHtml, /250 × 20(?:\.00)?%（暴击） ≈ 130/);
+assert.match(sortedHtml, /基础期望（含暴击） 130 ≈ 130/);
 assert.ok(sortedHtml.indexOf('高暴击伤害测试') < sortedHtml.indexOf('普通暴击测试'));
 
 target.dataset.targetCount = '2';
 const multiHtml = render();
-assert.match(multiHtml, /90（非暴击部分）\+ 160（暴击部分） ≈ 250/);
+assert.match(multiHtml, /基础期望（含暴击） 166\.666667 × 1\.5（多目标） ≈ 250/);
 assert.doesNotMatch(multiHtml, /公式未完整解析|证据不完整/);
 criticalRow.product.formula_components[0].crit_contribution_by_target['2'] = 150;
 assert.match(render(), /暴击期望证据不完整/);
@@ -215,7 +216,7 @@ payload.actors[0].actions=[{display_name:'副目标分量测试',variant:{},prod
     }],
 }}];
 target.dataset.targetCount='2';
-assert.match(render(),/多目标分量 100/);
+assert.match(render(),/多目标期望分量 120/);
 assert.doesNotMatch(render(),/公式未完整解析|暴击期望证据不完整/);
 target.dataset.targetCount='1';
 assert.doesNotMatch(render(),/多目标分量|公式未完整解析|暴击期望证据不完整/);
@@ -327,11 +328,60 @@ payload.actors[0].actions = [{spell_id:1, display_name:'护甲测试', variant:{
         final_damage_by_target:{'1':84,'2':168}}],
 }}];
 target.dataset.targetCount='1';
-assert.match(renderText(), /基础伤害 100 × 0\.7（护甲） ≈ 70/);
+assert.match(renderText(), /基础期望（含暴击） 120 × 0\.7（护甲） ≈ 84/);
 assert.doesNotMatch(renderText(), /公式未完整解析|未计护甲/);
 target.dataset.targetCount='2';
-assert.match(renderText(), /× 0\.7（护甲） × 2（多目标） ≈ 140/);
+assert.match(renderText(), /× 0\.7（护甲） × 2（多目标） ≈ 168/);
 assert.doesNotMatch(renderText(), /公式未完整解析/);
 delete payload.actors[0].actions[0].product.formula_components[0].armor_multiplier;
 assert.match(renderText(), /旧版数据，未计护甲/);
 console.log('护甲因子、单目标与多目标公式以及旧版数据提示通过。');
+
+// 多段先折入各自暴击期望，再按相同来源的倍率分组相加。
+function expectationComponent(base, chance, critMultiplier, factors = [], sources = []) {
+    const hit = factors.reduce((value, factor) => value * factor, base);
+    const critical = hit * critMultiplier;
+    return {base_damage: base, runtime_factors: factors, runtime_factor_sources: sources,
+        armor_multiplier: 1, noncrit_damage: hit, crit_damage: critical, crit_chance: chance,
+        noncrit_contribution: hit * (1 - chance), crit_contribution: critical * chance,
+        final_damage: hit * (1 - chance) + critical * chance};
+}
+function setExpectationComponents(components) {
+    payload.actors[0].actions = [{spell_id: 1, display_name: '多段期望', variant: {}, product: {
+        damage_metric: 'critical_expectation',
+        normalized_base_damage: components.reduce((sum, component) => sum + component.base_damage, 0),
+        final_normalized_damage: components.reduce((sum, component) => sum + component.final_damage, 0),
+        formula_components: components,
+    }}];
+    target.dataset.targetCount = '1';
+}
+setExpectationComponents([
+    expectationComponent(1988.3682, 0.2, 2.04),
+    expectationComponent(994.1841, 0.2, 2.04),
+]);
+assert.match(renderText(), /基础期望（含暴击） \(2401\.948786 \+ 1200\.974393\) ≈ 3602\.923178/);
+assert.doesNotMatch(renderText(), /80\.00%|20\.00%（暴击）|证据不完整|公式未完整解析/);
+const sources = [{source_spell_id: 101, source_name: '加成甲'},
+    {source_spell_id: 102, source_name: '<加成乙>'}];
+setExpectationComponents([
+    expectationComponent(100, 0.2, 2, [1.1, 1.1], sources),
+    expectationComponent(50, 0.4, 2.5, [1.1, 1.1], sources),
+]);
+assert.match(renderText(), /基础期望（含暴击） \(120 \+ 80\) × 1\.1（加成甲） × 1\.1（&lt;加成乙>） ≈ 242/);
+assert.doesNotMatch(renderText(), /× 1\.21|公式未完整解析|证据不完整/);
+// 数值相同而来源不同的天赋，以及不同倍率，均不能提取成共同乘数。
+setExpectationComponents([
+    expectationComponent(100, 0.2, 2, [1.1], [sources[0]]),
+    expectationComponent(50, 0.2, 2, [1.1], [sources[1]]),
+    expectationComponent(50, 0.2, 2, [1.2]),
+]);
+assert.match(renderText(), /\(基础期望（含暴击） 120 × 1\.1（加成甲）\) \+ \(基础期望（含暴击） 60 × 1\.1（&lt;加成乙>）\) \+ \(基础期望（含暴击） 60 × 1\.2\) ≈ 270/);
+setExpectationComponents([expectationComponent(100, 0, 2), expectationComponent(50, 1, 2.5)]);
+assert.match(renderText(), /基础期望（含暴击） \(100 \+ 125\) ≈ 225/);
+payload.actors[0].actions[0].product.final_normalized_damage = 226;
+assert.match(renderText(), /暴击期望证据不完整/);
+assert.doesNotMatch(renderText(), /伤害期望：/);
+setExpectationComponents([expectationComponent(100, 0.2, 2, [0])]);
+assert.match(renderText(), /基础期望（含暴击） 100 × 0 ≈ 0/);
+assert.doesNotMatch(renderText(), /NaN|Infinity|公式未完整解析|证据不完整/);
+console.log('多段暴击基础期望、独立天赋倍率、不同来源分组及零伤害边界通过。');
