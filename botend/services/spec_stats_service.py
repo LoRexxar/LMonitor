@@ -5,6 +5,8 @@
 """
 
 from collections import Counter, defaultdict
+from botend.services.player_external_links import build_player_external_links
+from botend.services.player_raiderio_activity import project_player_activity
 from django.db import connection
 from django.db.models import Avg, Max, Min, StdDev
 
@@ -69,7 +71,7 @@ def _aggregate_gems(gear_items):
         for g in gems:
             if not isinstance(g, dict):
                 continue
-            name = g.get('name') or f"#{g.get('id', '?')}"
+            name = g.get('display_name') or g.get('name_zh') or g.get('name') or f"#{g.get('id', '?')}"
             if name not in gem_counter:
                 gem_counter[name] = {
                     'name': name,
@@ -84,17 +86,29 @@ def _aggregate_gems(gear_items):
 
 def _aggregate_enchants(gear_items):
     """从装备列表聚合附魔，按槽位展示"""
+    from botend.services.wow_item_display import load_enchantment_catalog
+    catalog = load_enchantment_catalog(
+        e.get('enchantment_id') for item in gear_items
+        for e in item.get('enchants_detail') or [] if isinstance(e, dict)
+    )
     result = []
     for item in gear_items:
         enchants = item.get('enchants_detail') or []
         for e in enchants:
             if not isinstance(e, dict):
                 continue
-            name = e.get('name') or f"#{e.get('id', '?')}"
+            enchantment_id = _coerce_item_id(e.get('enchantment_id'))
+            meta = catalog.get(enchantment_id) or {}
+            name = (e.get('display_name') or e.get('name_zh') or e.get('name')
+                    or meta.get('name_zh') or meta.get('name'))
+            if not name:
+                name = (f'附魔 #{enchantment_id}（名称待补全）' if enchantment_id
+                        else f"#{e['id']}" if e.get('id') else '附魔名称未提供')
             result.append({
                 'name': name,
-                'icon': _normalize_icon_name(e.get('icon', '')),
-                'id': e.get('id'),
+                'icon': _normalize_icon_name(e.get('icon') or meta.get('icon', '')),
+                'id': e.get('id') or meta.get('item_id'),
+                'enchantment_id': enchantment_id,
                 'slot': item.get('slot', ''),
             })
     return result
@@ -313,9 +327,12 @@ class SpecStatsService:
         # 种族中文
         race_cn = _translate_race(player.race)
 
+        # Observation projection is local-only; generation is an explicit command.
+        from botend.services.player_observation import project_player_observation
         return {
             'id': player.id,
             'rank': player.rank,
+            'observation': project_player_observation(player),
             'character_name': player.character_name,
             'realm': player.realm,
             'region': player.region,
@@ -331,6 +348,8 @@ class SpecStatsService:
             'realm_rank': player.realm_rank,
             'avatar_url': player.avatar_url,
             'profile_url': player.profile_url,
+            'external_links': build_player_external_links(player),
+            'raiderio_activity': project_player_activity(player),
             'achievement_points': player.achievement_points,
             'item_level': player.item_level or avg_ilvl,
             'gear': gear_items,
@@ -451,21 +470,23 @@ class SpecStatsService:
 
     @staticmethod
     def _compute_dungeon_records(selected_records, season_id, dungeon_id, dungeon_name,
-                                 class_name, spec_name, full=False, *, include_talent_build_popularity=True):
+                                 class_name, spec_name, full=False, *, include_talent_build_popularity=True,
+                                 enriched_records=None):
         """Shared single/combined detail statistics over actual selected records."""
         stats = {
             'dungeon_id': dungeon_id,
             'dungeon_name': dungeon_name,
             'sample_size': 0,
             'source': 'Warcraft Logs',
+            'data_contract': 'wcl-log-v1',
             'field_sources': {
                 'performance': 'Warcraft Logs 原始日志',
                 'talent_usage': 'Warcraft Logs 日志天赋（仅有效天赋样本）',
-                **({'talent_build_popularity': '天赋构筑：同赛季同专精角色资料导入码优先，缺失时使用 WCL 导入码；不保证为日志时点构筑'}
+                **({'talent_build_popularity': 'Warcraft Logs 日志导入码；缺失不使用当前角色构筑替代'}
                    if include_talent_build_popularity else {}),
-                'gear': '同赛季同专精 Raider.IO 角色装备优先，缺失时使用 WCL 装备',
-                'secondary_stats': '同赛季同专精 Battle.net 角色属性，非日志时点属性',
-                'race': '同赛季同专精角色资料',
+                'gear': 'Warcraft Logs 对应战斗的装备、宝石与附魔',
+                'secondary_stats': 'Warcraft Logs 对应角色的 CombatantInfo 原始绿字；可能包含日志时点增益，不等同于无增益装备面板；未提供百分比时不推算',
+                'race': 'Warcraft Logs 日志种族；缺失计入未知',
             },
         }
         if not selected_records:
@@ -541,9 +562,10 @@ class SpecStatsService:
                 for f, cnt in faction_counter.most_common()
             }
 
-        # 天赋/装备热门度（概览也展示）
-        records = selected_records
-        profile_cache = {}
+        # Consume only the matching WCL fight/actor snapshot; never current profiles.
+        from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
+        records = (enriched_records if enriched_records is not None else
+                   enrich_dungeon_records(selected_records, class_name, spec_name))
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -566,40 +588,18 @@ class SpecStatsService:
             snapshot=usage_snapshot,
         )
         if include_talent_build_popularity:
-            talent_build_records = _merge_player_profile_fields(
-                records,
-                season_id,
-                class_name,
-                spec_name,
-                fields=('talent_build_code',),
-                profile_cache=profile_cache,
-            )
             stats['talent_build_popularity'] = _compute_talent_build_popularity(
-                talent_build_records,
-                class_name,
-                spec_name,
-                top_n=20 if full else 5,
+                records, class_name, spec_name, top_n=20 if full else 5,
             )
 
-        # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
-        # gear_detail_records 优先用人物榜 Raider.IO gear 回填，补齐 slot/gems_detail/enchants_detail；长度不变，分母仍是 ranking 样本数。
-        gear_detail_records = _merge_player_profile_gear(
-            records, season_id, class_name, spec_name, profile_cache=profile_cache)
-        stats['gear_popularity'] = _compute_gear_popularity(gear_detail_records, top_n=gear_limit)
-        stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
-        stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
-
-        # 人物属性/种族按当前详情页 ranking 样本回填，避免人物榜 Top20/Top200 与 100 人样本混用。
-        player_detail_records = _merge_player_profile_fields(
-            records,
-            season_id,
-            class_name,
-            spec_name,
-            fields=('stats_json', 'race'),
-            profile_cache=profile_cache,
-        )
-        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_detail_records)
-        stats['race_distribution'] = _compute_race_distribution(player_detail_records)
+        # Gear and enhancements are frozen in the same WCL observations.
+        stats['gear_popularity'] = _compute_gear_popularity(records, top_n=gear_limit)
+        stats['gem_popularity'] = _compute_gem_popularity(records, top_n=20)
+        stats['enchant_popularity'] = _compute_enchant_popularity(records, top_n=20)
+        stats['secondary_stats'] = _compute_secondary_stats_distribution(records)
+        for stat in stats['secondary_stats']:
+            stat['sample_size'] = sum(bool((row.get('stats_json') or {}).get(stat['key'])) for row in records)
+        stats['race_distribution'] = _compute_race_distribution(records)
 
         if full:
             # 详细模式：Top 5 玩家（与统计口径使用同一批筛选样本）
@@ -858,18 +858,32 @@ def _dungeon_log_identity(row):
     return ('row', row.get('id') if row.get('id') is not None else id(row))
 
 
-def _select_dungeon_sample_records(qs, max_samples=100):
+DUNGEON_SAMPLE_FIELDS = (
+    'id', 'report_code', 'fight_id',
+    'talents_json', 'talent_build_code', 'gear_json', 'faction', 'guild_name',
+    'character_name', 'realm', 'region', 'dps', 'keystone_level', 'clear_time', 'score',
+)
+
+
+def _dungeon_sample_level_floor(rows):
+    """Inclusive floor for one season/class/spec/dungeon cohort, never gap-fill.
+
+    Frozen callers must pass only their frozen rows, not today's candidate pool.
+    """
+    return max((row.get('keystone_level') or 0 for row in rows), default=0) - 2
+
+
+def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
     """
     为 M+ 聚合选择最终样本。
 
     规则：先按钥石层数从高到低分层，每层按 DPS 从高到低排序；每层只保留 DPS >= 该层中位数的日志，
-    再从高层到低层累积，按 region+realm+character_name 去重，最终最多 max_samples 个玩家样本。
+    再从高层到低层累积，最低只到本范围最高层减 2（含），不足不再向下补样；
+    按 region+realm+character_name 去重，最终最多 max_samples 个玩家样本。
     """
-    fields = (
-        'id', 'report_code', 'fight_id',
-        'talents_json', 'talent_build_code', 'gear_json', 'faction', 'guild_name',
-        'character_name', 'realm', 'region', 'dps', 'keystone_level', 'clear_time', 'score',
-    )
+    fields = DUNGEON_SAMPLE_FIELDS
+    if hydrate_fields is not None:
+        fields = tuple(dict.fromkeys(('id', *hydrate_fields)))
     # Median selection needs the cohort's scalar facts, not every large JSON
     # payload. Fetch talents/gear only for the final (at most 100) observations.
     selection_fields = ('id', 'report_code', 'fight_id', 'character_name',
@@ -878,6 +892,7 @@ def _select_dungeon_sample_records(qs, max_samples=100):
     if not rows:
         return []
 
+    level_floor = _dungeon_sample_level_floor(rows)
     by_level = defaultdict(list)
     seen_logs = set()
     for row in rows:
@@ -891,6 +906,8 @@ def _select_dungeon_sample_records(qs, max_samples=100):
     selected = []
     seen_players = set()
     for level in sorted(by_level.keys(), reverse=True):
+        if level < level_floor:
+            break
         level_rows = sorted(by_level[level], key=lambda r: r.get('dps') or 0, reverse=True)
         dps_values = sorted([r.get('dps') or 0 for r in level_rows])
         median_dps = _percentile(dps_values, 50)
@@ -2656,6 +2673,11 @@ def _resolve_player_gear(player):
             'items': _normalize_gear_items(gear_items),
             'source': '人物榜 Monitor 落库',
         }
+
+    # Raider.IO's anonymous realm is not a resolvable character identity. Do
+    # not search unrelated historical logs for this placeholder's equipment.
+    if (player.realm or '').strip().casefold() == 'anonymous':
+        return {'items': [], 'source': '匿名角色未公开装备资料'}
 
     ranking = SpecDungeonRanking.objects.filter(
         character_name=player.character_name,

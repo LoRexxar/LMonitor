@@ -38,6 +38,68 @@ class JournalLootSnapshotTests(TestCase):
         return snapshots.read_loot_projection(self.release.id, 10, difficulty, self.source,
                                              journal_version=data['loot_versions'][str(difficulty)])
 
+    def test_scoped_command_builds_only_requested_instance(self):
+        from django.core.management import call_command
+        from botend.services.journal_snapshot import loot_version
+        target = JournalInstance.objects.create(release=self.release, journal_id=11,
+            name=self.instance.name, kind=self.instance.kind, payload=deepcopy(self.instance.payload))
+        for boss in self.instance.encounters.all():
+            JournalEncounter.objects.create(instance=target, journal_id=boss.journal_id,
+                                           name=boss.name, payload=deepcopy(boss.payload))
+        self.read(1)
+        self.read(2)
+        source = instance_source(self.release, 11)
+        for difficulty in target.payload['difficulty_ids']:
+            snapshots.read_loot_projection(self.release.id, 11, difficulty, source,
+                journal_version=loot_version(list(target.encounters.all()), difficulty))
+        # Make unrelated entries provably first in the global retry queue.
+        for path in snapshots.snapshot_root().glob('*/request.json'):
+            key = snapshots._load(path)
+            snapshots._write(path.parent / 'attempt.json', {'at': 100 if key['instance_id'] == 11 else 0})
+        call_command('refresh_journal_loot_snapshots', instance=11, force=True)
+        self.assertEqual(self.read()['snapshot']['state'], 'building')
+        for difficulty in target.payload['difficulty_ids']:
+            data = snapshots.read_loot_projection(self.release.id, 11, difficulty, source,
+                journal_version=loot_version(list(target.encounters.all()), difficulty))
+            self.assertEqual(data['snapshot']['state'], 'ready')
+            self.assertEqual(data['coordinate']['instance_id'], 11)
+        self.assertEqual(len(snapshots.refresh_journal_loot_snapshots(poll=True)), 2)
+
+    def test_command_rejects_busy_lock_and_failed_force_with_old_projection(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        with snapshots._lock(snapshots.snapshot_root() / 'worker.lock'):
+            with self.assertRaises(CommandError):
+                call_command('refresh_journal_loot_snapshots', instance=10, force=True)
+        self.assertEqual(self.read()['snapshot']['state'], 'building')
+        warm_journal(10)
+        previous = self.read()
+        with self.assertLogs(snapshots.logger, level='ERROR'), patch(
+                'botend.portal.adventure_journal.build_loot_projection', side_effect=RuntimeError('测试生成失败')):
+            with self.assertRaises(CommandError):
+                call_command('refresh_journal_loot_snapshots', instance=10, force=True)
+        self.assertEqual(self.read(), previous)
+
+    def test_command_rejects_unknown_instance(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        with self.assertRaises(CommandError):
+            call_command('refresh_journal_loot_snapshots', instance=999999)
+
+    def test_command_reads_back_files_instead_of_trusting_build_count(self):
+        from django.core.management import call_command
+        from django.core.management.base import CommandError
+        write = snapshots._write
+
+        def corrupt_after_publish(path, payload):
+            write(path, payload)
+            if path.name == 'data.json':
+                path.write_text('{', encoding='utf-8')
+
+        with patch.object(snapshots, '_write', side_effect=corrupt_after_publish):
+            with self.assertRaises(CommandError):
+                call_command('refresh_journal_loot_snapshots', instance=10)
+
     def test_cold_and_warm_read_are_zero_queries_and_idle_poll_is_zero_queries(self):
         with self.assertNumQueries(0):
             self.assertEqual(self.read()['snapshot']['state'], 'building')

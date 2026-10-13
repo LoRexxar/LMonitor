@@ -16,6 +16,30 @@ from botend.services.gear_builder_venomstone import upgraded_variant, apply_tool
 
 
 class VenomstoneRulesTests(SimpleTestCase):
+    def test_crafted_explicit_levels_keep_crafting_and_refresh_secondary_pool(self):
+        for inventory_type in (1, 2, 11, 12, 13, 14, 17, 23):
+            item = {'inventory_type': inventory_type, 'metadata': {}, 'variants': []}
+            CurrentGearCatalogSource._add_crafted_variants(item, SEASON_LEVEL_PROFILES['mid2'], [{'type': 'crafted'}])
+            upgrades = [v for v in item['variants'] if v.get('metadata', {}).get('venomstone')]
+            self.assertEqual([v['item_level'] for v in upgrades], [] if inventory_type in (1, 11) else [328, 340])
+            self.assertTrue(all(v['type'] == 'crafted_equipment' and v['crafting_quality'] == 5 for v in upgrades))
+        base = {'key': 'crafted-myth-q5-331', 'type': 'crafted_equipment', 'item_level': 331,
+                'crafting_quality': 5, 'crafting_options': {'stat_count': 2, 'stat_pool': ['crit', 'haste'], 'secondary_total': 198},
+                'bonus_ids': [1808], 'socket_count': 1, 'is_intrinsic_embellishment': True}
+        upgrade = upgraded_variant(17, base)
+        self.assertEqual(upgrade['item_level'], 340)
+        self.assertEqual(upgrade['bonus_ids'], [1808], '制造档位不套用掉落轨道bonus')
+        self.assertEqual(upgrade['crafting_options']['stat_count'], 2)
+        self.assertNotIn('secondary_total', upgrade['crafting_options'])
+        self.assertTrue(upgrade['is_intrinsic_embellishment'])
+        self.assertEqual(upgrade['socket_count'], 1)
+        with self.assertRaisesMessage(ValueError, '副属性'):
+            apply_tooltip(upgrade, {'item_level': 340, 'stats': {'strength': 199}})
+        apply_tooltip(upgrade, {'item_level': 340, 'stats': {'strength': 199}, 'secondary_total': 216})
+        self.assertEqual(upgrade['crafting_options']['secondary_total'], 216)
+        self.assertEqual(base['crafting_options']['secondary_total'], 198)
+        self.assertIsNone(upgraded_variant(17, dict(base, crafting_quality=4)))
+
     def test_automatic_branch_follows_item_origin(self):
         self.assertEqual(tooltip_branch({}), 'live')
         self.assertEqual(tooltip_branch({'ptr_preview': True}), 'ptr-2')
@@ -43,9 +67,18 @@ class VenomstoneRulesTests(SimpleTestCase):
                 self.assertEqual([(v['upgrade_track'], v['track_rank'], v['track_max_rank'], v['item_level'], v['bonus_ids']) for v in extra],
                                  [] if inventory_type in (1, 11) else [('hero', 8, 6, 328, [12848]), ('myth', 8, 6, 340, [12856])])
 
-    def test_delve_and_special_mythic_limits_remain(self):
-        item = {'inventory_type': 12, 'metadata': {}, 'variants': []}
-        CurrentGearCatalogSource._add_drop_variants(item, SEASON_LEVEL_PROFILES['mid2'], 'delve', [])
+    def test_delve_myth_unlock_and_special_mythic_limits(self):
+        item = {'inventory_type': 17, 'metadata': {}, 'variants': []}
+        sources = [{'type': 'delve'}]
+        CurrentGearCatalogSource._add_drop_variants(item, SEASON_LEVEL_PROFILES['mid2'], 'delve', sources)
+        myth = [row for row in item['variants'] if row['upgrade_track'] == 'myth']
+        self.assertEqual([(row['track_rank'], row['item_level']) for row in myth],
+                         [(1, 318), (2, 321), (3, 324), (4, 328), (5, 331), (6, 334), (8, 340)])
+        self.assertTrue(all(row['metadata']['delve_myth']['patch'] == '12.1.5' for row in myth))
+        self.assertTrue(all(row['sources'] == sources for row in myth))
+        item['variants'] = []
+        profile = {key: value for key, value in SEASON_LEVEL_PROFILES['mid2'].items() if key != 'delve_myth'}
+        CurrentGearCatalogSource._add_drop_variants(item, profile, 'delve', sources)
         self.assertNotIn('myth', {row['upgrade_track'] for row in item['variants']})
         self.assertEqual(max(row['item_level'] for row in item['variants']), 328)
         item['variants'] = []

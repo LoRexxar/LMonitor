@@ -189,6 +189,45 @@ class PtrTalentDescriptionRepairTests(SimpleTestCase):
         self.assertFalse(command._is_usable_db2_description(''))
         self.assertFalse(command._is_usable_db2_description('<script>bad</script>'))
 
+    def test_db2_cleanup_gate_preserves_templates_but_rejects_html(self):
+        command = RepairPtrTalentMetadataCommand()
+        # Exact-build source examples: Entries 96302 and 96303.
+        templates = (
+            '每一层白骨之盾都会使你的最大生命值提高$<increase>%。',
+            'Each charge of Bone Shield increases your maximum health by $<increase>%.',
+            '猛击目标，造成$s2点物理伤害，并获得$s3层白骨之盾。 '
+            '$@spellicon195181 $@spellname195181 $@spelldesc195181',
+            '$?c1[$<increase>][$s1] ${$221322s1/10} $<_bonus2>',
+            '$<increase>',
+            '有$@switch<$s1>[几率][更高几率]召唤砮皂。',
+            'Your next $@switch<$s1>[attack][$s1 attacks] deals increased damage.',
+        )
+        for template in templates:
+            for color, reset in (('', ''), ('|cFFFFFFFF', '|r'), ('|Cffffffff', '|R'), ('|cFf00aAbB', '|R')):
+                with self.subTest(template=template, color=color):
+                    cleaned = command._clean_db2_description(f'{color}{template}{reset}')
+                    self.assertEqual(cleaned, template)
+                    self.assertTrue(command._is_usable_db2_description(cleaned))
+
+        for raw in (
+            '',
+            '<script>alert(1)</script>',
+            '<b>damage</b>',
+            '$<increase><script>alert(1)</script>',
+            '$<script>alert(1)</script>',
+            '$<img src=x onerror=alert(1)>',
+            '$@switch<img src=x>[yes][no]',
+            '$@switch<$s1>[<script>bad</script>][no]',
+            '&lt;script&gt;alert(1)&lt;/script&gt;',
+            '$<increase',
+            '$<>',
+            '|cFFFFFF damage',
+            '|CZZZZZZZZ damage',
+        ):
+            with self.subTest(rejected=raw):
+                cleaned = command._clean_db2_description(raw)
+                self.assertFalse(command._is_usable_db2_description(cleaned))
+
     def test_preserves_contextual_db2_condition_structure_before_resolution(self):
         command = RepairPtrTalentMetadataCommand()
         raw = '$?c1[致死打击][嗜血]的爆击使你的下一个$?c1[致死打击][嗜血]的伤害提高。'

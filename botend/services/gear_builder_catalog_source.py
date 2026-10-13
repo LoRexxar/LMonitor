@@ -16,7 +16,7 @@ import requests
 
 from botend.services.season_keys import canonical_season_key
 from botend.services.gear_builder_tier_sources import tier_set_sources
-from botend.services.wow_item_text import normalize_catalog_text
+from botend.services.wow_item_text import normalize_catalog_text, crafting_property_text
 from botend.services.gear_builder_venomstone import upgraded_variant, apply_tooltip, tooltip_branch
 
 from botend.constants.wow import SPEC_IDENTITY_MAP, localize_gear_source
@@ -31,6 +31,10 @@ WOWHEAD_TOOLTIP = 'https://nether.wowhead.com/tooltip/item/{item_id}'
 SEASON_LEVEL_PROFILES = {
     'mid2': {
         'venomstone': True,
+        'delve_myth': {
+            'patch': '12.1.5',
+            'source': 'https://news.blizzard.com/en-us/article/24307306/midnights-12-1-5-content-update-arrives-october-13',
+        },
         'tracks': {
             'champion': (292, 295, 298, 302, 305, 308),
             'hero': (305, 308, 311, 315, 318, 321),
@@ -191,7 +195,25 @@ def _tooltip_details(payload):
             continue
         key = 'description_zh' if re.search(r'[\u4e00-\u9fff]', text) else 'description'
         effects.append({key: text})
+    # Crafting properties are whole HTML blocks: a heading or first line alone
+    # loses the effect body and conditional continuation lines.
+    properties = []
+    for block in re.findall(r'<div\b[^>]*>(.*?)</div>', raw_tooltip, flags=re.I | re.S):
+        text = _plain_text(block)
+        if not re.match(r'^(?:提供下列属性|Provides the following property)(?:\s|[:：]|$)', text, re.I):
+            continue
+        chinese = text.startswith('提供下列属性')
+        if chinese:
+            block = re.sub(r'<!--term-->\s*primaryStat\s*<!--term-->', '主属性', block)
+        body = crafting_property_text(_plain_text(block))
+        if body:
+            key = 'description_zh' if chinese else 'description'
+            prefix = '提供下列属性：' if chinese else 'Provides the following property: '
+            properties.append({key: prefix + body})
+    effects.extend(properties)
     for line in tooltip.splitlines():
+        if properties and re.match(r'^(?:提供下列属性|Provides the following property)', line, re.I):
+            continue
         is_regular_effect = bool(
             re.match(r'^(?:装备|使用|被动|效果|提供下列属性)\s*[:：]', line)
             or re.match(r'^(?:Equip|Use|Passive|Effect)\s*:', line, flags=re.I)
@@ -561,7 +583,10 @@ class CurrentGearCatalogSource:
             str(row.get('type') or 'PRISMATIC').lower()
             for row in ((raw.get('socketInfo') or {}).get('sockets') or [])
         ]
-        if inventory_type in JEWELRY_INVENTORY_TYPES:
+        if inventory_type == 2 and raw.get('profession'):
+            # 制造项链的 socketInfo 已包含基础孔，不能重复叠加。
+            native_socket_types = source_socket_types or ['prismatic']
+        elif inventory_type in JEWELRY_INVENTORY_TYPES:
             # 项链与戒指固定有一个基础孔；源数据中显式声明的孔是特殊装备的额外天然孔。
             native_socket_types = (['prismatic'] + source_socket_types)[:2]
         else:
@@ -668,7 +693,9 @@ class CurrentGearCatalogSource:
     @staticmethod
     def _add_drop_variants(item, profile, source_type, sources, special_mythic=False):
         socket_types = list((item.get('metadata') or {}).get('native_socket_types') or [])
-        allowed_tracks = ('champion', 'hero') if source_type == 'delve' else tuple(profile['tracks'])
+        allowed_tracks = (('champion', 'hero') if source_type == 'delve' and (
+            item['inventory_type'] == 12 or not profile.get('delve_myth'))
+                          else tuple(profile['tracks']))
         for track, levels in profile['tracks'].items():
             if track not in allowed_tracks:
                 continue
@@ -681,6 +708,8 @@ class CurrentGearCatalogSource:
                     'socket_count': len(socket_types), 'socket_types': socket_types,
                     'sources': sources,
                 })
+                if source_type == 'delve' and track == 'myth':
+                    item['variants'][-1]['metadata'] = {'delve_myth': dict(profile['delve_myth'])}
                 if profile.get('venomstone'):
                     upgraded = upgraded_variant(item['inventory_type'], item['variants'][-1])
                     if upgraded:
@@ -718,6 +747,10 @@ class CurrentGearCatalogSource:
                     'crafting_options': {'stat_count': 2, 'stat_pool': ['crit', 'haste', 'mastery', 'versatility']},
                     'sources': sources,
                 })
+                if profile.get('venomstone'):
+                    upgraded = upgraded_variant(item['inventory_type'], item['variants'][-1])
+                    if upgraded:
+                        item['variants'].append(upgraded)
 
     @staticmethod
     def _highest_quality_enhancements(enchantments):
@@ -803,7 +836,7 @@ class CurrentGearCatalogSource:
             fallback = {}
             for variant in item.get('variants') or []:
                 details = requests_needed.get((item['item_id'], _safe_int(variant.get('item_level')))) or {}
-                if (variant.get('metadata') or {}).get('venomstone'):
+                if any((variant.get('metadata') or {}).get(key) for key in ('venomstone', 'delve_myth')):
                     try:
                         apply_tooltip(variant, details, requires_effect=bool(item.get('effect_refs')) or item.get('inventory_type') == 12)
                     except ValueError as exc:

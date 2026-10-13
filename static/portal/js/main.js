@@ -1177,7 +1177,6 @@ function renderPeakSpecGrid(containerId, payload) {
     const className = spec?.class_name || classSlug;
     const specName = spec?.spec_name || spec?.spec_slug || "";
     const specSlug = spec?.spec_slug || "";
-    const aggregateHref = sanitizeHref(spec?.aggregate_url || "");
     const top = Array.isArray(spec?.items) ? spec.items : [];
 
     const titleColor = classColor(classSlug);
@@ -1201,7 +1200,10 @@ function renderPeakSpecGrid(containerId, payload) {
       const server = escapeHtml([realm, region].filter(Boolean).join(" "));
       const dotBorder = classSlug === "priest" ? "border-slate-400" : "border-slate-200";
       const dot = `<span class="inline-block w-2 h-2 rounded-full border ${dotBorder}" style="background:${titleColor}"></span>`;
-      const linkText = `<a class="text-slate-900 hover:underline font-semibold" href="${escapeHtml(aggregateHref)}">${name}</a>`;
+      const characterHref = sanitizeHref(x?.character_url || "");
+      const linkText = characterHref
+        ? `<a class="text-slate-900 hover:underline font-semibold" href="${escapeHtml(characterHref)}">${name}</a>`
+        : `<span class="text-slate-900 font-semibold">${name}</span>`;
       const link = `<span class="inline-flex items-center gap-1.5">${dot}${linkText}</span>`;
       const left = server ? `<div class="text-xs text-slate-900 truncate">${link} <span class="text-slate-300">·</span> <span class="text-slate-500 font-medium">${server}</span></div>` : `<div class="text-xs text-slate-900 truncate">${link}</div>`;
       return `<div class="flex items-center justify-between gap-2 py-0.5">
@@ -1280,10 +1282,13 @@ function renderMplusRuns(containerId, items) {
     const icon = iconUrl
       ? `<img class="portal-mplus-spec-icon h-5 w-5 shrink-0 rounded border object-cover" src="${escapeHtml(iconUrl)}" width="20" height="20" alt="${specLabel}" title="${specLabel}" style="border-color:${color}" loading="lazy" decoding="async">`
       : `<span class="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-slate-300 text-xs text-slate-500" title="专精未知" aria-label="专精未知">?</span>`;
-    return `<span class="portal-mplus-member inline-flex items-center gap-1 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
+    const characterHref = sanitizeHref(m?.character_url || "");
+    const tag = characterHref ? "a" : "span";
+    const href = characterHref ? ` href="${escapeHtml(characterHref)}"` : "";
+    return `<${tag}${href} class="portal-mplus-member inline-flex items-center gap-1 rounded-md bg-white/70 border ${border} px-1.5 py-0.5">
       ${icon}
       <span class="text-slate-800 text-xs font-medium">${name}</span>
-    </span>`;
+    </${tag}>`;
   };
 
   const rows = filtered.map((it) => {

@@ -1,76 +1,92 @@
-# -*- coding: utf-8 -*-
-"""
-聚合统计命令
-从数据库计算各专精的副本/团本/人物榜统计，输出 JSON 文件供 Portal 直接读取。
-
-用法:
-  python manage.py aggregate_spec_stats           # 全量聚合
-  python manage.py aggregate_spec_stats --class DeathKnight --spec Blood  # 单专精
-  python manage.py aggregate_spec_stats --season 2  # 指定赛季
-"""
-
+"""Manual replay of a completed WCL cohort, or explicit pre-cycle compatibility."""
 import os
 import time
-from django.conf import settings
-from django.core.management.base import BaseCommand
+from functools import partial
 
-from botend.models import SeasonMeta
+from django.conf import settings
+from django.core.management.base import BaseCommand, CommandError
+
+from botend.models import MonitorTask, SeasonMeta, WclCollectionCycle
 from botend.constants.wow import CLASS_SPEC_MAP
-from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
+from botend.controller.plugins.portal.SpecDetailAggregationMonitor import (
+    SpecDetailAggregationMonitor, publish_stats,
+)
+from botend.plugin_sync import claim_monitor_task, release_monitor_task_lease
+from botend.services.wcl_collection_cycle import (
+    CycleOwnershipLost, active_cycle, begin_aggregation, defer_cycle, finish_publication,
+    frozen_season,
+)
 
 
 class Command(BaseCommand):
-    help = '聚合各专精统计数据为 JSON 文件'
+    help = '聚合已完成 WCL 采集周期；无周期旧数据须显式 --allow-legacy'
 
     def add_arguments(self, parser):
         parser.add_argument('--class', dest='class_name', help='职业名 (如 DeathKnight)')
         parser.add_argument('--spec', dest='spec_name', help='专精名 (如 Blood)')
         parser.add_argument('--season', type=int, dest='season_id', help='赛季 ID')
-        parser.add_argument('--dungeon-only', action='store_true', help='仅刷新该赛季大秘境缓存，不写团本或人物榜')
+        parser.add_argument('--dungeon-only', action='store_true', help='仅刷新大秘境缓存')
+        parser.add_argument('--allow-legacy', action='store_true',
+                            help='仅当赛季尚无任何采集周期时，显式允许旧原始数据预热')
 
     def handle(self, *args, **options):
         season_id = options.get('season_id')
-        target_class = options.get('class_name')
-        target_spec = options.get('spec_name')
-        dungeon_only = bool(options.get('dungeon_only'))
-
-        season = SeasonMeta.objects.filter(id=season_id).first() if season_id else SeasonMeta.objects.filter(is_active=True).first()
+        season = (SeasonMeta.objects.filter(id=season_id).first() if season_id else
+                  SeasonMeta.objects.filter(is_active=True).first())
         if not season:
-            self.stderr.write('未找到活跃赛季')
-            return
-
-        season_id = season.id
-        self.stdout.write(f'聚合赛季 {season.season_key} (id={season_id})')
-
-        base_dir = os.path.join(getattr(settings, 'MEDIA_ROOT', '') or 'media', 'aggregated', str(season_id))
-        total_files = 0
-        t0 = time.time()
-
-        for class_name, specs in CLASS_SPEC_MAP.items():
-            if target_class and class_name != target_class:
-                continue
-            for spec_name in specs:
-                if target_spec and spec_name != target_spec:
+            raise CommandError('未找到赛季')
+        if active_cycle(season.pk):
+            raise CommandError('WCL 采集/发布周期尚未完成；请由正常调度续跑，不可手工绕过')
+        has_cycle = WclCollectionCycle.objects.filter(season=season).exists()
+        if not has_cycle and not options.get('allow_legacy'):
+            raise CommandError('无 WCL 采集周期；旧数据兼容预热须显式 --allow-legacy')
+        task = cycle = None
+        if has_cycle:
+            configured = MonitorTask.objects.filter(name='SpecDetailAggregationMonitor').first()
+            if configured is None:
+                raise CommandError('未配置聚合 MonitorTask，无法取得统一发布租约')
+            task = claim_monitor_task(configured.pk)
+            if task is None:
+                raise CommandError('聚合任务运行中，未取得发布租约')
+        try:
+            if has_cycle:
+                cycle = begin_aggregation(season, task, replay_published=True)
+                if cycle is None:
+                    raise CommandError('采集周期状态已变化，取消手工发布')
+                season = frozen_season(cycle, season)
+            publish = partial(publish_stats, cycle=cycle) if cycle else partial(
+                publish_stats, legacy_season=season)
+            base_dir = os.path.join(getattr(settings, 'MEDIA_ROOT', '') or 'media',
+                                    'aggregated', str(season.pk))
+            total_files, t0 = 0, time.time()
+            self.stdout.write(f'聚合赛季 {season.season_key} (id={season.pk})')
+            for class_name, specs in CLASS_SPEC_MAP.items():
+                if options.get('class_name') and class_name != options['class_name']:
                     continue
+                for spec_name in specs:
+                    if options.get('spec_name') and spec_name != options['spec_name']:
+                        continue
+                    spec_dir = os.path.join(base_dir, class_name, spec_name)
+                    self._aggregate_dungeon(season, class_name, spec_name, spec_dir,
+                                            cycle=cycle, publish=publish)
+                    if not options.get('dungeon_only'):
+                        self._aggregate_raid(season, class_name, spec_name, spec_dir, publish=publish)
+                        self._aggregate_leaderboard(season.pk, class_name, spec_name, spec_dir)
+                    total_files += 1 if options.get('dungeon_only') else 3
+                    self.stdout.write(f'  {class_name}/{spec_name} ✓')
+            if cycle:
+                finish_publication(cycle)
+            self.stdout.write(self.style.SUCCESS(f'完成: {total_files} 个文件, {time.time() - t0:.1f}s'))
+        except CycleOwnershipLost as exc:
+            raise CommandError(str(exc)) from exc
+        except Exception as exc:
+            if cycle:
+                defer_cycle(cycle, str(exc))
+            raise
+        finally:
+            if task:
+                release_monitor_task_lease(task.pk, task._monitor_task_lease_owner)
 
-                spec_dir = os.path.join(base_dir, class_name, spec_name)
-                os.makedirs(spec_dir, exist_ok=True)
-
-                # 1. 副本统计
-                self._aggregate_dungeon(season, class_name, spec_name, spec_dir)
-                if not dungeon_only:
-                    # 2. 团本统计
-                    self._aggregate_raid(season, class_name, spec_name, spec_dir)
-                    # 3. 人物榜
-                    self._aggregate_leaderboard(season.id, class_name, spec_name, spec_dir)
-
-                total_files += 1 if dungeon_only else 3
-                self.stdout.write(f'  {class_name}/{spec_name} ✓')
-
-        elapsed = time.time() - t0
-        self.stdout.write(self.style.SUCCESS(f'完成: {total_files} 个文件, {elapsed:.1f}s'))
-
-    # 定时任务和手工预热使用同一生成器，避免难度与展示字段不同步。
     _aggregate_dungeon = staticmethod(SpecDetailAggregationMonitor._aggregate_dungeon)
     _aggregate_raid = staticmethod(SpecDetailAggregationMonitor._aggregate_raid)
     _aggregate_leaderboard = staticmethod(SpecDetailAggregationMonitor._aggregate_leaderboard)

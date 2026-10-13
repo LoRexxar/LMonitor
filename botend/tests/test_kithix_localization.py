@@ -1,9 +1,9 @@
 """真实离线制品的中文更新、数值保留和三入口回归。"""
 from copy import deepcopy
-import json
 from pathlib import Path
+import tempfile
 from uuid import uuid4
-from unittest.mock import mock_open, patch
+from unittest.mock import patch
 
 from django.conf import settings
 from django.test import RequestFactory, TestCase
@@ -62,21 +62,26 @@ class KithixLocalizationTests(TestCase):
         release = JournalState.objects.get().active_release
         self.assertEqual(instance_source(release, 1324)['key'], 'current')
         request = RequestFactory().get('/portal/adventure-journal/')
-        self.assertIn(1324, {row['id'] for row in catalog_data(request)['instances']})
         warm_journal(1324)
+        self.assertIn(1324, {row['id'] for row in catalog_data(request)['instances']})
         detail = detail_data(RequestFactory().get('/', {'difficulty': 14}), 1324)
         self.assertEqual(detail['boss']['name'], '基希克斯')
         self.assertIn('基希克斯', detail['instance']['description'])
         self.assertTrue(detail['loot'])
         self.assertEqual(detail['loot'][0]['name'], '虚空编织者护腿')
-        self.assertNotIn('PTR', json.dumps(detail['loot'][0]['details'], ensure_ascii=False))
+        self.assertEqual(detail['source']['key'], 'current')
+        self.assertEqual(detail['loot'][0]['details']['source'], 'LMonitor 装备目录')
+        # 赛季徽标不能冒充 PTR；历史数值来源必须继续明确保留。
+        self.assertIn('PTR 12.1.5.69594', detail['loot'][0]['details']['note'])
         response = self.client.get('/portal/adventure-journal/1324/')
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, 'PTR')
+        self.assertContains(response, 'journal-source-badge--current')
+        self.assertNotContains(response, 'journal-source-badge--ptr')
         response = self.client.get('/portal/api/adventure-journal/1324/tooltip/item/281029/', {'difficulty': 14})
         self.assertEqual(response.status_code, 200)
         self.assertIn('虫群召唤者指环', response.json()['name'])
-        self.assertNotIn('PTR', response.content.decode())
+        self.assertEqual(response.json()['source'], 'LMonitor 装备目录')
+        self.assertIn('PTR 12.1.5.69594', response.json()['note'])
         with patch('botend.services.journal_tooltip.requests.Session', side_effect=AssertionError('不应联网')):
             warm_journal(1324)
             response = self.client.get('/portal/api/adventure-journal/1324/tooltip/item/281615/', {'difficulty': 14})
@@ -102,9 +107,18 @@ class KithixLocalizationTests(TestCase):
         self.assertEqual((item['count'], item['pct'], item['itemLevel']), (9, 45.0, 292))
         self.assertEqual(payload['name'], '保留首领原名')
         from botend.portal.spec_detail_views import _load_json
-        with patch('botend.portal.spec_detail_views.os.path.exists', return_value=True), patch('builtins.open', mock_open(read_data=json.dumps(payload))):
-            loaded = _load_json(self.season.pk, 'Warrior', 'Arms', 'raid.json')
-        self.assertIn('酸巢灾虫', loaded['detail']['gear_popularity']['手指'][0]['tooltip'])
+        from botend.services.spec_stats_snapshot import publish_projection
+        from botend.services.simc_benchmark_result_snapshot import _write
+        # 后台先补全中文再发布真实详情文件；读取期不再访问目录或修改正文。
+        boss = {'boss_id': payload['boss_id'], 'name': payload['name'], **payload['detail']}
+        with tempfile.TemporaryDirectory(prefix='kithix-aggregate-') as root:
+            path = Path(root) / str(self.season.pk) / 'Warrior' / 'Arms' / 'raid.json'
+            publish_projection(path, {'zone_groups': [{'zone_id': 1, 'bosses': [boss]}]}, _write)
+            with patch('botend.portal.spec_detail_views.AGGREGATED_DIR', root), self.assertNumQueries(0):
+                loaded = _load_json(self.season.pk, 'Warrior', 'Arms', 'raid.json', 'raid-5-281029')
+        loaded_boss = loaded['zone_groups'][0]['bosses'][0]
+        self.assertEqual(loaded_boss, boss)
+        self.assertIn('酸巢灾虫', loaded_boss['gear_popularity']['手指'][0]['tooltip'])
         rows = _normalize_gear_items([{'id': 281029, 'itemLevel': 292, 'slot': 'finger1'}])
         self.assertIn('酸巢灾虫', rows[0]['display_description'])
         popularity = _compute_gear_popularity([{'gear_json': [{'id': 281029, 'itemLevel': 292, 'slot': 'finger1'}]}])

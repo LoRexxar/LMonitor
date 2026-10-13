@@ -29,6 +29,7 @@ from botend.services.gear_builder_storage import (
     save_user_loadout,
 )
 from botend.services.gear_builder_owned import (
+    clear_owned_items,
     delete_owned_item,
     list_owned_items,
     save_owned_item,
@@ -212,7 +213,7 @@ class PortalGearBuilderShortLinkDetailAPIView(View):
 
 class PortalGearBuilderOwnedItemsAPIView(View):
     def _unauthorized(self):
-        return _error_response('请登录后管理已有装备', status=401)
+        return _error_response('请登录后管理备选装备', status=401)
 
     def get(self, request, owned_id=None):
         if not request.user.is_authenticated:
@@ -225,7 +226,7 @@ class PortalGearBuilderOwnedItemsAPIView(View):
         )
         if owned_id is not None:
             row = next((value for value in rows if value['id'] == owned_id), None)
-            return JsonResponse({'success': True, 'item': row}) if row else _error_response('已有装备不存在', 404)
+            return JsonResponse({'success': True, 'item': row}) if row else _error_response('备选装备不存在', 404)
         return JsonResponse({'success': True, 'items': rows})
 
     def post(self, request, owned_id=None):
@@ -244,9 +245,16 @@ class PortalGearBuilderOwnedItemsAPIView(View):
     def delete(self, request, owned_id=None):
         if not request.user.is_authenticated:
             return self._unauthorized()
+        if owned_id is None:
+            try:
+                body = _json_body(request)
+                if body.get('confirm_clear') is not True:
+                    raise GearBuilderError('请明确确认清空备选装备')
+                deleted_count = clear_owned_items(request.user)
+            except GearBuilderError as exc:
+                return _error_response(exc)
+            return JsonResponse({'success': True, 'deleted_count': deleted_count})
         try:
-            if owned_id is None:
-                raise GearBuilderError('缺少已有装备 ID')
             delete_owned_item(request.user, owned_id)
         except GearBuilderError as exc:
             return _error_response(exc, 404)

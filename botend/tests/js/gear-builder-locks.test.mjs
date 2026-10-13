@@ -7,7 +7,9 @@ const source = fs.readFileSync(new URL('../../../static/portal/js/gear_builder.j
 const element = {querySelector: () => null, querySelectorAll: () => []};
 const context = {
     structuredClone,
-    window: {WowItemTooltip: {renderContent(_container, content) { context.tooltipContent = content; }}},
+    atob, TextDecoder,
+    window: {confirm(message) { context.confirmMessage = message; return false; },
+        WowItemTooltip: {renderContent(_container, content) { context.tooltipContent = content; }}},
     document: {querySelector: () => ({dataset: {}}), getElementById: () => element},
 };
 const marker = '  initialize();';
@@ -22,7 +24,7 @@ vm.runInNewContext(source.replace(marker, `
     setRequest(value) { requestJson = value; },
     setCandidates(value) { candidates = value; },
     normalizeState, toggleSlotLock, addItem, applyEnhancement, switchVariant,
-    variantLabel, simcEquipmentLine,
+    variantLabel, simcEquipmentLine, loadSavedLoadout, loadOnlineLoadout,
     changeCraftedStat, removeEnhancement, compactShareState, hydrateSharePayload,
     resolveCraftedEntry, replaceLoadout, totalsAndEffects, refreshCachedEquipmentStats, renderCachedDetail, refreshCachedEnhancementText,
   };
@@ -49,7 +51,17 @@ await api.switchVariant(2);
 await api.changeCraftedStat(0, 'crit');
 api.removeEnhancement('gem:0');
 assert.deepEqual(plain(api.state), locked, '锁定必须阻止装备、品级、制造绿字和强化变更');
-assert.throws(() => api.replaceLoadout(api.normalizeState({})), /解锁/, '载入其他配装不能绕过锁定');
+api.setRequest(async () => { throw new Error('取消载入不应发送请求'); });
+for (const load of [api.loadSavedLoadout, api.loadOnlineLoadout]) {
+    context.confirmMessage = '';
+    await load({id: 1, name: '另一方案', code: 'j' + Buffer.from(JSON.stringify({equipment: {}})).toString('base64url')});
+    assert.match(context.confirmMessage, /未保存的修改会丢失/, '载入前说明覆盖损失');
+    assert.deepEqual(plain(api.state), locked, '取消后装备与锁定均不变');
+}
+const newPlan = api.normalizeState({lockedSlots: ['neck'], equipment: {neck: entry()}});
+api.replaceLoadout(newPlan);
+assert.deepEqual(plain(api.state), plain(newPlan), '载入新方案不校验旧方案锁定，锁定随新方案载入');
+api.setState(locked);
 
 api.toggleSlotLock('head');
 await api.addItem({...item, item_id: 2}, {...variant, id: 2});

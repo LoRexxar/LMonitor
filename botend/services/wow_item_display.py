@@ -474,7 +474,10 @@ def item_display_metadata(
     normalized_sources = [text for text in (_source_text(row) for row in _rows(sources)) if text]
     # 语言选择依据源字段，不能把“中文清理后无独立说明”误判成“没有中文”。
     base_description = description_zh.strip() if has_chinese_description else description.strip()
-    projection_layout = tooltip_layout if has_structured_projection else ''
+    # 附魔的“使用”原文已分离为属性、特效和限制；再套装备布局会吞掉未映射属性说明。
+    projection_layout = tooltip_layout if has_structured_projection and not (
+        snapshot and snapshot.catalog_type == 'enchant'
+    ) else ''
     _layout_rows, ordered_stat_keys = _layout_detail_lines(
         projection_layout, normalized_stats, [], base_description,
     )
@@ -685,6 +688,42 @@ def load_item_display_metadata(item_ids):
         item_id: item_display_metadata(item_id, snapshots.get(item_id))
         for item_id in normalized_ids
     }
+
+
+def load_enchantment_catalog(enchantment_ids):
+    """Resolve explicit Enchantment IDs through the central item relation only."""
+    ids = {_positive_int(value) for value in enchantment_ids} - {0}
+    matches = {}
+    if ids:
+        for row in WowItemSnapshot.objects.filter(enchantment_id__in=ids).values(
+                'enchantment_id', 'item_id', 'name', 'name_zh', 'icon'):
+            matches.setdefault(row['enchantment_id'], []).append(row)
+    # Multiple scrolls cannot establish one particular item; never pick arbitrarily.
+    result = {eid: rows[0] for eid, rows in matches.items() if len(rows) == 1}
+    missing = ids - matches.keys()
+    if not missing:
+        return result
+
+    # Runes/oils may have no scroll item. Use the actual enchant effect relation,
+    # never a same-numbered ItemID/SpellID or an unrelated effect's misc value.
+    from botend.models import WowSpellEffectSnapshot, WowSpellSnapshot
+    spell_ids = {}
+    for row in WowSpellEffectSnapshot.objects.filter(
+            branch='wow', locale__in=['zhCN', 'enUS'], effect__in=[53, 54],
+            misc_value__in=missing).values('misc_value', 'spell_id'):
+        spell_ids.setdefault(row['misc_value'], set()).add(row['spell_id'])
+    unique = {eid: next(iter(sids)) for eid, sids in spell_ids.items() if len(sids) == 1}
+    names = {}
+    if unique:
+        for row in WowSpellSnapshot.objects.filter(
+                branch='wow', locale__in=['enUS', 'zhCN'], spell_id__in=unique.values()
+        ).order_by('locale').values('spell_id', 'name', 'name_zh', 'icon'):
+            if row['name_zh'] or row['name']:
+                names[row['spell_id']] = row
+    for eid, sid in unique.items():
+        if sid in names:
+            result[eid] = {**names[sid], 'enchantment_id': eid, 'item_id': None}
+    return result
 
 
 def refresh_localized_equipment(value, *, class_name='', spec_name=''):

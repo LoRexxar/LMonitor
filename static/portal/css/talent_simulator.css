@@ -43,7 +43,8 @@
 }
 
 .talent-sim-actions,
-.talent-import-row {
+.talent-import-row,
+.talent-search-row {
     display: flex;
     align-items: center;
     gap: 10px;
@@ -90,7 +91,8 @@
 }
 
 .talent-sim-field select,
-.talent-import-row input {
+.talent-import-row input,
+.talent-search-row input {
     width: 100%;
     height: 40px;
     border: 1px solid #cbd5e1;
@@ -102,6 +104,13 @@
 }
 
 .talent-import-row input { flex: 1 1 0; min-width: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 12px; }
+
+.talent-tree-search { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 12px; min-width: 0; }
+.talent-search-row { flex-wrap: nowrap; gap: 6px; width: 326px; max-width: 100%; }
+.talent-search-row input { flex: 1 1 240px; min-width: 0; height: 32px; padding: 0 10px; border-radius: 8px; font-size: 12px; }
+.talent-search-row .talent-sim-btn { flex: 0 0 auto; height: 32px; padding: 4px 10px; font-size: 12px; }
+.talent-search-row input:focus-visible { outline: 2px solid #4f46e5; outline-offset: 2px; }
+.talent-search-status { color: #64748b; font-size: 12px; }
 
 .talent-sim-summary {
     margin-top: 16px;
@@ -322,6 +331,15 @@
 .talent-node-card--tree.is-available { opacity: 1; }
 .talent-node-card--tree.is-selected { z-index: 4; }
 .talent-node-card--tree.is-related { z-index: 5; opacity: 1; }
+
+/* Keep the search ring outside the icon's grayscale/choice/apex styling. */
+.talent-node-card--tree.is-search-match {
+    z-index: 6;
+    opacity: 1;
+    outline: 3px solid #06b6d4;
+    outline-offset: 5px;
+    box-shadow: 0 0 0 7px rgba(6,182,212,.16), 0 0 18px rgba(6,182,212,.5);
+}
 
 .talent-node-icon {
     position: relative;

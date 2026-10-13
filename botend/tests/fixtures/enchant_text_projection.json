@@ -1,0 +1,765 @@
+[
+  {
+    "item_id": 240133,
+    "name": "Sunfire Silk Spellthread",
+    "name_zh": "阳炎丝绸魔线",
+    "description": "Item Level 290\nUse: Apply Sunfire Silk Spellthread to your leggings, permanently increasing its Intellect by 41 and Stamina by 115.\nMax Stack: 50\nSell Price: 41",
+    "description_zh": "使用: 对你的护腿应用阳炎丝绸魔线，永久提升其智力41点、耐力115点。",
+    "effects_json": [],
+    "stats_json": {
+      "stamina": 115,
+      "intellect": 41
+    },
+    "metadata": {
+      "simc_name": "sunfire_silk_spellthread_2",
+      "enchantment_id": 7935,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7935"
+  },
+  {
+    "item_id": 240155,
+    "name": "Arcanoweave Spellthread",
+    "name_zh": "奥纹魔线",
+    "description": "Item Level 290\nUse: Apply Arcanoweave Spellthread to your leggings, permanently increasing its Intellect by 41 and increasing the wearer's maximum mana by 4%.\nMax Stack: 50\nSell Price: 41",
+    "description_zh": "使用: 对你的护腿应用奥纹魔线，永久提升其智力41点，并使穿戴者的最大法力值提高4%。",
+    "effects_json": [],
+    "stats_json": {
+      "intellect": 41
+    },
+    "metadata": {
+      "simc_name": "arcanoweave_spellthread_2",
+      "enchantment_id": 7937,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7937"
+  },
+  {
+    "item_id": 240157,
+    "name": "Bright Linen Spellthread",
+    "name_zh": "光明亚麻魔线",
+    "description": "Item Level 290\nUse: Apply Bright Linen Spellthread to your leggings, permanently increasing its Intellect by 24.\nMax Stack: 50\nSell Price: 3",
+    "description_zh": "使用: 对你的护腿应用光明亚麻魔线，永久提升其智力24点。",
+    "effects_json": [],
+    "stats_json": {
+      "intellect": 24
+    },
+    "metadata": {
+      "simc_name": "bright_linen_spellthread_2",
+      "enchantment_id": 7939,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7939"
+  },
+  {
+    "item_id": 243947,
+    "name": "Mark of Nalorakk",
+    "name_zh": "附魔胸甲 - 纳洛拉克印记",
+    "description": "Enchant Chest - Mark of Nalorakk\nItem Level 85\nUse: Permanently enchants chest armor with Mark of Nalorakk, increasing Strength by 40 and Stamina by 116. Cannot be applied to items lower than level 120.\nAmani Augments - Zul'Aman Zeal\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为胸甲附魔纳洛拉克印记，使力量提高40点，耐力提高116点。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 祖阿曼热忱",
+    "effects_json": [],
+    "stats_json": {
+      "stamina": 116,
+      "strength": 40
+    },
+    "metadata": {
+      "simc_name": "mark_of_nalorakk_2",
+      "enchantment_id": 7957,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7957"
+  },
+  {
+    "item_id": 243949,
+    "name": "Hex of Leeching",
+    "name_zh": "附魔头盔 - 吸血妖术",
+    "description": "Enchant Helm - Hex of Leeching\nItem Level 85\nUse: Permanently enchants helm armor with Hex of Leeching, increasing Leech by 33. Cannot be applied to items lower than level 120.\nAmani Augments - Berserker Brawn\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为头盔附魔吸血妖术，使吸血提高33。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 狂战威势",
+    "effects_json": [],
+    "stats_json": {
+      "leech": 33
+    },
+    "metadata": {
+      "simc_name": "hex_of_leeching_2",
+      "enchantment_id": 7959,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7959"
+  },
+  {
+    "item_id": 243951,
+    "name": "Empowered Hex of Leeching",
+    "name_zh": "附魔头盔 - 强化吸血妖术",
+    "description": "Enchant Helm - Empowered Hex of Leeching\nItem Level 85\nUse: Permanently enchants helm armor with Empowered Hex of Leeching, increasing Leech by 55. Also heals you for 3% Health whenever you defeat a foe outdoors in a Midnight zone once per 5 sec. Cannot be applied to items lower than level 120.\nAmani Augments - Berserker Brawn\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为头盔附魔强化吸血妖术，使吸血提高55。在至暗之夜区域户外击败敌人时为你恢复3%的生命值，每5秒最多触发一次。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 狂战威势",
+    "effects_json": [],
+    "stats_json": {
+      "leech": 55
+    },
+    "metadata": {
+      "simc_name": "empowered_hex_of_leeching_2",
+      "enchantment_id": 7961,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7961"
+  },
+  {
+    "item_id": 243953,
+    "name": "Lynx's Dexterity",
+    "name_zh": "附魔靴子 - 山猫之敏",
+    "description": "Enchant Boots - Lynx's Dexterity\nItem Level 85\nUse: Permanently enchants boots with Lynx's Dexterity, increasing Avoidance by 19 and Stamina by 232. Cannot be applied to items lower than level 120.\nAmani Augments - Berserker Brawn\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为靴子附魔山猫之敏，使闪避提高19，耐力提高232点。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 狂战威势",
+    "effects_json": [],
+    "stats_json": {
+      "stamina": 232,
+      "avoidance": 19
+    },
+    "metadata": {
+      "simc_name": "lynxs_dexterity_2",
+      "enchantment_id": 7963,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7963"
+  },
+  {
+    "item_id": 243955,
+    "name": "Amani Mastery",
+    "name_zh": "附魔戒指 - 阿曼尼精通",
+    "description": "Item Level 85\nUse: Permanently enchants a ring with Amani Mastery, increasing Mastery by 24. Cannot be applied to items lower than level 120.\nAmani Augments - Zul'Aman Zeal\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔阿曼尼精通，使精通提高24。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 祖阿曼热忱",
+    "effects_json": [],
+    "stats_json": {
+      "mastery": 24
+    },
+    "metadata": {
+      "simc_name": "amani_mastery_2",
+      "enchantment_id": 7965,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7965"
+  },
+  {
+    "item_id": 243957,
+    "name": "Eyes of the Eagle",
+    "name_zh": "附魔戒指 - 鹰眼神视",
+    "description": "Enchant Ring - Eyes of the Eagle\nItem Level 85\nUse: Permanently enchants a ring with Eyes of the Eagle, increasing critical strike effectiveness by 2%. Cannot be applied to items lower than level 120.\nAmani Augments - Zul'Aman Zeal\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔鹰眼神视，使爆击效果提高2%。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 祖阿曼热忱",
+    "effects_json": [
+      {
+        "description": "Enchant Ring - Eyes of the Eagle 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "eyes_of_the_eagle_2",
+      "enchantment_id": 7967,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7967"
+  },
+  {
+    "item_id": 243959,
+    "name": "Zul'jin's Mastery",
+    "name_zh": "附魔戒指 - 祖尔金的精通",
+    "description": "Enchant Ring - Zul'jin's Mastery\nItem Level 85\nUse: Permanently enchants a ring with Zul'jin's Mastery, increasing Mastery by 29. Cannot be applied to items lower than level 120.\nAmani Augments - Zul'Aman Zeal\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔祖尔金的精通，使精通提高29。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 祖阿曼热忱",
+    "effects_json": [],
+    "stats_json": {
+      "mastery": 29
+    },
+    "metadata": {
+      "simc_name": "zuljins_mastery_2",
+      "enchantment_id": 7969,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7969"
+  },
+  {
+    "item_id": 243961,
+    "name": "Flight of the Eagle",
+    "name_zh": "附魔护肩 - 鹰翔长空",
+    "description": "Enchant Shoulders - Flight of the Eagle\nItem Level 85\nUse: Permanently enchants shoulder armor with Flight of the Eagle, increasing Speed by 39. Cannot be applied to items lower than level 120.\nAmani Augments - Berserker Brawn\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为肩甲附魔鹰翔长空，使加速提高39。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 狂战威势",
+    "effects_json": [],
+    "stats_json": {
+      "speed": 39
+    },
+    "metadata": {
+      "simc_name": "flight_of_the_eagle_2",
+      "enchantment_id": 7971,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7971"
+  },
+  {
+    "item_id": 243963,
+    "name": "Akil'zon's Swiftness",
+    "name_zh": "附魔护肩 - 埃基尔松的迅捷",
+    "description": "Enchant Shoulders - Akil'zon's Swiftness\nItem Level 85\nUse: Permanently enchants shoulder armor with Akil'zon's Swiftness, increasing Speed by 65. Cannot be applied to items lower than level 120.\nAmani Augments - Berserker Brawn\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为肩甲附魔埃基尔松的迅捷，使加速提高65。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 狂战威势",
+    "effects_json": [],
+    "stats_json": {
+      "speed": 65
+    },
+    "metadata": {
+      "simc_name": "akilzons_swiftness_2",
+      "enchantment_id": 7973,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7973"
+  },
+  {
+    "item_id": 243969,
+    "name": "Strength of Halazzi",
+    "name_zh": "附魔武器 - 哈尔拉兹之力",
+    "description": "Item Level 85\nUse: Permanently enchants a weapon with Strength of Halazzi, causing your damage to sometimes call upon the loa to slash your target, causing them to bleed for ( 1 * 1893) damage over 18 sec. Cannot be applied to items lower than level 120.\nAmani Augments - Zul'Aman Zeal\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔哈尔拉兹之力，使你的伤害有时会召唤洛阿神灵斩击目标，令其流血并在18秒内受到( 1 * 1893)点伤害。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 祖阿曼热忱",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Str of Halazzi 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "strength_of_halazzi_2",
+      "enchantment_id": 7979,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7979"
+  },
+  {
+    "item_id": 243971,
+    "name": "Jan'alai's Precision",
+    "name_zh": "附魔武器 - 加亚莱的精准",
+    "description": "Enchant Weapon - Jan'alai's Precision\nItem Level 85\nUse: Permanently enchants a weapon with Jan'alai's Precision, causing your spells and abilities to sometimes grant you Precision of the Dragonhawk, increasing your Critical Strike by 124 for 15 sec. Cannot be applied to items lower than level 120.\nAmani Augments - Zul'Aman Zeal\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔加亚莱的精准，使你的法术和技能有时为你提供龙鹰精准，爆击提高124，持续15秒。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 祖阿曼热忱",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Jan'alai's Precision 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "janalais_precision_2",
+      "enchantment_id": 7981,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7981"
+  },
+  {
+    "item_id": 243973,
+    "name": "Berserker's Rage",
+    "name_zh": "附魔武器 - 狂战士之怒",
+    "description": "Item Level 85\nUse: Permanently enchants a weapon with Berserker's Rage, causing your spells and abilities to grant you Frenzied Focus, increasing your Haste by 124 for 15 sec. Cannot be applied to items lower than level 120.\nAmani Augments - Zul'Aman Zeal\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔狂战士之怒，使你的法术和技能为你提供狂乱专注，急速提高124，持续15秒。不能对物品等级低于120的物品使用。\n阿曼尼增强 - 祖阿曼热忱",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Berserker's Rage 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "berserkers_rage_2",
+      "enchantment_id": 7983,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7983"
+  },
+  {
+    "item_id": 243975,
+    "name": "Mark of the Rootwarden",
+    "name_zh": "附魔胸甲 - 护根者印记",
+    "description": "Item Level 85\nUse: Permanently enchants chest armor with Mark of the Rootwarden, increasing Agility by 40 and Speed by 15. Cannot be applied to items lower than level 120.\nHaranir Heightening - Azerothian Arms\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为胸甲附魔护根者印记，使敏捷提高40点，加速提高15。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 艾泽拉斯武装",
+    "effects_json": [],
+    "stats_json": {
+      "speed": 15,
+      "agility": 40
+    },
+    "metadata": {
+      "simc_name": "mark_of_the_rootwarden_2",
+      "enchantment_id": 7985,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7985"
+  },
+  {
+    "item_id": 243977,
+    "name": "Mark of the Worldsoul",
+    "name_zh": "附魔胸甲 - 世界之魂印记",
+    "description": "Enchant Chest - Mark of the Worldsoul\nItem Level 85\nUse: Permanently enchants chest armor with Mark of the Worldsoul, increasing your Primary stat by 50. Cannot be applied to items lower than level 120.\nHaranir Heightening - Azerothian Arms\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为胸甲附魔世界之魂印记，使你的主要属性提高50点。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 艾泽拉斯武装",
+    "effects_json": [
+      {
+        "description": "Enchant Chest - Mark of the Worldsoul 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "mark_of_the_worldsoul_2",
+      "enchantment_id": 7987,
+      "primary_stat_amount": 50
+    },
+    "variant_key": "enchant-q2-e7987"
+  },
+  {
+    "item_id": 243979,
+    "name": "Blessing of Speed",
+    "name_zh": "附魔头盔 - 加速祝福",
+    "description": "Enchant Helm - Blessing of Speed\nItem Level 85\nUse: Permanently enchants helm armor with Blessing of Speed, increasing Speed by 13. Cannot be applied to items lower than level 120.\nHaranir Heightening - Worldsoul Wards\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为头盔附魔加速祝福，使加速提高13。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 世界之魂结界",
+    "effects_json": [],
+    "stats_json": {
+      "speed": 13
+    },
+    "metadata": {
+      "simc_name": "blessing_of_speed_2",
+      "enchantment_id": 7989,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7989"
+  },
+  {
+    "item_id": 243981,
+    "name": "Empowered Blessing of Speed",
+    "name_zh": "附魔头盔 - 强化加速祝福",
+    "description": "Enchant Helm - Empowered Blessing of Speed\nItem Level 85\nUse: Permanently enchants helm armor with Empowered Blessing of Speed, increasing Speed by 22. Also grants you 1 charge of skyriding abilities whenever you defeat a foe while outdoors in Midnight zones once per 30 sec. Cannot be applied to items lower than level 120.\nHaranir Heightening - Worldsoul Wards\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为头盔附魔强化加速祝福，使加速提高22。在至暗之夜区域户外击败敌人时，你每30秒获得1层驭空术技能充能。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 世界之魂结界",
+    "effects_json": [],
+    "stats_json": {
+      "speed": 22
+    },
+    "metadata": {
+      "simc_name": "empowered_blessing_of_speed_2",
+      "enchantment_id": 7991,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7991"
+  },
+  {
+    "item_id": 243983,
+    "name": "Shaladrassil's Roots",
+    "name_zh": "附魔靴子 - 莎拉达希尔之根",
+    "description": "Enchant Boots - Shaladrassil's Roots\nItem Level 85\nUse: Permanently enchants boots with Shaladrassil's Roots, increasing Leech by 28 and Stamina by 232. Cannot be applied to items lower than level 120.\nHaranir Heightening - Worldsoul Wards\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为靴子附魔莎拉达希尔之根，使吸血提高28，耐力提高232点。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 世界之魂结界",
+    "effects_json": [],
+    "stats_json": {
+      "leech": 28,
+      "stamina": 232
+    },
+    "metadata": {
+      "simc_name": "shaladrassils_roots_2",
+      "enchantment_id": 7993,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7993"
+  },
+  {
+    "item_id": 243985,
+    "name": "Nature's Wrath",
+    "name_zh": "附魔戒指 - 自然之愤",
+    "description": "Item Level 85\nUse: Permanently enchants a ring with Nature's Wrath, increasing Critical Strike by 24. Cannot be applied to items lower than level 120.\nHaranir Heightening - Azerothian Arms\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔自然之愤，使爆击提高24。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 艾泽拉斯武装",
+    "effects_json": [],
+    "stats_json": {
+      "crit": 24
+    },
+    "metadata": {
+      "simc_name": "natures_wrath_2",
+      "enchantment_id": 7995,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7995"
+  },
+  {
+    "item_id": 243987,
+    "name": "Nature's Fury",
+    "name_zh": "附魔戒指 - 自然之怒",
+    "description": "Enchant Ring - Nature's Fury\nItem Level 85\nUse: Permanently enchants a ring with Nature's Fury, increasing Critical Strike by 29. Cannot be applied to items lower than level 120.\nHaranir Heightening - Azerothian Arms\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔自然之怒，使爆击提高29。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 艾泽拉斯武装",
+    "effects_json": [],
+    "stats_json": {
+      "crit": 29
+    },
+    "metadata": {
+      "simc_name": "natures_fury_2",
+      "enchantment_id": 7997,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7997"
+  },
+  {
+    "item_id": 243989,
+    "name": "Nature's Grace",
+    "name_zh": "附魔护肩 - 自然的优雅",
+    "description": "Enchant Shoulders - Nature's Grace\nItem Level 85\nUse: Permanently enchants shoulder armor with Nature's Grace, increasing Avoidance by 67. Cannot be applied to items lower than level 120.\nHaranir Heightening - Worldsoul Wards\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为肩甲附魔自然恩典，使闪避提高67。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 世界之魂结界",
+    "effects_json": [],
+    "stats_json": {
+      "avoidance": 67
+    },
+    "metadata": {
+      "simc_name": "natures_grace_2",
+      "enchantment_id": 7999,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e7999"
+  },
+  {
+    "item_id": 243991,
+    "name": "Amirdrassil's Grace",
+    "name_zh": "附魔护肩 - 阿梅达希尔之赐",
+    "description": "Enchant Shoulders - Amirdrassil's Grace\nItem Level 85\nUse: Permanently enchants shoulder armor with Amirdrassil's Grace, increasing Avoidance by 111. Cannot be applied to items lower than level 120.\nHaranir Heightening - Worldsoul Wards\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为肩甲附魔阿梅达希尔之赐，使闪避提高111。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 世界之魂结界",
+    "effects_json": [],
+    "stats_json": {
+      "avoidance": 111
+    },
+    "metadata": {
+      "simc_name": "amirdrassils_grace_2",
+      "enchantment_id": 8001,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8001"
+  },
+  {
+    "item_id": 243997,
+    "name": "Worldsoul Cradle",
+    "name_zh": "附魔武器 - 世界之魂的摇篮",
+    "description": "Item Level 85\nUse: Permanently enchants a weapon with Worldsoul Cradle, causing your healing spells and abilities to sometimes grant your target a barrier absorbing the next ( 1 * 12525) damage. Cannot be applied to items lower than level 120.\nHaranir Heightening - Azerothian Arms\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔世界之魂的摇篮，使你的治疗法术和技能有时为目标提供护盾，可吸收接下来的( 1 * 12525)点伤害。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 艾泽拉斯武装",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Worldsoul Cradle 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "worldsoul_cradle_2",
+      "enchantment_id": 8007,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8007"
+  },
+  {
+    "item_id": 243999,
+    "name": "Worldsoul Aegis",
+    "name_zh": "附魔武器 - 世界之魂的庇护",
+    "description": "Item Level 85\nUse: Permanently enchants a weapon with Worldsoul Aegis. When damaged, the Aegis has a chance to grant you a barrier against the next 14039 damage. When depleted, the barrier erupts for 2776 Nature damage split between nearby enemies. Cannot be applied to items lower than level 120.\nHaranir Heightening - Azerothian Arms\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔世界之魂的庇护。受到伤害时，庇护有几率为你提供护盾以抵御接下来的14039点伤害。护盾耗尽时会爆发，对附近敌人造成2776点自然伤害。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 艾泽拉斯武装",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Worldsoul Aegis 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "worldsoul_aegis_2",
+      "enchantment_id": 8009,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8009"
+  },
+  {
+    "item_id": 244001,
+    "name": "Worldsoul Tenacity",
+    "name_zh": "附魔武器 - 世界之魂的坚韧",
+    "description": "Item Level 85\nUse: Permanently enchants a weapon with Worldsoul Tenacity, causing your spells and abilities to grant you Nature's Tenacity, increasing your Versatility by 124 for 15 sec. Cannot be applied to items lower than level 120.\nHaranir Heightening - Azerothian Arms\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔世界之魂的坚韧，使你的法术和技能为你提供自然坚韧，全能提高124，持续15秒。不能对物品等级低于120的物品使用。\n哈籁尼尔强化 - 艾泽拉斯武装",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Worldsoul Tenacity 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "worldsoul_tenacity_2",
+      "enchantment_id": 8011,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8011"
+  },
+  {
+    "item_id": 244003,
+    "name": "Mark of the Magister",
+    "name_zh": "附魔胸甲 - 魔导师印记",
+    "description": "Item Level 85\nUse: Permanently enchants chest armor with Mark of the Magister, increasing Intellect by 40 and total Mana by 5%. Cannot be applied to items lower than level 120.\nThalassian Talents - Silvermoon's Spellpower\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为胸甲附魔魔导师印记，使智力提高40点，总法力值提高5%。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 银月城法能",
+    "effects_json": [],
+    "stats_json": {
+      "intellect": 40
+    },
+    "metadata": {
+      "simc_name": "mark_of_the_magister_2",
+      "enchantment_id": 8013,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8013"
+  },
+  {
+    "item_id": 244005,
+    "name": "Rune of Avoidance",
+    "name_zh": "附魔头盔 - 闪避符文",
+    "description": "Enchant Helm - Rune of Avoidance\nItem Level 85\nUse: Permanently enchants helm armor with Rune of Avoidance, increasing Avoidance by 22. Cannot be applied to items lower than level 120.\nThalassian Talents - Eversong Empowerments\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为头盔附魔闪避符文，使闪避提高22点。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 永歌强化",
+    "effects_json": [],
+    "stats_json": {
+      "avoidance": 22
+    },
+    "metadata": {
+      "simc_name": "rune_of_avoidance_2",
+      "enchantment_id": 8015,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8015"
+  },
+  {
+    "item_id": 244007,
+    "name": "Empowered Rune of Avoidance",
+    "name_zh": "附魔头盔 - 强化闪避符文",
+    "description": "Enchant Helm - Empowered Rune of Avoidance\nItem Level 85\nUse: Permanently enchants helm armor with Empowered Rune of Avoidance, increasing Avoidance by 37. Also grants you a burst of Movement Speed whenever you defeat a foe outdoors in a Midnight zone once per 60 sec. Cannot be applied to items lower than level 120.\nThalassian Talents - Eversong Empowerments\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为头盔附魔强化闪避符文，使闪避提高37。在至暗之夜区域户外击败敌人时为你提供速度爆发，每60秒最多触发一次。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 永歌强化",
+    "effects_json": [],
+    "stats_json": {
+      "avoidance": 37
+    },
+    "metadata": {
+      "simc_name": "empowered_rune_of_avoidance_2",
+      "enchantment_id": 8017,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8017"
+  },
+  {
+    "item_id": 244009,
+    "name": "Farstrider's Hunt",
+    "name_zh": "附魔靴子 - 远行者的狩猎",
+    "description": "Enchant Boots - Farstrider's Hunt\nItem Level 85\nUse: Permanently enchants boots with Farstrider's Hunt, increasing Speed by 11 and Stamina by 232. Cannot be applied to items lower than level 120.\nThalassian Talents - Eversong Empowerments\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为靴子附魔远行者的狩猎，使加速提高11，耐力提高232点。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 永歌强化",
+    "effects_json": [],
+    "stats_json": {
+      "speed": 11,
+      "stamina": 232
+    },
+    "metadata": {
+      "simc_name": "farstriders_hunt_2",
+      "enchantment_id": 8019,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8019"
+  },
+  {
+    "item_id": 244011,
+    "name": "Thalassian Haste",
+    "name_zh": "附魔戒指 - 萨拉斯急速",
+    "description": "Item Level 85\nUse: Permanently enchants a ring with Thalassian Haste, increasing Haste by 24. Cannot be applied to items lower than level 120.\nThalassian Talents - Silvermoon's Spellpower\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔萨拉斯急速，使急速提高24。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 银月城法能",
+    "effects_json": [],
+    "stats_json": {
+      "haste": 24
+    },
+    "metadata": {
+      "simc_name": "thalassian_haste_2",
+      "enchantment_id": 8021,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8021"
+  },
+  {
+    "item_id": 244013,
+    "name": "Thalassian Versatility",
+    "name_zh": "附魔戒指 - 萨拉斯全能",
+    "description": "Enchant Ring - Thalassian Versatility\nItem Level 85\nUse: Permanently enchants a ring with Thalassian Versatility, increasing Versatility by 24. Cannot be applied to items lower than level 120.\nThalassian Talents - Silvermoon's Spellpower\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔萨拉斯全能，使全能提高24。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 银月城法能",
+    "effects_json": [],
+    "stats_json": {
+      "versatility": 24
+    },
+    "metadata": {
+      "simc_name": "thalassian_versatility_2",
+      "enchantment_id": 8023,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8023"
+  },
+  {
+    "item_id": 244015,
+    "name": "Silvermoon's Alacrity",
+    "name_zh": "附魔戒指 - 银月城之捷",
+    "description": "Enchant Ring - Silvermoon's Alacrity\nItem Level 85\nUse: Permanently enchants a ring with Silvermoon's Alacrity, increasing Haste by 29. Cannot be applied to items lower than level 120.\nThalassian Talents - Silvermoon's Spellpower\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔银月城之捷，使急速提高29。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 银月城法能",
+    "effects_json": [],
+    "stats_json": {
+      "haste": 29
+    },
+    "metadata": {
+      "simc_name": "silvermoons_alacrity_2",
+      "enchantment_id": 8025,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8025"
+  },
+  {
+    "item_id": 244017,
+    "name": "Silvermoon's Tenacity",
+    "name_zh": "附魔戒指 - 银月城之韧",
+    "description": "Enchant Ring - Silvermoon's Tenacity\nItem Level 85\nUse: Permanently enchants a ring with Silvermoon's Tenacity, increasing Versatility by 29. Cannot be applied to items lower than level 120.\nThalassian Talents - Silvermoon's Spellpower\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为戒指附魔银月城之韧，使全能提高29。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 银月城法能",
+    "effects_json": [],
+    "stats_json": {
+      "versatility": 29
+    },
+    "metadata": {
+      "simc_name": "silvermoons_tenacity_2",
+      "enchantment_id": 8027,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8027"
+  },
+  {
+    "item_id": 244019,
+    "name": "Thalassian Recovery",
+    "name_zh": "附魔护肩 - 萨拉斯复原",
+    "description": "Enchant Shoulders - Thalassian Recovery\nItem Level 85\nUse: Permanently enchants shoulder armor with Thalassian Recovery, increasing Leech by 99. Cannot be applied to items lower than level 120.\nThalassian Talents - Eversong Empowerments\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为肩甲附魔萨拉斯复原，使吸血提高99。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 永歌强化",
+    "effects_json": [],
+    "stats_json": {
+      "leech": 99
+    },
+    "metadata": {
+      "simc_name": "thalassian_recovery_2",
+      "enchantment_id": 8029,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8029"
+  },
+  {
+    "item_id": 244021,
+    "name": "Silvermoon's Mending",
+    "name_zh": "附魔护肩 - 银月城治愈",
+    "description": "Enchant Shoulders - Silvermoon's Mending\nItem Level 85\nUse: Permanently enchants shoulder armor with Silvermoon's Mending, increasing Leech by 166. Cannot be applied to items lower than level 120.\nThalassian Talents - Eversong Empowerments\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为肩甲附魔银月城治愈，使吸血提高166。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 永歌强化",
+    "effects_json": [],
+    "stats_json": {
+      "leech": 166
+    },
+    "metadata": {
+      "simc_name": "silvermoons_mending_2",
+      "enchantment_id": 8031,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8031"
+  },
+  {
+    "item_id": 244027,
+    "name": "Flames of the Sin'dorei",
+    "name_zh": "附魔武器 - 辛多雷之焰",
+    "description": "Item Level 85\nUse: Permanently enchants a weapon with Flames of the Sin'dorei, causing your spells and abilities to sometimes ignite your target. This inflicts ( 1 * (2456)) Fire damage over 10 sec before detonating for ( 1 * 5220) Fire damage split among nearby enemies. Cannot be applied to items lower than level 120.\nThalassian Talents - Silvermoon's Spellpower\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔辛多雷之焰，使你的法术和技能有时能点燃目标。这会在10秒内造成( 1 * (2456))点火焰伤害，随后引爆并对附近敌人造成( 1 * 5220)点火焰伤害，由这些敌人均摊。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 银月城法能",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Flames of the Sin'dorei 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "flames_of_the_sindorei_2",
+      "enchantment_id": 8037,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8037"
+  },
+  {
+    "item_id": 244029,
+    "name": "Acuity of the Ren'dorei",
+    "name_zh": "附魔武器 - 朗多雷之锐",
+    "description": "Enchant Weapon - Acuity of the Ren'dorei\nItem Level 85\nUse: Permanently enchants a weapon with Acuity of the Ren'dorei, causing your spells and abilities to grant you Might of the Void, providing you with 67 Primary Stat for 15 sec. Cannot be applied to items lower than level 120.\nThalassian Talents - Silvermoon's Spellpower\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔朗多雷之锐，使你的法术和技能为你提供虚空的力量，[Primary Stat]提高67点，持续15秒。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 银月城法能",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Acuity of the Ren'dorei 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "acuity_of_the_rendorei_2",
+      "enchantment_id": 8039,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8039"
+  },
+  {
+    "item_id": 244031,
+    "name": "Arcane Mastery",
+    "name_zh": "附魔武器 - 奥术精通",
+    "description": "Enchant Weapon - Arcane Mastery\nItem Level 85\nUse: Permanently enchants a weapon with Arcane Mastery, causing your spells and abilities to grant you Genius Insight, increasing your Mastery by 124 for 15 sec. Cannot be applied to items lower than level 120.\nThalassian Talents - Silvermoon's Spellpower\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔奥术精通，使你的法术和技能为你提供睿识真知，精通提高124，持续15秒。不能对物品等级低于120的物品使用。\n萨拉斯天赋 - 银月城法能",
+    "effects_json": [
+      {
+        "description": "Enchant Weapon - Arcane Mast 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "arcane_mastery_2",
+      "enchantment_id": 8041,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8041"
+  },
+  {
+    "item_id": 244641,
+    "name": "Forest Hunter's Armor Kit",
+    "name_zh": "森林猎手的护甲片",
+    "description": "Item Level 290\nUse: Apply a Forest Hunter's Armor Kit to your leg armor, permanently increasing its Agility or Strength by 41. Additionally, the item also gains 115 Stamina.\nMax Stack: 20\nSell Price: 16",
+    "description_zh": "使用: 在你的腿部装备上附加一块森林猎手的护甲片，永久使该装备的敏捷或力量提高41点。该装备也会额外获得115点耐力。",
+    "effects_json": [],
+    "stats_json": {
+      "stamina": 115
+    },
+    "metadata": {
+      "simc_name": "forest_hunters_armor_kit_2",
+      "enchantment_id": 8159,
+      "primary_stat_amount": 41
+    },
+    "variant_key": "enchant-q2-e8159"
+  },
+  {
+    "item_id": 244643,
+    "name": "Blood Knight's Armor Kit",
+    "name_zh": "血骑士的护甲片",
+    "description": "Item Level 290\nUse: Apply a Blood Knight's Armor Kit to your leg armor, permanently increasing its Agility or Strength by 41. Additionally, the item also gains 27 armor.\nMax Stack: 20\nSell Price: 8",
+    "description_zh": "使用: 在你的腿部装备上附加一块血骑士的护甲片，永久使该装备的敏捷或力量提高41点。该装备也会额外获得27点护甲值。",
+    "effects_json": [
+      {
+        "description": "41 Agi/Str & 27 Armor"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "blood_knights_armor_kit_2",
+      "enchantment_id": 8163,
+      "primary_stat_amount": 41
+    },
+    "variant_key": "enchant-q2-e8163"
+  },
+  {
+    "item_id": 273072,
+    "name": "Rite of the Hash'ey",
+    "name_zh": "附魔武器 - 哈谢仪式",
+    "description": "Item Level 580\nUse: Permanently enchants a weapon with Rite of the Hash'ey, causing your spells and abilities to grant you Hash'ey's Might, granting you 139 of a random secondary stat for 15 sec and favors your highest secondary stat when you're above 80% health. Cannot be applied to items lower than level 120.\nAmani Augments - Zul'Aman Zeal\nMax Stack: 200\nSell Price: 5",
+    "description_zh": "使用: 永久性地为武器附魔哈谢仪式，使你的法术和技能赋予你哈谢之力，使你获得139点随机次要属性，持续15秒。当你的生命值高于80%时，该效果会优先提升你最高的次要属性。无法对物品等级低于120的物品使用。\n阿曼尼增强 - 祖阿曼热忱",
+    "effects_json": [
+      {
+        "description": "Rite of the Hash'ey 2"
+      }
+    ],
+    "stats_json": {},
+    "metadata": {
+      "simc_name": "rite_of_the_hashey_2",
+      "enchantment_id": 8689,
+      "primary_stat_amount": 0
+    },
+    "variant_key": "enchant-q2-e8689"
+  }
+]

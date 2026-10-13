@@ -22,7 +22,7 @@
     "gear-equipped-count", "gear-mobile-count", "gear-browser-title", "gear-mode-equipment",
     "gear-mode-enhancement", "gear-mode-owned", "gear-equipment-browser", "gear-enhancement-browser", "gear-owned-browser", "gear-owned-list",
     "gear-search-input", "gear-source-filter", "gear-quick-filters", "gear-candidate-list", "gear-load-more",
-    "gear-embellishment-list", "gear-gem-list", "gear-enchant-list", "gear-socket-summary",
+    "gear-embellishment-list", "gear-gem-section", "gear-gem-list", "gear-enchant-list", "gear-socket-summary",
     "gear-add-socket-option", "gear-add-socket", "gear-add-socket-copy", "gear-stats-context",
     "gear-detail-panel", "gear-detail-content", "gear-detail-close", "gear-stat-grid",
     "gear-effect-list", "gear-save-status", "gear-import-simc", "gear-copy-simc", "gear-copy-share", "gear-clear",
@@ -67,14 +67,6 @@
   const PREVIEW_LEFT_SLOTS = ["head", "neck", "shoulders", "back", "chest", "wrists", "hands", "waist"];
   const PREVIEW_RIGHT_SLOTS = ["legs", "feet", "finger1", "finger2", "trinket1", "trinket2", "main_hand", "off_hand"];
   const SIMC_CRAFTED_STAT_IDS = Object.freeze({crit: 40, haste: 49, mastery: 32, versatility: 36});
-  const SOURCE_LABELS = {
-    mythic_plus: "大秘境", great_vault: "宏伟宝库", raid: "团队副本", delve: "地下堡",
-    crafted: "专业制造", profession: "专业制造", bonus_roll: "额外掉落",
-  };
-  const SOURCE_PLACE_FALLBACKS = {
-    mythic_plus: "当前大秘境", great_vault: "宏伟宝库", raid: "当前团队副本",
-    delve: "当前赛季地下堡", crafted: "专业制造", profession: "专业制造",
-  };
 
   let bootstrap = null;
   let candidates = [];
@@ -173,7 +165,12 @@
   function tooltipText(item, variant) {
     if (variant?.type === "embellishment") return embellishmentDescription(variant);
     if (variant?.type === "gem" && !(variant.text_schema_version >= 2)) return gemDescription(item, variant);
-    const canonicalTooltip = String(variant?.tooltip || "").trim();
+    let canonicalTooltip = String(variant?.tooltip || "").trim();
+    if (variant?.track_label && variant?.track_rank && variant?.track_max_rank) {
+      // 基础物品原文可能保留低档位；显示等级服从后端当前变体，不改动来源原文。
+      canonicalTooltip = canonicalTooltip.replace(/^(?:升级|Upgrade(?: Level)?)\s*[:：][^\n]*$/gmi,
+        () => `升级：${variant.track_label} ${variant.track_rank}/${variant.track_max_rank}`);
+    }
     if (canonicalTooltip) {
       const numberedRaidSource = variantSources(variant).some((row) => raidBossNumber(row));
       if (!numberedRaidSource) return canonicalTooltip;
@@ -224,59 +221,19 @@
   }
 
   function variantSources(variant) {
-    const catalog = bootstrap?.tier_set_sources;
-    const setId = Number(variant?.metadata?.item_set_id);
-    const slot = variant?.compatible_slots?.[0];
-    if (catalog?.set_ids?.includes(setId) && catalog.slots?.[slot]) return catalog.slots[slot];
-    return Array.isArray(variant?.sources) ? variant.sources : [];
+    return globalThis.WowGearSources.variantSources(variant, bootstrap);
   }
 
   function sourceText(variant) {
-    const rows = variantSources(variant);
-    if (!rows.length) return "来源待补全";
-    return rows.slice(0, 2).map((row) => {
-      if (typeof row === "string") return row;
-      const type = row.type_zh || SOURCE_LABELS[row.type] || "其他来源";
-      const instance = row.instance_zh || row.instance || "";
-      const encounter = row.encounter_zh || row.boss_zh || row.encounter || row.boss || "";
-      const bossNumber = raidBossNumber(row);
-      const location = bossNumber && encounter
-        ? `${instance}${bossNumber}号 ${encounter}`
-        : [instance, encounter].filter(Boolean).join(" · ");
-      const profession = row.profession_zh || "";
-      const difficulty = row.difficulty_zh || "";
-      const parts = [type, location, profession, difficulty].filter(Boolean);
-      if (parts.length === 1 && SOURCE_PLACE_FALLBACKS[row.type]) parts.push(SOURCE_PLACE_FALLBACKS[row.type]);
-      return [...new Set(parts)].join(" · ");
-    }).join("\n");
+    return globalThis.WowGearSources.sourceText(variant, bootstrap);
   }
 
   function raidBossNumber(source) {
-    if (source?.type !== "raid" || number(source.encounter_id) <= 0) return 0;
-    const mapped = bootstrap?.raid_boss_numbers?.[source.instance_id]?.[source.encounter_id];
-    if (Number.isInteger(mapped) && mapped > 0) return mapped;
-    const order = Number(source.encounter_order);
-    // 汇总目录的跨团本偏移编号不能作为团本内序号展示。
-    return Number.isInteger(order) && order > 0 && order < 100 ? order : 0;
+    return globalThis.WowGearSources.raidBossNumber(source, bootstrap);
   }
 
   function shortSourceText(variant) {
-    if (variant?.type === "crafted_equipment") return "专业制造";
-    const sources = variantSources(variant).map((row) => {
-      if (typeof row === "string") return row;
-      const instance = row.instance_zh || row.instance || "";
-      if (row.type === "crafted" || row.type === "profession") return "专业制造";
-      if (row.type === "mythic_plus") {
-        const grouped = Number(row.instance_id) < 0 || ["大秘境", "Mythic+ Dungeons"].includes(instance);
-        return (grouped ? row.encounter_zh || row.encounter : instance) || "大秘境";
-      }
-      if (row.type === "raid") {
-        const bossNumber = raidBossNumber(row);
-        return `${instance || "团队副本"}${bossNumber ? `${bossNumber}号` : ""}`;
-      }
-      return sourceText({sources: [row]});
-    });
-    return [...new Set(sources.filter(Boolean))].slice(0, 2).join("；") || "来源待补全";
+    return globalThis.WowGearSources.shortSourceText(variant, bootstrap);
   }
 
   function sourceMarkup(variant) {
@@ -293,7 +250,7 @@
   function variantLabel(variant) {
     if (!variant) return "未知变体";
     if (variant.type === "crafted_equipment") {
-      return `制造 ${variant.crafting_quality ? `${variant.crafting_quality}星` : ""} · ${variant.item_level}`;
+      return `制造 ${variant.crafting_quality ? `${variant.crafting_quality}星` : ""} · ${variant.item_level}${variant.metadata?.venomstone ? " · 晋升毒液石" : ""}`;
     }
     const rank = variant.track_rank ? ` ${variant.track_rank}/${variant.track_max_rank || variant.track_rank}` : "";
     return `${variant.track_label || variant.track || "装备"}${rank} · ${variant.item_level || "-"}${variant.metadata?.venomstone ? " · 晋升毒液石" : ""}`;
@@ -406,8 +363,11 @@
   }
 
   function replaceLoadout(next) {
-    if (state.lockedSlots.length) throw new Error("请先解锁已锁定的部位，再载入其他配装。");
     state = next;
+  }
+
+  function confirmLoadoutReplacement(record) {
+    return window.confirm(`载入配装“${record.name}”？\n将覆盖当前正在编辑的方案（包括锁定部位），未保存的修改会丢失。\n已保存的配装不受影响。`);
   }
 
   function slotFamily(slot = state.selectedSlot) {
@@ -484,14 +444,18 @@
     return [...counts].map(([name, count]) => `${name}${count > 1 ? `×${count}` : ""}`).join("、");
   }
 
-  function enhancementSummary(entry) {
-    if (!entry) return "";
+  function enhancementLines(entry) {
+    if (!entry) return [];
     const parts = [];
     if (entry.embellishment?.item?.name) parts.push(`美化：${entry.embellishment.item.name}`);
     const gems = compactNames(entry.gems);
     if (gems) parts.push(`宝石：${gems}`);
     if (entry.enchant?.item?.name) parts.push(`附魔：${entry.enchant.item.name}`);
-    return parts.join(" · ");
+    return parts;
+  }
+
+  function enhancementSummary(entry) {
+    return enhancementLines(entry).join(" · ");
   }
 
   function renderSlots() {
@@ -530,6 +494,7 @@
     }
     els.equipment_browser.hidden = enhancement || owned;
     els.enhancement_browser.hidden = !enhancement;
+    if (enhancement) { closeDetail(); renderSocketOptions(); }
     if (els.owned_browser) els.owned_browser.hidden = !owned;
   }
 
@@ -560,11 +525,11 @@
         : item.variants[0];
       const equipped = current?.item?.item_id === item.item_id && current?.variant?.id === variant?.id;
       return `<div class="gear-candidate-row${equipped ? " is-equipped" : ""}" role="button"${equipped ? ' aria-current="true"' : ""} data-select-item="${item.item_id}" data-variant-id="${variant.id}" data-candidate-slot="${escapeHtml(candidateSlot)}"${tooltipAttrs(item, variant)}>
-        <div class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(equipped ? "当前装备" : item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small></span>${endpoints.ownedItems ? `<button type="button" class="gear-owned-add" data-add-owned="${item.item_id}" data-owned-variant-id="${variant.id}" aria-label="将${escapeHtml(item.name)}加入已有装备" title="加入已有装备；再次加入会增加数量"><span class="gear-owned-add-icon" aria-hidden="true">＋</span><span class="gear-owned-add-label">已有</span></button>` : ""}</div>
+        <div class="gear-candidate-name">${iconMarkup(item)}<span class="gear-candidate-copy"><strong class="gear-candidate-title">${escapeHtml(item.name)}</strong><small class="gear-candidate-subtitle">${escapeHtml(equipped ? "当前装备" : item.armor_type || item.weapon_type || (variant.type === "crafted_equipment" ? "制造装备" : "装备"))}</small></span></div>
         <div class="gear-candidate-level">${variant.item_level || "-"}</div>
         <div class="gear-track gear-track--${escapeHtml(variant.track || "crafted")}">${escapeHtml(variant.type === "crafted_equipment" ? `制造 ${variant.crafting_quality || ""}星` : `${variant.track_label || variant.track || "-"} ${variant.track_rank ? `${variant.track_rank}/${variant.track_max_rank}` : ""}`)}</div>
         <div class="gear-source-copy">${sourceMarkup(variant)}</div>
-        <div class="gear-stat-copy">${statMarkup(variant.stats)}</div>
+        <div class="gear-candidate-tail"><div class="gear-stat-copy">${statMarkup(variant.stats)}</div>${endpoints.ownedItems ? `<div class="gear-candidate-actions"><button type="button" class="gear-owned-add" data-add-owned="${item.item_id}" data-owned-variant-id="${variant.id}" aria-label="将${escapeHtml(item.name)}加入备选" title="加入辅助配装备选；再次加入会增加数量"><span class="gear-owned-add-icon" aria-hidden="true">＋</span><span class="gear-owned-add-label">加入备选</span></button></div>` : ""}</div>
       </div>`;
     }).join("");
     els.load_more.hidden = candidates.length >= candidateTotal;
@@ -574,7 +539,7 @@
   function renderOwnedItems() {
     if (!els.owned_list) return;
     if (!ownedItems.length) {
-      els.owned_list.innerHTML = '<div class="gear-empty-state"><div><strong>当前槽位没有已有装备</strong>可在装备候选行点击“加入已有”，或通过 SimC 导入背包装备。</div></div>';
+      els.owned_list.innerHTML = '<div class="gear-empty-state"><div><strong>当前槽位没有备选装备</strong>可在装备候选行点击“加入备选”，或通过 SimC 导入背包装备。</div></div>';
       return;
     }
     els.owned_list.innerHTML = ownedItems.map((row) => {
@@ -589,14 +554,14 @@
 
   async function loadOwnedItems() {
     if (!endpoints.ownedItems || !els.owned_list) return;
-    els.owned_list.innerHTML = '<div class="gear-loading-state">正在读取已有装备…</div>';
+    els.owned_list.innerHTML = '<div class="gear-loading-state">正在读取备选装备…</div>';
     try {
       const params = new URLSearchParams({class: state.className, spec: state.specName, slot: state.selectedSlot});
       const payload = await requestJson(`${endpoints.ownedItems}?${params}`);
       ownedItems = payload.items || [];
       renderOwnedItems();
     } catch (error) {
-      els.owned_list.innerHTML = `<div class="gear-empty-state"><div><strong>已有装备读取失败</strong>${escapeHtml(error.message)}</div></div>`;
+      els.owned_list.innerHTML = `<div class="gear-empty-state"><div><strong>备选装备读取失败</strong>${escapeHtml(error.message)}</div></div>`;
     }
   }
 
@@ -611,7 +576,7 @@
     if (button) {
       button.disabled = true;
       button.classList.add("is-saving");
-      button.setAttribute("aria-label", `正在将${item.name}加入已有装备`);
+      button.setAttribute("aria-label", `正在将${item.name}加入备选`);
     }
     const payload = await requestJson(endpoints.ownedItems, {
       method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()},
@@ -623,16 +588,16 @@
       button.disabled = false;
       button.querySelector(".gear-owned-add-icon").textContent = "✓";
       button.querySelector(".gear-owned-add-label").textContent = "已加入";
-      button.setAttribute("aria-label", `${item.name}已加入已有装备；再次点击会增加数量`);
+      button.setAttribute("aria-label", `${item.name}已加入备选；再次点击会增加数量`);
       window.setTimeout(() => {
         if (!button.isConnected) return;
         button.classList.remove("is-added");
         button.querySelector(".gear-owned-add-icon").textContent = "＋";
-        button.querySelector(".gear-owned-add-label").textContent = "已有";
-        button.setAttribute("aria-label", `将${item.name}加入已有装备`);
+        button.querySelector(".gear-owned-add-label").textContent = "加入备选";
+        button.setAttribute("aria-label", `将${item.name}加入备选`);
       }, 1800);
     }
-    toast(payload.created ? `${item.name} 已加入已有装备。` : `${item.name} 的已有数量已增加。`);
+    toast(payload.created ? `${item.name} 已加入辅助配装备选。` : `${item.name} 的备选数量已增加。`);
     if (state.mode === "owned") await loadOwnedItems();
   }
 
@@ -731,7 +696,8 @@
 
   function embellishmentDescription(variant) {
     // 美化只展示结构化特效；制作说明和旧版完整 Tooltip 不能作为特效回退。
-    const effects = (variant?.effects || []).map(effectText).map((text) => String(text).trim()).filter(Boolean);
+    const effects = (variant?.effects || []).map((effect) => effect?.description_zh || "")
+      .map((text) => String(text).replace(/^提供下列属性\s*[:：]\s*/, "").trim()).filter(Boolean);
     return [...new Set(effects)].join("\n") || "特效数据待补全";
   }
 
@@ -815,10 +781,28 @@
       : `<div class="gear-option-empty">${escapeHtml(emptyText)}</div>`;
   }
 
+  function renderSocketOptions() {
+    const entry = selectedEntry();
+    const rule = entry ? socketRule() : null;
+    els.add_socket_option.hidden = !rule;
+    els.add_socket.checked = Boolean(entry?.addedSocket && rule);
+    els.add_socket.disabled = isSlotLocked();
+    if (rule) {
+      const itemName = bootstrap?.rules?.add_socket_item?.name || bootstrap?.rules?.add_socket_item?.itemName || "当前赛季插槽物品";
+      els.add_socket_copy.textContent = isSlotLocked()
+        ? "当前部位已锁定，请先解锁后再增加插槽。"
+        : `${itemName} · 最多增加 ${Number(rule.max_additional || 1)} 个`;
+    }
+    const count = socketCapacity(entry);
+    els.gem_section.hidden = count <= 0;
+    els.socket_summary.textContent = count ? `${(entry.gems || []).length}/${count} 个插槽` : "当前装备无插槽";
+  }
+
   async function loadEnhancements(retry = false) {
     window.clearTimeout(enhancementRetryTimer);
     if (!retry) enhancementRetryCount = 0;
     const requestId = ++enhancementRequestId;
+    renderSocketOptions();
     const entry = selectedEntry();
     const variantId = entry?.variant?.id || "";
     els.embellishment_list.innerHTML = els.gem_list.innerHTML = els.enchant_list.innerHTML = '<div class="gear-option-empty">正在读取兼容选项…</div>';
@@ -835,7 +819,6 @@
         enhancementGroups = {embellishments: [], gems: [], enchants: []};
         const message = enhancementRetryCount < 20 ? "正在准备增强目录，请稍候…" : "数据仍在准备，请稍后重新打开增强目录。";
         for (const el of [els.embellishment_list, els.gem_list, els.enchant_list]) renderOptionGroup(el, [], "", message);
-        els.add_socket_option.hidden = true;
         if (enhancementRetryCount++ < 20) enhancementRetryTimer = window.setTimeout(() => {
           if (current() && state.mode === "enhancement") loadEnhancements(true);
         }, 3000);
@@ -850,22 +833,13 @@
       renderOptionGroup(els.embellishment_list, enhancementGroups.embellishments, "embellishment", entry?.variant?.type === "crafted_equipment" ? "当前制造装备没有兼容美化。" : "美化只能应用到制造装备。" );
       renderOptionGroup(els.gem_list, enhancementGroups.gems, "gem", entry ? "当前装备没有可用插槽或宝石。" : "请先为该槽位选择装备。" );
       renderOptionGroup(els.enchant_list, enhancementGroups.enchants, "enchant", entry ? "当前槽位没有永久附魔。" : "请先为该槽位选择装备。" );
-      const rule = entry ? socketRule() : null;
-      els.add_socket_option.hidden = !entry || !rule;
-      els.add_socket.checked = Boolean(entry?.addedSocket && rule);
-      if (rule) {
-        const itemName = bootstrap?.rules?.add_socket_item?.name || bootstrap?.rules?.add_socket_item?.itemName || "当前赛季插槽物品";
-        els.add_socket_copy.textContent = `${itemName} · 最多增加 ${Number(rule.max_additional || 1)} 个`;
-      }
-      const socketCount = socketCapacity(entry);
-      els.socket_summary.textContent = socketCount ? `${(entry.gems || []).length}/${socketCount} 个插槽` : "当前装备无插槽";
+      renderSocketOptions();
       syncSlotLocks();
     } catch (error) {
       if (!current()) return;
       renderOptionGroup(els.embellishment_list, [], "embellishment", error.message);
       renderOptionGroup(els.gem_list, [], "gem", error.message);
       renderOptionGroup(els.enchant_list, [], "enchant", error.message);
-      els.add_socket_option.hidden = true;
     }
   }
 
@@ -903,12 +877,20 @@
 
   function refreshCachedEquipmentStats(rows) {
     let changed = false;
-    Object.values(state.equipment).forEach((entry) => {
+    Object.entries(state.equipment).forEach(([slot, entry]) => {
       if (!entry?.variant || entry.external) return;
       const item = rows.find((row) => Number(row.item_id) === Number(entry.item?.item_id));
       const fresh = item?.variants?.find((row) => Number(row.id) === Number(entry.variant.id)
         && Number(row.item_level) === Number(entry.variant.item_level));
       if (!fresh) return;
+      // 同一项链变体的中央孔数纠错须同步到旧配装，不改变制造绿字或锁定。
+      if (slot === "neck" && Number.isInteger(fresh.socket_count)
+          && (entry.variant.socket_count !== fresh.socket_count
+              || JSON.stringify(entry.variant.socket_types) !== JSON.stringify(fresh.socket_types))) {
+        entry.variant = {...entry.variant, socket_count: fresh.socket_count, socket_types: fresh.socket_types || []};
+        entry.gems = (entry.gems || []).slice(0, fresh.socket_count);
+        changed = true;
+      }
       if (refreshCachedItemText(entry, item, fresh)) {
         if (entry.resolvedEffects) entry.resolvedEffects = [...(fresh.effects || []), ...(entry.embellishment?.variant?.effects || [])];
         changed = true;
@@ -1009,7 +991,7 @@
     persist();
     renderAll();
     if (state.mode === "enhancement") loadEnhancements();
-    if (targetSlot === state.selectedSlot) openDetail();
+    if (targetSlot === state.selectedSlot && state.mode !== "enhancement") openDetail();
     toast(`${item.name} 已${replacing ? "替换" : "装备"}到${slotLabel(targetSlot)}`);
   }
 
@@ -1167,6 +1149,64 @@
     return {totals, lockedTotals, unlockedTotals, effects: effects.filter((row) => row.text), equipped, missingStats};
   }
 
+  function effectSummaryGroups() {
+    const groups = [
+      {key: "gems", label: "宝石", unit: "颗", empty: "未镶嵌宝石"},
+      {key: "enchants", label: "附魔", unit: "处", empty: "未应用附魔"},
+      {key: "equipment", label: "装备特效", unit: "件", empty: "暂无装备特效"},
+      {key: "embellishments", label: "美化", unit: "件", empty: "未应用美化"},
+    ].map((group) => ({...group, count: 0, stats: {}, rows: new Map()}));
+    function collect(groupIndex, applied, slot, includeStats = true, requireEffect = false) {
+      if (!applied) return;
+      const variant = applied.variant || {};
+      const descriptions = [...new Set((variant.effects || []).map(effectText).filter(Boolean))];
+      if (requireEffect && !descriptions.length && !variant.effects_missing) return;
+      const stats = includeStats ? variant.stats || {} : {};
+      const name = applied.item?.name || "未命名装备";
+      // 同名但品质、装等、属性或效果不同的对象不能合并。
+      const key = JSON.stringify([applied.item?.item_id || name, variant.id || variant.key,
+        variant.item_level, variant.crafting_quality, stats, descriptions]);
+      const group = groups[groupIndex];
+      if (!group.rows.has(key)) group.rows.set(key, {
+        name, count: 0, stats: {}, descriptions, sources: new Map(), missing: variant.effects_missing,
+      });
+      const row = group.rows.get(key);
+      row.count += 1;
+      const label = slotLabel(slot);
+      row.sources.set(label, (row.sources.get(label) || 0) + 1);
+      group.count += 1;
+      addStats(row.stats, stats);
+      addStats(group.stats, stats);
+    }
+    Object.entries(state.equipment).forEach(([slot, entry]) => {
+      if (!entry) return;
+      (entry.gems || []).forEach((gem) => collect(0, gem, slot));
+      collect(1, entry.enchant, slot);
+      // resolvedEffects 已混合装备与附加美化，分类使用各自的中央变体事实。
+      const intrinsic = Boolean(entry.variant?.is_intrinsic_embellishment);
+      collect(intrinsic ? 3 : 2, entry, slot, false, !intrinsic);
+      collect(3, entry.embellishment, slot);
+    });
+    return groups.map((group) => ({...group, rows: [...group.rows.values()].map((row) => ({
+      ...row, sources: [...row.sources].map(([slot, count]) => `${slot}${count > 1 ? ` ×${count}` : ""}`),
+    }))}));
+  }
+
+  function effectSummaryMarkup(groups) {
+    const statText = (stats) => sortedStatEntries(stats).filter(([, value]) => number(value))
+      .map(([key, value]) => `${STAT_LABELS[key] || key} ${number(value) > 0 ? "+" : ""}${formatNumber(value)}`).join(" · ");
+    return groups.map((group) => {
+      const total = statText(group.stats);
+      return `<section class="gear-effect-group" data-effect-group="${group.key}">
+        <header class="gear-effect-group-heading"><h4>${group.label}</h4><span>${group.count} ${group.unit}</span></header>
+        ${total ? `<p class="gear-effect-group-total" title="已计入上方属性，不含触发增益">常驻属性合计：${escapeHtml(total)}</p>` : ""}
+        ${group.rows.length ? `<ul class="gear-effect-group-items">${group.rows.map((row) =>
+          `<li class="gear-effect-entry" title="${escapeHtml(row.sources.join("、"))}"><div class="gear-effect-entry-heading"><strong>${escapeHtml(row.name)}</strong>${row.count > 1 ? `<span class="gear-effect-count">×${row.count}</span>` : ""}</div></li>`
+        ).join("")}</ul>` : `<p class="gear-no-effects">${group.empty}</p>`}
+      </section>`;
+    }).join("");
+  }
+
   function secondaryPercentage(key, value) {
     if (!SECONDARY_STATS.has(key)) return null;
     const conversion = bootstrap?.rules?.secondary_stat_conversion?.[`${state.className}:${state.specName}`] || {};
@@ -1196,9 +1236,7 @@
         : `<small class="gear-stat-percent" title="${escapeHtml(secondaryPercentageTitle(key))}">${formatNumber(percent)}%</small>`;
       return `<div class="gear-stat-card" data-stat="${escapeHtml(key)}"><span class="gear-stat-label">${escapeHtml(STAT_LABELS[key] || "属性")}</span><div class="gear-stat-equation"><span class="gear-stat-term"><strong>${formatNumber(lockedTotals[key])}</strong><small>锁定</small></span><span class="gear-stat-operator">+</span><span class="gear-stat-term"><strong>${formatNumber(unlockedTotals[key])}</strong><small>未锁定</small></span><span class="gear-stat-operator">=</span><span class="gear-stat-term gear-stat-current"><strong>${formatNumber(value)}</strong><small>当前</small></span>${percentageMarkup}</div><span class="gear-stat-bar" style="--stat-progress:${Math.max(value ? 8 : 0, value / max * 100)}%;--stat-color:${STAT_COLORS[key] || "#64748b"}"></span></div>`;
     }).join("");
-    els.effect_list.innerHTML = effects.length
-      ? effects.map((row) => `<div class="gear-effect-line"><strong>${escapeHtml(row.slot)}：</strong>${escapeHtml(row.text)}</div>`).join("")
-      : '<span class="gear-no-effects">当前配装没有触发型特效。</span>';
+    els.effect_list.innerHTML = effectSummaryMarkup(effectSummaryGroups());
     els.stats_context.textContent = missingStats
       ? `已装备 ${equipped}/16 · ${missingStats} 件缺少静态属性数据；百分比仍包含 5% 基础暴击与 8% 基础精通`
       : `已装备 ${equipped}/16 · 含 5% 基础暴击；8% 基础精通与装备精通一并乘以当前专精系数`;
@@ -1209,14 +1247,17 @@
     const entry = state.equipment[slotKey];
     const item = entry?.item;
     const variant = entry?.variant;
-    const enhancements = enhancementSummary(entry);
+    const enhancements = enhancementLines(entry);
+    const source = item ? sourceText(variant).replaceAll("\n", "；") : "";
+    const shortSource = item ? shortSourceText(variant) : "";
     const tooltip = item ? tooltipAttrs(item, variant) : "";
     return `<button type="button" class="gear-preview-slot${item ? "" : " is-empty"}" data-preview-slot="${escapeHtml(slotKey)}"${tooltip}>
       ${item ? iconMarkup(item, "gear-preview-slot-icon") : '<span class="gear-preview-slot-icon gear-preview-slot-placeholder" aria-hidden="true">◇</span>'}
       <span class="gear-preview-slot-copy">
         <span class="gear-preview-slot-label">${escapeHtml(slot.label)}</span>
         <strong>${escapeHtml(item?.name || "未装备")}</strong>
-        ${enhancements ? `<small>${escapeHtml(enhancements)}</small>` : ""}
+        ${source ? `<small class="gear-preview-slot-source" title="${escapeHtml(source)}"><span class="gear-preview-source-label">来源</span><span class="gear-preview-source-value">${escapeHtml(shortSource)}</span></small>` : ""}
+        ${enhancements.length ? `<span class="gear-preview-slot-enhancements">${enhancements.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}</span>` : ""}
       </span>
       <span class="gear-preview-slot-level">${variant?.item_level || entry?.itemLevel || "—"}</span>
     </button>`;
@@ -1256,9 +1297,7 @@
       const percent = secondaryPercentage(key, value);
       return `<div class="gear-preview-stat"><span>${escapeHtml(STAT_LABELS[key] || key)}</span><strong>${formatNumber(value)}</strong>${percent === null ? "" : `<small title="${escapeHtml(secondaryPercentageTitle(key))}">${formatNumber(percent)}%</small>`}</div>`;
     }).join("");
-    els.preview_effects.innerHTML = effects.length
-      ? effects.map((row) => `<div><strong>${escapeHtml(row.slot)}</strong><span>${escapeHtml(row.text)}</span></div>`).join("")
-      : '<span class="gear-preview-empty-effects">当前配装没有触发型特效。</span>';
+    els.preview_effects.innerHTML = effectSummaryMarkup(effectSummaryGroups());
   }
 
   function renderView() {
@@ -1590,6 +1629,7 @@
   }
 
   async function loadSavedLoadout(record) {
+    if (!confirmLoadoutReplacement(record)) return;
     replaceLoadout(await hydrateSharePayload(await decodeShare(record.code)));
     syncSelectors();
     persist();
@@ -1663,6 +1703,7 @@
   }
 
   async function loadOnlineLoadout(record) {
+    if (!confirmLoadoutReplacement(record)) return;
     const payload = await requestJson(`${endpoints.onlineLoadouts}${Number(record.id)}/`);
     replaceLoadout(await hydrateSharePayload(await decodeShare(payload.loadout.code)));
     syncSelectors();
@@ -1869,7 +1910,7 @@
       await loadCandidates(true);
       els.simc_dialog.close();
       els.simc_message.textContent = "";
-      toast(`已导入 ${importedCount} 个装备槽位${skippedCount ? `，跳过 ${skippedCount} 个受锁定限制的部位` : ""}${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件已有装备` : ""}。`);
+      toast(`已导入 ${importedCount} 个装备槽位${skippedCount ? `，跳过 ${skippedCount} 个受锁定限制的部位` : ""}${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件备选装备` : ""}。`);
       (payload.warnings || []).slice(0, 3).forEach((warning) => toast(warning, true));
     } catch (error) {
       els.simc_message.textContent = error.message;
@@ -2035,7 +2076,7 @@
         if (item && variant) saveCandidateAsOwned(item, variant, ownButton).catch((error) => {
           ownButton.disabled = false;
           ownButton.classList.remove("is-saving");
-          ownButton.setAttribute("aria-label", `将${item.name}加入已有装备`);
+          ownButton.setAttribute("aria-label", `将${item.name}加入备选`);
           toast(error.message, true);
         });
         return;
@@ -2052,7 +2093,7 @@
         event.stopPropagation();
         try {
           await requestJson(`${endpoints.ownedItems}${remove.dataset.removeOwned}/`, {method: "DELETE", headers: csrfHeaders()});
-          await loadOwnedItems(); toast("已从已有装备中移除。");
+          await loadOwnedItems(); toast("已从备选装备中移除。");
         } catch (error) { toast(error.message, true); }
         return;
       }

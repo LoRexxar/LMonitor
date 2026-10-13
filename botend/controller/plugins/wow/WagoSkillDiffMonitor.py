@@ -477,7 +477,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 st.save(update_fields=['hotfix_last_run_status', 'hotfix_last_event_status'])
                 return False
         st.hotfix_last_run_at = now
-        st.hotfix_last_run_status = 'success' if latest_push > 0 else 'no_data'
+        st.hotfix_last_run_status = ('running' if latest_push > last_push else 'success') if latest_push > 0 else 'no_data'
         st.save(update_fields=['hotfix_last_run_at', 'hotfix_last_run_status'])
         if latest_push <= 0:
             return True
@@ -559,6 +559,8 @@ class WagoSkillDiffMonitor(BaseScan):
             })
         except Exception as e:
             self._discard_hotfix_staging(report, class_report)
+            st.hotfix_last_run_status = 'failed'
+            st.save(update_fields=['hotfix_last_run_status'])
             if backfill_interval is not None:
                 # A manual historical replay must not publish a placeholder
                 # or alter the committed cursor when Wago is incomplete.
@@ -576,7 +578,9 @@ class WagoSkillDiffMonitor(BaseScan):
                 reason=f'Hotfix 明细报告生成失败，已生成 fallback 报告：{e}',
             )
 
-        if not report or int(report.get('entry_count') or 0) <= 0:
+        # An exception fallback intentionally has zero entries; keep its
+        # original diagnostic instead of replacing it with a no-data report.
+        if not fallback_status and (not report or int(report.get('entry_count') or 0) <= 0):
             if backfill_interval is not None:
                 self._mark_event(hotfix_event, status='no_data', error_message='Verified interval has no reportable rows')
                 return False
@@ -648,6 +652,7 @@ class WagoSkillDiffMonitor(BaseScan):
         except Exception as e:
             self._discard_hotfix_staging(report, class_report)
             self._mark_event(hotfix_event, status='save_report_failed', report=None, error_message=e)
+            st.hotfix_last_run_status = 'failed'
             st.hotfix_last_event_at = now
             st.hotfix_last_event_status = 'failed'
             st.hotfix_report_url = ''
@@ -657,6 +662,7 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_summary_title = ''
             st.save(
                 update_fields=[
+                    'hotfix_last_run_status',
                     'hotfix_last_event_at',
                     'hotfix_last_event_status',
                     'hotfix_report_url',
@@ -716,9 +722,8 @@ class WagoSkillDiffMonitor(BaseScan):
             st.hotfix_push_id = latest_push
             st.hotfix_region_id = region_id
             state_update_fields[:0] = ['hotfix_push_id', 'hotfix_region_id']
-        else:
-            st.hotfix_last_run_status = 'failed'
-            state_update_fields.append('hotfix_last_run_status')
+        st.hotfix_last_run_status = 'failed' if fallback_status else 'success'
+        state_update_fields.append('hotfix_last_run_status')
         st.hotfix_last_event_at = now
         st.hotfix_last_event_status = (
             ('init_has_update_fallback' if is_init else 'has_update_fallback')
@@ -732,7 +737,7 @@ class WagoSkillDiffMonitor(BaseScan):
         st.hotfix_class_count = int(report.get('class_class_count') or 0)
         st.hotfix_summary_title = (report.get('summary_title') or '')[:255]
         st.save(update_fields=state_update_fields)
-        return True
+        return not bool(fallback_status)
 
     def _hotfix_day_key(self, dt):
         try:
@@ -1665,7 +1670,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 eff_idx = int(rec.get('effect_index') or 0)
             key = (sid, int(eff_idx or 0))
             e = {}
-            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura'), ('EffectMiscValue_0', 'misc_value')):
                 try:
                     e[nk] = int(str((row or {}).get(k) or '').strip() or '0')
                 except Exception:
@@ -1760,7 +1765,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         spell_id=sid,
                         effect_index=eff_idx,
                         effect=patch.get('effect'),
-                        effect_aura=patch.get('effect_aura'),
+                        effect_aura=patch.get('effect_aura'), misc_value=patch.get('misc_value'),
                         base_points=patch.get('base_points') or '',
                         coefficient=patch.get('coefficient') or '',
                         pvp_multiplier=patch.get('pvp_multiplier') or '',
@@ -1772,7 +1777,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 WowSpellEffectSnapshot,
                 eff_objs,
                 unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
-                update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+                update_fields=['effect', 'effect_aura', 'misc_value', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
             )
 
         WowSpellSnapshotState.objects.update_or_create(
@@ -2426,7 +2431,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         eff_idx = 0
                     key = (spell_id, eff_idx)
                     e = {}
-                    for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+                    for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura'), ('EffectMiscValue_0', 'misc_value')):
                         v = (meta or {}).get(k)
                         if v is None or v == '':
                             v = (after or {}).get(k)
@@ -2572,7 +2577,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         spell_id=spell_id,
                         effect_index=effect_index,
                         effect=patch.get('effect'),
-                        effect_aura=patch.get('effect_aura'),
+                        effect_aura=patch.get('effect_aura'), misc_value=patch.get('misc_value'),
                         base_points=patch.get('base_points') or '',
                         coefficient=patch.get('coefficient') or '',
                         pvp_multiplier=patch.get('pvp_multiplier') or '',
@@ -2587,6 +2592,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 update_fields=[
                     'effect',
                     'effect_aura',
+                    'misc_value',
                     'base_points',
                     'coefficient',
                     'pvp_multiplier',
@@ -5064,7 +5070,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 eff_idx = int(rec.get('effect_index') or 0)
             key = (sid, int(eff_idx or 0))
             e = {}
-            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura')):
+            for k, nk in (('Effect', 'effect'), ('EffectAura', 'effect_aura'), ('EffectMiscValue_0', 'misc_value')):
                 try:
                     e[nk] = int(str((row or {}).get(k) or '').strip() or '0')
                 except Exception:
@@ -5188,7 +5194,7 @@ class WagoSkillDiffMonitor(BaseScan):
                             spell_id=sid,
                             effect_index=eff_idx,
                             effect=patch.get('effect'),
-                            effect_aura=patch.get('effect_aura'),
+                            effect_aura=patch.get('effect_aura'), misc_value=patch.get('misc_value'),
                             base_points=patch.get('base_points') or '',
                             coefficient=patch.get('coefficient') or '',
                             pvp_multiplier=patch.get('pvp_multiplier') or '',
@@ -5200,7 +5206,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     WowSpellEffectSnapshot,
                     eff_objs,
                     unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
-                    update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+                    update_fields=['effect', 'effect_aura', 'misc_value', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
                 )
             WowSpellSnapshotState.objects.update_or_create(
                 branch=branch,
@@ -5269,7 +5275,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         spell_id=spell_id,
                         effect_index=effect_index,
                         effect=patch.get('effect'),
-                        effect_aura=patch.get('effect_aura'),
+                        effect_aura=patch.get('effect_aura'), misc_value=patch.get('misc_value'),
                         base_points=patch.get('base_points') or '',
                         coefficient=patch.get('coefficient') or '',
                         pvp_multiplier=patch.get('pvp_multiplier') or '',
@@ -5281,7 +5287,7 @@ class WagoSkillDiffMonitor(BaseScan):
                 WowSpellEffectSnapshot,
                 eff_objs,
                 unique_fields=['branch', 'locale', 'spell_id', 'effect_index'],
-                update_fields=['effect', 'effect_aura', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
+                update_fields=['effect', 'effect_aura', 'misc_value', 'base_points', 'coefficient', 'pvp_multiplier', 'snapshot_build', 'updated_at'],
             )
 
         WowSpellSnapshotState.objects.update_or_create(

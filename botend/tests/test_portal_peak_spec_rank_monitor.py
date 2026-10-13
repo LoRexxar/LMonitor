@@ -3,7 +3,9 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
 
+from django.db import connection
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
 from botend.controller.plugins.portal.PortalPeakSpecRankMonitor import PortalPeakSpecRankMonitor
@@ -245,3 +247,193 @@ class PortalPeakSpecRankPreloadTests(TestCase):
         self.assertEqual(initialized.gear_json[0]['name'], '新玩家初始化装备')
         self.assertEqual(initialized.gear_json[0]['slot'], 'head')
         self.assertEqual(initialized.talent_build_code, 'NEW-TALENT')
+
+
+class PortalPeakStatsBackfillTests(TestCase):
+    STATS_RESPONSE = {
+        'melee_crit': {'rating_normalized': 1239, 'value': 32.93478},
+        'melee_haste': {'rating_normalized': 626, 'value': 18.79636},
+        'mastery': {'rating_normalized': 994, 'value': 59.217392},
+        'versatility': 143,
+        'versatility_damage_done_bonus': 2.648148,
+    }
+
+    def setUp(self):
+        self.season = SeasonMeta.objects.create(
+            season_key='mn-s3', season_name='MN S3', rio_season='season-mn-3',
+            mplus_zone_id=1, raid_zone_id=1, is_active=True,
+        )
+        media = tempfile.TemporaryDirectory()
+        self.addCleanup(media.cleanup)
+        self.media_root = Path(media.name)
+        self.enterContext(override_settings(
+            MEDIA_ROOT=media.name,
+            BATTLENET_CONFIG={'client_id': 'test-id', 'client_secret': 'test-secret'},
+        ))
+        self.monitor = SpecDetailPlayerMonitor(Mock(), Mock())
+        base = 'botend.controller.plugins.portal.SpecDetailBase'
+        self.oauth = self.enterContext(patch(
+            base + '.requests.post',
+            return_value=Mock(status_code=200, json=lambda: {
+                'access_token': 'fixture-token', 'expires_in': 3600,
+            }),
+        ))
+        self.stats = self.enterContext(patch(
+            base + '.requests.get',
+            return_value=Mock(status_code=200, json=lambda: self.STATS_RESPONSE),
+        ))
+        self.rio = self.enterContext(patch.object(
+            self.monitor, 'fetch_raiderio_character', return_value={'race': 'Human'},
+        ))
+        self.enterContext(patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.time.sleep'))
+
+    def player(self, name, **overrides):
+        fields = {
+            'season_id': self.season.id, 'region': 'eu', 'realm': 'Hyjal',
+            'character_name': name, 'class_name': 'DeathKnight', 'spec_name': 'Frost',
+            'rank': 9, 'score': 2900, 'last_updated': timezone.now(),
+            'gear_json': [{'id': 123}], 'talents_json': [{'name': 'old talent'}],
+            'talent_build_code': 'OLD-TALENT', 'stats_json': {}, 'stats_crawl_status': 0,
+        }
+        fields.update(overrides)
+        return PlayerSpecTopPlayer.objects.create(**fields)
+
+    def preload(self, players):
+        return self.monitor.preload_peak_rankings(
+            rio_season=self.season.rio_season, class_name='DeathKnight', spec_name='Frost',
+            rankings=[{
+                'score': 4000 - index,
+                'character': {
+                    'name': player.character_name, 'realm': {'name': player.realm},
+                    'region': {'slug': player.region},
+                },
+            } for index, player in enumerate(players)],
+        )
+
+    def projection(self):
+        path = self.media_root / 'aggregated' / str(self.season.id) / 'DeathKnight' / 'Frost' / 'leaderboard.json'
+        return json.loads(path.read_text(encoding='utf-8'))
+
+    def test_preload_repairs_only_missing_old_stats_and_publishes_rankings(self):
+        missing = self.player('Aghistør')
+        healthy = self.player('Healthy', stats_json={'crit': {'rating': 99, 'pct': 12}}, stats_crawl_status=1)
+        preserved = self.player('Preserved', stats_json={'crit': {'rating': 88, 'pct': 10}}, stats_crawl_status=-1)
+        cn = self.player('CN', region='cn')
+        departed = self.player('Departed', rank=1)
+        before = {row['id']: row for row in PlayerSpecTopPlayer.objects.values()}
+
+        result = self.preload([missing, healthy, preserved, cn])
+
+        missing.refresh_from_db()
+        self.assertEqual(missing.stats_json['crit'], {'rating': 1239, 'pct': 32.93478})
+        self.assertEqual(missing.stats_crawl_status, 1)
+        self.assertEqual(result['updated'], 4)
+        self.assertEqual(result['departed'], 1)
+        self.rio.assert_not_called()
+        self.oauth.assert_called_once()
+        self.stats.assert_called_once()
+        for row in PlayerSpecTopPlayer.objects.values():
+            allowed = {'rank', 'score'} | ({'stats_json', 'stats_crawl_status'} if row['id'] == missing.id else set())
+            self.assertEqual(
+                {key: value for key, value in row.items() if key not in allowed},
+                {key: value for key, value in before[row['id']].items() if key not in allowed},
+            )
+        departed.refresh_from_db()
+        self.assertIsNone(departed.rank)
+        projected = next(row for row in self.projection()['players'] if row['character_name'] == missing.character_name)
+        # leaderboard.json links to the player; full stats live in the player-detail read model.
+        self.assertEqual(projected['id'], missing.id)
+        self.assertEqual(projected['score'], 4000)
+
+    def test_stats_errors_are_isolated_and_failed_players_retry_next_preload(self):
+        players = [self.player(name) for name in ('Malformed', 'Unavailable', 'Good')]
+        self.stats.side_effect = [
+            Mock(status_code=200, json=lambda: ['malformed payload']),
+            Mock(status_code=503),
+            Mock(status_code=200, json=lambda: self.STATS_RESPONSE),
+        ]
+
+        self.preload(players)
+
+        for player in players:
+            player.refresh_from_db()
+        self.assertEqual(players[2].stats_crawl_status, 1)
+        self.assertEqual(players[1].stats_crawl_status, -1)
+        self.assertEqual([row['score'] for row in self.projection()['players']], [4000, 3999, 3998])
+        self.assertEqual(self.stats.call_count, 3)
+        self.stats.side_effect = None
+
+        self.preload(players)
+
+        self.assertEqual(self.stats.call_count, 5)
+        self.assertEqual(PlayerSpecTopPlayer.objects.filter(stats_crawl_status=1).count(), 3)
+        self.oauth.assert_called_once()  # successful OAuth reused across the batch and retry
+        self.rio.assert_not_called()
+
+    def test_token_failure_short_circuits_old_batch_without_repeating_new_initialization(self):
+        players = [self.player('Old1'), self.player('Old2'), self.player('New', last_updated=None)]
+        self.oauth.return_value = Mock(status_code=503)
+
+        result = self.preload(players)
+
+        self.assertEqual(result['initialized'], 1)
+        self.assertEqual(self.oauth.call_count, 2)  # one old batch + existing new-player initialization
+        self.stats.assert_not_called()
+        self.rio.assert_called_once_with('eu', 'Hyjal', 'New')
+        self.assertEqual(len(self.projection()['players']), 3)
+        new = PlayerSpecTopPlayer.objects.get(pk=players[2].pk)
+        self.assertIsNotNone(new.last_updated)
+        self.assertEqual(new.stats_crawl_status, -2)
+        self.oauth.return_value = Mock(status_code=200, json=lambda: {
+            'access_token': 'fixture-token', 'expires_in': 3600,
+        })
+
+        self.preload(players)
+
+        self.assertEqual(self.oauth.call_count, 3)
+        self.assertEqual(self.stats.call_count, 3)
+        self.assertEqual(self.rio.call_count, 1)
+        self.assertEqual(PlayerSpecTopPlayer.objects.filter(stats_crawl_status=1).count(), 3)
+
+    def test_direct_stats_only_backfill_is_scoped_stable_and_bounded(self):
+        excluded = [
+            self.player('Unranked', rank=None), self.player('Zero', rank=0),
+            self.player('OutsideTop20', rank=21), self.player('CN', rank=1, region='CN'),
+            self.player('OtherSeason', rank=1, season_id=self.season.id + 1),
+            self.player('OtherClass', rank=1, class_name='Mage'), self.player('OtherSpec', rank=1, spec_name='Blood'),
+            self.player('Pending', rank=1, last_updated=None),
+            self.player('Successful', rank=1, stats_json={'crit': {'pct': 12}}, stats_crawl_status=1),
+        ]
+        candidates = [self.player(f'Candidate{index}', rank=1) for index in reversed(range(22))]
+        before = {row['id']: row for row in PlayerSpecTopPlayer.objects.values()}
+
+        with CaptureQueriesContext(connection) as queries:
+            success = self.monitor.backfill_missing_battlenet_stats(
+                season_id=self.season.id, class_name='DeathKnight', spec_name='Frost',
+            )
+
+        # Top20 IDs include CN/pending/successful rows; no replacing them with extra historical rows.
+        expected = candidates[:self.monitor.PLAYER_RANKING_LIMIT - 3]
+        self.assertEqual(success, len(expected))
+        selects = [query['sql'] for query in queries if query['sql'].startswith('SELECT')]
+        self.assertEqual(len(selects), 2)
+        self.assertNotIn('stats_json', selects[0])
+        self.assertIn(f'LIMIT {self.monitor.PLAYER_RANKING_LIMIT}', selects[0])
+        self.assertIn(' IN (', selects[1])
+        self.assertNotIn('gear_json', selects[1])
+        self.assertNotIn('talents_json', selects[1])
+        self.assertEqual(
+            [call.args[0].split('/')[-2] for call in self.stats.call_args_list],
+            [player.character_name.lower() for player in expected],
+        )
+        for player in candidates[len(expected):] + excluded:
+            self.assertEqual(PlayerSpecTopPlayer.objects.values().get(pk=player.pk), before[player.pk])
+        for player in expected:
+            after = PlayerSpecTopPlayer.objects.values().get(pk=player.pk)
+            self.assertEqual(after['stats_crawl_status'], 1)
+            for field in ('stats_json', 'stats_crawl_status'):
+                after.pop(field)
+                before[player.pk].pop(field)
+            self.assertEqual(after, before[player.pk])
+        self.oauth.assert_called_once()
+        self.rio.assert_not_called()

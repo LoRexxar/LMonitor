@@ -299,6 +299,18 @@ class SpecDetailDungeonView(View):
                 ctx['dungeon_detail'] = detail or {
                     'dungeon_id': did, 'dungeon_name': name, 'sample_size': 0,
                 }
+        detail = ctx.get('dungeon_detail')
+        if detail and detail.get('data_contract') != 'wcl-log-v1':
+            # Never expose the old mixed-profile fields as WCL log statistics.
+            # Keep already-WCL performance/talent observations while the backend
+            # publishes the new contract; no request-time network or aggregation.
+            mixed_fields = {'gear_popularity', 'gem_popularity', 'enchant_popularity',
+                            'secondary_stats', 'race_distribution', 'talent_build_popularity'}
+            detail = {key: value for key, value in detail.items() if key not in mixed_fields}
+            detail['field_sources'] = {key: value for key, value in (detail.get('field_sources') or {}).items()
+                                       if key in {'performance', 'talent_usage'}}
+            detail['wcl_refresh_pending'] = True
+            ctx['dungeon_detail'] = detail
         return render(request, 'portal/spec_detail/dungeon_stats.html', ctx)
 
 

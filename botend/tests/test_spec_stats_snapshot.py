@@ -140,6 +140,44 @@ class SpecStatsSnapshotTests(SimpleTestCase):
         self.write(path, index)
         self.assertIsNone(snapshots.read_projection(path, 'dungeon-1'))
 
+    def test_structurally_corrupt_indexes_return_none_without_loading_shards(self):
+        for module in ('raid', 'dungeon'):
+            path, _ = self.publish(module)
+            original = json.loads(path.read_text(encoding='utf-8'))
+            cases = []
+            if module == 'raid':
+                for value in (None, {}, [None], [{}], [{'difficulty': 5}]):
+                    cases.append((('difficulties',), value))
+                for field, values in (
+                    (('difficulties', 0, 'difficulty'), (None, [], 3)),
+                    (('difficulties', 0, 'zone_groups'), (None, {}, [None], [{}])),
+                    (('difficulties', 0, 'zone_groups', 0, 'bosses'), (None, {}, [None], [{}])),
+                    (('difficulties', 0, 'zone_groups', 0, 'bosses', 0, 'boss_id'), (None, [])),
+                    (('zone_groups',), (None, {}, [None], [{}])),
+                ):
+                    cases.extend((field, value) for value in values)
+                selected = 'raid-5-1'
+            else:
+                cases.extend((('dungeons',), value) for value in (None, {}, [None], [{}]))
+                cases.append((('dungeons', 0, 'dungeon_id'), None))
+                selected = 'dungeon-1'
+            for keys, value in cases:
+                broken = json.loads(json.dumps(original))
+                target = broken
+                for key in keys[:-1]:
+                    target = target[key]
+                target[keys[-1]] = value
+                self.write(path, broken)
+                for selection in (None, selected):
+                    with self.subTest(module=module, keys=keys, value=value, selection=selection), \
+                            patch.object(snapshots, '_load', wraps=snapshots._load) as reads:
+                        self.assertIsNone(snapshots.read_projection(path, selection))
+                        self.assertEqual(reads.call_count, 1)
+            broken = dict(original)
+            del broken['difficulties' if module == 'raid' else 'dungeons']
+            self.write(path, broken)
+            self.assertIsNone(snapshots.read_projection(path, selected))
+
     def test_legacy_file_and_leaderboard_remain_compatible(self):
         for module in ('dungeon', 'raid', 'leaderboard'):
             data = {'players': [{'id': 1}]} if module == 'leaderboard' else fixture(module)

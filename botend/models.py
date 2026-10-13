@@ -1,4 +1,5 @@
 from botend.localization_managers import TalentStructureManager
+from botend.raiderio_identity import activity_identity_digest, normalized_name
 import hashlib
 import secrets
 import uuid
@@ -689,6 +690,7 @@ class WowSpellEffectSnapshot(models.Model):
     effect_index = models.IntegerField(default=0)
     effect = models.IntegerField(null=True, blank=True)
     effect_aura = models.IntegerField(null=True, blank=True)
+    misc_value = models.IntegerField(null=True, blank=True, db_index=True, help_text="SpellEffect.EffectMiscValue_0；附魔效果关联 Enchantment ID")
     base_points = models.CharField(max_length=64, default="", blank=True)
     coefficient = models.CharField(max_length=64, default="", blank=True)
     pvp_multiplier = models.CharField(max_length=64, default="", blank=True)
@@ -2549,6 +2551,103 @@ class SeasonMeta(models.Model):
         return self.season_key
 
 
+class WowRealmDirectory(models.Model):
+    """Canonical Raider.IO realm identity, shared by character link consumers."""
+    region = models.CharField(max_length=10)
+    slug = models.CharField(max_length=100)
+    name = models.CharField(max_length=128)
+    localized_name = models.CharField(max_length=128, blank=True, default='')
+    locale = models.CharField(max_length=10)
+    source_url = models.URLField(max_length=300, blank=True, default='')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_realm_directory'
+        constraints = [models.UniqueConstraint(fields=['region', 'slug'], name='wow_realm_region_slug_unique')]
+
+
+class RaiderIOCharacterActivity(models.Model):
+    """One season/character source fact, independent of ranking specialization."""
+    season = models.ForeignKey(SeasonMeta, on_delete=models.CASCADE)
+    region = models.CharField(max_length=10)
+    realm_slug = models.CharField(max_length=100)
+    character_name = models.CharField(max_length=100)
+    identity_digest = models.CharField(max_length=64, editable=False)
+    payload_json = models.JSONField(default=dict, blank=True)
+    module_fetched_at = models.JSONField(default=dict, blank=True)
+    scored_runs_json = models.JSONField(default=dict, blank=True,
+        help_text='当前计分记录；独立于历史活动摘要，不表示通关当时的分数增量')
+    scored_runs_fetched_at = models.DateTimeField(null=True, blank=True)
+    fetched_at = models.DateTimeField(null=True, blank=True)
+    source_updated_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=24, default='pending')
+    failure_count = models.PositiveIntegerField(default=0)
+    last_error = models.CharField(max_length=40, blank=True, default='')
+
+    def save(self, *args, **kwargs):
+        # Identity changes are persisted as a unit, including their exact key.
+        identity_fields = {'region', 'realm_slug', 'character_name'}
+        update_fields = kwargs.get('update_fields')
+        if update_fields is None or (identity_fields | {'identity_digest'}).intersection(update_fields):
+            self.region = self.region.strip().lower()
+            self.realm_slug = self.realm_slug.strip().lower()
+            self.character_name = normalized_name(self.character_name)
+            self.identity_digest = activity_identity_digest(
+                self.region, self.realm_slug, self.character_name)
+            if update_fields is not None:
+                kwargs['update_fields'] = set(update_fields) | identity_fields | {'identity_digest'}
+        return super().save(*args, **kwargs)
+
+    class Meta:
+        db_table = 'wow_raiderio_character_activity'
+        constraints = [models.UniqueConstraint(
+            fields=['season', 'identity_digest'],
+            name='uniq_rio_activity_character',
+        )]
+
+
+class PlayerObservationAnalysis(models.Model):
+    """One derived, evidence-bound AI interpretation per central character."""
+    activity = models.OneToOneField(RaiderIOCharacterActivity, on_delete=models.CASCADE,
+        related_name='observation_analysis')
+    evidence_hash = models.CharField(max_length=64, blank=True, default='')
+    evidence_json = models.JSONField(default=dict, blank=True)
+    result_json = models.JSONField(default=dict, blank=True)
+    prompt_version = models.PositiveIntegerField(default=1)
+    status = models.CharField(max_length=24, default='pending')
+    generated_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    lease_token = models.CharField(max_length=32, blank=True, default='')
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=40, blank=True, default='')
+
+    class Meta:
+        db_table = 'wow_player_observation_analysis'
+
+
+class RaiderIORunRoster(models.Model):
+    """Minimal run/roster facts shared by all characters, never a rank slot."""
+    rio_season = models.CharField(max_length=64)
+    run_id = models.PositiveBigIntegerField()
+    payload_json = models.JSONField(default=dict, blank=True)
+    fetched_at = models.DateTimeField(null=True, blank=True)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    status = models.CharField(max_length=24, default='pending')
+    lease_token = models.CharField(max_length=32, blank=True, default='')
+    roster_visible = models.BooleanField(default=True)
+    failure_count = models.PositiveIntegerField(default=0)
+    last_error = models.CharField(max_length=40, blank=True, default='')
+
+    class Meta:
+        db_table = 'wow_raiderio_run_roster'
+        constraints = [models.UniqueConstraint(
+            fields=['rio_season', 'run_id'], name='uniq_rio_run_roster')]
+
+
 class PlayerSpecTopPlayer(models.Model):
     """人物资料缓存（Raider.IO + Battle.net），每角色每专精每赛季 1 条"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID")
@@ -2590,6 +2689,100 @@ class PlayerSpecTopPlayer(models.Model):
 
     def __str__(self):
         return f"{self.character_name}-{self.realm} ({self.spec_name})"
+
+
+class WclCombatantSnapshot(models.Model):
+    """One raw WCL CombatantInfo fact; rankings reference report/fight identity."""
+    report_code = models.CharField(max_length=50)
+    fight_id = models.PositiveIntegerField()
+    actor_id = models.PositiveIntegerField()
+    payload_json = models.JSONField(default=dict)
+    fetched_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'wow_wcl_combatant_snapshot'
+        constraints = [models.UniqueConstraint(
+            fields=['report_code', 'fight_id', 'actor_id'],
+            name='uniq_wcl_combatant_actor',
+        )]
+
+
+class WclCombatantFetchState(models.Model):
+    """Expiring fetch outcomes, never a second source of raw combatant facts.
+
+    fight_id=0 represents report-wide permission denial; positive IDs represent
+    a complete fetch with at least one requested observation still unmatched.
+    """
+    report_code = models.CharField(max_length=50)
+    fight_id = models.PositiveIntegerField()
+    status = models.CharField(max_length=20, choices=[
+        ('permission_denied', 'Permission denied'), ('missing', 'Missing'),
+    ])
+    checked_at = models.DateTimeField(default=timezone.now)
+    retry_after = models.DateTimeField()
+
+    class Meta:
+        db_table = 'wow_wcl_combatant_fetch_state'
+        constraints = [models.UniqueConstraint(
+            fields=['report_code', 'fight_id'], name='uniq_wcl_combatant_fetch_scope',
+        )]
+
+
+class WclApiBudget(models.Model):
+    """Shared measured budget; reservations, not HTTP, serialize on this row."""
+    account_key = models.CharField(max_length=64, unique=True)
+    limit_per_hour = models.FloatField(default=0)
+    spent = models.FloatField(default=0)
+    reset_at = models.DateTimeField(null=True, blank=True)
+    blocked_until = models.DateTimeField(null=True, blank=True)
+    observed_at = models.DateTimeField(null=True, blank=True)
+    lease_owner = models.CharField(max_length=32, blank=True, default='')
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    costs = models.JSONField(default=dict)
+    collection_workers = models.PositiveIntegerField(default=10)
+    window_generation = models.PositiveBigIntegerField(default=0)
+    charged = models.FloatField(default=0)
+    completed = models.FloatField(default=0)
+
+    class Meta:
+        db_table = 'wow_wcl_api_budget'
+
+
+class WclApiReservation(models.Model):
+    """Transport control only. Uncertain charges survive failure until reset."""
+    budget = models.ForeignKey(WclApiBudget, on_delete=models.CASCADE, related_name='reservations')
+    request_id = models.CharField(max_length=32, unique=True)
+    generation = models.PositiveBigIntegerField()
+    cost = models.FloatField()
+    baseline = models.FloatField(default=0)
+    expires_at = models.DateTimeField()
+    discovery = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = 'wow_wcl_api_reservation'
+
+
+class WclCollectionCycle(models.Model):
+    """Resumable ingestion/publication control state; raw facts stay central."""
+    season = models.ForeignKey('SeasonMeta', on_delete=models.CASCADE)
+    slot = models.DateTimeField()
+    phase = models.CharField(max_length=20, default='rankings')
+    completed_scopes = models.JSONField(default=list)
+    selected_samples = models.JSONField(default=dict)
+    next_retry_at = models.DateTimeField(null=True, blank=True)
+    owner = models.CharField(max_length=32, blank=True, default='')
+    started_at = models.DateTimeField(default=timezone.now)
+    last_attempt_at = models.DateTimeField(default=timezone.now)
+    collected_at = models.DateTimeField(null=True, blank=True)
+    published_at = models.DateTimeField(null=True, blank=True)
+    counts = models.JSONField(default=dict)
+    error = models.TextField(blank=True, default='')
+
+    class Meta:
+        db_table = 'wow_wcl_collection_cycle'
+        constraints = [models.UniqueConstraint(
+            fields=['season', 'slot'], name='uniq_wcl_cycle_season_slot',
+        )]
 
 
 class SpecDungeonRanking(models.Model):

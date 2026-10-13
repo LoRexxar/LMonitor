@@ -24,6 +24,8 @@ class PortalPeakSpecRankMonitor(BaseScan):
             return self._scan(url) if acquired else False
 
     def _scan(self, url):
+        # Share the activity collector's 429 stop state across every spec in this batch.
+        self._player_monitor = None
         season = self._resolve_season()
         if not season:
             logger.error("[PortalPeakSpecRankMonitor] 活跃 SeasonMeta.rio_season 为空，跳过巅峰榜刷新")
@@ -174,7 +176,9 @@ class PortalPeakSpecRankMonitor(BaseScan):
             try:
                 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
                 class_name, spec_name = canonical_identity
-                SpecDetailPlayerMonitor(self.req, self.task).preload_peak_rankings(
+                if not getattr(self, '_player_monitor', None):
+                    self._player_monitor = SpecDetailPlayerMonitor(self.req, self.task)
+                self._player_monitor.preload_peak_rankings(
                     rio_season=season,
                     class_name=class_name,
                     spec_name=spec_name,

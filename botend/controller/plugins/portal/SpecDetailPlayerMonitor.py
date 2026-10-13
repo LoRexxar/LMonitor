@@ -6,6 +6,7 @@
 
 import time
 import unicodedata
+from types import SimpleNamespace
 
 from django.utils import timezone
 from django.db import IntegrityError, transaction
@@ -42,6 +43,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
     def scan(self, url):
         logger.info("[SpecDetailPlayer] 开始采集人物榜")
+        self._activity_collector = None
 
         season = SeasonMeta.objects.filter(is_active=True).first()
         if not season:
@@ -116,6 +118,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                 'stats_crawl_status': stats_status,
                                 'last_updated': timezone.now(),
                             }
+                            if existing and player.get('_profile_refresh_failed'):
+                                # Ranking data remains usable, but absent/rejected profile
+                                # data is not an authoritative empty profile or a refresh.
+                                defaults = {key: defaults[key] for key in ('rank', 'score')}
                             self._preserve_complete_talents_when_new_payload_is_downgrade(existing, defaults, class_name, spec_name)
                             if existing:
                                 defaults['class_name'] = class_name
@@ -159,6 +165,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
     def _fetch_top_players(self, class_name, spec_name, season):
         """从 Raider.IO 获取全球榜单玩家，优先使用世界榜。"""
+        self._activity_season = SeasonMeta.objects.filter(is_active=True, rio_season=season).first()
         players = self._fetch_world_top_players(class_name, spec_name, season)
 
         if len(players) < self.PLAYER_RANKING_LIMIT:
@@ -215,7 +222,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return all_players[:self.PLAYER_RANKING_LIMIT]
 
     def preload_peak_rankings(self, *, rio_season, class_name, spec_name, rankings):
-        """消费高频巅峰榜：原子应用排名快照，只初始化待初始化占位。"""
+        """消费高频巅峰榜：应用排名，补旧人物缺失属性，初始化新人物。"""
         season = SeasonMeta.objects.filter(is_active=True, rio_season=rio_season).first()
         if not season:
             logger.warning(f"[SpecDetailPlayer] 预载跳过，无匹配赛季: {rio_season}")
@@ -300,6 +307,15 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 profile.save(update_fields=['rank'])
                 departed += 1
 
+        # 在初始化新人物之前补旧人物缺口，避免本轮新人物被重复采集。
+        # 排名已提交；属性补采失败不能阻止新人物初始化或公开榜单投影。
+        try:
+            self.backfill_missing_battlenet_stats(
+                season_id=season.id, class_name=class_name, spec_name=spec_name,
+            )
+        except Exception as exc:
+            logger.warning(f"[SpecDetailPlayer] 旧人物属性补采失败 {class_name}/{spec_name}: {exc}")
+
         initialization_success = 0
         for profile in PlayerSpecTopPlayer.objects.filter(id__in=pending_profile_ids):
             try:
@@ -321,6 +337,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     f"[SpecDetailPlayer] 新入榜人物初始化失败 "
                     f"{class_name}/{spec_name}/{profile.character_name}: {exc}"
                 )
+
+        # Activity has an independent TTL and never refreshes existing profile facts.
+        # Initialize new profiles first so one combined request can fill both scopes.
+        try:
+            self.refresh_top20_activity(season, class_name, spec_name)
+        except Exception as exc:
+            logger.warning(f"[SpecDetailPlayer] activity refresh failed: {type(exc).__name__}")
 
         from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
         SpecDetailAggregationMonitor.refresh_leaderboard_projection(
@@ -566,8 +589,39 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 return True
         return False
 
+    def _get_activity_collector(self):
+        from botend.services.player_raiderio_activity import ActivityCollector
+        if not getattr(self, '_activity_collector', None):
+            self._activity_collector = ActivityCollector(proxies=self._proxies)
+        return self._activity_collector
+
+    def _fetch_profile_with_activity(self, profile, season):
+        result = self._get_activity_collector().refresh(profile, season, include_profile=True)
+        if result['status'] == 'unresolved' and (profile.realm or '').lower() != 'anonymous':
+            # Preserve legacy gear/talent behavior; unresolved identity is never used
+            # to collect or publish activity. Anonymous characters stay private.
+            return self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
+        return result.get('profile_payload')
+
+    def refresh_top20_activity(self, season, class_name, spec_name):
+        from botend.services.player_raiderio_activity import top20_candidates
+        collector = self._get_activity_collector()
+        results = []
+        for candidate in top20_candidates(season, class_name=class_name, spec_name=spec_name):
+            result = collector.refresh(candidate['player'], season)
+            results.append({'player_ids': candidate['player_ids'], **result})
+            if collector.stopped:
+                break
+        return results
+
     def _enrich_profile_model_from_raiderio(self, profile):
-        char_data = self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
+        rank = getattr(profile, 'rank', None)
+        season = (SeasonMeta.objects.filter(pk=profile.season_id, is_active=True).first()
+                  if isinstance(rank, int) and 1 <= rank <= 20 else None)
+        if season:
+            char_data = self._fetch_profile_with_activity(profile, season)
+        else:
+            char_data = self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
         if not char_data:
             return False
 
@@ -716,12 +770,22 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             if not all([region, realm, name]):
                 continue
 
-            if region.lower() == 'cn':
-                continue
-
             try:
-                char_data = self.fetch_raiderio_character(region, realm, name)
+                season = getattr(self, '_activity_season', None)
+                if season:
+                    identity = SimpleNamespace(season_id=season.pk, region=region, realm=realm,
+                        character_name=name, profile_url=player.get('profile_url'))
+                    if region.lower() == 'cn':
+                        # Preserve the existing CN profile branch, but activity is supported.
+                        self._get_activity_collector().refresh(identity, season)
+                        continue
+                    char_data = self._fetch_profile_with_activity(identity, season)
+                else:
+                    if region.lower() == 'cn':
+                        continue
+                    char_data = self.fetch_raiderio_character(region, realm, name)
                 if not char_data:
+                    player['_profile_refresh_failed'] = True
                     continue
 
                 self._pending_build_code = None  # 重置 build_code
@@ -788,6 +852,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     self._pending_build_code = None
 
             except Exception as e:
+                player['_profile_refresh_failed'] = True
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
 
             time.sleep(0.2)  # Raider.IO rate limit
@@ -1046,8 +1111,55 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         logger.info(f"[SpecDetailPlayer] Battle.net 属性补充: 成功 {success}, 失败 {fail}")
 
+    def backfill_missing_battlenet_stats(self, *, season_id, class_name, spec_name):
+        """有界补采指定专精当前 Top20 旧人物的空属性，返回成功数。
+
+        只写属性及其状态，不刷新 RIO 内容/last_updated；失败留给下轮重试。
+        """
+        # 先用标量列锁定 Top20 ID，再查空属性；避免历史资料的 JSON 条件扫描，
+        # 也不加载本次不会更新的装备/天赋大字段。
+        top_ids = list(PlayerSpecTopPlayer.objects.filter(
+            season_id=season_id,
+            class_name=class_name,
+            spec_name=spec_name,
+            rank__gte=1,
+            rank__lte=self.PLAYER_RANKING_LIMIT,
+        ).order_by('rank', 'id').values_list('id', flat=True)[:self.PLAYER_RANKING_LIMIT])
+        pending = list(PlayerSpecTopPlayer.objects.filter(
+            pk__in=top_ids,
+            last_updated__isnull=False,
+            stats_json={},
+            stats_crawl_status__in=(0, -1, -2),
+        ).exclude(region__iexact='cn').only(
+            'id', 'region', 'realm', 'character_name', 'stats_json',
+            'stats_crawl_status', 'last_updated',
+        ).order_by('rank', 'id'))
+        if not pending:
+            return 0
+        # 成功 token 由基类缓存；失败按批短路，避免每个人都等待 OAuth 超时。
+        if not self._get_battlenet_token():
+            logger.warning(f"[SpecDetailPlayer] 旧人物属性补采跳过，Battle.net token 不可用: {class_name}/{spec_name}")
+            return 0
+
+        success = 0
+        for player in pending:
+            try:
+                success += int(self._crawl_battlenet_stats_for_profile(player))
+            except Exception as exc:
+                logger.warning(
+                    f"[SpecDetailPlayer] 旧人物属性补采失败 "
+                    f"{class_name}/{spec_name}/{player.character_name}: {exc}"
+                )
+            time.sleep(0.1)
+
+        logger.info(
+            f"[SpecDetailPlayer] 旧人物属性补采 {class_name}/{spec_name}: "
+            f"成功 {success}, 失败 {len(pending) - success}"
+        )
+        return success
+
     def _crawl_battlenet_stats_for_profile(self, player):
-        """只初始化一个新入榜人物，绝不顺带刷新旧人物内容。"""
+        """只写单个人物的 Battle.net 属性及状态，不刷新 RIO 内容。"""
         if (player.region or '').lower() == 'cn':
             return False
         if not self._get_battlenet_token():

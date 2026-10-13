@@ -165,6 +165,8 @@ def _strip_stats(text, stats, metadata):
 def separate_item_text(*, description='', description_zh='', effects=(), stats=None, metadata=None,
                        names=(), enhancement=False, recover_description_effects=False):
     """历史描述只恢复明确的特效；有装等的装备以变体特效为准，避免串用其他装等。"""
+    # 中文 Tooltip 中的已知属性占位符按术语显示，不改动原始来源字段。
+    description_zh = str(description_zh or '').replace('[Primary Stat]', '[主属性]')
     result = {'description': '', 'description_zh': '', 'effects': []}
     seen = set()
     usage = {'description': [], 'description_zh': []}
@@ -187,6 +189,8 @@ def separate_item_text(*, description='', description_zh='', effects=(), stats=N
         for field in ('description', 'description_zh'):
             if field not in row:
                 continue
+            if field == 'description_zh':
+                row[field] = row[field].replace('[Primary Stat]', '[主属性]')
             lines = []
             if enhancement:
                 usage[field].extend(re.findall(r'(?:不能|无法)对物品等级低于\d+的物品使用[。.]?', row[field]))
@@ -205,6 +209,7 @@ def separate_item_text(*, description='', description_zh='', effects=(), stats=N
             result['effects'].append(row)
     has_variant_effects = bool(result['effects'])
     recovered = {'description': [], 'description_zh': []}
+    has_chinese_effect_source = False
     for field, raw in [('description', description), ('description_zh', description_zh)]:
         descriptions = []
         if not enhancement:
@@ -215,6 +220,10 @@ def separate_item_text(*, description='', description_zh='', effects=(), stats=N
         for line_index, line in enumerate(effect_lines(clean_text(raw, names))):
             line = line.strip()
             remainder, removed = _strip_stats(line, stats, metadata)
+            if enhancement and field == 'description_zh' and (
+                EFFECT_PREFIX.match(line) or removed or (application and line_index == 0 and line)
+            ):
+                has_chinese_effect_source = True
             if not remainder:
                 continue
             # 未映射的静态数值单独标注，不冒充特效，也不猜测写入属性总计。
@@ -235,7 +244,9 @@ def separate_item_text(*, description='', description_zh='', effects=(), stats=N
         # 同一强化物品只有一个效果时，补上原说明中明确的中文效果，保留英文及来源字段。
         result['effects'][0]['description_zh'] = recovered['description_zh'][0]['description_zh']
     elif not has_variant_effects:
-        result['effects'].extend(recovered['description_zh'] or recovered['description'])
+        # 中文已被提取为静态属性/使用限制时，空特效并不表示缺少中文来源。
+        result['effects'].extend(recovered['description_zh'] if has_chinese_effect_source
+                                 else recovered['description_zh'] or recovered['description'])
     return result
 
 

@@ -4,14 +4,19 @@ M+ 副本 + 团本排名采集器
 从 WCL v2 GraphQL 获取每个副本/Boss 每个专精的 Top 100 排名原始数据
 """
 
+import math
 import time
 
 from django.utils import timezone
 from django.db import transaction
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
-from botend.models import SeasonMeta, SpecDungeonRanking, SpecRaidRanking
+from botend.models import SeasonMeta, SpecDungeonRanking, SpecRaidRanking, MonitorTaskLeaseLost
 from botend.constants.wow import CLASS_SPEC_MAP
+from botend.services.wcl_collection_cycle import (
+    CycleOwnershipLost, begin_collection, checkpoint_scope, defer_cycle,
+    fenced_cycle, finish_collection, freeze_samples, frozen_combatant_records,
+)
 
 from utils.log import logger
 
@@ -52,36 +57,79 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             logger.error("[SpecDetailRanking] SeasonMonitor 执行后仍无活跃赛季，跳过")
             return False
 
-        ok = True
+        try:
+            self._cycle = begin_collection(season, self.task)
+        except CycleOwnershipLost:
+            return False
+        if self._cycle is None:
+            return False
+        self._wcl_retry_at = None
+        try:
+            if self._cycle.phase == 'rankings':
+                if season.mplus_encounters and not self._collect_dungeon_rankings(season):
+                    defer_cycle(self._cycle, 'dungeon rankings incomplete', self._wcl_retry_at)
+                    return False
+                if season.raid_encounters:
+                    for difficulty, name in ((5, 'Mythic'), (4, 'Heroic')):
+                        if not self._collect_raid_rankings(season, difficulty, name):
+                            defer_cycle(self._cycle, 'raid rankings incomplete', self._wcl_retry_at)
+                            return False
+                identities = [(cls, spec) for cls, specs in CLASS_SPEC_MAP.items() for spec in specs]
+                freeze_samples(self._cycle, season, identities)
 
-        # M+ 副本排名
-        if season.mplus_encounters:
-            if not self._collect_dungeon_rankings(season):
-                ok = False
-        else:
-            logger.warning("[SpecDetailRanking] 无 M+ 副本数据")
+            # All rankings finish before one global report/fight supplement.
+            # Retries read frozen IDs, never a newly selected cohort.
+            from botend.services.wcl_combatant_snapshot import collect_dungeon_combatants
+            records = frozen_combatant_records(self._cycle)
+            def save_progress(counts):
+                # The collector calls this only on the main thread, at most
+                # every 30s plus start/end. Do not alter phase or retry state.
+                with fenced_cycle(self._cycle, phases=('combatants',)) as current:
+                    current.counts = counts
+                    current.save(update_fields=['counts'])
+                    self._cycle.counts = counts
 
-        # 团本排名
-        if season.raid_encounters:
-            mythic_ok = self._collect_raid_rankings(season, difficulty=5, difficulty_name='Mythic')
-            heroic_ok = self._collect_raid_rankings(season, difficulty=4, difficulty_name='Heroic')
-            if not mythic_ok or not heroic_ok:
-                ok = False
-        else:
-            logger.warning("[SpecDetailRanking] 无团本数据")
+            counts = collect_dungeon_combatants(
+                records, self, apply=True, batch_size=20, log=logger.info, progress=save_progress)
+            ok = finish_collection(self._cycle, counts)
+            if ok and self.task is not None:
+                self.task.flag = f"{season.season_key}@rankings@{self._cycle.pk}"
+                self.task.save(update_fields=['flag'])
+            return ok
+        except (CycleOwnershipLost, MonitorTaskLeaseLost):
+            logger.warning('[SpecDetailRanking] cycle ownership lost; no stale completion')
+            return False
+        except Exception as exc:
+            try:
+                defer_cycle(self._cycle, str(exc), self._wcl_retry_at)
+            except CycleOwnershipLost:
+                pass
+            logger.exception('[SpecDetailRanking] collection deferred')
+            return False
 
-        if ok:
-            self.task.flag = f"{season.season_key}@rankings@{int(time.time())}"
-            self.task.save()
+    def _scope_complete(self, scope):
+        cycle = getattr(self, '_cycle', None)
+        return cycle is not None and scope in cycle.completed_scopes
 
-        return ok
+    def _checkpoint(self, scope):
+        cycle = getattr(self, '_cycle', None)
+        if cycle is not None:
+            checkpoint_scope(cycle, scope)
 
-    def _fetch_rankings_with_retry(self, enc_id, class_name, spec_name, metric='dps', difficulty=None, page=1, max_retries=5):
+    def _scope_transaction(self):
+        cycle = getattr(self, '_cycle', None)
+        return fenced_cycle(cycle, phases=('rankings',)) if cycle else transaction.atomic()
+
+    def _fetch_rankings_with_retry(self, enc_id, class_name, spec_name, metric='dps', difficulty=None, page=1, max_retries=3):
         """带加强重试的排名获取，处理限流和临时错误"""
         for attempt in range(max_retries):
             rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, metric, difficulty=difficulty, page=page)
             if rankings is not None:
                 return rankings
+            if getattr(self, '_wcl_retry_at', None):
+                return None
+            if attempt + 1 == max_retries:
+                break
 
             # fetch_wcl_rankings 返回 None 可能是限流或临时错误
             wait = min(2 ** attempt * 3, 60)
@@ -100,17 +148,23 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         total = 0
         empty_talent_total = 0
         now = timezone.now()
-        combatant_cache = {}
         ok = True
 
         for encounter in season.mplus_encounters:
             enc_id = encounter['id']
+            scope = f'dungeon:{enc_id}'
+            if self._scope_complete(scope):
+                continue
             enc_name = encounter['name']
             records = []
             encounter_failed = False
 
             for class_name, specs in CLASS_SPEC_MAP.items():
+                if encounter_failed:
+                    break
                 for spec_name in specs:
+                    if encounter_failed:
+                        break
                     page = 1
                     collected = 0
                     empty_talent_count = 0
@@ -121,23 +175,44 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                             encounter_failed = True
                             time.sleep(0.3)
                             break
-                        if not rankings:
-                            time.sleep(0.3)
+                        if (not isinstance(rankings, dict)
+                                or not isinstance(rankings.get('rankings'), list)
+                                or not isinstance(rankings.get('hasMorePages'), bool)):
+                            encounter_failed = True
+                            logger.error(f'[SpecDetailRanking] M+ {enc_id}: 排名页结构无效')
                             break
 
-                        rank_list = rankings.get('rankings', []) or []
+                        rank_list = rankings['rankings']
                         if not rank_list:
+                            if rankings['hasMorePages']:
+                                encounter_failed = True
+                                logger.error(f'[SpecDetailRanking] M+ {enc_id}: 分页未结束却返回空页')
                             break
 
                         for r in rank_list:
                             if collected >= target_per_spec:
                                 break
                             try:
+                                if not isinstance(r, dict):
+                                    raise ValueError('ranking must be an object')
+                                for key in ('server', 'report', 'guild'):
+                                    if r.get(key) is not None and not isinstance(r[key], dict):
+                                        raise ValueError(f'invalid ranking {key}')
+                                for key in ('talents', 'gear', 'affixes'):
+                                    if r.get(key) is not None and not isinstance(r[key], list):
+                                        raise ValueError(f'invalid ranking {key}')
+                                amount = r.get('amount')
+                                if (isinstance(amount, bool)
+                                        or not isinstance(amount, (int, float))
+                                        or not math.isfinite(amount)):
+                                    raise ValueError('invalid ranking amount')
                                 server = r.get('server', {}) or {}
                                 report = r.get('report', {}) or {}
                                 guild = r.get('guild', {}) or {}
 
-                                talents_payload = self._parse_rank_talents(r, combatant_cache)
+                                # Missing nodes are projected from the central log
+                                # snapshot after cohort selection, never fetched per row.
+                                talents_payload = self.parse_wcl_talents(r.get('talents', []))
                                 if not talents_payload:
                                     empty_talent_count += 1
                                     empty_talent_total += 1
@@ -171,8 +246,12 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 ))
                                 collected += 1
                             except Exception as e:
-                                logger.warning(f"[SpecDetailRanking] M+ 构建记录失败: {e}")
+                                encounter_failed = True
+                                logger.warning(f"[SpecDetailRanking] M+ 构建记录失败，整本保旧: {e}")
+                                break
 
+                        if encounter_failed:
+                            break
                         if not rankings.get('hasMorePages') or len(rank_list) == 0:
                             break
                         page += 1
@@ -189,14 +268,14 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             if encounter_failed:
                 ok = False
                 logger.error(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 采集失败，保留旧数据不覆盖")
-                continue
+                return False
             if not records:
-                ok = False
-                logger.warning(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 0 条数据，保留旧数据不覆盖")
+                self._checkpoint(scope)
+                logger.info(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 权威空榜，保旧并完成范围")
                 continue
 
             try:
-                with transaction.atomic():
+                with self._scope_transaction():
                     result = self._sync_ranking_records(
                         model=SpecDungeonRanking,
                         filters={'season_id': season.id, 'dungeon_id': enc_id},
@@ -204,12 +283,15 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                         key_fields=self.DUNGEON_KEY_FIELDS,
                         update_fields=self.DUNGEON_UPDATE_FIELDS,
                     )
+                    self._checkpoint(scope)
                 total += len(records)
                 logger.info(
                     f"[SpecDetailRanking] M+ {enc_id} ({enc_name}): "
                     f"新增 {result['created']} / 更新 {result['updated']} / "
                     f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
                 )
+            except CycleOwnershipLost:
+                raise
             except Exception as e:
                 ok = False
                 logger.error(f"[SpecDetailRanking] M+ {enc_id} ({enc_name}) 写入失败: {e}")
@@ -231,7 +313,17 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         if report_code and fight_id and character_name:
             cache_key = (report_code, int(fight_id))
             if cache_key not in combatant_cache:
-                combatant_cache[cache_key] = self.fetch_wcl_combatant_info(report_code, fight_id)
+                if len(combatant_cache) >= 256:
+                    combatant_cache.clear()
+                fetched = self.fetch_wcl_combatant_info(report_code, fight_id)
+                if fetched is None:
+                    if getattr(self, '_wcl_last_error', '') != 'permission':
+                        raise ValueError('raid talent fallback incomplete')
+                    # Explicit report permission is unavailable, not a transport failure.
+                    fetched = []
+                from botend.services.wcl_combatant_snapshot import _validated_events
+                fetched = _validated_events(fetched, [int(fight_id)]).get(int(fight_id), [])
+                combatant_cache[cache_key] = fetched
             combatant = self._find_combatant_for_ranking(combatant_cache.get(cache_key) or [], ranking)
             talents = self.parse_wcl_talent_tree((combatant or {}).get('talentTree') or [])
             if talents:
@@ -256,9 +348,9 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         """采集一个团本难度；各难度拥有完全隔离的同步范围。"""
         logger.info(f"[SpecDetailRanking] 采集团本 {difficulty_name} 排名: {len(season.raid_encounters)} Boss x {sum(len(v) for v in CLASS_SPEC_MAP.values())} 专精")
 
+        combatant_cache = {}
         total = 0
         now = timezone.now()
-        combatant_cache = {}
         ok = True
 
         # Build encounter→zone mapping from raid_zones (if available)
@@ -273,6 +365,9 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
         for idx, encounter in enumerate(season.raid_encounters):
             enc_id = encounter['id']
+            scope = f'raid:{difficulty}:{enc_id}'
+            if self._scope_complete(scope):
+                continue
             enc_name = encounter['name']
             zone_info = enc_zone_map.get(enc_id, {})
 
@@ -280,17 +375,21 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             records = []
             encounter_failed = False
             for class_name, specs in CLASS_SPEC_MAP.items():
+                if encounter_failed:
+                    break
                 for spec_name in specs:
                     rankings = self._fetch_rankings_with_retry(
                         enc_id, class_name, spec_name, 'dps', difficulty=difficulty
                     )
                     if rankings is None:
                         encounter_failed = True
-                        time.sleep(0.3)
-                        continue
-                    if not rankings:
-                        time.sleep(0.3)
-                        continue
+                        break
+                    if (not isinstance(rankings, dict)
+                            or not isinstance(rankings.get('rankings'), list)
+                            or not isinstance(rankings.get('hasMorePages'), bool)
+                            or (not rankings['rankings'] and rankings.get('hasMorePages') is not False)):
+                        encounter_failed = True
+                        break
 
                     rank_list = rankings.get('rankings', [])
                     for r in rank_list:
@@ -328,17 +427,22 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 last_updated=now,
                             ))
                         except Exception as e:
+                            encounter_failed = True
                             logger.warning(f"[SpecDetailRanking] 构建记录失败: {enc_id}/{class_name}/{spec_name}: {e}")
+                            break
 
+                    if encounter_failed:
+                        break  # Preserve fallback retry hints; do not request the next spec.
                     time.sleep(0.3)  # 限速
 
             # Phase 2: 独立事务写入该 boss 的数据
             if encounter_failed:
                 ok = False
                 logger.error(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}) 采集失败，保留旧数据不覆盖")
+                return False
             elif records:
                 try:
-                    with transaction.atomic():
+                    with self._scope_transaction():
                         result = self._sync_ranking_records(
                             model=SpecRaidRanking,
                             filters={'season_id': season.id, 'boss_id': enc_id, 'difficulty': difficulty},
@@ -346,18 +450,21 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                             key_fields=self.RAID_KEY_FIELDS,
                             update_fields=self.RAID_UPDATE_FIELDS,
                         )
+                        self._checkpoint(scope)
                     total += len(records)
                     logger.info(
                         f"[SpecDetailRanking] Boss {enc_id} ({enc_name})/{difficulty_name}: "
                         f"新增 {result['created']} / 更新 {result['updated']} / "
                         f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
                     )
+                except CycleOwnershipLost:
+                    raise
                 except Exception as e:
                     ok = False
                     logger.error(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}) 写入失败: {e}")
             else:
-                ok = False
-                logger.warning(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): 0 条数据")
+                self._checkpoint(scope)
+                logger.info(f"[SpecDetailRanking] Boss {enc_id} ({enc_name}): 权威空榜，保旧并完成范围")
 
         logger.info(f"[SpecDetailRanking] 团本排名采集完成: {total} 条")
         return ok

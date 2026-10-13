@@ -7,6 +7,13 @@ const source = fs.readFileSync(new URL('../../../static/portal/js/gear_builder.j
 const context = {document: {querySelector: () => ({dataset: {}}), getElementById: () => ({})}};
 vm.runInNewContext(source.replace('  initialize();', 'globalThis.qa = {gemDescription, tooltipText, optionRow};'), context);
 const {gemDescription, tooltipText, optionRow} = context.qa;
+const upgraded = {
+  type: 'drop_equipment', track_label: '神话', track_rank: 6, track_max_rank: 6,
+  tooltip: '物品等级 334\n升级：勇士 6/6\n头部 板甲\n+189 力量',
+};
+assert.equal(tooltipText({}, upgraded), '物品等级 334\n升级：神话 6/6\n头部 板甲\n+189 力量', '升级档位读取当前变体，不沿用基础物品的勇士标签');
+assert.ok(upgraded.tooltip.includes('升级：勇士 6/6'), '不修改中央来源原文');
+assert.equal(tooltipText({}, {...upgraded, track_rank: 8, tooltip: 'Upgrade: Hero 6/6\n装备：升级效果仍保留。'}), '升级：神话 8/6\n装备：升级效果仍保留。', '英文基础档位同样使用后端当前档位，不改动特效');
 const item = {name: '无瑕迅捷榄石', description: '无瑕迅捷榄石 榄石 物品等级： 295 + 17 急速 使用: 最大叠加: 200 售价: 3 10'};
 const gem = {type: 'gem', stats: {haste: 17}, effects: [], tooltip: item.description};
 assert.equal(gemDescription(item, gem), '急速 17', '整段提示只保留有效属性');
@@ -33,5 +40,7 @@ for (const text of ['Optional Crafting Reagent', 'Recipe Difficulty', 'Usable wi
   assert.ok(!markup.includes(text), `美化列表不能混入无关描述：${text}`);
 }
 assert.equal(tooltipText(embellishment, embellishment.variants[0]), effect, '美化悬停也只显示特效');
+assert.equal(tooltipText(embellishment, {...embellishment.variants[0], effects: [{description_zh: `提供下列属性：${effect}`}]}), effect, '仅展示中文特效正文，不重复通用标题');
+assert.equal(tooltipText(embellishment, {...embellishment.variants[0], effects: [{description: 'Provides the following property: English only'}]}), '特效数据待补全', '无中文时不显示英文制作信息');
 assert.equal(tooltipText(embellishment, {...embellishment.variants[0], effects: []}), '特效数据待补全', '缺失特效不能回退到制作说明');
 console.log('宝石与美化说明验证通过：中文特效、完整标点、制作说明隔离、缺失效果与悬停去重。');

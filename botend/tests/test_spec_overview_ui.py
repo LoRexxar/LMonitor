@@ -217,7 +217,7 @@ class SpecOverviewIntegrationTests(TestCase):
             live_players.assert_not_called()
             live_dungeons.assert_not_called()
             live_raid.assert_not_called()
-            self.assertEqual(players['players'][0]['detail_url'], '/portal/spec/Mage/Fire/player/7/')
+            self.assertEqual(players['players'][0]['detail_url'], '/portal/character/?player_id=7')
             self.assertEqual(mythic['updated_at'], 'aggregate-time')
             self.assertEqual(raid['zone_groups'][0]['zone_id'], 4)
 

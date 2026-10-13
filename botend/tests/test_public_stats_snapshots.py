@@ -40,23 +40,55 @@ class PublicStatsSnapshotTests(SimpleTestCase):
                 if content and 'sample_size' in content:
                     self.assertEqual(result['boss_detail']['sample_size'], 8)
 
+    def test_legacy_dungeon_profile_fields_are_hidden_until_wcl_rebuild(self):
+        season = SimpleNamespace(id=1, mplus_encounters=[{'id': 2, 'name': '副本'}])
+        legacy = {'sample_size': 800, 'dps': {'avg': 123},
+                  'secondary_stats': [{'rating': {'median': 916}}],
+                  'gear_popularity': {'head': [{'id': 999}]},
+                  'race_distribution': [{'race': 'Orc'}],
+                  'field_sources': {'gear': 'Raider.IO', 'performance': 'Warcraft Logs'}}
+        (self.directory / 'dungeon.json').write_text(json.dumps({'summary': legacy}), encoding='utf-8')
+        with patch.object(views, '_base_context', return_value={'season': season}), \
+                patch.object(views, 'render', side_effect=lambda request, template, ctx: ctx):
+            detail = views.SpecDetailDungeonView().get(RequestFactory().get('/'), 'Warrior', 'Arms')['dungeon_detail']
+        self.assertNotIn('secondary_stats', detail)
+        self.assertNotIn('gear_popularity', detail)
+        self.assertNotIn('race_distribution', detail)
+        self.assertEqual(detail['dps']['avg'], 123)
+        self.assertTrue(detail['wcl_refresh_pending'])
+        self.assertNotIn('Raider.IO', str(detail['field_sources']))
+
     def test_generation_owns_display_refresh_and_both_raid_difficulties(self):
         season = SimpleNamespace(id=1, mplus_encounters=[{'id': 2, 'name': '副本'}],
                                  raid_encounters=[{'id': 3, 'name': '首领'}], raid_zones=[])
         with patch('botend.services.wow_item_display.refresh_aggregate_equipment', side_effect=lambda data, **kw: data) as equipment, \
                 patch('botend.services.wow_talent_display.refresh_aggregate_talents', side_effect=lambda data, **kw: data) as talents, \
-                patch.object(views.SpecStatsService, '_compute_dungeon_stats', return_value={'dungeon_id': 2}), \
-                patch.object(views.SpecStatsService, 'get_dungeon_summary', return_value={'sample_size': 17, 'avg': Decimal('12.5')}), \
                 patch.object(views.SpecStatsService, '_compute_raid_stats', side_effect=lambda *a, **kw: {'boss_id': 3, 'difficulty': kw['difficulty']}) as raid:
-            SpecDetailAggregationMonitor._aggregate_dungeon(season, 'Warrior', 'Arms', self.directory)
+            # This contract targets the shared publication boundary, not the
+            # dungeon selector/aggregator (covered with real ORM elsewhere).
+            publish_stats(self.directory / 'dungeon.json', {
+                'dungeons': [{'dungeon_id': 2}],
+                'summary': {'sample_size': 17, 'avg': Decimal('12.5')},
+            }, 'Warrior', 'Arms')
             SpecDetailAggregationMonitor._aggregate_raid(season, 'Warrior', 'Arms', self.directory)
             self.assertEqual(equipment.call_count, 2)
             self.assertEqual(talents.call_count, 2)
+            for refresh in (equipment, talents):
+                self.assertEqual([call.kwargs for call in refresh.call_args_list],
+                                 [{'class_name': 'Warrior', 'spec_name': 'Arms'}] * 2)
             self.assertEqual([call.kwargs['difficulty'] for call in raid.call_args_list], [5, 4])
-        with patch('botend.services.wow_item_display.refresh_aggregate_equipment', side_effect=AssertionError('请求刷新')):
+        with patch('botend.services.wow_item_display.refresh_aggregate_equipment', side_effect=AssertionError('请求刷新')), \
+                patch('botend.services.wow_talent_display.refresh_aggregate_talents', side_effect=AssertionError('请求刷新')):
             data = views._load_json(1, 'Warrior', 'Arms', 'dungeon.json', 'dungeon-all')
             self.assertEqual(data['summary']['sample_size'], 17)
             self.assertEqual(data['summary']['avg'], 12.5)
+            raid_data = views._load_json(1, 'Warrior', 'Arms', 'raid.json')
+            self.assertEqual([group['difficulty'] for group in raid_data['difficulties']], [5, 4])
+            for difficulty in (5, 4):
+                detail = views._load_json(1, 'Warrior', 'Arms', 'raid.json', f'raid-{difficulty}-3')
+                group = next(item for item in detail['difficulties'] if item['difficulty'] == difficulty)
+                self.assertEqual(group['zone_groups'][0]['bosses'][0],
+                                 {'boss_id': 3, 'difficulty': difficulty})
         before = (self.directory / 'dungeon.json').read_bytes()
         with patch('botend.services.wow_item_display.refresh_aggregate_equipment', side_effect=RuntimeError('生成失败')):
             with self.assertRaises(RuntimeError):

@@ -18,12 +18,19 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         if bool(options['class_name']) != bool(options['spec_name']) or (options['slot'] and not options['class_name']):
             raise CommandError('请同时指定 --class 和 --spec；--slot 需要指定职业专精')
+        if options['limit'] < 1:
+            raise CommandError('--limit 必须为正整数')
+        targets = [] if options['class_name'] else None
         if options['class_name']:
             try:
                 for slot in [options['slot']] if options['slot'] else gb.SLOT_LABELS:
                     for kind in ('equipment', 'enhancements') if options['kind'] == 'all' else (options['kind'],):
-                        snapshots.request_refresh(snapshots.coordinate(options['class_name'], options['spec_name'], slot, kind))
+                        targets.append(snapshots.request_refresh(snapshots.coordinate(options['class_name'], options['spec_name'], slot, kind)))
             except gb.GearBuilderError as exc:
                 raise CommandError(str(exc)) from exc
-        rows = snapshots.refresh_catalog_snapshots(batch_size=options['limit'], force=options['force'])
-        self.stdout.write(f'完成 {len(rows)} 个目录分片；失败分片保留旧版本并等待重试。')
+        try:
+            rows = snapshots.refresh_catalog_snapshots(batch_size=options['limit'], force=options['force'],
+                targets=targets, kind=options['kind'], strict=True)
+        except (RuntimeError, OSError) as exc:
+            raise CommandError(str(exc)) from exc
+        self.stdout.write(f'已刷新 {len(rows)} 个目录分片，本次目标回读验证通过。')

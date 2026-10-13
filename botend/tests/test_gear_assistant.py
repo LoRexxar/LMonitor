@@ -39,17 +39,22 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
         )
         support_slots = [slot for slot, _label in EQUIPMENT_SLOTS if slot not in {'head', 'off_hand'}]
-        support_item = WowItemSnapshot.objects.create(
-            item_id=10102, name_zh='完整配装测试装备', catalog_type='equipment',
-            eligible_specs=['Warrior:Fury'],
-        )
-        self.support_variant = WowItemVariantSnapshot.objects.create(
-            item=support_item, season=self.season, batch_key='test-batch',
-            variant_key='support-hero-6', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
-            item_level=730, upgrade_track='hero', track_rank=6, track_max_rank=6,
-            compatible_slots=support_slots, stats_json={},
-            source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
-        )
+        # Every slot needs a distinct item; the optimizer may not reuse a
+        # universal fixture across the whole loadout.
+        for index, slot in enumerate(support_slots, 10200):
+            support_item = WowItemSnapshot.objects.create(
+                item_id=index, name_zh=f'完整配装测试装备-{slot}', catalog_type='equipment',
+                eligible_specs=['Warrior:Fury'],
+            )
+            variant = WowItemVariantSnapshot.objects.create(
+                item=support_item, season=self.season, batch_key='test-batch',
+                variant_key='support-hero-6', variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+                item_level=730, upgrade_track='hero', track_rank=6, track_max_rank=6,
+                compatible_slots=[slot], stats_json={},
+                source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
+            )
+            if slot == 'finger1':
+                self.support_variant = variant
         offhand_item = WowItemSnapshot.objects.create(
             item_id=10103, name_zh='高属性测试副手', catalog_type='equipment',
             eligible_specs=['Warrior:Fury'],
@@ -61,6 +66,19 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             compatible_slots=['off_hand'], stats_json={},
             source_json=[{'type': 'mythic_plus', 'instance_zh': '测试地城'}],
         )
+
+        for index, slot in enumerate(('wrists', 'back'), 10130):
+            item = WowItemSnapshot.objects.create(
+                item_id=index, name_zh=f'必需美化{slot}', catalog_type='crafted_equipment',
+                slot_key=slot, eligible_specs=['Warrior:Fury'],
+            )
+            WowItemVariantSnapshot.objects.create(
+                item=item, season=self.season, batch_key='test-batch',
+                variant_key=f'intrinsic-{slot}', variant_type=WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+                item_level=730, compatible_slots=[slot], is_intrinsic_embellishment=True,
+                crafting_options={'stat_count': 2, 'stat_pool': ['crit', 'haste']},
+                source_json=[{'type': 'crafted'}],
+            )
 
     def test_page_and_entry_require_login(self):
         response = self.client.get('/portal/gear-assistant/')
@@ -75,9 +93,23 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
         self.assertContains(response, '辅助配装')
         self.assertContains(response, '开始模拟')
         self.assertContains(response, '当前配装')
-        self.assertContains(response, '已有装备')
+        self.assertContains(response, '备选装备')
+        self.assertContains(response, '清空备选装备')
+        self.assertContains(response, '优先备选装备')
+        self.assertContains(response, 'id="assistant-allow-mythic-last-two"')
+        self.assertContains(response, '可获取 M 后二装备')
+        self.assertContains(response, '先满足特效装备携带，再匹配目标绿字')
+        self.assertContains(response, '固有美化与附加美化合计必须为 2 件')
+        self.assertContains(response, 'id="assistant-source-preference"')
+        self.assertContains(response, '优先团本')
+        self.assertContains(response, '优先大秘境')
+        self.assertContains(response, '不含团本装备')
+        self.assertContains(response, '地下堡神话档最多 2 件')
+        self.assertNotContains(response, '已有装备')
         builder = self.client.get('/portal/gear-builder/')
         self.assertContains(builder, 'id="gear-mode-owned"')
+        self.assertContains(builder, '备选装备')
+        self.assertNotContains(builder, '已有装备')
         self.assertContains(builder, 'id="gear-open-assistant"')
 
     def test_login_returns_to_assistant_and_rejects_external_next(self):
@@ -171,6 +203,9 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(response.status_code, 200, response.content)
         plans = {row['key']: row for row in response.json()['plans']}
         self.assertEqual(set(plans), {'prefer_owned', 'all', 'dungeon'})
+        self.assertEqual(plans['prefer_owned']['name'], '优先备选装备')
+        self.assertIn('优先备选装备', response.json()['explanation'])
+        self.assertNotIn('已有', response.json()['explanation'])
         self.assertEqual(plans['prefer_owned']['equipment']['head']['variant']['id'], self.hero.id)
         self.assertEqual(plans['prefer_owned']['owned_count'], 2)
         missing_ring_slots = [
@@ -178,8 +213,10 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
             if row['slot'] in {'finger1', 'finger2'}
         ]
         self.assertEqual(len(missing_ring_slots), 1)
-        self.assertEqual(plans['dungeon']['equipment']['head']['variant']['id'], self.dungeon_variant.id)
-        self.assertIn('测试地城', plans['dungeon']['missing_items'][0]['source'])
+        # The former dungeon mode now includes all nonraid acquisition: the
+        # crafted proc carrier legitimately outranks the plain dungeon helmet.
+        self.assertEqual(plans['dungeon']['equipment']['head']['variant']['id'], self.crafted.id)
+        self.assertTrue(any('测试地城' in row['source'] for row in plans['dungeon']['missing_items']))
         self.assertIn(plans['all']['flask']['key'], {'none', 'crit', 'haste', 'mastery'})
         expected_slots = {slot for slot, _label in EQUIPMENT_SLOTS}
         for plan in plans.values():

@@ -225,6 +225,16 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         compressed = gzip.compress(json.dumps(payload, separators=(',', ':')).encode('utf-8'))
         return 'z' + base64.urlsafe_b64encode(compressed).decode('ascii').rstrip('=')
 
+    def test_page_explains_equipment_only_stats_above_stat_grid(self):
+        page = self.client.get('/portal/gear-builder/')
+        notice = '以下属性为装备属性换算，不包括职业天赋中的赠送属性'
+        self.assertContains(page, notice, count=2)
+        html = page.content.decode()
+        self.assertLess(html.index(notice), html.index('id="gear-stat-grid"'))
+        self.assertGreater(html.index(notice), html.index('当前配装属性'))
+        self.assertGreater(html.rindex(notice), html.index('战斗属性'))
+        self.assertLess(html.rindex(notice), html.index('id="gear-preview-stats"'))
+
     def test_page_and_bootstrap_expose_current_catalog(self):
         page = self.client.get('/portal/gear-builder/')
         self.assertEqual(page.status_code, 200)
@@ -375,6 +385,34 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual((ring_variant['socket_count'], ring_variant['socket_types']), (2, ['prismatic', 'prismatic']))
         self.assertTrue(neck_variant['metadata']['jewelry_socket_baseline_applied'])
 
+    def test_crafted_neck_socket_is_total_not_extra_socket(self):
+        from botend.services.gear_builder_catalog_source import SEASON_LEVEL_PROFILES
+        raw = {'id': 240950, 'name': 'Masterwork Sindorei Amulet', 'inventoryType': 2,
+               'itemClass': 4, 'profession': {'id': 755},
+               'socketInfo': {'sockets': [{'type': 'PRISMATIC'}]}}
+        item = CurrentGearCatalogSource._base_item(raw, 'equipment', ('neck',))
+        self.assertEqual(item['metadata']['native_socket_types'], ['prismatic'])
+        dropped = {key: value for key, value in raw.items() if key != 'profession'}
+        special = CurrentGearCatalogSource._base_item(dropped, 'equipment', ('neck',))
+        self.assertEqual(special['metadata']['native_socket_types'], ['prismatic', 'prismatic'])
+        CurrentGearCatalogSource._add_crafted_variants(item, SEASON_LEVEL_PROFILES['mid2'], [{'type': 'crafted'}])
+        self.assertTrue(all(v['socket_count'] == 1 for v in item['variants']))
+        neck = WowItemSnapshot.objects.create(
+            item_id=240950, name=raw['name'], catalog_type='equipment',
+            slot_key='neck', item_class_id=4, inventory_type=2,
+        )
+        variant = WowItemVariantSnapshot.objects.create(
+            item=neck, season=self.season, batch_key='test-batch',
+            variant_key='crafted-legacy', variant_type='crafted_equipment',
+            item_level=318, crafting_quality=5, compatible_slots=['neck'],
+            socket_count=1, socket_types=['prismatic'], stats_json={'haste': 100},
+        )
+        rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'neck',
+        }).json()['items']
+        shown = next(v for row in rows for v in row['variants'] if v['id'] == variant.pk)
+        self.assertEqual((shown['socket_count'], shown['socket_types']), (1, ['prismatic']))
+
     def test_catalog_localizes_raw_english_sources(self):
         self.hero.source_json = [{
             'type': 'raid', 'instance': 'The Venomous Abyss', 'encounter': "Ula'tek",
@@ -466,6 +504,54 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         }).json()['items']
         variant_ids = [variant['id'] for row in rows for variant in row['variants']]
         self.assertNotIn(invalid_delve.id, variant_ids)
+
+        from botend.services.gear_builder_catalog_source import SEASON_LEVEL_PROFILES
+        invalid_delve.variant_key = 'delve-myth-6-334'
+        invalid_delve.item_level = 334
+        invalid_delve.track_rank = 6
+        invalid_delve.metadata = {'delve_myth': SEASON_LEVEL_PROFILES['mid2']['delve_myth']}
+        invalid_delve.save()
+        rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head', 'source': 'all',
+        }).json()['items']
+        self.assertIn(invalid_delve.id, [v['id'] for row in rows for v in row['variants']])
+
+    def test_delve_trinkets_have_no_myth_track_even_with_unlock_marker(self):
+        from botend.services.gear_builder_catalog_source import SEASON_LEVEL_PROFILES
+        from botend.services.gear_builder_venomstone import upgraded_variant
+        profile = SEASON_LEVEL_PROFILES['mid2']
+        sources = [{'type': 'delve'}]
+        marker = {'delve_myth': profile['delve_myth']}
+        item = WowItemSnapshot.objects.create(
+            item_id=10090, name='Delve Trinket', catalog_type='equipment',
+            slot_key='trinket', inventory_type=12, item_class_id=4, quality=4,
+            eligible_specs=['Warrior:Fury'],
+        )
+        rows = []
+        for track, level, rank in [('hero', 328, 8), ('myth', 334, 6), ('myth', 340, 8)]:
+            rows.append(WowItemVariantSnapshot.objects.create(
+                item=item, season=self.season, batch_key='test-batch',
+                variant_key=f'delve-{track}-{level}', variant_type='drop_equipment',
+                item_level=level, upgrade_track=track, track_rank=rank, track_max_rank=6,
+                compatible_slots=['trinket1', 'trinket2'], stats_json={'crit': 100},
+                source_json=sources, metadata=marker,
+            ))
+        for slot in ('trinket1', 'trinket2'):
+            catalog = self.client.get('/portal/api/gear-builder/catalog/', {
+                'class': 'Warrior', 'spec': 'Fury', 'slot': slot, 'source': 'all',
+            }).json()['items']
+            ids = {v['id'] for row in catalog for v in row['variants']}
+            self.assertIn(rows[0].pk, ids)
+            self.assertTrue(ids.isdisjoint({v.pk for v in rows[1:]}))
+        generated = {'inventory_type': 12, 'metadata': {}, 'variants': []}
+        CurrentGearCatalogSource._add_drop_variants(generated, profile, 'delve', sources)
+        self.assertNotIn('myth', {v['upgrade_track'] for v in generated['variants']})
+        self.assertEqual(max(v['item_level'] for v in generated['variants']), 328)
+        self.assertIsNone(upgraded_variant(12, {
+            'key': 'delve-myth-6', 'type': 'drop_equipment', 'upgrade_track': 'myth',
+            'track_rank': 6, 'track_max_rank': 6, 'item_level': 334,
+            'sources': sources, 'metadata': marker,
+        }))
 
     def test_catalog_strictly_filters_armor_primary_stat_and_weapon_slot(self):
         cloth = WowItemSnapshot.objects.create(
@@ -1396,6 +1482,28 @@ class GearBuilderCurrentSourceTests(TestCase):
         self.assertEqual(details['primary_options'], {'strength': 138, 'intellect': 138})
         self.assertEqual(details['secondary_total'], 148)
         self.assertEqual(details['effects'][0]['description_zh'], '装备：测试效果。')
+
+    def test_embellishment_tooltips_preserve_full_chinese_property(self):
+        from pathlib import Path
+        from botend.services.wow_item_text import normalize_catalog_text
+        rows = json.loads((Path(__file__).parent / 'fixtures/embellishment_tooltips_zh.json').read_text())
+        expected = {
+            240165: '周期性效果的治疗和伤害可使主属性提高5点，持续15秒，最多叠加5次。',
+            251490: '所有珠宝加工修饰都以双倍强度生效。',
+            257741: '造成最多698点火焰伤害或1051点治疗效果。',
+            273063: '若此效果由爆击触发，则改为提高你最高的次要属性。',
+        }
+        for row in rows:
+            with self.subTest(item_id=row['id']):
+                details = _tooltip_details(row['payload'])
+                item = normalize_catalog_text({**details, 'catalog_type': 'embellishment',
+                    'variants': [{'effects': details['effects']}]})
+                effects = item['variants'][0]['effects']
+                self.assertEqual(len(effects), 1)
+                text = effects[0]['description_zh']
+                self.assertIn(expected[row['id']], text)
+                for unwanted in ('primaryStat', '附加制作材料', '配方难度', '用于：', '拍卖行', '售价'):
+                    self.assertNotIn(unwanted, text)
 
     def test_wowhead_tooltip_parser_keeps_embellishment_and_tier_descriptions(self):
         details = _tooltip_details({

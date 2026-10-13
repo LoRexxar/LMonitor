@@ -80,6 +80,48 @@ class RioRankingsSnapshotTests(TestCase):
             self.assertIn('/portal/spec/', filtered['items'][0]['aggregate_url'])
             self.assertNotIn('profile_url', filtered['items'][0]['items'][0])
 
+    def test_peak_roles_follow_ranking_scope_not_current_character_spec(self):
+        # Raider.IO's per-spec rankings can include characters currently in a
+        # different spec, or with no current spec. These are not ranking roles.
+        scopes = [
+            ('death-knight', 'unholy', 'dps', 'Blood', 'tank'),
+            ('demon-hunter', 'devourer', 'dps', 'Vengeance', 'tank'),
+            ('warrior', 'protection', 'tank', 'Arms', 'dps'),
+            ('druid', 'restoration', 'healer', 'Guardian', 'tank'),
+        ]
+        for cls, spec, expected_role, current_spec, current_role in scopes:
+            for rank in range(1, 21):
+                PortalPeakSpecRankRow.objects.create(
+                    season=self.season.rio_season, region='world', class_slug=cls,
+                    spec_slug=spec, rank=rank, character_name=f'{spec}-{rank}',
+                    spec_name=current_spec if rank != 12 else '',
+                    spec_role=(current_role if rank == 1 else expected_role) if rank != 12 else '',
+                )
+        source_rows = list(PortalPeakSpecRankRow.objects.order_by('id').values())
+        call_command('refresh_rio_rankings_snapshots', module='peak', stdout=StringIO())
+        for cls, spec, expected_role, _, _ in scopes:
+            with self.assertNumQueries(0):
+                result = snapshots.read_rankings('peak', role=expected_role)
+            group = next(row for row in result['items'] if (row['class_slug'], row['spec_slug']) == (cls, spec))
+            self.assertEqual(group['spec_role'], expected_role)
+            self.assertEqual([row['rank'] for row in group['items']], list(range(1, 21)))
+            self.assertEqual(group['items'][0]['name'], f'{spec}-1')
+            self.assertTrue(group['aggregate_url'])
+            self.assertEqual(result['snapshot']['state'], 'ready')
+        self.assertEqual(list(PortalPeakSpecRankRow.objects.order_by('id').values()), source_rows)
+
+    def test_peak_unknown_ranking_identity_cannot_infer_role_from_character(self):
+        self.seed()
+        snapshots.publish_rankings('peak')
+        previous = (self.root / 'index.json').read_bytes()
+        PortalPeakSpecRankRow.objects.create(
+            season=self.season.rio_season, region='world', class_slug='mage',
+            spec_slug='unknown-spec', spec_name='Frost', spec_role='dps', rank=1,
+        )
+        with self.assertRaisesRegex(CommandError, '无法确定榜单专精职责'):
+            call_command('refresh_rio_rankings_snapshots', module='peak', stdout=StringIO())
+        self.assertEqual((self.root / 'index.json').read_bytes(), previous)
+
     def test_public_cold_warm_invalid_filters_never_query_build_or_write(self):
         self.seed()
         for warm in (False, True):

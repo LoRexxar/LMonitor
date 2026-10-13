@@ -6,10 +6,10 @@ from pathlib import Path
 
 from django.conf import settings
 from django.core.cache import cache
-from django.urls import reverse
 
 from botend.services.spec_stats_service import SpecStatsService
 from botend.services.spec_stats_snapshot import read_projection
+from botend.services.character_navigation import character_link
 
 
 class SpecOverviewService:
@@ -121,9 +121,7 @@ class SpecOverviewService:
             row = dict(player)
             player_id = row.get('id')
             if player_id is not None:
-                row['detail_url'] = reverse('spec_detail_player_detail', kwargs={
-                    'class_name': class_name, 'spec_name': spec_name, 'player_id': player_id,
-                })
+                row['detail_url'] = character_link(player_id=player_id)
             public_players.append(row)
         return {
             'source': cls.SOURCES['players'],
