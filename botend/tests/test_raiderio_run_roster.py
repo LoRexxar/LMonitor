@@ -83,6 +83,44 @@ class RunRosterTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             RaiderIORunRoster.objects.create(rio_season=row.rio_season, run_id=row.run_id)
 
+    def test_compact_roster_uses_shared_class_colors_and_spec_icons(self):
+        from django.template.loader import render_to_string
+        from html.parser import HTMLParser
+        from botend.constants.wow import CLASS_COLOR, SPEC_ICON, canonical_class_spec
+
+        class RenderedChips(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.members, self.images = [], []
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == 'li' and 'rio-roster__member' in attrs.get('class', '').split():
+                    self.members.append(attrs)
+                if tag == 'img' and 'rio-roster__icon' in attrs.get('class', '').split():
+                    self.images.append(attrs)
+
+        data = details()
+        for index, (class_slug, spec_slug) in enumerate((('death-knight', 'blood'), ('priest', 'holy'),
+                                                       ('mage', 'fire'), ('druid', 'balance'), ('rogue', 'outlaw'))):
+            data['roster'][index]['character']['class']['slug'] = class_slug
+            data['roster'][index]['character']['spec']['slug'] = spec_slug
+        collector, _ = self.collect(data)
+        self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'ready')
+        view = project_run_rosters([self.run], self.season.rio_season)[0]
+        html = render_to_string('portal/spec_detail/_player_raiderio_run.html',
+                                {'run': {**view, 'timed': True}, 'show_roster': True})
+        rendered = RenderedChips(); rendered.feed(html)
+        self.assertEqual(len(rendered.members), 5)
+        self.assertEqual(len(rendered.images), 5)
+        for member, element, image in zip(view['roster'], rendered.members, rendered.images):
+            identity = canonical_class_spec(member['class_slug'], member['spec_slug'])
+            self.assertIn(CLASS_COLOR[identity[0]], element['style'])
+            self.assertEqual(image['src'], SPEC_ICON[identity].replace('/small/', '/large/'))
+            self.assertIn(member['name'], element['title'])
+            self.assertIn(member['spec_label'], element['title'])
+            self.assertIn(member['role_label'], element['title'])
+
     def test_unicode_realm_path_preserves_verified_five_member_roster(self):
         from urllib.parse import quote
         from botend.services.raiderio_run_roster import validate_details
