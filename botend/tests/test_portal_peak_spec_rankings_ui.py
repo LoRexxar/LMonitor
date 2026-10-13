@@ -24,15 +24,15 @@ class PortalPeakSpecRankingsUIContractTests(unittest.TestCase):
         self.assertEqual(payload['aggregate_url'], '/portal/spec/DeathKnight/Blood/dungeons/')
         self.assertNotIn('profile_url', payload)
 
-    def test_peak_rank_renderer_uses_server_authoritative_aggregate_url(self):
+    def test_peak_rank_renderer_uses_server_authoritative_character_url(self):
         root = Path(__file__).resolve().parents[2]
         source = (root / 'static/portal/js/main.js').read_text(encoding='utf-8')
         start = source.index('function renderPeakSpecGrid(')
         end = source.index('function renderMplusRuns(', start)
         renderer = source[start:end]
 
-        self.assertIn('const aggregateHref = sanitizeHref(spec?.aggregate_url || "");', renderer)
-        self.assertIn('href="${escapeHtml(aggregateHref)}"', renderer)
+        self.assertIn('const characterHref = sanitizeHref(x?.character_url || "");', renderer)
+        self.assertIn('href="${escapeHtml(characterHref)}"', renderer)
         self.assertNotIn('profile_url', renderer)
         self.assertNotIn('target="_blank"', renderer)
         self.assertIn('const top3 = filtered.slice(0, 3);', renderer)

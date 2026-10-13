@@ -25,9 +25,11 @@
             {% for member in run.roster %}
             <li class="rio-roster__member" style="--rio-class-color: {{ member.class_color|default:'#94a3b8' }}" title="{{ member.role_label|default:'职责未知' }} · {{ member.spec_label|default:'专精未知' }} {{ member.class_label|default:'职业未知' }} · {{ member.name|default:'未公开姓名' }}">
                 <span class="rio-roster__role">{{ member.role_label|default:"职责未知" }}</span>
+                {% if member.character_url %}<a href="{{ member.character_url }}" style="display:inline-flex;align-items:center;gap:inherit;color:inherit">{% endif %}
                 {% if member.spec_icon_url %}<img class="rio-roster__icon" src="{{ member.spec_icon_url }}" width="20" height="20" alt="" aria-hidden="true" loading="lazy" decoding="async">{% else %}<span class="rio-roster__icon rio-roster__icon--unknown" aria-hidden="true">?</span>{% endif %}
                 <span class="rio-roster__identity">{{ member.spec_label|default:"专精未知" }} {{ member.class_label|default:"职业未知" }}</span>
-                <span class="rio-roster__name">{% if member.profile_url %}<a href="{{ member.profile_url }}" target="_blank" rel="noopener noreferrer">{{ member.name|default:"未公开姓名" }}</a>{% else %}{{ member.name|default:"未公开姓名" }}{% endif %}</span>
+                <span class="rio-roster__name">{{ member.name|default:"未公开姓名" }}</span>
+                {% if member.character_url %}</a>{% endif %}
             </li>
             {% endfor %}
         </ul>

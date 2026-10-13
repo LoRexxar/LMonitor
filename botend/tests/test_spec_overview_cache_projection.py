@@ -101,4 +101,4 @@ class OverviewProjectionCacheTests(SimpleTestCase):
             self.assertEqual(Service.mythic_plus('Mage', 'Fire')['dungeons'], [])
         self.write('players', {'players': [{'id': 7, 'rank': 1}], 'total': 1})
         player = Service.players('Mage', 'Fire')['players'][0]
-        self.assertEqual(player['detail_url'], '/portal/spec/Mage/Fire/player/7/')
+        self.assertEqual(player['detail_url'], '/portal/character/?player_id=7')

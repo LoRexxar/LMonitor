@@ -1,6 +1,7 @@
 import json
 import re
 import time
+from urllib.parse import urlsplit
 
 import requests
 import urllib3
@@ -11,6 +12,7 @@ from botend.controller.BaseScan import BaseScan
 from botend.models import PortalMplusRun, SeasonMeta
 from botend.services.rio_rankings_snapshot import publish_rankings, mark_failure, snapshot_root
 from botend.services.simc_benchmark_result_snapshot import _lock
+from botend.services.raiderio_run_roster import _profile_url
 from utils.log import logger
 
 
@@ -190,6 +192,19 @@ class PortalMplusRunMonitor(BaseScan):
                 continue
             cls = char.get("class") or {}
             spec = char.get("spec") or {}
+            profile_url = ''
+            try:
+                identity = dict(char)
+                if char.get('profile_url'):
+                    parsed = urlsplit(char['profile_url'])
+                    if (parsed.scheme != 'https' or parsed.netloc not in ('raider.io', 'www.raider.io')
+                            or parsed.query or parsed.fragment
+                            or (char.get('path') and char['path'] != parsed.path)):
+                        raise ValueError('invalid source profile URL')
+                    identity['path'] = parsed.path
+                profile_url = _profile_url(identity)
+            except (ValueError, TypeError, AttributeError):
+                pass  # Missing/conflicting identity must not become a guessed link.
             party.append(
                 {
                     "name": name,
@@ -198,6 +213,7 @@ class PortalMplusRunMonitor(BaseScan):
                     "class_slug": (cls.get("slug") or "").strip(),
                     "spec": (spec.get("name") or "").strip(),
                     "spec_slug": (spec.get("slug") or "").strip(),
+                    **({'profile_url': profile_url} if profile_url else {}),
                 }
             )
             if role == "tank":

@@ -67,6 +67,7 @@ from botend.portal.views import PortalArticleView, PortalMplusDpsRankingsView, P
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowHotfixClassReportView, PortalWowHotfixClassMetadataAPIView, PortalWowSkillDiffReportView, PortalWowSkillDiffMetadataAPIView
 from botend.portal.views import PortalWowUpdatesView
 from botend.portal.nga_views import PortalNgaView, PortalNgaDetailView
+from botend.portal.character_navigation import character_redirect
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView, SimcProfileDetailView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
 from botend.portal.gear_builder import (
@@ -234,6 +235,7 @@ urlpatterns = [
     path('portal/api/mplus/dps-rankings/', csrf_exempt(PortalMplusDpsRankingsAPIView.as_view()), name="portal_mplus_dps_rankings_api"),
     path('portal/api/peak/spec-rankings/', csrf_exempt(PortalPeakSpecRankingsAPIView.as_view()), name="portal_peak_spec_rankings"),
     path('portal/api/raid/rankings/', csrf_exempt(PortalRaidRankingsAPIView.as_view()), name="portal_raid_rankings"),
+    path('portal/character/', character_redirect, name='portal_character_redirect'),
     path('portal/api/character/', csrf_exempt(PortalCharacterAPIView.as_view()), name="portal_character"),
     path('portal/api/mythicstats/dps/', csrf_exempt(PortalMythicstatsDpsAPIView.as_view()), name="portal_mythicstats_dps"),
     path('portal/api/wow-skill-diffs/', csrf_exempt(PortalWowSkillDiffListAPIView.as_view()), name="portal_wow_skill_diffs"),

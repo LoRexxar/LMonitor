@@ -30,7 +30,7 @@
             <footer>更新时间：<time data-module-updated-at>等待数据</time></footer>
             <noscript>
                 <div class="spec-fallback-list">
-                    {% for p in players %}<a href="/portal/spec/{{ class_name }}/{{ spec_name }}/player/{{ p.id }}/">#{{ p.rank }} {{ p.character_name }} · {{ p.score|floatformat:2 }}</a>
+                    {% for p in players %}<a href="{% url 'portal_character_redirect' %}?player_id={{ p.id|urlencode }}">#{{ p.rank }} {{ p.character_name }} · {{ p.score|floatformat:2 }}</a>
                     {% empty %}<span>暂无数据</span>{% endfor %}
                 </div>
             </noscript>

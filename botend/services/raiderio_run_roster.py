@@ -16,6 +16,7 @@ from botend.models import RaiderIORunRoster, RaiderIOCharacterActivity
 from botend.constants.wow import CLASS_COLOR, SPEC_ICON, canonical_class_spec
 from botend.raiderio_identity import activity_identity_digest, normalized_name
 from botend.wow_i18n import cn_class_from_slug, cn_spec_from_slug
+from botend.services.character_navigation import character_link
 
 TTL = timedelta(days=7)
 MAX_BEST_RUNS = 8
@@ -276,13 +277,14 @@ def _project(row, run, rio_season):
         character = member['character']
         cls, spec = character['class'], character['spec']
         identity = canonical_class_spec(cls.get('slug') or cls.get('name'), spec.get('slug') or spec.get('name'))
+        profile_url = _profile_url(character)
         members.append({'name': character['name'], 'class_label': cn_class_from_slug(cls.get('slug'), cls.get('name', '')),
             'spec_label': cn_spec_from_slug(spec.get('slug'), spec.get('name', '')),
             'class_slug': cls.get('slug', ''), 'spec_slug': spec.get('slug', ''),
             'class_color': CLASS_COLOR.get(identity[0], '#94a3b8') if identity else '#94a3b8',
             'spec_icon_url': SPEC_ICON.get(identity, '').replace('/small/', '/large/'),
             'role_label': {'tank': '坦克', 'healer': '治疗', 'dps': '输出'}.get(member['role'], ''),
-            'profile_url': _profile_url(character)})
+            'profile_url': profile_url, 'character_url': character_link(url=profile_url)})
     stale = bool(row.last_error or not row.fetched_at or row.fetched_at < timezone.now() - TTL)
     return {'roster_status': 'stale' if stale else 'ready', 'roster': members}
 

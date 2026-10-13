@@ -84,7 +84,8 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
         return [
             {"name": name, "class_label": class_label, "spec_label": spec_label,
              "role_label": role_label, "class_slug": class_slug, "spec_slug": spec_slug,
-             "profile_url": f"https://raider.io/characters/eu/test/{index}" if index else ""}
+             "profile_url": f"https://raider.io/characters/eu/test/{index}" if index else "",
+             "character_url": f"/portal/character/?player_id={index}" if index else ""}
             for index, (name, class_label, spec_label, role_label, class_slug, spec_slug) in enumerate([
                 ("坦克玩家", "战士", "防护", "坦克", "Warrior", "Protection"),
                 ("治疗玩家", "牧师", "神圣", "治疗", "Priest", "Holy"),
@@ -115,12 +116,11 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
                     self.assertFalse(rendered["hidden"])
                     for field in ("name", "class_label", "spec_label", "role_label"):
                         self.assertIn(source[field], rendered["text"])
-                    if source["profile_url"]:
+                    if source["character_url"]:
                         self.assertEqual(len(rendered["links"]), 1)
                         link = rendered["links"][0]
-                        self.assertEqual(link["href"], source["profile_url"])
-                        self.assertEqual(link["target"], "_blank")
-                        self.assertEqual(set(link["rel"].split()), {"noopener", "noreferrer"})
+                        self.assertEqual(link["href"], source["character_url"])
+                        self.assertNotIn("target", link)
                     else:
                         self.assertEqual(rendered["links"], [])
                 self.assertNotIn("<script>", html)
