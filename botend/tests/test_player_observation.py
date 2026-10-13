@@ -87,7 +87,7 @@ class PlayerObservationTests(TestCase):
         self.assertEqual(view['status'], 'ready')
         self.assertEqual(view['observations'][0]['reason'], '公开记录提供了可确认的限时经历。')
         self.assertEqual(view['observations'][0]['limitations'], ['已知限时记录不能说明整个赛季的成功率或未公开经历。'])
-        self.assertEqual(view['conclusion'], '以下观察仅描述已知公开记录，具体依据与限制见各项说明。')
+        self.assertIn('高分队友协助', view['conclusion'])
         self.assertNotIn('reason', PlayerObservationAnalysis.objects.get().result_json['observations'][0])
         self.assertEqual(PlayerObservationAnalysis.objects.count(), 1)
         self.assertLessEqual(len(queries), 7)
@@ -248,6 +248,32 @@ class PlayerObservationTests(TestCase):
                         result[field] = text
                     with self.assertRaises(InvalidResult):
                         _validate(json.dumps(result, ensure_ascii=False), data)
+
+    def test_three_explicit_judgements_and_actionable_conclusion(self):
+        from botend.services.player_observation import generate_observation, project_player_observation
+        self.assertEqual(generate_observation(self.player, engine=self.engine())['status'], 'ready')
+        view = project_player_observation(self.player)
+        decisions = {item['code']: item for item in view['judgements']}
+        self.assertEqual(set(decisions), {'assistance', 'off_spec', 'rotation'})
+        self.assertEqual(decisions['assistance']['status'], '支持')
+        self.assertEqual(decisions['off_spec']['status'], '证据不足')
+        self.assertEqual(decisions['rotation']['status'], '未见明显迹象')
+        self.assertIn('高分队友协助', view['conclusion'])
+        for item in decisions.values():
+            self.assertTrue(item['reason'])
+        for i in range(1, 5):
+            row = RaiderIOCharacterActivity.objects.get(character_name=f'member{i}')
+            row.scored_runs_json['dungeons'][0].update(mythic_level=22, score=400)
+            row.save()
+        self.assertEqual(generate_observation(self.player, force=True, engine=self.engine())['status'], 'ready')
+        view = project_player_observation(self.player)
+        self.assertEqual(view['judgements'][0]['status'], '未见明显迹象')
+        self.assertIn('未见明显被带迹象', view['conclusion'])
+        RaiderIOCharacterActivity.objects.filter(character_name='member4').update(scored_runs_fetched_at=None)
+        self.assertEqual(generate_observation(self.player, force=True, engine=self.engine())['status'], 'ready')
+        view = project_player_observation(self.player)
+        self.assertEqual(view['judgements'][0]['status'], '证据不足')
+        self.assertNotIn('未见明显被带迹象', view['conclusion'])
 
     def test_current_eligibility_rechecked_not_stale_player_rank(self):
         from botend.services.player_observation import build_evidence

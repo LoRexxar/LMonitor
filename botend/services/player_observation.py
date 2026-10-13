@@ -20,7 +20,7 @@ from botend.raiderio_identity import activity_identity_digest
 from botend.services.player_raiderio_activity import player_identity
 from botend.services.raiderio_run_roster import run_reference, validate_details
 
-PROMPT_VERSION = 2
+PROMPT_VERSION = 3
 SCORE_TTL = timedelta(hours=48)
 LEASE_TTL = timedelta(minutes=15)
 BACKOFF = timedelta(minutes=30)
@@ -80,9 +80,48 @@ LABEL_OPTIONS = {
     },
 }
 CONCLUSION_OPTIONS = {
-    'public_sample': {'text': '以下观察仅描述已知公开记录，具体依据与限制见各项说明。', 'required_codes': []},
-    'timed_sample': {'text': '公开记录确认了限时经历，但不能由此推断整个赛季的表现。', 'required_codes': ['timed_experience']},
+    'public_sample': {'required_codes': []},
+    'timed_sample': {'required_codes': ['timed_experience']},
 }
+
+
+def _judgements(evidence):
+    """Answer the three product questions, including explicit negative/unknown states."""
+    labels = {row['code'] for row in evidence['eligible_labels']}
+    facts = {row['id']: row['text'] for row in evidence['evidence']}
+    coverage, metrics = evidence['coverage'], evidence['metrics']
+    comparable, timed = coverage['comparison_runs'], coverage['timed_runs']
+    enough_comparisons = comparable >= 3 and comparable * 2 >= timed
+    if 'higher_teammates' in labels:
+        assistance = ('支持', '出现反复由高分队友协助的迹象，但不能据此确认被带。', facts['higher_teammates'])
+    elif enough_comparisons:
+        assistance = ('未见明显迹象', '可比样本未见明显被带迹象。',
+            f"{comparable} 场完整可比记录中，{len(metrics['assisted_runs'])} 场符合多名队友同本成绩明显高于本人的条件，未达到重复出现的判定门槛；不是证明从未被带。")
+    else:
+        assistance = ('证据不足', '是否存在被带迹象暂无法判断。',
+            f"{timed} 场限时样本仅 {comparable} 场具备五名成员完整且新鲜的同本限时成绩；不足以作出否定判断。")
+    team_count = metrics['timed_roster_runs']
+    if 'rotating_core' in labels:
+        rotation = ('支持', '固定核心轮换组队型', facts['rotating_core'])
+    elif team_count >= 3 and team_count * 2 >= timed:
+        rotation = ('未见明显迹象', '未见稳定核心带轮换席位的明显模式',
+            f"{team_count} 场已知限时阵容未形成共同出现至少 3 次、覆盖至少一半阵容且外围成员有变化的三至四人核心。")
+    else:
+        rotation = ('证据不足', '组队模式暂无法判断', f"仅 {team_count} 场限时记录有可验证阵容，不能将缺失当成没有固定队。")
+    spec_reason = (f"已验证样本记录到本人 {metrics['observed_spec_count']} 种专精，但没有完整的各专精最高限时对比；"
+                   '低于当前角色上限的通关也可能是后续进步或日常组队，不能单凭这一点判为副专精。')
+    decisions = [
+        {'code': 'assistance', 'label': '是否有被带迹象', 'status': assistance[0], 'verdict': assistance[1], 'reason': assistance[2]},
+        {'code': 'off_spec', 'label': '是否疑似副专精', 'status': '证据不足', 'verdict': '暂不能判为副专精', 'reason': spec_reason},
+        {'code': 'rotation', 'label': '固定核心＋轮换席位', 'status': rotation[0], 'verdict': rotation[1], 'reason': rotation[2]},
+    ]
+    if rotation[0] == '支持':
+        primary = '当前更符合固定核心轮换组队型。'
+    elif 'repeated_teammates' in labels:
+        primary = '有重复队友，但尚未形成明确的固定核心轮换模式。'
+    else:
+        primary = rotation[1] + '。'
+    return decisions, primary + assistance[1] + '是否副专精仍证据不足。'
 
 
 def _hash(value):
@@ -322,11 +361,15 @@ def _build(context):
         'conclusion_options': {key: value for key, value in CONCLUSION_OPTIONS.items()
             if set(value['required_codes']) <= {label['code'] for label in labels}},
         'limitations': limitations, 'metrics': {'highest_timed_level': highest['mythic_level'] if highest else None,
-            'assisted_runs': assisted, 'comparable_runs': comparable, 'comparisons': comparisons},
+            'assisted_runs': assisted, 'comparable_runs': comparable, 'comparisons': comparisons,
+            'timed_roster_runs': len(teams), 'observed_spec_count': len(specs)},
         'source_stamps': {'activity_fetched_at': _stamp(activity.fetched_at), 'source_updated_at': _stamp(activity.source_updated_at),
             'module_fetched_at': activity.module_fetched_at, 'rosters': sorted(roster_refs, key=lambda r: r['run_id']),
             'scores': sorted(score_refs, key=lambda r: r['activity_id'])},
         'source_failed': source_failed}
+    result['judgements'], conclusion = _judgements(result)
+    for key, option in result['conclusion_options'].items():
+        result['conclusion_options'][key] = {**option, 'text': conclusion}
     # Error state does not change the factual identity of a last-good publication.
     result['evidence_hash'] = _hash({key: value for key, value in result.items() if key != 'source_failed'})
     return result
@@ -479,7 +522,7 @@ def project_player_observation(player):
         return view
     labels = {item['code']: item['label'] for item in current['eligible_labels']}
     refs = {item['id']: item for item in current['evidence']}
-    view.update(status='stale' if row.last_error or current['source_failed'] else 'ready', generated_at=row.generated_at, conclusion=CONCLUSION_OPTIONS[result['conclusion_id']]['text'])
+    view.update(status='stale' if row.last_error or current['source_failed'] else 'ready', generated_at=row.generated_at, conclusion=current['conclusion_options'][result['conclusion_id']]['text'], judgements=current['judgements'])
     for item in result['observations']:
         view['observations'].append({'label': labels[item['code']], 'confidence': item['confidence'], 'reason': LABEL_OPTIONS[item['code']]['reason_options'][item['reason_id']],
             'limitations': [LABEL_OPTIONS[item['code']]['limitation_options'][key] for key in item['limitation_ids']], 'evidence': [refs[key] for key in item['evidence_ids']]})

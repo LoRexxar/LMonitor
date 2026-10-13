@@ -147,6 +147,21 @@ class PlayerObservationTemplateTests(SimpleTestCase):
         self.assertNotIn(' onmouseover="bad', html)
         self.assertNotIn("onmouseover", next(attrs for tag, attrs in ObservationMarkup(html).elements if tag == "a"))
 
+    def test_three_judgements_and_conclusion_are_visible_before_coverage(self):
+        observation = self.observation()
+        observation['judgements'] = [
+            {'code': 'assistance', 'label': '是否有被带迹象', 'status': '未见明显迹象', 'verdict': '可比样本未见明显被带迹象。', 'reason': '测试成绩差距依据'},
+            {'code': 'off_spec', 'label': '是否疑似副专精', 'status': '证据不足', 'verdict': '暂不能判为副专精', 'reason': '测试缺失依据'},
+            {'code': 'rotation', 'label': '固定核心＋轮换席位', 'status': '支持', 'verdict': '固定核心轮换组队型', 'reason': '测试重复阵容依据'},
+        ]
+        html = self.render(observation)
+        visible = ''.join(text for text, depth in ObservationMarkup(html).text if not depth)
+        for judgement in observation['judgements']:
+            for key in ('label', 'status', 'verdict', 'reason'):
+                self.assertIn(judgement[key], visible)
+        self.assertEqual(html.count(observation['conclusion']), 1)
+        self.assertLess(html.index(observation['conclusion']), html.index('样本覆盖'))
+
     def test_player_page_places_observation_after_activity_before_talents(self):
         html = render_to_string("portal/spec_detail/player_detail.html", {
             "class_name": "Mage", "spec_name": "Fire", "nav": {},
