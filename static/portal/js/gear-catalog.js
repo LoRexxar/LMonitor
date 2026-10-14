@@ -1,16 +1,31 @@
 /* 公共装备分片：浏览器筛选、分页与有界短期缓存。 */
 (() => {
   "use strict";
+  function preferredItems(items) {
+    const selected = new Map();
+    for (const item of items || []) {
+      for (const variant of item.variants || []) {
+        const ptr = variant.data_branch === "ptr" || variant.metadata?.data_branch === "ptr" || variant.metadata?.ptr_preview;
+        const branch = ptr ? "ptr" : variant.metadata?.data_branch || variant.data_branch || "retail";
+        const priority = branch === "retail" ? 0 : branch === "ptr" ? 1 : 2;
+        const key = Number(item.item_id);
+        const previous = selected.get(key);
+        if (!previous || priority < previous.priority) selected.set(key, {priority, item, variants: [variant]});
+        else if (priority === previous.priority) previous.variants.push(variant);
+      }
+    }
+    return Array.from(selected.values(), ({item, variants}) => ({...item, variants}));
+  }
+
   function filter(payload, {query = "", source = "all", excludedSources = [], excludedStats = [], page = 1, pageSize = 60} = {}) {
     const search = String(query).trim().toLowerCase();
     const numericId = /^\d+$/.test(search) ? Number(search) : null;
     const excluded = new Set(excludedSources.flatMap(key => payload.source_groups?.[key] || []));
     const rows = [];
-    for (const item of payload.items || []) {
+    // 先按 ID 选择正式服或 PTR 回退，再进行搜索、来源筛选和分页。
+    for (const item of preferredItems(payload.items)) {
       if (search && Number(item.item_id) !== numericId && !(item._search || []).some(name => String(name || "").toLowerCase().includes(search))) continue;
       const variants = (item.variants || []).filter(variant => {
-        // 旧快照重建期间也不展示 PTR 装备，保留同物品的正式服变体。
-        if (variant.data_branch === "ptr" || variant.metadata?.data_branch === "ptr" || variant.metadata?.ptr_preview) return false;
         const facts = variant._filter || {};
         const sources = facts.sources || [];
         return (!source || source === "all" || sources.includes(source.toLowerCase()))

@@ -703,10 +703,33 @@ def _catalog_queryset(season, variant_types, query=''):
 
 
 def _is_ptr_equipment(variant):
-    """公开装备候选排除 PTR，兼容分支字段及旧目录中的预览标记。"""
+    """识别 PTR，兼容分支字段及旧目录中的预览标记。"""
     metadata = variant.metadata or {}
     return (variant.data_branch == 'ptr' or metadata.get('data_branch') == 'ptr'
             or bool(metadata.get('ptr_preview')))
+
+
+def _equipment_catalog_variants(season, class_name, spec_name, slot, query=''):
+    """按物品 ID 选择一个分支：优先正式服，缺少正式服时保留 PTR。"""
+    from botend.services.wow_data_branch import variant_branch
+    selected = {}
+    for variant in _catalog_queryset(season, (
+        WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+        WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
+    ), query).select_related(None).prefetch_related('item'):
+        if (not _source_track_is_valid(variant)
+                or not slot_matches(variant, slot, class_name, spec_name)
+                or not spec_matches(variant.item, class_name, spec_name, variant, slot)):
+            continue
+        branch = 'ptr' if _is_ptr_equipment(variant) else variant_branch(variant)
+        priority = {'retail': 0, 'ptr': 1}.get(branch, 2)
+        previous = selected.get(variant.item_id)
+        if previous is None or priority < previous[0]:
+            selected[variant.item_id] = (priority, [variant])
+        elif priority == previous[0]:
+            previous[1].append(variant)
+    # 分支选择先于来源、绿字和分页筛选，避免筛选时重新出现同 ID 的 PTR 副本。
+    return [variant for _priority, variants in selected.values() for variant in variants]
 
 
 def catalog_items(
@@ -723,25 +746,14 @@ def catalog_items(
     excluded_sources = _filter_values(excluded_sources, set(QUICK_SOURCE_FILTERS))
     excluded_stats = _filter_values(excluded_stats, FILTERABLE_SECONDARY_STATS)
     grouped = defaultdict(list)
-    for variant in _catalog_queryset(
-        season,
-        (WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT, WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
-        query,
-    ).select_related(None).prefetch_related('item'):
-        if _is_ptr_equipment(variant) or not _source_track_is_valid(variant):
-            continue
-        if not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
-            variant.item, class_name, spec_name, variant, slot,
-        ):
-            continue
+    for variant in _equipment_catalog_variants(season, class_name, spec_name, slot, query):
         if not _source_matches(variant, source_type):
             continue
         if _source_is_excluded(variant, excluded_sources):
             continue
         if _secondary_stat_is_excluded(variant, excluded_stats):
             continue
-        from botend.services.wow_data_branch import variant_branch
-        grouped[(variant.item_id, variant_branch(variant))].append(variant)
+        grouped[variant.item_id].append(variant)
 
     rows = [serialize_item(variants[0].item, variants, class_name, spec_name) for variants in grouped.values()]
     rows.sort(key=lambda row: (-max((v['item_level'] for v in row['variants']), default=0), row['name']))
@@ -759,19 +771,12 @@ def catalog_items(
 
 def catalog_snapshot_items(*, class_name, spec_name, slot, season):
     """后台生成完整槽位，复用适配规则并保留每个变体的筛选与展示语义。"""
-    from botend.services.wow_data_branch import variant_branch
     grouped = defaultdict(list)
     positions = {}
     if season and season.gear_batch_key:
-        for position, variant in enumerate(_catalog_queryset(season, (
-            WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
-            WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
-        )).select_related(None).prefetch_related('item')):
-            if (not _is_ptr_equipment(variant) and _source_track_is_valid(variant)
-                    and slot_matches(variant, slot, class_name, spec_name)
-                    and spec_matches(variant.item, class_name, spec_name, variant, slot)):
-                grouped[(variant.item_id, variant_branch(variant))].append(variant)
-                positions[variant.pk] = position
+        for position, variant in enumerate(_equipment_catalog_variants(season, class_name, spec_name, slot)):
+            grouped[variant.item_id].append(variant)
+            positions[variant.pk] = position
     rows = []
     for variants in grouped.values():
         row = serialize_item(variants[0].item, variants, class_name, spec_name)

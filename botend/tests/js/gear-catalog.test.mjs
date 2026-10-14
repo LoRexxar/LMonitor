@@ -7,21 +7,25 @@ const {createLoader} = context.window.WowGearCatalog;
 // 旧快照可能把两个分支分组，也可能在同一物品中混入 PTR 变体。
 const {filter} = context.window.WowGearCatalog;
 const ptrSnapshot = {items: [
-  {item_id: 1, name: '正式服头盔', variants: [
-    {id: 11, data_branch: 'retail', item_level: 334},
-    {id: 12, data_branch: 'ptr', item_level: 340},
+  {item_id: 1, name: '正式服头盔', _search: ['正式服头盔'], variants: [
+    {id: 11, data_branch: 'retail', item_level: 334, _filter: {sources: ['raid'], stats: ['crit']}},
+    {id: 12, data_branch: 'ptr', item_level: 340, _filter: {sources: ['mythic_plus'], stats: ['haste']}},
     {id: 13, metadata: {data_branch: 'ptr'}, item_level: 340},
     {id: 14, data_branch: 'retail', metadata: {ptr_preview: true}, item_level: 340},
   ]},
   {item_id: 1, name: '重复的 PTR 头盔', variants: [{id: 15, data_branch: 'ptr', item_level: 340}]},
-  {item_id: 2, name: '仅 PTR 装备', variants: [{id: 21, metadata: {ptr_preview: true}, item_level: 340}]},
+  {item_id: 2, name: '仅 PTR 装备', _search: ['仅 PTR 装备'], variants: [{id: 21, metadata: {ptr_preview: true}, item_level: 340}]},
   {item_id: 3, name: '旧正式服装备', variants: [{id: 31, item_level: 331}]},
 ]};
 const visible = filter(ptrSnapshot, {pageSize: 1});
-assert.equal(visible.total, 2, '分页总数不能计入 PTR 分组');
-assert.deepEqual(Array.from(visible.items[0].variants, v => v.id), [11], '同 ID 必须保留正式服变体');
-assert.equal(filter(ptrSnapshot, {page: 2, pageSize: 1}).items[0].item_id, 3, '无分支标记的旧正式服装备仍可见');
-assert.equal(filter(ptrSnapshot, {query: '仅 PTR'}).total, 0, '搜索不得重新暴露 PTR 装备');
+assert.equal(visible.total, 3, '按物品 ID 去重且保留 PTR 独有装备');
+assert.equal(visible.items[0].item_id, 2, '只有 PTR 的装备按其实际装等参与排序');
+assert.deepEqual(Array.from(filter(ptrSnapshot, {page: 2, pageSize: 1}).items[0].variants, v => v.id), [11], '同 ID 必须保留正式服变体');
+assert.equal(filter(ptrSnapshot, {page: 3, pageSize: 1}).items[0].item_id, 3, '无分支标记的旧正式服装备仍可见');
+assert.equal(filter(ptrSnapshot, {query: '仅 PTR'}).total, 1, '搜索可找到 PTR 独有装备');
+assert.equal(filter(ptrSnapshot, {source: 'mythic_plus'}).total, 0, '来源筛选不能重新暴露同 ID 的 PTR 副本');
+assert.equal(filter(ptrSnapshot, {excludedStats: ['crit']}).items.some(item => item.item_id === 1), false, '隐藏绿字不能切换到同 ID 的 PTR 数据');
+assert.equal(filter({...ptrSnapshot, items: [...ptrSnapshot.items].reverse()}).items.find(item => item.item_id === 1).variants[0].id, 11, '正式服优先不依赖输入顺序');
 assert.equal(ptrSnapshot.items[0].variants.length, 4, '筛选不得修改原始目录');
 let calls = 0;
 let time = 0;

@@ -23,7 +23,7 @@ from botend.models import WowItemSnapshot, WowItemVariantSnapshot
 from botend.services import gear_builder as gb
 from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 logger = logging.getLogger(__name__)
 _thread = None
 _thread_lock = threading.Lock()
@@ -193,7 +193,8 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=
             # 空闲轮次只检查小索引；事件或新分片立即唤醒，漏通知每五分钟补偿。
             def needs_build(path):
                 index = _load(path.parent / 'index.json', {})
-                return (index.get('source_version') != checked.get('version')
+                return (index.get('schema_version') != SCHEMA_VERSION
+                        or index.get('source_version') != checked.get('version')
                         or time.time() - index.get('built_at', 0) > 43200)
             if not any(needs_build(path) for path in requests):
                 return built
@@ -214,7 +215,8 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=
             if force or index is None or index.get('source_version') != version or time.time() - index.get('built_at', 0) > 43200:
                 # 失败坐标退到后面，避免长期阻塞其他请求。
                 attempt = _load(path.parent / 'attempt.json', {})
-                retry = attempt.get('at', 0) > (index or {}).get('built_at', 0)
+                published = index or _load(path.parent / 'index.json', {})
+                retry = attempt.get('at', 0) > published.get('built_at', 0)
                 if poll and retry and time.time() - attempt.get('at', 0) < 60:
                     continue
                 pending.append(((retry, index is not None, -path.stat().st_mtime), key))

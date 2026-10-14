@@ -183,14 +183,12 @@ class CatalogPrefetchExactBuildTests(TestCase):
         WowItemVariantSnapshot.objects.filter(pk__in=ids[:9]).update(game_build=OLD)
         WowItemVariantSnapshot.objects.filter(pk__in=ids[9:]).update(game_build=NEW)
 
-    def test_ptr_fixture_is_hidden_without_modifying_stored_identity(self):
+    def test_ptr_only_fixture_is_visible_without_modifying_stored_identity(self):
         before = list(WowItemSnapshot.objects.values())
-        self.assertEqual(gb.catalog_items(class_name='Mage', spec_name='Fire', slot='legs')['total'], 0)
+        self.assertEqual(gb.catalog_items(class_name='Mage', spec_name='Fire', slot='legs')['total'], 1)
         self.assertEqual(list(WowItemSnapshot.objects.values()), before)
 
-    # 单独验证底层身份投影；公开目录的 PTR 排除由上面的用例验证。
-    @patch.object(gb, '_is_ptr_equipment', return_value=False)
-    def test_shared_base_is_not_mutated_by_two_build_projections(self, _visibility):
+    def test_shared_base_is_not_mutated_by_two_build_projections(self):
         before = list(WowItemSnapshot.objects.values())
         self.assertEqual(gb.catalog_items(class_name='Mage', spec_name='Fire', slot='chest')['total'], 0)
         for slot, build, name in (('legs', NEW, "Voidweaver's Leggings"),):

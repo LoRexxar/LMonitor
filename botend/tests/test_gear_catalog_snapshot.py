@@ -20,10 +20,11 @@ from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
 
 class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
-    def test_ptr_flags_are_hidden_in_catalog_and_published_snapshot_without_deletion(self):
+    def test_retail_is_preferred_and_ptr_only_items_remain_without_deletion(self):
         baseline = gb.catalog_items(**self.key)
         originals = list(WowItemVariantSnapshot.objects.filter(pk__in=[self.hero.pk, self.crafted.pk]))
         ptr_ids = []
+        ptr_helm_ids = []
         for original in originals:
             for index, flags in enumerate((
                 {'data_branch': 'ptr'},
@@ -34,8 +35,11 @@ class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
                           for field in original._meta.concrete_fields
                           if not field.primary_key and field.name not in ('created_at', 'updated_at')}
                 values.update(flags, variant_key=f'ptr-test-{original.pk}-{index}')
-                ptr_ids.append(WowItemVariantSnapshot.objects.create(**values).pk)
-        # 只有 PTR 的物品也不能进入候选列表。
+                created = WowItemVariantSnapshot.objects.create(**values)
+                ptr_ids.append(created.pk)
+                if original.item_id == self.helm.pk:
+                    ptr_helm_ids.append(created.pk)
+        # 同 ID 存在正式服时，PTR 的其他装等也不作为第二行或额外变体混入。
         self.myth.data_branch = 'ptr'
         self.myth.save(update_fields=['data_branch'])
         expected_ids = {self.hero.pk, self.crafted.pk}
@@ -48,17 +52,30 @@ class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(WowItemVariantSnapshot.objects.filter(pk__in=ptr_ids).count(), len(ptr_ids))
         self.hero.metadata = {'ptr_preview': True}
         self.hero.save(update_fields=['metadata', 'updated_at'])
-        self.assertEqual(gb.catalog_items(**self.key)['total'], 1)
+        fallback = gb.catalog_items(**self.key)
+        self.assertEqual(fallback['total'], 2)
+        expected_ids = {*ptr_helm_ids, self.hero.pk, self.myth.pk, self.crafted.pk}
+        self.assertEqual({v['id'] for row in fallback['items'] for v in row['variants']}, expected_ids)
+        self.assertEqual(len({row['item_id'] for row in fallback['items']}), 2)
         self.assertEqual(snapshots.refresh_catalog_snapshots(), [self.key])
-        self.assertEqual([row['item_id'] for row in self.body(self.client.get(self.url))['items']],
-                         [self.crafted_item.item_id])
+        published = self.body(self.client.get(self.url))
+        self.assertEqual({v['id'] for row in published['items'] for v in row['variants']}, expected_ids)
+        self.assertEqual(WowItemVariantSnapshot.objects.filter(pk__in=ptr_ids).count(), len(ptr_ids))
+
+    def test_source_filter_does_not_resurrect_ptr_when_retail_exists(self):
+        WowItemVariantSnapshot.objects.create(
+            item=self.helm, season=self.season, batch_key='test-batch', data_branch='ptr',
+            variant_key='ptr-source-only', variant_type='drop_equipment', item_level=740,
+            compatible_slots=['head'], source_json=[{'type': 'mythic_plus'}], stats_json={'strength': 1100})
+        self.assertEqual(gb.catalog_items(**self.key, source_type='mythic_plus')['items'], [])
+        self.assertEqual(gb.catalog_items(**self.key, excluded_stats=['crit'])['total'], 1)
 
     def test_previous_schema_is_unavailable_until_rebuilt(self):
         with patch.object(snapshots, 'SCHEMA_VERSION', snapshots.SCHEMA_VERSION - 1):
             old = self.build()
         with self.assertNumQueries(0):
             self.assertEqual(self.client.get(self.url).status_code, 202)
-        self.assertEqual(snapshots.refresh_catalog_snapshots(), [self.key])
+        self.assertEqual(snapshots.refresh_catalog_snapshots(poll=True), [self.key])
         self.assertNotEqual(snapshots._index(self.key)['generation'], old['generation'])
         self.assertEqual(self.client.get(self.url).status_code, 200)
 
