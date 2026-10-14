@@ -218,10 +218,9 @@ Session, existing proxy settings, 25s timeout, no redirects or automatic retry.
                 now = timezone.now()
                 if row.next_attempt_at and row.next_attempt_at > now and row.status in ('fetching', 'error'):
                     return {**result, 'status': 'busy' if row.status == 'fetching' else 'backoff'}
-                if not force and row.scored_runs_fetched_at and row.scored_runs_fetched_at > now - SCORED_TTL:
+                if not force and row.scored_runs_fetched_at and now - SCORED_TTL <= row.scored_runs_fetched_at <= now:
                     try:
-                        validate_scored_runs({key: row.scored_runs_json[key] for key in ('ui', 'dungeons')},
-                                             season.rio_season, character_id)
+                        validate_scored_runs(row.scored_runs_json, season.rio_season, character_id)
                     except (ValueError, TypeError, KeyError, AttributeError):
                         pass
                     else:
@@ -297,7 +296,196 @@ def _characters(facts, subject_digest):
                                     activity_identity_digest(**item['identity']))), len(conflicts)
 
 
-def refresh_observation_sources(player, *, max_runs=MAX_RUNS, max_characters=MAX_CHARACTERS, force=False, refresh_recent=False):
+def _score_cache(character, season):
+    """Read-only planning: never create rows or turn unspent budget into errors."""
+    digest = activity_identity_digest(**character['identity'])
+    row = RaiderIOCharacterActivity.objects.filter(season=season, identity_digest=digest).first()
+    state = {'identity_digest': digest, 'character_id': character['character_id'], 'status': 'pending'}
+    if row is None:
+        return state, None
+    state['activity_id'] = row.pk
+    now = timezone.now()
+    if row.next_attempt_at and row.next_attempt_at > now and row.status in ('fetching', 'error'):
+        state['status'] = 'busy' if row.status == 'fetching' else 'backoff'
+        return state, None
+    if row.scored_runs_fetched_at and now - SCORED_TTL <= row.scored_runs_fetched_at <= now:
+        try:
+            clean = validate_scored_runs(row.scored_runs_json, season.rio_season, character['character_id'])
+        except (ValueError, TypeError, KeyError, AttributeError):
+            pass
+        else:
+            state.update(status='fresh', fetched_at=row.scored_runs_fetched_at.isoformat())
+            return state, clean
+    return state, None
+
+
+def _followup_plan(evidence, activity, entries, characters, states, scores, rio_season):
+    """Consume canonical classification; select only relevant incomplete comparisons."""
+    from botend.services.player_observation_progression import current_record, RECENT_WINDOW
+    metrics = (evidence or {}).get('metrics', {})
+    pattern = metrics.get('team_pattern', {})
+    progression = metrics.get('progression') or {}
+    if pattern.get('kind') == 'fixed_five':
+        return [], 'fixed_five'
+    if progression.get('status') in ('supported', 'weakened'):
+        return [], 'already_resolved'
+    core = set(pattern.get('core_members', []))
+    four = (pattern.get('kind') in ('suspected_four', 'rotating_core') and len(core) == 4)
+    details = {d['run_id']: d for d in progression.get('details', [])}
+    recent = {}
+    stamp = activity.module_fetched_at.get('mythic_plus_recent_runs') or activity.fetched_at
+    if isinstance(stamp, str):
+        stamp = parse_datetime(stamp)
+    if stamp and timezone.is_aware(stamp):
+        for run in activity.payload_json.get('mythic_plus_recent_runs', [])[:10]:
+            try:
+                completed = parse_datetime(run.get('completed_at', ''))
+                if (completed and timezone.is_aware(completed) and stamp - RECENT_WINDOW <= completed <= stamp
+                        and type(run.get('num_keystone_upgrades')) is int and run['num_keystone_upgrades'] > 0):
+                    recent[run_reference(run, rio_season)] = completed
+            except (ValueError, TypeError):
+                continue
+    candidates = []
+    subject = activity.identity_digest
+    for run, fact in entries:
+        rid = run_reference(run, rio_season)
+        if rid not in recent:
+            continue
+        members, _ = _characters([fact], subject)
+        team = {activity_identity_digest(**member['identity']) for member in members}
+        if len(team) != 5 or subject not in team:
+            continue
+        records = {key: current_record(scores.get(key, {}).get('dungeons', []), fact['dungeon'])[0]
+                   for key in team}
+        missing = {key for key in team if states.get(key, {}).get('status') == 'pending'}
+        if four and core <= team:
+            if details.get(rid, {}).get('below_core') is False:
+                continue
+            needed = missing & core
+            # Fifth seats are relevant only after the canonical below-core check,
+            # or while completing that same four-person comparison.
+            if needed or details.get(rid, {}).get('below_core') is True:
+                needed |= missing - core
+            reason = 'four_core_missing_scores'
+        else:
+            own = records.get(subject)
+            signal = own and any(record and record['mythic_level'] - own['mythic_level'] >= 2
+                                 and record['score'] > own['score']
+                                 for key, record in records.items() if key != subject)
+            if not signal:
+                continue
+            needed, reason = missing, 'partial_same_dungeon_gap'
+        needed &= characters.keys()
+        if needed:
+            candidates.append((len(needed), -recent[rid].timestamp(), sorted(needed), reason))
+    # Prefer comparisons that the small budget can actually complete, not hash order.
+    planned, reason = [], 'cache_sufficient' if four else 'no_signal'
+    for _, _, needed, why in sorted(candidates):
+        reason = why
+        for key in sorted(needed, key=lambda key: (key not in core, key)):
+            if key not in planned:
+                planned.append(key)
+    return planned, reason
+
+
+def _progressive_sources(primary, season, activity, digest, batch, result,
+                         max_runs, max_characters, roster_budget, followup_budget):
+    # Restrict cache-first prioritization to the authoritative evidence sample;
+    # extra cached best runs must never displace an uncached recent reference.
+    from botend.services.player_observation import canonical_observation_runs
+    _, recent, runs, conflicts, invalid = canonical_observation_runs(activity, season.rio_season)
+    refs = list(runs.values())
+    result['invalid_references'] = invalid + len(conflicts)
+    result['runs_truncated'] = len(refs) > max_runs
+    rows = {row.run_id: row for row in RaiderIORunRoster.objects.filter(
+        rio_season=season.rio_season, run_id__in=[run_reference(run, season.rio_season) for run in refs])}
+    visible = {run_reference(run, season.rio_season): _visible_facts(
+        rows.get(run_reference(run, season.rio_season)), run, season.rio_season) for run in refs}
+    recent_ids = set()
+    for run in recent:
+        try:
+            recent_ids.add(run_reference(run, season.rio_season))
+        except (ValueError, TypeError):
+            pass
+    def priority(run):
+        rid = run_reference(run, season.rio_season)
+        try:
+            completed = parse_datetime(run.get('completed_at', ''))
+            order = -completed.timestamp() if completed and timezone.is_aware(completed) else 0
+        except (ValueError, TypeError):
+            order = 0
+        return (not bool(visible[rid]), rid not in recent_ids,
+                not (type(run.get('num_keystone_upgrades')) is int and run['num_keystone_upgrades'] > 0), order)
+    refs = sorted(refs, key=priority)[:max_runs]
+    roster_start, entries = batch.requests, []
+    for run in refs:
+        rid = run_reference(run, season.rio_season)
+        fact, row = visible[rid], rows.get(rid)
+        # Valid immutable run facts need no TTL refresh, except bounded legacy ID repair.
+        repair = bool(fact and any('id' not in member['character'] for member in fact['roster']))
+        if fact and not repair:
+            now = timezone.now()
+            protected = row.next_attempt_at and row.next_attempt_at > now and row.status != 'ready'
+            state = {'run_id': rid, 'status': ('busy' if row.status == 'fetching' else 'backoff')
+                     if protected else 'fresh'}
+        elif batch.stop_event.is_set():
+            state = {'run_id': rid, 'status': 'batch_stopped'}
+        elif batch.requests - roster_start >= roster_budget:
+            state = {'run_id': rid, 'status': 'budget_exhausted'}
+        else:
+            state = batch.roster(run, season.rio_season)
+            row = RaiderIORunRoster.objects.filter(rio_season=season.rio_season, run_id=rid).first()
+            fact = _visible_facts(row, run, season.rio_season)
+        result['runs'].append(state)
+        if fact and state['status'] != 'busy':
+            entries.append((run, fact))
+        if batch.rate_limited:
+            break
+    facts = [fact for _, fact in entries]
+    discovered, result['identity_conflicts'] = _characters(facts, digest)
+    result.update(rosters_visible=len(facts), characters_discovered=len(discovered),
+                  characters_truncated=len(discovered) > max_characters,
+                  members_without_identity=sum('id' not in m['character'] or not _profile_url(m['character'])
+                                               for fact in facts for m in fact['roster']),
+                  subject_character_id=next((c['character_id'] for c in discovered
+                                             if activity_identity_digest(**c['identity']) == digest), None))
+    characters = {activity_identity_digest(**c['identity']): c for c in discovered[:max_characters]}
+    states, scores = {}, {}
+    for key, character in characters.items():
+        states[key], score = _score_cache(character, season)
+        if score is not None:
+            scores[key] = score
+    start = batch.requests
+    if not batch.stop_event.is_set():
+        from botend.services.player_observation import build_evidence
+        planned, reason = _followup_plan(build_evidence(primary), activity, entries, characters, states, scores, season.rio_season)
+        result.update(followup_triggered=bool(planned), followup_reason=reason,
+                      followup_budget_reason='needed' if planned else 'not_needed')
+        batch.budget = start + followup_budget
+        for key in planned:
+            if batch.stop_event.is_set() or batch.requests - start >= followup_budget:
+                result['followup_budget_reason'] = 'rate_limited' if batch.rate_limited else 'budget_exhausted'
+                break
+            # Recheck under the collector lock; force NEVER defeats a needed-cache plan.
+            states[key] = batch.scored(characters[key], season, False)
+        result['followup_api_requests'] = batch.requests - start
+        if batch.rate_limited:
+            result['followup_budget_reason'] = 'rate_limited'
+        elif planned and all(states[key]['status'] in ('ready', 'fresh') for key in planned):
+            result['followup_budget_reason'] = 'completed'
+    result['characters'] = list(states.values())
+    if batch.rate_limited:
+        result['status'] = 'rate_limited'
+    elif (not result['invalid_references'] and not result['identity_conflicts']
+          and not result['runs_truncated'] and not result['characters_truncated']
+          and all(s['status'] in ('ready', 'fresh') for s in result['runs'])
+          and not result['followup_triggered']):
+        result['status'] = 'ready'
+    return result
+
+
+def refresh_observation_sources(player, *, max_runs=MAX_RUNS, max_characters=MAX_CHARACTERS, force=False, refresh_recent=False,
+                                progressive=False, max_followup_requests=2, max_basic_roster_requests=5):
     """Return JSON-safe statuses. Explicit call only; no automatic monitor.
 
 Hard upper limits: one due activity request + max_runs unique roster requests +
@@ -306,6 +494,10 @@ fresh ID-complete rosters, profile gear, privacy tombstones, or active backoffs.
 refresh_recent explicitly refreshes a successful activity snapshot even within
 TTL, so a progressive manual check sees the latest recent records. It never
 bypasses an activity error backoff or an active lease.
+With progressive=True, basic work reuses all verified cached rosters before up
+ to five missing/legacy roster calls; it never scans scored endpoints. Canonical
+build_evidence then gates at most two additional actual scored HTTP requests.
+Unused basic budget cannot spill into followup; force cannot bypass needed cache.
 """
     if type(max_runs) is not int or not 1 <= max_runs <= MAX_RUNS:
         raise ValueError('max_runs must be 1..18')
@@ -316,6 +508,17 @@ bypasses an activity error backoff or an active lease.
               'api_budget': 1 + max_runs + max_characters, 'api_requests': 0,
               'runs': [], 'characters': [], 'invalid_references': 0, 'identity_conflicts': 0,
               'runs_truncated': False, 'characters_truncated': False}
+    if type(progressive) is not bool:
+        raise ValueError('progressive must be boolean')
+    if type(max_followup_requests) is not int or not 0 <= max_followup_requests <= 2:
+        raise ValueError('max_followup_requests must be 0..2')
+    if type(max_basic_roster_requests) is not int or not 0 <= max_basic_roster_requests <= 5:
+        raise ValueError('max_basic_roster_requests must be 0..5')
+    if progressive:
+        result.update(collection_mode='progressive', api_budget=1 + max_basic_roster_requests + max_followup_requests,
+                      basic_api_budget=1 + max_basic_roster_requests, basic_roster_api_budget=max_basic_roster_requests,
+                      followup_api_budget=max_followup_requests, basic_api_requests=0, followup_api_requests=0,
+                      followup_triggered=False, followup_reason='not_needed', followup_budget_reason='not_needed')
     # Re-read only scalar identity/rank fields: callers cannot spoof a Top20 row
     # via an unsaved object or accidentally trigger profile JSON loading.
     primary = PlayerSpecTopPlayer.objects.filter(pk=player.pk).only(
@@ -343,6 +546,9 @@ bypasses an activity error backoff or an active lease.
             result['status'] = 'rate_limited' if batch.rate_limited else result['activity']['status']
             return result
         activity = RaiderIOCharacterActivity.objects.get(season=season, identity_digest=digest)
+        if progressive:
+            return _progressive_sources(primary, season, activity, digest, batch, result,
+                                        max_runs, max_characters, max_basic_roster_requests, max_followup_requests)
         refs, result['invalid_references'], result['runs_truncated'] = _references(activity, season.rio_season, max_runs)
         facts = []
         for run in refs:
@@ -377,4 +583,6 @@ bypasses an activity error backoff or an active lease.
         return result
     finally:
         result['api_requests'] = batch.requests
+        if progressive:
+            result['basic_api_requests'] = batch.requests - result['followup_api_requests']
         batch.close()

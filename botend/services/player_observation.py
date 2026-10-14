@@ -202,20 +202,27 @@ def _int(value):
     return type(value) is int and value >= 0
 
 
-def _build(context):
-    season, identity, activity, class_name = context
+def canonical_observation_runs(activity, rio_season):
+    """Pure bounded selection shared by evidence and progressive collection.
+
+    Return (best[:8], recent[:10], sorted runs by ID, conflicting IDs, invalid
+    count). The first two lists preserve coverage denominators and recent spec
+    evidence; runs contains at most 18 original references, excluding conflicts.
+    Invalid counts cover malformed containers/individual references, not conflicts.
+    No raw fact is copied or modified and no database/transport is consulted.
+    """
     facts = activity.payload_json if isinstance(activity.payload_json, dict) else {}
     best = facts.get('mythic_plus_best_runs', [])
     recent = facts.get('mythic_plus_recent_runs', [])
+    invalid = int(not isinstance(best, list)) + int(not isinstance(recent, list))
     best = best[:8] if isinstance(best, list) else []
     recent = recent[:10] if isinstance(recent, list) else []
-    coverage = dict.fromkeys(COVERAGE_KEYS, 0)
-    coverage.update(best_runs=len(best), recent_runs=len(recent))
     runs, conflicts = {}, set()
     for run in best + recent:
         try:
-            key = run_reference(run, season.rio_season)
+            key = run_reference(run, rio_season)
             if not _int(run.get('mythic_level')) or not isinstance(run.get('dungeon'), str):
+                invalid += 1
                 continue
             if key in runs and any(runs[key].get(k) is not None and run.get(k) is not None and runs[key][k] != run[k]
                     for k in ('dungeon', 'mythic_level', 'clear_time_ms', 'num_keystone_upgrades', 'completed_at', 'score')):
@@ -223,10 +230,18 @@ def _build(context):
             elif key not in runs:
                 runs[key] = run
         except (TypeError, ValueError):
-            continue
+            invalid += 1
     for key in conflicts:
         runs.pop(key, None)
-    runs = dict(sorted(runs.items()))
+    return best, recent, dict(sorted(runs.items())), conflicts, invalid
+
+
+def _build(context):
+    season, identity, activity, class_name = context
+    facts = activity.payload_json if isinstance(activity.payload_json, dict) else {}
+    best, recent, runs, conflicts, _ = canonical_observation_runs(activity, season.rio_season)
+    coverage = dict.fromkeys(COVERAGE_KEYS, 0)
+    coverage.update(best_runs=len(best), recent_runs=len(recent))
     coverage['unique_runs'] = len(runs)
     timed = {key: run for key, run in runs.items() if _int(run.get('num_keystone_upgrades')) and run['num_keystone_upgrades'] > 0}
     coverage['timed_runs'] = len(timed)
@@ -392,6 +407,7 @@ def _build(context):
             selected_core = core
         label = ('疑似四人带人队伍' if len(core) == 4 else '疑似三人带人队伍') if frequent_rotation else '固定核心＋轮换成员'
         pattern.update(kind=kind, subject_role='core_member', core_size=len(core), core_runs=count,
+                       core_members=sorted(core),
                        lineup_counts=lineup_counts, outside_members=outside_members, alternate_runs=alternate_runs)
         add('rotating_core', label, '低' if frequent_rotation else '中',
             f'含本人的 {len(core)} 人核心在 {len(teams)} 场已知限时阵容中共同出现 {count} 次；其余 {5-len(core)} 位共出现 {outside_members} 名不同成员、{len(combinations)} 种组合，各出现次数为 {lineup_counts}。非最常见组合共 {alternate_runs} 场；本人为稳定核心成员。',
@@ -511,52 +527,94 @@ def _fail(pk, token, code):
     return {'status': code, 'analysis_id': pk}
 
 
-def generate_observation(player, force=False, engine=None):
+def _same_publication(row, evidence):
+    """An additive core reference does not invalidate unchanged v5 publications."""
+    if row.prompt_version != PROMPT_VERSION:
+        return False
+    if row.evidence_hash == evidence['evidence_hash']:
+        return True
+    previous = row.evidence_json
+    if not isinstance(previous, dict) or previous.get('prompt_version') != PROMPT_VERSION:
+        return False
+    metrics = previous.get('metrics')
+    if not isinstance(metrics, dict):
+        return False
+    pattern = metrics.get('team_pattern')
+    if not isinstance(pattern, dict) or 'core_members' in pattern:
+        return False
+    comparable = {key: value for key, value in evidence.items() if key not in ('evidence_hash', 'source_failed')}
+    comparable['metrics'] = {**comparable['metrics'], 'team_pattern': {
+        key: value for key, value in comparable['metrics']['team_pattern'].items() if key != 'core_members'}}
+    old = {key: value for key, value in previous.items() if key not in ('evidence_hash', 'source_failed')}
+    return old == comparable and row.evidence_hash == _hash(old)
+
+
+LOCAL_EMPTY_METADATA = {'source_kind': 'local_deterministic',
+    'ai': {'called': False, 'skipped': {'reason': 'no_supported_judgement'}}}
+
+
+def _local_empty(result, evidence):
+    """Recognize only our cache-backed negative publication, never empty AI JSON."""
+    return (result == {'observations': [], 'conclusion_id': 'public_sample',
+                       'metadata': LOCAL_EMPTY_METADATA}
+            and not any(item['supported'] for item in _display_judgements(evidence)))
+
+
+def generate_observation(player, force=False, engine=None, *, skip_uninformative=False):
     """Manual generation; force does not steal leases or bypass failure backoff."""
     evidence = build_evidence(player)
-    if not evidence or not evidence['eligible_labels']:
-        return {'status': 'unavailable'}
+    if not evidence or (not skip_uninformative and not evidence['eligible_labels']):
+        return {'status': 'unavailable', 'ai_called': False}
+    local_empty = skip_uninformative and not any(item['supported'] for item in _display_judgements(evidence))
+    audit: dict = {'ai_called': False}
+    if local_empty:
+        audit['skip_reason'] = 'no_supported_judgement'
     now, token = timezone.now(), uuid.uuid4().hex
     with transaction.atomic():
         row, _ = PlayerObservationAnalysis.objects.get_or_create(activity_id=evidence['activity_id'])
         row = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
         if row.lease_token and row.lease_expires_at and row.lease_expires_at > now:
-            return {'status': 'busy', 'analysis_id': row.pk}
+            return {'status': 'busy', 'analysis_id': row.pk, **audit}
         if row.next_attempt_at and row.next_attempt_at > now:
-            return {'status': 'backoff', 'analysis_id': row.pk}
-        if not force and row.result_json and row.evidence_hash == evidence['evidence_hash'] and row.prompt_version == PROMPT_VERSION:
-            return {'status': 'fresh', 'analysis_id': row.pk}
+            return {'status': 'backoff', 'analysis_id': row.pk, **audit}
+        if not force and row.result_json and _same_publication(row, evidence):
+            return {'status': 'fresh', 'analysis_id': row.pk, **audit}
         acquired = PlayerObservationAnalysis.objects.filter(pk=row.pk).filter(Q(lease_expires_at__lte=now) | Q(lease_expires_at__isnull=True) | Q(lease_token='')).update(
             lease_token=token, lease_expires_at=now+LEASE_TTL, last_attempt_at=now, status='pending')
         if not acquired:
-            return {'status': 'busy', 'analysis_id': row.pk}
-    try:
-        if engine is None:
-            from core.glm import GLMClient
-            engine = GLMClient()
-        engine.system_prompt = SYSTEM_PROMPT
-        raw = engine.send_message(json.dumps(evidence, ensure_ascii=False), max_tokens=1800, thinking_type='disabled')
-    except Exception:
-        return _fail(row.pk, token, 'engine_error')
-    if raw is None or raw == '':
-        return _fail(row.pk, token, 'engine_empty')
-    try:
-        result = _validate(raw, evidence)
-    except InvalidResult as error:
-        return _fail(row.pk, token, str(error))
+            return {'status': 'busy', 'analysis_id': row.pk, **audit}
+    if local_empty:
+        # This is a deterministic negative publication, not a model response.
+        result = {'observations': [], 'conclusion_id': 'public_sample', 'metadata': LOCAL_EMPTY_METADATA}
+    else:
+        try:
+            if engine is None:
+                from core.glm import GLMClient
+                engine = GLMClient()
+            engine.system_prompt = SYSTEM_PROMPT
+            audit['ai_called'] = True
+            raw = engine.send_message(json.dumps(evidence, ensure_ascii=False), max_tokens=1800, thinking_type='disabled')
+        except Exception:
+            return {**_fail(row.pk, token, 'engine_error'), **audit}
+        if raw is None or raw == '':
+            return {**_fail(row.pk, token, 'engine_empty'), **audit}
+        try:
+            result = _validate(raw, evidence)
+        except InvalidResult as error:
+            return {**_fail(row.pk, token, str(error)), **audit}
     with transaction.atomic():
         locked = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
         if locked.lease_token != token:
-            return {'status': 'superseded', 'analysis_id': row.pk}
+            return {'status': 'superseded', 'analysis_id': row.pk, **audit}
         if not locked.lease_expires_at or locked.lease_expires_at <= timezone.now():
-            return _fail(row.pk, token, 'lease_expired')
+            return {**_fail(row.pk, token, 'lease_expired'), **audit}
         current = build_evidence(player)
         if not current or current['evidence_hash'] != evidence['evidence_hash']:
-            return _fail(row.pk, token, 'evidence_changed')
+            return {**_fail(row.pk, token, 'evidence_changed'), **audit}
         updated = PlayerObservationAnalysis.objects.filter(pk=row.pk, lease_token=token, lease_expires_at__gt=timezone.now()).update(
             evidence_hash=current['evidence_hash'], evidence_json=current, result_json=result, prompt_version=PROMPT_VERSION,
             status='ready', generated_at=timezone.now(), lease_token='', lease_expires_at=None, next_attempt_at=None, last_error='')
-        return {'status': 'ready' if updated else 'lease_expired', 'analysis_id': row.pk}
+        return {'status': 'ready' if updated else 'lease_expired', 'analysis_id': row.pk, **audit}
 
 
 def _display_judgements(evidence):
@@ -612,7 +670,7 @@ def project_player_observation(player):
     if not row.result_json:
         view['status'] = 'error' if row.last_error else 'pending'
         return view
-    if row.evidence_hash != current['evidence_hash'] or row.prompt_version != PROMPT_VERSION:
+    if not _same_publication(row, current):
         # A one-player prompt trial must not silently withdraw the other pilots.
         # Keep only the verified v3 publication when every source and its old
         # derived metrics are unchanged; privacy/data changes still retract it.
@@ -621,11 +679,21 @@ def project_player_observation(player):
             and previous.get('prompt_version') == row.prompt_version
             and all(previous.get(key) == current.get(key) for key in ('source_stamps', 'coverage', 'season_counts'))
             and isinstance(previous.get('metrics'), dict)
-            and all(value == current['metrics'].get(key) for key, value in previous['metrics'].items())
+            and all(value == current['metrics'].get(key) or (
+                key == 'team_pattern' and isinstance(value, dict) and 'core_members' not in value
+                and value == {field: item for field, item in current['metrics']['team_pattern'].items()
+                              if field != 'core_members'})
+                for key, value in previous['metrics'].items())
             and row.evidence_hash == _hash({key: value for key, value in previous.items() if key not in ('evidence_hash', 'source_failed')}))
         if not compatible:
             return view
         current = previous
+    if _local_empty(row.result_json, current):
+        view.update(status='stale' if row.last_error or current['source_failed'] else 'ready',
+                    generated_at=row.generated_at, model_label='',
+                    display_judgements=_display_judgements(current), has_supported_judgements=False,
+                    publication_metadata=row.result_json['metadata'])
+        return view
     try:
         result = _validate(json.dumps(row.result_json, ensure_ascii=False), current)
     except InvalidResult:
