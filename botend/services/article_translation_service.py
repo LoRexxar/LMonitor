@@ -51,14 +51,22 @@ class CodexTranslationEngine:
     name = "codex"
 
     def __init__(self, config: Optional[Dict[str, Any]] = None):
-        self.config = config if config is not None else (getattr(settings, "CODEX_API_CONFIG", {}) or {})
+        self.config = config if config is not None else {}
+        self._managed = config is None
         self.last_error = ""
 
     def available(self) -> bool:
+        if self._managed:
+            return GLMClient(scope="translation", provider_keys=("codex",)).available
         return bool((self.config.get("api_key") or "").strip() and (self.config.get("base_url") or "").strip())
 
     def send_message(self, prompt: str, *, max_tokens: int) -> str:
         self.last_error = ""
+        if self._managed:
+            client = GLMClient(scope="translation", provider_keys=("codex",))
+            result = client.send_message(prompt, max_tokens=max_tokens)
+            self.last_error = client.last_error
+            return result or ""
         if not self.available():
             self.last_error = "CODEX_API_CONFIG 缺少 api_key/base_url"
             return ""
@@ -105,7 +113,9 @@ class FallbackTranslationEngine:
     name = "fallback"
 
     def __init__(self, engines: Optional[List[Any]] = None):
-        self.engines = engines if engines is not None else [GLMTranslationEngine(), CodexTranslationEngine()]
+        # The managed translation chain includes the existing Codex fallback,
+        # ordered centrally; ordinary player/WCL calls do not gain this provider.
+        self.engines = engines if engines is not None else [GLMTranslationEngine(client=GLMClient(scope="translation"))]
         self.last_error = ""
 
     def available(self) -> bool:

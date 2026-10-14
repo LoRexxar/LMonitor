@@ -1,0 +1,69 @@
+/* Scoped AI administration workspace; no changes to shared Dashboard styling. */
+.ai-management { color: #1e293b; min-width: 0; }
+.ai-management .ai-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 1rem; margin-bottom: 1.25rem; }
+.ai-management h2 { font-size: 1.875rem; line-height: 1.3; font-weight: 700; margin: 0 0 .5rem; }
+.ai-management h3 { font-size: 1.125rem; font-weight: 650; margin: 0; }
+.ai-management p { overflow-wrap: anywhere; }
+.ai-management .ai-header p, .ai-management .ai-hint { font-size: .875rem; color: #64748b; }
+.ai-management .ai-notice { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: .75rem; padding: .875rem 1rem; font-size: .875rem; color: #1e40af; }
+.ai-management .ai-message { margin: .75rem 0; font-size: .875rem; min-height: 1.25rem; }
+.ai-management .ai-error { color: #b91c1c; font-size: .875rem; margin: .75rem 0; white-space: pre-line; }
+.ai-management .ai-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin: 1rem 0; }
+.ai-management .ai-summary-card, .ai-management .ai-provider { background: #fff; border: 1px solid #e2e8f0; border-radius: .875rem; padding: 1.25rem; min-width: 0; }
+.ai-management .ai-summary-card strong { display: block; font-size: 1.125rem; margin-top: .5rem; overflow-wrap: anywhere; }
+.ai-management .ai-summary-card span { color: #64748b; font-size: .875rem; }
+.ai-management .ai-providers { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.ai-management .ai-provider-header { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; }
+.ai-management .ai-badges { display: flex; flex-wrap: wrap; gap: .375rem; margin: .875rem 0; }
+.ai-management .ai-badge { border-radius: 999px; padding: .25rem .625rem; font-size: .75rem; background: #f1f5f9; color: #475569; }
+.ai-management .ai-badge-blue { background: #dbeafe; color: #1e40af; }
+.ai-management .ai-badge-green { background: #dcfce7; color: #166534; }
+.ai-management .ai-badge-amber { background: #fef3c7; color: #92400e; }
+.ai-management .ai-badge-red { background: #fee2e2; color: #991b1b; }
+.ai-management dl { display: grid; grid-template-columns: 7rem minmax(0, 1fr); gap: .6rem .75rem; margin: 1rem 0 0; font-size: .875rem; }
+.ai-management dt { color: #64748b; }
+.ai-management dd { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ai-management .ai-call-heading { border-top: 1px solid #e2e8f0; padding-top: 1rem; margin-top: 1.25rem; font-size: .875rem; font-weight: 600; }
+.ai-management .ai-button { display: inline-flex; justify-content: center; align-items: center; border: 1px solid #cbd5e1; padding: .6rem .875rem; border-radius: .5rem; background: #fff; color: #334155; font-size: .875rem; min-height: 2.75rem; cursor: pointer; flex-shrink: 0; }
+.ai-management .ai-button:hover { background: #f8fafc; }
+.ai-management .ai-button:disabled { opacity: .55; cursor: not-allowed; }
+.ai-management .ai-button:focus-visible, .ai-management input:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+.ai-management .ai-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+.ai-management .ai-primary:hover { background: #1d4ed8; }
+.ai-management .ai-danger { color: #b91c1c; }
+.ai-management .ai-editor { box-sizing: border-box; border: 1px solid #e2e8f0; border-radius: 1rem; padding: 1.5rem; background: #fff; color: #1e293b; width: min(40rem, calc(100vw - 2rem)); max-height: calc(100dvh - 2rem); overflow-y: auto; box-shadow: 0 24px 60px #0f172a30; }
+.ai-management .ai-editor::backdrop { background: #0f172a80; }
+.ai-management .ai-editor-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: .75rem; }
+.ai-management .ai-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.ai-management .ai-fields label { font-size: .875rem; font-weight: 500; min-width: 0; }
+.ai-management .ai-full { grid-column: 1 / -1; }
+.ai-management .ai-fields input:not([type=checkbox]) { display: block; box-sizing: border-box; width: 100%; border: 1px solid #cbd5e1; border-radius: .5rem; padding: .7rem; margin-top: .375rem; background: #fff; color: #1e293b; font-size: 1rem; }
+.ai-management .ai-checkbox { display: flex; align-items: center; gap: .5rem; }
+.ai-management .ai-checkbox input { width: 1rem; height: 1rem; flex-shrink: 0; }
+.ai-management .ai-editor-actions { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .75rem; border-top: 1px solid #e2e8f0; margin-top: 1.25rem; padding-top: 1rem; }
+.ai-management [hidden] { display: none !important; }
+html[data-dashboard-theme="dark"] .ai-management { color: #e2e8f0; }
+html[data-dashboard-theme="dark"] .ai-management .ai-summary-card,
+html[data-dashboard-theme="dark"] .ai-management .ai-provider,
+html[data-dashboard-theme="dark"] .ai-management .ai-editor { background: #111f33; border-color: #334155; color: #e2e8f0; }
+html[data-dashboard-theme="dark"] .ai-management .ai-header p,
+html[data-dashboard-theme="dark"] .ai-management .ai-hint,
+html[data-dashboard-theme="dark"] .ai-management dt,
+html[data-dashboard-theme="dark"] .ai-management .ai-summary-card span { color: #a7b5c8; }
+html[data-dashboard-theme="dark"] .ai-management .ai-notice { background: #172e4d; border-color: #315380; color: #c1d8ff; }
+html[data-dashboard-theme="dark"] .ai-management .ai-button,
+html[data-dashboard-theme="dark"] .ai-management .ai-fields input:not([type=checkbox]) { background: #14253d; border-color: #41516a; color: #e2e8f0; }
+html[data-dashboard-theme="dark"] .ai-management .ai-primary { background: #2563eb; color: #fff; }
+html[data-dashboard-theme="dark"] .ai-management .ai-error,
+html[data-dashboard-theme="dark"] .ai-management .ai-danger { color: #fca5a5; }
+@media (max-width: 767px) {
+    .ai-management .ai-header { flex-direction: column; }
+    .ai-management .ai-summary, .ai-management .ai-providers { grid-template-columns: 1fr; }
+    .ai-management .ai-summary { gap: .625rem; }
+    .ai-management .ai-summary-card { padding: .875rem 1rem; }
+    .ai-management .ai-provider { padding: 1rem; }
+    .ai-management .ai-editor { padding: 1rem; }
+    .ai-management .ai-fields { grid-template-columns: 1fr; }
+    .ai-management .ai-editor-actions .ai-button { flex: 1 1 100%; }
+    .ai-management dl { grid-template-columns: 6rem minmax(0, 1fr); gap: .625rem; }
+}

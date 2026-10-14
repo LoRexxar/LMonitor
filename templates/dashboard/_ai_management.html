@@ -1,0 +1,39 @@
+<section id="ai-management" class="content-section ai-management" style="display: none;" aria-labelledby="ai-management-title">
+    <header class="ai-header">
+        <div>
+            <h2 id="ai-management-title">AI 管理</h2>
+            <p>仅超级管理员可配置现有供应商。优先级数字越小越优先；配置完整不代表调用成功。</p>
+        </div>
+        <button id="ai-refresh" type="button" class="ai-button">刷新状态</button>
+    </header>
+    <p class="ai-notice">此页面只读取配置与最近真实调用记录，不会自动测试或消耗模型额度。首选与备用以服务端有效配置为准，最近成功不等于当前健康。</p>
+    <p id="ai-message" class="ai-message" role="status" aria-live="polite">打开此栏目后加载。</p>
+    <div id="ai-summary" class="ai-summary" aria-label="当前 AI 选择"></div>
+    <div id="ai-providers" class="ai-providers" aria-label="供应商配置与调用状态"></div>
+    <p id="ai-refreshed-at" class="ai-hint"></p>
+    <dialog id="ai-editor" class="ai-editor" aria-labelledby="ai-editor-title">
+        <form id="ai-editor-form" autocomplete="off" novalidate>
+            <header class="ai-editor-header">
+                <h3 id="ai-editor-title">编辑供应商</h3>
+                <button id="ai-editor-close" type="button" class="ai-button" aria-label="关闭编辑">关闭</button>
+            </header>
+            <p id="ai-editor-source" class="ai-hint"></p>
+            <div class="ai-fields">
+                <label class="ai-checkbox ai-full"><input id="ai-enabled" type="checkbox">启用供应商</label>
+                <label>优先级（小者优先）<input id="ai-priority" type="number" min="0" max="100000" step="1" required></label>
+                <label>请求超时（秒）<input id="ai-timeout" type="number" min="0" max="600" step="any" required></label>
+                <label class="ai-full">模型<input id="ai-model" type="text" autocomplete="off" spellcheck="false"></label>
+                <label class="ai-full">API Base URL<input id="ai-base-url" type="url" autocomplete="off" spellcheck="false"></label>
+                <label class="ai-full">新 API Key<input id="ai-api-key" type="password" autocomplete="new-password" spellcheck="false" placeholder="留空保留现有密钥；不会回填密钥"></label>
+                <p id="ai-key-source" class="ai-hint ai-full"></p>
+                <label class="ai-checkbox ai-full"><input id="ai-clear-key" type="checkbox">显式清除 API Key（不再继承 settings 密钥）</label>
+            </div>
+            <p id="ai-editor-error" class="ai-error" role="alert"></p>
+            <button id="ai-reload-editor" type="button" class="ai-button" hidden>刷新配置并重新编辑</button>
+            <footer class="ai-editor-actions">
+                <button id="ai-reset" type="button" class="ai-button ai-danger">恢复 settings 默认配置</button>
+                <button id="ai-save" type="submit" class="ai-button ai-primary">保存配置</button>
+            </footer>
+        </form>
+    </dialog>
+</section>

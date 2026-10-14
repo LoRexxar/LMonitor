@@ -3878,3 +3878,35 @@ from botend.guide_models import (  # noqa: E402,F401
 
 from botend.journal_models import JournalRelease, JournalState, JournalInstance, JournalEncounter  # noqa: E402,F401
 from botend.analytics.models import SiteAnalyticsConfig, SitePageView  # noqa: E402,F401
+
+
+class AIProviderConfiguration(models.Model):
+    """Nullable administrative overrides and bounded last-request evidence, never public CRUD."""
+
+    provider_key = models.CharField(max_length=16, primary_key=True,
+                                    choices=(('glm', 'GLM'), ('mimo', 'MiMo'), ('codex', 'Codex')))
+    enabled = models.BooleanField(null=True, blank=True, default=None)
+    priority = models.PositiveIntegerField(null=True, blank=True, default=None)
+    model = models.CharField(max_length=255, null=True, blank=True, default=None)
+    base_url = models.URLField(max_length=500, null=True, blank=True, default=None)
+    request_timeout_seconds = models.FloatField(null=True, blank=True, default=None)
+    # None inherits settings; empty string explicitly clears; other values are AES-GCM envelopes.
+    api_key_encrypted = models.TextField(null=True, blank=True, default=None)
+    version = models.PositiveIntegerField(default=0)
+    updated_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+                                   on_delete=models.SET_NULL, related_name='+')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    last_state = models.CharField(max_length=40, default='unverified')
+    last_http_status = models.PositiveSmallIntegerField(null=True, blank=True)
+    last_error_code = models.CharField(max_length=80, default='', blank=True)
+    last_finished_at = models.DateTimeField(null=True, blank=True)
+    last_success_at = models.DateTimeField(null=True, blank=True)
+    last_failure_at = models.DateTimeField(null=True, blank=True)
+    last_latency_ms = models.FloatField(null=True, blank=True)
+    last_model = models.CharField(max_length=255, default='', blank=True)
+    last_config_signature = models.CharField(max_length=64, default='', blank=True)
+
+    class Meta:
+        constraints = [models.CheckConstraint(condition=models.Q(provider_key__in=['glm', 'mimo', 'codex']),
+                                               name='ai_provider_supported_key')]

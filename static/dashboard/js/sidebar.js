@@ -77,7 +77,7 @@
             {key: 'operations', label: '运行维护', entries: [
                 root.querySelector('[data-dashboard-table="MonitorTask"]'),
                 folder('logs', '日志与告警', 'fa-bell', [section('error-logs'), section('log-files')]),
-                section('database-tables'),
+                section('ai-management'), section('database-tables'),
             ]},
         ];
         groups.forEach(group => {

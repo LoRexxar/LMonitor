@@ -15,6 +15,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'reports.wow-today-settings', 'label': '今日魔兽板块', 'section': 'wow-today-settings', 'parent': '内容'},
     {'code': 'portal.navigation', 'label': '首页导航', 'section': 'portal-navigation', 'parent': '内容'},
     {'code': 'reports.hotfix', 'label': 'Hotfix 报告', 'section': 'wago-hotfix-reports', 'parent': '内容'},
+    {'code': 'system.ai-management', 'label': 'AI 管理', 'section': 'ai-management', 'parent': '系统', 'superuser_only': True},
     {'code': 'system.alerts', 'label': '系统报警', 'section': 'error-logs', 'parent': '系统'},
     {'code': 'system.logs', 'label': '日志文件', 'section': 'log-files', 'parent': '系统'},
     {'code': 'system.analytics', 'label': '站内统计', 'section': 'site-analytics', 'parent': '系统'},
@@ -57,7 +58,9 @@ def effective_dashboard_permissions(user):
         return set(DASHBOARD_PAGE_PERMISSIONS)
     codes = set()
     for group in user.dashboard_user_groups.filter(is_active=True).only('permission_codes'):
-        codes.update(code for code in group.permission_codes if code in DASHBOARD_PAGE_PERMISSIONS)
+        codes.update(code for code in group.permission_codes
+                     if code in DASHBOARD_PAGE_PERMISSIONS
+                     and not DASHBOARD_PAGE_PERMISSIONS[code].get('superuser_only', False))
     return codes
 
 

@@ -1,10 +1,10 @@
 import json
+import logging
 import time
-
-from django.conf import settings as django_settings
 
 from core.ai_errors import error_details, is_transient_connection_error, post_completion
 from core.mimo import MiMoClient
+from core.codex import CodexClient
 
 try:
     from zhipuai import ZhipuAI as ZhipuAiClient
@@ -16,15 +16,24 @@ except ImportError:
 
 
 class GLMClient:
-    def __init__(self):
+    def __init__(self, *, scope="general", provider_keys=None):
+        if scope not in ("general", "translation"):
+            raise ValueError("Unknown AI request scope")
+        self.scope = scope
+        self._provider_keys = frozenset(provider_keys) if provider_keys is not None else None
+        self._in_call = False
         self.system_prompt = "你是一个冷酷无情的AI助手，你不需要展示思考过程，也不允许问我问题，只需要直接回答用户的问题和结果"
         self._load_config()
         self._reset_evidence()
 
     def _load_config(self):
-        # Snapshot at every public call; do not freeze settings at module import.
-        config = dict(getattr(django_settings, "ZHIYU_API_CONFIG", {}) or {})
-        mimo_config = dict(getattr(django_settings, "MIMO_API_CONFIG", {}) or {})
+        # Resolve one snapshot for this call/tool chain; administrative changes
+        # take effect at the next public call, including on long-lived clients.
+        from botend.services.ai_provider_service import resolve_ai_configs, _is_complete
+        self._configs = resolve_ai_configs()
+        config = self._configs["glm"]
+        mimo_config = self._configs["mimo"]
+        self._glm_enabled = config.get("enabled", True) is True
         self.api_key = str(config.get("api_key") or "").strip()
         self.base_url = str(config.get("base_url") or "").strip()
         self.coding_base_url = str(config.get("coding_base_url") or "").strip()
@@ -37,6 +46,7 @@ class GLMClient:
         fallbacks = config.get("fallback_models", ["GLM-4.5-Flash", "GLM-4.5"]) or []
         self.model_candidates = list(dict.fromkeys(str(m).strip() for m in [configured] + list(fallbacks) if str(m).strip()))
         self.mimo = MiMoClient(mimo_config)
+        self.codex = CodexClient(self._configs["codex"])
         self.primary_connection_attempts = max(1, min(3, int(mimo_config.get("primary_connection_attempts", 3))))
         self.primary_rate_limit_attempts = max(1, min(3, int(mimo_config.get("primary_rate_limit_attempts", 1))))
         self.primary_retry_delay_seconds = max(0.0, float(mimo_config.get("primary_retry_delay_seconds", 2)))
@@ -54,11 +64,27 @@ class GLMClient:
                 # An older SDK that rejects timeout/retry controls must not be
                 # used unbounded; retain the configured HTTP path instead.
                 self.client = self.coding_client = None
+        ready = {
+            "glm": bool(self._glm_enabled and _is_complete("glm", config) and self.model_candidates and
+                        (self.client or self.coding_client or
+                         (self.api_key and (self.base_url or self.coding_base_url)))),
+            "mimo": self.mimo.available and _is_complete("mimo", mimo_config),
+            "codex": self.codex.available and _is_complete("codex", self._configs["codex"]),
+        }
+        self._provider_order = sorted(
+            (key for key, available in ready.items() if available
+             and self.scope in self._configs[key]["_scopes"]
+             and (self._provider_keys is None or key in self._provider_keys)),
+            key=lambda key: (int(self._configs[key]["priority"]), key),
+        )
+        self._route_index = 0
+        self._active_provider = self._provider_order[0] if self._provider_order else ""
 
     @property
     def available(self):
-        return bool(self.model_candidates and (self.client or self.coding_client or
-                    (self.api_key and (self.base_url or self.coding_base_url))))
+        if not self._in_call:
+            self._load_config()
+        return bool(self._provider_order)
 
     def _reset_evidence(self):
         self.last_error = ""
@@ -66,15 +92,17 @@ class GLMClient:
         self.last_provider = ""
         self.last_model = ""
         self.last_primary_error = ""
-        self._active_provider = "glm"
+        self._route_index = 0
+        self._active_provider = self._provider_order[0] if self._provider_order else ""
 
     def _begin_call(self):
         self._reset_evidence()
         self._load_config()
+        self._in_call = True
 
     def _safe_error(self, error):
         text = str(error)
-        for key in (self.api_key, self.mimo.api_key):
+        for key in (self.api_key, self.mimo.api_key, self.codex.api_key):
             if key:
                 text = text.replace(key, "[redacted]")
         return text
@@ -111,54 +139,116 @@ class GLMClient:
         return post_completion(provider="GLM", base_url=base_url, api_key=api_key,
                                payload=payload, timeout=self.request_timeout_seconds)
 
+    def _record_attempt(self, provider_key, start, response=None, error=None):
+        # Observability is best effort. A DB/status outage must never turn an
+        # already successful paid completion into a retry or duplicate charge.
+        try:
+            from botend.services.ai_provider_service import record_ai_result
+            record_ai_result(provider_key, self._configs[provider_key],
+                             response=response, error=error, model=self.last_model,
+                             latency_ms=round((time.monotonic() - start) * 1000))
+        except Exception as failure:
+            logging.getLogger(__name__).warning("AI status update failed: %s", type(failure).__name__)
+
     def _create_mimo_completion(self, **kwargs):
         self.last_provider = "mimo"
         self.last_model = self.mimo.model
-        return self.mimo.create_completion(**kwargs)
+        start = time.monotonic()
+        try:
+            response = self.mimo.create_completion(**kwargs)
+        except Exception as error:
+            self._record_attempt("mimo", start, error=error)
+            raise
+        self._record_attempt("mimo", start, response=response)
+        return response
 
-    def _create_completion(self, **kwargs):
-        if self._active_provider == "mimo":
-            return self._create_mimo_completion(**kwargs)
-        if not self.available:
-            raise ValueError("GLM SDK未安装/未初始化，且未配置 HTTP base_url/api_key/model")
+    def _create_codex_completion(self, **kwargs):
+        self.last_provider = "codex"
+        self.last_model = self.codex.model
+        start = time.monotonic()
+        try:
+            response = self.codex.create_completion(**kwargs)
+        except Exception as error:
+            self._record_attempt("codex", start, error=error)
+            raise
+        self._record_attempt("codex", start, response=response)
+        return response
+
+    def _create_glm_attempt(self, client, base_url, req):
+        start = time.monotonic()
+        try:
+            if client:
+                response = client.chat.completions.create(**req)
+            else:
+                response = self._create_completion_http(base_url=base_url, api_key=self.api_key, payload=req)
+        except Exception as error:
+            self._record_attempt("glm", start, error=error)
+            raise
+        self._record_attempt("glm", start, response=response)
+        return response
+
+    def _request_with_retries(self, request):
+        transient_failures = rate_failures = 0
+        while True:
+            try:
+                return request()
+            except Exception as error:
+                # Retry only the initially selected provider. Backups get one
+                # attempt; routing may advance to another in-scope provider,
+                # but never cycles back to one already attempted.
+                if self._route_index != 0:
+                    raise
+                kind = self._failure_kind(error)
+                if kind == "rate_limit":
+                    rate_failures += 1
+                    retry = rate_failures < self.primary_rate_limit_attempts
+                elif kind == "transient":
+                    transient_failures += 1
+                    retry = transient_failures < self.primary_connection_attempts
+                else:
+                    retry = False
+                retry = retry and transient_failures + rate_failures < max(
+                    self.primary_connection_attempts, self.primary_rate_limit_attempts)
+                if not retry:
+                    raise
+                time.sleep(self.primary_retry_delay_seconds)
+
+    def _create_glm_completion(self, **kwargs):
         for idx, model in enumerate(self.model_candidates):
             req = dict(kwargs, model=model)
             use_coding = self._is_coding_model(model)
             client = (self.coding_client if use_coding else self.client) or self.client or self.coding_client
-            # Match the SDK's configured endpoint preference regardless of model name.
+            # Preserve the SDK's effective endpoint and billing source.
             base_url = self.coding_base_url or self.base_url
-            transient_failures = rate_failures = 0
-            while True:
-                self.last_provider, self.last_model = "glm", model
-                try:
-                    if client:
-                        # Transport-level timeout and disabled SDK retries; no threads.
-                        return client.chat.completions.create(**req)
-                    return self._create_completion_http(base_url=base_url, api_key=self.api_key, payload=req)
-                except Exception as error:
-                    kind = self._failure_kind(error)
-                    if kind == "rate_limit":
-                        rate_failures += 1
-                        retry = rate_failures < self.primary_rate_limit_attempts
-                    elif kind == "transient":
-                        transient_failures += 1
-                        retry = transient_failures < self.primary_connection_attempts
-                    else:
-                        retry = False
-                    # Total requests also bounded when failure classes alternate.
-                    retry = retry and transient_failures + rate_failures < max(
-                        self.primary_connection_attempts, self.primary_rate_limit_attempts)
-                    if retry:
-                        time.sleep(self.primary_retry_delay_seconds)
-                        continue
-                    if kind in ("rate_limit", "transient") and self.mimo.available:
-                        self.last_primary_error = self._safe_error(error)
-                        self._active_provider = "mimo"
-                        # Not inside GLM retry handling: MiMo failure is terminal.
-                        return self._create_mimo_completion(**kwargs)
-                    if self._is_no_access_error(error) and idx < len(self.model_candidates) - 1:
-                        break
+            self.last_provider, self.last_model = "glm", model
+            try:
+                return self._request_with_retries(lambda: self._create_glm_attempt(client, base_url, req))
+            except Exception as error:
+                if self._is_no_access_error(error) and idx < len(self.model_candidates) - 1:
+                    continue
+                raise
+
+    def _create_completion(self, **kwargs):
+        if not self.available:
+            raise ValueError("没有已启用且配置完整的 AI 服务")
+        while self._route_index < len(self._provider_order):
+            provider_key = self._provider_order[self._route_index]
+            self._active_provider = provider_key
+            try:
+                if provider_key == "glm":
+                    return self._create_glm_completion(**kwargs)
+                if provider_key == "mimo":
+                    return self._request_with_retries(lambda: self._create_mimo_completion(**kwargs))
+                if provider_key == "codex":
+                    return self._request_with_retries(lambda: self._create_codex_completion(**kwargs))
+                raise ValueError("Unknown AI provider")
+            except Exception as error:
+                if (self._failure_kind(error) not in ("rate_limit", "transient")
+                        or self._route_index + 1 >= len(self._provider_order)):
                     raise
+                if not self.last_primary_error:
+                    self.last_primary_error = self._safe_error(error)
+                self._route_index += 1
 
     def _normalize_message_content(self, msg):
         content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
@@ -225,6 +315,8 @@ class GLMClient:
         except Exception as error:
             self.last_error = self._safe_error(error)
             return None
+        finally:
+            self._in_call = False
 
     def send_message_with_tools(self, message, tools, tool_handler, max_rounds=6):
         try:
@@ -289,6 +381,8 @@ class GLMClient:
         except Exception as error:
             self.last_error = self._safe_error(error)
             return None
+        finally:
+            self._in_call = False
 
 
 def main():

@@ -88,6 +88,7 @@ from botend.portal.gear_builder import (
 )
 from botend.dashboard.gear_builder_management import DashboardGearBuilderManagementAPIView
 from botend.dashboard.wow_today_management import DashboardWowTodaySectionAPIView
+from botend.dashboard.ai_management import AIProviderManagementAPIView
 from botend.dashboard.portal_navigation_management import DashboardPortalNavigationAPIView
 from botend.portal.api import (
     PortalBluepostsAPIView,
@@ -148,6 +149,8 @@ from django.http import HttpResponse, JsonResponse
 from botend.portal.updates import PortalSiteUpdatesAPIView
 
 urlpatterns = [
+    path('api/dashboard/ai-providers/', AIProviderManagementAPIView.as_view(), name='dashboard_ai_providers'),
+    path('api/dashboard/ai-providers/<str:provider_key>/', AIProviderManagementAPIView.as_view(), name='dashboard_ai_provider_detail'),
     path('api/site-analytics/collect/', CollectView.as_view(), name='site_analytics_collect'),
     path('api/dashboard/site-analytics/', AnalyticsAPIView.as_view(), name='dashboard_site_analytics'),
     path('auth/bilibili/', BilibiliBindingPage.as_view(), name='bilibili_binding'),

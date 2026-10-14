@@ -466,16 +466,15 @@ class ArticleTranslationServiceTests(SimpleTestCase):
         self.assertIsInstance(svc.engine, GLMTranslationEngine)
         self.assertTrue(svc.available())
 
-    @patch("botend.services.article_translation_service.CodexTranslationEngine")
-    @patch("botend.services.article_translation_service.GLMTranslationEngine")
-    def test_default_registry_builds_fallback_engine(self, mock_glm_engine, mock_codex_engine):
-        mock_glm_engine.return_value.available.return_value = False
-        mock_codex_engine.return_value.available.return_value = True
+    @patch("botend.services.article_translation_service.GLMClient")
+    def test_default_registry_builds_fallback_engine(self, mock_glm_client):
+        mock_glm_client.return_value.available = True
 
         svc = build_translation_service(sleep_func=lambda _: None)
 
         self.assertIsInstance(svc.engine, FallbackTranslationEngine)
         self.assertTrue(svc.available())
+        mock_glm_client.assert_called_once_with(scope="translation")
 
 
 class WowNewsGlossaryDatabaseTests(TestCase):
