@@ -32,6 +32,26 @@ def roster(run_id=123):
 
 
 class ObservationValidationTests(SimpleTestCase):
+    def test_real_unscored_dungeon_placeholders_preserve_other_scored_records(self):
+        from botend.services.player_observation_sources import validate_scored_runs
+        data = scored()
+        empty = {'id': 2, 'name': 'Empty Dungeon', 'slug': 'empty-dungeon'}
+        # Real webpage response shape: no run fields, only these two keys.
+        data['dungeons'].append({'mythic0_completions': 0, 'dungeon': empty})
+        clean = validate_scored_runs(data, 'season-mn-2', 100)
+        self.assertEqual(len(clean['dungeons']), 1)
+        self.assertEqual(clean['dungeons'][0]['keystone_run_id'], 123)
+        self.assertEqual(clean['unscored_dungeons'], [empty])
+        self.assertEqual(validate_scored_runs(clean, 'season-mn-2', 100), clean)
+        for malformed in (
+                {'dungeon': empty},
+                {'mythic0_completions': 0, 'dungeon': empty, 'keystone_run_id': None},
+                {'mythic0_completions': 0, 'dungeon': {'id': True, 'name': 'Bad', 'slug': 'bad'}},
+                {'mythic0_completions': 0, 'dungeon': data['dungeons'][0]['dungeon']}):
+            bad = scored(); bad['dungeons'].append(malformed)
+            with self.subTest(malformed=malformed), self.assertRaises(ValueError):
+                validate_scored_runs(bad, 'season-mn-2', 100)
+
     def test_character_id_retained_strictly_and_legacy_supported(self):
         run = payload()['mythic_plus_best_runs'][0]
         result = validate_details(roster(), run, 'season-mn-2')

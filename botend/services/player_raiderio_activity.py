@@ -186,7 +186,7 @@ class ActivityCollector:
                 row.next_attempt_at = now + timedelta(minutes=2)
                 row.save(update_fields=['status', 'last_attempt_at', 'next_attempt_at'])
         if deferred and not include_profile:
-            return self._refresh_rosters({'status': deferred, 'activity_id': row.pk}, row, season)
+            return self._refresh_rosters({'status': deferred, 'activity_id': row.pk}, row, season, player)
         fields = activity_fields(season.rio_season) if collect_activity else ''
         if include_profile:
             fields = ','.join(filter(None, ('gear,talents', fields)))
@@ -214,7 +214,7 @@ class ActivityCollector:
                 if include_profile:
                     result['profile_payload'] = data
                 if not collect_activity:
-                    return self._refresh_rosters({**result, 'status': deferred}, row, season)
+                    return self._refresh_rosters({**result, 'status': deferred}, row, season, player)
                 facts, updated = validate_payload(data, identity, season)
         except (ValueError, TypeError, KeyError, AttributeError):
             error = 'invalid_payload'
@@ -244,14 +244,27 @@ class ActivityCollector:
                 current.next_attempt_at = stamp + (TTL if current.status == 'ready' else timedelta(hours=1))
             current.save()
         result['status'] = error or current.status
-        return self._refresh_rosters(result, current, season)
+        return self._refresh_rosters(result, current, season, player)
 
-    def _refresh_rosters(self, result, row, season):
+    def _refresh_rosters(self, result, row, season, player):
         # Only published local references: failed incoming activity never leaks
         # new runs. Run TTL/lease is independent of activity/profile freshness.
         # Called outside the activity transaction, and never during its busy lease.
         if self.stopped or result['status'] == 'busy':
             return result
+        # Maintain only explicitly enrolled raid pilots; never expand to all players.
+        # Its lease/TTL live inside the module, independent of M+ and profile clocks.
+        if result['status'] in ('ready', 'fresh', 'partial') and 'raid_first_kills' in row.payload_json:
+            try:
+                from botend.services.player_raid_observation_sources import refresh_raid_sources
+                raid = refresh_raid_sources(player, transport=self.transport)
+                result['raid_first_kills'] = raid
+                if raid['status'] == 'rate_limited':
+                    self.stopped = True
+                    return result
+            except Exception as exc:
+                logging.getLogger(__name__).warning('Raider.IO raid enrichment failed (%s)', type(exc).__name__)
+                result['raid_first_kills'] = {'status': 'enrichment_error'}
         runs = row.payload_json.get('mythic_plus_best_runs')
         if not isinstance(runs, list) or not runs:
             return result

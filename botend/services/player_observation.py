@@ -162,7 +162,7 @@ def _context(player):
     identity = player_identity(player)
     if not identity or identity['character_name'] == 'anonymous':
         return None
-    season = SeasonMeta.objects.filter(pk=player.season_id, is_active=True).only('id', 'rio_season').first()
+    season = SeasonMeta.objects.filter(pk=player.season_id, is_active=True).only('id', 'rio_season', 'raid_encounters').first()
     if not season or not season.rio_season:
         return None
     # Re-read ranking eligibility; neither the caller's rank nor its spec gates a character.
@@ -186,7 +186,7 @@ def _context(player):
         return None
     activity = RaiderIOCharacterActivity.objects.filter(season_id=season.pk,
         identity_digest=activity_identity_digest(**identity)).only('id', 'season_id', 'identity_digest',
-        'payload_json', 'module_fetched_at', 'fetched_at', 'source_updated_at', 'status', 'last_error').first()
+        'payload_json', 'module_fetched_at', 'fetched_at', 'source_updated_at', 'status', 'last_error', 'scored_runs_json').first()
     return (season, identity, activity, candidate.class_name) if activity else None
 
 
@@ -559,6 +559,39 @@ def generate_observation(player, force=False, engine=None):
         return {'status': 'ready' if updated else 'lease_expired', 'analysis_id': row.pk}
 
 
+def _display_judgements(evidence):
+    """Compact presentation only; do not alter frozen analysis or its thresholds."""
+    decisions = {item['code']: item for item in evidence.get('judgements', [])}
+    labels = {item['code']: item for item in evidence.get('eligible_labels', [])}
+    refs = {item['id']: item for item in evidence.get('evidence', [])}
+    metrics = evidence.get('metrics', {})
+    progression = metrics.get('progression')
+    rows = []
+    for code, title, candidates in (
+            ('assistance', '被带迹象', ('higher_teammates',)),
+            ('off_spec', '副专精', ()),
+            ('rotation', '组队模式', ('fixed_team', 'rotating_core'))):
+        decision = decisions.get(code, {})
+        label = next((labels[key] for key in candidates if key in labels), None)
+        supported = decision.get('status') == '支持' and label is not None
+        # Old publications inferred four-person carries from rotation alone.
+        # They cannot regain that label merely through a display-only change.
+        if code == 'rotation' and metrics.get('team_pattern', {}).get('kind') == 'suspected_four':
+            supported = supported and bool(progression and progression.get('status') == 'supported')
+        details = [refs[key] for key in label['evidence_ids'] if key in refs] if label and supported else []
+        supported = bool(supported and details and len(details) == len(label['evidence_ids']))
+        reason = ''
+        if supported:
+            reason = refs.get(label['code'], details[0])['text']
+            if code == 'rotation' and progression and progression.get('status') == 'supported':
+                reason = (f"近期核心同场 {progression['core_runs']} 场，其中 {progression['below_core_runs']} / {progression['core_comparable_runs']} 场低于核心当前同本计分上限；"
+                          f"这些场次中 {progression['low_fifth_runs']} / {progression['fifth_comparable_runs']} 场出现明显低分第五人。")
+        rows.append({'code': code, 'label': title, 'supported': supported,
+                     'value': label['label'] if supported else '证据不足',
+                     'reason': reason, 'evidence': details if supported else []})
+    return rows
+
+
 def project_player_observation(player):
     """Read-only projection; no row creation, source refresh, or AI side effects."""
     view = {'status': 'pending', 'generated_at': None, 'model_label': '项目 AI',
@@ -568,8 +601,12 @@ def project_player_observation(player):
     if not context:
         return None
     row = PlayerObservationAnalysis.objects.filter(activity_id=context[2].pk).first()
-    if row is None:
+    if row is None and 'raid_first_kills' not in context[2].payload_json:
         return None
+    from botend.services.player_raid_observation import project_raid_observation
+    view['raid_judgement'] = project_raid_observation(context[2], context[0], context[1])
+    if row is None:
+        return view
     current = _build(context)
     view.update(coverage=current['coverage'], season_counts=current['season_counts'], limitations=current['limitations'], source_stamps=current['source_stamps'])
     if not row.result_json:
@@ -597,6 +634,8 @@ def project_player_observation(player):
     labels = {item['code']: item['label'] for item in current['eligible_labels']}
     refs = {item['id']: item for item in current['evidence']}
     view.update(status='stale' if row.prompt_version != PROMPT_VERSION or row.last_error or current['source_failed'] else 'ready', generated_at=row.generated_at, conclusion=current['conclusion_options'][result['conclusion_id']]['text'], judgements=current['judgements'], progression=current['metrics'].get('progression'))
+    view['display_judgements'] = _display_judgements(current)
+    view['has_supported_judgements'] = any(item['supported'] for item in view['display_judgements'])
     for item in result['observations']:
         view['observations'].append({'label': labels[item['code']], 'confidence': item['confidence'], 'reason': LABEL_OPTIONS[item['code']]['reason_options'][item['reason_id']],
             'limitations': [LABEL_OPTIONS[item['code']]['limitation_options'][key] for key in item['limitation_ids']], 'evidence': [refs[key] for key in item['evidence_ids']]})

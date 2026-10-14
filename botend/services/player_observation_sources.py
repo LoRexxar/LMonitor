@@ -43,6 +43,13 @@ def _label(value):
     return value
 
 
+def _dungeon(value):
+    if not isinstance(value, dict):
+        raise ValueError('missing dungeon')
+    return {'id': _positive(value.get('id')), 'name': _label(value.get('name')),
+            'slug': _label(value.get('slug'))}
+
+
 def _scored_record(record, rio_season, *, alternate=False):
     if not isinstance(record, dict):
         raise ValueError('invalid scored record')
@@ -51,11 +58,7 @@ def _scored_record(record, rio_season, *, alternate=False):
             or record.get('deleted_at') not in (None, '')
             or record.get('runPrivacyMode', 'public') != 'public'):
         raise ValueError('wrong scored run scope')
-    dungeon = record.get('dungeon')
-    if not isinstance(dungeon, dict):
-        raise ValueError('missing dungeon')
-    clean = {'dungeon': {'id': _positive(dungeon.get('id')),
-                         'name': _label(dungeon.get('name')), 'slug': _label(dungeon.get('slug'))},
+    clean = {'dungeon': _dungeon(record.get('dungeon')),
              'keystone_run_id': _positive(record.get('keystone_run_id')),
              'mythic_level': _positive(record.get('mythic_level'))}
     score = record.get('score')
@@ -99,10 +102,20 @@ zero. This endpoint describes current scored runs, never historical score delta.
             or data['ui'] != scope or type(data['ui'].get('characterId')) is not int):
         raise ValueError('wrong scored scope')
     rows = data.get('dungeons')
-    if not isinstance(rows, list) or len(rows) > 100:
+    unscored = data.get('unscored_dungeons', [])
+    if not isinstance(rows, list) or not isinstance(unscored, list) or len(rows) + len(unscored) > 100:
         raise ValueError('invalid dungeon list')
-    clean, dungeon_ids, run_ids = [], set(), set()
+    clean, empty, dungeon_ids, run_ids = [], [], set(), set()
     for row in rows:
+        # Webpage placeholders have precisely these two keys and no run fact.
+        # Preserve their dungeon as unknown without discarding valid siblings.
+        if isinstance(row, dict) and set(row) == {'mythic0_completions', 'dungeon'}:
+            dungeon = _dungeon(row['dungeon'])
+            if dungeon['id'] in dungeon_ids:
+                raise ValueError('duplicate dungeon')
+            dungeon_ids.add(dungeon['id'])
+            empty.append(dungeon)
+            continue
         item = _scored_record(row, rio_season)
         if item['dungeon']['id'] in dungeon_ids:
             raise ValueError('duplicate dungeon')
@@ -113,11 +126,20 @@ zero. This endpoint describes current scored runs, never historical score delta.
                     raise ValueError('duplicate scored run')
                 run_ids.add(run['keystone_run_id'])
         clean.append(item)
-    return {'ui': scope, 'dungeons': clean, 'source_url': SCORED_URL + '?' + urlencode(scope)}
+    for dungeon in unscored:
+        dungeon = _dungeon(dungeon)
+        if dungeon['id'] in dungeon_ids:
+            raise ValueError('duplicate dungeon')
+        dungeon_ids.add(dungeon['id'])
+        empty.append(dungeon)
+    result = {'ui': scope, 'dungeons': clean, 'source_url': SCORED_URL + '?' + urlencode(scope)}
+    if empty:
+        result['unscored_dungeons'] = empty
+    return result
 
 
 class _ActivityOnlyCollector(ActivityCollector):
-    def _refresh_rosters(self, result, row, season):
+    def _refresh_rosters(self, result, row, season, player):
         # Observation discovery owns its own best+recent union and hard budget.
         return result
 
