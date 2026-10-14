@@ -1,3 +1,18 @@
+# Copy this block into the active settings file to enable the independent
+# fallback. Keep api_key in ignored settings; never commit a production key.
+# GLM stays primary. Only rate limits / repeated transient failures switch.
+MIMO_API_CONFIG = {
+    "enabled": False,
+    "api_key": "",
+    "base_url": "https://token-plan-cn.xiaomimimo.com/v1",
+    "model": "mimo-v2.6-flash",
+    "request_timeout_seconds": 90,
+    "thinking_type": "disabled",
+    "primary_connection_attempts": 3,
+    "primary_rate_limit_attempts": 1,
+    "primary_retry_delay_seconds": 2,
+}
+
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",

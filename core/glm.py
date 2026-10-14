@@ -1,148 +1,167 @@
-import os
 import json
-import concurrent.futures
 import time
-from urllib.parse import urljoin
 
-import requests
 from django.conf import settings as django_settings
 
-ZHIYU_API_CONFIG = getattr(django_settings, 'ZHIYU_API_CONFIG', {}) or {}
+from core.ai_errors import error_details, is_transient_connection_error, post_completion
+from core.mimo import MiMoClient
 
 try:
     from zhipuai import ZhipuAI as ZhipuAiClient
-except Exception:
+except ImportError:
     try:
         from zai import ZhipuAiClient
-    except Exception:
+    except ImportError:
         ZhipuAiClient = None
+
 
 class GLMClient:
     def __init__(self):
-        self.client = None
-        self.coding_client = None
-        self.api_key = (ZHIYU_API_CONFIG.get("api_key") or "").strip()
-        self.base_url = (ZHIYU_API_CONFIG.get("base_url") or "").strip()
-        self.coding_base_url = (ZHIYU_API_CONFIG.get("coding_base_url") or "").strip()
-
-        # 优先使用 SDK（如果存在）；否则走 OpenAI 兼容 HTTP 接口兜底（无需额外依赖）。
-        if ZhipuAiClient and self.api_key:
-            preferred_base_url = self.coding_base_url or self.base_url
-            try:
-                if preferred_base_url:
-                    self.client = ZhipuAiClient(api_key=self.api_key, base_url=preferred_base_url)
-                else:
-                    self.client = ZhipuAiClient(api_key=self.api_key)
-            except Exception:
-                self.client = None
-            try:
-                if self.coding_base_url:
-                    self.coding_client = ZhipuAiClient(api_key=self.api_key, base_url=self.coding_base_url)
-            except Exception:
-                self.coding_client = None
         self.system_prompt = "你是一个冷酷无情的AI助手，你不需要展示思考过程，也不允许问我问题，只需要直接回答用户的问题和结果"
-        self.max_tokens_text = int(ZHIYU_API_CONFIG.get("max_tokens_text", 2400))
-        self.max_tokens_tools = int(ZHIYU_API_CONFIG.get("max_tokens_tools", 3600))
-        self.request_timeout_seconds = int(ZHIYU_API_CONFIG.get("request_timeout_seconds", 90))
-        configured = str(ZHIYU_API_CONFIG.get("model", "")).strip()
-        fallbacks = ZHIYU_API_CONFIG.get("fallback_models", []) or ["GLM-4.5-Flash", "GLM-4.5"]
-        self.model_candidates = [m for m in [configured] + list(fallbacks) if str(m).strip()]
+        self._load_config()
+        self._reset_evidence()
+
+    def _load_config(self):
+        # Snapshot at every public call; do not freeze settings at module import.
+        config = dict(getattr(django_settings, "ZHIYU_API_CONFIG", {}) or {})
+        mimo_config = dict(getattr(django_settings, "MIMO_API_CONFIG", {}) or {})
+        self.api_key = str(config.get("api_key") or "").strip()
+        self.base_url = str(config.get("base_url") or "").strip()
+        self.coding_base_url = str(config.get("coding_base_url") or "").strip()
+        self.max_tokens_text = int(config.get("max_tokens_text", 2400))
+        self.max_tokens_tools = int(config.get("max_tokens_tools", 3600))
+        self.request_timeout_seconds = float(config.get("request_timeout_seconds", 90))
+        if self.request_timeout_seconds <= 0:
+            raise ValueError("GLM request_timeout_seconds must be positive")
+        configured = str(config.get("model") or "").strip()
+        fallbacks = config.get("fallback_models", ["GLM-4.5-Flash", "GLM-4.5"]) or []
+        self.model_candidates = list(dict.fromkeys(str(m).strip() for m in [configured] + list(fallbacks) if str(m).strip()))
+        self.mimo = MiMoClient(mimo_config)
+        self.primary_connection_attempts = max(1, min(3, int(mimo_config.get("primary_connection_attempts", 3))))
+        self.primary_rate_limit_attempts = max(1, min(3, int(mimo_config.get("primary_rate_limit_attempts", 1))))
+        self.primary_retry_delay_seconds = max(0.0, float(mimo_config.get("primary_retry_delay_seconds", 2)))
+        self.client = self.coding_client = None
+        # With a usable backup, use synchronous HTTP for GLM too. No abandoned
+        # SDK worker can still run (or start hidden retries) after switching MiMo.
+        if ZhipuAiClient and self.api_key and not self.mimo.available:
+            preferred = self.coding_base_url or self.base_url
+            options = {"api_key": self.api_key, "timeout": self.request_timeout_seconds, "max_retries": 0}
+            try:
+                self.client = ZhipuAiClient(**options, **({"base_url": preferred} if preferred else {}))
+                if self.coding_base_url:
+                    self.coding_client = ZhipuAiClient(**options, base_url=self.coding_base_url)
+            except Exception:
+                # An older SDK that rejects timeout/retry controls must not be
+                # used unbounded; retain the configured HTTP path instead.
+                self.client = self.coding_client = None
+
+    @property
+    def available(self):
+        return bool(self.model_candidates and (self.client or self.coding_client or
+                    (self.api_key and (self.base_url or self.coding_base_url))))
+
+    def _reset_evidence(self):
         self.last_error = ""
         self.last_reasoning = ""
+        self.last_provider = ""
+        self.last_model = ""
+        self.last_primary_error = ""
+        self._active_provider = "glm"
+
+    def _begin_call(self):
+        self._reset_evidence()
+        self._load_config()
+
+    def _safe_error(self, error):
+        text = str(error)
+        for key in (self.api_key, self.mimo.api_key):
+            if key:
+                text = text.replace(key, "[redacted]")
+        return text
 
     def _is_coding_model(self, model):
         m = str(model or "").strip().lower()
         return ("coding" in m) or m.startswith("code-") or m.startswith("codegeex")
 
-    def _is_no_access_error(self, e):
-        msg = str(e or '')
-        return ('"code":"1220"' in msg) or ('无权访问' in msg) or ('no permission' in msg.lower())
+    def _is_no_access_error(self, error):
+        return error_details(error)[1] == "1220"
 
-    def _is_rate_limit_error(self, e):
-        msg = str(e or '')
-        return ('"code":"1302"' in msg) or ('速率限制' in msg) or ('rate limit' in msg.lower()) or ('429' in msg)
+    def _is_rate_limit_error(self, error):
+        status, code = error_details(error)
+        if status in (400, 401, 403, 404, 422):
+            return False
+        return status == 429 or code in ("1302", "1308")
 
-    def _openai_compat_endpoint(self, base_url: str):
-        b = (base_url or "").strip().rstrip("/")
-        if not b:
-            return ""
-        # OpenAI 兼容接口：.../chat/completions
-        return f"{b}/chat/completions"
+    def _failure_kind(self, error):
+        status, _ = error_details(error)
+        if status in (400, 401, 403, 404, 422):
+            return "terminal"
+        if self._is_rate_limit_error(error):
+            return "rate_limit"
+        if status is not None and 500 <= status <= 599:
+            return "transient"
+        return "transient" if is_transient_connection_error(error) else "terminal"
 
-    def _create_completion_http(self, *, base_url: str, api_key: str, payload: dict):
-        url = self._openai_compat_endpoint(base_url)
-        if not url:
-            raise Exception("GLM HTTP base_url 未配置")
-        headers = {
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        }
-        last_exc = None
-        # 某些网络环境下 open.bigmodel.cn 会出现间歇性 SSLEOF / 握手中断，
-        # 这里做有限重试，避免翻译/摘要链路频繁返回 None。
-        for retry in range(3):
-            try:
-                resp = requests.post(url, headers=headers, json=payload, timeout=self.request_timeout_seconds)
-                last_exc = None
-                break
-            except Exception as e:
-                last_exc = e
-                time.sleep(1.5 * (retry + 1))
-                resp = None
-        if last_exc:
-            raise Exception(f"GLM HTTP 请求失败: {last_exc}")
-        if resp.status_code >= 400:
-            txt = (resp.text or "").strip()
-            raise Exception(f"GLM HTTP bad status={resp.status_code}: {txt[:800]}")
-        try:
-            return resp.json()
-        except Exception:
-            raise Exception(f"GLM HTTP 返回非 JSON: {(resp.text or '')[:800]}")
+    def _openai_compat_endpoint(self, base_url):
+        return f"{base_url.strip().rstrip('/')}/chat/completions" if base_url else ""
+
+    def _create_completion_http(self, *, base_url, api_key, payload):
+        if not base_url:
+            raise ValueError("GLM HTTP base_url 未配置")
+        return post_completion(provider="GLM", base_url=base_url, api_key=api_key,
+                               payload=payload, timeout=self.request_timeout_seconds)
+
+    def _create_mimo_completion(self, **kwargs):
+        self.last_provider = "mimo"
+        self.last_model = self.mimo.model
+        return self.mimo.create_completion(**kwargs)
 
     def _create_completion(self, **kwargs):
-        if not self.client and not self.coding_client:
-            # 走 HTTP 兼容接口兜底（无需 SDK）
-            if not (self.api_key and (self.base_url or self.coding_base_url)):
-                raise Exception("GLM SDK未安装/未初始化，且未配置 HTTP base_url/api_key")
-        last = None
+        if self._active_provider == "mimo":
+            return self._create_mimo_completion(**kwargs)
+        if not self.available:
+            raise ValueError("GLM SDK未安装/未初始化，且未配置 HTTP base_url/api_key/model")
         for idx, model in enumerate(self.model_candidates):
-            req = dict(kwargs)
-            req["model"] = model
+            req = dict(kwargs, model=model)
             use_coding = self._is_coding_model(model)
-            client = self.coding_client if use_coding else self.client
-            if not client:
-                client = self.client or self.coding_client
-            for retry in range(3):
+            client = (self.coding_client if use_coding else self.client) or self.client or self.coding_client
+            # Match the SDK's configured endpoint preference regardless of model name.
+            base_url = self.coding_base_url or self.base_url
+            transient_failures = rate_failures = 0
+            while True:
+                self.last_provider, self.last_model = "glm", model
                 try:
-                    # SDK 优先
                     if client:
-                        executor = concurrent.futures.ThreadPoolExecutor(max_workers=1)
-                        future = executor.submit(client.chat.completions.create, **req)
-                        try:
-                            return future.result(timeout=self.request_timeout_seconds)
-                        except concurrent.futures.TimeoutError:
-                            raise Exception(f"GLM请求超时（>{self.request_timeout_seconds}s）")
-                        finally:
-                            executor.shutdown(wait=False, cancel_futures=True)
-                    # HTTP 兜底
-                    base_url = self.coding_base_url if use_coding and self.coding_base_url else self.base_url
+                        # Transport-level timeout and disabled SDK retries; no threads.
+                        return client.chat.completions.create(**req)
                     return self._create_completion_http(base_url=base_url, api_key=self.api_key, payload=req)
-                except Exception as e:
-                    last = e
-                    if self._is_rate_limit_error(e) and retry < 2:
-                        time.sleep(2 * (retry + 1))
+                except Exception as error:
+                    kind = self._failure_kind(error)
+                    if kind == "rate_limit":
+                        rate_failures += 1
+                        retry = rate_failures < self.primary_rate_limit_attempts
+                    elif kind == "transient":
+                        transient_failures += 1
+                        retry = transient_failures < self.primary_connection_attempts
+                    else:
+                        retry = False
+                    # Total requests also bounded when failure classes alternate.
+                    retry = retry and transient_failures + rate_failures < max(
+                        self.primary_connection_attempts, self.primary_rate_limit_attempts)
+                    if retry:
+                        time.sleep(self.primary_retry_delay_seconds)
                         continue
-                    if self._is_no_access_error(e) and idx < len(self.model_candidates) - 1:
+                    if kind in ("rate_limit", "transient") and self.mimo.available:
+                        self.last_primary_error = self._safe_error(error)
+                        self._active_provider = "mimo"
+                        # Not inside GLM retry handling: MiMo failure is terminal.
+                        return self._create_mimo_completion(**kwargs)
+                    if self._is_no_access_error(error) and idx < len(self.model_candidates) - 1:
                         break
                     raise
-        if last:
-            raise last
 
     def _normalize_message_content(self, msg):
-        if isinstance(msg, dict):
-            content = msg.get("content", None)
-        else:
-            content = getattr(msg, "content", None)
+        content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", None)
         if isinstance(content, str):
             return content.strip()
         if isinstance(content, list):
@@ -150,17 +169,11 @@ class GLMClient:
             for item in content:
                 if isinstance(item, str):
                     chunks.append(item)
-                    continue
-                if isinstance(item, dict):
-                    text_val = item.get("text")
-                    if isinstance(text_val, str) and text_val.strip():
-                        chunks.append(text_val.strip())
-                        continue
-                    # 兼容部分SDK把文本放在 content 字段
-                    content_val = item.get("content")
-                    if isinstance(content_val, str) and content_val.strip():
-                        chunks.append(content_val.strip())
-            return "\n".join([c for c in chunks if c]).strip()
+                elif isinstance(item, dict):
+                    value = item.get("text") or item.get("content")
+                    if isinstance(value, str):
+                        chunks.append(value.strip())
+            return "\n".join(c for c in chunks if c).strip()
         return ""
 
     def _get_first_choice(self, response):
@@ -169,156 +182,127 @@ class GLMClient:
             return choices[0] if choices else None
         try:
             return response.choices[0]
-        except Exception:
+        except (AttributeError, IndexError, TypeError):
             return None
 
     def _get_choice_message(self, choice):
-        if not choice:
-            return None
-        if isinstance(choice, dict):
-            return choice.get("message")
-        return getattr(choice, "message", None)
+        return choice.get("message") if isinstance(choice, dict) else getattr(choice, "message", None)
 
     def _get_choice_finish_reason(self, choice):
-        if not choice:
-            return ""
-        if isinstance(choice, dict):
-            return choice.get("finish_reason") or ""
-        return getattr(choice, "finish_reason", "") or ""
+        return (choice.get("finish_reason") if isinstance(choice, dict) else getattr(choice, "finish_reason", "")) or ""
+
+    def _reasoning(self, msg):
+        if isinstance(msg, dict):
+            return msg.get("reasoning_content") or msg.get("reasoning") or ""
+        return getattr(msg, "reasoning_content", "") or ""
 
     def send_message(self, message, max_tokens=None, thinking_type=None):
-        self.last_error = ""
-        self.last_reasoning = ""
         try:
-            messages = [
-                {"role": "system", "content": self.system_prompt},
-                {"role": "user", "content": message}
-            ]
-            # 兼容“请求成功但content为空”的场景，做有限重试
-            for _ in range(3):
-                req = {
-                    "messages": messages,
-                    "temperature": 0.7,
-                    "max_tokens": int(max_tokens or self.max_tokens_text)
-                }
+            self._begin_call()
+            limit = int(self.max_tokens_text if max_tokens is None else max_tokens)
+            if limit <= 0:
+                raise ValueError("max_tokens must be positive")
+            messages = [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": message}]
+            for attempt in range(3):
+                req = {"messages": messages, "temperature": 0.7, "max_tokens": limit}
                 if thinking_type in ("enabled", "disabled"):
                     req["thinking"] = {"type": thinking_type}
                 response = self._create_completion(**req)
                 choice = self._get_first_choice(response)
                 msg = self._get_choice_message(choice)
-                if isinstance(msg, dict):
-                    reasoning = (msg.get("reasoning_content") or msg.get("reasoning") or "") or ""
-                else:
-                    reasoning = getattr(msg, "reasoning_content", "") or ""
+                reasoning = self._reasoning(msg)
                 if reasoning:
                     self.last_reasoning = str(reasoning)
                 normalized = self._normalize_message_content(msg)
                 if normalized:
+                    self.last_error = ""
                     return normalized
-                finish_reason = self._get_choice_finish_reason(choice)
-                self.last_error = f"empty content, finish_reason={finish_reason}, reasoning_len={len(str(reasoning))}"
-                time.sleep(1)
+                self.last_error = (f"empty content, finish_reason={self._get_choice_finish_reason(choice)}, "
+                                   f"reasoning_len={len(str(reasoning))}")
+                if attempt < 2:
+                    time.sleep(1)
             return None
-        except Exception as e:
-            self.last_error = str(e)
+        except Exception as error:
+            self.last_error = self._safe_error(error)
             return None
 
     def send_message_with_tools(self, message, tools, tool_handler, max_rounds=6):
-        self.last_error = ""
-        self.last_reasoning = ""
-        messages = [
-            {"role": "system", "content": self.system_prompt},
-            {"role": "user", "content": message}
-        ]
         try:
+            self._begin_call()
+            if self.max_tokens_tools <= 0:
+                raise ValueError("max_tokens_tools must be positive")
+            messages = [{"role": "system", "content": self.system_prompt}, {"role": "user", "content": message}]
+            executed = {}
             for _ in range(max_rounds):
-                response = self._create_completion(
-                    messages=messages,
-                    tools=tools,
-                    temperature=0.4,
-                    max_tokens=self.max_tokens_tools
-                )
+                response = self._create_completion(messages=messages, tools=tools,
+                                                   temperature=0.4, max_tokens=self.max_tokens_tools)
                 choice = self._get_first_choice(response)
                 msg = self._get_choice_message(choice)
-                if isinstance(msg, dict):
-                    tool_calls = msg.get("tool_calls", None)
-                else:
-                    tool_calls = getattr(msg, "tool_calls", None)
+                reasoning = self._reasoning(msg)
+                if reasoning:
+                    self.last_reasoning = str(reasoning)
+                tool_calls = msg.get("tool_calls") if isinstance(msg, dict) else getattr(msg, "tool_calls", None)
                 if not tool_calls:
-                    if isinstance(msg, dict):
-                        return msg.get("content", None)
-                    return getattr(msg, "content", None)
-
-                assistant_payload = {
-                    "role": "assistant",
-                    "content": (msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", "")) or ""
-                }
+                    result = self._normalize_message_content(msg)
+                    if not result:
+                        self.last_error = "empty content in tool conversation"
+                        return None
+                    self.last_error = ""
+                    return result
+                assistant_payload: dict = {"role": "assistant", "content": self._normalize_message_content(msg)}
+                # MiMo thinking tools require the exact reasoning_content roundtrip.
+                if isinstance(msg, dict) and "reasoning_content" in msg:
+                    assistant_payload["reasoning_content"] = msg["reasoning_content"]
+                elif reasoning:
+                    assistant_payload["reasoning_content"] = reasoning
                 assistant_tool_calls = []
                 for tc in tool_calls:
-                    if isinstance(tc, dict):
-                        func = tc.get("function") or {}
-                        tool_id = tc.get("id", None)
-                        function_name = (func.get("name") or "").strip()
-                        arguments_raw = func.get("arguments", "{}") or "{}"
-                    else:
-                        func = getattr(tc, "function", None)
-                        if not func:
-                            continue
-                        tool_id = getattr(tc, "id", None)
-                        function_name = getattr(func, "name", "")
-                        arguments_raw = getattr(func, "arguments", "{}") or "{}"
-                    try:
-                        arguments = json.loads(arguments_raw)
-                    except Exception:
-                        arguments = {}
-                    assistant_tool_calls.append({
-                        "id": tool_id,
-                        "type": "function",
-                        "function": {
-                            "name": function_name,
-                            "arguments": json.dumps(arguments, ensure_ascii=False)
-                        }
-                    })
+                    func = tc.get("function") if isinstance(tc, dict) else getattr(tc, "function", None)
+                    tool_id = tc.get("id") if isinstance(tc, dict) else getattr(tc, "id", None)
+                    name = func.get("name") if isinstance(func, dict) else getattr(func, "name", None)
+                    raw = func.get("arguments", "{}") if isinstance(func, dict) else getattr(func, "arguments", "{}")
+                    args = json.loads(raw)
+                    if not tool_id or not name or not isinstance(args, dict):
+                        raise ValueError("invalid tool call id/name/arguments")
+                    assistant_tool_calls.append({"id": tool_id, "type": "function", "function": {
+                        "name": name, "arguments": json.dumps(args, ensure_ascii=False)}})
                 assistant_payload["tool_calls"] = assistant_tool_calls
                 messages.append(assistant_payload)
-
                 for tc in assistant_tool_calls:
-                    func_name = tc["function"]["name"]
-                    try:
-                        func_args = json.loads(tc["function"]["arguments"])
-                    except Exception:
-                        func_args = {}
-                    try:
-                        tool_result = tool_handler(func_name, func_args)
-                        if not isinstance(tool_result, str):
-                            tool_result = json.dumps(tool_result, ensure_ascii=False)
-                    except Exception as e:
-                        tool_result = json.dumps({"error": str(e)}, ensure_ascii=False)
-                    messages.append({
-                        "role": "tool",
-                        "tool_call_id": tc["id"],
-                        "content": tool_result
-                    })
+                    name = tc["function"]["name"]
+                    args = json.loads(tc["function"]["arguments"])
+                    signature = (name, json.dumps(args, sort_keys=True, ensure_ascii=False))
+                    if tc["id"] in executed:
+                        previous_signature, result = executed[tc["id"]]
+                        if signature != previous_signature:
+                            raise ValueError("reused tool call id with different arguments")
+                    else:
+                        # Handler/business errors abort, not a reason to switch provider
+                        # (and never re-run an already executed side-effecting handler).
+                        result = tool_handler(name, args)
+                        if not isinstance(result, str):
+                            result = json.dumps(result, ensure_ascii=False)
+                        executed[tc["id"]] = (signature, result)
+                    messages.append({"role": "tool", "tool_call_id": tc["id"], "content": result})
+            self.last_error = "tool conversation exceeded max_rounds"
             return None
-        except Exception as e:
-            self.last_error = str(e)
+        except Exception as error:
+            self.last_error = self._safe_error(error)
             return None
+
 
 def main():
-    # 示例用法
     glm = GLMClient()
     print("GLM 客户端已初始化 (输入 'quit' 退出)")
-    
     while True:
         user_input = input("您: ")
         if user_input.lower() == 'quit':
             break
-            
         response = glm.send_message(user_input)
         if response:
             print(f"AI: {response}")
-    
     print("再见！")
+
 
 if __name__ == "__main__":
     main()

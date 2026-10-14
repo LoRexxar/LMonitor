@@ -97,7 +97,7 @@ def render_daily_html_with_skill(report_date, sections: List[Dict[str, Any]], *,
     prompt = build_daily_report_design_prompt(payload)
     try:
         glm = GLMClient()
-        if not (getattr(glm, "client", None) or getattr(glm, "coding_client", None) or (getattr(glm, "api_key", "") and (getattr(glm, "base_url", "") or getattr(glm, "coding_base_url", "")))):
+        if not glm.available:
             return None, {"renderer": "fallback_static", "error": "GLM client not initialized and HTTP fallback not configured"}
         raw = glm.send_message(prompt, max_tokens=12000, thinking_type="disabled")
         if not raw:

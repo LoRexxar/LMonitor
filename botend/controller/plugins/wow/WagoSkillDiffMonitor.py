@@ -2159,7 +2159,7 @@ class WagoSkillDiffMonitor(BaseScan):
         if not GLMClient:
             return ''
         glm = GLMClient()
-        if not getattr(glm, 'client', None):
+        if not glm.available:
             return ''
         top = sorted((class_spell_counts or {}).items(), key=lambda x: (-int(x[1] or 0), int(x[0] or 0)))[:5]
         payload = {

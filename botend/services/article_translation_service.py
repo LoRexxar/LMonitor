@@ -39,7 +39,7 @@ class GLMTranslationEngine:
         return getattr(self.client, "last_error", "") or ""
 
     def available(self) -> bool:
-        return bool(getattr(self.client, "api_key", ""))
+        return bool(self.client.available)
 
     def send_message(self, prompt: str, *, max_tokens: int) -> str:
         return self.client.send_message(prompt, max_tokens=max_tokens, thinking_type="disabled") or ""

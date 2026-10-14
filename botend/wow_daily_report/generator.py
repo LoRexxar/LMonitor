@@ -325,7 +325,7 @@ def _summarize_news_item(item: Dict[str, Any], *, use_llm: bool) -> Dict[str, An
         return {"text": fallback, "llm_ok": False, "error": "empty_body"}
     try:
         glm = GLMClient()
-        if not (getattr(glm, "client", None) or getattr(glm, "coding_client", None) or (getattr(glm, "api_key", "") and (getattr(glm, "base_url", "") or getattr(glm, "coding_base_url", "")))):
+        if not glm.available:
             return {"text": fallback, "llm_ok": False, "error": "GLM client 未初始化"}
         prompt = (
             "你是魔兽世界日报编辑。请只基于下面这条新闻原文，写一段 120 字以内中文总结。"
@@ -378,7 +378,7 @@ def _summarize_section(section_key: str, title: str, payload: Dict[str, Any], fa
     except Exception as exc:
         _llm_note(section_key, exc)
         return {"text": fallback, "llm_ok": False, "error": str(exc)}
-    if not getattr(glm, "client", None):
+    if not glm.available:
         _llm_note(section_key, "GLM client 未初始化")
         return {"text": fallback, "llm_ok": False, "error": "GLM client 未初始化"}
 
