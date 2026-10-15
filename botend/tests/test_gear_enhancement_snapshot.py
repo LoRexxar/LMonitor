@@ -13,6 +13,7 @@ from django.utils import timezone
 from botend.models import WowItemSnapshot, WowItemVariantSnapshot
 from botend.portal.gear_builder import PortalGearBuilderEnhancementsAPIView
 from botend.services import gear_builder as gb, gear_catalog_snapshot as snapshots
+from botend.services.gear_catalog_projection import compact_catalog_content
 from botend.tests.test_gear_builder import GearBuilderTestDataMixin
 
 
@@ -71,7 +72,9 @@ class GearEnhancementSnapshotTests(GearBuilderTestDataMixin, TestCase):
         payload = self.body(self.read(snapshot='1'))
         cases, expected = [], []
         for carrier in (None, self.crafted.pk, self.hero.pk, other.pk, fixed.pk, 999999):
-            groups = gb.enhancement_items(**self.identity, equipment_variant_id=carrier)['groups']
+            # Compare the full canonical business result after metadata-only projection.
+            groups = compact_catalog_content(gb.enhancement_items(
+                **self.identity, equipment_variant_id=carrier))['groups']
             self.assertEqual(self.body(self.read(variant_id=carrier or ''))['groups'], groups)
             cases.append({'payload': payload, 'variantId': carrier})
             expected.append(groups)
@@ -94,7 +97,8 @@ class GearEnhancementSnapshotTests(GearBuilderTestDataMixin, TestCase):
         self.build()
         for carrier, selected in ((self.crafted, self.embellishment), (ptr, ptr_material)):
             actual = self.body(self.read(variant_id=carrier.pk))['groups']
-            self.assertEqual(actual, gb.enhancement_items(**self.identity, equipment_variant_id=carrier.pk)['groups'])
+            self.assertEqual(actual, compact_catalog_content(gb.enhancement_items(
+                **self.identity, equipment_variant_id=carrier.pk))['groups'])
             self.assertEqual(actual['embellishments'][0]['variants'][0]['id'], selected.pk)
             self.assertNotEqual(actual['embellishments'][0]['variants'][0]['id'], stronger.pk)
 
@@ -104,7 +108,7 @@ class GearEnhancementSnapshotTests(GearBuilderTestDataMixin, TestCase):
             metadata={'category_name': '另一分类', 'simc_name': 'quick_gem_4'})
         self.build()
         groups = self.body(self.read())['groups']
-        self.assertEqual(groups, gb.enhancement_items(**self.identity)['groups'])
+        self.assertEqual(groups, compact_catalog_content(gb.enhancement_items(**self.identity))['groups'])
         self.assertEqual(len(groups['gems']), 1)
         self.assertEqual(len(groups['gems'][0]['variants']), 2)
 

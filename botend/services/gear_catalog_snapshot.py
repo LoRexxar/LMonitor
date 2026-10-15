@@ -15,7 +15,7 @@ from django.conf import settings
 from django.core.serializers.json import DjangoJSONEncoder
 from django.db import close_old_connections, transaction
 from django.db.models import Count, Max
-from django.http import FileResponse, HttpResponse, JsonResponse
+from django.http import FileResponse, HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
 from django.utils.http import parse_etags
 
@@ -23,7 +23,9 @@ from botend.models import WowItemSnapshot, WowItemVariantSnapshot
 from botend.services import gear_builder as gb
 from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write
 
-SCHEMA_VERSION = 3
+from botend.services import gear_catalog_storage as storage
+
+SCHEMA_VERSION = storage.SCHEMA_VERSION
 logger = logging.getLogger(__name__)
 _thread = None
 _thread_lock = threading.Lock()
@@ -52,7 +54,7 @@ def _directory(key):
 def request_refresh(key):
     """坐标经过白名单验证，持久登记后不会因进程重启丢失。"""
     key = coordinate(**key)
-    path = _directory(key) / 'request.json'
+    path = storage.safe_path(_directory(key) / 'request.json', exists=False)
     if _load(path) != key:
         _write(path, key)
     elif time.time() - path.stat().st_mtime > 60:
@@ -86,18 +88,7 @@ def _source():
 
 
 def _index(key):
-    data = _load(_directory(key) / 'index.json')
-    if (not isinstance(data, dict) or data.get('schema_version') != SCHEMA_VERSION
-            or data.get('coordinate') != key or not re.fullmatch(r'[0-9a-f]{32}\.json', str(data.get('file', '')))):
-        return None
-    try:
-        if (_directory(key) / data['file']).stat().st_size != data.get('bytes'):
-            return None
-        if data.get('gzip_bytes') and (_directory(key) / (data['file'] + '.gz')).stat().st_size != data['gzip_bytes']:
-            return None
-    except OSError:
-        return None
-    return data
+    return storage.read_index(_directory(key), key)
 
 
 def catalog_snapshot_response(request, *, kind='equipment'):
@@ -106,7 +97,7 @@ def catalog_snapshot_response(request, *, kind='equipment'):
                      request.GET.get('spec') or 'Fury', request.GET.get('slot') or 'head', kind)
     try:
         request_refresh(key)
-    except OSError:
+    except (OSError, ValueError):
         logger.exception('装备目录请求登记失败')
         response = JsonResponse({'success': False, 'error': '装备目录暂不可用，请稍后重试。'}, status=503)
         response['Cache-Control'] = 'no-store'
@@ -118,7 +109,11 @@ def catalog_snapshot_response(request, *, kind='equipment'):
         response['Cache-Control'] = 'no-store'
         return response
     if kind == 'enhancements' and request.GET.get('snapshot') != '1':
-        payload = _load(_directory(key) / index['file'])
+        try:
+            payload = storage.read_payload(_directory(key), index)
+            storage.validate_payload(payload, key, index['generation'], index['schema_version'])
+        except storage.ERRORS:
+            payload = None
         if not isinstance(payload, dict) or payload.get('snapshot', {}).get('coordinate') != key:
             return JsonResponse({'success': True, 'groups': {}, 'snapshot': {'state': 'building'}}, status=202)
         response = JsonResponse({'success': True, 'catalog': payload['catalog'],
@@ -130,15 +125,25 @@ def catalog_snapshot_response(request, *, kind='equipment'):
     compressed = any(part.split(';')[0].strip() == 'gzip'
                      and not re.search(r';\s*q=0(?:\.0*)?\s*$', part) for part in encodings.split(','))
     compressed = compressed and bool(index.get('gzip_bytes'))
-    filename = index['file'] + ('.gz' if compressed else '')
+    filename = storage.gzip_path(_directory(key), index).name if compressed else index['file']
     etag = f'"{index["generation"]}{"-gzip" if compressed else ""}"'
     client_tags = [tag.removeprefix('W/') for tag in parse_etags(request.headers.get('If-None-Match', ''))]
     if etag in client_tags or '*' in client_tags:
         response = HttpResponse(status=304)
     else:
         try:
-            response = FileResponse((_directory(key) / filename).open('rb'), content_type='application/json')
-        except OSError:
+            if not compressed and index['schema_version'] == SCHEMA_VERSION:
+                # An actual streaming response, not a GzipFile FileResponse whose
+                # seek-to-end Content-Length discovery decompresses the body.
+                stream = gzip.open(storage.safe_path(_directory(key) / filename), 'rb')
+                response = StreamingHttpResponse(iter(lambda: stream.read(64 * 1024), b''),
+                                                 content_type='application/json')
+                response._resource_closers.append(stream.close)
+                response['Content-Length'] = index['bytes']
+            else:
+                response = FileResponse(storage.safe_path(_directory(key) / filename).open('rb'),
+                                        content_type='application/json')
+        except (OSError, ValueError):
             response = JsonResponse({'success': False, 'error': '装备目录暂不可用，请稍后重试。'}, status=503)
             response['Cache-Control'] = 'no-store'
             return response
@@ -156,20 +161,9 @@ def _verified_index(key):
     if index is None:
         return None
     try:
-        raw = (_directory(key) / index['file']).read_bytes()
-        payload = json.loads(raw)
-        snapshot = payload['snapshot']
-        content = {name: value for name, value in payload.items() if name not in ('success', 'total', 'snapshot')}
-        digest = hashlib.sha256(json.dumps(content, cls=DjangoJSONEncoder, sort_keys=True,
-                                            ensure_ascii=False).encode()).hexdigest()
-        if (payload.get('success') is not True or snapshot.get('state') != 'ready'
-                or snapshot.get('coordinate') != key or snapshot.get('generation') != index['generation']
-                or digest != index.get('content_hash') or not index.get('gzip_bytes')
-                or gzip.decompress((_directory(key) / (index['file'] + '.gz')).read_bytes()) != raw):
-            return None
-    except (OSError, ValueError, TypeError, KeyError, AttributeError, EOFError, zlib.error):
+        return storage.verify(_directory(key), key, index)
+    except storage.ERRORS:
         return None
-    return index
 
 
 def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=None, kind='all', strict=False):
@@ -178,7 +172,7 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=
     built = []
     if targets is not None:
         targets = list({json.dumps(coordinate(**key), sort_keys=True): coordinate(**key) for key in targets}.values())
-    with _lock(root / 'worker.lock', blocking=False) as acquired:
+    with storage.worker_lock(root) as acquired:
         if not acquired:
             if strict:
                 raise RuntimeError('装备目录快照锁忙，未完成预热')
@@ -193,7 +187,7 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=
             # 空闲轮次只检查小索引；事件或新分片立即唤醒，漏通知每五分钟补偿。
             def needs_build(path):
                 index = _load(path.parent / 'index.json', {})
-                return (index.get('schema_version') != SCHEMA_VERSION
+                return (not isinstance(index, dict) or index.get('schema_version') != SCHEMA_VERSION
                         or index.get('source_version') != checked.get('version')
                         or time.time() - index.get('built_at', 0) > 43200)
             if not any(needs_build(path) for path in requests):
@@ -216,6 +210,8 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=
                 # 失败坐标退到后面，避免长期阻塞其他请求。
                 attempt = _load(path.parent / 'attempt.json', {})
                 published = index or _load(path.parent / 'index.json', {})
+                if not isinstance(published, dict):
+                    published = {}
                 retry = attempt.get('at', 0) > published.get('built_at', 0)
                 if poll and retry and time.time() - attempt.get('at', 0) < 60:
                     continue
@@ -236,38 +232,34 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=
                     content = {'items': rows, 'catalog': catalog,
                                'source_groups': {k: sorted(v) for k, v in gb.QUICK_SOURCE_FILTERS.items()}}
                     total = len(rows)
-                content_hash = hashlib.sha256(json.dumps(content, cls=DjangoJSONEncoder, sort_keys=True,
-                                                         ensure_ascii=False).encode()).hexdigest()
+                from botend.services.gear_catalog_projection import compact_catalog_content
+                content = compact_catalog_content(content)
+                content_hash = storage.content_hash(content)
                 previous = _index(key)
-                if previous and previous.get('content_hash') == content_hash and _verified_index(key):
+                if (previous and previous['schema_version'] == SCHEMA_VERSION
+                        and previous.get('content_hash') == content_hash and _verified_index(key)):
                     if _source()[2] != version:
                         break
                     _write(directory / 'index.json', {**previous, 'source_version': version, 'built_at': time.time()})
                     built.append(key)
+                    try:
+                        storage.maintenance(directory, key, apply=True, limit=8)
+                    except storage.ERRORS:
+                        logger.exception('装备目录历史回收失败，保留历史：%s', key)
                     continue
-                generation = uuid.uuid4().hex
-                payload = {'success': True, **content, 'total': total,
-                           'snapshot': {'state': 'ready', 'generation': generation,
-                                        'generated_at': timezone.now().isoformat(), 'coordinate': key}}
-                filename = f'{generation}.json'
-                _write(directory / filename, payload)
-                # 压缩只在后台做一次，普通 Web 响应直接传输已压缩文件。
-                compressed = gzip.compress((directory / filename).read_bytes(), compresslevel=6, mtime=0)
-                with (directory / (filename + '.gz')).open('xb') as stream:
-                    stream.write(compressed)
-                    stream.flush()
-                    os.fsync(stream.fileno())
-                # 构建期间有源更新时放弃发布，下一轮重新生成，旧文件继续可读。
-                if _source()[2] != version:
-                    break
-                _write(directory / 'index.json', {
-                    'schema_version': SCHEMA_VERSION, 'coordinate': key, 'generation': generation,
-                    'content_hash': content_hash,
-                    'source_version': version, 'file': filename, 'built_at': time.time(),
-                    'bytes': (directory / filename).stat().st_size,
-                    'gzip_bytes': len(compressed),
-                })
-                built.append(key)
+                candidate = storage.prepare(directory, key, content, total, version)
+                try:
+                    # Source drift abandons only our candidate, leaving no large orphan.
+                    if _source()[2] != version:
+                        break
+                    storage.publish(directory, key, candidate, previous, write_index=_write)
+                    built.append(key)
+                finally:
+                    storage.discard(directory, candidate)
+                try:
+                    storage.maintenance(directory, key, apply=True, limit=8)
+                except storage.ERRORS:
+                    logger.exception('装备目录历史回收失败，保留历史：%s', key)
             except Exception:
                 logger.exception('装备目录分片构建失败：%s', key)
         if strict:

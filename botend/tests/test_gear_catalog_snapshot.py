@@ -70,9 +70,9 @@ class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(gb.catalog_items(**self.key, source_type='mythic_plus')['items'], [])
         self.assertEqual(gb.catalog_items(**self.key, excluded_stats=['crit'])['total'], 1)
 
-    def test_previous_schema_is_unavailable_until_rebuilt(self):
-        with patch.object(snapshots, 'SCHEMA_VERSION', snapshots.SCHEMA_VERSION - 1):
-            old = self.build()
+    def test_unsupported_schema_is_unavailable_until_rebuilt(self):
+        old = self.build()
+        snapshots._write(snapshots._directory(self.key) / 'index.json', {**old, 'schema_version': 2})
         with self.assertNumQueries(0):
             self.assertEqual(self.client.get(self.url).status_code, 202)
         self.assertEqual(snapshots.refresh_catalog_snapshots(poll=True), [self.key])
@@ -138,22 +138,18 @@ class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
                 call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
                              slot='head', kind='equipment')
 
-    def test_force_repairs_equal_length_plain_and_gzip_corruption(self):
-        for suffix in ('', '.gz'):
-            with self.subTest(suffix=suffix):
-                # Each corruption case starts from an independently built generation.
-                (snapshots._directory(self.key) / 'index.json').unlink(missing_ok=True)
-                old = self.build()
-                path = snapshots._directory(self.key) / (old['file'] + suffix)
-                raw = path.read_bytes()
-                path.write_bytes(b'!' + raw[1:])
-                call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
-                             slot='head', kind='equipment', force=True)
-                index = snapshots._index(self.key)
-                self.assertNotEqual(index['generation'], old['generation'])
-                plain = (path.parent / index['file']).read_bytes()
-                self.assertEqual(json.loads(plain)['snapshot']['coordinate'], self.key)
-                self.assertEqual(gzip.decompress((path.parent / (index['file'] + '.gz')).read_bytes()), plain)
+    def test_force_repairs_equal_length_gzip_corruption(self):
+        old = self.build()
+        path = snapshots._directory(self.key) / old['file']
+        raw = path.read_bytes()
+        path.write_bytes(b'!' + raw[1:])
+        call_command('refresh_gear_catalog_snapshots', class_name='Warrior', spec_name='Fury',
+                     slot='head', kind='equipment', force=True)
+        index = snapshots._index(self.key)
+        self.assertNotEqual(index['generation'], old['generation'])
+        plain = gzip.decompress((path.parent / index['file']).read_bytes())
+        self.assertEqual(json.loads(plain)['snapshot']['coordinate'], self.key)
+        self.assertFalse((path.parent / (index['generation'] + '.json')).exists())
 
     def test_idle_poll_skips_database_but_revision_and_new_shard_wake_worker(self):
         self.build()
@@ -235,7 +231,8 @@ class GearCatalogSnapshotTests(GearBuilderTestDataMixin, TestCase):
                  'excluded_stats': 'excludedStats', 'page_size': 'pageSize'}
         for case in cases:
             result = gb.catalog_items(**self.key, **case)
-            expected.append({'items': result['items'], 'total': result['total'], 'snapshot': payload['snapshot']})
+            from botend.services.gear_catalog_projection import compact_catalog_content
+            expected.append({'items': compact_catalog_content(result)['items'], 'total': result['total'], 'snapshot': payload['snapshot']})
             requests.append({'payload': payload, 'options': {names.get(k, k): v for k, v in case.items()}})
         process = subprocess.run(['node', str(Path(settings.BASE_DIR) / 'botend/tests/js/gear-catalog-filter-oracle.mjs')],
                                  input=json.dumps(requests), text=True, encoding='utf-8', capture_output=True, check=True)
