@@ -1,7 +1,11 @@
 """同分支单份数据的增量更新：校验候选后原位替换，失败保留当前数据。"""
 import csv
+import hashlib
 import json
+import os
 import re
+import shutil
+import tempfile
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
@@ -23,6 +27,7 @@ from botend.plugin_sync import claim_monitor_task, renew_monitor_task_lease, rel
 from botend.services.gear_builder import active_season
 from botend.services.gear_builder_catalog_source import CurrentGearCatalogSource, RAIDBOTS_LIVE_ROOT
 from botend.services.journal_source import WagoJournalSource, inertia
+from botend.services.download_checkpoint import atomic_bytes, atomic_json, encoded, fsync_directory
 from botend.management.commands.sync_gear_builder_catalog import Command as CatalogImporter
 from botend.wow.talents.grants import DB2_GRANT_TABLES
 from botend.services.wow_data_branch import variant_branch
@@ -201,7 +206,8 @@ class UpdateSource:
         loot_specializations = {}
         try:
             from botend.services.item_loot_specializations import prepare_specializations, eligible_names
-            spec_source = WagoJournalSource(build, directory, refresh=True, progress=heartbeat, max_workers=2)
+            spec_source = WagoJournalSource(build, directory, refresh=True, progress=heartbeat, max_workers=2,
+                                            branch=branch)
             spec_source.directory = directory / 'loot-specializations'
             loot_specializations = prepare_specializations(branch, spec_source, payload['items'])
             for item in payload['items']:
@@ -219,7 +225,7 @@ class UpdateSource:
                 raise
             except Exception as exc:
                 fact_warnings.append(f'执行资料补采待重试：{exc}')
-        dump_dir = self.talents(directory, build, heartbeat)
+        dump_dir = self.talents(directory, build, heartbeat, branch=branch)
         self.talent_display(source, dump_dir, heartbeat)
         return {'catalog': payload, 'dump_dir': str(dump_dir), 'season_id': season.pk,
                 'previous_batch': season.gear_batch_key, 'identities': identities, 'activations': activations,
@@ -232,7 +238,7 @@ class UpdateSource:
         from botend.services.wow_item_effect_activation import ItemEffectActivationCollector, _Collection
         identities, activations = [], []
         ids = [item['item_id'] for item in payload['items']]
-        collector = ItemEffectActivationCollector(source)
+        collector = ItemEffectActivationCollector(source=source)
         for item in WowItemSnapshot.objects.filter(item_id__in=ids):
             heartbeat()
             metadata = item.metadata or {}
@@ -261,25 +267,49 @@ class UpdateSource:
         return identities, activations
 
     @staticmethod
-    def talents(directory, build, heartbeat):
+    def talents(directory, build, heartbeat, *, branch='unspecified'):
         marker = directory / 'source_build.txt'
-        refresh = not marker.is_file() or marker.read_text(encoding='utf-8') != build
-        source = WagoJournalSource(build, directory / 'source', progress=heartbeat, refresh=refresh, max_workers=2)
-        source.directory = directory / 'source' / 'current'
-        output = directory / 'talents' / 'current'
-        output.mkdir(parents=True, exist_ok=True)
+        # Completion marker is not a cache identity. An interrupted exact-build
+        # attempt can reuse individually validated tables/segments without it.
+        source = WagoJournalSource(build, directory / 'source', progress=heartbeat,
+                                   max_workers=2, branch=branch)
         tables = [(table, 'zhCN', table) for table in TALENT_TABLES]
         tables += [(table, locale, f'{table}_{locale}')
                    for table in ('SpellName', 'Spell', 'TraitDefinition') for locale in ('enUS', 'zhCN')]
-        for table, locale, filename in tables:
+        for table, locale in dict.fromkeys((table, locale) for table, locale, _ in tables):
             heartbeat()
-            rows = source.table(table, locale)
-            with (output / f'{filename}.csv').open('w', encoding='utf-8', newline='') as stream:
-                writer = csv.DictWriter(stream, fieldnames=list(rows[0]))
-                writer.writeheader()
-                writer.writerows(rows)
-        (output / 'manifest.json').write_text(json.dumps(source.manifest, ensure_ascii=False), encoding='utf-8')
-        marker.write_text(build, encoding='utf-8')
+            source.table(table, locale)
+        # Never write into legacy current (which may still be a runtime source).
+        # Publish the complete DB2 CSV/manifest set, never a partial directory.
+        root = directory / 'talents'
+        root.mkdir(parents=True, exist_ok=True)
+        digest = hashlib.sha256(encoded(source.manifest)).hexdigest()
+        output = root / digest
+        if not output.exists():
+            candidate = Path(tempfile.mkdtemp(prefix='.preparing-', dir=root))
+            try:
+                for table, locale, filename in tables:
+                    source_path = source.directory / f'{table}{"" if locale == "zhCN" else "." + locale}.csv'
+                    content = source_path.read_bytes()
+                    key = table if locale == 'zhCN' else f'{table}.{locale}'
+                    if hashlib.sha256(content).hexdigest() != source.manifest[key]['sha256']:
+                        raise ValueError(f'{filename} 来源在准备中变化，保留当前来源')
+                    atomic_bytes(candidate / f'{filename}.csv', content)
+                atomic_json(candidate / 'manifest.json', source.manifest)
+                os.rename(candidate, output)
+                fsync_directory(root)
+            finally:
+                if candidate.exists():
+                    shutil.rmtree(candidate)
+        else:
+            # A directory name alone does not establish valid cached bytes.
+            for table, locale, filename in tables:
+                key = table if locale == 'zhCN' else f'{table}.{locale}'
+                if hashlib.sha256((output / f'{filename}.csv').read_bytes()).hexdigest() != source.manifest[key]['sha256']:
+                    raise ValueError(f'{filename} 候选缓存校验失败，保留当前来源')
+            if (output / 'manifest.json').read_bytes() != encoded(source.manifest):
+                raise ValueError('天赋候选 manifest 校验失败，保留当前来源')
+        atomic_bytes(marker, build.encode('utf-8'))
         return output
 
     @staticmethod

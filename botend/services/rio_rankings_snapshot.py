@@ -213,7 +213,8 @@ def publish_rankings(module, *, season='', region='world', error=''):
         manifest['entries'][key] = entry
         if season == active:
             manifest['current_season'] = season
-        _write(root / 'index.json', manifest)
+        from botend.services.snapshot_cache_gc import publish_snapshot_index
+        publish_snapshot_index('rio', root, manifest, write_index=_write)
         return entry
 
 
@@ -224,7 +225,8 @@ def mark_failure(module, *, season, region='world', message='本次更新未成�
         key = _key(module, season, region)
         if key in manifest['entries']:
             manifest['entries'][key]['error'] = message
-            _write(snapshot_root() / 'index.json', manifest)
+            from botend.services.snapshot_cache_gc import publish_snapshot_index
+            publish_snapshot_index('rio', snapshot_root(), manifest, write_index=_write)
 
 
 def _published(entry, coordinate):

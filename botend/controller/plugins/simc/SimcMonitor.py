@@ -821,7 +821,8 @@ class SimcMonitor(BaseScan):
                     # The request-level Task remains running until every Run and,
                     # for attribute search, every server-generated round is terminal.
                     simc_task.current_status = 1
-                    simc_task.result_summary = json.dumps(result_summary, ensure_ascii=False)
+                    from botend.services.simc_task_result_storage import result_reference
+                    simc_task.result_summary = json.dumps(result_reference([run]), ensure_ascii=False)
                     simc_task.error_detail = None
                     simc_task.completed_at = None
                     return self._save_task_fields(
@@ -1002,6 +1003,7 @@ class SimcMonitor(BaseScan):
         all_runs = list(SimulationRun.objects.filter(task=simc_task).order_by('sequence'))
         succeeded = [run for run in all_runs if run.status == 'completed']
         failed = [run for run in all_runs if run.status == 'failed']
+        from botend.services.simc_task_result_storage import candidate_references, result_reference
         analysis = {
             **(simc_task.analysis_result if isinstance(simc_task.analysis_result, dict) else {}),
             'total': len(all_runs), 'succeeded': len(succeeded), 'failed': len(failed),
@@ -1010,12 +1012,7 @@ class SimcMonitor(BaseScan):
                  'candidate_label': run.candidate_label, 'error': run.error_detail or ''}
                 for run in failed
             ],
-            'candidates': [
-                {'run_id': run.id, 'candidate_key': run.candidate_key,
-                 'candidate_label': run.candidate_label, 'round_number': run.round_number,
-                 'status': run.status, 'result_summary': run.result_summary or {}}
-                for run in all_runs
-            ],
+            'candidates': candidate_references(all_runs),
         }
         simc_task.analysis_result = analysis
         if simc_task.completed_at is None:
@@ -1026,13 +1023,8 @@ class SimcMonitor(BaseScan):
         elif succeeded:
             simc_task.current_status = 2
             simc_task.error_detail = None
-            # Keep the long-standing single-run contract (top-level dps, etc.)
-            # while candidate tasks expose all successful run summaries.
-            summary_payload = (
-                succeeded[0].result_summary or {}
-                if len(all_runs) == 1 and len(succeeded) == 1
-                else {'runs': [run.result_summary or {} for run in succeeded]}
-            )
+            # Results live once in Run; API consumers already read these Runs.
+            summary_payload = result_reference(all_runs)
             simc_task.result_summary = json.dumps(summary_payload, ensure_ascii=False)
         else:
             simc_task.current_status = 3

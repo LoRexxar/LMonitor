@@ -207,6 +207,8 @@ class LMonitorCoreBackend:
         start_news_snapshot_worker()
         from botend.services.journal_snapshot import start_journal_snapshot_worker
         start_journal_snapshot_worker()
+        from botend.services.snapshot_cache_maintenance import start_snapshot_cache_maintenance_worker
+        start_snapshot_cache_maintenance_worker()
 
         # 获取线程池然后分发信息对象
         # 当有空闲线程时才继续

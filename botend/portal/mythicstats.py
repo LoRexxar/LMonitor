@@ -550,7 +550,7 @@ def fetch_mythicstats_dps(*, req=None, season="season-mn-1", dungeon_id=0, perio
     }
 
 
-def upsert_mythicstats_dps_rows(
+def build_mythicstats_dps_rows(
     *,
     season,
     period_id,
@@ -559,22 +559,12 @@ def upsert_mythicstats_dps_rows(
     dungeon_name,
     role,
     rows,
-    replace_batch=False,
 ):
     season = _parse_season(season) or "unknown"
     period_id = int(period_id)
     dungeon_id = int(dungeon_id or 0)
     role = (role or "").strip() or "damage"
     week = _extract_week_from_label(period_label)
-
-    qs = PortalMythicstatsDpsRow.objects.filter(
-        season=season,
-        period_id=period_id,
-        dungeon_id=dungeon_id,
-        role=role,
-    )
-    if replace_batch:
-        qs.delete()
 
     objs = []
     for r in rows or []:
@@ -606,6 +596,20 @@ def upsert_mythicstats_dps_rows(
             )
         )
 
+    return objs
+
+
+def upsert_mythicstats_dps_rows(*, season, period_id, period_label, dungeon_id,
+                               dungeon_name, role, rows, replace_batch=False):
+    # Shared normalization lets publishers compare the facts that would actually
+    # be persisted, without manufacturing auto_now timestamps or database writes.
+    objs = build_mythicstats_dps_rows(season=season, period_id=period_id,
+        period_label=period_label, dungeon_id=dungeon_id, dungeon_name=dungeon_name,
+        role=role, rows=rows)
+    if replace_batch:
+        PortalMythicstatsDpsRow.objects.filter(season=_parse_season(season) or 'unknown',
+            period_id=int(period_id), dungeon_id=int(dungeon_id or 0),
+            role=(role or '').strip() or 'damage').delete()
     if objs:
         PortalMythicstatsDpsRow.objects.bulk_create(objs, ignore_conflicts=True)
 

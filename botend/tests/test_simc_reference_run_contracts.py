@@ -411,7 +411,8 @@ class SimcReferenceRunContractTests(TestCase):
         task.refresh_from_db()
         run = SimulationRun.objects.get(task=task)
         self.assertEqual(run.result_summary['dps'], 123456.7)
-        self.assertEqual(json.loads(task.result_summary)['dps'], 123456.7)
+        from botend.services.simc_task_result_storage import resolve_task_result
+        self.assertEqual(resolve_task_result(task)['dps'], 123456.7)
 
     def test_execution_failure_uses_real_error_detail_not_report_filename(self):
         task = self.make_task()

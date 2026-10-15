@@ -175,8 +175,9 @@ def refresh_news_snapshot(*, poll=False):
             if revision != _load(root / 'revision.json', {}):
                 return False
             if previous.get('generation') != generation or any(previous.get(key) != value for key, value in body.items()):
-                _write(root / 'index.json', {**body, 'generation': generation,
-                                           'generated_at': timezone.now().isoformat()})
+                from botend.services.snapshot_cache_gc import publish_snapshot_index
+                publish_snapshot_index('news', root, {**body, 'generation': generation,
+                                                     'generated_at': timezone.now().isoformat()}, write_index=_write)
             _write(root / 'checked.json', {'revision': revision, 'at': now})
             _write(root / 'failure.json', {})
             return True

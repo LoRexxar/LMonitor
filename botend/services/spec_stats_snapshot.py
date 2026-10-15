@@ -43,22 +43,19 @@ def publish_projection(path, payload, write_json):
     if module not in ('dungeon', 'raid'):
         write_json(path, payload)
         return
-    generation = uuid.uuid4().hex
     scope = list(path.parent.parts[-3:])
     details = []
     detail_hashes = {}
+    detail_bodies = {}
 
     def save(key, detail):
         if not re.fullmatch(r'(dungeon-(all|\d+)|raid-[45]-\d+)', key) or key in details:
             raise ValueError('统计详情范围缺失或重复')
         if not isinstance(detail, dict):
             raise ValueError('统计详情不是有效对象')
-        write_json(path.parent / 'stats-details' / generation / f'{key}.json', {
-            'schema': SCHEMA, 'generation': generation, 'scope': scope,
-            'key': key, 'data': detail,
-        })
         details.append(key)
         detail_hashes[key] = content_digest(detail)
+        detail_bodies[key] = detail
 
     index = {'generated_at': payload.get('generated_at'),
              'updated_at': payload.get('updated_at') or SpecOverviewService._latest_timestamp(
@@ -89,8 +86,34 @@ def publish_projection(path, payload, write_json):
                 zones.append(compact)
             index['difficulties'].append({'difficulty': difficulty, 'label': item.get('label'), 'zone_groups': zones})
         index['zone_groups'] = next((row['zone_groups'] for row in index['difficulties'] if row['difficulty'] == 5), [])
+    # Hash the FULL supplied business payload, not only the compact overview.
+    # Only top-level publication/check clocks are excluded. Nested fact times,
+    # algorithm markers, labels and resolved display metadata remain dependencies.
+    if module == 'raid':
+        payload_hash = content_digest({'projection_version': 1, 'payload': {
+            key: value for key, value in payload.items() if key not in ('generated_at', 'checked_at')}})
+        old = read_projection(path)
+        meta = old.get('_snapshot', {}) if isinstance(old, dict) else {}
+        try:
+            reusable = (isinstance(old, dict) and meta.get('payload_hash') == payload_hash
+                        and meta.get('detail_hashes') == detail_hashes
+                        and meta.get('index_hash') == content_digest({k: v for k, v in old.items() if k != '_snapshot'})
+                        and _validated_details(path, old, details) is not None)
+        except (TypeError, ValueError):
+            reusable = False
+        if reusable:
+            return
+    generation = uuid.uuid4().hex
+    for key, detail in detail_bodies.items():
+        write_json(path.parent / 'stats-details' / generation / f'{key}.json', {
+            'schema': SCHEMA, 'generation': generation, 'scope': scope,
+            'key': key, 'data': detail,
+        })
     index['_snapshot'] = {'schema': SCHEMA, 'module': module, 'generation': generation,
                           'scope': scope, 'details': details}
+    if module == 'raid':
+        index['_snapshot'].update(payload_hash=payload_hash, detail_hashes=detail_hashes,
+                                  index_hash=content_digest({k: v for k, v in index.items() if k != '_snapshot'}))
     if payload.get('_input_fingerprint'):
         index['_snapshot'].update(input_fingerprint=payload['_input_fingerprint'],
                                   detail_hashes=detail_hashes)
@@ -106,8 +129,15 @@ def reusable_projection(path, fingerprint, required_keys):
     path = Path(path)
     index = read_projection(path)
     meta = index.get('_snapshot', {}) if isinstance(index, dict) else {}
-    if (meta.get('input_fingerprint') != fingerprint
-            or meta.get('details') != list(required_keys)
+    if meta.get('input_fingerprint') != fingerprint:
+        return None
+    return _validated_details(path, index, required_keys)
+
+
+def _validated_details(path, index, required_keys):
+    """Validate bodies against one captured, already scope-validated index."""
+    meta = index.get('_snapshot', {}) if isinstance(index, dict) else {}
+    if (meta.get('details') != list(required_keys)
             or not isinstance(meta.get('detail_hashes'), dict)):
         return None
     for key in required_keys:

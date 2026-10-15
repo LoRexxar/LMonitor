@@ -12,6 +12,8 @@ from threading import BoundedSemaphore
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from botend.services.download_checkpoint import (PartDownload, atomic_bytes, atomic_json,
+                                                read_json, valid_rows)
 
 
 TABLES = (
@@ -56,10 +58,12 @@ def latest_retail_build():
 
 
 class WagoJournalSource:
-    def __init__(self, build, directory, *, offline=False, refresh=False, progress=None, max_workers=6):
+    def __init__(self, build, directory, *, offline=False, refresh=False, progress=None, max_workers=6,
+                 branch='unspecified'):
         if not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
             raise ValueError('必须指定完整游戏版本号')
         self.build = build
+        self.branch = branch
         self.directory = Path(directory) / build / 'zhCN'
         self.offline = offline
         self.refresh = refresh
@@ -67,6 +71,10 @@ class WagoJournalSource:
         self.max_workers = max(1, min(6, int(max_workers)))
         self.manifest = {}
         self._selected_row_ids = {}
+        self._part_downloads = {}
+
+    def identity(self, table, locale):
+        return dict(branch=self.branch, build=self.build, table=table, locale=locale)
 
     def segmented_table(self, table, locale):
         """按来源行号取得 ID 边界，分段流式下载，失败仅重试未完成段。"""
@@ -78,16 +86,18 @@ class WagoJournalSource:
         total = int(page['total'])
         per_page = int(page['per_page'])
         chunk_size = 5000
+        if total <= 0 or per_page <= 0 or chunk_size % per_page:
+            raise ValueError(f'{table} 返回无效分页边界')
         directory = self.directory / f'{table}.{locale}.parts'
-        directory.mkdir(parents=True, exist_ok=True)
+        checkpoint = PartDownload(directory, self.identity(table, locale), total, chunk_size,
+                                  self.refresh, per_page=per_page)
+        self._part_downloads[table, locale] = checkpoint
 
         def segment(offset):
             count = min(chunk_size, total - offset)
-            path = directory / f'{offset}-{total}.json'
-            if path.exists() and not self.refresh:
-                saved = json.loads(path.read_text(encoding='utf-8'))
-                if len(saved) == count:
-                    return saved
+            saved = checkpoint.load(offset, count)
+            if saved is not None:
+                return saved
             with DOWNLOAD_SLOTS, http_session() as session:
                 if offset:
                     response = session.get(f'https://wago.tools/api/db2-find/{table}',
@@ -96,9 +106,9 @@ class WagoJournalSource:
                     position = response.json()
                 else:
                     position = page
+                if int(position['total']) != total or int(position['per_page']) != per_page:
+                    raise ValueError(f'{table} 来源条数或分页布局在下载中变化，请重新同步')
                 first_id = int(position['data'][0]['ID'])
-                if int(position['total']) != total:
-                    raise ValueError(f'{table} 来源条数在下载中变化，请重新同步')
                 with session.get(f'https://wago.tools/db2/{table}/csv',
                                  params={**params, 'filter[ID]': f'>{first_id - 1}'},
                                  stream=True, timeout=(10, 60)) as response:
@@ -110,14 +120,16 @@ class WagoJournalSource:
                         if len(rows) == count:
                             break
                         rows.append(row)
-                    if len(rows) != count or int(rows[0]['ID']) != first_id:
+                    if not valid_rows(rows, count) or int(rows[0]['ID']) != first_id:
                         raise ValueError(f'{table} 分段 {offset} 返回不完整数据')
-            path.write_text(json.dumps(rows, ensure_ascii=False), encoding='utf-8')
+            checkpoint.save(offset, rows)
             self.progress(f'{table} 分段完成：{offset + count}/{total}')
             return rows
         with ThreadPoolExecutor(max_workers=self.max_workers) as pool:
             groups = list(pool.map(segment, range(0, total, chunk_size)))
         rows = [row for group in groups for row in group]
+        if not valid_rows(rows, total):
+            raise ValueError(f'{table} 分段合并不完整或包含重复记录')
         buffer = io.StringIO(newline='')
         writer = csv.DictWriter(buffer, fieldnames=list(rows[0]))
         writer.writeheader()
@@ -127,9 +139,14 @@ class WagoJournalSource:
     def table(self, table, locale='zhCN', *, row_filter=None, required_fields=()):
         path = self.directory / f'{table}{"" if locale == "zhCN" else "." + locale}.csv'
         url = f'https://wago.tools/db2/{table}/csv?build={self.build}&locale={locale}'
+        metadata_path = path.with_suffix('.csv.manifest.json')
+        saved = read_json(metadata_path) if not self.offline else None
+        cached = path.read_bytes() if path.exists() else None
+        verified = (isinstance(saved, dict) and saved.get('identity') == self.identity(table, locale)
+                    and cached is not None and saved.get('sha256') == hashlib.sha256(cached).hexdigest())
         if self.offline and not path.exists():
             raise ValueError(f'离线数据缺少 {table}')
-        if not self.offline and (self.refresh or not path.exists()):
+        if not self.offline and (self.refresh or not verified):
             if table in ('ItemSparse', 'SpellEffect', 'SpellMisc'):
                 content = self.segmented_table(table, locale)
             else:
@@ -138,7 +155,7 @@ class WagoJournalSource:
                     response.raise_for_status()
                     content = response.content
         else:
-            content = path.read_bytes()
+            content = cached
         reader = csv.DictReader(io.StringIO(content.decode('utf-8-sig')))
         missing_fields = {'ID', *required_fields} - set(reader.fieldnames or ())
         if missing_fields:
@@ -168,12 +185,16 @@ class WagoJournalSource:
                 props = inertia(response.text)
             if props.get('currentVersion') != self.build or int(props['data']['total']) != total_rows:
                 raise ValueError(f'{table} 的版本或完整条数校验不通过')
-        if not self.offline:
-            self.directory.mkdir(parents=True, exist_ok=True)
-            path.write_bytes(content)
         key = table if locale == 'zhCN' else f'{table}.{locale}'
-        self.manifest[key] = {
-            'rows': total_rows, 'sha256': hashlib.sha256(content).hexdigest(), 'url': url}
+        metadata = {'rows': total_rows, 'sha256': hashlib.sha256(content).hexdigest(), 'url': url,
+                    'identity': self.identity(table, locale), 'headers': reader.fieldnames}
+        if not self.offline:
+            atomic_bytes(path, content)
+            atomic_json(metadata_path, metadata)
+            checkpoint = self._part_downloads.get((table, locale))
+            if checkpoint is not None:
+                checkpoint.complete(metadata)
+        self.manifest[key] = metadata
         if row_filter is not None:
             self.manifest[key]['selected_rows'] = len(rows)
         suffix = f'（选中 {len(rows)} 条）' if row_filter is not None else ''

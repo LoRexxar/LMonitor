@@ -10,7 +10,7 @@ from django.utils import timezone
 from utils.log import logger
 
 from botend.models import MonitorTask, MonitorTaskLease
-from botend.monitor_env import filter_runnable_tasks
+from botend.monitor_env import is_task_runnable
 
 
 MONITOR_TASK_LEASE_SECONDS = int(
@@ -150,6 +150,21 @@ def portal_data_task_is_due(task, now=None):
     return portal_data_task_due_at(task, now=now) is not None
 
 
+def monitor_scope_key(task):
+    """Plugin dispatch ID + exact target + execution environment; name is a label."""
+    return task.type, task.target, task.env_limit
+
+
+def _locked_monitor_tasks_and_scopes(claim_time):
+    # Every claimant locks the small configuration table in the same order.
+    # Include disabled rows: their in-flight leases still protect the scope.
+    rows = list(MonitorTask.objects.select_for_update().order_by('id'))
+    owners = set(MonitorTaskLease.objects.select_for_update().filter(
+        task_id__in=[r.pk for r in rows], expires_at__gt=claim_time,
+    ).values_list('task_id', flat=True))
+    return rows, {monitor_scope_key(row) for row in rows if row.pk in owners}
+
+
 def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, task_names=None):
     """原子领取当前工作队列中到期最久的任务；普通队列排除独立任务。"""
     claim_time = now or timezone.now()
@@ -161,22 +176,18 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
         # Lock the parent task rows in a stable order.  All claimers use this
         # parent-row mutex, so creating or replacing the separate lease row is
         # serialized without exposing lease fields to long-lived plugin models.
-        candidates = MonitorTask.objects.filter(is_active=1)
-        candidates = (candidates.filter(name__in=task_names) if task_names is not None
-                      else candidates.exclude(name__in=ISOLATED_MONITOR_TASKS))
-        runnable_tasks = list(filter_runnable_tasks(candidates.select_for_update().order_by('id')))
-        active_lease_task_ids = set(
-            MonitorTaskLease.objects.select_for_update()
-            .filter(
-                task_id__in=[task.id for task in runnable_tasks],
-                expires_at__gt=claim_time,
-            )
-            .values_list('task_id', flat=True)
-        )
+        rows, active_scopes = _locked_monitor_tasks_and_scopes(claim_time)
+        canonical = {}
+        for row in rows:
+            if row.is_active and is_task_runnable(row):
+                canonical.setdefault(monitor_scope_key(row), row)
+        runnable_tasks = [row for row in canonical.values()
+                          if (row.name in task_names if task_names is not None
+                              else row.name not in ISOLATED_MONITOR_TASKS)]
         tasks = [
             task
             for task in runnable_tasks
-            if task.id not in active_lease_task_ids
+            if monitor_scope_key(task) not in active_scopes
             and monitor_task_due_at(task, now=claim_time) is not None
         ]
         tasks.sort(key=lambda task: monitor_task_sort_key(task, now=claim_time))
@@ -205,12 +216,11 @@ def claim_monitor_task(task_id, now=None, *, lease_owner=None, lease_seconds=Non
     owner = str(lease_owner or uuid4().hex)
     ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
     with transaction.atomic():
-        task = MonitorTask.objects.select_for_update().filter(pk=task_id).first()
+        rows, active_scopes = _locked_monitor_tasks_and_scopes(claim_time)
+        task = next((row for row in rows if row.pk == task_id), None)
         if task is None:
             return None
-        if MonitorTaskLease.objects.select_for_update().filter(
-            task_id=task_id, expires_at__gt=claim_time,
-        ).exists():
+        if monitor_scope_key(task) in active_scopes:
             return None
         MonitorTaskLease.objects.update_or_create(task_id=task_id, defaults={
             'owner': owner, 'claimed_at': claim_time,

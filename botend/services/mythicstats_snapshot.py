@@ -11,6 +11,7 @@ from django.utils import timezone
 from botend.models import MonitorTask, PortalMythicstatsDpsRow
 from botend.portal import mythicstats as source
 from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write
+from botend.services.spec_stats_snapshot import content_digest
 
 ROLES = ('damage', 'tank', 'healer')
 SCHEMA = 1
@@ -29,8 +30,10 @@ def _manifest():
 
 
 def _shard(entry):
+    if not isinstance(entry, dict):
+        return None
     filename = (entry or {}).get('file', '')
-    if not re.fullmatch(r'[0-9a-f]{32}\.json', filename):
+    if not isinstance(filename, str) or not re.fullmatch(r'[0-9a-f]{32}\.json', filename):
         return None
     data = _load(snapshot_root() / filename)
     return data if isinstance(data, dict) and isinstance(data.get('roles'), dict) else None
@@ -91,7 +94,7 @@ def _rows_payload(season, dungeon_id, period_id, rows, metadata):
         if row.role in roles and len(roles[row.role]) < 80:
             roles[row.role].append(_serialize(row))
     return {'season': season, 'dungeon_id': dungeon_id, 'active_period': period_id, 'roles': roles,
-            'source_note': metadata.get('source_note') or '', 'key_min': metadata.get('key_min'),
+            'source_note': (metadata.get('source_note') or '').strip(), 'key_min': metadata.get('key_min'),
             'key_max': metadata.get('key_max'), 'generated_at': timezone.now().isoformat()}
 
 
@@ -111,25 +114,95 @@ def _validate(payload, season, dungeon_id, period_id):
     if any(not rankings[role] for role in ROLES):
         raise ValueError('来源职责榜单为空，无法确认完整性，保留旧版')
     for role in ROLES:
-        slugs = [row.get('spec_slug') for row in rankings[role]]
+        if any(not isinstance(row, dict) or not isinstance(row.get('spec_slug'), str) for row in rankings[role]):
+            raise ValueError('来源专精数据不是有效对象')
+        slugs = [row['spec_slug'].strip() for row in rankings[role]]
         if any(not slug for slug in slugs) or len(set(slugs)) != len(slugs):
             raise ValueError('来源专精标识缺失或重复')
 
 
-def _collect_shard(payload, season, dungeon, period):
+def _facts(rows):
+    """All persisted business columns, normalized exactly as the ORM stores them."""
+    fields = [f for f in PortalMythicstatsDpsRow._meta.concrete_fields
+              if not f.primary_key and f.name != 'updated_at']
+    return sorted(({f.name: f.get_prep_value(getattr(row, f.name)) for f in fields}
+                   for row in rows), key=lambda row: (row['role'], row['spec_slug']))
+
+
+def _body_semantics(body):
+    # auto_now on rows is collector bookkeeping, not an upstream observation time.
+    return {**{key: value for key, value in body.items() if key not in ('generated_at', 'roles')},
+            'roles': {role: [{k: v for k, v in row.items() if k != 'updated_at'} for row in body['roles'][role]]
+                      for role in ROLES}}
+
+
+def _reusable_shard(old, result, facts_hash):
+    body = _shard(old)
+    if not body or old.get('origin') != 'collector' or old.get('facts_hash') != facts_hash:
+        return False
+    if (body.get('season'), body.get('dungeon_id'), body.get('active_period')) != (
+            result['season'], result['dungeon_id'], result['active_period']):
+        return False
+    if any(not isinstance(body['roles'].get(role), list) or not body['roles'][role]
+           or any(not isinstance(row, dict) for row in body['roles'][role]) for role in ROLES):
+        return False
+    try:
+        return (content_digest(body) == old.get('content_hash')
+                and content_digest(_body_semantics(body)) == content_digest(_body_semantics(result)))
+    except (TypeError, ValueError):
+        return False
+
+
+def _collect_shard(payload, season, dungeon, period, old=None):
     did, pid = dungeon['id'], period['id']
     _validate(payload, season, did, pid)
+    desired = []
+    for role in ROLES:
+        desired.extend(source.build_mythicstats_dps_rows(season=season, period_id=pid,
+            period_label=period['label'], dungeon_id=did, dungeon_name=dungeon['name'],
+            role=role, rows=payload['rankings'][role]))
+    facts = _facts(desired)
+    facts_hash = content_digest(facts)
+    old = old or {}
     # 三种职责一起提交；任何一项失败都不能留下半份数据库榜单。
     with transaction.atomic():
-        for role in ROLES:
-            source.upsert_mythicstats_dps_rows(season=season, period_id=pid, period_label=period['label'],
-                dungeon_id=did, dungeon_name=dungeon['name'], role=role,
-                rows=payload['rankings'][role], replace_batch=True)
-        rows = list(PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=did, period_id=pid).order_by('role', 'rank'))
+        qs = PortalMythicstatsDpsRow.objects.filter(season=season, dungeon_id=did, period_id=pid)
+        rows = list(qs.select_for_update().order_by('role', 'rank', 'spec_slug'))
+        if _facts(rows) != facts:
+            for role in ROLES:
+                source.upsert_mythicstats_dps_rows(season=season, period_id=pid, period_label=period['label'],
+                    dungeon_id=did, dungeon_name=dungeon['name'], role=role,
+                    rows=payload['rankings'][role], replace_batch=True)
+            rows = list(qs.order_by('role', 'rank', 'spec_slug'))
+            if _facts(rows) != facts:
+                raise ValueError('数据库事实与完整来源不一致，回滚本范围')
         result = _rows_payload(season, did, pid, rows, payload)
+        if _reusable_shard(old, result, facts_hash):
+            return {**{key: value for key, value in old.items() if key not in ('error', 'attempted_at')},
+                    'checked_at': timezone.now().isoformat()}
         # 先准备完整文件，数据库事务失败时该文件不会被索引引用。
         entry = _write_shard(result, 'collector')
+        entry.update(facts_hash=facts_hash, content_hash=content_digest(result),
+                     checked_at=timezone.now().isoformat())
     return entry
+
+
+def _historical_reusable(old, season, dungeon, period):
+    """A historical skip is allowed only with verified local evidence."""
+    body = _shard(old)
+    if not body:
+        return False
+    try:
+        if content_digest(body) != old.get('content_hash'):
+            return False
+        rows = list(PortalMythicstatsDpsRow.objects.filter(season=season,
+            dungeon_id=dungeon['id'], period_id=period['id']).order_by('role', 'rank', 'spec_slug'))
+        if any(row.dungeon_name != dungeon['name'] or row.period_label != period['label'] for row in rows):
+            return False
+        return _reusable_shard(old, _rows_payload(season, dungeon['id'], period['id'], rows, body),
+                               content_digest(_facts(rows)))
+    except (TypeError, ValueError):
+        return False
 
 
 def collect_snapshots(*, req=None, season_hint=''):
@@ -192,12 +265,15 @@ def collect_snapshots(*, req=None, season_hint=''):
                 pid, did = period['id'], dungeon['id']
                 key = f'{did}:{pid}'
                 old = meta['shards'].get(key, {})
-                if pid != periods[0]['id'] and old.get('origin') == 'collector' and not old.get('error') and _shard(old):
-                    continue
+                if pid != periods[0]['id'] and old.get('origin') == 'collector' and not old.get('error'):
+                    # Historical fetch skipping must also verify scope, complete
+                    # file contents and current DB facts; existence is not proof.
+                    if _historical_reusable(old, season, dungeon, period):
+                        continue
                 try:
                     payload = base if did == 0 and pid == base['period_id'] else source.fetch_mythicstats_dps(
                         req=req, season=season, dungeon_id=did, period_id=pid)
-                    entry = _collect_shard(payload, season, dungeon, period)
+                    entry = _collect_shard(payload, season, dungeon, period, old=old)
                     meta['shards'][key] = entry
                     built += 1
                     if did == 0 and pid == periods[0]['id']:

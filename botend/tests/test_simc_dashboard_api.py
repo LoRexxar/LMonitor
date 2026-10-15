@@ -17,6 +17,7 @@ from botend.management.commands.update_simc_binary import Command as UpdateSimcB
 from botend.services.simc_player_config import build_player_config_detail, parse_manual_player_config, parse_manual_simc_candidates, parse_simc_player_profile
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_task_service import append_candidate_runs
+from botend.services.simc_task_result_storage import resolve_task_result
 from botend.models import DashboardUserGroup, DashboardUserGroupMembership, PlayerSpecTopPlayer, SeasonMeta, SimcApl, SimcAplSymbol, SimcBackendBinary, SimcContentTemplate, SimcProfile, SimcResourceVersion, SimcTalentString, SimcTask, SimcTaskArtifact, SimulationRun, WowItemSnapshot, WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion
 from botend.tests.simc_apl_symbol_test_utils import get_or_create_symbol_scope
 
@@ -180,7 +181,7 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
         self.assertEqual(self.task.current_status, 2)
         self.assertEqual(self.task.analysis_result['succeeded'], 2)
         self.assertEqual(len(self.task.analysis_result['candidates']), 2)
-        self.assertEqual(json.loads(self.task.result_summary)['runs'], [{'dps': 100}, {'dps': 110}])
+        self.assertEqual(resolve_task_result(self.task)['runs'], [{'dps': 100}, {'dps': 110}])
 
     def test_partial_candidate_failure_does_not_discard_success(self):
         self._run(1, 'completed', 100)
@@ -281,7 +282,7 @@ class SimcWorkerTaskRunLifecycleTests(TestCase):
 
         self.task.refresh_from_db()
         self.assertEqual(self.task.current_status, 2)
-        self.assertEqual(json.loads(self.task.result_summary)['dps'], 100)
+        self.assertEqual(resolve_task_result(self.task)['dps'], 100)
 
     def test_runs_from_inactive_other_task_do_not_affect_aggregation(self):
         self._run(1, 'completed', 100)

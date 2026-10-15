@@ -824,12 +824,11 @@ def _finalize_task(task, now):
             task.refresh_from_db(fields=['analysis_result'])
     completed = [run for run in runs if run.status == 'completed']
     failed = [run for run in runs if run.status == 'failed']
+    from botend.services.simc_task_result_storage import candidate_references, result_reference
     task.analysis_result = {
         **(task.analysis_result if isinstance(task.analysis_result, dict) else {}),
         'total': len(runs), 'succeeded': len(completed), 'failed': len(failed),
-        'candidates': [{'run_id': row.pk, 'candidate_key': row.candidate_key,
-                        'candidate_label': row.candidate_label, 'round_number': row.round_number,
-                        'status': row.status, 'result_summary': row.result_summary or {}} for row in runs],
+        'candidates': candidate_references(runs),
     }
     task.completed_at = now
     # Match the established local worker contract: comparison Tasks succeed when
@@ -837,7 +836,7 @@ def _finalize_task(task, now):
     if completed and not (task.mode == 'attribute_sweep' and failed):
         task.current_status = 2
         task.error_detail = None
-        summary = completed[0].result_summary or {} if len(runs) == 1 else {'runs': [r.result_summary or {} for r in completed]}
+        summary = result_reference(runs)
         task.result_summary = json.dumps(summary, ensure_ascii=False)
         artifacts = list(SimcTaskArtifact.objects.filter(task=task, artifact_type='html_report').order_by('run__sequence'))
         task.result_file = ','.join(row.file_path.rsplit('/', 1)[-1] for row in artifacts)

@@ -962,26 +962,25 @@ class JournalSourceTests(SimpleTestCase):
         return response
 
     def test_segmented_csv_preserves_quoted_multiline_fields_and_id_boundary(self):
+        from tempfile import TemporaryDirectory
         response = self.segmented_response(['ID,Display_lang', '10,"跨行', '名称"', '20,第二件'])
-        with patch('botend.services.journal_source.http_session') as session, \
-                patch('pathlib.Path.exists', return_value=False), patch('pathlib.Path.mkdir'), \
-                patch('pathlib.Path.write_text'):
+        with TemporaryDirectory() as directory, patch('botend.services.journal_source.http_session') as session:
             client = session.return_value.__enter__.return_value
             client.get.return_value = response
-            content = WagoJournalSource('12.1.0.69587', '.').segmented_table('ItemSparse', 'zhCN')
+            content = WagoJournalSource('12.1.0.69587', directory).segmented_table('ItemSparse', 'zhCN')
             self.assertIn('跨行\n名称', content.decode('utf-8'))
             self.assertEqual(client.get.call_args.kwargs['params']['filter[ID]'], '>9')
 
     def test_segmented_csv_rejects_short_or_wrong_boundary_response(self):
+        from tempfile import TemporaryDirectory
+        from pathlib import Path
         for lines in (['ID,Display_lang', '10,只有一件'], ['ID,Display_lang', '11,错误起点', '20,第二件']):
             response = self.segmented_response(lines)
-            with patch('botend.services.journal_source.http_session') as session, \
-                    patch('pathlib.Path.exists', return_value=False), patch('pathlib.Path.mkdir'), \
-                    patch('pathlib.Path.write_text') as write:
+            with TemporaryDirectory() as directory, patch('botend.services.journal_source.http_session') as session:
                 session.return_value.__enter__.return_value.get.return_value = response
                 with self.assertRaisesRegex(ValueError, '不完整数据'):
-                    WagoJournalSource('12.1.0.69587', '.').segmented_table('ItemSparse', 'zhCN')
-                write.assert_not_called()
+                    WagoJournalSource('12.1.0.69587', directory).segmented_table('ItemSparse', 'zhCN')
+                self.assertEqual(list(Path(directory).rglob('0-*.json')), [])
 
     def test_explicit_build_required(self):
         with self.assertRaises(ValueError):
