@@ -1,4 +1,6 @@
 """Storage contracts exercised against SQLite and real temporary files/flock."""
+from datetime import date, datetime, time as datetime_time, timedelta, timezone
+from decimal import Decimal
 import gzip
 import hashlib
 import io
@@ -7,17 +9,74 @@ import os
 from pathlib import Path
 import tempfile
 import time
+from unittest.mock import patch
 import uuid
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.serializers.json import DjangoJSONEncoder
 from django.http import FileResponse, StreamingHttpResponse
-from django.test import RequestFactory, TestCase, override_settings
+from django.test import RequestFactory, SimpleTestCase, TestCase, override_settings
 
 from botend.services import gear_catalog_snapshot as snapshots
 from botend.services import gear_catalog_storage as storage
 from botend.tests.test_gear_builder import GearBuilderTestDataMixin
+
+
+class GearCatalogContentHashTests(SimpleTestCase):
+    def legacy_hash(self, content):
+        return hashlib.sha256(json.dumps(
+            content, cls=DjangoJSONEncoder, sort_keys=True,
+            ensure_ascii=False, allow_nan=False).encode()).hexdigest()
+
+    def test_hash_uses_one_shot_encoding_without_whole_body_or_items_copy(self):
+        content = {'source_groups': {'团本': ['a', None]}, 'items': [
+            {'name': '装备🗡️\n"\\', 'variants': [{'z': None, 'a': [True, False, -0.0, 1e-20]}]},
+            {'name': 'é', 'metadata': {'nested': {'b': 2, 'a': 1}}},
+        ], 'catalog': {'season': 1}}
+        expected = self.legacy_hash(content)
+        original = DjangoJSONEncoder.iterencode
+        encoded_items = []
+
+        def bounded_one_shot(encoder, value, _one_shot=False):
+            self.assertTrue(_one_shot, 'nested JSON must use the C encoder, not Python token iteration')
+            self.assertIsNot(value, content, 'must not encode the whole catalog')
+            self.assertIsNot(value, content['items'], 'must not encode the entire items list')
+            if any(value is item for item in content['items']):
+                encoded_items.append(value)
+            return original(encoder, value, _one_shot=_one_shot)
+
+        with patch.object(DjangoJSONEncoder, 'iterencode', bounded_one_shot):
+            self.assertEqual(storage.content_hash(content), expected)
+        self.assertEqual(len(encoded_items), len(content['items']))
+        self.assertEqual(self.legacy_hash(content), expected)
+
+    def test_hash_matches_legacy_for_empty_nested_and_django_values(self):
+        values = [
+            {}, {'items': []}, {'items': [None, {}, [], '中😀', [1, 2]]},
+            {'items': [{'date': date(2026, 1, 2), 'decimal': Decimal('1.20'),
+                        'datetime': datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=timezone.utc),
+                        'time': datetime_time(3, 4, 5), 'duration': timedelta(days=1, seconds=3),
+                        'uuid': uuid.UUID(int=17)}], 'a': None, 'z': {}},
+            {'groups': {'宝石': [{'name': '红', 'value': None}]}, 'embellishment_options': {}, 'catalog': {}},
+            {'items': None, 'catalog': {}}, {2: 'b', 1: 'a'}, None, [1, {'b': 2, 'a': 1}],
+        ]
+        for content in values:
+            with self.subTest(content=content):
+                self.assertEqual(storage.content_hash(content), self.legacy_hash(content))
+        content = {'z': 1, 'items': [{'b': 2, 'a': 1}], 'a': 3}
+        reordered = {'a': 3, 'items': [{'a': 1, 'b': 2}], 'z': 1}
+        self.assertEqual(storage.content_hash(content), storage.content_hash(reordered))
+
+    def test_hash_rejects_nonfinite_unsupported_and_circular_values(self):
+        circular = []
+        circular.append(circular)
+        for value, error in [(float('nan'), ValueError), (float('inf'), ValueError),
+                             (-float('inf'), ValueError), (object(), TypeError), (circular, ValueError)]:
+            for content in ({'items': [{'value': value}]}, {'catalog': {'value': value}}):
+                with self.subTest(value=repr(value), field=next(iter(content))):
+                    with self.assertRaises(error):
+                        storage.content_hash(content)
 
 
 class GearCatalogStorageTests(GearBuilderTestDataMixin, TestCase):

@@ -108,9 +108,35 @@ def stream_hash(stream):
 
 
 def content_hash(content):
+    """Hash legacy JSON bytes, buffering one item (or small metadata value).
+
+    encode() uses the C encoder for each subtree; iterencode() would walk every
+    leaf in Python. Keep the default spaces: these bytes identify old snapshots.
+    """
     digest = hashlib.sha256()
-    for part in DjangoJSONEncoder(sort_keys=True, ensure_ascii=False, allow_nan=False).iterencode(content):
-        digest.update(part.encode())
+    encoder = DjangoJSONEncoder(sort_keys=True, ensure_ascii=False, allow_nan=False)
+    if not isinstance(content, dict) or not all(isinstance(key, str) for key in content):
+        # Preserve the encoder's behavior for non-catalog inputs/JSON keys.
+        for part in encoder.iterencode(content):
+            digest.update(part.encode())
+        return digest.hexdigest()
+    digest.update(b'{')
+    for position, key in enumerate(sorted(content)):
+        if position:
+            digest.update(b', ')
+        digest.update(encoder.encode(key).encode())
+        digest.update(b': ')
+        value = content[key]
+        if key == 'items' and isinstance(value, list):
+            digest.update(b'[')
+            for item_position, item in enumerate(value):
+                if item_position:
+                    digest.update(b', ')
+                digest.update(encoder.encode(item).encode())
+            digest.update(b']')
+        else:
+            digest.update(encoder.encode(value).encode())
+    digest.update(b'}')
     return digest.hexdigest()
 
 
