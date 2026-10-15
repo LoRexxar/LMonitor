@@ -62,6 +62,7 @@ STAT_NAMES_ZH = {
     '耐力': 'stamina', '护甲': 'armor', '额外护甲': 'bonus_armor',
     '爆击': 'crit', '暴击': 'crit', '急速': 'haste', '精通': 'mastery',
     '全能': 'versatility', '吸血': 'leech', '闪避': 'avoidance', '速度': 'speed',
+    '随机属性1': 'random_stat_1',
 }
 STAT_NAMES_EN = {
     'strength': 'strength', 'agility': 'agility', 'intellect': 'intellect',
@@ -69,6 +70,7 @@ STAT_NAMES_EN = {
     'critical strike': 'crit', 'crit': 'crit', 'haste': 'haste',
     'mastery': 'mastery', 'versatility': 'versatility', 'leech': 'leech',
     'avoidance': 'avoidance', 'speed': 'speed',
+    'random stat 1': 'random_stat_1',
 }
 RAIDBOTS_STATS = {
     'str': 'strength', 'agi': 'agility', 'int': 'intellect', 'sta': 'stamina',

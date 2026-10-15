@@ -1,8 +1,11 @@
 """统一投影装备名称、图标、属性、效果、来源与 Tooltip。"""
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from decimal import Decimal
+from urllib.parse import parse_qs, urlsplit
 
 from django.db.models import Exists, OuterRef
 
@@ -23,8 +26,10 @@ STAT_LABELS = {
     'min_damage': '最低伤害', 'max_damage': '最高伤害',
     'stragiint': '力量／敏捷／智力', 'agiint': '敏捷／智力',
     'stragi': '力量／敏捷', 'strint': '力量／智力',
+    'random_stat_1': '随机属性1',
 }
 LAYOUT_STAT_ALIASES = {
+    'random_stat_1': ('随机属性1', 'Random Stat 1'),
     'bonus_armor': ('额外护甲', 'Bonus Armor'),
     'weapon_dps': ('武器秒伤', 'Damage Per Second'),
     'weapon_speed': ('武器速度', 'Speed'),
@@ -382,10 +387,74 @@ def _tooltip_text(*, item_level=0, stats=None, effects=None, sources=None, fallb
     return '\n'.join(line for line in lines if not (line.casefold() in seen or seen.add(line.casefold())))
 
 
+def _native_journal_variant(variant):
+    """An imported native snapshot's explicit [] is not a generic missing effect.
+
+    Only the dedicated Journal importer owns this provenance contract. Its empty
+    effects projection is authoritative, unlike an ordinary catalog variant. The
+    native ItemSparse envelope binds that snapshot to the actual source item.
+    """
+    if variant is None:
+        return False
+    metadata = variant.metadata if isinstance(variant.metadata, dict) else {}
+    drop = metadata.get('difficulty_drop')
+    source = metadata.get('tooltip_source')
+    if not isinstance(drop, dict) or not isinstance(source, dict):
+        return False
+    if (type(drop.get('schema')) is not int or drop['schema'] != 1
+            or drop.get('provider') != 'wago' or source.get('provider') != 'wowhead'
+            or not re.fullmatch(r'[a-f0-9]{64}', str(source.get('response_sha256') or ''))
+            or not str(variant.variant_key).startswith('journal-difficulty:')
+            or source.get('game_build') != variant.game_build
+            or metadata.get('data_branch') != variant.data_branch):
+        return False
+    context = {key: drop.get(key) for key in DIFFICULTY_CONTEXT_FIELDS[:3]}
+    context['difficulty_rule_build'] = drop.get('rule_build')
+    if _difficulty_variant([variant], context, variant.item.item_id) is None:
+        return False
+    try:
+        url = urlsplit(source.get('url', ''))
+        query = parse_qs(url.query, keep_blank_values=True)
+        env = {'retail': '1', 'ptr': '10'}.get(variant.data_branch)
+        bonuses = query.get('bonus', [])
+        requested = [int(n) for n in bonuses[0].split(':')] if len(bonuses) == 1 else []
+        if (url.scheme != 'https' or url.netloc != 'nether.wowhead.com'
+                or url.path != f'/tooltip/item/{variant.item.item_id}' or url.fragment
+                or env is None or query.get('dataEnv') != [env] or source.get('data_env') != env
+                or any(k not in ('bonus', 'dataEnv', 'locale') or len(v) != 1 for k, v in query.items())
+                or len(requested) != len(set(requested)) or set(requested) != set(variant.bonus_ids)):
+            return False
+        for envelope in metadata.get('difficulty_rule_evidence', []):
+            if (envelope.get('table') != 'ItemSparse' or envelope.get('provider') != 'wago'
+                    or envelope.get('build') != drop['rule_build']
+                    or envelope.get('filter') != {'ID': variant.item.item_id}
+                    or envelope.get('total') != 1):
+                continue
+            rows = envelope.get('rows')
+            if (not isinstance(rows, list) or len(rows) != 1
+                    or rows[0].get('ID') != variant.item.item_id
+                    or type(rows[0].get('InventoryType')) is not int
+                    or rows[0]['InventoryType'] <= 0):
+                continue
+            native_url = urlsplit(envelope.get('url', ''))
+            if native_url.scheme != 'https' or native_url.netloc != 'wago.tools':
+                continue
+            digest = hashlib.sha256(json.dumps(
+                {k: envelope[k] for k in ('build', 'table', 'filter', 'rows', 'total')},
+                sort_keys=True, separators=(',', ':'), allow_nan=False,
+            ).encode()).hexdigest()
+            if digest == envelope.get('source_sha256'):
+                return True
+    except (TypeError, ValueError, KeyError, AttributeError):
+        return False
+    return False
+
+
 def item_display_metadata(
     item_id, snapshot=None, *, item_level=0, variant=None, stats=None, effects=None,
     sources=None, icon_size='small', primary_stat='',
     game_build='', is_ptr=None, frozen_identity=None, legacy_identity=False,
+    strict_difficulty=False,
 ):
     """返回三个装备入口共同消费的稳定展示契约。"""
     from botend.services.wow_item_identity import (
@@ -433,7 +502,13 @@ def item_display_metadata(
     variant_metadata = (
         variant.metadata if variant is not None and isinstance(variant.metadata, dict) else {}
     )
-    tier_sources = tier_set_sources(
+    native_journal = _native_journal_variant(variant)
+    if strict_difficulty and native_journal:
+        # Base descriptions describe a reference variant, not this exact drop.
+        # Keep central names/icons, but never borrow its upgrade track or layout.
+        description = description_zh = ''
+        has_chinese_description = False
+    tier_sources = None if strict_difficulty and native_journal else tier_set_sources(
         {**(snapshot.metadata or {}), **variant_metadata} if snapshot else variant_metadata,
         snapshot.slot_key if snapshot else '',
     )
@@ -490,12 +565,15 @@ def item_display_metadata(
         f'+{_format_number(normalized_stats[key])} {STAT_LABELS.get(key, key)}'
         for key in ordered_stat_keys
     ]
+    native_stat_only = bool(variant is not None and native_journal
+                            and normalized_stats and variant.effects_json == [])
     expects_effect = bool(
         snapshot and (
-            snapshot.slot_key == 'trinket'
+            (snapshot.slot_key == 'trinket' and not native_stat_only)
             or snapshot.effect_refs
             or snapshot_metadata.get('requires_effect_mapping')
-            or any(prefix in base_description.casefold() for prefix in ('装备：', '使用：', 'equip:', 'use:'))
+            or (not native_stat_only and any(prefix in base_description.casefold()
+                for prefix in ('装备：', '使用：', 'equip:', 'use:')))
         )
     )
     tooltip = _tooltip_text(
@@ -713,6 +791,7 @@ def load_item_tooltip_metadata(requests):
                 game_build=str(getattr(variant, 'game_build', '') or ''),
                 is_ptr=(data_branch == 'ptr') if data_branch != 'beta' else None,
                 legacy_identity=context.get('legacy_identity', False),
+                strict_difficulty=True,
             )
             projected['data_branch'] = data_branch if data_branch in ('retail', 'ptr', 'beta') else ''
             projected['base_quality'] = snapshot.quality if snapshot else None
