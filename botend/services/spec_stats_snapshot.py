@@ -35,6 +35,30 @@ def _summary(detail):
 
 
 def publish_projection(path, payload, write_json):
+    """Serialize both modules and GC through the same scope publication lock."""
+    from .spec_stats_retention import publication, record_publication, _disable
+    path = Path(path)
+    if path.stem not in ('dungeon', 'raid'):
+        return write_json(path, payload)
+    with publication(path.parent):
+        from .simc_benchmark_result_snapshot import _load as load_previous
+        previous = load_previous(path)
+        _publish_projection_locked(path, payload, write_json)
+        try:
+            record_publication(path.parent)
+        except (OSError, ValueError, TypeError, KeyError) as exc:
+            # Accounting failure must not turn an unrecorded publication into
+            # permission to prune. Restore last-good where one existed.
+            try:
+                if previous is not None:
+                    from .simc_benchmark_result_snapshot import _write
+                    _write(path, previous)
+            finally:
+                _disable(path.parent, exc)
+            raise
+
+
+def _publish_projection_locked(path, payload, write_json):
     """先写完整不可变详情，再发布轻量入口；中途失败保留原入口。"""
     from botend.services.spec_overview_service import SpecOverviewService
 
@@ -117,6 +141,8 @@ def publish_projection(path, payload, write_json):
     if payload.get('_input_fingerprint'):
         index['_snapshot'].update(input_fingerprint=payload['_input_fingerprint'],
                                   detail_hashes=detail_hashes)
+    index['_snapshot'].update(detail_hashes=detail_hashes,
+                              index_hash=content_digest({k: v for k, v in index.items() if k != '_snapshot'}))
     write_json(path, index)
 
 

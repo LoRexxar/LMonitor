@@ -22,6 +22,64 @@ BUILD = '12.1.0.101'
 
 
 class DownloadLifecycleTests(SimpleTestCase):
+    def test_deep_old_completion_blocks_maintenance_not_download(self):
+        from botend.services.download_retention import maintain_download_parts
+        self.total = 2
+        source = self.source()
+        source.table('SpellEffect')
+        source.table('SpellEffect')
+        manifest_path = next(source.directory.glob('*.parts/*/manifest.json'))
+        manifest = json.loads(manifest_path.read_bytes())
+        old = next(p for p in source.directory.rglob('complete.json')
+                   if p.parent.name != manifest['attempt'])
+        old.write_text('[' * 1100 + '0' + ']' * 1100)
+        saved = {p: p.read_bytes() for p in old.parent.iterdir() if p.is_file()}
+        csv_path = source.directory / 'SpellEffect.csv'
+        previous_csv = csv_path.read_bytes()
+        report = maintain_download_parts(manifest_path.parent.parent, apply=True)
+        self.assertTrue(report['blocked'])
+        for key in ('deleted_files', 'deleted_bytes', 'deleted_attempts'):
+            self.assertEqual(report[key], 0)
+        self.assertEqual({p: p.read_bytes() for p in saved}, saved)
+        self.assertEqual(csv_path.read_bytes(), previous_csv)
+        before = sum(self.calls.values())
+        with self.assertLogs('botend.services.journal_source', level='WARNING') as logs:
+            rows = source.table('SpellEffect')
+        self.assertGreater(sum(self.calls.values()), before)
+        self.assertEqual([str(row['ID']) for row in rows], ['1', '2'])
+        self.assertEqual([row['Name'] for row in rows],
+                         [f'{BUILD}-zhCN-1', f'{BUILD}-zhCN-2'])
+        with csv_path.open(newline='') as stream:
+            published = list(csv.DictReader(stream))
+        self.assertEqual(published, [{'ID': '1', 'Name': f'{BUILD}-zhCN-1'},
+                                     {'ID': '2', 'Name': f'{BUILD}-zhCN-2'}])
+        current = json.loads(manifest_path.read_bytes())
+        self.assertNotEqual(current['attempt'], manifest['attempt'])
+        proof = json.loads((manifest_path.parent / current['attempt'] / 'complete.json').read_bytes())
+        self.assertEqual(proof['manifest']['attempt'], current['attempt'])
+        self.assertIn('recursion', str(logs.output).lower())
+        self.assertEqual({p: p.read_bytes() for p in saved}, saved)
+
+    def test_retention_checkpoint_pre_and_post_faults_do_not_fail_table(self):
+        from botend.services.download_retention import _Budget
+        self.total = 2
+        original = _Budget.save_checkpoint
+        for phase in (1, 2):
+            source = self.source(build=f'12.1.0.{phase}')
+            calls = []
+            def fail(budget, root):
+                calls.append(root)
+                if len(calls) == phase:
+                    raise OSError('injected checkpoint save')
+                return original(budget, root)
+            with patch.object(_Budget, 'save_checkpoint', fail):
+                with self.assertLogs('botend.services.journal_source', level='WARNING') as logs:
+                    source.table('SpellEffect')
+            self.assertTrue((source.directory / 'SpellEffect.csv').exists())
+            self.assertTrue(list(source.directory.rglob('complete.json')))
+            self.assertIn('checkpoint', str(logs.output))
+        self.assertGreater(sum(self.calls.values()), 0)
+
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
@@ -138,6 +196,48 @@ class DownloadLifecycleTests(SimpleTestCase):
             source.table('SpellEffect')
         self.assertEqual(old.read_bytes(), b'ID,Name\n99,last-good\n')
         self.assertNotIn('SpellEffect', source.manifest)
+
+    def test_csv_metadata_replace_failure_preserves_the_old_pair(self):
+        self.total = 2
+        source = self.source()
+        source.table('SpellEffect')
+        path = source.directory / 'SpellEffect.csv'
+        metadata = path.with_suffix('.csv.manifest.json')
+        previous = (path.read_bytes(), metadata.read_bytes())
+        self.total = 3
+        real_replace = os.replace
+
+        def fail_metadata(src, dst):
+            if Path(dst) == metadata:
+                raise OSError('metadata destination unavailable')
+            return real_replace(src, dst)
+
+        with patch('os.replace', fail_metadata):
+            with self.assertRaisesRegex(OSError, 'metadata destination'):
+                self.source().table('SpellEffect')
+        self.assertEqual((path.read_bytes(), metadata.read_bytes()), previous)
+        proofs = list((source.directory / 'SpellEffect.zhCN.parts').rglob('complete.json'))
+        self.assertEqual(len(proofs), 1)
+        self.assertEqual(len(self.source().table('SpellEffect')), 3)
+
+    def test_first_csv_metadata_failure_does_not_leave_half_a_pair(self):
+        self.total = 2
+        source = self.source()
+        path = source.directory / 'SpellEffect.csv'
+        metadata = path.with_suffix('.csv.manifest.json')
+        real_replace = os.replace
+
+        def fail_metadata(src, dst):
+            if Path(dst) == metadata:
+                raise OSError('metadata destination unavailable')
+            return real_replace(src, dst)
+
+        with patch('os.replace', fail_metadata):
+            with self.assertRaisesRegex(OSError, 'metadata destination'):
+                source.table('SpellEffect')
+        self.assertFalse(path.exists())
+        self.assertFalse(metadata.exists())
+        self.assertEqual(list(source.directory.rglob('complete.json')), [])
 
     def test_talent_failure_preserves_current_and_marker(self):
         self.total = 2
@@ -266,6 +366,197 @@ class DownloadLifecycleTests(SimpleTestCase):
         self.source().table('SpellEffect')
         self.source().table('SpellEffect')
         self.assertEqual(self.calls[BUILD, 'SpellEffect', 'zhCN', 0], 2)
+
+
+    def aged_attempt(self):
+        import time
+        self.total = 2
+        self.source().table('SpellEffect')
+        manifest_path = next((self.root / 'shared').glob('*.parts/*/manifest.json'))
+        manifest = json.loads(manifest_path.read_bytes())
+        proof = manifest_path.parent / manifest['attempt'] / 'complete.json'
+        old = time.time() - 49 * 3600
+        payload = json.loads(proof.read_bytes())
+        payload['completed_at'] = old
+        proof.write_text(json.dumps(payload))
+        for path in proof.parent.iterdir():
+            os.utime(path, (old, old))
+        return proof.parent
+
+    def test_automatic_refresh_reclaims_only_aged_proven_attempt(self):
+        old = self.aged_attempt()
+        csv_path = self.root / 'shared' / 'SpellEffect.csv'
+        expected = csv_path.read_bytes()
+        for _ in range(3):
+            self.source().table('SpellEffect')
+        self.assertFalse(old.exists())
+        self.assertEqual(csv_path.read_bytes(), expected)
+        self.assertEqual(len(list((self.root / 'shared').rglob('complete.json'))), 3)
+
+    def test_repeated_aged_refreshes_keep_one_attempt(self):
+        for _ in range(5):
+            old = self.aged_attempt()
+            self.source().table('SpellEffect')
+            self.assertFalse(old.exists())
+            # aged_attempt itself refreshed; the preceding current remains in grace.
+            proofs = list((self.root / 'shared').rglob('complete.json'))
+            self.assertTrue(proofs)
+            import time
+            aged = time.time() - 49 * 3600
+            for proof in proofs:
+                value = json.loads(proof.read_bytes())
+                value['completed_at'] = aged
+                proof.write_text(json.dumps(value))
+                for path in proof.parent.iterdir():
+                    os.utime(path, (aged, aged))
+            self.source().table('SpellEffect')
+            self.assertEqual(len(list((self.root / 'shared').rglob('complete.json'))), 1)
+
+    def test_retention_dryrun_current_grace_and_legacy(self):
+        from botend.services.download_retention import maintain_download_parts
+        old = self.aged_attempt()
+        root = old.parent.parent
+        self.assertEqual(maintain_download_parts(root, apply=True)['deleted_attempts'], 0)
+        with patch('botend.services.download_retention.maintain_download_parts', return_value={}):
+            self.source().table('SpellEffect')
+        legacy = root / '0-2.json'
+        legacy.write_text('unknown')
+        result = maintain_download_parts(root)
+        self.assertIn('eligible', {item['status'] for item in result['entries']})
+        self.assertTrue(old.exists())
+        result = maintain_download_parts(root, apply=True)
+        self.assertEqual(result['deleted_attempts'], 1)
+        self.assertFalse(old.exists())
+        self.assertEqual(legacy.read_text(), 'unknown')
+        self.assertEqual(len(list(root.rglob('complete.json'))), 1)
+
+    def test_unknown_proof_shape_corruption_links_and_missing_proof_preserved(self):
+        from botend.services.download_retention import maintain_download_parts
+        for damage in ('missing', 'shape', 'hash', 'symlink', 'hardlink', 'identity', 'extra'):
+            with self.subTest(damage=damage):
+                old = self.aged_attempt()
+                root = old.parent.parent
+                with patch('botend.services.download_retention.maintain_download_parts', return_value={}):
+                    self.source().table('SpellEffect')
+                proof = old / 'complete.json'
+                part = old / '0-2.json'
+                if damage == 'missing':
+                    proof.unlink()
+                elif damage in ('shape', 'identity'):
+                    data = json.loads(proof.read_bytes())
+                    if damage == 'shape':
+                        data['unknown_reference'] = 'elsewhere'
+                    else:
+                        data['manifest']['identity']['build'] = '0.0.0.0'
+                    proof.write_text(json.dumps(data))
+                elif damage == 'hash':
+                    part.write_text('{}')
+                elif damage in ('symlink', 'hardlink'):
+                    external = self.root / f'external-{damage}'
+                    part.rename(external)
+                    if damage == 'symlink':
+                        part.symlink_to(external)
+                    else:
+                        os.link(external, part)
+                else:
+                    (old / 'unknown.json').write_text('{}')
+                import time
+                aged = time.time() - 49 * 3600
+                for path in old.iterdir():
+                    os.utime(path, (aged, aged), follow_symlinks=False)
+                result = maintain_download_parts(root, apply=True)
+                item = next(item for item in result['entries'] if item['path'] == str(old))
+                self.assertIn('reason', item)
+                self.assertTrue(old.exists())
+
+    def test_csv_publish_failure_has_no_completion_proof(self):
+        self.total = 2
+        replace = os.replace
+        def fail_csv(src, dst):
+            if str(dst).endswith('.csv'):
+                raise OSError('publish failed')
+            return replace(src, dst)
+        with patch('botend.services.download_checkpoint.os.replace', side_effect=fail_csv):
+            with self.assertRaises(OSError):
+                self.source().table('SpellEffect')
+        self.assertEqual(list((self.root / 'shared').rglob('complete.json')), [])
+        self.source().table('SpellEffect')
+        self.assertEqual(len(list((self.root / 'shared').rglob('complete.json'))), 1)
+        self.assertEqual(self.calls[BUILD, 'SpellEffect', 'zhCN', 0], 1)
+
+    def test_maintenance_waits_for_same_download_lock(self):
+        from botend.services.download_retention import download_lock, maintain_download_parts
+        root = self.root / 'SpellEffect.zhCN.parts'
+        started = threading.Event()
+        done = threading.Event()
+        def worker():
+            started.set()
+            maintain_download_parts(root)
+            done.set()
+        with download_lock(root):
+            thread = threading.Thread(target=worker)
+            thread.start()
+            self.assertTrue(started.wait(2))
+            self.assertFalse(done.wait(0.1))
+        thread.join(2)
+        self.assertTrue(done.is_set())
+
+    def test_attempt_cap_stops_refresh_without_touching_current_csv(self):
+        self.total = 2
+        self.source().table('SpellEffect')
+        manifest = next((self.root / 'shared').glob('*.parts/*/manifest.json'))
+        before = manifest.read_bytes()
+        csv_path = self.root / 'shared' / 'SpellEffect.csv'
+        csv_before = csv_path.read_bytes()
+        for index in range(1022):
+            (manifest.parent / f'{index:032x}').mkdir()
+        with self.assertRaisesRegex(ValueError, 'attempt budget exhausted'):
+            self.source().table('SpellEffect')
+        self.assertEqual(manifest.read_bytes(), before)
+        self.assertEqual(csv_path.read_bytes(), csv_before)
+        self.assertEqual(self.calls[BUILD, 'SpellEffect', 'zhCN', 0], 1)
+
+    def test_root_budget_blocks_new_attempt_but_allows_resume(self):
+        self.total = 2
+        self.source().segmented_table('SpellEffect', 'zhCN')
+        root = self.root / 'shared' / 'SpellEffect.zhCN.parts'
+        for index in range(1024):
+            (root / f'legacy-{index}').write_text('unknown')
+        # Existing in-flight attempt can finish even when root is over budget.
+        self.source().table('SpellEffect')
+        manifest = next(root.glob('*/manifest.json'))
+        before = manifest.read_bytes()
+        with self.assertRaisesRegex(ValueError, 'root budget'):
+            self.source().table('SpellEffect')
+        self.assertEqual(manifest.read_bytes(), before)
+        self.assertEqual(self.calls[BUILD, 'SpellEffect', 'zhCN', 0], 1)
+
+    def test_invalid_current_manifest_blocks_reclamation(self):
+        from botend.services.download_retention import maintain_download_parts
+        old = self.aged_attempt()
+        with patch('botend.services.download_retention.maintain_download_parts', return_value={}):
+            self.source().table('SpellEffect')
+        manifest = old.parent / 'manifest.json'
+        saved = json.loads(manifest.read_bytes())
+        saved['csv']['unknown_reference'] = str(old)
+        manifest.write_text(json.dumps(saved))
+        self.assertEqual(maintain_download_parts(old.parent.parent, apply=True)['deleted_attempts'], 0)
+        self.assertTrue(old.exists())
+
+    def test_command_defaults_dryrun_and_budget_fails_closed(self):
+        from django.core.management import call_command
+        from botend.services.download_retention import maintain_download_parts
+        old = self.aged_attempt()
+        root = old.parent.parent
+        with patch('botend.services.download_retention.maintain_download_parts', return_value={}):
+            self.source().table('SpellEffect')
+        output = io.StringIO()
+        call_command('maintain_download_parts', str(root), stdout=output)
+        self.assertFalse(json.loads(output.getvalue())['apply'])
+        self.assertTrue(old.exists())
+        result = maintain_download_parts(root, apply=True, max_entries=2)
+        self.assertEqual(result['deleted_attempts'], 0)
+        self.assertTrue(old.exists())
 
 
 class ActivationConstructorTests(TestCase):

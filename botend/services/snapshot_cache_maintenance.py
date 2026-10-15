@@ -15,6 +15,8 @@ def run_maintenance_once():
     results = maintain_snapshot_caches(
         apply=getattr(settings, 'SNAPSHOT_CACHE_GC_AUTO_APPLY', False) is True,
     )
+    from .storage_lifecycle_maintenance import run_extended_maintenance
+    results.extend(run_extended_maintenance())
     for result in results:
         logger.info('[Snapshot Cache Maintenance] kind=%s apply=%s status=%s deleted=%s bytes=%s error=%s',
                     result['kind'], result['apply'], result['status'], result['deleted'],

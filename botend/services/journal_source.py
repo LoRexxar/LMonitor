@@ -4,6 +4,7 @@ import hashlib
 import html
 import io
 import json
+import logging
 import re
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -27,6 +28,16 @@ TABLES = (
 LOCALIZED_TABLES = {'JournalInstance', 'JournalEncounter', 'JournalEncounterSection', 'JournalTier',
                     'JournalEncounterCreature', 'Map', 'Difficulty', 'ItemSparse', 'Spell', 'SpellName'}
 DOWNLOAD_SLOTS = BoundedSemaphore(12)
+logger = logging.getLogger(__name__)
+
+
+def _maintenance(root):
+    from .download_retention import maintain_download_parts
+    report = maintain_download_parts(root, apply=True)
+    warning = report.get('maintenance_warning') or report.get('blocked')
+    if warning:
+        logger.warning('Download parts maintenance warning for %s: %s', root, warning)
+    return report
 
 
 def http_session():
@@ -77,6 +88,11 @@ class WagoJournalSource:
         return dict(branch=self.branch, build=self.build, table=table, locale=locale)
 
     def segmented_table(self, table, locale):
+        from .download_retention import download_lock
+        with download_lock(self.directory / f'{table}.{locale}.parts'):
+            return self._segmented_table_locked(table, locale)
+
+    def _segmented_table_locked(self, table, locale):
         """按来源行号取得 ID 边界，分段流式下载，失败仅重试未完成段。"""
         params = {'build': self.build, 'locale': locale, 'sort[ID]': 'asc'}
         with http_session() as session:
@@ -137,6 +153,18 @@ class WagoJournalSource:
         return buffer.getvalue().encode('utf-8')
 
     def table(self, table, locale='zhCN', *, row_filter=None, required_fields=()):
+        from .download_retention import download_lock, maintain_download_parts
+        if self.offline or table not in ('ItemSparse', 'SpellEffect', 'SpellMisc'):
+            return self._table_locked(table, locale, row_filter=row_filter, required_fields=required_fields)
+        root = self.directory / f'{table}.{locale}.parts'
+        with download_lock(root):
+            self._part_downloads.pop((table, locale), None)
+            _maintenance(root)
+            result = self._table_locked(table, locale, row_filter=row_filter, required_fields=required_fields)
+            _maintenance(root)
+            return result
+
+    def _table_locked(self, table, locale='zhCN', *, row_filter=None, required_fields=()):
         path = self.directory / f'{table}{"" if locale == "zhCN" else "." + locale}.csv'
         url = f'https://wago.tools/db2/{table}/csv?build={self.build}&locale={locale}'
         metadata_path = path.with_suffix('.csv.manifest.json')
@@ -190,7 +218,17 @@ class WagoJournalSource:
                     'identity': self.identity(table, locale), 'headers': reader.fieldnames}
         if not self.offline:
             atomic_bytes(path, content)
-            atomic_json(metadata_path, metadata)
+            try:
+                atomic_json(metadata_path, metadata)
+            except BaseException:
+                # A metadata failure must not leave a newly replaced CSV next
+                # to the old manifest. Each write is atomic; the table lock
+                # serializes cooperating writers through this rollback.
+                if cached is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_bytes(path, cached)
+                raise
             checkpoint = self._part_downloads.get((table, locale))
             if checkpoint is not None:
                 checkpoint.complete(metadata)

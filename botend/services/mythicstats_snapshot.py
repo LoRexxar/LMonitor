@@ -10,8 +10,9 @@ from django.utils import timezone
 
 from botend.models import MonitorTask, PortalMythicstatsDpsRow
 from botend.portal import mythicstats as source
-from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write
+from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write  # _lock: legacy caller compatibility
 from botend.services.spec_stats_snapshot import content_digest
+from botend.services.mythicstats_retention import _publish_index_locked, _worker_lock, _publication_guard
 
 ROLES = ('damage', 'tank', 'healer')
 SCHEMA = 1
@@ -101,7 +102,8 @@ def _rows_payload(season, dungeon_id, period_id, rows, metadata):
 def _write_shard(payload, origin):
     filename = uuid.uuid4().hex + '.json'
     _write(snapshot_root() / filename, payload)
-    return {'file': filename, 'origin': origin, 'updated_at': payload['generated_at']}
+    return {'file': filename, 'origin': origin, 'updated_at': payload['generated_at'],
+            'content_hash': content_digest(payload)}
 
 
 def _validate(payload, season, dungeon_id, period_id):
@@ -208,9 +210,10 @@ def _historical_reusable(old, season, dungeon, period):
 def collect_snapshots(*, req=None, season_hint=''):
     """定时任务和手工刷新共同使用；只采集后台发现的范围。"""
     root = snapshot_root()
-    with _lock(root / 'worker.lock', blocking=False) as acquired:
+    with _worker_lock(root, initialize=True) as acquired:
         if not acquired:
             return {'busy': True, 'built': 0, 'failed': 0}
+        publication_reader = _publication_guard(root)
         manifest = deepcopy(_manifest())
         try:
             # 不用调用者提供的赛季给上游最新数据贴标签，以实际周次归属为准。
@@ -251,7 +254,7 @@ def collect_snapshots(*, req=None, season_hint=''):
                     if key.endswith(f":{published_periods[0]['id']}"):
                         entry.update(error=str(exc)[:500], attempted_at=attempted_at)
                 manifest['updated_at'] = attempted_at
-                _write(root / 'index.json', manifest)
+                _publish_index_locked(root, manifest, writer=_write, publication_reader=publication_reader)
             raise
         previous = manifest['seasons'].get(season, {})
         meta = {**previous, 'periods': periods, 'dungeons': list(dungeons.values()),
@@ -284,16 +287,17 @@ def collect_snapshots(*, req=None, season_hint=''):
         if latest_published:
             manifest['current_season'] = season
         manifest['updated_at'] = timezone.now().isoformat()
-        _write(root / 'index.json', manifest)
+        _publish_index_locked(root, manifest, writer=_write, publication_reader=publication_reader)
         return {'busy': False, 'season': season, 'period_id': periods[0]['id'],
                 'built': built, 'failed': failed, 'latest_published': latest_published}
 
 
 def publish_database_snapshots():
     """显式迁移已有数据库榜单；只在后台运行，永不由页面触发。"""
-    with _lock(snapshot_root() / 'worker.lock', blocking=False) as acquired:
+    with _worker_lock(snapshot_root(), initialize=True) as acquired:
         if not acquired:
             raise BlockingIOError('已有采集发布任务运行，请稍后重试')
+        publication_reader = _publication_guard(snapshot_root())
         manifest = deepcopy(_manifest())
         groups = {}
         for row in PortalMythicstatsDpsRow.objects.exclude(season__in=['unknown', 'season-mn-1']).order_by('season', 'period_id', 'dungeon_id', 'role', 'rank').iterator():
@@ -318,5 +322,5 @@ def publish_database_snapshots():
             recorded = flag.rsplit('@', 1)[0]
             if recorded in manifest['seasons']:
                 manifest['current_season'] = recorded
-        _write(snapshot_root() / 'index.json', manifest)
+        _publish_index_locked(snapshot_root(), manifest, writer=_write, publication_reader=publication_reader)
         return built
