@@ -60,8 +60,15 @@ def _state(root):
     return value
 
 
-def _part_roots(base):
-    """Bound discovery and prune .parts trees before inspecting their contents."""
+def _part_roots(base, *, prune_tooltips=False):
+    """Bound discovery; prune .parts contents and default-producer tooltips only.
+
+    UpdateSource uses <branch>/<a|b>/source for legacy/current and versioned
+    Wago downloads, and <branch>/<a|b>/loot-specializations for its flat source.
+    BranchCatalogSource owns <branch>/<a|b>/current/wowhead: tooltip JSONs, not
+    download parts. Do not spend the discovery budget traversing that tree.
+    Explicit DOWNLOAD_PARTS_GC_BASE overrides remain arbitrary recursive trees.
+    """
     if not base.exists():
         _safe(base)
         return []
@@ -81,6 +88,10 @@ def _part_roots(base):
                 if not entry.is_dir(follow_symlinks=False):
                     continue
                 path = Path(entry.path)
+                relative = path.relative_to(base).parts
+                if (prune_tooltips and len(relative) == 4 and relative[1] in ('a', 'b')
+                        and relative[2:] == ('current', 'wowhead')):
+                    continue
                 if entry.name.endswith('.parts'):
                     roots.append(path)
                 else:
@@ -148,7 +159,7 @@ def run_extended_maintenance():
                 try:
                     from .download_retention import maintain_download_parts
                     base = Path(getattr(settings, 'DOWNLOAD_PARTS_GC_BASE', Path(settings.BASE_DIR) / '.cache/wow_data_updates'))
-                    roots = _part_roots(base)
+                    roots = _part_roots(base, prune_tooltips=not hasattr(settings, 'DOWNLOAD_PARTS_GC_BASE'))
                     eligible = [p for p in roots if p.relative_to(base).as_posix() > state['download_after']]
                     limit = max(1, min(8, int(getattr(settings, 'DOWNLOAD_PARTS_GC_ROOT_LIMIT', 8))))
                     chosen = eligible[:limit]
