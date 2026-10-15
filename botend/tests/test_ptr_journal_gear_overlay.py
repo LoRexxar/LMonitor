@@ -183,7 +183,7 @@ class PtrJournalGearOverlayTests(TestCase):
         ).exists())
 
         from botend.tests.journal_snapshot_fixtures import warm_journal
-        warm_journal()
+        warm_journal(complete_profile=True)
         ptr_catalog = self.client.get('/portal/api/adventure-journal/', {'tier': ''}).json()
         ptr_instance = next(row for row in ptr_catalog['instances'] if row['id'] == 1324)
         live_instance = next(row for row in ptr_catalog['instances'] if row['id'] == 10)

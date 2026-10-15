@@ -47,7 +47,7 @@ class JournalSnapshotTests(TestCase):
             detail_data(self.factory.get('/'), 9999)
 
     def test_catalog_detail_spell_and_status_are_zero_sql_and_same_source(self):
-        warm_journal()
+        warm_journal(complete_profile=True)
         with self.assertNumQueries(0), patch.object(files, '_write') as write:
             catalog = catalog_data(self.factory.get('/', {'q': '测试首领'}))
             detail = detail_data(self.factory.get('/', {'difficulty': 2, 'role': 'healer'}), 10)
@@ -60,7 +60,7 @@ class JournalSnapshotTests(TestCase):
         write.assert_not_called()
 
     def test_loot_html_only_reads_menu_and_skill_html_only_reads_selected_boss(self):
-        warm_journal()
+        warm_journal(complete_profile=True)
         with patch.object(files, '_content', wraps=files._content) as read, self.assertNumQueries(0):
             loot = detail_data(self.factory.get('/'), 10, for_html=True)
         self.assertEqual(read.call_count, 1)
@@ -72,7 +72,7 @@ class JournalSnapshotTests(TestCase):
         self.assertTrue(guide['skill_filter_data'])
 
     def test_art_and_item_reference_validation_do_not_load_journal_models(self):
-        warm_journal()
+        warm_journal(complete_profile=True)
         with self.assertNumQueries(0), self.assertRaises(Http404):
             PortalAdventureJournalArtView.as_view()(self.factory.get('/'), 99999)
         with self.assertNumQueries(0), self.assertRaises(Http404):
@@ -146,6 +146,7 @@ class JournalSnapshotTests(TestCase):
         self.assertNotEqual(files.read_index()['generation'], old['generation'])
 
     def test_corrupt_files_fail_closed_and_offline_rebuild_repairs(self):
+        warm_journal(complete_profile=True)
         files.refresh_journal_snapshot()
         index = files.read_index()
         path = files.snapshot_root() / index['instances']['10']
@@ -156,6 +157,7 @@ class JournalSnapshotTests(TestCase):
         self.assertEqual(detail_data(self.factory.get('/'), 10)['instance']['id'], 10)
 
     def test_commit_events_rollback_idle_and_bulk_compensation(self):
+        warm_journal(complete_profile=True)
         files.refresh_journal_snapshot()
         with self.assertNumQueries(0):
             self.assertFalse(files.refresh_journal_snapshot(poll=True))
@@ -205,7 +207,7 @@ class JournalSnapshotTests(TestCase):
 
     def test_in_place_loot_revision_cannot_hit_previous_projection(self):
         from botend.services import journal_loot_snapshot as loot_files
-        warm_journal()
+        warm_journal(complete_profile=True)
         old = detail_data(self.factory.get('/'), 10)
         self.boss.payload['loot'][0]['name'] = '修订后的掉落名称'
         self.boss.save()
@@ -221,7 +223,7 @@ class JournalSnapshotTests(TestCase):
     def test_loot_revision_during_build_does_not_publish_mixed_content(self):
         from botend.services import journal_loot_snapshot as loot_files
         from botend.portal.adventure_journal import build_loot_projection
-        warm_journal()
+        warm_journal(complete_profile=True)
         before = detail_data(self.factory.get('/'), 10)['loot']
         def change(*args):
             result = build_loot_projection(*args)

@@ -41,7 +41,8 @@ def instance_source(release, instance_id, *, season=_UNSET):
         if season and canonical_season_key(display.get('season_key')) == canonical_season_key(season.season_key):
             return {'key': 'current', 'label': '本赛季',
                     'build': str((overlay or {}).get('source_build') or release.build.split('+ptr-', 1)[0]),
-                    'text_build': display['localization_build']}
+                    'text_build': display['localization_build'],
+                    'data_branch': 'ptr' if overlay else 'retail'}
     if overlay:
         build = str(overlay.get('source_build') or '')
         return {'key': 'ptr', 'label': f'PTR {_version_label(build)}', 'build': build}
@@ -155,8 +156,16 @@ def detail_data(request, instance_id, *, for_html=False):
     return result
 
 
+def difficulty_item_context(difficulties, difficulty):
+    rows = [row for row in difficulties if row.get('id') == difficulty]
+    if len(rows) != 1 or type(rows[0].get('context')) is not int:
+        return None
+    return rows[0]['context']
+
+
 def build_loot_projection(release, instance_id, bosses, difficulty, source):
     """后台构建完整副本掉落，保留旧的资格、分支和数值展示规则。"""
+    item_context = difficulty_item_context((release.manifest or {}).get('catalog', {}).get('difficulties', []), difficulty)
     by_item = {}
     for owner in bosses:
         for drop in owner.payload['loot']:
@@ -189,11 +198,13 @@ def build_loot_projection(release, instance_id, bosses, difficulty, source):
         if identity in seen:
             continue
         seen.add(identity)
-        filtered.append({**row, 'details': _present_tooltip(cached_tooltip(
+        details = _present_tooltip(cached_tooltip(
             'item', row['item_id'], difficulty, source['build'],
             use_current_catalog=source['key'] == 'current',
-            data_branch=source['key'] if source['key'] in ('ptr', 'beta') else '',
-        ), source)})
+            data_branch=source.get('data_branch') or (source['key'] if source['key'] in ('ptr', 'beta') else ('' if source['key'] == 'current' else 'retail')),
+            item_context=item_context, instance_id=instance_id,
+        ), source)
+        filtered.append({**row, 'quality': details.get('quality', row['quality']), 'details': details})
     return {'loot': filtered, 'loot_total': len(drops),
             'slots': [{'id': slot, 'name': SLOTS.get(slot, '其他')} for slot in sorted({d['slot'] for d in drops})],
             'item_types': [{'id': key, 'name': name} for key, name in sorted({(d['item_type'], d['type_name']) for d in drops})]}
@@ -301,7 +312,9 @@ class PortalAdventureJournalTooltipView(View):
             return JsonResponse(_present_tooltip(tooltip(
                 kind, entry_id, context['difficulty'], context['release']['build'],
                 use_current_catalog=source['key'] == 'current',
-                data_branch=source['key'] if source['key'] in ('ptr', 'beta') else '',
+                data_branch=source.get('data_branch') or (source['key'] if source['key'] in ('ptr', 'beta') else ('' if source['key'] == 'current' else 'retail')),
+                item_context=difficulty_item_context(index['difficulties'], difficulty),
+                instance_id=instance_id,
             ), source), json_dumps_params={'ensure_ascii': False})
         except ValueError:
             item = load_item_display_metadata([entry_id])[entry_id]

@@ -59,6 +59,13 @@
     ensureTooltipMounted();
     const name = String(trigger.dataset.wowItemTooltipName || trigger.textContent || "装备").trim();
     renderContent(tooltip, {name, description});
+    const quality = trigger.dataset.wowItemTooltipQuality;
+    if (/^[0-7]$/.test(quality || "")) {
+      const title = tooltip.querySelector(".wow-item-tooltip__name");
+      title.classList.add(`quality-${quality}`);
+      const coloredName = trigger.querySelector(`.quality-${quality}`);
+      if (coloredName) title.style.color = getComputedStyle(coloredName).color;
+    }
     activeTrigger?.removeAttribute("aria-describedby");
     activeTrigger = trigger;
     if (!tooltip.id) tooltip.id = "wow-item-tooltip";

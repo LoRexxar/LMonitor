@@ -136,7 +136,17 @@
         const effects = row.querySelector('[data-item-effects]');
         try {
           const data = await fetchDetails('item', row.dataset.lootId);
-          row.querySelector('.journal-loot-link').dataset.wowItemTooltip = [...(data.lines || []), data.note || ''].join('\n');
+          const link = row.querySelector('.journal-loot-link');
+          link.dataset.wowItemTooltip = [...(data.lines || []), data.note || ''].join('\n');
+          if (Number.isInteger(data.quality) || data.quality === null) {
+            link.dataset.wowItemTooltipQuality = data.quality === null ? '' : String(data.quality);
+            const qualityClass = data.quality === null ? 'quality-unknown' : `quality-${data.quality}`;
+            [row.querySelector('.journal-loot-symbol'), row.querySelector('.journal-loot-title')].forEach(element => {
+              if (!element) return;
+              Array.from(element.classList).filter(name => /^quality-(\d+|unknown)$/.test(name)).forEach(name => element.classList.remove(name));
+              element.classList.add(qualityClass);
+            });
+          }
           if (data.icon && !row.querySelector('.journal-loot-symbol img')) {
             const icon = document.createElement('img');
             icon.src = data.icon;
@@ -148,6 +158,9 @@
             if (data.status === 'not_equipment') {
               stats.textContent = '非装备掉落';
               effects.textContent = '无装备属性或特效，可点击名称查看基础资料。';
+            } else if (data.status === 'unresolved') {
+              stats.textContent = '此难度装等与属性未知';
+              effects.textContent = data.note || '尚无经过验证的此难度装备变体。';
             } else if (data.status === 'basic') {
               stats.textContent = '基础资料已同步';
               effects.textContent = '无可展示的装备数值，可点击名称查看基础资料。';
@@ -271,6 +284,7 @@
       content.replaceChildren();
       const title = document.createElement('h3');
       title.textContent = data.name;
+      if (Number.isInteger(data.quality)) title.classList.add(`quality-${data.quality}`);
       content.append(title);
       data.lines.forEach(line => {
         const paragraph = document.createElement('p');

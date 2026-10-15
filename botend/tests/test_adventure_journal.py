@@ -212,7 +212,27 @@ class JournalInitialItemDisplayTests(TestCase):
 
     def setUp(self):
         isolate_journal_snapshots(self)
-        warm_journal()
+        warm_journal(complete_profile=True)
+
+    def source_response(self):
+        """Render the real source projection, not a pretend published snapshot.
+
+        Incomplete identities/tooltips remain testable before the strict gate.
+        """
+        from django.template.loader import render_to_string
+        from botend.portal.adventure_journal import build_loot_projection, instance_source
+        instance = self.encounter.instance
+        release = instance.release
+        projection = build_loot_projection(release, 10, list(instance.encounters.all()),
+                                           1, instance_source(release, 10))
+        for row in projection['loot']:
+            row['visible'] = True
+        context = {**projection, 'loot_catalog': projection['loot'], 'tab': 'loot',
+                   'instance': instance.payload, 'difficulty': 1, 'source': instance_source(release, 10)}
+        from django.http import HttpResponse
+        response = HttpResponse(render_to_string('portal/adventure_journal_detail.html', context))
+        response.context = context
+        return response
 
     @classmethod
     def setUpTestData(cls):
@@ -258,21 +278,35 @@ class JournalInitialItemDisplayTests(TestCase):
                     WowItemVariantSnapshot.objects.create(
                         item=self.item, season=season, batch_key=season.gear_batch_key,
                         variant_key='test-drop', variant_type='drop_equipment',
-                        game_build='12.1.0.69587', item_level=100, stats_json={'stamina': 12},
+                        data_branch='retail', effects_json=['装备：测试特效。'],
+                        game_build='', item_level=100, stats_json={'stamina': 12}, bonus_ids=[101],
+                        metadata={'difficulty_drop': {
+                            'schema': 1, 'difficulty_id': 1, 'item_context': 1, 'instance_id': 10,
+                            'rule_build': '12.1.0.69587', 'quality': 3, 'provider': 'wago', 'bonus_ids': [101],
+                        }, 'tooltip_source': {'provider': 'wowhead',
+                            'url': 'https://nether.wowhead.com/tooltip/item/60?bonus=101'}},
+
                     )
                 original_variants = list(WowItemVariantSnapshot.objects.values())
                 WowItemSnapshot.objects.filter(pk=self.item.pk).update(catalog_type=catalog_type)
                 # Fail closed if rendering ever starts fetching external metadata.
                 with patch('requests.sessions.Session.request', side_effect=AssertionError('unexpected network')):
-                    warm_journal()
-                    response = self.client.get('/portal/adventure-journal/10/')
+                    if state == 'basic':
+                        from django.core.management.base import CommandError
+                        with self.assertLogs('botend.services.journal_loot_snapshot', level='ERROR'), self.assertRaises(CommandError):
+                            warm_journal()
+                    response = self.source_response()
                 self.assertEqual(response.status_code, 200)
                 row = response.context['loot'][0]
                 if state == 'complete':
                     self.assertTrue(row['details']['complete'])
                     self.assertEqual(row['details']['stats'], ['+12 耐力'])
                 elif state == 'basic':
-                    self.assertIsNone(row['details'])
+                    self.assertEqual(row['details']['status'], 'unresolved')
+                    self.assertFalse(row['details']['complete'])
+                    self.assertEqual(row['details']['stats'], [])
+                    self.assertEqual(row['details']['effects'], [])
+                    self.assertIsNone(row['details']['item_level'])
                 else:
                     self.assertEqual(row['details']['status'], 'not_equipment')
                     self.assertFalse(row['details']['complete'])
@@ -308,8 +342,7 @@ class JournalInitialItemDisplayTests(TestCase):
         self.encounter.payload['loot'][0].update(name='手册中文饰品', source='wago')
         self.encounter.save(update_fields=['payload'])
         WowItemSnapshot.objects.filter(pk=self.item.pk).update(name_zh='')
-        warm_journal()
-        response = self.client.get('/portal/adventure-journal/10/')
+        response = self.source_response()
         self.assertEqual(response.context['loot'][0]['name'], '手册中文饰品')
         self.assertNotContains(response, '暂无中文名称')
 
@@ -323,8 +356,7 @@ class JournalInitialItemDisplayTests(TestCase):
                     self.item.delete()
                 else:
                     WowItemSnapshot.objects.filter(pk=self.item.pk).update(name_zh='', icon='')
-                warm_journal()
-                response = self.client.get('/portal/adventure-journal/10/')
+                response = self.source_response()
                 dom = BeautifulSoup(response.content, 'html.parser').select_one('[data-loot-id="60"]')
                 self.assertEqual(dom.select_one('.journal-loot-link strong').text, 'Original Trinket')
                 self.assertEqual(dom.select_one('img')['src'], '/portal/adventure-journal/art/123456/?v=2')
@@ -332,6 +364,30 @@ class JournalInitialItemDisplayTests(TestCase):
 
 
 class JournalPublicationTests(TestCase):
+    def test_complete_profile_preserves_business_season_and_current_retail_branch(self):
+        from botend.models import SeasonMeta, WowItemVariantSnapshot
+        from botend.portal.adventure_journal import instance_source, build_loot_projection
+        season = SeasonMeta.objects.create(season_key='business-season', season_name='本赛季',
+            is_active=True, gear_batch_key='business-batch', gear_synced_at=timezone.now(),
+            mplus_zone_id=1, raid_zone_id=2)
+        variant = WowItemVariantSnapshot.objects.get(item__item_id=60)
+        variant.pk = None
+        variant.season = season
+        variant.batch_key = season.gear_batch_key
+        variant.save()
+        self.release.manifest['display_overrides'] = {'10': {
+            'season_key': season.season_key, 'localization_build': '12.1.0.69587'}}
+        self.release.save(update_fields=['manifest'])
+        before = list(SeasonMeta.objects.order_by('pk').values('pk', 'is_active', 'gear_batch_key'))
+        warm_journal(complete_profile=True)
+        self.assertEqual(list(SeasonMeta.objects.order_by('pk').values('pk', 'is_active', 'gear_batch_key')), before)
+        source = instance_source(self.release, 10)
+        self.assertEqual((source['key'], source['data_branch']), ('current', 'retail'))
+        instance = self.release.instances.get(journal_id=10)
+        projected = build_loot_projection(self.release, 10, list(instance.encounters.all()), 1, source)
+        self.assertTrue(projected['loot'][0]['details']['complete'])
+        self.assertEqual(set(WowItemVariantSnapshot.objects.filter(season=season).values_list('data_branch', flat=True)), {'retail'})
+
     def publish(self, tables=None):
         tables = tables or fixture()
         with patch('botend.services.journal_service.WagoJournalSource') as source, \
@@ -344,7 +400,7 @@ class JournalPublicationTests(TestCase):
             ]
             source.return_value.manifest = {}
             release = sync_journal(build='12.1.0.69587')
-        warm_journal()
+        warm_journal(complete_profile=True)
         return release
 
     def setUp(self):
@@ -487,11 +543,12 @@ class JournalPublicationTests(TestCase):
         self.assertContains(response, 'data-auto-filter')
 
     def test_equipment_details_are_inline_when_cached(self):
-        details = {'complete': True, 'item_level': 289, 'stats': ['+118 敏捷／智力'],
-                   'effects': ['使用：急速提高800，持续15秒。']}
-        with patch('botend.portal.adventure_journal.cached_tooltip', return_value=details):
-            warm_journal()
-            response = self.client.get('/portal/adventure-journal/10/', {'tab': 'loot'})
+        from botend.models import WowItemVariantSnapshot
+        WowItemVariantSnapshot.objects.filter(item__item_id=60).update(
+            item_level=289, stats_json={'agiint': 118},
+            effects_json=['使用：急速提高800，持续15秒。'])
+        warm_journal()
+        response = self.client.get('/portal/adventure-journal/10/', {'tab': 'loot'})
         self.assertContains(response, 'role="table"')
         self.assertContains(response, '装等 289')
         self.assertContains(response, '使用：急速提高800，持续15秒。')
@@ -567,7 +624,7 @@ class JournalPublicationTests(TestCase):
         tables = fixture()
         tables['JournalEncounter'].append({**tables['JournalEncounter'][0], 'ID': '31', 'Name_lang': '第二首领', 'FirstSectionID': '0'})
         tables['Item'].append({'ID': '63', 'ClassID': '4', 'SubclassID': '4', 'InventoryType': '5'})
-        tables['ItemSparse'].append({'ID': '63', 'Display_lang': '板甲胸甲', 'InventoryType': '5', 'AllowableClass': '-1'})
+        tables['ItemSparse'].append({'ID': '63', 'Display_lang': '板甲胸甲', 'OverallQualityID': '4', 'InventoryType': '5', 'AllowableClass': '-1'})
         tables['JournalEncounterItem'].extend([
             {'ID': '53', 'JournalEncounterID': '31', 'ItemID': '63', 'Flags': '0', 'FactionMask': '-1'},
             {'ID': '54', 'JournalEncounterID': '31', 'ItemID': '60', 'Flags': '0', 'FactionMask': '-1'},

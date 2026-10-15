@@ -19,12 +19,17 @@ FETCH_SLOTS = BoundedSemaphore(4)
 
 
 def cache_key(kind, entry_id, difficulty, build=''):
-    # dd 仅控制技能难度；物品默认变体必须标明参考装等，不能冒充所选难度。
+    # Only spells consume this network cache; item context is resolved locally on every read.
     return f'journal-tooltip:v3:{build}:{kind}:{entry_id}:{difficulty if kind == "spell" else 0}:zhCN'
 
 
-def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_branch=''):
+def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_branch='',
+                        difficulty=None, item_context=None, instance_id=None):
+    strict = instance_id is not None or item_context is not None
+    context = ({'difficulty_id': difficulty, 'item_context': item_context,
+                'instance_id': instance_id, 'difficulty_rule_build': build} if strict else {})
     item = load_item_tooltip_metadata([{
+        **context,
         'item_id': entry_id,
         'data_branch': data_branch,
         # 本赛季装备随中央目录更新，手册发布构建只约束首领和掉落关系。
@@ -33,19 +38,29 @@ def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_bran
         'default_variant_order': 'lowest',
         'require_complete_variant': not use_current_catalog,
     }])[0]
-    if item['catalog_type'] == 'misc' and item.get('name_zh'):
+    if item['catalog_type'] == 'misc':
         return {'name': item['display_name'], 'lines': [item['display_name'], item['localized_description']],
                 'source': 'LMonitor 装备目录', 'url': item['wowhead_url'], 'icon': item['icon_url'],
                 'note': '非装备掉落，没有装备属性或装备特效。', 'item_level': None,
-                'stats': [], 'effects': [], 'complete': False, 'status': 'not_equipment'}
+                'stats': [], 'effects': [], 'complete': False, 'status': 'not_equipment',
+                'quality': item['quality']}
+    if strict and not (item['variant_id'] and item['tooltip_complete']):
+        return {
+            'name': item['display_name'], 'lines': [item['display_name']],
+            'source': 'LMonitor 中央物品目录', 'url': '', 'icon': item['icon_url'],
+            'quality': item['quality'], 'item_level': None, 'stats': [], 'effects': [],
+            'complete': False, 'status': 'unresolved',
+            'note': '尚无经过验证的此难度装备变体，装等、属性与难度品质未知。',
+        }
     is_ptr = bool(item['variant_metadata'].get('ptr_preview'))
     # variant 完整时直接返回结构化数据
     if item['variant_id'] and item['tooltip_complete']:
         item_level = item['item_level']
         # 掉落关系的 build 不能补作装备数值的构建证据。
-        data_build = item['stats_game_build'] or item['variant_metadata'].get('game_build') or ''
+        data_build = item['stats_game_build'] or ('' if strict else item['variant_metadata'].get('game_build')) or ''
         provider = (item['variant_metadata'].get('tooltip_source') or {}).get('provider')
-        branch_label = 'PTR' if is_ptr else '正式服'
+        branch = item.get('data_branch') if strict else ('ptr' if is_ptr else 'retail')
+        branch_label = {'ptr': 'PTR', 'beta': 'Beta', 'retail': '正式服'}.get(branch, '未知分支')
         version_label = data_build or '未记录客户端构建'
         source_label = 'LMonitor PTR DB2 + SimulationCraft' if is_ptr else 'LMonitor 装备目录'
         if provider == 'wowhead':
@@ -54,9 +69,16 @@ def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_bran
             f'数值来自 {"Wowhead " if provider == "wowhead" else ""}{branch_label} '
             f'{version_label} 的参考装等 {item_level} 快照，不代表所选难度的初始掉落装等。'
         )
+        if strict:
+            rule_build = item['variant_metadata']['difficulty_drop']['rule_build']
+            note = (f'此难度掉落规则来自 Wago {rule_build}；属性快照来自 '
+                    f'{"Wowhead " if provider == "wowhead" else ""}{branch_label} {version_label}。'
+                    '掉落规则构建不代表属性快照构建。')
         return {
             'name': item['display_name'],
-            'lines': [item['display_name'], f'物品等级 {item_level}', *item['stat_lines'], *item['effects']],
+            'quality': item['quality'],
+            'status': 'complete',
+            'lines': [item['display_name'], *item['tooltip'].splitlines()],
             'source': source_label,
             'url': '',
             'icon': item['icon_url'],
@@ -124,9 +146,11 @@ def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_bran
     }
 
 
-def cached_tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False, data_branch=''):
+def cached_tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False, data_branch='',
+                   item_context=None, instance_id=None):
     if kind == 'item':
-        return _local_item_tooltip(entry_id, build, use_current_catalog=use_current_catalog, data_branch=data_branch)
+        return _local_item_tooltip(entry_id, build, use_current_catalog=use_current_catalog, data_branch=data_branch,
+                                   difficulty=difficulty, item_context=item_context, instance_id=instance_id)
     key = cache_key(kind, entry_id, difficulty, build)
     result = cache.get(key)
     if result:
@@ -243,14 +267,18 @@ def _parse_wowhead_item_tooltip(entry_id, difficulty, raw_lines, payload):
     }
 
 
-def tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False, data_branch=''):
+def tooltip(kind, entry_id, difficulty, build='', *, use_current_catalog=False, data_branch='',
+            item_context=None, instance_id=None):
     key = cache_key(kind, entry_id, difficulty, build)
-    cached = cached_tooltip(kind, entry_id, difficulty, build, use_current_catalog=use_current_catalog, data_branch=data_branch)
+    cached = cached_tooltip(kind, entry_id, difficulty, build, use_current_catalog=use_current_catalog,
+                            data_branch=data_branch, item_context=item_context, instance_id=instance_id)
     if cached:
         return cached
-    # 物品：中央变体缺失时回退到 Wowhead tooltip API
-    if kind == 'item':
-        pass  # 不再直接抛异常，下面统一回退 Wowhead
+    # Journal requests carry explicit instance/context and remain local-only.
+    # Preserve the pre-existing explicit legacy enrichment helper for callers
+    # without journal coordinates; it is not the live Journal page path.
+    if kind == 'item' and (instance_id is not None or item_context is not None):
+        raise ValueError('中央物品目录只有基础事实，未找到经过验证的装备变体')
     if cache.get(key + ':unavailable'):
         raise ValueError('补充资料暂不可用，请稍后重试')
     try:

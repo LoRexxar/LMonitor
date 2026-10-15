@@ -1,0 +1,7 @@
+{
+  "name": "Charged Halberd",
+  "quality": 4,
+  "icon": "inv_polearm_2h_arathoroutdoor_d_01",
+  "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Charged Halberd</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->593</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Two-Hand</td><th><!--scstart2:6--><span class=\"q1\">Polearm</span><!--scend--></th></tr></table><!--rf--><table width=\"100%\"><tr>\n    <td><span><!--dmg-->3,995 - 7,420 Damage</span></td>\n    <th>Speed <!--spd-->3.60</th>\n</tr></table><!--dps-->(1,585 damage per second)<br><span><!--stat72-->+2,106 [Agility or Strength]</span><br><span><!--stat7-->+51,952 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg24-->695 Random Stat 1</span><br><span class=\"q2\">+<!--rtg25-->695 Random Stat 2</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--><br>Durability 120 / 120</td></tr></table><table><tr><td><!--rr--><!--itemEffects:0-->Requires Level <!--rlvl-->80<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">170</span> <span class=\"moneysilver\">44</span> <span class=\"moneycopper\">7</span></div></td></tr></table>",
+  "spells": []
+}

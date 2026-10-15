@@ -1,0 +1,7 @@
+{
+  "name": "黎明之刃的战刃",
+  "quality": 3,
+  "icon": "inv_glaive_1h_questbloodelf_b_01",
+  "tooltip": "<table><tr><td><!--nstart--><b class=\"q3\">黎明之刃的战刃</b><!--nend--><!--ndstart--><!--ndend--><br /><span class=\"whtt-transmogrified-to\">装饰品</span><span class=\"q\"><br>物品等级：<!--ilvl-->1</span><!--bo--><br><span class=\"q7\">绑定至战团</span><!--ue--><!--ue--><table width=\"100%\"><tr><td>单手</td><th><!--scstart2:9--><span class=\"q1\">战刃</span><!--scend--></th></tr></table><!--rf--><table width=\"100%\"><tr>\n    <td><span><!--dmg-->1点伤害</span></td>\n    <th>速度 <!--spd-->3.00</th>\n</tr></table><!--dps-->（每秒伤害0.3点）<!--ebstats--><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--><br>耐久: 30 / 30</td></tr></table><table><tr><td><!--rr--><!--itemEffects:0--><span class=\"q2\">使用：将此外观添加到你的战团收藏中。</span><br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">售价: <span class=\"moneycopper\">11</span></div><div class=\"whtt-extra whtt-droppedby\">掉落于: 利希尔·烬怒</div></td></tr></table>",
+  "spells": []
+}

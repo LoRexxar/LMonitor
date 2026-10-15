@@ -14,7 +14,7 @@ from botend.services.journal_service import compile_journal
 from botend.services import journal_loot_snapshot as snapshots
 from botend.services.gear_catalog_snapshot import invalidate_catalog_snapshots
 from botend.tests.test_adventure_journal import fixture
-from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots, warm_journal
+from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots, warm_journal, seed_snapshot_difficulty_facts
 
 
 class JournalLootSnapshotTests(TestCase):
@@ -28,6 +28,7 @@ class JournalLootSnapshotTests(TestCase):
         self.instance = JournalInstance.objects.create(release=self.release, journal_id=10, name=payload['name'], kind=payload['kind'], payload=payload)
         for boss in bosses:
             JournalEncounter.objects.create(instance=self.instance, journal_id=boss['id'], name=boss['name'], payload=boss)
+        seed_snapshot_difficulty_facts(self.release)
         self.source = instance_source(self.release, 10)
         from botend.services.journal_snapshot import refresh_journal_snapshot
         refresh_journal_snapshot()
@@ -46,6 +47,7 @@ class JournalLootSnapshotTests(TestCase):
         for boss in self.instance.encounters.all():
             JournalEncounter.objects.create(instance=target, journal_id=boss.journal_id,
                                            name=boss.name, payload=deepcopy(boss.payload))
+        seed_snapshot_difficulty_facts(self.release)
         self.read(1)
         self.read(2)
         source = instance_source(self.release, 11)
@@ -118,7 +120,7 @@ class JournalLootSnapshotTests(TestCase):
     def test_failure_and_source_race_keep_previous_then_update_names_and_spec_rules(self):
         warm_journal()
         before = self.read()
-        WowItemSnapshot.objects.create(item_id=60, name='Original', name_zh='新名称', catalog_type='equipment', eligible_specs=['Paladin:Holy'])
+        WowItemSnapshot.objects.filter(item_id=60).update(name='Original', name_zh='新名称', eligible_specs=['Paladin:Holy'])
         with patch('botend.portal.adventure_journal.build_loot_projection', side_effect=RuntimeError('生成失败')):
             self.assertEqual(snapshots.refresh_journal_loot_snapshots(force=True), [])
         self.assertEqual(self.read(), before)

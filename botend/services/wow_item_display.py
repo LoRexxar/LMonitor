@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+from decimal import Decimal
 
 from django.db.models import Exists, OuterRef
 
@@ -18,7 +19,7 @@ STAT_LABELS = {
     'strength': '力量', 'agility': '敏捷', 'intellect': '智力', 'stamina': '耐力',
     'armor': '护甲', 'bonus_armor': '额外护甲', 'crit': '暴击', 'haste': '急速',
     'mastery': '精通', 'versatility': '全能', 'leech': '吸血',
-    'avoidance': '闪避', 'speed': '速度', 'weapon_dps': '武器秒伤',
+    'avoidance': '闪避', 'speed': '速度', 'weapon_dps': '武器秒伤', 'weapon_speed': '武器速度',
     'min_damage': '最低伤害', 'max_damage': '最高伤害',
     'stragiint': '力量／敏捷／智力', 'agiint': '敏捷／智力',
     'stragi': '力量／敏捷', 'strint': '力量／智力',
@@ -26,6 +27,7 @@ STAT_LABELS = {
 LAYOUT_STAT_ALIASES = {
     'bonus_armor': ('额外护甲', 'Bonus Armor'),
     'weapon_dps': ('武器秒伤', 'Damage Per Second'),
+    'weapon_speed': ('武器速度', 'Speed'),
     'min_damage': ('最低伤害',),
     'max_damage': ('最高伤害',),
     'stragiint': ('力量', '敏捷', '智力', 'Strength', 'Agility', 'Intellect'),
@@ -136,7 +138,10 @@ def _rows(value):
 
 def _format_number(value):
     parsed = _number(value)
-    return f'{parsed:,}' if isinstance(parsed, int) else f'{parsed:,.2f}'.rstrip('0').rstrip('.')
+    if isinstance(parsed, int):
+        return f'{parsed:,}'
+    # Preserve stored decimal precision rather than round a weapon value.
+    return format(Decimal(str(parsed)), ',f').rstrip('0').rstrip('.')
 
 
 def _source_text(source):
@@ -527,6 +532,7 @@ def item_display_metadata(
         "identity_available": bool(identity),
         "stats_game_build": str(getattr(variant, 'game_build', '') or ''),
         "variant_metadata": variant_metadata,
+        "data_branch": str(getattr(variant, 'data_branch', '') or ''),
         "tooltip_complete": bool(normalized_stats or normalized_effects) and not (
             expects_effect and not normalized_effects
         ),
@@ -591,6 +597,48 @@ def _variant_score(variant, item_level, bonus_ids):
     )
 
 
+DIFFICULTY_CONTEXT_FIELDS = ('difficulty_id', 'item_context', 'instance_id', 'difficulty_rule_build')
+
+
+def _difficulty_variant(candidates, context, item_id):
+    """Select only a proven drop association; never score approximate bonus matches."""
+    if any(type(context.get(key)) is not int or context[key] < (0 if key == 'item_context' else 1)
+           for key in DIFFICULTY_CONTEXT_FIELDS[:3]):
+        return None
+    build = context.get('difficulty_rule_build')
+    if not isinstance(build, str) or not build:
+        return None
+    matching = []
+    for row in candidates:
+        metadata = row.metadata if isinstance(row.metadata, dict) else {}
+        drop = metadata.get('difficulty_drop')
+        if not isinstance(drop, dict) or row.item.item_id != item_id:
+            continue
+        if (type(drop.get('schema')) is not int or drop['schema'] != 1
+                or drop.get('provider') != 'wago'
+                or type(drop.get('quality')) is not int or not 0 <= drop['quality'] <= 7
+                or drop.get('rule_build') != build):
+            continue
+        if any(type(drop.get(key)) is not int or drop[key] != context[key]
+               for key in DIFFICULTY_CONTEXT_FIELDS[:3]):
+            continue
+        bonuses = drop.get('bonus_ids')
+        stored = row.bonus_ids
+        if (not isinstance(bonuses, list) or not isinstance(stored, list)
+                or any(type(value) is not int or value <= 0 for value in [*bonuses, *stored])
+                or set(bonuses) != set(stored)):
+            continue
+        matching.append(row)
+    # Duplicate evidence may agree; conflicting facts are explicitly unresolved.
+    if not matching or any((row.item_level, row.stats_json, row.effects_json,
+                            row.metadata, row.source_json, set(row.bonus_ids), row.game_build)
+                           != (matching[0].item_level, matching[0].stats_json,
+                               matching[0].effects_json, matching[0].metadata, matching[0].source_json,
+                               set(matching[0].bonus_ids), matching[0].game_build) for row in matching[1:]):
+        return None
+    return min(matching, key=lambda row: row.pk)
+
+
 def load_item_tooltip_metadata(requests):
     """按输入顺序批量匹配活动目录的具体装备变体。"""
     requests = list(requests or [])
@@ -638,13 +686,48 @@ def load_item_tooltip_metadata(requests):
             raise ValidationError('装备来源分支无效')
         snapshot = snapshots.get(item_id)
         identity = context.get('item_identity')
+        strict_difficulty = any(key in context for key in DIFFICULTY_CONTEXT_FIELDS)
+        visible_variants = variants_by_item.get(item_id, [])
+        if not strict_difficulty:
+            # A dedicated Journal fact must be invisible to ordinary branch
+            # inference as well as to final variant selection.
+            visible_variants = [row for row in visible_variants if not (
+                isinstance(row.metadata, dict) and 'difficulty_drop' in row.metadata)]
         data_branch = context.get('data_branch') or ('ptr' if context.get('is_ptr') else 'retail')
-        # 数据关联只使用物品 ID 与分支；旧请求中的 build/完整版本标记不参与筛选。
-        if not context.get('data_branch') and type(context.get('is_ptr')) is not bool and snapshot:
-            branches = {variant_branch(row) for row in variants_by_item.get(item_id, [])}
+        # Legacy readers may infer a unique branch; strict Journal coordinates never may.
+        if not strict_difficulty and not context.get('data_branch') and type(context.get('is_ptr')) is not bool and snapshot:
+            branches = {variant_branch(row) for row in visible_variants}
             if len(branches) == 1:
                 data_branch = next(iter(branches))
-        candidates = [row for row in variants_by_item.get(item_id, []) if variant_branch(row) == data_branch]
+        candidates = [row for row in visible_variants if variant_branch(row) == data_branch]
+        if strict_difficulty:
+            data_branch = context.get('data_branch')
+            candidates = [row for row in variants_by_item.get(item_id, [])
+                          if data_branch in ('retail', 'ptr', 'beta')
+                          and row.data_branch == data_branch
+                          and (not isinstance(row.metadata, dict) or 'data_branch' not in row.metadata
+                               or row.metadata['data_branch'] == data_branch)]
+            variant = _difficulty_variant(candidates, context, item_id)
+            projected = item_display_metadata(
+                item_id, snapshot, variant=variant, primary_stat=primary_stat,
+                game_build=str(getattr(variant, 'game_build', '') or ''),
+                is_ptr=(data_branch == 'ptr') if data_branch != 'beta' else None,
+                legacy_identity=context.get('legacy_identity', False),
+            )
+            projected['data_branch'] = data_branch if data_branch in ('retail', 'ptr', 'beta') else ''
+            projected['base_quality'] = snapshot.quality if snapshot else None
+            projected['difficulty_status'] = 'resolved' if variant is not None else 'unresolved'
+            projected['difficulty_quality'] = variant.metadata['difficulty_drop']['quality'] if variant is not None else None
+            if variant is not None:
+                projected['quality'] = projected['difficulty_quality']
+            else:
+                projected['quality'] = projected['base_quality'] if projected['catalog_type'] == 'misc' else None
+                # Base descriptions can contain old stats; those are not difficulty facts.
+                projected.update(variant_id=None, variant_key='', item_level=None, stats={},
+                                 stat_lines=[], effects=[], tooltip_complete=False,
+                                 display_description='', tooltip='')
+            result.append(projected)
+            continue
         if require_complete and any(row.effects_json for row in candidates):
             candidates = [row for row in candidates if row.effects_json]
         if item_level:

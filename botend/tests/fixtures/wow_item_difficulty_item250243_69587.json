@@ -1,0 +1,5634 @@
+[
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "Curve",
+    "filter": {
+      "ID": 183
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 183,
+        "Type": 0,
+        "Flags": 2
+      }
+    ],
+    "source_total": 62533,
+    "file_sha256": "b03672f8feb93cd76abb7e7acf066adc25f80ee4b0e8f146319f8c5639faa819",
+    "url": "https://wago.tools/db2/Curve/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "2e322bd225a6dddad3a2d07ea48b34ac9db09de601a915b36140eab8a6ca8b5f"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "Curve",
+    "filter": {
+      "ID": 184
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 184,
+        "Type": 0,
+        "Flags": 2
+      }
+    ],
+    "source_total": 62533,
+    "file_sha256": "b03672f8feb93cd76abb7e7acf066adc25f80ee4b0e8f146319f8c5639faa819",
+    "url": "https://wago.tools/db2/Curve/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "d026e7069c978fbd75ebecca5332c5d28a417842b7d78585b5d31cc682da6421"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "Curve",
+    "filter": {
+      "ID": 211
+    },
+    "total": 0,
+    "rows": [],
+    "source_total": 62533,
+    "file_sha256": "b03672f8feb93cd76abb7e7acf066adc25f80ee4b0e8f146319f8c5639faa819",
+    "url": "https://wago.tools/db2/Curve/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "ac88db20bf595da4488c538f6d2ea98cb2fc5757f969213ccfc90e2607e1fc30"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "Curve",
+    "filter": {
+      "ID": 88583
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 88583,
+        "Type": 0,
+        "Flags": 0
+      }
+    ],
+    "source_total": 62533,
+    "file_sha256": "b03672f8feb93cd76abb7e7acf066adc25f80ee4b0e8f146319f8c5639faa819",
+    "url": "https://wago.tools/db2/Curve/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "ed4c141d11d2738cc1201b093e0c5212d48d45921c3904fa03d0f66c1bbddfb7"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "CurvePoint",
+    "filter": {
+      "CurveID": 183
+    },
+    "total": 1,
+    "rows": [
+      {
+        "Pos_0": 0.0,
+        "Pos_1": 1.0,
+        "PosPreSquish_0": 0.0,
+        "PosPreSquish_1": 1.0,
+        "ID": 629,
+        "CurveID": 183,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 171168,
+    "file_sha256": "3925edf8c03182ef93718630cd16fba064a46b8d68a2adc8f157325c178396e9",
+    "url": "https://wago.tools/db2/CurvePoint/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "2b5dfe4f089214ded1504e845e3628ff9c372fc048357b8e4d3216db87462626"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "CurvePoint",
+    "filter": {
+      "CurveID": 184
+    },
+    "total": 1,
+    "rows": [
+      {
+        "Pos_0": 0.0,
+        "Pos_1": 1.0,
+        "PosPreSquish_0": 0.0,
+        "PosPreSquish_1": 1.0,
+        "ID": 630,
+        "CurveID": 184,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 171168,
+    "file_sha256": "3925edf8c03182ef93718630cd16fba064a46b8d68a2adc8f157325c178396e9",
+    "url": "https://wago.tools/db2/CurvePoint/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "06e67eb641165ab690600e0ad6acb70258c5a6c7d59a64fcd5bbbcbd2a9609f0"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "CurvePoint",
+    "filter": {
+      "CurveID": 211
+    },
+    "total": 0,
+    "rows": [],
+    "source_total": 171168,
+    "file_sha256": "3925edf8c03182ef93718630cd16fba064a46b8d68a2adc8f157325c178396e9",
+    "url": "https://wago.tools/db2/CurvePoint/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "b718ac9fae49a43f32245ef89928b118ca79d6965f40eb7621d0fa6bd47a4ad2"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "CurvePoint",
+    "filter": {
+      "CurveID": 88583
+    },
+    "total": 2,
+    "rows": [
+      {
+        "Pos_0": 0.0,
+        "Pos_1": 0.0,
+        "PosPreSquish_0": 0.0,
+        "PosPreSquish_1": 0.0,
+        "ID": 262841,
+        "CurveID": 88583,
+        "OrderIndex": 0
+      },
+      {
+        "Pos_0": 1300.0,
+        "Pos_1": 1300.0,
+        "PosPreSquish_0": 0.0,
+        "PosPreSquish_1": 0.0,
+        "ID": 262842,
+        "CurveID": 88583,
+        "OrderIndex": 1
+      }
+    ],
+    "source_total": 171168,
+    "file_sha256": "3925edf8c03182ef93718630cd16fba064a46b8d68a2adc8f157325c178396e9",
+    "url": "https://wago.tools/db2/CurvePoint/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "f9c8474e3cb6e220c498fffe6e2c4c46827acda10925bc1307b3c3cd423d57c1"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 12667
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 27008,
+        "Value_0": 0,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12667,
+        "Type": 0,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "8ec8020dd0763c1b4b993d2f20a0721e3e9ddac3c9ff8e7596a3b4e097a095ea"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 12698
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 27064,
+        "Value_0": 139287,
+        "Value_1": -1,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12698,
+        "Type": 12,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "0f74849c9ce90029df452055183049af3faed8437030ae62445e6e0856efaa64"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 12699
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 27065,
+        "Value_0": 139288,
+        "Value_1": -1,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12699,
+        "Type": 12,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "5d439057973c747307a6a1c1f93652a47b8552223bee6f6792789e5a0cb94728"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 12700
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 27066,
+        "Value_0": 139287,
+        "Value_1": -1,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12700,
+        "Type": 12,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "e6b85b1b89715096548cf3429852b016101235b479d4d78ae1097054f2dd8ae0"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 12701
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 27067,
+        "Value_0": 139288,
+        "Value_1": -1,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12701,
+        "Type": 12,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "f49c6bd75822fad8dc87f1165d50c7481acd1af38cbff096c5d9a8a582ffb20f"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 12769
+    },
+    "total": 3,
+    "rows": [
+      {
+        "ID": 27227,
+        "Value_0": 184,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12769,
+        "Type": 49,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 27464,
+        "Value_0": 608,
+        "Value_1": 971,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12769,
+        "Type": 34,
+        "OrderIndex": 1
+      },
+      {
+        "ID": 27466,
+        "Value_0": 3,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12769,
+        "Type": 3,
+        "OrderIndex": 2
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "5f0b523dfde0ea24d024d8bd2574905f1e0724430a090fd1320b3e8b5885332a"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 12777
+    },
+    "total": 4,
+    "rows": [
+      {
+        "ID": 27496,
+        "Value_0": 609,
+        "Value_1": 972,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12777,
+        "Type": 34,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 27498,
+        "Value_0": 4,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12777,
+        "Type": 3,
+        "OrderIndex": 1
+      },
+      {
+        "ID": 30299,
+        "Value_0": 211,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12777,
+        "Type": 49,
+        "OrderIndex": 2
+      },
+      {
+        "ID": 30687,
+        "Value_0": 4,
+        "Value_1": -1,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 12777,
+        "Type": 7,
+        "OrderIndex": 3
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "56a8ef6e787b5e5f90f552d57c44adce3c077dce6d932f101138b76a4fe33df0"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 13437
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 29331,
+        "Value_0": 0,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13437,
+        "Type": 0,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "9f206a6f1a91e252cb438e14fe98a64eefff2bf0d89c78f3fc9b8041a6138540"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 13438
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 29332,
+        "Value_0": 2015,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13438,
+        "Type": 4,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "598686958ae6e328d1c793c805e0657ce7fdc678a252a77eaee7cc81d69d0bd9"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 13439
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 29333,
+        "Value_0": 13145,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13439,
+        "Type": 4,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "5c39ca2ea3a2283ffc518a4968fc7e64127be25d8afb9646ad1faf4e5b8bb3ba"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 13442
+    },
+    "total": 2,
+    "rows": [
+      {
+        "ID": 29336,
+        "Value_0": 3,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13442,
+        "Type": 3,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 29337,
+        "Value_0": 183,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13442,
+        "Type": 49,
+        "OrderIndex": 1
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "4238d96a4ec80b036600630bac3616c8a143bac85737a998ad0298cf89b10ecc"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 13534
+    },
+    "total": 3,
+    "rows": [
+      {
+        "ID": 30115,
+        "Value_0": 1,
+        "Value_1": 7,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13534,
+        "Type": 6,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 30116,
+        "Value_0": 5,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13534,
+        "Type": 26,
+        "OrderIndex": 1
+      },
+      {
+        "ID": 30117,
+        "Value_0": 12,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13534,
+        "Type": 9,
+        "OrderIndex": 2
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "09da6e5288f3f6ffb2d62e4040fb513fa1bfaa46617a792764e4227c934c3ebb"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 13577
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 30215,
+        "Value_0": 12,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13577,
+        "Type": 37,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "da56c950e49293cfb2bf2967d023e6be7ee10def120685a194e99e1eae59acd9"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 13578
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 30216,
+        "Value_0": 0,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13578,
+        "Type": 0,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "44e34c6136d9f98abf64c87733377814d03e7d3358b2a737dbb5a79eee7a075c"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 13668
+    },
+    "total": 2,
+    "rows": [
+      {
+        "ID": 30657,
+        "Value_0": 1,
+        "Value_1": 7,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13668,
+        "Type": 6,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 30658,
+        "Value_0": 5,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 13668,
+        "Type": 26,
+        "OrderIndex": 1
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "1fc033a5360bd277ce7d0d0cffde62d7363353409c3f13608177b47e97a1506f"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 40
+    },
+    "total": 3,
+    "rows": [
+      {
+        "ID": 89,
+        "Value_0": 63,
+        "Value_1": 3000,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 40,
+        "Type": 2,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 1706,
+        "Value_0": 12,
+        "Value_1": 100,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 40,
+        "Type": 9,
+        "OrderIndex": 1
+      },
+      {
+        "ID": 19968,
+        "Value_0": 3,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 40,
+        "Type": 26,
+        "OrderIndex": 2
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "64e769b20c007bffef090b2050042e3d91f457ff28436a5c0021911efb8b16ad"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 41
+    },
+    "total": 3,
+    "rows": [
+      {
+        "ID": 90,
+        "Value_0": 62,
+        "Value_1": 3000,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 41,
+        "Type": 2,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 1707,
+        "Value_0": 12,
+        "Value_1": 100,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 41,
+        "Type": 9,
+        "OrderIndex": 1
+      },
+      {
+        "ID": 19967,
+        "Value_0": 2,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 41,
+        "Type": 26,
+        "OrderIndex": 2
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "cb9b0f2d83b9f9234e94d1e0a727744e183fbf599f4c99f3f1e2eaf1c76a0d80"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 42
+    },
+    "total": 3,
+    "rows": [
+      {
+        "ID": 91,
+        "Value_0": 61,
+        "Value_1": 3000,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 42,
+        "Type": 2,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 1708,
+        "Value_0": 12,
+        "Value_1": 100,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 42,
+        "Type": 9,
+        "OrderIndex": 1
+      },
+      {
+        "ID": 19966,
+        "Value_0": 1,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 42,
+        "Type": 26,
+        "OrderIndex": 2
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "8314815cfa1ff5be69bd46d512db80ffd9999e8893fb1fef49beb5a5c6be8dcb"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 43
+    },
+    "total": 2,
+    "rows": [
+      {
+        "ID": 92,
+        "Value_0": 64,
+        "Value_1": 3000,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 43,
+        "Type": 2,
+        "OrderIndex": 0
+      },
+      {
+        "ID": 1709,
+        "Value_0": 12,
+        "Value_1": 100,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 43,
+        "Type": 9,
+        "OrderIndex": 1
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "8e66110ffa2d81d78969792b184255c0e1abf1bbf03a7d6896c79768238e1cd6"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonus",
+    "filter": {
+      "ParentItemBonusListID": 6652
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 12792,
+        "Value_0": 0,
+        "Value_1": 0,
+        "Value_2": 0,
+        "Value_3": 0,
+        "ParentItemBonusListID": 6652,
+        "Type": 0,
+        "OrderIndex": 0
+      }
+    ],
+    "source_total": 20224,
+    "file_sha256": "41b13220f89ffe3c89c4ee26c9d7460d947fe30fc56b0936cfa21681566f5d63",
+    "url": "https://wago.tools/db2/ItemBonus/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "b9ddafbb18e9eb63cf1d5381b698004a39b90dfb8fa771ec2b5749c19c98c08a"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusListGroup",
+    "filter": {
+      "ID": 608
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 608,
+        "SequenceSpellID": 1269527,
+        "PlayerConditionID": 154598,
+        "ItemExtendedCostID": 0,
+        "ItemLogicalCostGroupID": 0,
+        "ItemGroupIlvlScalingID": 11
+      }
+    ],
+    "source_total": 236,
+    "file_sha256": "64a3f77c0b92bcf63b1ae169f14834fe5ec5fcd95514c2a83fdc31449c752c3b",
+    "url": "https://wago.tools/db2/ItemBonusListGroup/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "0f78175918ce70c0e03490d26c092c9236e45faa4567df96b5b89aa562586dba"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusListGroup",
+    "filter": {
+      "ID": 609
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 609,
+        "SequenceSpellID": 1269528,
+        "PlayerConditionID": 154598,
+        "ItemExtendedCostID": 0,
+        "ItemLogicalCostGroupID": 0,
+        "ItemGroupIlvlScalingID": 11
+      }
+    ],
+    "source_total": 236,
+    "file_sha256": "64a3f77c0b92bcf63b1ae169f14834fe5ec5fcd95514c2a83fdc31449c752c3b",
+    "url": "https://wago.tools/db2/ItemBonusListGroup/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "c064c1fe68e3043972873ef5a1ad7ed7bf48c82604e6af8da0470ebc647998b1"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusListGroupEntry",
+    "filter": {
+      "ItemBonusListGroupID": 608
+    },
+    "total": 8,
+    "rows": [
+      {
+        "ID": 4366,
+        "ItemBonusListGroupID": 608,
+        "ItemBonusListID": 12769,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 1,
+        "ItemExtendedCostID": 0,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4367,
+        "ItemBonusListGroupID": 608,
+        "ItemBonusListID": 12770,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 2,
+        "ItemExtendedCostID": 10994,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4368,
+        "ItemBonusListGroupID": 608,
+        "ItemBonusListID": 12771,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 3,
+        "ItemExtendedCostID": 10995,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4369,
+        "ItemBonusListGroupID": 608,
+        "ItemBonusListID": 12772,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 4,
+        "ItemExtendedCostID": 10996,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4370,
+        "ItemBonusListGroupID": 608,
+        "ItemBonusListID": 12773,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 5,
+        "ItemExtendedCostID": 10997,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4371,
+        "ItemBonusListGroupID": 608,
+        "ItemBonusListID": 12774,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 6,
+        "ItemExtendedCostID": 10998,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4372,
+        "ItemBonusListGroupID": 608,
+        "ItemBonusListID": 12775,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 7,
+        "ItemExtendedCostID": 0,
+        "PlayerConditionID": 0,
+        "Flags": 3,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4373,
+        "ItemBonusListGroupID": 608,
+        "ItemBonusListID": 12776,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 8,
+        "ItemExtendedCostID": 0,
+        "PlayerConditionID": 0,
+        "Flags": 3,
+        "ItemLogicalCostGroupID": 0
+      }
+    ],
+    "source_total": 2473,
+    "file_sha256": "f07be2bfe219aa9ebd0d2fcfffe716678d951cc8b7b9fd01d7bed5a3cb5ec31c",
+    "url": "https://wago.tools/db2/ItemBonusListGroupEntry/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "060c55976df67d18e7013ea565ed8f3e00a464d8fa7bcc6490b1c90f2d930a66"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusListGroupEntry",
+    "filter": {
+      "ItemBonusListGroupID": 609
+    },
+    "total": 8,
+    "rows": [
+      {
+        "ID": 4374,
+        "ItemBonusListGroupID": 609,
+        "ItemBonusListID": 12777,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 1,
+        "ItemExtendedCostID": 0,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4375,
+        "ItemBonusListGroupID": 609,
+        "ItemBonusListID": 12778,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 2,
+        "ItemExtendedCostID": 10999,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4376,
+        "ItemBonusListGroupID": 609,
+        "ItemBonusListID": 12779,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 3,
+        "ItemExtendedCostID": 11000,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4377,
+        "ItemBonusListGroupID": 609,
+        "ItemBonusListID": 12780,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 4,
+        "ItemExtendedCostID": 11001,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4378,
+        "ItemBonusListGroupID": 609,
+        "ItemBonusListID": 12781,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 5,
+        "ItemExtendedCostID": 11002,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4379,
+        "ItemBonusListGroupID": 609,
+        "ItemBonusListID": 12782,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 6,
+        "ItemExtendedCostID": 11003,
+        "PlayerConditionID": 0,
+        "Flags": 2,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4380,
+        "ItemBonusListGroupID": 609,
+        "ItemBonusListID": 12783,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 7,
+        "ItemExtendedCostID": 0,
+        "PlayerConditionID": 0,
+        "Flags": 3,
+        "ItemLogicalCostGroupID": 0
+      },
+      {
+        "ID": 4381,
+        "ItemBonusListGroupID": 609,
+        "ItemBonusListID": 12784,
+        "ItemLevelSelectorID": 0,
+        "SequenceValue": 8,
+        "ItemExtendedCostID": 0,
+        "PlayerConditionID": 0,
+        "Flags": 3,
+        "ItemLogicalCostGroupID": 0
+      }
+    ],
+    "source_total": 2473,
+    "file_sha256": "f07be2bfe219aa9ebd0d2fcfffe716678d951cc8b7b9fd01d7bed5a3cb5ec31c",
+    "url": "https://wago.tools/db2/ItemBonusListGroupEntry/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "297ab5051da3bb8de4c07f6894e44480d6b1bbf60009cc1869f0fac1e334e045"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 4733
+    },
+    "total": 24,
+    "rows": [
+      {
+        "ID": 20315,
+        "ItemContext": 165,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 20316,
+        "ItemContext": 166,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 20317,
+        "ItemContext": 167,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 20318,
+        "ItemContext": 168,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 20319,
+        "ItemContext": 169,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 20320,
+        "ItemContext": 170,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 20321,
+        "ItemContext": 171,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 20322,
+        "ItemContext": 172,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 20323,
+        "ItemContext": 173,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 22950,
+        "ItemContext": 174,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 22951,
+        "ItemContext": 175,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 22952,
+        "ItemContext": 176,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 22953,
+        "ItemContext": 177,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 24507,
+        "ItemContext": 178,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 24791,
+        "ItemContext": 179,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 24792,
+        "ItemContext": 180,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 24913,
+        "ItemContext": 181,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 24914,
+        "ItemContext": 182,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 24915,
+        "ItemContext": 183,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 24916,
+        "ItemContext": 184,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 25572,
+        "ItemContext": 149,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 25573,
+        "ItemContext": 150,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 25574,
+        "ItemContext": 151,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      },
+      {
+        "ID": 27136,
+        "ItemContext": 152,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 11215,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 4733
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "29253a5f888b7ea2a91ed3dc3271a53ef050aac42b6cdf0f621a12b7fa89d49e"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 51
+    },
+    "total": 2,
+    "rows": [
+      {
+        "ID": 28393,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5902,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 51
+      },
+      {
+        "ID": 28394,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5903,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 51
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "4f214bd2987896cbee035641ac3eb649c68c7272aaf2884efe760601e0f5f408"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5246
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 24051,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 40,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5246
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "dbb29dd188edab315c246e8c64e92fe0babdb61daf2843dd8ea8ab46ff9ae1ba"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5523
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 24786,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12667,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5523
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "09affc3ece7a1267408ffe2bcb14f62599f842919e8fd3750b61446604ef301a"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5633
+    },
+    "total": 34,
+    "rows": [
+      {
+        "ID": 25583,
+        "ItemContext": 2,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25584,
+        "ItemContext": 23,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25585,
+        "ItemContext": 16,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25586,
+        "ItemContext": 33,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25587,
+        "ItemContext": 35,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25588,
+        "ItemContext": 146,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25589,
+        "ItemContext": 102,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25590,
+        "ItemContext": 103,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25591,
+        "ItemContext": 147,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25592,
+        "ItemContext": 148,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25593,
+        "ItemContext": 165,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25594,
+        "ItemContext": 166,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25595,
+        "ItemContext": 167,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25596,
+        "ItemContext": 168,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25597,
+        "ItemContext": 169,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25598,
+        "ItemContext": 170,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25599,
+        "ItemContext": 171,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25600,
+        "ItemContext": 172,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12698,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25601,
+        "ItemContext": 173,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25602,
+        "ItemContext": 174,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25603,
+        "ItemContext": 175,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25604,
+        "ItemContext": 176,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25605,
+        "ItemContext": 177,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25606,
+        "ItemContext": 178,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25607,
+        "ItemContext": 179,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25608,
+        "ItemContext": 180,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25609,
+        "ItemContext": 181,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25610,
+        "ItemContext": 182,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25611,
+        "ItemContext": 183,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25612,
+        "ItemContext": 184,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25613,
+        "ItemContext": 54,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25614,
+        "ItemContext": 81,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25615,
+        "ItemContext": 3,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      },
+      {
+        "ID": 25616,
+        "ItemContext": 14,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12699,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5633
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "62be9ad77c901ceda9b0178e28bc8c093f39ad5dd4663301a1956149f865e208"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5634
+    },
+    "total": 34,
+    "rows": [
+      {
+        "ID": 25617,
+        "ItemContext": 2,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25618,
+        "ItemContext": 23,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25619,
+        "ItemContext": 16,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25620,
+        "ItemContext": 33,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25621,
+        "ItemContext": 35,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25622,
+        "ItemContext": 146,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25623,
+        "ItemContext": 102,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25624,
+        "ItemContext": 103,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25625,
+        "ItemContext": 147,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25626,
+        "ItemContext": 148,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25627,
+        "ItemContext": 165,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25628,
+        "ItemContext": 166,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25629,
+        "ItemContext": 167,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25630,
+        "ItemContext": 168,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25631,
+        "ItemContext": 169,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25632,
+        "ItemContext": 170,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25633,
+        "ItemContext": 171,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25634,
+        "ItemContext": 172,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12700,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25635,
+        "ItemContext": 173,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25636,
+        "ItemContext": 174,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25637,
+        "ItemContext": 175,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25638,
+        "ItemContext": 176,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25639,
+        "ItemContext": 177,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25640,
+        "ItemContext": 178,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25641,
+        "ItemContext": 179,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25642,
+        "ItemContext": 180,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25643,
+        "ItemContext": 181,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25644,
+        "ItemContext": 182,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25645,
+        "ItemContext": 183,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25646,
+        "ItemContext": 184,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25647,
+        "ItemContext": 54,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25648,
+        "ItemContext": 81,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25649,
+        "ItemContext": 3,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      },
+      {
+        "ID": 25650,
+        "ItemContext": 14,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 12701,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5634
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "ad9eebe353656e4d1b1c1f51fff1e60f62eda6751637c6f16954597636cd4d06"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5635
+    },
+    "total": 2,
+    "rows": [
+      {
+        "ID": 25651,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5633,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5635
+      },
+      {
+        "ID": 25652,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5634,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5635
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "8370523a6f06c2ff84ce174ae91e150a7ca4d88386cb03061927c03a2c1896eb"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5738
+    },
+    "total": 2,
+    "rows": [
+      {
+        "ID": 27194,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13577,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 6,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5738
+      },
+      {
+        "ID": 27195,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13578,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 6,
+        "Flags": 1,
+        "ParentItemBonusTreeID": 5738
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "de7fee91aa1c11a767123bfa2c70d80b7fe1deba967f6b879043d68084d06fc5"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5743
+    },
+    "total": 3,
+    "rows": [
+      {
+        "ID": 27230,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5834,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5743
+      },
+      {
+        "ID": 27231,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5836,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5743
+      },
+      {
+        "ID": 27233,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5837,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5743
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "7f4feb1403f10e450504cbace190539bb3a83483960f37e8e463d74baa994e8f"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5768
+    },
+    "total": 16,
+    "rows": [
+      {
+        "ID": 27415,
+        "ItemContext": 17,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13436,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27416,
+        "ItemContext": 1,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13437,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27417,
+        "ItemContext": 2,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13438,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27418,
+        "ItemContext": 23,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13439,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27419,
+        "ItemContext": 16,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13440,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27420,
+        "ItemContext": 33,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13440,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27421,
+        "ItemContext": 35,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13440,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27422,
+        "ItemContext": 146,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13439,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27423,
+        "ItemContext": 102,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13438,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27424,
+        "ItemContext": 103,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13439,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27425,
+        "ItemContext": 147,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13440,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27426,
+        "ItemContext": 148,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13440,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27427,
+        "ItemContext": 162,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13440,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27428,
+        "ItemContext": 14,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13440,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27429,
+        "ItemContext": 54,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13439,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      },
+      {
+        "ID": 27430,
+        "ItemContext": 53,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13439,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5768
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "3aa03232f64b6cb37a2dc8a8b3dd23e09d4e39a8f7b97638e6a944a2d5ac2fb2"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5770
+    },
+    "total": 17,
+    "rows": [
+      {
+        "ID": 27439,
+        "ItemContext": 16,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 610,
+        "IblGroupPointsModSetID": 4426,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 5,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27440,
+        "ItemContext": 16,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 611,
+        "IblGroupPointsModSetID": 4427,
+        "MinMythicPlusLevel": 6,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27441,
+        "ItemContext": 33,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 610,
+        "IblGroupPointsModSetID": 4426,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 5,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27442,
+        "ItemContext": 33,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 611,
+        "IblGroupPointsModSetID": 4427,
+        "MinMythicPlusLevel": 6,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27443,
+        "ItemContext": 35,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 611,
+        "IblGroupPointsModSetID": 4428,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 9,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27444,
+        "ItemContext": 35,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 612,
+        "IblGroupPointsModSetID": 4629,
+        "MinMythicPlusLevel": 10,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27445,
+        "ItemContext": 102,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 609,
+        "IblGroupPointsModSetID": 2965,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27446,
+        "ItemContext": 103,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 610,
+        "IblGroupPointsModSetID": 2965,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27447,
+        "ItemContext": 146,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 610,
+        "IblGroupPointsModSetID": 2962,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27448,
+        "ItemContext": 162,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 612,
+        "IblGroupPointsModSetID": 2967,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27449,
+        "ItemContext": 174,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 609,
+        "IblGroupPointsModSetID": 2963,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27450,
+        "ItemContext": 175,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 609,
+        "IblGroupPointsModSetID": 2964,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27451,
+        "ItemContext": 176,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 609,
+        "IblGroupPointsModSetID": 2965,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27452,
+        "ItemContext": 177,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 610,
+        "IblGroupPointsModSetID": 2962,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27453,
+        "ItemContext": 178,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 610,
+        "IblGroupPointsModSetID": 2963,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27454,
+        "ItemContext": 179,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 610,
+        "IblGroupPointsModSetID": 2964,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      },
+      {
+        "ID": 27455,
+        "ItemContext": 14,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 612,
+        "IblGroupPointsModSetID": 2962,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5770
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "a518105119fcd3eb4c7513ed0bba90dd227e4a6bc5d1ebccaf1a68e111c8be64"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5780
+    },
+    "total": 7,
+    "rows": [
+      {
+        "ID": 27632,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5934,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5780
+      },
+      {
+        "ID": 27633,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5770,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5780
+      },
+      {
+        "ID": 27634,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5768,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5780
+      },
+      {
+        "ID": 27635,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5743,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5780
+      },
+      {
+        "ID": 27636,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5635,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5780
+      },
+      {
+        "ID": 27637,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 4733,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5780
+      },
+      {
+        "ID": 29093,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5738,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5780
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "fbc72d260cacc8bdc35aeb25d82e0b9c7b258cb03414b98eba095f989c823eee"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5834
+    },
+    "total": 5,
+    "rows": [
+      {
+        "ID": 27980,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 6652,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 9,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5834
+      },
+      {
+        "ID": 27981,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 51,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 9,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5834
+      },
+      {
+        "ID": 27982,
+        "ItemContext": 11,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 6652,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5834
+      },
+      {
+        "ID": 27983,
+        "ItemContext": 14,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 6652,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5834
+      },
+      {
+        "ID": 27984,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5246,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 8,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5834
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "89ce11f5d465d79b1ec8a6c8ba58de25ea6d7515c07f3e523be0efe9d899adb6"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5836
+    },
+    "total": 2,
+    "rows": [
+      {
+        "ID": 27986,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13534,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 7,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5836
+      },
+      {
+        "ID": 27987,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5523,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 7,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5836
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "400a07d2d6e02e1c6e66d63766b6b795f8383b4db8dadb66c8b03f2e8d096030"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5837
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 27988,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13668,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5837
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "4a96344252a1283b58c27dce8826694f68663667debb85901f3ec5486686bab2"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5902
+    },
+    "total": 4,
+    "rows": [
+      {
+        "ID": 28386,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 43,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5902
+      },
+      {
+        "ID": 28387,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 40,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5902
+      },
+      {
+        "ID": 28388,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 41,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5902
+      },
+      {
+        "ID": 28389,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 42,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5902
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "5300827c25e8c7ef2d49088f66a7704cc64fd24165bac3c792334f2cc6effa85"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5903
+    },
+    "total": 3,
+    "rows": [
+      {
+        "ID": 28390,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 40,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5903
+      },
+      {
+        "ID": 28391,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 41,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5903
+      },
+      {
+        "ID": 28392,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 42,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5903
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "69f22ccb791b8fccaa40f76cbd75cb32c26aac1c2684054dbe5019bbe01b1752"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5934
+    },
+    "total": 8,
+    "rows": [
+      {
+        "ID": 28905,
+        "ItemContext": 17,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13441,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5934
+      },
+      {
+        "ID": 28906,
+        "ItemContext": 1,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13442,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5934
+      },
+      {
+        "ID": 28907,
+        "ItemContext": 2,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 608,
+        "IblGroupPointsModSetID": 2963,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5934
+      },
+      {
+        "ID": 28908,
+        "ItemContext": 23,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 609,
+        "IblGroupPointsModSetID": 2964,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5934
+      },
+      {
+        "ID": 28909,
+        "ItemContext": 168,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 13442,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5934
+      },
+      {
+        "ID": 28910,
+        "ItemContext": 172,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 608,
+        "IblGroupPointsModSetID": 2964,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5934
+      },
+      {
+        "ID": 28911,
+        "ItemContext": 147,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 610,
+        "IblGroupPointsModSetID": 2962,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5934
+      },
+      {
+        "ID": 28912,
+        "ItemContext": 148,
+        "ChildItemBonusTreeID": 0,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 611,
+        "IblGroupPointsModSetID": 2962,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5934
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "d814f801b38cb33544b02b9ac7ef05c0c3dfecae94e4257d5f4455eb2bc64d01"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTreeNode",
+    "filter": {
+      "ParentItemBonusTreeID": 5960
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 29097,
+        "ItemContext": 0,
+        "ChildItemBonusTreeID": 5780,
+        "ChildItemBonusListID": 0,
+        "ChildItemLevelSelectorID": 0,
+        "ChildItemBonusListGroupID": 0,
+        "IblGroupPointsModSetID": 0,
+        "MinMythicPlusLevel": 0,
+        "MaxMythicPlusLevel": 0,
+        "ItemCreationContextGroupID": 0,
+        "Flags": 0,
+        "ParentItemBonusTreeID": 5960
+      }
+    ],
+    "source_total": 19095,
+    "file_sha256": "5eaa5a48cb4c1cc3bee94cd8b150ddb3a4b785037aa07c95081ea3b87a10185d",
+    "url": "https://wago.tools/db2/ItemBonusTreeNode/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "07a9ef8c57ba43c33cc0f98b6730b0791a9eb5a0e0317bcf59bc021be352b1ba"
+  },
+  {
+    "build": "12.1.0.69587",
+    "table": "ItemCreationContext",
+    "filter": {
+      "ItemCreationContextGroupID": 6
+    },
+    "total": 62,
+    "rows": [
+      {
+        "ID": 6,
+        "ItemContext": 3,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 7,
+        "ItemContext": 4,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 8,
+        "ItemContext": 5,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 9,
+        "ItemContext": 6,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 10,
+        "ItemContext": 102,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 11,
+        "ItemContext": 103,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 12,
+        "ItemContext": 143,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 13,
+        "ItemContext": 23,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 14,
+        "ItemContext": 16,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 15,
+        "ItemContext": 35,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 16,
+        "ItemContext": 42,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 17,
+        "ItemContext": 43,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 18,
+        "ItemContext": 53,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 19,
+        "ItemContext": 54,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 20,
+        "ItemContext": 55,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 21,
+        "ItemContext": 57,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 22,
+        "ItemContext": 149,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 23,
+        "ItemContext": 150,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 24,
+        "ItemContext": 151,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 25,
+        "ItemContext": 152,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 27,
+        "ItemContext": 104,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 28,
+        "ItemContext": 109,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 29,
+        "ItemContext": 110,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 30,
+        "ItemContext": 137,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 31,
+        "ItemContext": 138,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 32,
+        "ItemContext": 108,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 33,
+        "ItemContext": 173,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 34,
+        "ItemContext": 174,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 35,
+        "ItemContext": 175,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 36,
+        "ItemContext": 176,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 37,
+        "ItemContext": 177,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 38,
+        "ItemContext": 178,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 39,
+        "ItemContext": 179,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 40,
+        "ItemContext": 180,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 41,
+        "ItemContext": 181,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 42,
+        "ItemContext": 182,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 43,
+        "ItemContext": 183,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 44,
+        "ItemContext": 184,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 45,
+        "ItemContext": 14,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 46,
+        "ItemContext": 153,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 47,
+        "ItemContext": 154,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 48,
+        "ItemContext": 33,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 214,
+        "ItemContext": 146,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 215,
+        "ItemContext": 29,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 216,
+        "ItemContext": 30,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 217,
+        "ItemContext": 36,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 218,
+        "ItemContext": 37,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 254,
+        "ItemContext": 81,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 261,
+        "ItemContext": 162,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 262,
+        "ItemContext": 163,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 263,
+        "ItemContext": 164,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 268,
+        "ItemContext": 155,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 269,
+        "ItemContext": 156,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 293,
+        "ItemContext": 94,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 294,
+        "ItemContext": 93,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 295,
+        "ItemContext": 95,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 296,
+        "ItemContext": 96,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 297,
+        "ItemContext": 187,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 298,
+        "ItemContext": 188,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 299,
+        "ItemContext": 189,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 300,
+        "ItemContext": 190,
+        "ItemCreationContextGroupID": 6
+      },
+      {
+        "ID": 301,
+        "ItemContext": 191,
+        "ItemCreationContextGroupID": 6
+      }
+    ],
+    "url": "https://wago.tools/api/db2-find/ItemCreationContext?build=12.1.0.69587&filter[ItemCreationContextGroupID]=exact:6&locale=enUS",
+    "source_sha256": "a00abc2dda9ba32e6468fa17e0d2c60ff5d1d713cab00aab6c2fbd2771665803"
+  },
+  {
+    "build": "12.1.0.69587",
+    "table": "ItemCreationContext",
+    "filter": {
+      "ItemCreationContextGroupID": 7
+    },
+    "total": 95,
+    "rows": [
+      {
+        "ID": 51,
+        "ItemContext": 21,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 52,
+        "ItemContext": 22,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 53,
+        "ItemContext": 9,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 54,
+        "ItemContext": 1,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 55,
+        "ItemContext": 2,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 56,
+        "ItemContext": 23,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 57,
+        "ItemContext": 146,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 58,
+        "ItemContext": 147,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 59,
+        "ItemContext": 148,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 60,
+        "ItemContext": 143,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 61,
+        "ItemContext": 102,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 62,
+        "ItemContext": 103,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 63,
+        "ItemContext": 16,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 64,
+        "ItemContext": 33,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 65,
+        "ItemContext": 35,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 66,
+        "ItemContext": 4,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 67,
+        "ItemContext": 83,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 68,
+        "ItemContext": 3,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 69,
+        "ItemContext": 82,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 70,
+        "ItemContext": 5,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 71,
+        "ItemContext": 84,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 72,
+        "ItemContext": 6,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 73,
+        "ItemContext": 85,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 74,
+        "ItemContext": 149,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 75,
+        "ItemContext": 150,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 76,
+        "ItemContext": 151,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 77,
+        "ItemContext": 152,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 78,
+        "ItemContext": 81,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 79,
+        "ItemContext": 117,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 80,
+        "ItemContext": 118,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 81,
+        "ItemContext": 119,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 82,
+        "ItemContext": 120,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 83,
+        "ItemContext": 126,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 84,
+        "ItemContext": 127,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 85,
+        "ItemContext": 109,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 86,
+        "ItemContext": 110,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 87,
+        "ItemContext": 137,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 88,
+        "ItemContext": 138,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 89,
+        "ItemContext": 108,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 90,
+        "ItemContext": 129,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 91,
+        "ItemContext": 130,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 92,
+        "ItemContext": 131,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 93,
+        "ItemContext": 132,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 94,
+        "ItemContext": 145,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 95,
+        "ItemContext": 134,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 96,
+        "ItemContext": 135,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 97,
+        "ItemContext": 136,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 98,
+        "ItemContext": 25,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 99,
+        "ItemContext": 26,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 100,
+        "ItemContext": 27,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 101,
+        "ItemContext": 28,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 102,
+        "ItemContext": 29,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 103,
+        "ItemContext": 30,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 104,
+        "ItemContext": 36,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 105,
+        "ItemContext": 37,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 106,
+        "ItemContext": 42,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 107,
+        "ItemContext": 43,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 108,
+        "ItemContext": 53,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 109,
+        "ItemContext": 54,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 110,
+        "ItemContext": 55,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 111,
+        "ItemContext": 165,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 112,
+        "ItemContext": 166,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 113,
+        "ItemContext": 167,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 114,
+        "ItemContext": 168,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 115,
+        "ItemContext": 169,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 116,
+        "ItemContext": 170,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 117,
+        "ItemContext": 171,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 118,
+        "ItemContext": 172,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 119,
+        "ItemContext": 173,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 120,
+        "ItemContext": 174,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 121,
+        "ItemContext": 175,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 122,
+        "ItemContext": 176,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 123,
+        "ItemContext": 177,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 124,
+        "ItemContext": 178,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 125,
+        "ItemContext": 179,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 126,
+        "ItemContext": 180,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 127,
+        "ItemContext": 181,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 128,
+        "ItemContext": 182,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 129,
+        "ItemContext": 183,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 130,
+        "ItemContext": 184,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 251,
+        "ItemContext": 57,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 252,
+        "ItemContext": 14,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 255,
+        "ItemContext": 162,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 256,
+        "ItemContext": 164,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 257,
+        "ItemContext": 163,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 258,
+        "ItemContext": 186,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 302,
+        "ItemContext": 94,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 303,
+        "ItemContext": 93,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 304,
+        "ItemContext": 95,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 305,
+        "ItemContext": 96,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 306,
+        "ItemContext": 187,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 307,
+        "ItemContext": 188,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 308,
+        "ItemContext": 189,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 309,
+        "ItemContext": 190,
+        "ItemCreationContextGroupID": 7
+      },
+      {
+        "ID": 310,
+        "ItemContext": 191,
+        "ItemCreationContextGroupID": 7
+      }
+    ],
+    "url": "https://wago.tools/api/db2-find/ItemCreationContext?build=12.1.0.69587&filter[ItemCreationContextGroupID]=exact:7&locale=enUS",
+    "source_sha256": "d380759fb60469d6e7abaa5a440eac27e457974cfb0d5b553c4b49ed8f0a8fcf"
+  },
+  {
+    "build": "12.1.0.69587",
+    "table": "ItemCreationContext",
+    "filter": {
+      "ItemCreationContextGroupID": 8
+    },
+    "total": 3,
+    "rows": [
+      {
+        "ID": 131,
+        "ItemContext": 57,
+        "ItemCreationContextGroupID": 8
+      },
+      {
+        "ID": 132,
+        "ItemContext": 162,
+        "ItemCreationContextGroupID": 8
+      },
+      {
+        "ID": 133,
+        "ItemContext": 163,
+        "ItemCreationContextGroupID": 8
+      }
+    ],
+    "url": "https://wago.tools/api/db2-find/ItemCreationContext?build=12.1.0.69587&filter[ItemCreationContextGroupID]=exact:8&locale=enUS",
+    "source_sha256": "77665312887621a3f9cd2b5289f0412449241c9ccbee102667864c9ae999e6f0"
+  },
+  {
+    "build": "12.1.0.69587",
+    "table": "ItemCreationContext",
+    "filter": {
+      "ItemCreationContextGroupID": 9
+    },
+    "total": 90,
+    "rows": [
+      {
+        "ID": 134,
+        "ItemContext": 21,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 135,
+        "ItemContext": 22,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 136,
+        "ItemContext": 9,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 137,
+        "ItemContext": 1,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 138,
+        "ItemContext": 2,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 139,
+        "ItemContext": 23,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 140,
+        "ItemContext": 146,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 141,
+        "ItemContext": 147,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 142,
+        "ItemContext": 148,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 143,
+        "ItemContext": 143,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 144,
+        "ItemContext": 102,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 145,
+        "ItemContext": 103,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 146,
+        "ItemContext": 16,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 147,
+        "ItemContext": 33,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 148,
+        "ItemContext": 35,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 149,
+        "ItemContext": 4,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 150,
+        "ItemContext": 83,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 151,
+        "ItemContext": 3,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 152,
+        "ItemContext": 82,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 153,
+        "ItemContext": 5,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 154,
+        "ItemContext": 84,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 155,
+        "ItemContext": 6,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 156,
+        "ItemContext": 85,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 157,
+        "ItemContext": 149,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 158,
+        "ItemContext": 150,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 159,
+        "ItemContext": 151,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 160,
+        "ItemContext": 152,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 161,
+        "ItemContext": 81,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 162,
+        "ItemContext": 117,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 163,
+        "ItemContext": 118,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 164,
+        "ItemContext": 119,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 165,
+        "ItemContext": 120,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 166,
+        "ItemContext": 126,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 167,
+        "ItemContext": 127,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 168,
+        "ItemContext": 109,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 169,
+        "ItemContext": 110,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 170,
+        "ItemContext": 137,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 171,
+        "ItemContext": 138,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 172,
+        "ItemContext": 108,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 173,
+        "ItemContext": 129,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 174,
+        "ItemContext": 130,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 175,
+        "ItemContext": 131,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 176,
+        "ItemContext": 132,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 177,
+        "ItemContext": 145,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 178,
+        "ItemContext": 134,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 179,
+        "ItemContext": 135,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 180,
+        "ItemContext": 136,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 181,
+        "ItemContext": 25,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 182,
+        "ItemContext": 26,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 183,
+        "ItemContext": 27,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 184,
+        "ItemContext": 28,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 185,
+        "ItemContext": 29,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 186,
+        "ItemContext": 30,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 187,
+        "ItemContext": 36,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 188,
+        "ItemContext": 37,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 189,
+        "ItemContext": 42,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 190,
+        "ItemContext": 43,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 191,
+        "ItemContext": 53,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 192,
+        "ItemContext": 54,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 193,
+        "ItemContext": 55,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 194,
+        "ItemContext": 165,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 195,
+        "ItemContext": 166,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 196,
+        "ItemContext": 167,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 197,
+        "ItemContext": 168,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 198,
+        "ItemContext": 169,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 199,
+        "ItemContext": 170,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 200,
+        "ItemContext": 171,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 201,
+        "ItemContext": 172,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 202,
+        "ItemContext": 173,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 203,
+        "ItemContext": 174,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 204,
+        "ItemContext": 175,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 205,
+        "ItemContext": 176,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 206,
+        "ItemContext": 177,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 207,
+        "ItemContext": 178,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 208,
+        "ItemContext": 179,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 209,
+        "ItemContext": 180,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 210,
+        "ItemContext": 181,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 211,
+        "ItemContext": 182,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 212,
+        "ItemContext": 183,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 213,
+        "ItemContext": 184,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 259,
+        "ItemContext": 186,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 311,
+        "ItemContext": 94,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 312,
+        "ItemContext": 93,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 313,
+        "ItemContext": 95,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 314,
+        "ItemContext": 96,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 315,
+        "ItemContext": 187,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 316,
+        "ItemContext": 188,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 317,
+        "ItemContext": 189,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 318,
+        "ItemContext": 190,
+        "ItemCreationContextGroupID": 9
+      },
+      {
+        "ID": 319,
+        "ItemContext": 191,
+        "ItemCreationContextGroupID": 9
+      }
+    ],
+    "url": "https://wago.tools/api/db2-find/ItemCreationContext?build=12.1.0.69587&filter[ItemCreationContextGroupID]=exact:9&locale=enUS",
+    "source_sha256": "28d00f0d962e2f9b86f60d312b2e684822efff9d1f72662df4b8f345054acf4f"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemOffsetCurve",
+    "filter": {
+      "ID": 47
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 47,
+        "CurveID": 88583,
+        "Offset": 0
+      }
+    ],
+    "source_total": 69,
+    "file_sha256": "6b3be81d45fedb1ea03f58f0d71b9fd286e30e2e9d80b77e0e81568eca409e7a",
+    "url": "https://wago.tools/db2/ItemOffsetCurve/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "c72e09f730f757462be6ecab244f67b95953cc26d51808663953cec94c1beaf7"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemScalingConfig",
+    "filter": {
+      "ID": 183
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 183,
+        "ItemOffsetCurveID": 47,
+        "ItemLevel": 214,
+        "RequiredLevel": 90,
+        "ItemSquishEraID": 2,
+        "Flags": 0
+      }
+    ],
+    "source_total": 417,
+    "file_sha256": "ba9cfda12ee7db88596ac1782a0cea2f49b35f6b591153c66523fad980323d57",
+    "url": "https://wago.tools/db2/ItemScalingConfig/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "56c6cc23f26f0d4f6986208a81639864dbe93b6168e857f93f05fccfedfb68dc"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemScalingConfig",
+    "filter": {
+      "ID": 184
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 184,
+        "ItemOffsetCurveID": 47,
+        "ItemLevel": 220,
+        "RequiredLevel": 90,
+        "ItemSquishEraID": 2,
+        "Flags": 0
+      }
+    ],
+    "source_total": 417,
+    "file_sha256": "ba9cfda12ee7db88596ac1782a0cea2f49b35f6b591153c66523fad980323d57",
+    "url": "https://wago.tools/db2/ItemScalingConfig/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "a52428998fd95bab61558856dd901c8dfe6f74b19c4f637fb8ba65aa750a1d97"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemScalingConfig",
+    "filter": {
+      "ID": 211
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 211,
+        "ItemOffsetCurveID": 47,
+        "ItemLevel": 233,
+        "RequiredLevel": 90,
+        "ItemSquishEraID": 2,
+        "Flags": 0
+      }
+    ],
+    "source_total": 417,
+    "file_sha256": "ba9cfda12ee7db88596ac1782a0cea2f49b35f6b591153c66523fad980323d57",
+    "url": "https://wago.tools/db2/ItemScalingConfig/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "12f976c086ceebf8e5ef0867dd3a4586a067df518ee1cad77a3ba695468f8a2b"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemSparse",
+    "filter": {
+      "ID": 250243
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 250243,
+        "Description_lang": "",
+        "Display3_lang": "",
+        "Display2_lang": "",
+        "Display1_lang": "",
+        "Display_lang": "Manaheart's Binding Flame",
+        "ExpansionID": 11,
+        "DmgVariance": 0,
+        "LimitCategory": 0,
+        "DurationInInventory": 0,
+        "QualityModifier": 0,
+        "BagFamily": 0,
+        "StartQuestID": 0,
+        "LanguageID": 0,
+        "ItemRange": 0,
+        "StatPercentageOfSocket_0": 0,
+        "StatPercentageOfSocket_1": 0,
+        "StatPercentageOfSocket_2": 0,
+        "StatPercentageOfSocket_3": 0,
+        "StatPercentageOfSocket_4": 0,
+        "StatPercentageOfSocket_5": 0,
+        "StatPercentageOfSocket_6": 0,
+        "StatPercentageOfSocket_7": 0,
+        "StatPercentageOfSocket_8": 0,
+        "StatPercentageOfSocket_9": 0,
+        "StatPercentEditor_0": 6666,
+        "StatPercentEditor_1": 0,
+        "StatPercentEditor_2": 0,
+        "StatPercentEditor_3": 0,
+        "StatPercentEditor_4": 0,
+        "StatPercentEditor_5": 0,
+        "StatPercentEditor_6": 0,
+        "StatPercentEditor_7": 0,
+        "StatPercentEditor_8": 0,
+        "StatPercentEditor_9": 0,
+        "StatModifier_bonusStat_0": 72,
+        "StatModifier_bonusStat_1": -1,
+        "StatModifier_bonusStat_2": -1,
+        "StatModifier_bonusStat_3": -1,
+        "StatModifier_bonusStat_4": -1,
+        "StatModifier_bonusStat_5": -1,
+        "StatModifier_bonusStat_6": -1,
+        "StatModifier_bonusStat_7": -1,
+        "StatModifier_bonusStat_8": -1,
+        "StatModifier_bonusStat_9": -1,
+        "Stackable": 1,
+        "MaxCount": 0,
+        "MinReputation": 0,
+        "RequiredAbility": 0,
+        "AllowableRaces_0": -1,
+        "AllowableRaces_1": -1,
+        "SellPrice": 70987,
+        "BuyPrice": 354939,
+        "VendorStackCount": 1,
+        "PriceVariance": 1,
+        "PriceRandomValue": 0.95499998331,
+        "Flags_0": 524288,
+        "Flags_1": 8192,
+        "Flags_2": 0,
+        "Flags_3": 0,
+        "Flags_4": 0,
+        "OppositeFactionItemID": 0,
+        "ModifiedCraftingReagentItemID": 0,
+        "ContentTuningID": 0,
+        "PlayerLevelToItemLevelCurveID": 0,
+        "ItemLevelOffsetCurveID": 0,
+        "ItemLevelOffsetItemLevel": 0,
+        "ItemSquishEraID": 0,
+        "ItemNameDescriptionID": 0,
+        "RequiredTransmogHoliday": 0,
+        "RequiredHoliday": 0,
+        "Gem_properties": 0,
+        "Socket_match_enchantment_ID": 0,
+        "TotemCategoryID": 0,
+        "InstanceBound": 0,
+        "ZoneBound_0": 0,
+        "ZoneBound_1": 0,
+        "ItemSet": 0,
+        "LockID": 0,
+        "PageID": 0,
+        "ItemDelay": 0,
+        "MinFactionID": 0,
+        "RequiredSkillRank": 0,
+        "RequiredSkill": 0,
+        "ItemLevel": 108,
+        "AllowableClass": -1,
+        "ArtifactID": 0,
+        "SpellWeight": 0,
+        "SpellWeightCategory": 0,
+        "SocketType_0": 0,
+        "SocketType_1": 0,
+        "SocketType_2": 0,
+        "SheatheType": 0,
+        "Material": 4,
+        "PageMaterialID": 0,
+        "Bonding": 1,
+        "DamageType": 0,
+        "ContainerSlots": 0,
+        "RequiredPVPMedal": 0,
+        "RequiredPVPRank": 0,
+        "RequiredLevel": 78,
+        "InventoryType": 12,
+        "OverallQualityID": 3
+      }
+    ],
+    "source_total": 175164,
+    "file_sha256": "acf9c67eafb688187b969de6f07b402be2fccaf4316e2c49abd48df0502d39d6",
+    "url": "https://wago.tools/db2/ItemSparse/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "5e284cfaf7c9164b7c8859c88617459f0fdfd0278b6f6ed1813071e2ec98c46b"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemSquishEra",
+    "filter": {
+      "ID": 2
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 2,
+        "Patch": 120000,
+        "CurveID": 92181,
+        "Flags": 2
+      }
+    ],
+    "source_total": 2,
+    "file_sha256": "8ff478e3635e171a85a08c3824297b6a6ca7050df1d1d7369763cb86dd0c54d7",
+    "url": "https://wago.tools/db2/ItemSquishEra/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "af4f20ebee0d2cac6b3bf7c0b86c2a37230f1915fdfa73d47020b81ee3952b69"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemXBonusTree",
+    "filter": {
+      "ItemID": 250243
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 321500,
+        "ItemBonusTreeID": 5960,
+        "ItemID": 250243
+      }
+    ],
+    "source_total": 199940,
+    "file_sha256": "6642435c5afa9a66ee5f11feecae31b3d209cf676dbaec3b0d228b0b6ee0fd85",
+    "url": "https://wago.tools/db2/ItemXBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "e964fb961d7fc3e983ba6a24d381b1df27850ac2c5a44de2af02c81e37af1d03"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 4733
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 4733,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "2c10ade1a82a3e5561e8ba5d5f2f4d1e39b6d2b852819e6dba5ab1ba9838fa01"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 51
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 51,
+        "Flags": 4,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "983e88c08d7f3c29d1b3970e74dbd5a1f17f7b07f30b39a3b64279da6c2c933f"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5246
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5246,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "8c5092a3b7ca749745dc6fddac65dfb5ab8965ff046effc53d1236f7e0171c7d"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5523
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5523,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 578
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "1b128af93a705f51d75f40ea5532209c6875335fd448d12b893d1ec6004e45f9"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5633
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5633,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 9527294
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "74a4ab5b988fc47110b0bc0f91d817874a64f6c08aaed19778b1a27c008baee9"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5634
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5634,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 67280896
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "f69e09c35a9d8babd2afdafe33d692e0167f37df551e4e1df49f65eec0c99060"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5635
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5635,
+        "Flags": 4,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "c161e4c4822068ccb4d1c7e04428efa1250a546208e1f0d1f18a2e687827fa9d"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5738
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5738,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 1116138
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "264f5580937ad1fd194b118e3e036344eb7c65469409de6c1d224b904de61ab7"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5743
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5743,
+        "Flags": 4,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "6d6b4af13f316a578b584aefa0011829e6311ca10afe772bc0378cc830be78ed"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5768
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5768,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "24c357c9e5d2bcd560c14a543084059ca4b2a97fc560466d4c1212ecc4b8423d"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5770
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5770,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "fda77c1303979585974a0c2be513cd3a00b87b0eec02fca64d33a45b9348ff90"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5780
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5780,
+        "Flags": 4,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "603d83edfc11d34bbce6c4364b51a9940cfc9faf967b4f4c1a1eedf82d8d42a2"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5834
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5834,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "e7fab7cc992cddbc8547126dd2fb7a072800dc0ab3402a6fecc2c08cae954d73"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5836
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5836,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 578
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "c955ded58b74b66a0df76102a7e7d9925d8891cde66389c3c9ecb2c8d855f494"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5837
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5837,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 2052
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "1a0473de831dc374ef5ff1578e0bd8327e701a64e0ac467e3b61fe59eb23ca44"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5902
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5902,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 74639338
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "b4b2cfded1e766126736a2ec5c47ae33fffc69e15dc192bcef359353dfb0d90e"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5903
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5903,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 8460292
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "2713854323adcf53589d2a46d4b0ef9fcaac6c64d41f462010f8d4f4cbc144e0"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5934
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5934,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "a3acd42f3b13c1d649ea24c4a83a2552c37499ba26393c2764f1166c1136c62d"
+  },
+  {
+    "provider": "wago",
+    "build": "12.1.0.69587",
+    "table": "ItemBonusTree",
+    "filter": {
+      "ID": 5960
+    },
+    "total": 1,
+    "rows": [
+      {
+        "ID": 5960,
+        "Flags": 0,
+        "InventoryTypeSlotMask": 0
+      }
+    ],
+    "source_total": 4786,
+    "file_sha256": "a6b04b8fd8f3a995a04b2f7fa82e3fb2f0bab16310bb541e1f84b05e6630ba6b",
+    "url": "https://wago.tools/db2/ItemBonusTree/csv?build=12.1.0.69587&locale=enUS",
+    "source_sha256": "99466fc62b870a4337c9cb3d029bd28ee518633fafb1c9d6b1b8b9d253b699a5"
+  }
+]

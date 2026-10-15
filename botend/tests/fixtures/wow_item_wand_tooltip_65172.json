@@ -1,0 +1,17 @@
+{
+  "payload": {
+    "name": "曲奇的搅汤棒",
+    "quality": 3,
+    "icon": "inv_staff_02",
+    "tooltip": "<table><tr><td><!--nstart--><b class=\"q3\">曲奇的搅汤棒</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">英雄</span></span><!--ndend--><span class=\"q\"><br>物品等级：<!--ilvl-->38</span><!--bo--><br>拾取后绑定<!--ue--><!--ue--><table width=\"100%\"><tr><td>远程</td><th><!--scstart2:19--><span class=\"q1\">魔杖</span><!--scend--></th></tr></table><!--rf--><table width=\"100%\"><tr>\n    <td><span><!--dmg-->3 - 6点奥术伤害</span></td>\n    <th>速度 <!--spd-->2.00</th>\n</tr></table><!--dps-->（每秒伤害2.3点）<br><span><!--stat5-->+24 智力</span><br><span><!--stat7-->+6 耐力</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->4暴击</span><br><span class=\"q2\">+<!--rtg49-->4精通</span><br><span class=\"q2\">+<!--rtg61-->3速度</span><br><span class=\"q2\">+<!--rtg62-->3吸血</span><br><span class=\"q2\">+<!--rtg63-->3免除</span><br><span class=\"q2\">坚固</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><br /><br><a href=\"/cn/items/gems?filter=81;9;0\" class=\"socket-prismatic q0\">棱彩插槽</a><!--ps--><br /><br />耐久: 65 / 65</td></tr></table><table><tr><td><!--rr--><!--itemEffects:0-->\b需要等级 <!--rlvl-->35<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">售价: <span class=\"moneygold\">2</span> <span class=\"moneysilver\">30</span> <span class=\"moneycopper\">54</span></div><div class=\"whtt-extra whtt-droppedby\">掉落于: “船长”曲奇</div><div class=\"whtt-extra whtt-dropchance\">掉落几率: 9.00%</div></td></tr></table>",
+    "spells": []
+  },
+  "tooltip_evidence": {
+    "identity_validated": true,
+    "item_id": 65172,
+    "url": "https://nether.wowhead.com/tooltip/item/65172?dataEnv=1&locale=zhcn&bonus=40%3A41%3A42%3A43%3A6652%3A8810%3A8811%3A8812%3A8998",
+    "data_branch": "retail",
+    "game_build": "",
+    "payload_sha256": "e2cbb10acf2e5b4f4c6c31acf0dbeff9023d5b6bdf5246476fce0da5cb11e102"
+  }
+}
