@@ -105,6 +105,27 @@ class StorageLifecycleMaintenanceTests(SimpleTestCase):
             self.assertEqual(result[0]['status'], 'ok', result)
         self.assertEqual(len(list((scope / 'stats-details').iterdir())), 5)
 
+    def test_empty_media_root_uses_same_default_as_publisher(self):
+        from botend.services.spec_stats_snapshot import publish_projection
+        from botend.services.simc_benchmark_result_snapshot import _write
+        from botend.services.storage_lifecycle_maintenance import run_extended_maintenance
+        scope = self.base / 'media/aggregated/3/Druid/Restoration'
+        publish_projection(scope / 'dungeon.json', {'dungeons': [
+            {'dungeon_id': 1, 'sample_size': 1}]}, _write)
+        original = (scope / 'dungeon.json').read_bytes()
+        previous = os.getcwd()
+        try:
+            os.chdir(self.base)
+            with override_settings(MEDIA_ROOT='', SPEC_STATS_GC_ENABLED=True,
+                                   SPEC_STATS_GC_AUTO_APPLY=False):
+                result = run_extended_maintenance()
+        finally:
+            os.chdir(previous)
+        self.assertEqual(result[0]['scopes'], 1, result)
+        self.assertEqual(result[0]['status'], 'ok', result)
+        self.assertEqual((scope / 'dungeon.json').read_bytes(), original)
+        self.assertFalse((self.base / 'aggregated').exists())
+
     def test_linked_coordinator_lock_refuses_without_touching_target(self):
         from botend.services.storage_lifecycle_maintenance import run_extended_maintenance
         control = self.base / 'control'

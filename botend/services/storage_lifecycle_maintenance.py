@@ -107,7 +107,7 @@ def run_extended_maintenance():
                 apply = getattr(settings, 'SPEC_STATS_GC_AUTO_APPLY', False) is True
                 try:
                     from .spec_stats_retention import maintain_scopes
-                    response = maintain_scopes(Path(settings.MEDIA_ROOT) / 'aggregated',
+                    response = maintain_scopes(Path(getattr(settings, 'MEDIA_ROOT', '') or 'media') / 'aggregated',
                         after=state['aggregate_after'],
                         scope_limit=max(1, min(8, int(getattr(settings, 'SPEC_STATS_GC_SCOPE_LIMIT', 8)))),
                         delete_limit=8, dry_run=not apply)
