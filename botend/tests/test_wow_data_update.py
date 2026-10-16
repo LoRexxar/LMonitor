@@ -153,6 +153,25 @@ class IncrementalUpdateTests(TestCase):
         self.assertEqual((self.talent.pk, self.talent.current_build), (old_version_id, NEW))
         self.assertFalse(WowTalentVersion.objects.filter(status='staging').exists())
 
+    def test_removed_node_is_retired_and_reuses_primary_key_when_returning(self):
+        stale = WowTalentNodeMetadata.objects.create(talent_version=self.talent,
+            class_name='Warrior', spec_name='Fury', tree_type='spec', node_id=9991,
+            spell_id=9992, name_zh='旧节点', source='db2_backfill')
+        self.run_update()
+        self.assertFalse(WowTalentNodeMetadata.objects.filter(pk=stale.pk).exists())
+        self.assertTrue(WowTalentNodeMetadata.all_objects.filter(pk=stale.pk).exists())
+        original = self.candidate
+        def restored(*args):
+            version = original(*args)
+            returning = WowTalentNodeMetadata(class_name='Warrior', spec_name='Fury', tree_type='spec',
+                node_id=9991, spell_id=9992, name_zh='恢复节点', source='db2_backfill')
+            version._prepared_nodes.append(returning)
+            return version
+        self.source.discover.return_value = '12.1.0.99999'
+        with patch.object(update, 'prepare_talent_version', side_effect=restored):
+            self.run_update()
+        self.assertEqual(WowTalentNodeMetadata.objects.get(node_id=9991).pk, stale.pk)
+
     def test_unchanged_does_not_download_or_write_again(self):
         self.run_update()
         self.source.prepare.reset_mock()

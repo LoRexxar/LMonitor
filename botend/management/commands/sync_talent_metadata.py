@@ -2,7 +2,7 @@
 
 from collections import OrderedDict
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 from django.utils import timezone
 
 from botend.constants.wow import CLASS_SPEC_MAP
@@ -19,7 +19,10 @@ from botend.wow.talents.parser import normalize_talent_payload
 from botend.wow.talents.versioning import TalentVersionResolver
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '从现有 WoW 数据中同步天赋元数据缓存'
 
     def add_arguments(self, parser):
@@ -40,6 +43,8 @@ class Command(BaseCommand):
         if not talent_version:
             self.stdout.write(self.style.WARNING('未找到默认天赋版本，跳过元数据同步'))
             return
+        if talent_version.branch != 'retail':
+            raise CommandError('玩家与排行榜样本属于正式服，不能导入测试服天赋')
         self.stdout.write(f'目标天赋版本: {talent_version.key} ({talent_version.label or talent_version.branch})')
 
         total = 0
@@ -80,7 +85,7 @@ class Command(BaseCommand):
         if all_spell_ids:
             rows = (
                 WowSpellSnapshot.objects
-                .filter(spell_id__in=all_spell_ids)
+                .filter(branch='wow', spell_id__in=all_spell_ids)
                 .order_by('spell_id', '-updated_at')
                 .values_list('spell_id', 'name', 'name_zh')
             )
@@ -224,7 +229,7 @@ class Command(BaseCommand):
             if cached:
                 snapshot = type('Snapshot', (), {'name': cached[0], 'name_zh': cached[1]})()
         elif spell_id:
-            snapshot = WowSpellSnapshot.objects.filter(spell_id=spell_id).order_by('-updated_at').first()
+            snapshot = WowSpellSnapshot.objects.filter(branch='wow', spell_id=spell_id).order_by('-updated_at').first()
 
         name = node.get('name', '')
         if name.startswith('技能ID ') or name == '未命名天赋':

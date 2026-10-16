@@ -39,14 +39,8 @@ def current_reference_version(registry=apps, using='default'):
     """Return the current retail source; guide versions never select a data bucket."""
     model = registry.get_model('botend', 'WowTalentVersion')
     query = model._base_manager.using(using)
-    retail = query.filter(branch='retail', is_active=True).order_by(
-        '-is_default_player_tree', '-id',
-    ).first()
-    if retail:
-        return retail
-    return query.filter(is_active=True).order_by(
-        '-is_default_player_tree', '-id',
-    ).first()
+    retail = query.filter(key='retail', branch='retail', is_active=True).first()
+    return retail or query.filter(branch='retail', is_active=True).order_by('-id').first()
 
 
 def validate_name(data):
@@ -255,26 +249,10 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
         return []
     game_version = version_label(version, game_version)
     query = registry.get_model('botend', 'WowTalentNodeMetadata')._base_manager.using(using)
-    if has_reference_filter:
-        # 显式身份跨 active branch 查询；攻略 game_version 不选择数据桶。
-        # 同号原生事实由 retail 优先，PTR-only ID 仍可全局命中。
-        query = query.filter(
-            Q(localization_only=True) | Q(talent_version__is_active=True)
-        ).annotate(
-            _reference_branch_order=Case(
-                When(talent_version__branch='retail', then=Value(0)),
-                When(talent_version__branch='ptr', then=Value(1)),
-                default=Value(2), output_field=IntegerField(),
-            ),
-            _reference_version_order=Case(
-                When(talent_version__key__in=['retail', 'ptr'], then=Value(0)),
-                default=Value(1), output_field=IntegerField(),
-            ),
-        )
-    else:
-        query = query.filter(talent_version=version)
-    if explicit_branch:
-        query = query.filter(talent_version__branch=explicit_branch)
+    # 显式 ID 同样受当前分支约束，测试服独有节点不会补进正式服攻略。
+    query = query.filter(Q(talent_version=version) | Q(localization_only=True, talent_version__branch=version.branch))
+    if any(field.name == 'is_current' for field in query.model._meta.fields):
+        query = query.filter(Q(localization_only=True) | Q(is_current=True))
     query = query.exclude(name_zh='')
     reference_ids = reference_ids or {}
     talent_reference_ids = {int(value) for value in reference_ids.get('talent', set())}
@@ -338,9 +316,8 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
             selection |= Q(name_kind='item', reference_id__in=item_reference_ids)
         query = query.filter(selection)
     records = []
-    order_fields = ['localization_only']
-    if has_reference_filter:
-        order_fields.extend(['_reference_branch_order', '_reference_version_order'])
+    query = query.annotate(_current_source=Case(When(talent_version=version, then=Value(0)), default=Value(1), output_field=IntegerField()))
+    order_fields = ['_current_source', 'localization_only']
     order_fields.append('id')
     for obj in query.only('id','name','name_zh','icon','localization_evidence','localization_only','name_kind',
             'reference_id','reference_aliases','talent_id','node_id','spell_id','display_spell_id','tree_type','class_name','spec_name',
@@ -386,10 +363,36 @@ def _source_values(row, version, registry, using):
 
 
 def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, using='default', target_pk=None, target_state=None):
+    """名称编辑与相关技能展示同事务更新，历史迁移注册表不调用当前服务。"""
+    with transaction.atomic(using=using):
+        result = _write_name(data, overwrite=overwrite, preserve_blank=preserve_blank, registry=registry,
+                             using=using, target_pk=target_pk, target_state=target_state)
+        if registry is apps and using == 'default' and data.get('kind') in ('spell', 'talent'):
+            from botend.services.wow_spell_display import sync_spell_display
+            from botend.models import WowTalentNodeMetadata
+            edited = WowTalentNodeMetadata.all_objects.select_related('talent_version').get(pk=result[0]['pk'])
+            version = edited.talent_version
+            if version and version.is_active:
+                identity = int(data['object_id'])
+                ids = {identity} if data['kind'] == 'spell' else set()
+                nodes = WowTalentNodeMetadata.objects.filter(talent_version=version).filter(
+                    Q(node_id=identity) | Q(talent_id=identity))
+                ids.update(row.display_spell_id or row.spell_id for row in nodes if row.display_spell_id or row.spell_id)
+                if ids:
+                    sync_spell_display(branch=version.branch, spell_ids=ids, apply=True)
+        return result
+
+
+def _write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, using='default', target_pk=None, target_state=None):
     """在既有天赋名称表按类型写入；导入只补缺，手工编辑更新同一记录。"""
     row = validate_name(data)
     with transaction.atomic(using=using):
-        version = version_for(row['game_version'], registry, using, create=True)
+        version = version_for(row['game_version'], registry, using)
+        if registry is apps and row['kind'] in ('spell', 'talent'):
+            branch = row['game_version'] if row['game_version'] in ('retail', 'ptr') else getattr(version, 'branch', 'retail')
+            version = registry.get_model('botend', 'WowTalentVersion').objects.filter(key=branch, is_active=True).first() or version
+        if version is None:
+            version = version_for(row['game_version'], registry, using, create=True)
         row['game_version'] = version_label(version, row['game_version'])
         registry.get_model('botend', 'WowTalentVersion')._base_manager.using(using).select_for_update().get(pk=version.pk)
         kind, identity = row['kind'], row['object_id']
@@ -411,7 +414,7 @@ def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, us
                 raise NameEditConflict('名称记录已变化，请刷新后重试')
             if preliminary.localization_only:
                 candidates = model._base_manager.using(using).filter(
-                    localization_only=True,
+                    talent_version=version, localization_only=True,
                     name_kind=kind,
                     reference_id=preliminary.reference_id,
                 )
@@ -459,7 +462,7 @@ def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, us
                     or len({obj.name_zh for obj in native if obj.name_zh}) > 1):
                 native = []
         supplemental = model._base_manager.using(using).filter(
-            localization_only=True, name_kind=kind, reference_id=identity,
+            talent_version=version, localization_only=True, name_kind=kind, reference_id=identity,
         )
         targets = native or list(supplemental)
         if not targets:

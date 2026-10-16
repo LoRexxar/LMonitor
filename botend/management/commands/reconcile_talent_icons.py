@@ -16,7 +16,10 @@ def _rows(path):
         yield from csv.DictReader(source)
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '对照同 build DB2 的 Entry 图标；默认只读，--apply 才更新'
 
     def add_arguments(self, parser):

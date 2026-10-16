@@ -29,6 +29,7 @@ from botend.models import (
     WowTalentVersion, WowSpellEffectSnapshot, WowSpellSnapshot,
 )
 from botend.services.class_guide_codec import decode_component, snappy
+from botend.services.wow_spell_display import sync_spell_display
 from botend.services.class_guide_content import clean_html, validate_blocks, render_references, resolve_references
 from botend.services.class_guide_maxroll import discover, convert
 from botend.services.class_guide_markdown import compile_markdown, blocks_to_markdown, html_to_markdown, normalize_tab_markdown
@@ -57,7 +58,7 @@ class GuideFlowTests(TestCase):
 
     def test_reference_tooltips_read_native_tables_by_version_kind_and_id(self):
         version, _ = WowTalentVersion.objects.update_or_create(
-            key='12.1', defaults={
+            key='retail', defaults={
                 'major_version': '12.1.0', 'branch': 'retail',
                 'is_active': True, 'is_default_player_tree': True,
             },
@@ -175,6 +176,7 @@ class GuideFlowTests(TestCase):
             snapshot_build='12.1.0.69587',
         )
 
+        sync_spell_display(branch='retail', apply=True)
         refs = resolve_references(
             [{'id': 'spell', 'type': 'html', 'html': '<p>[[spell:92001]]</p>'}],
             '12.1.0', 'warlock', 'affliction',
@@ -184,9 +186,9 @@ class GuideFlowTests(TestCase):
         self.assertEqual(tooltip, '使你的伤害提高25%。')
         self.assertNotIn('$s1', tooltip)
 
-    def test_talent_reference_resolves_raw_db2_description_at_projection_time(self):
+    def test_talent_reference_reads_precompiled_db2_description(self):
         version, _ = WowTalentVersion.objects.update_or_create(
-            key='12.1', defaults={
+            key='retail', defaults={
                 'major_version': '12.1.0', 'branch': 'retail',
                 'current_build': '12.1.0.69587',
                 'is_active': True, 'is_default_player_tree': True,
@@ -212,6 +214,7 @@ class GuideFlowTests(TestCase):
             snapshot_build='12.1.0.69587',
         )
 
+        sync_spell_display(branch='retail', apply=True)
         refs = resolve_references(
             [{'id': 'talent', 'type': 'html', 'html': '<p>[[talent:92002]]</p>'}],
             '12.1.0', 'warrior', 'arms',
@@ -220,7 +223,7 @@ class GuideFlowTests(TestCase):
         tooltip = refs['[[talent:92002]]']['tooltip_text']
         self.assertEqual(tooltip, '斩杀的伤害提高3%。')
         self.assertNotIn('$', tooltip)
-        self.assertEqual(refs['[[talent:92002]]']['tooltip_source'], 'talent_metadata_projection')
+        self.assertEqual(refs['[[talent:92002]]']['tooltip_source'], 'central_spell_display')
 
     def test_talent_reference_resolves_explicit_embedded_spell_without_display_spell(self):
         version, _ = WowTalentVersion.objects.update_or_create(
@@ -243,6 +246,7 @@ class GuideFlowTests(TestCase):
             description='吸取目标的灵魂，造成暗影伤害。', snapshot_build='12.1.0.69587',
         )
 
+        sync_spell_display(branch='retail', apply=True)
         refs = resolve_references(
             [{'id': 'talent', 'type': 'html', 'html': '<p>[[talent:92003]]</p>'}],
             '12.1.0', 'warlock', 'affliction',
@@ -251,7 +255,7 @@ class GuideFlowTests(TestCase):
         tooltip = refs['[[talent:92003]]']['tooltip_text']
         self.assertIn('吸取目标的灵魂', tooltip)
         self.assertNotIn('$', tooltip)
-        self.assertEqual(refs['[[talent:92003]]']['tooltip_source'], 'talent_metadata_projection')
+        self.assertEqual(refs['[[talent:92003]]']['tooltip_source'], 'central_spell_display')
 
     def test_talent_reference_never_exposes_unresolved_embedded_spell_template(self):
         version, _ = WowTalentVersion.objects.update_or_create(
@@ -282,7 +286,7 @@ class GuideFlowTests(TestCase):
 
     def test_talent_tooltip_uses_only_explicit_display_spell_relation(self):
         version, _ = WowTalentVersion.objects.update_or_create(
-            key='12.1', defaults={
+            key='retail', defaults={
                 'major_version': '12.1.0', 'branch': 'retail',
                 'is_active': True, 'is_default_player_tree': True,
             },
@@ -314,7 +318,7 @@ class GuideFlowTests(TestCase):
 
     def test_reference_without_effect_entity_still_has_local_tooltip(self):
         version, _ = WowTalentVersion.objects.update_or_create(
-            key='12.1', defaults={'major_version': '12.1.0', 'branch': 'retail'},
+            key='retail', defaults={'major_version': '12.1.0', 'branch': 'retail'},
         )
         for kind, object_id, name_en, name_zh in (
             ('spell', 999001, 'Missing Spell Entity', '无效果实体技能'),
@@ -348,18 +352,16 @@ class GuideFlowTests(TestCase):
 
     def test_placeholder_snapshot_text_uses_honest_local_fallback(self):
         WowTalentVersion.objects.update_or_create(
-            key='12.1', defaults={'major_version': '12.1.0', 'branch': 'retail'},
+            key='retail', defaults={'major_version': '12.1.0', 'branch': 'retail'},
         )
         create_name(
             game_version='12.1', kind='spell', object_id=109997,
             name_en='Placeholder', name_zh='待校订的技能',
         )
-        WowSpellSnapshot.objects.create(
+        WowSpellSnapshot.objects.update_or_create(
             branch='wow', locale='zhCN', spell_id=109997,
-            name='Placeholder', name_zh='Placeholder',
-            description='Placeholder', aura_description='Placeholder',
-            snapshot_build='12.1.0.69404',
-        )
+            defaults=dict(name='Placeholder', name_zh='Placeholder',
+            description='Placeholder', aura_description='Placeholder', snapshot_build='12.1.0.69404'))
 
         refs = resolve_references(
             [{'id': 'placeholder', 'type': 'html', 'html': '<p>[[spell:109997]]</p>'}],
@@ -377,7 +379,7 @@ class GuideFlowTests(TestCase):
 
     def test_supplemental_talent_reference_uses_verified_display_spell_globally(self):
         version, _ = WowTalentVersion.objects.update_or_create(
-            key='12.1', defaults={'major_version': '12.1.0', 'branch': 'retail'},
+            key='retail', defaults={'major_version': '12.1.0', 'branch': 'retail'},
         )
         WowTalentNodeMetadata.all_objects.create(
             talent_version=version, localization_only=True, name_kind='talent',
@@ -408,7 +410,7 @@ class GuideFlowTests(TestCase):
 
         self.assertEqual(refs['[[talent:101920]]']['name'], '急浪飞流')
         self.assertEqual(refs['[[talent:101920]]']['tooltip_text'], '急浪飞流的中文效果。')
-        self.assertEqual(refs['[[talent:101920]]']['tooltip_source'], 'spell_snapshot')
+        self.assertEqual(refs['[[talent:101920]]']['tooltip_source'], 'central_spell_display')
 
     def test_import_is_idempotent_and_version_isolated(self):
         _, state = import_post(source_post(), self.url)
@@ -472,7 +474,7 @@ class GuideFlowTests(TestCase):
         endpoint = '/api/dashboard/wow-localization/'
         data = self.client.get(endpoint, {'q': '30451', 'kind': 'spell'}).json()
         self.assertEqual(data['total'], 1)
-        self.assertTrue({'12.1', '12.2'}.issubset(data['versions']))
+        self.assertIn('12.1', data['versions'])
         filtered = self.client.get(endpoint, {'version': '12.2', 'q': '30451'}).json()
         self.assertEqual(filtered['total'], 1)
         self.assertEqual(filtered['records'][0]['name_zh'], '旧版名称')
@@ -1109,7 +1111,9 @@ class GuideContentTests(SimpleTestCase):
             'icon': '', 'evidence': '测试元数据',
             'description': 'English talent description', 'description_zh': '站内天赋描述',
         }
-        with patch('botend.services.class_guide_content.names_for', return_value=[record]) as names:
+        with patch('botend.services.class_guide_content.names_for', return_value=[record]) as names, \
+             patch('botend.services.wow_spell_display.SpellDisplayReader.preload'), \
+             patch('botend.services.wow_spell_display.SpellDisplayReader.get', return_value={}):
             refs = resolve_references(
                 [{'id': 'p', 'type': 'html', 'html': '<p>[[talent:901]]</p>'}],
                 '12.1', 'warrior', 'fury',

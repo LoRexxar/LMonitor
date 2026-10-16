@@ -25,7 +25,10 @@ class SyncSummary:
     zh_only: int = 0
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '按 spell_id 配对正式服 Wago SpellName enUS/zhCN，并同步双语技能快照'
 
     def add_arguments(self, parser):

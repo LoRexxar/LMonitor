@@ -12,23 +12,29 @@ from django.core.management.base import BaseCommand
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '从本地 DB2 Spell CSV 批量填充天赋描述'
 
     def add_arguments(self, parser):
+        parser.add_argument('--branch', choices=('retail', 'ptr'), default='retail')
+        parser.add_argument('--locale', choices=('zhCN', 'enUS'), default='zhCN')
         parser.add_argument('--csv', default='', help='Spell CSV 路径（默认自动检测）')
         parser.add_argument('--dry-run', action='store_true', help='仅打印不写入')
 
     def handle(self, *args, **options):
         dry_run = options['dry_run']
         csv_path = options['csv']
+        from botend.wow.talents.versioning import TalentVersionResolver
+        from botend.wow.branches import spell_branch
+        version = TalentVersionResolver.resolve(version_key=options['branch'])
+        branch, locale = spell_branch(options['branch']), options['locale']
 
         # 自动检测 CSV 路径
         if not csv_path:
-            candidates = [
-                '.cache/wago_db2_dumps/latest/Spell_zhCN.csv',
-                '.cache/wago_db2_dumps/latest/Spell_enUS.csv',
-            ]
+            candidates = [os.path.join(version.source_dir, f'Spell_{locale}.csv')]
             for c in candidates:
                 if os.path.exists(c):
                     csv_path = c
@@ -61,7 +67,7 @@ class Command(BaseCommand):
 
         # 获取所有有 spell_id 的天赋节点
         all_spell_ids = set(
-            WowTalentNodeMetadata.objects.exclude(spell_id__isnull=True)
+            WowTalentNodeMetadata.objects.filter(talent_version=version).exclude(spell_id__isnull=True)
             .values_list('spell_id', flat=True).distinct()
         )
         self.stdout.write(f'数据库中有 {len(all_spell_ids)} 个唯一 spell_id')
@@ -80,7 +86,7 @@ class Command(BaseCommand):
         updated_snapshots = 0
         for sid in need_update:
             desc, aura = desc_map[sid]
-            snap = WowSpellSnapshot.objects.filter(spell_id=sid).order_by('-updated_at').first()
+            snap = WowSpellSnapshot.objects.filter(branch=branch, locale=locale, spell_id=sid).order_by('-updated_at').first()
             if snap:
                 changed = False
                 if desc and not snap.description:
@@ -94,7 +100,7 @@ class Command(BaseCommand):
                     updated_snapshots += 1
             else:
                 WowSpellSnapshot.objects.create(
-                    spell_id=sid,
+                    spell_id=sid, branch=branch, locale=locale,
                     description=desc,
                     aura_description=aura,
                 )
@@ -102,23 +108,4 @@ class Command(BaseCommand):
 
         self.stdout.write(f'更新了 {updated_snapshots} 条 WowSpellSnapshot')
 
-        # 更新 WowTalentNodeMetadata.description
-        updated_metadata = 0
-        for sid in need_update:
-            desc, aura = desc_map[sid]
-            if desc:
-                count = WowTalentNodeMetadata.objects.filter(
-                    spell_id=sid, description=''
-                ).update(description=desc)
-                updated_metadata += count
-
-        self.stdout.write(f'更新了 {updated_metadata} 条 WowTalentNodeMetadata.description')
-
-        # 检查覆盖率
-        total_meta = WowTalentNodeMetadata.objects.exclude(spell_id__isnull=True).count()
-        with_desc = WowTalentNodeMetadata.objects.exclude(description='').count()
-        self.stdout.write(f'描述覆盖率: {with_desc}/{total_meta} ({100*with_desc/total_meta:.1f}%)')
-
-        self.stdout.write(self.style.SUCCESS(
-            f'完成: {updated_snapshots} snapshots, {updated_metadata} metadata'
-        ))
+        self.stdout.write(self.style.SUCCESS(f'完成：更新 {updated_snapshots} 条中央技能原文；最终描述由统一生成器发布。'))

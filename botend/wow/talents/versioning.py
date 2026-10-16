@@ -28,21 +28,11 @@ class TalentVersionResolver:
 
     @classmethod
     def get_default(cls, usage=USAGE_SIMULATOR):
-        flag_name = cls.DEFAULT_FLAG_BY_USAGE.get(usage) or cls.DEFAULT_FLAG_BY_USAGE[cls.USAGE_SIMULATOR]
-        version = (
-            WowTalentVersion.objects
-            .filter(is_active=True, **{flag_name: True})
-            .order_by('-updated_at', '-id')
-            .first()
-        )
-        if version:
-            return version
-        return (
-            WowTalentVersion.objects
-            .filter(branch='retail', is_active=True, status='active')
-            .order_by('-updated_at', '-id')
-            .first()
-        )
+        # 使用场景不能改变数据分支；测试服必须由调用者明确指定。
+        try:
+            return cls.get_active_by_key('retail')
+        except ValueError:
+            return None
 
     @classmethod
     def get_active_by_key(cls, key, allow_inactive=False):
@@ -71,7 +61,7 @@ class TalentVersionResolver:
     @classmethod
     def list_active(cls):
         current = {}
-        for version in WowTalentVersion.objects.filter(is_active=True).order_by('-activated_at', '-updated_at', '-id'):
+        for version in WowTalentVersion.objects.filter(is_active=True, branch__in=('retail', 'ptr')).order_by('-activated_at', '-updated_at', '-id'):
             if version.branch not in current or version.key == version.branch:
                 current[version.branch] = version
         return sorted(current.values(), key=lambda row: row.branch)

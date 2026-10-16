@@ -468,7 +468,7 @@ class PortalTalentSimulatorAPIView(View):
     def get(self, request):
         build_code = request.GET.get('code') or ''
         hero_subtree = request.GET.get('hero_subtree') or request.GET.get('hero') or ''
-        version_key = request.GET.get('version') or request.GET.get('version_key') or ''
+        version_key = request.GET.get('branch') or request.GET.get('version') or request.GET.get('version_key') or ''
         profile_id = request.GET.get('profile_id') or request.GET.get('profile') or ''
         try:
             class_name, spec_name = _resolve_simulator_spec(
@@ -502,7 +502,7 @@ class PortalTalentSimulatorEncodeAPIView(View):
         class_name = body.get('class_name') or body.get('class') or DEFAULT_CLASS
         spec_name = body.get('spec_name') or body.get('spec') or (CLASS_SPEC_MAP.get(class_name) or [DEFAULT_SPEC])[0]
         reference_build_code = str(body.get('reference_build_code') or body.get('build_code') or '').strip()
-        version_key = str(body.get('version') or body.get('version_key') or '').strip()
+        version_key = str(body.get('branch') or body.get('version') or body.get('version_key') or '').strip()
         selected_nodes = _parse_selected_nodes(body.get('selected_nodes') or [])
         try:
             _validate_spec(class_name, spec_name)

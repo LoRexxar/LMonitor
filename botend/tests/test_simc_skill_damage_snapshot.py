@@ -950,13 +950,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             name='Enrage', name_zh='激怒',
             aura_description='使你造成的伤害提高。', snapshot_build=build,
         )
-        version = WowTalentVersion.objects.create(key='description-active', is_active=True)
+        version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={'is_active': True, 'status': 'active'})
         talent = WowTalentNodeMetadata.objects.create(
             talent_version=version, class_name='warrior', spec_name='fury',
             tree_type='spec', node_id=101, spell_id=2001, display_spell_id=2001,
             name='Test Talent', name_zh='测试天赋',
             description='Increases damage.', description_zh='提高技能伤害。',
         )
+        from botend.services.wow_spell_display import sync_spell_display
+        sync_spell_display(branch='retail', apply=True)
         localized = localize_skill_damage_payload({
             'identity': {'game_build': build},
             'actors': [{
@@ -3490,7 +3492,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(rows[0]['variant']['runtime_condition'], '')
 
     def test_talent_entries_use_canonical_profile_identity_for_active_metadata(self):
-        active = WowTalentVersion.objects.create(key='active', is_active=True)
+        active, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={'is_active': True, 'status': 'active'})
         inactive = WowTalentVersion.objects.create(key='inactive', is_active=False)
         expected = WowTalentNodeMetadata.objects.create(
             talent_version=active, class_name='Hunter', spec_name='BeastMastery', tree_type='spec',
@@ -3507,7 +3509,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual([row.pk for row in rows], [expected.pk])
 
     def test_talent_entries_keep_only_the_two_hero_subtrees_available_to_the_spec(self):
-        active = WowTalentVersion.objects.create(key='active', is_active=True)
+        active, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={'is_active': True, 'status': 'active'})
         common = WowTalentNodeMetadata.objects.create(
             talent_version=active, class_name='Warrior', spec_name='Fury', tree_type='spec',
             node_id=1, spell_id=101, name='Common', max_points=1,
@@ -5435,7 +5437,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         self.assertIn('previous-published-action', str(body['data']['snapshot']['actors']))
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
-        version = WowTalentVersion.objects.create(key='current', is_active=True)
+        version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={'is_active': True, 'status': 'active'})
         WowTalentNodeMetadata.objects.create(
             talent_version=version, class_name='Warrior', spec_name='Fury',
             node_id=1, spell_id=1001, display_spell_id=1001, name_zh='天赋中文技能',
@@ -5458,6 +5460,8 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
             branch='wow', locale='zhCN', spell_id=3003,
             name='Stale Action', name_zh='过期版本中文名', snapshot_build='12.1.0.69299',
         )
+        from botend.services.wow_spell_display import sync_spell_display
+        sync_spell_display(branch='retail', apply=True)
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=22,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,

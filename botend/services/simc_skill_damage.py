@@ -188,33 +188,25 @@ def localize_skill_damage_payload(payload):
             if base_token:
                 tokens.add(base_token)
     snapshot_build = str((payload.get('identity') or {}).get('game_build') or '').strip()
-    spell_query = WowSpellSnapshot.objects.filter(
-        branch='wow', locale='zhCN', spell_id__in=spell_ids, name_zh__gt='',
-    )
-    if snapshot_build:
-        spell_query = spell_query.filter(snapshot_build=snapshot_build)
-    spell_names = {
-        row['spell_id']: str(row['name_zh'] or '').strip()
-        for row in spell_query.values('spell_id', 'name_zh')
-    } if spell_ids else {}
-    exact_spell_names = dict(spell_names) if snapshot_build else {}
-    missing_spell_ids = spell_ids - set(spell_names)
-    if missing_spell_ids:
-        recent_spell_names = WowSpellSnapshot.objects.filter(
-            branch='wow', locale='zhCN', spell_id__in=missing_spell_ids,
-            name_zh__gt='',
-        ).values('spell_id', 'name_zh').order_by('-updated_at')
-        for row in recent_spell_names:
-            spell_names.setdefault(row['spell_id'], str(row['name_zh'] or '').strip())
-    talent_rows = list(
-        WowTalentNodeMetadata.objects.filter(
-            talent_version__is_active=True, name_zh__gt='',
-        ).filter(
-            models.Q(spell_id__in=spell_ids) | models.Q(display_spell_id__in=spell_ids)
-        ).values(
-            'spell_id', 'display_spell_id', 'class_name', 'spec_name', 'name_zh',
-        )
-    ) if spell_ids else []
+    from botend.services.wow_spell_display import SpellDisplayReader
+    from botend.wow.talents.versioning import TalentVersionResolver
+    identity = payload.get('identity') or {}
+    branch = identity.get('data_branch') or ('ptr' if identity.get('use_ptr') is True else 'retail')
+    reader = SpellDisplayReader(branch)
+    reader.preload(spell_ids)
+    spell_names = {sid: reader.get(sid).get('name_zh', '') for sid in spell_ids}
+    spell_names = {sid: name for sid, name in spell_names.items() if name}
+    exact_spell_names = dict(spell_names)
+    try:
+        version = TalentVersionResolver.resolve(version_key=branch)
+    except ValueError:
+        version = None
+    talent_rows = list(WowTalentNodeMetadata.objects.filter(talent_version=version).filter(
+        models.Q(spell_id__in=spell_ids) | models.Q(display_spell_id__in=spell_ids)
+    ).values('spell_id', 'display_spell_id', 'class_name', 'spec_name', 'node_id')) if version else []
+    for row in talent_rows:
+        row['name_zh'] = reader.get(row['display_spell_id'] or row['spell_id'],
+            class_name=row['class_name'], spec_name=row['spec_name'], node_id=row['node_id']).get('name_zh', '')
     all_apl_rows = list(
         SimcAplSymbolScope.objects.filter(
             is_active=True,
@@ -397,7 +389,7 @@ def localize_skill_damage_payload(payload):
         from .simc_skill_source_context import attach_skill_damage_source_context
 
         attach_skill_damage_source_context(actor)
-        attach_skill_damage_descriptions(actor, game_build=snapshot_build)
+        attach_skill_damage_descriptions(actor, game_build=snapshot_build, branch=branch)
     return result
 
 
@@ -4464,12 +4456,17 @@ class SimcSkillDamageSnapshotService:
             selected.append(profile)
         return selected
 
+    def _talent_version(self):
+        from botend.wow.talents.versioning import TalentVersionResolver
+        branch = 'ptr' if getattr(self.backend, 'identifier', '') == 'ptr' else 'retail'
+        return TalentVersionResolver.resolve(version_key=branch)
+
     def _talent_entries(self, profile):
         class_name, spec_name = canonical_simc_profile_identity(
             getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
         )
         rows = WowTalentNodeMetadata.objects.filter(
-            talent_version__is_active=True,
+            talent_version=self._talent_version(),
             class_name__iexact=class_name,
             tree_type__in=('class', 'spec', 'hero'),
             node_id__isnull=False,
@@ -4543,14 +4540,13 @@ class SimcSkillDamageSnapshotService:
             int(getattr(talent, 'pk', 0) or 0),
         ))]
 
-    @staticmethod
-    def _implicit_prerequisite_nodes(profile):
+    def _implicit_prerequisite_nodes(self, profile):
         """Return non-selectable hero graph anchors needed to close metadata paths."""
         class_name, spec_name = canonical_simc_profile_identity(
             getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
         )
         rows = WowTalentNodeMetadata.objects.filter(
-            talent_version__is_active=True,
+            talent_version=self._talent_version(),
             class_name__iexact=class_name,
             tree_type='hero_anchor',
             node_id__isnull=False,
@@ -5616,6 +5612,7 @@ class SimcSkillDamageSnapshotService:
                 'identity': {
                     'simc_revision': self.snapshot.simc_revision,
                     'game_build': self.snapshot.game_build,
+                    'data_branch': 'ptr' if getattr(self.backend, 'identifier', '') == 'ptr' else 'retail',
                     'schema_revision': self.snapshot.schema_revision,
                 },
                 'preset': dict(self.FIXED_PRESET),
@@ -5640,6 +5637,7 @@ class SimcSkillDamageSnapshotService:
                 'schema_version': self.EXPORTER_SCHEMA_REVISION,
                 'simc_revision': self.snapshot.simc_revision,
                 'game_build': self.snapshot.game_build,
+                'data_branch': 'ptr' if getattr(self.backend, 'identifier', '') == 'ptr' else 'retail',
                 'talents': list(self._global_damage_talent_catalog().values()),
                 'talent_catalog': getattr(self, '_native_talent_catalog', []),
             }, ensure_ascii=False), encoding='utf-8')
@@ -5722,6 +5720,7 @@ class SimcSkillDamageSnapshotService:
             'identity': {
                 'simc_revision': self.snapshot.simc_revision,
                 'game_build': self.snapshot.game_build,
+                'data_branch': 'ptr' if getattr(self.backend, 'identifier', '') == 'ptr' else 'retail',
                 'schema_revision': self.snapshot.schema_revision,
             },
             'preset': dict(self.FIXED_PRESET),

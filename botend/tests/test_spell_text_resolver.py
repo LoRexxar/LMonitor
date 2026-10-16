@@ -40,7 +40,7 @@ class SpellTextResolverTests(unittest.TestCase):
             # Simulate wrong-branch and wrong-build rows existing in the table:
             # only the fully constrained fallback query can select the exact row.
             query.first.return_value = exact if filters == {
-                'branch': 'ptr',
+                'branch': 'wowxptr',
                 'spell_id': 123,
                 'snapshot_build': '12.1.0.68914',
             } else None
@@ -54,7 +54,7 @@ class SpellTextResolverTests(unittest.TestCase):
         self.assertEqual(resolver._spell_snapshot(123)['name_zh'], '精确中文')
         self.assertEqual(snapshot_model.objects.filter.call_count, 2)
         for call in snapshot_model.objects.filter.call_args_list:
-            self.assertEqual(call.kwargs['branch'], 'ptr')
+            self.assertEqual(call.kwargs['branch'], 'wowxptr')
             self.assertEqual(call.kwargs['snapshot_build'], '12.1.0.68914')
 
     @patch('botend.models.WowSpellEffectSnapshot')
@@ -68,7 +68,7 @@ class SpellTextResolverTests(unittest.TestCase):
 
         def filtered_rows(**filters):
             return [effect] if filters == {
-                'branch': 'ptr',
+                'branch': 'wowxptr',
                 'locale': 'zhCN',
                 'spell_id': 123,
                 'snapshot_build': '12.1.0.68914',
@@ -81,7 +81,7 @@ class SpellTextResolverTests(unittest.TestCase):
 
         self.assertEqual(resolver._effects(123)[0]['base_points'], '42')
         effect_model.objects.filter.assert_called_once_with(
-            branch='ptr',
+            branch='wowxptr',
             locale='zhCN',
             spell_id=123,
             snapshot_build='12.1.0.68914',

@@ -20,7 +20,10 @@ from botend.wow.talents.versioning import TalentVersionResolver
 from botend.wow.talents.db2_components import TalentDb2ComponentResolver
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '从 DB2 dump 补全所有缺失的天赋节点元数据'
 
     def add_arguments(self, parser):

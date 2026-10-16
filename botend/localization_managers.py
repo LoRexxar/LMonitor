@@ -4,4 +4,4 @@ from django.db import models
 
 class TalentStructureManager(models.Manager):
     def get_queryset(self):
-        return super().get_queryset().filter(localization_only=False)
+        return super().get_queryset().filter(localization_only=False, is_current=True)

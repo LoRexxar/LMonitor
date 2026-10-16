@@ -957,12 +957,15 @@ class SimcAplSymbolsAPIView(SimcAplEditorAPIView):
         if not kinds.issubset(valid_kinds):
             return _editor_error('invalid_kind', 'Unknown symbol kind.')
         query = (request.GET.get('query') or '').strip()[:200]
+        branch = request.GET.get('branch') or 'retail'
+        if branch not in ('retail', 'ptr'):
+            return _editor_error('invalid_branch', '仅支持正式服或测试服。')
         if not _APL_EDITOR_SEMAPHORE.acquire():
             return _editor_error('concurrency_limited', 'Symbol query capacity is busy.', 429)
         try:
             # 编辑器目录来自无版本字段词典；版本不会进入字段或归属查询。
             items = query_symbol_catalog(
-                None, None, spec[1], spec[2], search=query or None,
+                None, None, spec[1], spec[2], search=query or None, branch=branch,
             )
         finally:
             _APL_EDITOR_SEMAPHORE.release()
@@ -8419,7 +8422,8 @@ class SimcSkillDamageSnapshotAPIView(View):
                 if isinstance(actor.get('reviewed_global_effects'), list):
                     actor['global_skill_effects'] = reviewed_global_display_effects(actor)
                 attach_skill_damage_source_context(actor)
-                attach_skill_damage_descriptions(actor, game_build=display_snapshot.game_build)
+                attach_skill_damage_descriptions(actor, game_build=display_snapshot.game_build,
+                    branch=(display_snapshot.payload.get('identity') or {}).get('data_branch', 'retail'))
                 write_chunk(json.dumps(actor, cls=DjangoJSONEncoder).encode('utf-8'))
                 del actor
             write_chunk(b']')

@@ -16,7 +16,10 @@ from botend.wow.db2_dump import load_db2_dump_map, load_db2_dump_rows
 
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '使用 wago.tools DB2 回填天赋相关 spell 中文名，并同步到天赋元数据缓存'
 
     def __init__(self, *args, **kwargs):
@@ -42,7 +45,11 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         class_name = options['class_name']
         spec_name = options['spec_name']
-        branch = options['branch']
+        from botend.wow.branches import data_branch, spell_branch
+        from botend.wow.talents.versioning import TalentVersionResolver
+        branch = spell_branch(options['branch'])
+        self._source_branch = branch
+        version = TalentVersionResolver.resolve(version_key=data_branch(branch))
         limit = max(0, int(options['limit']))
         chunk_size = max(1, min(int(options['chunk_size']), 200))
         refresh_tree_type = bool(options.get('refresh_tree_type'))
@@ -71,6 +78,7 @@ class Command(BaseCommand):
                 Q(column__isnull=True) |
                 Q(parents_json=[])
             ).exclude(spell_id__isnull=True)
+        queryset = queryset.filter(talent_version=version)
         if class_name:
             queryset = queryset.filter(class_name=class_name)
         if spec_name:
@@ -133,7 +141,7 @@ class Command(BaseCommand):
             from botend.models import WowSpellSnapshot
             snapshot_rows = (
                 WowSpellSnapshot.objects
-                .filter(spell_id__in=all_spell_ids)
+                .filter(branch=branch, spell_id__in=all_spell_ids)
                 .order_by('spell_id', '-updated_at')
                 .values_list('spell_id', 'name', 'name_zh')
             )
@@ -589,7 +597,7 @@ class Command(BaseCommand):
         if cached and (cached[1] or cached[0]):
             return (cached[1] or cached[0]).strip()
         try:
-            snapshot = WowSpellSnapshot.objects.filter(spell_id=sid).order_by('-updated_at').first()
+            snapshot = WowSpellSnapshot.objects.filter(branch=getattr(self, '_source_branch', 'wow'), spell_id=sid).order_by('-updated_at').first()
         except Exception:
             snapshot = None
         if snapshot and (snapshot.name_zh or snapshot.name):
@@ -741,7 +749,7 @@ class Command(BaseCommand):
         if state and (state.build or '').strip():
             return state.build.strip()
 
-        latest = WowSpellSnapshot.objects.exclude(snapshot_build='').order_by('-updated_at').first()
+        latest = WowSpellSnapshot.objects.filter(branch=branch).exclude(snapshot_build='').order_by('-updated_at').first()
         if latest and (latest.snapshot_build or '').strip():
             return latest.snapshot_build.strip()
         return ''

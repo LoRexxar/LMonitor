@@ -59,6 +59,9 @@ def atomic_dump_json(path, payload, **dump_kwargs):
 
 def publish_stats(path, payload, class_name, spec_name, *, cycle=None, legacy_season=None):
     """后台统一补全装备与天赋，页面只读取已发布的展示结果。"""
+    if payload.get('data_branch', 'retail') != 'retail':
+        raise ValueError('正式服统计目录不能发布测试服资料')
+    payload['data_branch'] = 'retail'
     from botend.services.wow_item_display import refresh_aggregate_equipment
     from botend.services.wow_talent_display import refresh_aggregate_talents
     payload = refresh_aggregate_equipment(payload, class_name=class_name, spec_name=spec_name)

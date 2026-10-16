@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from django.db.models import Q
+from botend.wow.branches import spell_branch
 
 from botend.models import (
     SimcAplSymbol, SimcAplSymbolScope, WowSpellSnapshot, WowSpecSpellMapSnapshot,
@@ -46,20 +47,16 @@ def _scope_rank(symbol, class_name, spec, hero_tree):
     return 0
 
 
-def _spell_details(spell_ids, wow_build=None):
-    rows = WowSpellSnapshot.objects.filter(spell_id__in=spell_ids)
-    if wow_build:
-        rows = rows.filter(snapshot_build=wow_build)
+def _spell_details(spell_ids, wow_build=None, *, branch='retail', class_name='', spec=''):
+    from botend.services.wow_spell_display import SpellDisplayReader
+    reader = SpellDisplayReader(branch)
+    reader.preload(spell_ids)
     details = {}
-    for row in rows.order_by('spell_id', 'locale', '-updated_at'):
-        item = details.setdefault(row.spell_id, {'zh': '', 'en': '', 'description': ''})
-        locale = (row.locale or '').lower()
-        if locale == 'zhcn':
-            item['zh'] = item['zh'] or row.name_zh or row.name
-            item['description'] = item['description'] or row.description or row.aura_description
-        elif locale == 'enus':
-            item['en'] = item['en'] or row.name
-            item['description'] = item['description'] or row.description or row.aura_description
+    for sid in spell_ids:
+        row = reader.get(sid, class_name=class_name, spec_name=spec)
+        details[sid] = {'zh': row.get('name_zh', ''), 'en': row.get('name_en', ''),
+                        'description': row.get('description_zh') or row.get('description', ''),
+                        'icon': row.get('icon', '')}
     return details
 
 
@@ -113,8 +110,8 @@ def query_visible_symbols(class_name, spec, hero_tree=None, *,
 
 
 def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
-                         hero_tree=None, search=None, spec_id=None, talent_version=None):
-    """合并无版本字段；wow_build 只可用于增强外部 WoW 快照。"""
+                         hero_tree=None, search=None, spec_id=None, talent_version=None, branch='retail'):
+    """合并当前分支中央展示资料；构建参数仅兼容旧签名。"""
     class_name = str(class_name or '').strip().lower()
     spec = str(spec or '').strip().lower()
     hero_tree = str(hero_tree or '').strip().lower() or None
@@ -123,34 +120,41 @@ def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
         simc_revision=simc_revision, wow_build=wow_build,
     )
 
-    if talent_version is None and wow_build:
-        versions = list(WowTalentVersion.objects.filter(
-            current_build=wow_build, is_active=True, is_default_simulator=True,
-        )[:2])
-        if len(versions) > 1:
-            raise ValueError(f'multiple authoritative talent versions for wow_build {wow_build}')
-        talent_version = versions[0] if versions else None
-    elif talent_version is not None and getattr(talent_version, 'pk', None) is None:
-        talent_version = WowTalentVersion.objects.get(pk=talent_version)
+    from botend.wow.talents.versioning import TalentVersionResolver
+    from botend.wow.talents.metadata import TalentMetadataProvider
+    if talent_version is not None:
+        if getattr(talent_version, 'pk', None) is None:
+            talent_version = WowTalentVersion.objects.get(pk=talent_version)
+        branch = talent_version.branch
+    try:
+        talent_version = TalentVersionResolver.resolve(version_key=branch)
+    except ValueError:
+        talent_version = None
     talent_rows = []
     if talent_version is not None:
         talent_rows = list(WowTalentNodeMetadata.objects.filter(
             class_name__iexact=class_name, spec_name__iexact=spec,
             talent_version=talent_version,
         ).exclude(spell_id__isnull=True).order_by('id'))
+    if talent_version:
+        provider = TalentMetadataProvider(talent_version=talent_version)
+        for row in provider._prime_display(talent_rows):
+            display = provider._as_dict(row)
+            for field in ('name', 'name_zh', 'description', 'description_zh', 'icon'):
+                setattr(row, field, display.get(field, ''))
     spell_ids = {s.spell_id for s in selected_symbols if s.spell_id is not None}
     spell_ids.update(row.spell_id for row in talent_rows)
 
     # No audited slug→spec-id map exists here. An authoritative Blizzard id may
     # be supplied by the caller; this service deliberately never guesses one.
     mapped_spell_ids = set()
-    if spec_id is not None and wow_build:
+    if spec_id is not None:
         maps = WowSpecSpellMapSnapshot.objects.filter(
-            spec_id=spec_id, snapshot_build=wow_build,
+            spec_id=spec_id, branch=spell_branch(branch),
         )
         mapped_spell_ids.update(maps.values_list('spell_id', flat=True))
         spell_ids.update(mapped_spell_ids)
-    details = _spell_details(spell_ids, wow_build)
+    details = _spell_details(spell_ids, branch=branch, class_name=class_name, spec=spec)
     talents_by_spell = {}
     for talent in talent_rows:
         talents_by_spell.setdefault(talent.spell_id, talent)
@@ -177,7 +181,7 @@ def query_symbol_catalog(simc_revision, wow_build, class_name, spec,
             token=symbol.token, kind=symbol.symbol_kind, spell_id=sid,
             name=label, name_en=en, description=(getattr(talent, 'description_zh', '') or
                 spell.get('description') or getattr(talent, 'description', '')),
-            icon=getattr(talent, 'icon', ''), insertable=insertable, reason=reason,
+            icon=getattr(talent, 'icon', '') or spell.get('icon', ''), insertable=insertable, reason=reason,
             source=symbol.source, class_name=symbol.class_name, spec=symbol.spec,
             hero_tree=symbol.hero_tree,
             availability=str(coverage.get('availability') or ''),

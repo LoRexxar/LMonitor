@@ -5,9 +5,9 @@ from functools import lru_cache
 
 from django.db.models import Q
 
-from botend.constants.wow import SPEC_ACTIVE_AURA_IDS, SPEC_CONDITION_INDEX
-from botend.models import WowSpellSnapshot, WowTalentNodeMetadata
-from botend.wow.spell_text import SpellTextResolver
+from botend.models import WowTalentNodeMetadata
+from botend.services.wow_spell_display import SpellDisplayReader
+from botend.wow.talents.versioning import TalentVersionResolver
 
 
 def _key(value):
@@ -18,7 +18,7 @@ def _positive_id(value):
     return isinstance(value, int) and not isinstance(value, bool) and value > 0
 
 
-def attach_skill_damage_descriptions(actor, *, game_build=''):
+def attach_skill_damage_descriptions(actor, *, game_build='', branch='retail'):
     """按单个专精批量补齐说明，兼容旧快照的流式读取。原地修改展示副本。"""
     actions = [row for row in actor.get('actions', []) if isinstance(row, dict)]
     effects = [row for row in actor.get('global_skill_effects', []) if isinstance(row, dict)]
@@ -37,44 +37,22 @@ def attach_skill_damage_descriptions(actor, *, game_build=''):
     class_key = _key(actor.get('class'))
     spec_key = _key(actor.get('specialization') or actor.get('spec'))
     # 只查询当前专精引用的说明；不能把线上全量技能和历代天赋缓存到每个进程。
-    talents = list(WowTalentNodeMetadata.all_objects.filter(
+    try:
+        version = TalentVersionResolver.resolve(version_key=branch)
+    except ValueError:
+        version = None
+    talents = list(WowTalentNodeMetadata.objects.filter(talent_version=version).filter(
         Q(id__in=talent_ids) | Q(node_id__in=entries)
         | Q(spell_id__in=spell_ids) | Q(display_spell_id__in=spell_ids)
-    ).values(
-        'id', 'node_id', 'spell_id', 'display_spell_id', 'class_name', 'spec_name',
-        'description', 'description_zh', 'talent_version__current_build',
-    )) if spell_ids or talent_ids or entries else []
-    # 明确的职业、专精边界必须匹配；同名天赋不能跨专精借用说明。
+    ).values('id', 'node_id', 'spell_id', 'display_spell_id', 'class_name', 'spec_name')) if version else []
     talents = [row for row in talents if
                (not row['class_name'] or _key(row['class_name']) == class_key) and
                (not row['spec_name'] or _key(row['spec_name']) == spec_key)]
-    for row in talents:
-        spell_ids.update(sid for sid in (row['spell_id'], row['display_spell_id']) if _positive_id(sid))
-    spells = {}
-    if spell_ids:
-        rows = WowSpellSnapshot.objects.filter(
-            branch='wow', locale__in=['zhCN', 'enUS'], spell_id__in=spell_ids,
-        ).order_by('-updated_at', '-id').values(
-            'spell_id', 'locale', 'name_zh', 'description', 'aura_description', 'snapshot_build',
-        )
-        for row in rows.iterator(chunk_size=256):
-            key = (row['spell_id'], row['locale'])
-            previous = spells.get(key)
-            if previous is None or (
-                game_build and row['snapshot_build'] == game_build
-                and previous['snapshot_build'] != game_build
-            ):
-                spells[key] = row
-    resolvers = {locale: SpellTextResolver(locale=locale, snapshot_build=game_build)
-                 for locale in ('zhCN', 'enUS')}
-    spec_index = next((value for (cls, spec), value in SPEC_CONDITION_INDEX.items()
-                       if _key(cls) == class_key and _key(spec) == spec_key), None)
-    active_auras = next((value for (cls, spec), value in SPEC_ACTIVE_AURA_IDS.items()
-                         if _key(cls) == class_key and _key(spec) == spec_key), set())
-
-    @lru_cache(maxsize=None)
-    def resolved(text, sid, locale):
-        return resolvers[locale].resolve(text, sid, spec_index=spec_index, active_aura_ids=active_auras)
+    spell_ids.update(sid for row in talents for sid in (row['spell_id'], row['display_spell_id']) if _positive_id(sid))
+    reader = SpellDisplayReader(branch)
+    reader.preload(spell_ids)
+    def display(sid, node_id=None):
+        return reader.get(sid, class_name=class_key, spec_name=spec_key, node_id=node_id)
 
     def talent_text(sid, locale, *, talent_id=None, entry_id=None):
         rows = [row for row in talents if
@@ -82,29 +60,15 @@ def attach_skill_damage_descriptions(actor, *, game_build=''):
                  row['node_id'] == entry_id if entry_id else
                  sid in (row['spell_id'], row['display_spell_id']))]
         field = 'description_zh' if locale == 'zhCN' else 'description'
-        rows = [row for row in rows if row[field].strip()]
-        if not rows:
-            return ''
-        def rank(row):
-            return (bool(game_build and row['talent_version__current_build'] == game_build),
-                    bool(row['spec_name']), bool(row['class_name']))
-        best = max(map(rank, rows))
-        candidates = {(row[field].strip(), row['display_spell_id'] or row['spell_id'])
-                      for row in rows if rank(row) == best}
-        # 同优先级的说明相互冲突时保留空值，不能随数据库顺序选一条。
-        if len({text for text, _ in candidates}) != 1:
-            return ''
-        text, text_sid = next(iter(candidates))
-        return resolved(text, text_sid, locale)
+        candidates = {display(row['display_spell_id'] or row['spell_id'], row['node_id']).get(field, '') for row in rows}
+        candidates.discard('')
+        return next(iter(candidates)) if len(candidates) == 1 else ''
 
     @lru_cache(maxsize=None)
     def spell_text(sid, locale, aura=False):
-        row = spells.get((sid, locale), {})
-        fields = ('aura_description', 'description') if aura else ('description', 'aura_description')
-        text = next((row.get(field, '').strip() for field in fields if row.get(field, '').strip()), '')
-        if text:
-            return resolved(text, sid, locale)
-        return talent_text(sid, locale)
+        row = display(sid)
+        field = 'description_zh' if locale == 'zhCN' else 'description'
+        return (row.get('aura_' + field) if aura else '') or row.get(field, '') or talent_text(sid, locale)
 
     def attach(row, ids=(), *, prefix='', aura=False, talent=False):
         for locale, suffix in (('zhCN', '_zh'), ('enUS', '')):
@@ -134,7 +98,7 @@ def attach_skill_damage_descriptions(actor, *, game_build=''):
         # enclosing effect already has a Chinese title. Reuse the same bounded
         # spell lookup for old snapshots; never translate by token or copy the
         # enclosing talent's name to a different buff identity.
-        name = str(spells.get((condition.get('spell_id'), 'zhCN'), {}).get('name_zh') or '').strip()
+        name = str(display(condition.get('spell_id')).get('name_zh') or '').strip()
         if not re.search(r'[\u3400-\u9fff]', str(condition.get('name_zh') or '')):
             if re.search(r'[\u3400-\u9fff]', name):
                 condition['name_zh'] = name

@@ -4,7 +4,10 @@ from django.core.management.base import BaseCommand
 from django.db import connection
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '合并 WoW 天赋元数据中同节点的跨 tree_type 重复行（SQL 批量版）'
 
     def add_arguments(self, parser):

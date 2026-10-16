@@ -16,7 +16,10 @@ WOWHEAD_TOOLTIP_URL = 'https://nether.wowhead.com/tooltip/spell/{spell_id}?dataE
 WOWHEAD_ICON_URL = 'https://wow.zamimg.com/images/wow/icons/small/{icon}.jpg'
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '按指定 SpellID 同步施法时间轴所需双语快照，并补齐 small 图标至 OSS'
 
     def add_arguments(self, parser):

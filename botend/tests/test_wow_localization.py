@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from botend.models import WowTalentVersion, WowTalentNodeMetadata, WowSpellSnapshot, WowItemSnapshot
 from botend.services.wow_localization import current_reference_version, names_for, write_name, effective_names, export_names
 from botend.services.class_guide_content import resolve_references
+from botend.services.wow_spell_display import sync_spell_display
 from botend.services.class_guide_service import build_guide_glossary
 from botend.services.wow_news_glossary_service import WowNewsGlossary
 from botend.guide_models import ClassGuide
@@ -13,8 +14,8 @@ from botend.guide_models import ClassGuide
 
 class SharedNameTests(TestCase):
     def setUp(self):
-        self.version = WowTalentVersion.objects.create(key='retail-12.1', major_version='12.1', branch='retail',
-            current_build='12.1.0.123', is_active=True, is_default_player_tree=True)
+        self.version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults=dict(major_version='12.1', branch='retail',
+            current_build='12.1.0.123', is_active=True, status='active', is_default_player_tree=True))
 
     def term(self, kind='talent', identity=900, **kwargs):
         return dict(game_version='12.1', kind=kind, object_id=identity, name_en='Arcane Blast',
@@ -243,10 +244,10 @@ class SharedNameTests(TestCase):
             key='retail-12.2', major_version='12.2', branch='retail',
             current_build='12.2.0.999', is_active=True, is_default_player_tree=True,
         )
-        WowSpellSnapshot.objects.create(
+        WowSpellSnapshot.objects.update_or_create(
             branch='wow', locale='zhCN', spell_id=30451,
-            description='当前权威效果。', snapshot_build='12.2.0.999',
-        )
+            defaults=dict(description='当前权威效果。', snapshot_build='12.2.0.999'))
+        sync_spell_display(branch='retail', apply=True)
 
         reference = resolve_references(
             [{'id': 'p', 'type': 'html', 'html': '<p>[[spell:30451]]</p>'}],
@@ -281,7 +282,7 @@ class SharedNameTests(TestCase):
 
         self.assertEqual(current_reference_version(), self.version)
 
-    def test_explicit_reference_searches_active_branches_with_retail_priority(self):
+    def test_explicit_reference_does_not_fall_back_to_ptr(self):
         ptr, _ = WowTalentVersion.objects.update_or_create(
             key='ptr', defaults=dict(
                 major_version='12.1.5', branch='ptr',
@@ -297,10 +298,11 @@ class SharedNameTests(TestCase):
         blocks = [{'id': 'p', 'type': 'html', 'html': '[[talent:880001]]'}]
 
         reference = resolve_references(blocks, '10.0')['[[talent:880001]]']
-        self.assertEqual(reference['name'], '测试服独有天赋')
+        self.assertFalse(reference['resolved'])
 
+        legacy = WowTalentVersion.objects.create(key='legacy-retail', branch='retail')
         WowTalentNodeMetadata.objects.create(
-            talent_version=self.version, class_name='Mage', spec_name='Arcane',
+            talent_version=legacy, class_name='Mage', spec_name='Arcane',
             node_id=880001, talent_id=880103, spell_id=880203,
             name='Legacy Retail Talent', name_zh='旧正式服天赋',
             description_zh='旧正式服效果。',
@@ -327,7 +329,8 @@ class SharedNameTests(TestCase):
         write_name(self.term('item', 123))
         self.assertEqual(WowTalentNodeMetadata.objects.count(), 0)
         self.assertEqual(WowTalentNodeMetadata.all_objects.count(), 3)
-        self.assertEqual(WowSpellSnapshot.objects.count(), 0)
+        self.assertEqual(WowSpellSnapshot.objects.count(), 1)
+        self.assertTrue(WowSpellSnapshot.objects.get().display_data)
         self.assertEqual(WowItemSnapshot.objects.count(), 0)
         self.assertEqual(len(effective_names('12.1')), 3)
         self.assertFalse(effective_names('12.2'))
@@ -367,6 +370,7 @@ class SharedNameTests(TestCase):
         write_name(self.term())
         node = WowTalentNodeMetadata.objects.create(talent_version=self.version, class_name='Mage', spec_name='Arcane',
             source='db2', talent_id=900, node_id=800, spell_id=30451, name='Arcane Blast', name_zh='')
+        sync_spell_display(branch='retail', apply=True)
         rows = TalentMetadataProvider(talent_version=self.version).get_full_tree_nodes('Mage', 'Arcane')
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]['name'], '奥术冲击')
@@ -465,9 +469,9 @@ class SharedNameTests(TestCase):
         self.client.force_login(user)
         self.version.is_default_player_tree = False
         self.version.save(update_fields=['is_default_player_tree'])
-        current = WowTalentVersion.objects.create(
-            key='retail-12.2', major_version='12.2', branch='retail', current_build='12.2.0.456',
-            is_active=True, is_default_player_tree=True)
+        current, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults=dict(
+            major_version='12.2', branch='retail', current_build='12.2.0.456',
+            is_active=True, is_default_player_tree=True))
         WowSpellSnapshot.objects.create(
             branch='wow', locale='enUS', spell_id=430451, name='Current Authoritative Name',
             icon='current_authoritative_icon', snapshot_build='12.2.0.789',

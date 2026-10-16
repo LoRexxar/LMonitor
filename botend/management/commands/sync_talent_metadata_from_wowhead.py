@@ -35,7 +35,10 @@ INVALID_DESCRIPTION_TOKENS = ('$', '@spell', '<', '|c', '|C', '|r', '|R')
 ICON_SLUG_RE = re.compile(r'[a-z0-9_.-]+')
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '从 Wowhead 正式服 Tooltip 增量同步正式服天赋中文名称、说明和图标'
 
     def add_arguments(self, parser):

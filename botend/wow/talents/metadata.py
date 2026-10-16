@@ -100,6 +100,7 @@ def order_talent_choice_nodes(nodes, entry_order=None):
 
 @dataclass
 class TalentMetadataProvider:
+    compile_display: bool = field(default=False, kw_only=True)
     locale: str = 'zhCN'
     talent_version: object = None
     version_key: str = ''
@@ -110,6 +111,20 @@ class TalentMetadataProvider:
     _spell_text_resolvers: dict = field(default_factory=dict)
     _choice_entry_order_cache: dict = field(default_factory=dict)
     _name_supplement_cache: dict = field(default_factory=dict)
+    _display_reader: object = None
+
+    def _prime_display(self, rows):
+        from botend.services.wow_spell_display import node_spell_id
+        rows = list(rows)
+        if not self.compile_display:
+            self._reader().preload(node_spell_id(row) for row in rows)
+        return rows
+
+    def _reader(self):
+        if self._display_reader is None:
+            from botend.services.wow_spell_display import SpellDisplayReader
+            self._display_reader = SpellDisplayReader(getattr(self.resolved_version, 'branch', 'retail'))
+        return self._display_reader
 
     @property
     def resolved_version(self):
@@ -215,19 +230,19 @@ class TalentMetadataProvider:
         metadata_tree_type = metadata.get('tree_type')
         if metadata_tree_type:
             merged['tree_type'] = metadata_tree_type
-        for key in ['name', 'icon', 'row', 'column', 'max_points', 'parents', 'description', 'description_zh', 'db2_subtree_id', 'flags']:
+        for key in ['name', 'name_zh', 'icon', 'row', 'column', 'max_points', 'parents', 'description', 'description_zh', 'db2_subtree_id', 'flags']:
             value = metadata.get(key)
             if (
                 key in {'description', 'description_zh'}
                 and value in (None, '')
                 and is_authoritative_talent_source(metadata)
-                and self._is_external_description_pollution(merged.get(key))
+                and (self._is_external_description_pollution(merged.get(key)) or '$' in str(merged.get(key) or ''))
             ):
                 merged[key] = ''
                 continue
             if value in (None, '', []):
                 continue
-            if key in STRUCTURAL_FIELDS or self._should_override(merged, key):
+            if key in STRUCTURAL_FIELDS or key in {'name', 'name_zh', 'icon', 'description', 'description_zh'} or self._should_override(merged, key):
                 merged[key] = value
         if metadata.get('display_spell_id'):
             merged['display_spell_id'] = metadata.get('display_spell_id')
@@ -268,7 +283,7 @@ class TalentMetadataProvider:
         entry_aliases = {}
         parent_ids = {}
         collapsed_candidates = {}
-        for row in rows.iterator():
+        for row in self._prime_display(rows):
             row_data = self._as_dict(row)
             # TraitNode (not SpellID) groups selectable entries. A spell can
             # appear in another slot or hero subtree without being the same node.
@@ -383,7 +398,7 @@ class TalentMetadataProvider:
         ).order_by('talent_id', 'node_id', 'spell_id')
 
         grouped = {}
-        for row in rows.iterator():
+        for row in self._prime_display(rows):
             row_data = self._as_dict(row)
             if not self._include_in_decoder_node_list(row_data):
                 continue
@@ -508,7 +523,7 @@ class TalentMetadataProvider:
             spec_name=cache_key[2],
             talent_version=version,
         ).exclude(tree_type='hero_anchor')
-        for row in rows.iterator():
+        for row in self._prime_display(rows):
             row_data = self._as_dict(row)
             tree_key = row.tree_type or 'spec'
             tree_indexes = indexes.setdefault(tree_key, {})
@@ -526,14 +541,14 @@ class TalentMetadataProvider:
         return indexes
 
     def _spell_resolver(self, locale=None):
+        from botend.wow.branches import spell_branch
         locale = locale or self.locale
         if locale not in self._spell_text_resolvers:
             version = self.resolved_version
             self._spell_text_resolvers[locale] = SpellTextResolver(
                 locale=locale,
-                branch=getattr(version, 'branch', 'wow') or 'wow',
-                snapshot_build=getattr(version, 'current_build', '') or '',
-                dump_dir=getattr(version, 'source_dir', None) or None,
+                branch=spell_branch(getattr(version, 'branch', 'retail')),
+                dump_dir=getattr(version, 'source_dir', None) or None, allow_legacy_dump=False,
             )
         return self._spell_text_resolvers[locale]
 
@@ -569,25 +584,38 @@ class TalentMetadataProvider:
         key = row.talent_version_id
         if key not in self._name_supplement_cache:
             self._name_supplement_cache[key] = list(WowTalentNodeMetadata.all_objects.filter(
-                talent_version_id=key, localization_only=True, name_kind__in=['talent', 'spell'],
-            ).values('reference_id', 'name_kind', 'name', 'name_zh', 'icon'))
+                talent_version__branch=self.resolved_version.branch, localization_only=True, name_kind__in=['talent', 'spell'],
+            ).values('reference_id', 'name_kind', 'name', 'name_zh', 'icon', 'talent_version_id'))
         rows = self._name_supplement_cache[key]
         matches = [r for r in rows if r['reference_id'] in ((row.spell_id, row.display_spell_id) if r['name_kind'] == 'spell' else (row.talent_id, row.node_id))
                    and (not row.name or r['name'].casefold() == row.name.casefold())]
         if not matches and row.name:
             matches = [r for r in rows if r['name'].casefold() == row.name.casefold()]
+        current = [r for r in matches if r['talent_version_id'] == key]
+        matches = current or matches
         if matches and len({r['name_zh'] for r in matches}) == 1:
             return matches[0]['name_zh'], row.icon or matches[0]['icon']
         return row.name, row.icon
 
     def _as_dict(self, row):
-        spell_id = row.display_spell_id or row.spell_id
+        from botend.services.wow_spell_display import plain_text, node_spell_id
+        spell_id = node_spell_id(row)
         desc = getattr(row, 'description', '') or ''
         desc_zh = getattr(row, 'description_zh', '') or ''
-        resolver_en = self._spell_resolver('enUS')
-        resolver_zh = self._spell_resolver('zhCN')
-        context = self._text_context(row)
-        localized_name, localized_icon = self._localized_node_name(row)
+        if self.compile_display:
+            context = self._text_context(row)
+            desc = self._resolve_text(self._spell_resolver('enUS'), desc, spell_id, context)
+            desc_zh = self._resolve_text(self._spell_resolver('zhCN'), desc_zh, spell_id, context)
+            localized_name, localized_icon = self._localized_node_name(row)
+            name_zh = row.name_zh or (localized_name if re.search(r'[\u3400-\u9fff]', localized_name) else '')
+        else:
+            display = self._reader().get(spell_id, class_name=row.class_name, spec_name=row.spec_name, node_id=row.node_id)
+            localized_name = display.get('name_zh') or display.get('name') or row.name_zh or row.name
+            name_zh = display.get('name_zh') or row.name_zh
+            localized_icon = display.get('icon') or row.icon
+            # 未迁移资料只兼容普通原文；请求期间绝不重新解析模板。
+            desc = display.get('description', plain_text(desc))
+            desc_zh = display.get('description_zh', plain_text(desc_zh))
         return {
             'talent_version_id': getattr(row, 'talent_version_id', None),
             'talent_version_key': self.version_cache_key,
@@ -596,14 +624,15 @@ class TalentMetadataProvider:
             'display_spell_id': row.display_spell_id,
             'talent_id': row.talent_id,
             'name': localized_name,
+            'name_zh': name_zh,
             'icon': localized_icon,
             'tree_type': row.tree_type,
             'row': row.row,
             'column': row.column,
             'max_points': row.max_points,
             'parents': row.parents_json or [],
-            'description': self._resolve_text(resolver_en, desc, spell_id, context),
-            'description_zh': self._resolve_text(resolver_zh, desc_zh, spell_id, context),
+            'description': desc,
+            'description_zh': desc_zh,
             'db2_subtree_id': getattr(row, 'db2_subtree_id', 0) or 0,
             'db2_tree_id': getattr(row, 'db2_tree_id', None),
             'db2_component_id': getattr(row, 'db2_component_id', 0) or 0,
@@ -625,8 +654,6 @@ class TalentMetadataProvider:
                  or node.get('description') or node.get('description_zh'))
             and spell_id == node.get('node_id')
         )
-        resolver_en = self._spell_resolver('enUS')
-        resolver_zh = self._spell_resolver('zhCN')
         return {
             'option_key': option_key,
             'node_id': node.get('node_id'),
@@ -638,8 +665,8 @@ class TalentMetadataProvider:
             'name_zh': node.get('name_zh') or '',
             'icon': node.get('icon') or '',
             'is_unresolved': is_unresolved,
-            'description': resolver_en.resolve(node.get('description') or '', spell_id),
-            'description_zh': resolver_zh.resolve(node.get('description_zh') or '', spell_id),
+            'description': node.get('description') or '',
+            'description_zh': node.get('description_zh') or '',
         }
 
     @staticmethod
@@ -684,18 +711,13 @@ class TalentMetadataProvider:
         if not version:
             self._snapshot_cache[spell_id] = {}
             return {}
-        snapshot = WowSpellSnapshot.objects.filter(
-            spell_id=spell_id,
-            branch=getattr(version, 'branch', '') or '',
-            snapshot_build=getattr(version, 'current_build', '') or '',
-        ).order_by('-updated_at').first()
-        if not snapshot:
+        display = self._reader().get(spell_id)
+        if not display:
             self._snapshot_cache[spell_id] = {}
             return {}
         self._snapshot_cache[spell_id] = {
             'spell_id': spell_id,
-            'name': snapshot.name_zh or snapshot.name,
-            'icon': '',
+            **display,
             'parents': [],
         }
         return self._snapshot_cache[spell_id]

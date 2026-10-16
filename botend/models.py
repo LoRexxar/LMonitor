@@ -662,6 +662,7 @@ class WowSpellSnapshotState(models.Model):
 
 
 class WowSpellSnapshot(models.Model):
+    display_data = models.JSONField(default=dict, blank=True, help_text='后台合成的最终展示资料及专精差异；页面只读')
     branch = models.CharField(max_length=32, default="wow")
     locale = models.CharField(max_length=8, default="enUS")
     spell_id = models.BigIntegerField()
@@ -2948,6 +2949,7 @@ class WowTalentVersion(models.Model):
 class WowTalentNodeMetadata(models.Model):
     """WoW 天赋节点元数据缓存，用于树形展示和名称/图标补全。"""
     localization_only = models.BooleanField('仅名称资料', default=False)
+    is_current = models.BooleanField(default=True, db_index=True, help_text='是否属于当前分支节点集合；退役节点保留引用')
     name_kind = models.CharField('名称类型', max_length=16, default='talent', choices=[('talent', '天赋'), ('spell', '技能'), ('item', '物品'), ('phrase', '专有名词'), ('macro', '宏名称')])
     reference_id = models.PositiveBigIntegerField('名称引用编号', null=True, blank=True)
     reference_aliases = models.JSONField('来源编号别名', default=list, blank=True)
@@ -2986,7 +2988,7 @@ class WowTalentNodeMetadata(models.Model):
     flags = models.IntegerField(default=0, help_text='DB2 TraitNode.Flags；Flags=8 表示赠送天赋（默认授予，无法取消）')
 
     class Meta:
-        constraints = [models.UniqueConstraint(fields=['name_kind', 'reference_id'], name='wow_name_reference_unique')]
+        constraints = [models.UniqueConstraint(fields=['talent_version', 'name_kind', 'reference_id'], name='wow_name_reference_branch_unique')]
         db_table = 'wow_talent_node_metadata'
         app_label = 'botend'
         verbose_name = 'WoW天赋与名称元数据'

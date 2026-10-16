@@ -170,6 +170,7 @@ class SpellTextResolver:
     branch: str = "wow"
     snapshot_build: str = ""
     dump_dir: str | Path | None = None
+    allow_legacy_dump: bool = True
     _spell_cache: dict[int, dict[str, str]] = field(default_factory=dict)
     _effect_cache: dict[int, dict[int, dict[str, str]]] = field(default_factory=dict)
     _missing_spells: set[int] = field(default_factory=set)
@@ -181,6 +182,12 @@ class SpellTextResolver:
     _dump_effect_index_cache: dict[int, dict[int, dict[str, str]]] | None = None
     _dump_spell_name_cache: dict[int, str] | None = None
     _dump_spell_desc_cache: dict[int, str] | None = None
+
+    def __post_init__(self):
+        # 业务别名归一，上游明确来源标识维持原样供差异监控使用。
+        if self.branch in ('retail', 'ptr', 'beta'):
+            from botend.wow.branches import spell_branch
+            self.branch = spell_branch(self.branch)
 
     def resolve(
         self,
@@ -893,6 +900,8 @@ class SpellTextResolver:
     def _dump_file(self, filename: str) -> Path:
         if self.dump_dir:
             return Path(self.dump_dir) / filename
+        if not self.allow_legacy_dump:
+            return Path(__file__).parent / '__no_branch_source__' / filename
         return _dump_file(filename)
 
     def _resolve_expr(self, expr: str, current_spell_id: int) -> str:

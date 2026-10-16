@@ -535,7 +535,7 @@ def publish(bundle, version, state, run, task):
             setattr(target, flag, True)
     target.save()
     node_key = lambda node: (node.class_name, node.spec_name, node.tree_type, node.node_id)
-    old_nodes = {node_key(node): node for node in WowTalentNodeMetadata.objects.filter(talent_version=target)}
+    old_nodes = {node_key(node): node for node in WowTalentNodeMetadata.all_objects.filter(talent_version=target, localization_only=False)}
     node_fields = [field.name for field in WowTalentNodeMetadata._meta.concrete_fields
                    if field.name not in ('id', 'talent_version', 'last_updated')]
     retained = []
@@ -555,6 +555,10 @@ def publish(bundle, version, state, run, task):
             node.pk, node.talent_version = None, target
             node.save(force_insert=True)
             retained.append(node.pk)
+    # 已移除节点退出当前结构，保留主键供历史模拟引用；重新出现时复用原行。
+    WowTalentNodeMetadata.objects.filter(talent_version=target).exclude(pk__in=retained).update(is_current=False)
+    from botend.services.wow_spell_display import sync_spell_display
+    sync_spell_display(branch=run.branch, apply=True)
     season.gear_batch_key, season.gear_sync_status, season.gear_synced_at = batch, 'ready', timezone.now()
     if bundle.get('loot_specializations'):
         from botend.services.item_loot_specializations import publish_specializations

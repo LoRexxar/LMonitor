@@ -1006,28 +1006,20 @@ def _is_placeholder_hero_subtree_name(name):
     )
 
 
-def _hero_subtree_name_from_table(subtree_id):
+def _hero_subtree_name_from_table(subtree_id, *, branch='retail'):
+    """英雄树名称只从当前分支中央节点读取，不再访问无分支的旧表。"""
     if not subtree_id:
         return ''
     try:
-        with connection.cursor() as cursor:
-            cursor.execute(
-                """
-                SELECT hero_name_zh, hero_name
-                FROM wow_talent_hero_subtree
-                WHERE subtree_id = %s
-                  AND hero_name <> ''
-                ORDER BY node_count DESC, id ASC
-                """,
-                [subtree_id],
-            )
-            for hero_name_zh, hero_name in cursor.fetchall():
-                raw_title = hero_name or ''
-                title = hero_subtree_name_zh(hero_name_zh or raw_title) or raw_title
-                if not _is_placeholder_hero_subtree_name(title):
-                    return title
-    except Exception:
+        version = TalentVersionResolver.resolve(version_key=branch)
+    except ValueError:
         return ''
+    rows = WowTalentNodeMetadata.objects.filter(talent_version=version,
+        tree_type='hero_anchor', db2_subtree_id=subtree_id).order_by('pk')
+    names = {hero_subtree_name_zh(row.name_zh or row.name) or row.name_zh or row.name for row in rows}
+    names = {name for name in names if not _is_placeholder_hero_subtree_name(name)}
+    if len(names) == 1:
+        return names.pop()
     return ''
 
 

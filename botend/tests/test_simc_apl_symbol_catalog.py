@@ -120,8 +120,8 @@ class SimcAplSymbolCatalogTests(TestCase):
         self.assertEqual(row.expression_template, 'buff.future_pet_buff.up')
 
     def test_unbound_talent_is_visible_but_never_guesses_token(self):
-        version = WowTalentVersion.objects.create(
-            key='b1', current_build='b1', is_active=True, is_default_simulator=True)
+        version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={
+            'current_build': 'b1', 'is_active': True, 'status': 'active'})
         WowTalentNodeMetadata.objects.create(class_name='Warrior', spec_name='Fury',
             tree_type='spec', node_id=1, spell_id=999, name='Imaginary Strike', name_zh='想象打击',
             icon='icon', talent_version=version)
@@ -131,7 +131,7 @@ class SimcAplSymbolCatalogTests(TestCase):
         self.assertEqual(row.reason, '尚无 SimC APL token 映射')
         self.assertEqual(row.spell_id, 999)
 
-    def test_wago_catalog_never_falls_back_across_builds(self):
+    def test_current_branch_map_does_not_require_matching_build(self):
         other = WowTalentVersion.objects.create(key='b2', current_build='b2')
         WowTalentNodeMetadata.objects.create(
             class_name='Warrior', spec_name='Fury', tree_type='spec', node_id=2,
@@ -141,7 +141,8 @@ class SimcAplSymbolCatalogTests(TestCase):
             spec_id=72, spell_id=997, snapshot_build='b2',
         )
         rows = query_symbol_catalog('r1', 'b1', 'warrior', 'fury', spec_id=72)
-        self.assertFalse({997, 998} & {row.spell_id for row in rows})
+        self.assertIn(997, {row.spell_id for row in rows})
+        self.assertNotIn(998, {row.spell_id for row in rows})
 
     def test_authoritative_spec_id_includes_unbound_spec_spell_map_item(self):
         WowSpecSpellMapSnapshot.objects.create(spec_id=72, spell_id=1234, snapshot_build='b1')
@@ -152,11 +153,10 @@ class SimcAplSymbolCatalogTests(TestCase):
         self.assertIsNone(row.token)
         self.assertFalse(row.insertable)
 
-    def test_talents_use_only_unique_active_default_version_for_build(self):
+    def test_talents_use_current_branch_independent_of_build(self):
         historical = WowTalentVersion.objects.create(key='old-b1', current_build='b1')
-        authoritative = WowTalentVersion.objects.create(
-            key='current-b1', current_build='b1', is_active=True,
-            is_default_simulator=True)
+        authoritative, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={
+            'current_build': 'b2', 'is_active': True, 'status': 'active'})
         for version, spell_id, name in ((historical, 901, 'Historical'),
                                         (authoritative, 902, 'Authoritative')):
             WowTalentNodeMetadata.objects.create(
@@ -165,10 +165,9 @@ class SimcAplSymbolCatalogTests(TestCase):
         rows = query_symbol_catalog('r1', 'b1', 'warrior', 'fury')
         self.assertEqual({r.spell_id for r in rows if r.source == 'wago'}, {902})
 
-    def test_multiple_authoritative_talent_versions_for_build_fail(self):
+    def test_legacy_usage_flags_do_not_override_current_branch(self):
         WowTalentVersion.objects.create(key='one', current_build='b1', is_active=True,
                                         is_default_simulator=True)
         WowTalentVersion.objects.create(key='two', current_build='b1', is_active=True,
                                         is_default_simulator=True)
-        with self.assertRaisesRegex(ValueError, 'talent version'):
-            query_symbol_catalog('r1', 'b1', 'warrior', 'fury')
+        self.assertEqual(query_symbol_catalog('r1', 'b1', 'warrior', 'fury'), [])

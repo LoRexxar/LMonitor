@@ -27,7 +27,10 @@ class TraitDefData:
     override_desc: str = ""
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = "从本地 DB2 CSV 修复已存在天赋节点的名称和描述"
 
     def add_arguments(self, parser):
@@ -48,7 +51,8 @@ class Command(BaseCommand):
         dry_run = options["dry_run"]
         limit = options["limit"]
         skip_snapshot = options["skip_snapshot"]
-        version = WowTalentVersion.objects.get(key=options['version_key']) if options.get('version_key') else None
+        from botend.wow.talents.versioning import TalentVersionResolver
+        version = WowTalentVersion.objects.get(key=options['version_key']) if options.get('version_key') else TalentVersionResolver.resolve(version_key='retail')
         resolver = SpellTextResolver(snapshot_build=version.current_build, branch=version.branch,
                                      dump_dir=dump_dir) if version else None
 
@@ -73,8 +77,7 @@ class Command(BaseCommand):
         )
 
         qs = WowTalentNodeMetadata.objects.all().order_by("id")
-        if options.get('version_key'):
-            qs = qs.filter(talent_version__key=options['version_key'])
+        qs = qs.filter(talent_version=version)
         if class_name:
             qs = qs.filter(class_name=class_name)
         if limit:
@@ -143,7 +146,7 @@ class Command(BaseCommand):
                     )
 
             if not skip_snapshot and candidate["primary_spell_id"] and (cand_name or cand_name_zh or cand_desc_raw):
-                self._upsert_snapshot(candidate["primary_spell_id"], cand_name, cand_name_zh, cand_desc_raw, dry_run, stats)
+                self._upsert_snapshot(candidate["primary_spell_id"], cand_name, cand_name_zh, cand_desc_raw, dry_run, stats, branch=version.branch if version else 'retail')
 
         self.stdout.write(f"扫描 {scanned} 条，待更新 {len(to_update)} 条")
         self.stdout.write(f"字段更新统计: {stats}")
@@ -298,11 +301,12 @@ class Command(BaseCommand):
         return out
 
     @staticmethod
-    def _upsert_snapshot(spell_id, name, name_zh, desc, dry_run, stats):
+    def _upsert_snapshot(spell_id, name, name_zh, desc, dry_run, stats, *, branch='retail'):
         if dry_run:
             return
+        from botend.wow.branches import spell_branch
         obj, created = WowSpellSnapshot.objects.get_or_create(
-            branch="wow",
+            branch=spell_branch(branch),
             locale="zhCN",
             spell_id=spell_id,
             defaults={"name": name or "", "name_zh": name_zh or "", "description": desc or ""},

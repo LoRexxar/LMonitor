@@ -14,7 +14,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import requests
-from django.core.management.base import BaseCommand
+from django.core.management.base import CommandError
 from django.utils import timezone
 
 from botend.models import WowTalentNodeMetadata, WowTalentVersion
@@ -48,14 +48,17 @@ def build_node_definition_map(dump_dir):
     return node_to_defs
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = '批量从 wago.tools 获取天赋图标名称'
 
     def add_arguments(self, parser):
-        parser.add_argument('--dump-dir', default='.cache/wago_db2_dumps/latest',
-                            help='DB2 dump 目录')
+        parser.add_argument('--dump-dir', default='',
+                            help='DB2 来源目录，默认使用当前分支已发布的来源')
         parser.add_argument('--fallback-dump-dir', default='',
-                            help='图标兜底 DB2 dump 目录，例如 PTR 可用 latest 的 SpellMisc/cache 兜底')
+                            help='同分支图标补充来源目录')
         parser.add_argument('--version-key', default='',
                             help='只处理指定天赋分支槽位，例如 ptr 或 retail')
         parser.add_argument('--limit', type=int, default=0, help='最多处理多少个节点，0=不限制')
@@ -70,7 +73,14 @@ class Command(BaseCommand):
         delay = options['delay']
         workers = max(1, int(options.get('workers') or 1))
         batch_size = options['batch_size']
-        version_key = options.get('version_key') or ''
+        version_key = options.get('version_key') or 'retail'
+        from botend.wow.talents.versioning import TalentVersionResolver
+        version = TalentVersionResolver.resolve(version_key=version_key)
+        if not version:
+            raise CommandError(f'天赋分支不存在: {version_key}')
+        dump_dir = dump_dir or version.source_dir
+        if not dump_dir or not os.path.isdir(dump_dir):
+            raise CommandError('当前分支尚无 DB2 来源目录，请先执行统一数据采集或明确指定同分支目录')
 
         # 1. 加载 TraitDefinition → OverrideIcon 映射
         self.stdout.write('加载 TraitDefinition...')
@@ -119,13 +129,7 @@ class Command(BaseCommand):
         self.stdout.write(f'  SpellMisc with icon: {len(spell_icon_map)}')
 
         # 4. 获取需要图标的节点
-        queryset = WowTalentNodeMetadata.objects.filter(icon='')
-        if version_key:
-            version = WowTalentVersion.objects.filter(key=version_key).first()
-            if not version:
-                self.stderr.write(self.style.ERROR(f'天赋版本不存在: {version_key}'))
-                return
-            queryset = queryset.filter(talent_version=version)
+        queryset = WowTalentNodeMetadata.objects.filter(icon='', talent_version=version)
         if limit:
             queryset = queryset[:limit]
         nodes = list(queryset)

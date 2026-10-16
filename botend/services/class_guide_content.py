@@ -174,72 +174,19 @@ def _reference_fallback_tooltip(ref, row=None):
     return '物品\n当前版本暂无可用的物品说明。\n物品 ID：{}'.format(identity)
 
 
-def _spell_snapshot_metadata(game_version, spell_ids):
-    """按当前权威分支和精确 Spell ID 批量读取站内当前技能快照。"""
-    spell_ids = {int(value) for value in spell_ids or () if value}
-    if not spell_ids:
-        return {}
-    from botend.services.wow_localization import current_reference_version
-    version = current_reference_version()
-    if not version:
-        return {}
-    from botend.models import WowSpellSnapshot
-    from botend.wow.spell_text import SpellTextResolver
-
-    branch_order = ['wowxptr', 'wowt'] if version.branch == 'ptr' else ['wow']
-
-    def branch_rank(branch):
-        try:
-            return len(branch_order) - branch_order.index(branch)
-        except ValueError:
-            return 0
-
-    def build_rank(build):
-        return tuple(int(value) for value in re.findall(r'\d+', str(build or '')))
-
-    rows = WowSpellSnapshot.objects.filter(spell_id__in=spell_ids)
-    candidates = {}
-    resolvers = {}
-    for row in rows:
-        identity = int(row.spell_id)
-        entry = candidates.setdefault(identity, {
-            'tooltip': '', 'tooltip_rank': None, 'icon': '', 'icon_rank': None,
-        })
-        resolver_key = (row.branch, row.locale, row.snapshot_build)
-        resolver = resolvers.get(resolver_key)
-        if resolver is None:
-            resolver = SpellTextResolver(
-                branch=row.branch,
-                locale=row.locale,
-                snapshot_build=row.snapshot_build,
-                dump_dir=version.source_dir or None,
-            )
-            resolvers[resolver_key] = resolver
-        body = _tooltip_text(
-            resolver.resolve(row.description, row.spell_id),
-            resolver.resolve(row.aura_description, row.spell_id),
-        )
-        body_rank = (
-            branch_rank(row.branch),
-            bool(re.search(r'[\u3400-\u9fff]', body)),
-            row.locale == 'zhCN',
-            bool(body),
-            build_rank(row.snapshot_build),
-        )
-        if entry['tooltip_rank'] is None or body_rank > entry['tooltip_rank']:
-            entry['tooltip'] = body
-            entry['tooltip_rank'] = body_rank
-        icon = str(row.icon or '').strip()
-        icon_rank = (
-            branch_rank(row.branch), bool(icon), row.locale == 'zhCN', build_rank(row.snapshot_build),
-        )
-        if entry['icon_rank'] is None or icon_rank > entry['icon_rank']:
-            entry['icon'] = icon
-            entry['icon_rank'] = icon_rank
-    return {
-        spell_id: {'tooltip': entry['tooltip'], 'icon': entry['icon']}
-        for spell_id, entry in candidates.items()
-    }
+def _spell_snapshot_metadata(game_version, spell_ids, *, class_name='', spec_name='', reader=None):
+    """攻略读取中央最终描述，不在页面解析原始模板。"""
+    from botend.services.wow_spell_display import SpellDisplayReader
+    branch = game_version if game_version in ('retail', 'ptr') else 'retail'
+    reader = reader or SpellDisplayReader(branch)
+    reader.preload(spell_ids)
+    result = {}
+    for sid in spell_ids:
+        row = reader.get(sid, class_name=class_name, spec_name=spec_name)
+        result[sid] = {'tooltip': _tooltip_text(row.get('description_zh') or row.get('description'),
+                                              row.get('aura_description_zh') or row.get('aura_description')),
+                       'icon': row.get('icon', '')}
+    return result
 
 
 def resolve_references(blocks, game_version, class_name='', spec_name='', source_refs=None):
@@ -254,6 +201,7 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
     # 显式引用由 (kind, ID) 唯一标识，不受攻略职业/专精上下文影响。
     records = names_for(game_version, reference_ids={kind: {r['id'] for r in refs.values() if r['kind'] == kind} for kind in ('spell', 'item', 'talent')})
     source_refs = source_refs or {}
+    from botend.services.wow_spell_display import node_spell_id
     selected_rows = {}
     spell_ids = set()
     item_ids = set()
@@ -299,18 +247,14 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
         elif ref['kind'] == 'item':
             item_ids.add(ref['id'])
         elif row:
-            # Talent references are keyed by TraitNodeEntry.ID, but raw DB2
-            # descriptions with placeholders interpolate values from the explicitly
-            # linked display spell. Load that spell only when projection needs it;
-            # plain native descriptions require no additional database lookup.
-            raw_description = getattr(row, 'description_zh', '') or getattr(row, 'description', '')
-            if '$' not in raw_description and _tooltip_text(raw_description):
-                continue
-            linked_spell_id = getattr(row, 'display_spell_id', None)
+            linked_spell_id = node_spell_id(row)
             if linked_spell_id:
                 spell_ids.add(linked_spell_id)
 
-    spell_metadata = _spell_snapshot_metadata(game_version, spell_ids)
+    from botend.services.wow_spell_display import SpellDisplayReader, plain_text
+    talent_reader = SpellDisplayReader(game_version if game_version in ('retail', 'ptr') else 'retail')
+    spell_metadata = _spell_snapshot_metadata(game_version, spell_ids, class_name=class_name,
+                                               spec_name=spec_name, reader=talent_reader)
     if item_ids:
         from botend.services.class_guide_codec import Reader
         from botend.services.wow_item_display import load_item_display_metadata, load_item_tooltip_metadata
@@ -335,48 +279,21 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             item_tooltips[token] = metadata
     else:
         item_tooltips = {}
-    talent_text_resolver = None
     for token, ref in refs.items():
         row = selected_rows[token]
         tooltip = ''
         source = ''
         fallback_icon = ''
         if ref['kind'] == 'talent' and row:
-            tooltip = _tooltip_text(getattr(row, 'description_zh', '') or getattr(row, 'description', ''))
-            source = 'talent_metadata' if tooltip else ''
-            linked_spell_id = getattr(row, 'display_spell_id', None)
-            linked_metadata = spell_metadata.get(linked_spell_id, {})
-            fallback_icon = linked_metadata.get('icon', '')
-            # Native talent rows deliberately retain Blizzard's raw description.
-            # Resolve placeholders in this read projection. Numeric placeholders
-            # may only use the explicitly linked display spell; embedded
-            # `$@spelldesc<ID>` relationships carry their own explicit spell ID.
-            # Do not overwrite the source fact or substitute a display spell's
-            # potentially different description.
-            if '$' in tooltip:
-                if talent_text_resolver is None:
-                    from botend.services.wow_localization import current_reference_version
-                    from botend.wow.spell_text import SpellTextResolver
-                    version = current_reference_version()
-                    if version:
-                        talent_text_resolver = SpellTextResolver(
-                            branch='wowxptr' if version.branch == 'ptr' else 'wow',
-                            locale='zhCN',
-                            snapshot_build=version.current_build,
-                            dump_dir=version.source_dir or None,
-                        )
-                if talent_text_resolver:
-                    rendered_tooltip = talent_text_resolver.resolve(tooltip, linked_spell_id)
-                    if '$' in rendered_tooltip and linked_metadata.get('tooltip'):
-                        rendered_tooltip = linked_metadata['tooltip']
-                        source = 'spell_snapshot'
-                    elif rendered_tooltip and '$' not in rendered_tooltip:
-                        source = 'talent_metadata_projection'
-                    if rendered_tooltip and '$' not in rendered_tooltip:
-                        tooltip = rendered_tooltip
-            if not tooltip:
-                tooltip = linked_metadata.get('tooltip', '')
-                source = 'spell_snapshot' if tooltip else ''
+            sid = node_spell_id(row)
+            metadata = talent_reader.get(sid, class_name=getattr(row, 'class_name', '') or class_name,
+                                         spec_name=getattr(row, 'spec_name', '') or spec_name,
+                                         node_id=getattr(row, 'node_id', None))
+            tooltip = _tooltip_text(metadata.get('description_zh') or metadata.get('description'))
+            if not metadata:
+                tooltip = plain_text(getattr(row, 'description_zh', '') or getattr(row, 'description', ''))
+            fallback_icon = metadata.get('icon', '')
+            source = 'central_spell_display' if metadata else 'talent_metadata'
         elif ref['kind'] == 'spell':
             metadata = spell_metadata.get(ref['id'], {})
             tooltip = metadata.get('tooltip', '')

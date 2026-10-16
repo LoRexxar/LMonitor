@@ -205,6 +205,26 @@ class WagoSkillDiffMonitor(BaseScan):
             model.objects.bulk_update(update_objs, update_fields, batch_size=batch_size)
 
     def scan(self, url):
+        result = self._scan_sources(url)
+        if result:
+            # 采集完成后统一合成；历史报告与原始效果表仍保留独立用途。
+            from botend.services.wow_spell_display import sync_spell_display
+            from botend.wow.branches import data_branch
+            branches = list(WowWagoMonitorState.objects.filter(locale=self.locale, is_active=True)
+                            .values_list('branch', flat=True))
+            if not branches:
+                branches = [(url or '').strip() or self.default_branch]
+            normalized = set()
+            for branch in branches:
+                try:
+                    normalized.add(data_branch(branch))
+                except ValueError:
+                    continue
+            for branch in sorted(normalized & {'retail', 'ptr'}):
+                sync_spell_display(branch=branch, apply=True)
+        return result
+
+    def _scan_sources(self, url):
         states = list(WowWagoMonitorState.objects.filter(locale=self.locale, is_active=True).order_by('branch', 'id'))
         if not states:
             return self._scan_legacy(url)

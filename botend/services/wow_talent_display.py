@@ -1,6 +1,7 @@
 """聚合文件按天赋 ID 补充当前分支文本，保留样本与使用率。"""
 from botend.models import WowTalentNodeMetadata
 from botend.wow.talents.versioning import TalentVersionResolver
+from botend.wow.talents.metadata import TalentMetadataProvider
 
 
 def refresh_aggregate_talents(payload, *, class_name='', spec_name='', branch='retail'):
@@ -28,13 +29,15 @@ def refresh_aggregate_talents(payload, *, class_name='', spec_name='', branch='r
         metadata = metadata.filter(class_name=class_name)
     if spec_name:
         metadata = metadata.filter(spec_name=spec_name)
-    lookup = {(str(row.node_id), row.tree_type): row for row in metadata}
+    provider = TalentMetadataProvider(talent_version=version)
+    lookup = {(str(row.node_id), row.tree_type): provider._as_dict(row)
+              for row in provider._prime_display(metadata)}
     for row in rows:
         current = lookup.get((str(row['node_id']), row.get('tree_type') or 'spec'))
         if current:
-            for field, value in (('name', current.name_zh or current.name), ('name_zh', current.name_zh),
-                                 ('description', current.description_zh or current.description),
-                                 ('description_zh', current.description_zh), ('icon', current.icon)):
+            for field, value in (('name', current['name_zh'] or current['name']), ('name_zh', current['name_zh']),
+                                 ('description', current['description_zh'] or current['description']),
+                                 ('description_zh', current['description_zh']), ('icon', current['icon'])):
                 if value:
                     row[field] = value
     return payload

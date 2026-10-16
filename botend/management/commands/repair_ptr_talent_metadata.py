@@ -143,7 +143,10 @@ def _validate_dump_contract(dump_dir, version_key):
     return manifest
 
 
-class Command(BaseCommand):
+from botend.management.central_talent_command import CentralTalentCommand
+
+
+class Command(CentralTalentCommand):
     help = 'Repair visible talent metadata fields from a tracked DB2 bundle.'
 
     def add_arguments(self, parser):

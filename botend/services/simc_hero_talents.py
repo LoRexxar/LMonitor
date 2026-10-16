@@ -47,7 +47,7 @@ def resolve_hero_talent_names(
     hero_name_resolver=None,
 ):
     """Resolve selected hero subtree names for one explicit build code."""
-    del use_ptr  # Simulator metadata version is selected by the authoritative usage resolver.
+    branch = 'ptr' if use_ptr else 'retail'
     talent_code = str(talent_code or '').strip()
     if not talent_code:
         raise HeroTalentAnalysisError('无法获取英雄天赋树：天赋字符串为空')
@@ -64,9 +64,10 @@ def resolve_hero_talent_names(
             class_name=class_name,
             spec_name=spec_name,
             usage='simulator',
+            version_key=branch,
         )
         trees = (payload.get('talent_render_model') or {}).get('trees') or []
-        resolver = hero_name_resolver or _hero_subtree_name_from_table
+        resolver = hero_name_resolver or (lambda sid: _hero_subtree_name_from_table(sid, branch=branch))
         names = []
         for tree in trees:
             if tree.get('tree_type') != 'hero':
