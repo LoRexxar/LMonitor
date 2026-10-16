@@ -721,8 +721,8 @@ def _equipment_catalog_variants(season, class_name, spec_name, slot, query=''):
     for variant in _catalog_queryset(season, (
         WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
         WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
-    ), query).select_related(None).prefetch_related('item'):
-        # Journal 专用变体在分支推断之前排除，避免 retail 手册行顶掉 PTR 独有目录。
+    ), query).exclude(metadata__has_key='difficulty_drop').select_related(None).prefetch_related('item'):
+        # 在 SQL 侧避免水合无关的大体积手册证据；Python 判据继续保守兜底。
         if _is_journal_display_variant(variant):
             continue
         if (not _source_track_is_valid(variant)
