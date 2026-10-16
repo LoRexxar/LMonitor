@@ -71,6 +71,55 @@ class EmbellishmentEligibilityTests(TestCase):
             candidate = self.params(self.ring, suffix)
             self.assertIsNone(EquipmentEligibility([candidate]).reason(candidate, 'warrior_fury'))
 
+    def test_materials_are_isolated_by_carrier_branch_and_conflicts_still_fail(self):
+        from copy import copy
+        ptr_carrier = copy(self.ring)
+        ptr_carrier.pk = None
+        ptr_carrier.variant_key = 'ptr-ring'
+        ptr_carrier.data_branch = 'ptr'
+        ptr_carrier.save()
+        ptr_material = copy(self.iris)
+        ptr_material.pk = None
+        ptr_material.variant_key = 'ptr-iris'
+        ptr_material.data_branch = 'ptr'
+        ptr_material.save()
+        for branch in (False, True):
+            candidate = self.params(self.ring)
+            candidate['gear_swap']['is_ptr'] = branch
+            self.assertIsNone(EquipmentEligibility([candidate]).reason(candidate, 'warrior_fury'))
+        candidate = self.params(self.ring)
+        self.assertIsNone(EquipmentEligibility([candidate]).reason(candidate, 'warrior_fury'))
+        candidate['gear_swap']['is_ptr'] = False
+        self.iris.delete()
+        self.assertEqual(EquipmentEligibility([candidate]).reason(candidate, 'warrior_fury')['code'],
+                         'embellishment_unknown')
+        self.iris = self.material(910003, 'iris-quality-one', 13453)
+        conflicting = self.material(910004, 'iris-quality-two', 13453)
+        conflicting.metadata = {'reagent_slot_ids': [999]}
+        conflicting.save()
+        self.assertEqual(EquipmentEligibility([candidate]).reason(candidate, 'warrior_fury')['reason'],
+                         '中央美化材料适用关系存在歧义')
+
+    def test_explicit_carrier_branch_is_not_selected_by_newer_other_branch_pk(self):
+        from copy import copy
+        ptr_carrier = copy(self.ring)
+        ptr_carrier.pk = None
+        ptr_carrier.variant_key = 'ptr-intrinsic-ring'
+        ptr_carrier.data_branch = 'ptr'
+        ptr_carrier.is_intrinsic_embellishment = True
+        ptr_carrier.save()
+        ptr_material = copy(self.iris)
+        ptr_material.pk = None
+        ptr_material.variant_key = 'ptr-iris'
+        ptr_material.data_branch = 'ptr'
+        ptr_material.save()
+        candidate = self.params(self.ring)
+        candidate['gear_swap']['is_ptr'] = False
+        self.assertIsNone(EquipmentEligibility([candidate]).reason(candidate, 'warrior_fury'))
+        candidate['gear_swap']['is_ptr'] = True
+        self.assertEqual(EquipmentEligibility([candidate]).reason(candidate, 'warrior_fury')['code'],
+                         'embellishment_incompatible')
+
     def test_unknown_effect_and_missing_current_material_fail_closed(self):
         candidate = self.params(self.ring, ',embellishment=unverified_effect')
         self.assertEqual(EquipmentEligibility([candidate]).reason(candidate, 'warrior_fury')['code'],

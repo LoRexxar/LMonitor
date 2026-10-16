@@ -5,6 +5,7 @@ import re
 from django.db.models import F
 from django.core.exceptions import ValidationError
 from botend.services.wow_item_identity import resolve_item_identity, project_item_identity
+from botend.services.wow_data_branch import variant_branch
 
 from botend.constants.wow import canonical_class_spec
 from botend.models import WowItemSnapshot, WowItemVariantSnapshot
@@ -56,7 +57,7 @@ class EquipmentEligibility:
                 # a shared marker, not eighteen separate embellishments.
                 bonuses = {int(value) for value in (row.bonus_ids or []) if str(value).isdigit()}
                 for bonus in bonuses.intersection(self.effect_bonuses):
-                    self.embellishments[(row.season_id, row.batch_key, row.game_build, bonus)].append(row)
+                    self.embellishments[(row.season_id, row.batch_key, row.game_build, variant_branch(row), bonus)].append(row)
 
     def _declared_embellishments(self, swap):
         bonuses = _identity(swap)[2].intersection(self.effect_bonuses)
@@ -78,7 +79,8 @@ class EquipmentEligibility:
         if variant is None:
             return embellishment_eligibility_reason(None, None, slot, class_name, spec_name)
         bonus = next(iter(bonuses))
-        materials = self.embellishments.get((variant.season_id, variant.batch_key, variant.game_build, bonus), [])
+        materials = self.embellishments.get(
+            (variant.season_id, variant.batch_key, variant.game_build, variant_branch(variant), bonus), [])
         if not materials:
             return embellishment_eligibility_reason(variant, None, slot, class_name, spec_name)
         reasons = [embellishment_eligibility_reason(variant, row, slot, class_name, spec_name)
@@ -118,6 +120,9 @@ class EquipmentEligibility:
             variants = self.variants[item_id]
             if ref:
                 variants = [row for row in variants if row.game_build == ref['game_build']]
+            if ref or 'is_ptr' in swap:
+                branch = 'ptr' if (ref or swap).get('is_ptr', False) else 'retail'
+                variants = [row for row in variants if variant_branch(row) == branch]
             # 不混用不同目录批次；主属性身份允许在同批次其他装等的变体中补齐。
             if variants:
                 latest = variants[0]
