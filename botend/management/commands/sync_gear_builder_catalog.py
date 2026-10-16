@@ -310,9 +310,14 @@ class Command(BaseCommand):
             return WowItemVariantSnapshot.objects.create(season=season, batch_key=batch_key,
                 item=item, variant_key=stored_key, **defaults)
         defaults = dict(defaults)
-        for field in ('stats_json', 'effects_json', 'source_json', 'crafting_options', 'compatible_slots'):
+        for field in ('stats_json', 'source_json', 'crafting_options', 'compatible_slots'):
             if field in defaults and not defaults[field]:
                 defaults[field] = getattr(row, field)
+        # 官方中文/模板结构化特效不能被导入资料的 tooltip 单键文本覆盖。
+        from botend.services.gear_builder_catalog_source import merge_effects
+        defaults['effects_json'] = merge_effects(row.effects_json, defaults.get('effects_json'),
+            same_coordinates=(row.item_level == defaults.get('item_level', row.item_level)
+                              and sorted(row.bonus_ids or []) == sorted(defaults.get('bonus_ids', row.bonus_ids) or [])))
         defaults['metadata'] = {**(row.metadata or {}), **defaults.get('metadata', {})}
         changed = [field for field, value in defaults.items() if getattr(row, field) != value]
         if changed:

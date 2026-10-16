@@ -147,12 +147,15 @@ def _spell_translation(row, definition):
 
 
 def resolve_effects(item, variant=None, *, branch='retail', raw_effects=None,
-                    allow_reference=False, known_empty=False, document=None):
+                    allow_reference=False, known_empty=False, document=None, item_id=None):
     """语言完整度与数值完整度独立；不同分支及不同机制不能互相补值。"""
     document = document if document is not None else getattr(item, 'effects', {})
     definitions = ((document or {}).get('branches', {}).get(branch, {}).get('definitions', {})
                    if isinstance(document, dict) and document.get('schema') == SCHEMA else {})
-    raw = list(raw_effects if raw_effects is not None else getattr(variant, 'effects_json', []) or [])
+    if raw_effects is None and variant is not None:
+        from botend.services.journal_effect_supplement import supplemental_effects
+        raw_effects = supplemental_effects(variant)
+    raw = list(raw_effects or [])
     if known_empty and not raw:
         return [], 'none'
     result = []
@@ -190,6 +193,9 @@ def resolve_effects(item, variant=None, *, branch='retail', raw_effects=None,
             row['description_zh'] = next(iter(translations))
         result.append(row)
     if result:
+        # 线上补充模板也走中央读取，保留当前数值和分支，不回写采集原文。
+        from botend.services.item_effect_localization import localize_item_effects
+        result = localize_item_effects(item_id or getattr(item, 'item_id', None), result, branch=branch)
         status = 'localized' if all(_is_chinese(_display_text(row)) for row in result) else 'untranslated'
         return result, status
     if not allow_reference:

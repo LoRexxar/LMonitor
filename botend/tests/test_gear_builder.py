@@ -327,6 +327,30 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         }).json()
         self.assertNotIn(10001, [row['item_id'] for row in wrong_class_mask['items']])
 
+    def test_catalog_does_not_hydrate_journal_evidence(self):
+        from django.db.models.signals import post_init
+        journal = WowItemVariantSnapshot.objects.create(
+            item=self.helm, season=self.season, batch_key='test-batch',
+            variant_key='journal-hydration-regression',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=690, compatible_slots=['head'],
+            stats_json={'strength': 700},
+            metadata={'difficulty_drop': None, 'evidence': 'captured-payload'},
+        )
+        loaded = []
+        def observe(sender, instance, **kwargs):
+            loaded.append(instance.pk)
+        post_init.connect(observe, sender=WowItemVariantSnapshot, weak=False)
+        try:
+            rows = catalog_snapshot_items(
+                class_name='Warrior', spec_name='Fury', slot='head', season=self.season,
+            )
+        finally:
+            post_init.disconnect(observe, sender=WowItemVariantSnapshot)
+        self.assertNotIn(journal.pk, loaded)
+        helm = next(row for row in rows if row['item_id'] == self.helm.item_id)
+        self.assertEqual({v['id'] for v in helm['variants']}, {self.hero.pk, self.myth.pk})
+
     def test_catalog_excludes_journal_difficulty_display_variants(self):
         """手册专用难度变体只服务掉落展示，不能成为配装目录装备。"""
         journal_variant = WowItemVariantSnapshot.objects.create(

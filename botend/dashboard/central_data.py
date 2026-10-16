@@ -1,5 +1,6 @@
 """中央装备与天赋资料的后台只读聚合查询，不生成第二份资料。"""
 import re
+from urllib.parse import urlsplit
 from django.core.paginator import Paginator
 from django.db.models import BigIntegerField, Case, CharField, Count, Exists, F, IntegerField, Max, Min, OuterRef, Q, Value, When
 from django.db.models.fields.json import KeyTextTransform
@@ -11,7 +12,8 @@ from botend.constants.wow import CLASS_CN, CLASS_SPEC_MAP, SPEC_CN, QUALITY_CN
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot, WowSpellSnapshot, WowTalentNodeMetadata
 from botend.services.gear_builder import SLOT_LABELS
-from botend.services.wow_data_branch import branch_item
+from botend.services.wow_data_branch import branch_item, item_cdn_icon
+from botend.templatetags.wow_tags import wow_icon_oss_url
 from botend.services.wow_item_effects import resolve_effects
 from botend.services.wow_item_display import _native_journal_variant
 from botend.services.wow_spell_display import SpellDisplayReader, node_spell_id
@@ -180,10 +182,13 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
 
     @staticmethod
     def item_summary(item):
+        icon_name = item_cdn_icon(item)
+        icon_url = wow_icon_oss_url(icon_name, 'large') if icon_name else ''
         return {'id': item.item_id, 'name': item.name_zh or item.name or f'物品 {item.item_id}',
                 'name_zh': item.name_zh, 'name_en': item.name, 'slot': SLOTS.get(item.slot_key, item.slot_key),
                 'quality': QUALITY_CN.get(item.quality, '未知'), 'translated': bool(re.search(CJK, item.name_zh)),
-                **icon_payload(item.icon)}
+                'icon': item.icon, 'icon_url': icon_url,
+                'icon_source': f'统一图标服务：{urlsplit(icon_url).netloc}' if icon_url else '尚无已解析的图标地址'}
 
     def talents(self, params, branch, identity):
         try:

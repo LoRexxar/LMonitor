@@ -461,7 +461,7 @@ def item_display_metadata(
         has_identity_store, resolve_display_identity, variant_identity, project_item_identity,
     )
     identity = frozen_identity or getattr(snapshot, '_resolved_identity', None)
-    from botend.services.wow_data_branch import branch_item, variant_branch
+    from botend.services.wow_data_branch import branch_item, item_cdn_icon, variant_branch
     central_snapshot = snapshot
     effect_branch = data_branch or (variant_branch(variant) if variant is not None else 'ptr' if is_ptr else 'retail')
     if snapshot and variant is not None and not identity:
@@ -487,7 +487,9 @@ def item_display_metadata(
     if variant is not None:
         item_level = _positive_int(item_level) or _positive_int(variant.item_level)
         stats = variant.stats_json if stats is None else stats
-        effects = variant.effects_json if effects is None else effects
+        if effects is None:
+            from botend.services.journal_effect_supplement import supplemental_effects
+            effects = supplemental_effects(variant)
         sources = variant.source_json if sources is None else sources
     name = (snapshot.name if snapshot else "") or ""
     name_zh = (snapshot.name_zh if snapshot else "") or ""
@@ -500,6 +502,7 @@ def item_display_metadata(
         description_zh = str(raw_descriptions.get('description_zh') or '')
     has_chinese_description = bool(description_zh.strip())
     icon = (snapshot.icon if snapshot else "") or ""
+    icon_name = item_cdn_icon(snapshot)
     normalized_stats = _normalize_stats(stats)
     variant_metadata = (
         variant.metadata if variant is not None and isinstance(variant.metadata, dict) else {}
@@ -507,7 +510,7 @@ def item_display_metadata(
     native_journal = _native_journal_variant(variant)
     from botend.services.wow_item_effects import resolve_effects
     shared_effects, effects_status = resolve_effects(
-        central_snapshot, variant, branch=effect_branch, raw_effects=effects,
+        central_snapshot, variant, branch=effect_branch, raw_effects=effects, item_id=normalized_id,
         known_empty=native_journal and not variant.effects_json,
         allow_reference=not frozen_identity and variant is None and (
             not strict_difficulty or data_branch in ('retail', 'ptr', 'beta')),
@@ -626,7 +629,7 @@ def item_display_metadata(
             expects_effect and not normalized_effects
         ),
         "icon": icon,
-        "icon_url": wow_icon_oss_url(icon, icon_size) if icon else "",
+        "icon_url": wow_icon_oss_url(icon_name, icon_size) if icon_name else "",
         "quality": (snapshot.quality if snapshot else 0) or 0,
         "catalog_type": (snapshot.catalog_type if snapshot else "") or "",
         "inventory_type": (snapshot.inventory_type if snapshot else 0) or 0,

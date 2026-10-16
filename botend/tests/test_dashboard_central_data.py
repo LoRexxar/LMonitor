@@ -93,7 +93,7 @@ class CentralDataTests(TestCase):
         result = self.query(id=990001, branch='ptr')
         self.assertEqual(result['record']['name'], '测试长剑')
         self.assertEqual(result['entries'][0]['stats'], {'strength': 130})
-        self.assertIn('Wowhead', result['record']['icon_source'])
+        self.assertIn('统一图标服务', result['record']['icon_source'])
         self.assertEqual(result['pagination']['total'], 1)
         self.assertEqual(self.client.get('/api/dashboard/central-data/', {'id': 990099}).status_code, 404)
 
@@ -111,6 +111,31 @@ class CentralDataTests(TestCase):
         with patch('botend.dashboard.central_data._native_journal_variant', return_value=True):
             result = self.query(id=990001)
         self.assertTrue(all(entry['effects_status'] == 'none' for entry in result['entries']))
+
+    def test_online_icon_provenance_fixes_reach_aggregated_page(self):
+        self.item.metadata['branch_display']['ptr']['icon'] = '8268560'
+        self.item.save()
+        row = self.query(branch='ptr')['records'][0]
+        self.assertIn('/large/inv_sword_01.jpg', row['icon_url'])
+        self.item.icon = '8268560'
+        self.item.source = 'wago'
+        self.item.save()
+        self.assertEqual(self.query(branch='ptr')['records'][0]['icon_url'], '')
+        self.item.source = 'wowhead_live_tooltip'
+        self.item.save()
+        self.assertIn('/large/8268560.jpg', self.query(branch='ptr')['records'][0]['icon_url'])
+
+    def test_online_chinese_effect_templates_reach_aggregated_page(self):
+        self.item.item_id = 281029
+        self.item.save()
+        raw = [{'description': "Equip: Your attacks have a chance to amplify the band's whispers, calling forth an Acidbrood Scourge. The scourge flies into your target and detonates, causing (1 * 3748) Nature damage to all nearby enemies."}]
+        WowItemVariantSnapshot.objects.filter(item=self.item, data_branch='ptr').update(effects_json=raw)
+        result = self.query(id=281029, branch='ptr')
+        effect = result['entries'][0]['effects'][0]
+        self.assertIn('酸巢灾虫', effect['description_zh'])
+        self.assertIn('(1 * 3748)', effect['description_zh'])
+        self.assertEqual(result['entries'][0]['effects_status'], 'localized')
+        self.assertEqual(WowItemVariantSnapshot.objects.get(item=self.item, data_branch='ptr').effects_json, raw)
 
     def test_talents_group_spells_and_use_final_chinese(self):
         result = self.query(resource='talents', q='中央斩击')
