@@ -3,6 +3,7 @@ from collections import defaultdict
 from copy import copy
 from datetime import timedelta
 from botend.services.talent_source_retention import protect_sources
+import csv
 import re
 
 from django.db import transaction
@@ -82,6 +83,27 @@ class SpellDisplayReader:
 
 class CentralTextResolver(SpellTextResolver):
     """历史分支别名只在后台归并，缺失引用仍不得跨正式服和测试服。"""
+    def _node_override(self, entry_id):
+        """绑定原源的 Entry → Definition override；不把旧渲染正文当 override。"""
+        if not self.dump_dir:
+            return ''
+        if not hasattr(self, '_node_override_cache'):
+            overrides = {}
+            try:
+                with self._dump_file('TraitNodeEntry.csv').open(encoding='utf-8-sig', newline='') as handle:
+                    entries = {int(row['ID']): int(row.get('TraitDefinitionID') or 0)
+                               for row in csv.DictReader(handle)}
+                with self._dump_file(f'TraitDefinition_{self.locale}.csv').open(
+                        encoding='utf-8-sig', newline='') as handle:
+                    definitions = {int(row['ID']): row.get('OverrideDescription_lang') or ''
+                                   for row in csv.DictReader(handle)}
+                overrides = {entry: definitions.get(definition, '') for entry, definition in entries.items()}
+            except OSError:
+                # 历史绑定目录可缺可选表；内存不足等执行失败不能伪装成无原源。
+                pass
+            self._node_override_cache = overrides
+        return self._node_override_cache.get(entry_id, '')
+
     def _spell_snapshot(self, spell_id):
         result = super()._spell_snapshot(spell_id)
         checked = self.__dict__.setdefault('_alias_spell_checked', set())
@@ -122,7 +144,7 @@ def _unique_projection(projections):
 @transaction.atomic
 def sync_spell_display(*, branch='retail', apply=False, batch_size=200, spell_ids=None):
     """合并当前分支资料；预览不写库，相同结果不更新，重复运行不增加副本。"""
-    from botend.wow.talents.metadata import TalentMetadataProvider
+    from botend.wow.talents.metadata import AUTHORITATIVE_TALENT_SOURCES, TalentMetadataProvider
 
     if batch_size < 1:
         raise ValueError('批次大小必须大于零')
@@ -175,15 +197,25 @@ def sync_spell_display(*, branch='retail', apply=False, batch_size=200, spell_id
             source = sources[sid]
             default = dict.fromkeys(('name', 'name_en', 'name_zh', 'description', 'description_zh',
                                      'aura_description', 'aura_description_zh', 'icon'), '')
+            templates = {}
             for locale, suffix in (('zhCN', '_zh'), ('enUS', '')):
                 raw = source.get(locale)
+                resolver = resolvers[locale]
+                # Bound DB2 is raw source; an empty central row is only a projection target.
+                templates[locale] = resolver._csv_spell_desc(sid) if resolver.dump_dir else ''
+                default['description' + suffix] = resolver.resolve(
+                    templates[locale] or (raw.description if raw else ''), sid)
                 if raw:
                     default['name' + suffix] = raw.name_zh or raw.name if suffix else raw.name
-                    default['description' + suffix] = resolvers[locale].resolve(raw.description, sid)
-                    default['aura_description' + suffix] = resolvers[locale].resolve(raw.aura_description, sid)
+                    default['aura_description' + suffix] = resolver.resolve(raw.aura_description, sid)
                     default['icon'] = default.get('icon') or raw.icon
                     if raw.name and not re.search(r'[\u3400-\u9fff]', raw.name):
                         default['name_en'] = raw.name
+                bound_name = resolver._csv_spell_name(sid) if resolver.dump_dir else ''
+                if bound_name:
+                    default['name' + suffix] = bound_name
+                    if locale == 'enUS':
+                        default['name_en'] = bound_name
             names = supplements[sid]
             current_names = [row for row in names if version and row.talent_version_id == version.pk]
             names = current_names or names
@@ -197,7 +229,12 @@ def sync_spell_display(*, branch='retail', apply=False, batch_size=200, spell_id
                 candidate = copy(node)
                 for field, locale in (('description_zh', 'zhCN'), ('description', 'enUS')):
                     raw = source.get(locale)
-                    if raw and raw.description and not getattr(candidate, field):
+                    template = resolvers[locale]._node_override(node.node_id) or templates[locale]
+                    # Only generated DB2 rows are superseded by bound source. Preserve
+                    # explicit/manual prose; compile templates with the node's spec/aura context.
+                    if template and (node.source in AUTHORITATIVE_TALENT_SOURCES or not getattr(candidate, field)):
+                        setattr(candidate, field, template)
+                    elif raw and raw.description and not getattr(candidate, field):
                         setattr(candidate, field, raw.description)
                 projected = provider._as_dict(candidate)
                 final = {key: projected.get(key, '') for key in
