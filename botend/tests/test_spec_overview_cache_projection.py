@@ -7,14 +7,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.cache import cache
-from django.test import SimpleTestCase, override_settings
+from django.test import TestCase, override_settings
 
 from botend.services.spec_overview_service import SpecOverviewService as Service
 
 
 @override_settings(CACHES={'default': {'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
                                      'LOCATION': 'overview-projection-tests'}})
-class OverviewProjectionCacheTests(SimpleTestCase):
+class OverviewProjectionCacheTests(TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

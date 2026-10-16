@@ -163,7 +163,7 @@
       const zoneBosses = asArray(zone?.bosses);
       if (!zoneBosses.length) return;
       const group = node("section", "spec-module-zone");
-      const zoneName = value(zone, ["zone_cn", "zone_name", "name"], "首领数据");
+      const zoneName = value(zone, ["instance_name", "zone_cn", "zone_name", "name"], "首领数据");
       group.append(node("h3", "spec-module-zone-title", zoneName));
       group.append(rankingList(zoneBosses, (boss) => ({
         title: value(boss, ["boss_name", "name"]),
