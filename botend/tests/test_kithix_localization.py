@@ -16,7 +16,7 @@ from botend.services.ptr_journal_gear_overlay import import_ptr_journal_gear_ove
 from botend.services.spec_stats_service import _compute_gear_popularity, _normalize_gear_items
 from botend.services.wow_item_display import load_item_tooltip_metadata, refresh_aggregate_equipment
 from botend.tests import test_ptr_journal_gear_overlay as overlay_tests
-from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots, warm_journal
+from botend.tests.journal_snapshot_fixtures import isolate_journal_snapshots, seed_snapshot_difficulty_facts, warm_journal
 
 
 class KithixLocalizationTests(TestCase):
@@ -62,6 +62,8 @@ class KithixLocalizationTests(TestCase):
         release = JournalState.objects.get().active_release
         self.assertEqual(instance_source(release, 1324)['key'], 'current')
         request = RequestFactory().get('/portal/adventure-journal/')
+        # 明确单测难度事实，不再让普通 overlay 最低装等冒充手册预览。
+        seed_snapshot_difficulty_facts(release)
         warm_journal(1324)
         self.assertIn(1324, {row['id'] for row in catalog_data(request)['instances']})
         detail = detail_data(RequestFactory().get('/', {'difficulty': 14}), 1324)
@@ -71,8 +73,12 @@ class KithixLocalizationTests(TestCase):
         self.assertEqual(detail['loot'][0]['name'], '虚空编织者护腿')
         self.assertEqual(detail['source']['key'], 'current')
         self.assertEqual(detail['loot'][0]['details']['source'], 'LMonitor 装备目录')
-        # 赛季徽标不能冒充 PTR；历史数值来源必须继续明确保留。
-        self.assertIn('PTR 12.1.5.69594', detail['loot'][0]['details']['note'])
+        self.assertTrue(detail['loot'][0]['details']['complete'])
+        self.assertEqual(detail['loot'][0]['details']['item_level'], 340)
+        self.assertIn('合成测试效果', str(detail['loot'][0]['details']['effects']))
+        # 赛季徽标不是分支；规则构建也不得冒充未记录的属性构建。
+        self.assertIn('Wago 12.1.5.69594', detail['loot'][0]['details']['note'])
+        self.assertIn('Wowhead PTR 未记录客户端构建', detail['loot'][0]['details']['note'])
         response = self.client.get('/portal/adventure-journal/1324/')
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'journal-source-badge--current')
@@ -81,7 +87,8 @@ class KithixLocalizationTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('虫群召唤者指环', response.json()['name'])
         self.assertEqual(response.json()['source'], 'LMonitor 装备目录')
-        self.assertIn('PTR 12.1.5.69594', response.json()['note'])
+        self.assertIn('Wago 12.1.5.69594', response.json()['note'])
+        self.assertIn('Wowhead PTR 未记录客户端构建', response.json()['note'])
         with patch('botend.services.journal_tooltip.requests.Session', side_effect=AssertionError('不应联网')):
             warm_journal(1324)
             response = self.client.get('/portal/api/adventure-journal/1324/tooltip/item/281615/', {'difficulty': 14})
@@ -124,11 +131,13 @@ class KithixLocalizationTests(TestCase):
         popularity = _compute_gear_popularity([{'gear_json': [{'id': 281029, 'itemLevel': 292, 'slot': 'finger1'}]}])
         self.assertIn('酸巢灾虫', next(iter(popularity.values()))[0]['display_description'])
 
-    def test_current_handbook_follows_catalog_refresh_in_page_and_details(self):
+    def test_current_handbook_keeps_difficulty_facts_during_ordinary_catalog_refresh(self):
         self.apply()
+        release = JournalState.objects.get().active_release
+        seed_snapshot_difficulty_facts(release)
         item_ids = [281056, 281215, 280617, 280799, 280835]
         # 模拟中央目录更新构建和来源后，手册发布仍保留旧的掉落关系构建。
-        for variant in WowItemVariantSnapshot.objects.filter(item__item_id__in=item_ids):
+        for variant in WowItemVariantSnapshot.objects.filter(item__item_id__in=item_ids, variant_key__startswith='ptr-kithix-'):
             variant.game_build = '12.1.5.70077'
             variant.metadata = {'ptr_preview': True, 'tooltip_source': {'provider': 'wowhead'}}
             for effect in variant.effects_json:
@@ -141,9 +150,13 @@ class KithixLocalizationTests(TestCase):
             rows = {row['item_id']: row['details'] for row in page.context['loot']}
             for item_id in item_ids:
                 expected = load_item_tooltip_metadata([{
-                    'item_id': item_id, 'allow_default_variant': True, 'default_variant_order': 'lowest',
+                    'item_id': item_id, 'data_branch': 'ptr', 'difficulty_id': 14,
+                    'item_context': 3, 'instance_id': 1324, 'difficulty_rule_build': '12.1.5.69594',
+                    'require_difficulty_match': True,
                 }])[0]
                 self.assertTrue(rows[item_id]['complete'])
+                self.assertEqual(rows[item_id]['item_level'], 340)
+                self.assertIn('合成测试效果', str(rows[item_id]['effects']))
                 self.assertEqual(rows[item_id]['stats'], expected['stat_lines'])
                 self.assertEqual(rows[item_id]['effects'], expected['effects'])
                 response = self.client.get(

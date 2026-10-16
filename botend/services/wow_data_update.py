@@ -183,7 +183,11 @@ class UpdateSource:
                 continue
             extra = supplemental.setdefault(row.item.item_id, item_payload(row.item))
             value = variant_payload(row)
-            value.update(key=key, stats={}, effects=[])
+            # Tooltip 文本只刷新普通特效；结构化中文/模板事实不能被单键文本覆盖。
+            from botend.services.gear_builder_catalog_source import has_structured_effects
+            value.update(key=key, stats={})
+            if not any(has_structured_effects([effect]) for effect in value['effects']):
+                value['effects'] = []
             value['metadata'] = {k: v for k, v in value['metadata'].items()
                                  if k not in ('primary_stat_values', 'primary_stat_amount', 'stats_status',
                                               'effects_status', 'simc_revision', 'game_build')}
@@ -483,9 +487,13 @@ def publish(bundle, version, state, run, task):
             defaults['data_branch'] = run.branch
             row = previous_by_key.get((item.pk, variant['key'].removeprefix(f'{run.branch}:')))
             if row:
-                for field in ('stats_json', 'effects_json', 'source_json', 'crafting_options', 'compatible_slots'):
+                from botend.services.gear_builder_catalog_source import merge_effects
+                for field in ('stats_json', 'source_json', 'crafting_options', 'compatible_slots'):
                     if not defaults.get(field):
                         defaults[field] = deepcopy(getattr(row, field))
+                defaults['effects_json'] = merge_effects(row.effects_json, defaults.get('effects_json'),
+                    same_coordinates=(row.item_level == defaults['item_level']
+                                      and sorted(row.bonus_ids or []) == sorted(defaults['bonus_ids'] or [])))
                 defaults['metadata'] = {**(row.metadata or {}), **defaults['metadata']}
                 fields = [field for field, value in defaults.items() if getattr(row, field) != value]
                 if fields:

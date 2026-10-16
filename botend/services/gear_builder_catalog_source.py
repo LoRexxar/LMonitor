@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import html
 import json
+from copy import deepcopy
 import re
 import time
 from collections import defaultdict
@@ -160,6 +161,24 @@ def _plain_text(value):
     value = re.sub(r'<[^>]+>', '', value)
     value = html.unescape(value)
     return '\n'.join(line.strip() for line in value.splitlines() if line.strip())
+
+
+def has_structured_effects(effects):
+    """模板、技能身份和已解析值齐全；中文或 localization 标记本身不是。"""
+    return bool(effects) and all(
+        isinstance(effect, dict) and type(effect.get('spell_id')) is int and effect['spell_id'] > 0
+        and effect.get('template') and effect.get('description')
+        and not effect.get('unresolved_tokens') for effect in effects)
+
+
+def merge_effects(current, incoming, *, same_coordinates=True):
+    """无身份 tooltip 不降级结构化事实；新完整事实（含新构建）仍可替换。"""
+    if (any(has_structured_effects([effect]) for effect in (current or []))
+            and not has_structured_effects(incoming)):
+        if not same_coordinates:
+            raise ValueError('不能把旧装等/bonus 的结构化特效复制到新变体坐标')
+        return deepcopy(current)
+    return deepcopy(incoming or current or [])
 
 
 def _tooltip_details(payload):
@@ -847,7 +866,7 @@ class CurrentGearCatalogSource:
                 if details.get('stats'):
                     variant['stats'] = details['stats']
                 if details.get('effects'):
-                    variant['effects'] = details['effects']
+                    variant['effects'] = merge_effects(variant.get('effects'), details['effects'])
                 if details.get('primary_options'):
                     variant.setdefault('metadata', {})['primary_stat_values'] = details['primary_options']
                 if details.get('secondary_total') and variant.get('type') == 'crafted_equipment':

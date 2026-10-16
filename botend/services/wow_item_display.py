@@ -461,7 +461,7 @@ def item_display_metadata(
         has_identity_store, resolve_display_identity, variant_identity, project_item_identity,
     )
     identity = frozen_identity or getattr(snapshot, '_resolved_identity', None)
-    from botend.services.wow_data_branch import branch_item, variant_branch
+    from botend.services.wow_data_branch import branch_item, named_item_icon, variant_branch
     if snapshot and variant is not None and not identity:
         projected = branch_item(snapshot, variant_branch(variant))
         if projected is not snapshot:
@@ -498,6 +498,7 @@ def item_display_metadata(
         description_zh = str(raw_descriptions.get('description_zh') or '')
     has_chinese_description = bool(description_zh.strip())
     icon = (snapshot.icon if snapshot else "") or ""
+    icon_name = named_item_icon(icon)
     normalized_stats = _normalize_stats(stats)
     variant_metadata = (
         variant.metadata if variant is not None and isinstance(variant.metadata, dict) else {}
@@ -540,8 +541,13 @@ def item_display_metadata(
         description_zh.strip() or description.strip(),
         (name, name_zh),
     )
+    from botend.services.item_effect_localization import localize_item_effects
+    display_effects = localize_item_effects(
+        normalized_id, _rows(effects),
+        branch=variant_branch(variant) if variant is not None else ('ptr' if is_ptr is True else 'retail'),
+    )
     separated = separate_item_text(
-        description=description, description_zh=description_zh, effects=_rows(effects),
+        description=description, description_zh=description_zh, effects=display_effects,
         stats=normalized_stats, metadata=variant_metadata, names=(name, name_zh),
         enhancement=bool(snapshot and snapshot.catalog_type in ENHANCEMENTS),
         recover_description_effects=(
@@ -615,7 +621,7 @@ def item_display_metadata(
             expects_effect and not normalized_effects
         ),
         "icon": icon,
-        "icon_url": wow_icon_oss_url(icon, icon_size) if icon else "",
+        "icon_url": wow_icon_oss_url(icon_name, icon_size) if icon_name else "",
         "quality": (snapshot.quality if snapshot else 0) or 0,
         "catalog_type": (snapshot.catalog_type if snapshot else "") or "",
         "inventory_type": (snapshot.inventory_type if snapshot else 0) or 0,

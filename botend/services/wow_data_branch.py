@@ -1,6 +1,18 @@
 """装备按来源分支共享当前数据；构建号仅作来源记录。"""
 from copy import copy
 from copy import deepcopy
+import re
+
+from botend.templatetags.wow_tags import _normalize_icon_name
+
+
+def named_item_icon(value):
+    """Return a CDN basename, not a DB2 FileDataID or placeholder."""
+    name = _normalize_icon_name(value)
+    if (not re.fullmatch(r'[a-zA-Z0-9_-]+', name) or name.isdigit()
+            or name.casefold() == 'inv_misc_questionmark'):
+        return ''
+    return name
 
 
 def current_fact_store(entries):
@@ -28,5 +40,9 @@ def branch_item(item, branch):
     result = copy(item)
     allowed = {field.name for field in item._meta.concrete_fields} - {'id', 'item_id', 'metadata', 'updated_at'}
     for key in allowed & payload.keys():
+        # A branch's raw FDID is not a replacement for a resolved icon name.
+        # Keep the source payload intact for Journal's authorized /art path.
+        if key == 'icon' and not named_item_icon(payload[key]) and named_item_icon(item.icon):
+            continue
         setattr(result, key, payload[key])
     return result
