@@ -11,6 +11,7 @@ WoW 天赋元数据提供层
 
 from __future__ import annotations
 
+from botend.services.talent_source_retention import protect_sources
 import csv
 import os
 from dataclasses import dataclass, field
@@ -143,6 +144,7 @@ class TalentMetadataProvider:
             return 'missing'
         return getattr(version, 'key', None) or getattr(version, 'id', None) or 'missing'
 
+    @protect_sources
     def _choice_entry_order(self):
         """Return `{TraitNodeEntryID: _Index}` from the selected DB2 snapshot."""
         version = self.resolved_version
@@ -452,6 +454,7 @@ class TalentMetadataProvider:
         return [dict(n) for n in nodes]
 
     @staticmethod
+    @protect_sources
     def _augment_decoder_nodes_from_dump(nodes, dump_dir):
         """Restore exact-build TraitNodes which have no renderable metadata."""
         result = [dict(node) for node in (nodes or [])]

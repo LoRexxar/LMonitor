@@ -1,4 +1,5 @@
 """Synchronize per-spec default talent Entry IDs from an exact-build DB2 dump."""
+from botend.services.talent_source_retention import protect_sources
 import csv
 from pathlib import Path
 
@@ -20,6 +21,7 @@ class Command(BaseCommand):
         parser.add_argument('--dump-dir', required=True)
         parser.add_argument('--apply', action='store_true')
 
+    @protect_sources
     def handle(self, *args, **options):
         build = options['build'].strip()
         version = WowTalentVersion.objects.get(key=options['version_key'])
@@ -28,7 +30,9 @@ class Command(BaseCommand):
         dump_dir = Path(options['dump_dir'])
         # A dump under a different build directory must not be silently applied.
         if dump_dir.name not in (build, 'current'):
-            raise CommandError('DB2 目录末级必须与 --build 完全一致')
+            from botend.services.talent_source_retention import managed_source_matches
+            if not managed_source_matches(dump_dir, version.branch, build):
+                raise CommandError('DB2 目录须匹配 --build，或具有同分支同构建的受管来源清单')
         tables = {}
         for name in DB2_GRANT_TABLES:
             path = dump_dir / (name + '.csv')

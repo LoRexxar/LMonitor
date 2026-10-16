@@ -6,6 +6,7 @@ missing, and never raise from template rendering paths.
 """
 from __future__ import annotations
 
+from botend.services.talent_source_retention import protect_sources
 import ast
 import csv
 import operator
@@ -189,6 +190,7 @@ class SpellTextResolver:
             from botend.wow.branches import spell_branch
             self.branch = spell_branch(self.branch)
 
+    @protect_sources
     def resolve(
         self,
         text: str | None,
@@ -482,6 +484,7 @@ class SpellTextResolver:
             text = text[:marker] + replacement + text[end:]
         return text
 
+    @protect_sources
     def resolve_mechanic(
         self,
         text: str | None,

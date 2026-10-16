@@ -2,6 +2,7 @@
 from collections import defaultdict
 from copy import copy
 from datetime import timedelta
+from botend.services.talent_source_retention import protect_sources
 import re
 
 from django.db import transaction
@@ -117,6 +118,7 @@ def _unique_projection(projections):
             if (values := {row.get(key, '') for row in projections if row.get(key, '')})}
 
 
+@protect_sources
 @transaction.atomic
 def sync_spell_display(*, branch='retail', apply=False, batch_size=200, spell_ids=None):
     """合并当前分支资料；预览不写库，相同结果不更新，重复运行不增加副本。"""

@@ -179,6 +179,29 @@ class IncrementalUpdateTests(TestCase):
         self.source.prepare.assert_not_called()
         self.assertEqual(WowDataUpdateRun.objects.count(), 1)
 
+    def test_successful_publish_remembers_previous_source_without_losing_it_on_retry(self):
+        self.talent.source_dir = '.cache/原来源'
+        self.talent.save(update_fields=['source_dir'])
+        self.run_update()
+        state = WowDataUpdateState.objects.get(branch='retail')
+        self.assertEqual(state.report['talent_sources'], {
+            'current': '.cache/test', 'previous': '.cache/原来源'})
+        self.source.discover.return_value = {'build': NEW, 'data_schema': '补采'}
+        self.run_update()
+        state.refresh_from_db()
+        self.assertEqual(state.report['talent_sources']['previous'], '.cache/原来源')
+
+    def test_failed_publish_never_replaces_previous_source_history(self):
+        self.run_update()
+        state = WowDataUpdateState.objects.get(branch='retail')
+        before = state.report['talent_sources']
+        self.source.discover.return_value = '12.1.0.99999'
+        with patch.object(WowTalentVersion, 'save', side_effect=ValueError('发布中断')):
+            with self.assertRaisesMessage(ValueError, '发布中断'):
+                self.run_update()
+        state.refresh_from_db()
+        self.assertEqual(state.report['talent_sources'], before)
+
     def test_incomplete_update_retains_all_current_data_and_retries(self):
         self.source.prepare.side_effect = ValueError('上游装备仍未更新')
         with self.assertRaisesMessage(ValueError, '上游装备仍未更新'):

@@ -3,6 +3,7 @@
 Only fingerprints/references are persisted here; raw rankings and CombatantInfo
 remain in their central tables. Cache hits never aggregate, enrich or publish.
 """
+from botend.services.talent_source_retention import protect_sources
 from functools import lru_cache
 from hashlib import sha256
 from pathlib import Path
@@ -112,6 +113,7 @@ def _structural_dump_digest(file_key):
     return digest.hexdigest()
 
 
+@protect_sources
 def _resolved_talent_dependencies(nodes, version, supplements):
     """Fingerprint the authority's output, not a second token dependency graph.
 

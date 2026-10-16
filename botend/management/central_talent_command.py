@@ -1,4 +1,5 @@
 """旧采集命令统一发布中央展示，嵌套命令与候选导入不重复发布。"""
+from botend.services.talent_source_retention import protect_sources
 from contextvars import ContextVar
 
 from django.core.management.base import BaseCommand
@@ -9,6 +10,7 @@ _depth = ContextVar('central_talent_command_depth', default=0)
 
 
 class CentralTalentCommand(BaseCommand):
+    @protect_sources
     def execute(self, *args, **options):
         depth = _depth.get()
         token = _depth.set(depth + 1)

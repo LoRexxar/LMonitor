@@ -17,7 +17,6 @@ from urllib.parse import urlencode
 import requests
 from django.conf import settings
 from django.db.models import Q
-from django.db.utils import NotSupportedError
 from django.utils import timezone
 
 from botend.controller.BaseScan import BaseScan
@@ -161,48 +160,8 @@ class WagoSkillDiffMonitor(BaseScan):
         event.save(update_fields=update_fields)
 
     def _bulk_upsert_snapshots(self, model, objs, unique_fields, update_fields, batch_size=None):
-        if not objs:
-            return
-        try:
-            model.objects.bulk_create(
-                objs,
-                batch_size=batch_size,
-                update_conflicts=True,
-                unique_fields=unique_fields,
-                update_fields=update_fields,
-            )
-            return
-        except (NotSupportedError, ValueError):
-            pass
-
-        key_to_obj = {tuple(getattr(obj, field) for field in unique_fields): obj for obj in objs}
-        q = Q()
-        for key in key_to_obj.keys():
-            item_q = Q()
-            for field, value in zip(unique_fields, key):
-                item_q &= Q(**{field: value})
-            q |= item_q
-
-        existing_by_key = {}
-        if q:
-            for existing in model.objects.filter(q):
-                existing_by_key[tuple(getattr(existing, field) for field in unique_fields)] = existing
-
-        create_objs = []
-        update_objs = []
-        for key, obj in key_to_obj.items():
-            existing = existing_by_key.get(key)
-            if not existing:
-                create_objs.append(obj)
-                continue
-            for field in update_fields:
-                setattr(existing, field, getattr(obj, field))
-            update_objs.append(existing)
-
-        if create_objs:
-            model.objects.bulk_create(create_objs, batch_size=batch_size)
-        if update_objs:
-            model.objects.bulk_update(update_objs, update_fields, batch_size=batch_size)
+        from botend.services.wow_snapshot_store import upsert_changed_snapshots
+        return upsert_changed_snapshots(model, objs, unique_fields, update_fields, batch_size)
 
     def scan(self, url):
         result = self._scan_sources(url)

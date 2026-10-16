@@ -31,6 +31,8 @@ from botend.services.download_checkpoint import atomic_bytes, atomic_json, encod
 from botend.management.commands.sync_gear_builder_catalog import Command as CatalogImporter
 from botend.wow.talents.grants import DB2_GRANT_TABLES
 from botend.services.wow_data_branch import variant_branch
+from botend.services.talent_source_retention import source_access, retained_sources, prune_talent_sources, protect_sources
+from utils.log import logger
 
 TASK_NAME = 'WowDataVersionMonitor'
 TASK_TYPE = 37
@@ -158,6 +160,7 @@ class UpdateSource:
         return {'build': build, 'catalog_build': str(catalog.get('wowBuild') or catalog.get('wow_build') or ''),
                 'data_schema': 'loot-specializations-2'}
 
+    @protect_sources
     def prepare(self, branch, build, run, heartbeat):
         current = WowTalentVersion.objects.filter(key=branch).first()
         old_dir = str(getattr(current, 'source_dir', '') or '').replace('\\', '/')
@@ -269,6 +272,7 @@ class UpdateSource:
         return identities, activations
 
     @staticmethod
+    @protect_sources
     def talents(directory, build, heartbeat, *, branch='unspecified'):
         marker = directory / 'source_build.txt'
         # Completion marker is not a cache identity. An interrupted exact-build
@@ -290,6 +294,7 @@ class UpdateSource:
         if not output.exists():
             candidate = Path(tempfile.mkdtemp(prefix='.preparing-', dir=root))
             try:
+                atomic_json(candidate / 'retention_owner.json', {'branch': branch, 'purpose': 'talent-source-staging'})
                 for table, locale, filename in tables:
                     source_path = source.directory / f'{table}{"" if locale == "zhCN" else "." + locale}.csv'
                     content = source_path.read_bytes()
@@ -315,6 +320,7 @@ class UpdateSource:
         return output
 
     @staticmethod
+    @protect_sources
     def talent_display(source, directory, heartbeat):
         """DB2 图标优先，缺少展示字段时才读取同分支 Wowhead；网络不进入发布事务。"""
         from botend.management.commands.fetch_talent_icons import Command as IconSource
@@ -386,6 +392,7 @@ def validate_catalog(bundle, branch, build):
     return report
 
 
+@protect_sources
 @transaction.atomic
 def prepare_talent_version(bundle, branch, build, heartbeat):
     version = WowTalentVersion.objects.create(
@@ -444,6 +451,7 @@ def validate_talents(version):
     return len(rows)
 
 
+@protect_sources
 @transaction.atomic
 def publish(bundle, version, state, run, task):
     assert_lease(task)
@@ -524,6 +532,7 @@ def publish(bundle, version, state, run, task):
                         display[key] = ref[key]
             item.save(update_fields=['metadata'])
     target = WowTalentVersion.objects.select_for_update().filter(key=run.branch).first()
+    source_history = retained_sources(version.source_dir, target.source_dir if target else '', state.report)
     if target is None:
         target = WowTalentVersion.objects.create(key=run.branch, branch=run.branch)
     fields = ('label', 'major_version', 'current_build', 'source_dir', 'granted_entries_json')
@@ -576,6 +585,7 @@ def publish(bundle, version, state, run, task):
     state.revision += 1
     state.published_at, state.projections_pending = timezone.now(), True
     state.report = {'batch_key': batch, 'talent_key': target.key, 'items': len(bundle['catalog']['items']),
+                    'talent_sources': source_history,
                     'changed_variants': changed_variants, 'missing_fields': missing_fields,
                     'source_fingerprint': getattr(run, '_source_fingerprint', run.build)}
     state.save()
@@ -610,6 +620,9 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
     if not branches or set(branches) - BRANCHES.keys():
         raise ValueError('只支持明确的正式服/PTR/Beta 分支')
     source = source or UpdateSource()
+    if isinstance(source, UpdateSource):
+        from botend.services.talent_source_retention import source_root
+        source_root().mkdir(parents=True, exist_ok=True)
     results, failures = {}, []
     with update_lease(monitor_task) as (task, heartbeat):
         for branch in branches:
@@ -618,6 +631,7 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
             try:
                 if state.projections_pending:
                     refresh_projections(state)
+                _maintain_talent_sources(branch, heartbeat)
                 observation = source.discover(branch)
                 build = observation['build'] if isinstance(observation, dict) else observation
                 fingerprint = json.dumps(observation, sort_keys=True) if isinstance(observation, dict) else build
@@ -634,15 +648,17 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
                 run._source_fingerprint = fingerprint
                 state.status, state.error = 'preparing', ''
                 state.save(update_fields=['status', 'error'])
-                bundle = source.prepare(branch, build, run, heartbeat)
-                run.report = validate_catalog(bundle, branch, build)
-                run.save(update_fields=['report'])
-                version = prepare_talent_version(bundle, branch, build, heartbeat)
-                run.report.setdefault('missing_fields', []).extend(getattr(version, '_missing_fields', []))
-                heartbeat()
-                state = publish(bundle, version, state, run, task)
+                with source_access():
+                    bundle = source.prepare(branch, build, run, heartbeat)
+                    run.report = validate_catalog(bundle, branch, build)
+                    run.save(update_fields=['report'])
+                    version = prepare_talent_version(bundle, branch, build, heartbeat)
+                    run.report.setdefault('missing_fields', []).extend(getattr(version, '_missing_fields', []))
+                    heartbeat()
+                    state = publish(bundle, version, state, run, task)
                 refresh_projections(state)
                 results[branch] = {'status': 'published', **state.report}
+                _maintain_talent_sources(branch, heartbeat)
             except Exception as exc:
                 if run:
                     run.refresh_from_db()
@@ -660,3 +676,14 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
     if failures:
         raise ValueError('；'.join(failures))
     return results
+
+
+def _maintain_talent_sources(branch, heartbeat):
+    """发布提交后再回收；失败只记录并下轮重试，不能回滚已发布资料。"""
+    heartbeat()
+    try:
+        report = prune_talent_sources(branch)
+        if report['removed'] or report['blocked']:
+            logger.info('天赋中间文件维护 %s：%s', branch, report)
+    except Exception as exc:
+        logger.warning('天赋中间文件维护待重试 %s：%s', branch, exc)
