@@ -125,7 +125,8 @@ class EquipmentEligibility:
             variant = max(variants, key=lambda row: (
                 int(row.item_level == level), len(set(row.bonus_ids or []).intersection(bonuses)), row.item_level,
             ), default=None)
-            if not spec_matches(item, *identity, variant=variant, slot=slot):
+            # Loot specialization lists describe acquisition, not usable equipment.
+            if not spec_matches(item, *identity, variant=variant, slot=slot, require_loot_spec=False):
                 return {**detail, 'code': 'incompatible', 'reason': '装备的职业、专精、护甲、武器或主属性不适用'}
             inventory = int(item.inventory_type or 0)
             if item.item_class_id not in (2, 4) or inventory not in INVENTORY_SLOTS:

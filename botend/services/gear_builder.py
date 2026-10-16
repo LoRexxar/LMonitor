@@ -507,7 +507,8 @@ def _item_primary_options(item, variant=None):
     return options
 
 
-def spec_matches(item, class_name, spec_name, variant=None, slot=''):
+def spec_matches(item, class_name, spec_name, variant=None, slot='', *, require_loot_spec=True):
+    """Keep acquisition filtering optional; loot specs are not equip restrictions."""
     if not getattr(item, '_resolved_identity', None) and variant is not None:
         item = _variant_item(variant)
     class_mask = int(item.allowable_class_mask or 0)
@@ -516,7 +517,7 @@ def spec_matches(item, class_name, spec_name, variant=None, slot=''):
         return False
     eligible = [str(value).casefold() for value in (item.eligible_specs or []) if value]
     identity = f'{class_name}:{spec_name}'
-    if eligible:
+    if require_loot_spec and eligible:
         candidates = {
             identity.casefold(),
             f'{class_name}_{spec_name}'.casefold(),
