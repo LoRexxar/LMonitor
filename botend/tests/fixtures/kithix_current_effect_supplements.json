@@ -1,0 +1,4798 @@
+{
+  "schema": 1,
+  "source_build": "12.1.5.70077",
+  "records": [
+    {
+      "variant_id": 61850,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:17:4:279:975b09373ea6349bf3c1",
+        "data_branch": "ptr",
+        "item_level": 279,
+        "game_build": "",
+        "bonus_ids": [
+          12825,
+          13332
+        ],
+        "stats_json": {
+          "armor": 230,
+          "haste": 47,
+          "mastery": 109,
+          "stamina": 2061
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281239?dataEnv=10&locale=enUS&bonus=12825%3A13332",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "6d48d000f6ec4f8fbeb3807dc777b42ee7900278e972918c30cef4458ad7e26e"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12825,
+              13332
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 4,
+            "difficulty_id": 17
+          },
+          "primary_stat_values": {
+            "strength": 113,
+            "intellect": 113
+          }
+        },
+        "source_json": [],
+        "item_id": 281239,
+        "updated_at": "2026-10-15T01:55:06.425032+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281239,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281239",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336511,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281239
+            },
+            {
+              "ID": 336590,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281239
+            }
+          ],
+          "filter": {
+            "ItemID": 281239
+          },
+          "provider": "wago",
+          "source_sha256": "d25fd12614ccdee1952fb0b8c1dd39b9bf4dfce5f6bba33b9f5e9e2d685e1d4f"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281239?dataEnv=10&locale=enUS&bonus=12825%3A13332%3A14049",
+        "payload": {
+          "name": "Corroded Hulk's Skullcap",
+          "quality": 4,
+          "icon": "inv_helm_plate_raidwarriorulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Corroded Hulk's Skullcap</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Raid Finder</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->279</span><br><span class=\"q\">Upgrade Level: Veteran <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Head</td><th><!--scstart4:4--><span class=\"q1\">Plate</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->230 Armor</span><br><span><!--stat74-->+113 [Strength or Intellect]</span><br><span><!--stat7-->+2,061 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg36-->47 Haste</span><br><span class=\"q2\">+<!--rtg49-->109 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->2303<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">45</span> <span class=\"moneysilver\">68</span> <span class=\"moneycopper\">25</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "a8775524dfbf87ea28fde593cfc3a6c543f2daa1cc6945990420754e3c3f6438"
+      }
+    },
+    {
+      "variant_id": 61830,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:14:3:292:00b6b6036df310e86c1a",
+        "data_branch": "ptr",
+        "item_level": 292,
+        "game_build": "",
+        "bonus_ids": [
+          12833,
+          13333
+        ],
+        "stats_json": {
+          "armor": 249,
+          "haste": 50,
+          "mastery": 117,
+          "stamina": 2406
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281239?dataEnv=10&locale=enUS&bonus=12833%3A13333",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "4d3ca3973372eb9745655537047d34a20d3a479addcd5079779a518c75a39a6c"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12833,
+              13333
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 3,
+            "difficulty_id": 14
+          },
+          "primary_stat_values": {
+            "strength": 128,
+            "intellect": 128
+          }
+        },
+        "source_json": [],
+        "item_id": 281239,
+        "updated_at": "2026-10-15T01:55:05.638545+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281239,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281239",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336511,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281239
+            },
+            {
+              "ID": 336590,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281239
+            }
+          ],
+          "filter": {
+            "ItemID": 281239
+          },
+          "provider": "wago",
+          "source_sha256": "d25fd12614ccdee1952fb0b8c1dd39b9bf4dfce5f6bba33b9f5e9e2d685e1d4f"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281239?dataEnv=10&locale=enUS&bonus=12833%3A13333%3A14049",
+        "payload": {
+          "name": "Corroded Hulk's Skullcap",
+          "quality": 4,
+          "icon": "inv_helm_plate_raidwarriorulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Corroded Hulk's Skullcap</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->292</span><br><span class=\"q\">Upgrade Level: Champion <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Head</td><th><!--scstart4:4--><span class=\"q1\">Plate</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->249 Armor</span><br><span><!--stat74-->+128 [Strength or Intellect]</span><br><span><!--stat7-->+2,406 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg36-->50 Haste</span><br><span class=\"q2\">+<!--rtg49-->117 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->2811<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">45</span> <span class=\"moneysilver\">98</span> <span class=\"moneycopper\">3</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "5b69ba54af567aa7417cc760ff2618cf247f609278afb5bf1d716a8a0abb34d4"
+      }
+    },
+    {
+      "variant_id": 61840,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:15:5:305:794ee70d95c15c6b4132",
+        "data_branch": "ptr",
+        "item_level": 305,
+        "game_build": "",
+        "bonus_ids": [
+          12841,
+          13334
+        ],
+        "stats_json": {
+          "armor": 269,
+          "haste": 53,
+          "mastery": 124,
+          "stamina": 2794
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281239?dataEnv=10&locale=enUS&bonus=12841%3A13334",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "35bb5dfa9f15bb06000552711403516aa0043eb59dce0146233c335f0ccaee68"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12841,
+              13334
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 5,
+            "difficulty_id": 15
+          },
+          "primary_stat_values": {
+            "strength": 144,
+            "intellect": 144
+          }
+        },
+        "source_json": [],
+        "item_id": 281239,
+        "updated_at": "2026-10-15T01:55:06.054245+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281239,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281239",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336511,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281239
+            },
+            {
+              "ID": 336590,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281239
+            }
+          ],
+          "filter": {
+            "ItemID": 281239
+          },
+          "provider": "wago",
+          "source_sha256": "d25fd12614ccdee1952fb0b8c1dd39b9bf4dfce5f6bba33b9f5e9e2d685e1d4f"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281239?dataEnv=10&locale=enUS&bonus=12841%3A13334%3A14049",
+        "payload": {
+          "name": "Corroded Hulk's Skullcap",
+          "quality": 4,
+          "icon": "inv_helm_plate_raidwarriorulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Corroded Hulk's Skullcap</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Heroic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->305</span><br><span class=\"q\">Upgrade Level: Hero <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Head</td><th><!--scstart4:4--><span class=\"q1\">Plate</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->269 Armor</span><br><span><!--stat74-->+144 [Strength or Intellect]</span><br><span><!--stat7-->+2,794 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg36-->53 Haste</span><br><span class=\"q2\">+<!--rtg49-->124 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->3410<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">46</span> <span class=\"moneysilver\">28</span> <span class=\"moneycopper\">1</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "9a8b45a173f527f5597852644401768edf62b6cabc128411ee8f3cf8dcb252cb"
+      }
+    },
+    {
+      "variant_id": 61860,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:233:6:318:cfe0dc634e1f7e10b39b",
+        "data_branch": "ptr",
+        "item_level": 318,
+        "game_build": "",
+        "bonus_ids": [
+          12849,
+          13335
+        ],
+        "stats_json": {
+          "armor": 293,
+          "haste": 56,
+          "mastery": 132,
+          "stamina": 3254
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281239?dataEnv=10&locale=enUS&bonus=12849%3A13335",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "1405dc5d7237e81bba0f6c6b6d87c577f6bc587f7b76f523ee87dcacf7dd2b6b"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12849,
+              13335
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 6,
+            "difficulty_id": 233
+          },
+          "primary_stat_values": {
+            "strength": 162,
+            "intellect": 162
+          }
+        },
+        "source_json": [],
+        "item_id": 281239,
+        "updated_at": "2026-10-15T01:55:06.794141+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281239,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281239",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336511,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281239
+            },
+            {
+              "ID": 336590,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281239
+            }
+          ],
+          "filter": {
+            "ItemID": 281239
+          },
+          "provider": "wago",
+          "source_sha256": "d25fd12614ccdee1952fb0b8c1dd39b9bf4dfce5f6bba33b9f5e9e2d685e1d4f"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281239?dataEnv=10&locale=enUS&bonus=12849%3A13335%3A14049",
+        "payload": {
+          "name": "Corroded Hulk's Skullcap",
+          "quality": 4,
+          "icon": "inv_helm_plate_raidwarriorulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Corroded Hulk's Skullcap</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Mythic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->318</span><br><span class=\"q\">Upgrade Level: Myth <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Head</td><th><!--scstart4:4--><span class=\"q1\">Plate</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->293 Armor</span><br><span><!--stat74-->+162 [Strength or Intellect]</span><br><span><!--stat7-->+3,254 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg36-->56 Haste</span><br><span class=\"q2\">+<!--rtg49-->132 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->4118<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">46</span> <span class=\"moneysilver\">58</span> <span class=\"moneycopper\">18</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "675f06cc0df8e5b234c8000a7db5663b1c97545c888f0d93c1e0ebbd9abcb5af"
+      }
+    },
+    {
+      "variant_id": 61848,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:17:4:279:975b09373ea6349bf3c1",
+        "data_branch": "ptr",
+        "item_level": 279,
+        "game_build": "",
+        "bonus_ids": [
+          12825,
+          13332
+        ],
+        "stats_json": {
+          "crit": 45,
+          "armor": 138,
+          "haste": 111,
+          "stamina": 2061
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281236?dataEnv=10&locale=enUS&bonus=12825%3A13332",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "e71aec397d48736676c5f46b8dda12cc625fb638844725d7aa91f15ad59bbc98"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12825,
+              13332
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 4,
+            "difficulty_id": 17
+          },
+          "primary_stat_values": {
+            "agility": 113,
+            "intellect": 113
+          }
+        },
+        "source_json": [],
+        "item_id": 281236,
+        "updated_at": "2026-10-15T01:55:06.333988+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281236,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281236",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336513,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281236
+            },
+            {
+              "ID": 336592,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281236
+            }
+          ],
+          "filter": {
+            "ItemID": 281236
+          },
+          "provider": "wago",
+          "source_sha256": "81d0bda4e1cfaf426d8951411668443e83b5700cd6d5b9e9a3da159f76b50883"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281236?dataEnv=10&locale=enUS&bonus=12825%3A13332%3A14049",
+        "payload": {
+          "name": "Chestwrap of Palpable Terror",
+          "quality": 4,
+          "icon": "inv_chest_leather_raidrogueulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Chestwrap of Palpable Terror</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Raid Finder</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->279</span><br><span class=\"q\">Upgrade Level: Veteran <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Chest</td><th><!--scstart4:2--><span class=\"q1\">Leather</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->138 Armor</span><br><span><!--stat73-->+113 [Agility or Intellect]</span><br><span><!--stat7-->+2,061 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->45 Critical Strike</span><br><span class=\"q2\">+<!--rtg36-->111 Haste</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->2303<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">60</span> <span class=\"moneysilver\">38</span> <span class=\"moneycopper\">34</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "ee22d891fe7a1f5ecd0fd42f263c041de0a4a61e0f2375ac5ce6533cb75cb976"
+      }
+    },
+    {
+      "variant_id": 61828,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:14:3:292:00b6b6036df310e86c1a",
+        "data_branch": "ptr",
+        "item_level": 292,
+        "game_build": "",
+        "bonus_ids": [
+          12833,
+          13333
+        ],
+        "stats_json": {
+          "crit": 48,
+          "armor": 149,
+          "haste": 119,
+          "stamina": 2406
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281236?dataEnv=10&locale=enUS&bonus=12833%3A13333",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "eb4f25fdfeeca3b95729ee1319b780c251fec00c34ff1e87563b0c5c43488197"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12833,
+              13333
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 3,
+            "difficulty_id": 14
+          },
+          "primary_stat_values": {
+            "agility": 128,
+            "intellect": 128
+          }
+        },
+        "source_json": [],
+        "item_id": 281236,
+        "updated_at": "2026-10-15T01:55:05.549344+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281236,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281236",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336513,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281236
+            },
+            {
+              "ID": 336592,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281236
+            }
+          ],
+          "filter": {
+            "ItemID": 281236
+          },
+          "provider": "wago",
+          "source_sha256": "81d0bda4e1cfaf426d8951411668443e83b5700cd6d5b9e9a3da159f76b50883"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281236?dataEnv=10&locale=enUS&bonus=12833%3A13333%3A14049",
+        "payload": {
+          "name": "Chestwrap of Palpable Terror",
+          "quality": 4,
+          "icon": "inv_chest_leather_raidrogueulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Chestwrap of Palpable Terror</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->292</span><br><span class=\"q\">Upgrade Level: Champion <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Chest</td><th><!--scstart4:2--><span class=\"q1\">Leather</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->149 Armor</span><br><span><!--stat73-->+128 [Agility or Intellect]</span><br><span><!--stat7-->+2,406 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->48 Critical Strike</span><br><span class=\"q2\">+<!--rtg36-->119 Haste</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->2811<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">60</span> <span class=\"moneysilver\">77</span> <span class=\"moneycopper\">71</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "03466772136c78e1a39a39686173edac53e3602840c69725577f563cfd265840"
+      }
+    },
+    {
+      "variant_id": 61838,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:15:5:305:794ee70d95c15c6b4132",
+        "data_branch": "ptr",
+        "item_level": 305,
+        "game_build": "",
+        "bonus_ids": [
+          12841,
+          13334
+        ],
+        "stats_json": {
+          "crit": 51,
+          "armor": 162,
+          "haste": 126,
+          "stamina": 2794
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281236?dataEnv=10&locale=enUS&bonus=12841%3A13334",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "99c9213fdf26d94361a43b7a4edace2b115e91a8fa8365b076f96a251e8f06e9"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12841,
+              13334
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 5,
+            "difficulty_id": 15
+          },
+          "primary_stat_values": {
+            "agility": 144,
+            "intellect": 144
+          }
+        },
+        "source_json": [],
+        "item_id": 281236,
+        "updated_at": "2026-10-15T01:55:05.942998+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281236,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281236",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336513,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281236
+            },
+            {
+              "ID": 336592,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281236
+            }
+          ],
+          "filter": {
+            "ItemID": 281236
+          },
+          "provider": "wago",
+          "source_sha256": "81d0bda4e1cfaf426d8951411668443e83b5700cd6d5b9e9a3da159f76b50883"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281236?dataEnv=10&locale=enUS&bonus=12841%3A13334%3A14049",
+        "payload": {
+          "name": "Chestwrap of Palpable Terror",
+          "quality": 4,
+          "icon": "inv_chest_leather_raidrogueulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Chestwrap of Palpable Terror</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Heroic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->305</span><br><span class=\"q\">Upgrade Level: Hero <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Chest</td><th><!--scstart4:2--><span class=\"q1\">Leather</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->162 Armor</span><br><span><!--stat73-->+144 [Agility or Intellect]</span><br><span><!--stat7-->+2,794 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->51 Critical Strike</span><br><span class=\"q2\">+<!--rtg36-->126 Haste</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->3410<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">61</span> <span class=\"moneysilver\">17</span> <span class=\"moneycopper\">33</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "21f339788e2ef021651a86b67401d39e5864625d60ceedd35c896ecaf65c0784"
+      }
+    },
+    {
+      "variant_id": 61858,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:233:6:318:cfe0dc634e1f7e10b39b",
+        "data_branch": "ptr",
+        "item_level": 318,
+        "game_build": "",
+        "bonus_ids": [
+          12849,
+          13335
+        ],
+        "stats_json": {
+          "crit": 54,
+          "armor": 176,
+          "haste": 134,
+          "stamina": 3254
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281236?dataEnv=10&locale=enUS&bonus=12849%3A13335",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "a6d67c7db72bd86492910f5399d760c980fc14ade297c5cbd0078088372e8e65"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12849,
+              13335
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 6,
+            "difficulty_id": 233
+          },
+          "primary_stat_values": {
+            "agility": 162,
+            "intellect": 162
+          }
+        },
+        "source_json": [],
+        "item_id": 281236,
+        "updated_at": "2026-10-15T01:55:06.698770+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281236,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281236",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336513,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281236
+            },
+            {
+              "ID": 336592,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281236
+            }
+          ],
+          "filter": {
+            "ItemID": 281236
+          },
+          "provider": "wago",
+          "source_sha256": "81d0bda4e1cfaf426d8951411668443e83b5700cd6d5b9e9a3da159f76b50883"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281236?dataEnv=10&locale=enUS&bonus=12849%3A13335%3A14049",
+        "payload": {
+          "name": "Chestwrap of Palpable Terror",
+          "quality": 4,
+          "icon": "inv_chest_leather_raidrogueulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Chestwrap of Palpable Terror</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Mythic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->318</span><br><span class=\"q\">Upgrade Level: Myth <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Chest</td><th><!--scstart4:2--><span class=\"q1\">Leather</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->176 Armor</span><br><span><!--stat73-->+162 [Agility or Intellect]</span><br><span><!--stat7-->+3,254 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->54 Critical Strike</span><br><span class=\"q2\">+<!--rtg36-->134 Haste</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->4118<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">61</span> <span class=\"moneysilver\">57</span> <span class=\"moneycopper\">21</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "6da8b729fdf9519dc0307fd47427f6420e9270d55edeac99510fc81832575aa6"
+      }
+    },
+    {
+      "variant_id": 61849,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:17:4:279:975b09373ea6349bf3c1",
+        "data_branch": "ptr",
+        "item_level": 279,
+        "game_build": "",
+        "bonus_ids": [
+          12825,
+          13332
+        ],
+        "stats_json": {
+          "crit": 82,
+          "armor": 115,
+          "mastery": 35,
+          "stamina": 1545
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281238?dataEnv=10&locale=enUS&bonus=12825%3A13332",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "7dabf53d87ac0f6f37eccc4c3ef40712bc4793e36d5bb35abf1fa9b786e97511"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12825,
+              13332
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 4,
+            "difficulty_id": 17
+          },
+          "primary_stat_values": {
+            "agility": 85,
+            "intellect": 85
+          }
+        },
+        "source_json": [],
+        "item_id": 281238,
+        "updated_at": "2026-10-15T01:55:06.377420+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281238,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281238",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336514,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281238
+            },
+            {
+              "ID": 336593,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281238
+            }
+          ],
+          "filter": {
+            "ItemID": 281238
+          },
+          "provider": "wago",
+          "source_sha256": "5650d09a21c04ca549b62c1aacbf5c033d1be0def5f97e3b828ecdc3ad59083c"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281238?dataEnv=10&locale=enUS&bonus=12825%3A13332%3A14049",
+        "payload": {
+          "name": "Aberrant Commander's Gauntlets",
+          "quality": 4,
+          "icon": "inv_glove_mail_raidhunterulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Aberrant Commander's Gauntlets</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Raid Finder</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->279</span><br><span class=\"q\">Upgrade Level: Veteran <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Hands</td><th><!--scstart4:3--><span class=\"q1\">Mail</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->115 Armor</span><br><span><!--stat73-->+85 [Agility or Intellect]</span><br><span><!--stat7-->+1,545 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->82 Critical Strike</span><br><span class=\"q2\">+<!--rtg49-->35 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->2303<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">30</span> <span class=\"moneysilver\">57</span> <span class=\"moneycopper\">87</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "27749d34ee5fb35b74a4d92794fb7d198d37a40d314abb0ccbe7af22730177f3"
+      }
+    },
+    {
+      "variant_id": 61829,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:14:3:292:00b6b6036df310e86c1a",
+        "data_branch": "ptr",
+        "item_level": 292,
+        "game_build": "",
+        "bonus_ids": [
+          12833,
+          13333
+        ],
+        "stats_json": {
+          "crit": 87,
+          "armor": 124,
+          "mastery": 38,
+          "stamina": 1805
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281238?dataEnv=10&locale=enUS&bonus=12833%3A13333",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "4ea40b59efe589e0c774156175e495527b71ef4bef0fb3fa04599152cdbf6783"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12833,
+              13333
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 3,
+            "difficulty_id": 14
+          },
+          "primary_stat_values": {
+            "agility": 96,
+            "intellect": 96
+          }
+        },
+        "source_json": [],
+        "item_id": 281238,
+        "updated_at": "2026-10-15T01:55:05.594843+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281238,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281238",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336514,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281238
+            },
+            {
+              "ID": 336593,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281238
+            }
+          ],
+          "filter": {
+            "ItemID": 281238
+          },
+          "provider": "wago",
+          "source_sha256": "5650d09a21c04ca549b62c1aacbf5c033d1be0def5f97e3b828ecdc3ad59083c"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281238?dataEnv=10&locale=enUS&bonus=12833%3A13333%3A14049",
+        "payload": {
+          "name": "Aberrant Commander's Gauntlets",
+          "quality": 4,
+          "icon": "inv_glove_mail_raidhunterulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Aberrant Commander's Gauntlets</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->292</span><br><span class=\"q\">Upgrade Level: Champion <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Hands</td><th><!--scstart4:3--><span class=\"q1\">Mail</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->124 Armor</span><br><span><!--stat73-->+96 [Agility or Intellect]</span><br><span><!--stat7-->+1,805 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->87 Critical Strike</span><br><span class=\"q2\">+<!--rtg49-->38 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->2811<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">30</span> <span class=\"moneysilver\">77</span> <span class=\"moneycopper\">81</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "100e41a13bed26ab1913d4f6c0cb8f77b6096a384cc7284bf3d656255a0b2650"
+      }
+    },
+    {
+      "variant_id": 61839,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:15:5:305:794ee70d95c15c6b4132",
+        "data_branch": "ptr",
+        "item_level": 305,
+        "game_build": "",
+        "bonus_ids": [
+          12841,
+          13334
+        ],
+        "stats_json": {
+          "crit": 93,
+          "armor": 134,
+          "mastery": 40,
+          "stamina": 2096
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281238?dataEnv=10&locale=enUS&bonus=12841%3A13334",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "edd39bcd6db77fce11954cc941aad268b846439267c077cd143d7bcc55483ed3"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12841,
+              13334
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 5,
+            "difficulty_id": 15
+          },
+          "primary_stat_values": {
+            "agility": 108,
+            "intellect": 108
+          }
+        },
+        "source_json": [],
+        "item_id": 281238,
+        "updated_at": "2026-10-15T01:55:05.989625+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281238,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281238",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336514,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281238
+            },
+            {
+              "ID": 336593,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281238
+            }
+          ],
+          "filter": {
+            "ItemID": 281238
+          },
+          "provider": "wago",
+          "source_sha256": "5650d09a21c04ca549b62c1aacbf5c033d1be0def5f97e3b828ecdc3ad59083c"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281238?dataEnv=10&locale=enUS&bonus=12841%3A13334%3A14049",
+        "payload": {
+          "name": "Aberrant Commander's Gauntlets",
+          "quality": 4,
+          "icon": "inv_glove_mail_raidhunterulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Aberrant Commander's Gauntlets</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Heroic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->305</span><br><span class=\"q\">Upgrade Level: Hero <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Hands</td><th><!--scstart4:3--><span class=\"q1\">Mail</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->134 Armor</span><br><span><!--stat73-->+108 [Agility or Intellect]</span><br><span><!--stat7-->+2,096 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->93 Critical Strike</span><br><span class=\"q2\">+<!--rtg49-->40 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->3410<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">30</span> <span class=\"moneysilver\">97</span> <span class=\"moneycopper\">87</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "527204ce5c96d78175de73232113590b90532b7db8ba502860f0bd337ef3418b"
+      }
+    },
+    {
+      "variant_id": 61859,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:233:6:318:cfe0dc634e1f7e10b39b",
+        "data_branch": "ptr",
+        "item_level": 318,
+        "game_build": "",
+        "bonus_ids": [
+          12849,
+          13335
+        ],
+        "stats_json": {
+          "crit": 98,
+          "armor": 146,
+          "mastery": 43,
+          "stamina": 2440
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281238?dataEnv=10&locale=enUS&bonus=12849%3A13335",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "b7068fe52512b4acc7536f77866592e0302f542f778619794fa122336c3c4c29"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12849,
+              13335
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 6,
+            "difficulty_id": 233
+          },
+          "primary_stat_values": {
+            "agility": 122,
+            "intellect": 122
+          }
+        },
+        "source_json": [],
+        "item_id": 281238,
+        "updated_at": "2026-10-15T01:55:06.746963+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281238,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281238",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336514,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281238
+            },
+            {
+              "ID": 336593,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281238
+            }
+          ],
+          "filter": {
+            "ItemID": 281238
+          },
+          "provider": "wago",
+          "source_sha256": "5650d09a21c04ca549b62c1aacbf5c033d1be0def5f97e3b828ecdc3ad59083c"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281238?dataEnv=10&locale=enUS&bonus=12849%3A13335%3A14049",
+        "payload": {
+          "name": "Aberrant Commander's Gauntlets",
+          "quality": 4,
+          "icon": "inv_glove_mail_raidhunterulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Aberrant Commander's Gauntlets</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Mythic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->318</span><br><span class=\"q\">Upgrade Level: Myth <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Hands</td><th><!--scstart4:3--><span class=\"q1\">Mail</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->146 Armor</span><br><span><!--stat73-->+122 [Agility or Intellect]</span><br><span><!--stat7-->+2,440 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->98 Critical Strike</span><br><span class=\"q2\">+<!--rtg49-->43 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->4118<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">31</span> <span class=\"moneysilver\">18</span> <span class=\"moneycopper\">7</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "6b70213497e72bb39d23a1fa54c44761e3769c2c7cc124121cc3f42ad9a4f19b"
+      }
+    },
+    {
+      "variant_id": 61847,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:17:4:279:975b09373ea6349bf3c1",
+        "data_branch": "ptr",
+        "item_level": 279,
+        "game_build": "",
+        "bonus_ids": [
+          12825,
+          13332
+        ],
+        "stats_json": {
+          "crit": 47,
+          "armor": 70,
+          "mastery": 109,
+          "stamina": 2061,
+          "intellect": 113
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281235?dataEnv=10&locale=enUS&bonus=12825%3A13332",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "f3e84ec321c14924b8e193dd2a36bc33e3b7f99b7a55f433d58b87b79826d2ba"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12825,
+              13332
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 4,
+            "difficulty_id": 17
+          },
+          "primary_stat_values": {}
+        },
+        "source_json": [],
+        "item_id": 281235,
+        "updated_at": "2026-10-15T01:55:06.278815+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281235,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281235",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336521,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281235
+            },
+            {
+              "ID": 336591,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281235
+            }
+          ],
+          "filter": {
+            "ItemID": 281235
+          },
+          "provider": "wago",
+          "source_sha256": "64152e202d059fd58d3765df5177fb03242a28a54486e18981b8e2decaf7399b"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281235?dataEnv=10&locale=enUS&bonus=12825%3A13332%3A14049",
+        "payload": {
+          "name": "Voidweaver's Leggings",
+          "quality": 4,
+          "icon": "inv_pant_cloth_raidmageulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Voidweaver's Leggings</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Raid Finder</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->279</span><br><span class=\"q\">Upgrade Level: Veteran <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Legs</td><th><!--scstart4:1--><span class=\"q1\">Cloth</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->70 Armor</span><br><span><!--stat5-->+113 Intellect</span><br><span><!--stat7-->+2,061 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->47 Critical Strike</span><br><span class=\"q2\">+<!--rtg49-->109 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->2303<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">60</span> <span class=\"moneysilver\">16</span> <span class=\"moneycopper\">72</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "ba42b6726530b8afd7b3baed1552a2ec5cfa3df3e00b5713dc8d1fe1daa2c493"
+      }
+    },
+    {
+      "variant_id": 61827,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:14:3:292:00b6b6036df310e86c1a",
+        "data_branch": "ptr",
+        "item_level": 292,
+        "game_build": "",
+        "bonus_ids": [
+          12833,
+          13333
+        ],
+        "stats_json": {
+          "crit": 51,
+          "armor": 76,
+          "mastery": 116,
+          "stamina": 2406,
+          "intellect": 128
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281235?dataEnv=10&locale=enUS&bonus=12833%3A13333",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "2ca52e05a6dc20d8ec88ba77196960f4bd3a4705e7323a65372f82b1edb9b2f3"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12833,
+              13333
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 3,
+            "difficulty_id": 14
+          },
+          "primary_stat_values": {}
+        },
+        "source_json": [],
+        "item_id": 281235,
+        "updated_at": "2026-10-15T01:55:05.462318+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281235,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281235",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336521,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281235
+            },
+            {
+              "ID": 336591,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281235
+            }
+          ],
+          "filter": {
+            "ItemID": 281235
+          },
+          "provider": "wago",
+          "source_sha256": "64152e202d059fd58d3765df5177fb03242a28a54486e18981b8e2decaf7399b"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281235?dataEnv=10&locale=enUS&bonus=12833%3A13333%3A14049",
+        "payload": {
+          "name": "Voidweaver's Leggings",
+          "quality": 4,
+          "icon": "inv_pant_cloth_raidmageulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Voidweaver's Leggings</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->292</span><br><span class=\"q\">Upgrade Level: Champion <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Legs</td><th><!--scstart4:1--><span class=\"q1\">Cloth</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->76 Armor</span><br><span><!--stat5-->+128 Intellect</span><br><span><!--stat7-->+2,406 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->51 Critical Strike</span><br><span class=\"q2\">+<!--rtg49-->116 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->2811<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">60</span> <span class=\"moneysilver\">55</span> <span class=\"moneycopper\">95</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "1782cd3ac6ca19bd5e2dfd348a55b5802cf15342292e60302f035e173adec5a8"
+      }
+    },
+    {
+      "variant_id": 61837,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:15:5:305:794ee70d95c15c6b4132",
+        "data_branch": "ptr",
+        "item_level": 305,
+        "game_build": "",
+        "bonus_ids": [
+          12841,
+          13334
+        ],
+        "stats_json": {
+          "crit": 54,
+          "armor": 82,
+          "mastery": 124,
+          "stamina": 2794,
+          "intellect": 144
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281235?dataEnv=10&locale=enUS&bonus=12841%3A13334",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "71096b017f4fe5dff52ea64021db5cc42842261648eb8c176ba090cef7c10ed1"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12841,
+              13334
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 5,
+            "difficulty_id": 15
+          },
+          "primary_stat_values": {}
+        },
+        "source_json": [],
+        "item_id": 281235,
+        "updated_at": "2026-10-15T01:55:05.888867+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281235,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281235",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336521,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281235
+            },
+            {
+              "ID": 336591,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281235
+            }
+          ],
+          "filter": {
+            "ItemID": 281235
+          },
+          "provider": "wago",
+          "source_sha256": "64152e202d059fd58d3765df5177fb03242a28a54486e18981b8e2decaf7399b"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281235?dataEnv=10&locale=enUS&bonus=12841%3A13334%3A14049",
+        "payload": {
+          "name": "Voidweaver's Leggings",
+          "quality": 4,
+          "icon": "inv_pant_cloth_raidmageulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Voidweaver's Leggings</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Heroic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->305</span><br><span class=\"q\">Upgrade Level: Hero <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Legs</td><th><!--scstart4:1--><span class=\"q1\">Cloth</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->82 Armor</span><br><span><!--stat5-->+144 Intellect</span><br><span><!--stat7-->+2,794 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->54 Critical Strike</span><br><span class=\"q2\">+<!--rtg49-->124 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->3410<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">60</span> <span class=\"moneysilver\">95</span> <span class=\"moneycopper\">43</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "043e2995af0afd0b2bd498b389c390aa8ff3eb49ded07409486c5a1495784f27"
+      }
+    },
+    {
+      "variant_id": 61857,
+      "before": {
+        "season_id": 3,
+        "batch_key": "gear-12.1.0.69587-20ae9bc9f775",
+        "variant_key": "journal-difficulty:ptr:12.1.5.69594:1324:233:6:318:cfe0dc634e1f7e10b39b",
+        "data_branch": "ptr",
+        "item_level": 318,
+        "game_build": "",
+        "bonus_ids": [
+          12849,
+          13335
+        ],
+        "stats_json": {
+          "crit": 57,
+          "armor": 90,
+          "mastery": 131,
+          "stamina": 3254,
+          "intellect": 162
+        },
+        "effects_json": [],
+        "metadata": {
+          "data_branch": "ptr",
+          "tooltip_source": {
+            "url": "https://nether.wowhead.com/tooltip/item/281235?dataEnv=10&locale=enUS&bonus=12849%3A13335",
+            "data_env": "10",
+            "provider": "wowhead",
+            "game_build": "",
+            "response_sha256": "b02a4e819978c367d4e39d2f4e04884629a3511d962c87fc00686a867f0cfdb4"
+          },
+          "difficulty_drop": {
+            "schema": 1,
+            "quality": 4,
+            "provider": "wago",
+            "bonus_ids": [
+              12849,
+              13335
+            ],
+            "rule_build": "12.1.5.69594",
+            "instance_id": 1324,
+            "item_context": 6,
+            "difficulty_id": 233
+          },
+          "primary_stat_values": {}
+        },
+        "source_json": [],
+        "item_id": 281235,
+        "updated_at": "2026-10-15T01:55:06.645679+00:00"
+      },
+      "source_build": "12.1.5.70077",
+      "evidence": [
+        {
+          "table": "ItemXBonusTree",
+          "field": "ItemID",
+          "key": 281235,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemXBonusTree?build=12.1.5.70077&locale=enUS&filter%5BItemID%5D=exact%3A281235",
+          "total": 2,
+          "rows": [
+            {
+              "ID": 336521,
+              "ItemBonusTreeID": 5996,
+              "ItemID": 281235
+            },
+            {
+              "ID": 336591,
+              "ItemBonusTreeID": 6297,
+              "ItemID": 281235
+            }
+          ],
+          "filter": {
+            "ItemID": 281235
+          },
+          "provider": "wago",
+          "source_sha256": "64152e202d059fd58d3765df5177fb03242a28a54486e18981b8e2decaf7399b"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A5996",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 5996,
+              "Flags": 4,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "3b242d441ebbf6c2ec13cddb31a267e5eee2e5ab081a8f6674ca52ca8b2aae3d"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 5996,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A5996",
+          "total": 5,
+          "rows": [
+            {
+              "ID": 29191,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 6005,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29192,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5938,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29193,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5741,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29194,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 5998,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            },
+            {
+              "ID": 29195,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 4733,
+              "ChildItemBonusListID": 0,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 5996
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 5996
+          },
+          "provider": "wago",
+          "source_sha256": "f813c2aabba68f9aac0ce45dcba7f1661b964b01a371eadcd6431e13bcad97d3"
+        },
+        {
+          "table": "ItemBonusTree",
+          "field": "ID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTree?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 6297,
+              "Flags": 0,
+              "InventoryTypeSlotMask": 0
+            }
+          ],
+          "filter": {
+            "ID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "e5f50354821c098b6bb9eb7d2184dcea0d1d44dcb46143e1a1f79b117bb23df6"
+        },
+        {
+          "table": "ItemBonusTreeNode",
+          "field": "ParentItemBonusTreeID",
+          "key": 6297,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonusTreeNode?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusTreeID%5D=exact%3A6297",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 30644,
+              "ItemContext": 0,
+              "ChildItemBonusTreeID": 0,
+              "ChildItemBonusListID": 14049,
+              "ChildItemLevelSelectorID": 0,
+              "ChildItemBonusListGroupID": 0,
+              "IblGroupPointsModSetID": 0,
+              "MinMythicPlusLevel": 0,
+              "MaxMythicPlusLevel": 0,
+              "ItemCreationContextGroupID": 0,
+              "Flags": 0,
+              "ParentItemBonusTreeID": 6297
+            }
+          ],
+          "filter": {
+            "ParentItemBonusTreeID": 6297
+          },
+          "provider": "wago",
+          "source_sha256": "8967268c62c2915e05401ebcdf3548996829af4f82c5260123d89c0492cdc7c6"
+        },
+        {
+          "table": "ItemBonus",
+          "field": "ParentItemBonusListID",
+          "key": 14049,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemBonus?build=12.1.5.70077&locale=enUS&filter%5BParentItemBonusListID%5D=exact%3A14049",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 31851,
+              "Value_0": 238161,
+              "Value_1": 0,
+              "Value_2": 0,
+              "Value_3": 0,
+              "ParentItemBonusListID": 14049,
+              "Type": 23,
+              "OrderIndex": 0
+            }
+          ],
+          "filter": {
+            "ParentItemBonusListID": 14049
+          },
+          "provider": "wago",
+          "source_sha256": "55eb413734e7bcb6cf63193e7fe5f43087a7e39b0f81433b42da8b073f0fe7bd"
+        },
+        {
+          "table": "ItemEffect",
+          "field": "ID",
+          "key": 238161,
+          "build": "12.1.5.70077",
+          "url": "https://wago.tools/api/db2-find/ItemEffect?build=12.1.5.70077&locale=enUS&filter%5BID%5D=exact%3A238161",
+          "total": 1,
+          "rows": [
+            {
+              "ID": 238161,
+              "LegacySlotIndex": 0,
+              "TriggerType": 1,
+              "Charges": 0,
+              "CoolDownMSec": -1,
+              "CategoryCoolDownMSec": -1,
+              "SpellCategoryID": 0,
+              "SpellID": 1310208,
+              "ChrSpecializationID": 0,
+              "PlayerConditionID": 0
+            }
+          ],
+          "filter": {
+            "ID": 238161
+          },
+          "provider": "wago",
+          "source_sha256": "c222ad3e62801e61e0ae1e29ea234c4f28a1b72891e0edf14fcd93747cb47bc8"
+        }
+      ],
+      "added_bonus_ids": [
+        14049
+      ],
+      "tooltip": {
+        "url": "https://nether.wowhead.com/tooltip/item/281235?dataEnv=10&locale=enUS&bonus=12849%3A13335%3A14049",
+        "payload": {
+          "name": "Voidweaver's Leggings",
+          "quality": 4,
+          "icon": "inv_pant_cloth_raidmageulatek_d_01",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q4\">Voidweaver's Leggings</b><!--nend--><!--ndstart--><br /><span><span style=\"color: #00FF00\">Mythic</span></span><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->318</span><br><span class=\"q\">Upgrade Level: Myth <!--uindex-->1/6</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Legs</td><th><!--scstart4:1--><span class=\"q1\">Cloth</span><!--scend--></th></tr></table><!--rf--><span><!--amr-->90 Armor</span><br><span><!--stat5-->+162 Intellect</span><br><span><!--stat7-->+3,254 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->57 Critical Strike</span><br><span class=\"q2\">+<!--rtg49-->131 Mastery</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/ptr-2/spell=1310208/void-eruption\" class=\"q2\">Your attacks have a chance to erupt with void energy, dealing (<!--sp137028:0--><!--sp137028--><!--sp137023:0--><!--sp137023--><!--sp137010:0--><!--sp137010--><!--sp212613:0--><!--sp212613--><!--sp137008:0--><!--sp137008--><!--sp137039:0--><!--sp137039--><!--sp137031:0--><!--sp137031--><!--sp137032:0--><!--sp137032--><!--sp137029:0--><!--sp137029--><!--sp137024:0--><!--sp137024--><!--sp356810:0--><!--sp356810--><!--sp137012:0--><!--sp137012--><!--sp137048:0-->1<!--sp137048--> * <!--pts1:0:0:1310208:7.36735-->4118<!---->) Shadow damage to all nearby enemies. If you are Venomcursed, this damage is increased by 15%.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->90<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">61</span> <span class=\"moneysilver\">35</span> <span class=\"moneycopper\">17</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Kith'ix</div></td></tr></table>",
+          "spells": []
+        },
+        "response_sha256": "0f002c6ef2d42a347b74eea642ee1dfe821eba65982e29c042a6af7ab8b108f4"
+      }
+    }
+  ]
+}

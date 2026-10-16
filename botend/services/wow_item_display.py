@@ -485,7 +485,9 @@ def item_display_metadata(
     if variant is not None:
         item_level = _positive_int(item_level) or _positive_int(variant.item_level)
         stats = variant.stats_json if stats is None else stats
-        effects = variant.effects_json if effects is None else effects
+        if effects is None:
+            from botend.services.journal_effect_supplement import supplemental_effects
+            effects = supplemental_effects(variant)
         sources = variant.source_json if sources is None else sources
     name = (snapshot.name if snapshot else "") or ""
     name_zh = (snapshot.name_zh if snapshot else "") or ""
