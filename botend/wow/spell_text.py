@@ -1089,9 +1089,11 @@ class SpellTextResolver:
             text = _BARE_COND_ONE_RE.sub(lambda m: m.group(1) or "", text)
             text = _SWITCH_RE.sub(lambda m: (m.group(1) or m.group(2) or ""), text)
         text = _SPELLNAME_RE.sub(lambda m: self._spell_name(_to_int(m.group(1))) or "", text)
+        # Cleanup is terminal, including depth-limit and exception fallbacks.
+        # Never restart reference expansion here with a fresh recursion budget.
         text = _SPELLDESC_RE.sub("", text)
-        text = _SPELLTOOLTIP_RE.sub(lambda m: self.resolve(self._spell_desc(_to_int(m.group(1))), _to_int(m.group(1))), text)
-        text = _SPELLAURA_RE.sub(lambda m: self.resolve(self._spell_aura(_to_int(m.group(1))), _to_int(m.group(1))), text)
+        text = _SPELLTOOLTIP_RE.sub("", text)
+        text = _SPELLAURA_RE.sub("", text)
         text = _SPELLICON_RE.sub("", text)
         text = _BARE_SPELLNAME_RE.sub("", text)
         text = _AURA_CASTER_RE.sub('施法者' if self.locale == 'zhCN' else 'the caster', text)
