@@ -133,11 +133,14 @@ def _cached_dump_effect_index(
 ) -> dict[int, dict[int, dict[str, str]]]:
     path = Path(path_value)
     index: dict[int, dict[int, dict[str, str]]] = {}
-    if not path.exists():
-        return index
     try:
+        if not path.exists():
+            return index
         with path.open(newline='', encoding='utf-8-sig') as handle:
             for row in csv.DictReader(handle):
+                # Native DB2 includes difficulty variants with identical keys.
+                if path.name == 'SpellEffect.csv' and row.get('DifficultyID') != '0':
+                    continue
                 spell_id = _to_int(row.get('SpellID'))
                 effect_index = _to_int(row.get('EffectIndex'))
                 if not spell_id:
@@ -652,6 +655,15 @@ class SpellTextResolver:
     def _load_dump_effect_index(self) -> dict[int, dict[int, dict[str, str]]]:
         if self._dump_effect_index_cache is None:
             path = self._dump_file('spell_effect_index.csv')
+            # A bound native table is authoritative over its derived index.
+            # Keep unbound legacy dump lookup unchanged.
+            if self.dump_dir:
+                native = self._dump_file('SpellEffect.csv')
+                try:
+                    if native.is_file():
+                        path = native
+                except OSError:
+                    pass
             self._dump_effect_index_cache = _cached_dump_effect_index(*_file_cache_key(path))
         return self._dump_effect_index_cache
 
