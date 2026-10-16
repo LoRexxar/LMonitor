@@ -645,6 +645,7 @@ def serialize_variant(variant, class_name='', spec_name=''):
         'socket_count': socket_count,
         'stats': stats,
         'effects': display['effect_details'],
+        'effects_status': display['effects_status'],
         'text_schema_version': 2,
         'effects_missing': display['effects_missing'],
         'sources': sources,

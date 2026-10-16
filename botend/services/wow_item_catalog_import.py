@@ -260,6 +260,8 @@ def upsert_item_catalog(items, season, build):
                 },
             )
             variant_count += 1
+    from botend.services.wow_item_effects import sync_central_effects
+    sync_central_effects(season=season, item_ids=[item['item_id'] for item in items])
     return variant_count
 
 

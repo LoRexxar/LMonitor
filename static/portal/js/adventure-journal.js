@@ -158,6 +158,17 @@
             if (data.status === 'not_equipment') {
               stats.textContent = '非装备掉落';
               effects.textContent = '无装备属性或特效，可点击名称查看基础资料。';
+            } else if (data.status === 'partial') {
+              stats.textContent = '此难度装等与属性待确认';
+              effects.replaceChildren(...(data.effects || []).map(text => {
+                const line = document.createElement('div');
+                line.textContent = text;
+                return line;
+              }));
+                const note = document.createElement('small');
+                note.textContent = '此难度适用性及具体数值待确认';
+                effects.append(note);
+              emphasizeValues(effects);
             } else if (data.status === 'unresolved') {
               stats.textContent = '此难度装等与属性未知';
               effects.textContent = data.note || '尚无经过验证的此难度装备变体。';

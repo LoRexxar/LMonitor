@@ -261,7 +261,8 @@ class Command(BaseCommand):
                 fence()
                 applied = []
                 for kwargs, preview in prepared:
-                    result = import_difficulty_variant(**kwargs, apply=True, expected_before_hash=preview['before_hash'])
+                    result = import_difficulty_variant(**kwargs, apply=True,
+                        expected_before_hash=preview['before_hash'], sync_effects=False)
                     applied.append((kwargs, result))
                     created += result['status'] == 'created'
                     noop += result['status'] == 'noop'
@@ -272,6 +273,9 @@ class Command(BaseCommand):
                     reread = import_difficulty_variant(**kwargs, apply=False)
                     require(reread['status'] == 'noop' and reread['variant_id'] == row.pk, 'central readback mismatch')
                 fence()
+                # 整批验证完成后一次归并，避免本批次公共字段变更污染其他难度的并发校验。
+                from botend.services.wow_item_effects import sync_central_effects
+                sync_central_effects(season=season, item_ids={kwargs['item_id'] for kwargs, _ in applied})
         else:
             noop = sum(result['status'] == 'noop' for _, result in prepared)
             # Catch a moving release/batch even on the read-only path.

@@ -2441,6 +2441,8 @@ def serialize_incremental_panel_results(panel, *, coordinate_filter=None,
                 if tooltip:
                     row['effect'] = tooltip
                     row['tooltip'] = tooltip
+                row['effects'] = display.get('effects', [])
+                row['effects_status'] = display.get('effects_status', 'unknown')
                 if display.get('variant_id'):
                     row['tooltip_complete'] = bool(display.get('tooltip_complete'))
                 report_url = report_urls.get((match['task'].pk, candidate['candidate_key']))

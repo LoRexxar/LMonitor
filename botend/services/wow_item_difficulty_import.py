@@ -161,7 +161,7 @@ def _lossless_attributes(payload, details):
 
 def import_difficulty_variant(*, rule, payload, tooltip_evidence, item_id,
                               data_branch, difficulty_id, item_context, instance_id,
-                              rule_build, apply=False, expected_before_hash=None):
+                              rule_build, apply=False, expected_before_hash=None, sync_effects=True):
     """Validate and preview by default; explicit ``apply=True`` writes one variant.
 
     ``rule``: resolved artifact with item_id, build, data_branch, difficulty_id,
@@ -320,4 +320,7 @@ def import_difficulty_variant(*, rule, payload, tooltip_evidence, item_id,
         _require(all(getattr(saved, k) == v for k, v in fields.items()), 'variant readback mismatch')
         locked_item.refresh_from_db()
         _require(_state(locked_item) == frozen['item'], 'base item changed')
+        if sync_effects:
+            from botend.services.wow_item_effects import sync_central_effects
+            sync_central_effects(season=locked_season, item_ids=[item_id])
     return result

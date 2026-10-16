@@ -78,6 +78,7 @@ def _source():
     catalog = gb.catalog_context(season)
     variants = WowItemVariantSnapshot.objects.filter(season=season, batch_key=season.gear_batch_key) if season else WowItemVariantSnapshot.objects.none()
     facts = {
+        'effects_contract': 1,
         'schema': SCHEMA_VERSION, 'catalog': catalog,
         'variants': variants.aggregate(count=Count('pk'), updated=Max('updated_at')),
         'items': WowItemSnapshot.objects.aggregate(count=Count('pk'), updated=Max('updated_at')),

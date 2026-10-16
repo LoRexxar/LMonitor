@@ -454,7 +454,7 @@ def item_display_metadata(
     item_id, snapshot=None, *, item_level=0, variant=None, stats=None, effects=None,
     sources=None, icon_size='small', primary_stat='',
     game_build='', is_ptr=None, frozen_identity=None, legacy_identity=False,
-    strict_difficulty=False,
+    strict_difficulty=False, data_branch='',
 ):
     """返回三个装备入口共同消费的稳定展示契约。"""
     from botend.services.wow_item_identity import (
@@ -462,6 +462,8 @@ def item_display_metadata(
     )
     identity = frozen_identity or getattr(snapshot, '_resolved_identity', None)
     from botend.services.wow_data_branch import branch_item, variant_branch
+    central_snapshot = snapshot
+    effect_branch = data_branch or (variant_branch(variant) if variant is not None else 'ptr' if is_ptr else 'retail')
     if snapshot and variant is not None and not identity:
         projected = branch_item(snapshot, variant_branch(variant))
         if projected is not snapshot:
@@ -503,6 +505,14 @@ def item_display_metadata(
         variant.metadata if variant is not None and isinstance(variant.metadata, dict) else {}
     )
     native_journal = _native_journal_variant(variant)
+    from botend.services.wow_item_effects import resolve_effects
+    shared_effects, effects_status = resolve_effects(
+        central_snapshot, variant, branch=effect_branch, raw_effects=effects,
+        known_empty=native_journal and not variant.effects_json,
+        allow_reference=not frozen_identity and variant is None and (
+            not strict_difficulty or data_branch in ('retail', 'ptr', 'beta')),
+    )
+    effects = shared_effects
     if strict_difficulty and native_journal:
         # Base descriptions describe a reference variant, not this exact drop.
         # Keep central names/icons, but never borrow its upgrade track or layout.
@@ -544,7 +554,7 @@ def item_display_metadata(
         description=description, description_zh=description_zh, effects=_rows(effects),
         stats=normalized_stats, metadata=variant_metadata, names=(name, name_zh),
         enhancement=bool(snapshot and snapshot.catalog_type in ENHANCEMENTS),
-        recover_description_effects=(
+        recover_description_effects=not strict_difficulty and (
             not has_structured_projection
             or bool(snapshot and snapshot.catalog_type in ENHANCEMENTS)
         ),
@@ -600,6 +610,7 @@ def item_display_metadata(
         "stat_lines": stat_lines,
         "effects": normalized_effects,
         "effect_details": separated['effects'],
+        "effects_status": effects_status,
         "text_schema_version": 2,
         "effects_missing": bool(snapshot and snapshot.catalog_type in ENHANCEMENTS and not normalized_effects and not normalized_stats),
         "sources": normalized_sources,
@@ -751,6 +762,11 @@ def load_item_tooltip_metadata(requests):
         ).select_related('item'):
             variants_by_item.setdefault(int(variant.item.item_id), []).append(variant)
     result = []
+    from botend.services.wow_item_effects import compile_effects
+    for item_id, snapshot in snapshots.items():
+        # 兼容尚未回填的目录，只在本次已批量加载的资料中解析，不写库。
+        if not isinstance(snapshot.effects, dict) or snapshot.effects.get('schema') != 1:
+            snapshot.effects = compile_effects(variants_by_item.get(item_id, []))[0]
     from botend.services.wow_item_identity import has_identity_store, resolve_display_identity
     from botend.services.wow_data_branch import variant_branch
     for request, (
@@ -792,6 +808,7 @@ def load_item_tooltip_metadata(requests):
                 is_ptr=(data_branch == 'ptr') if data_branch != 'beta' else None,
                 legacy_identity=context.get('legacy_identity', False),
                 strict_difficulty=True,
+                data_branch=data_branch,
             )
             projected['data_branch'] = data_branch if data_branch in ('retail', 'ptr', 'beta') else ''
             projected['base_quality'] = snapshot.quality if snapshot else None
@@ -803,8 +820,9 @@ def load_item_tooltip_metadata(requests):
                 projected['quality'] = projected['base_quality'] if projected['catalog_type'] == 'misc' else None
                 # Base descriptions can contain old stats; those are not difficulty facts.
                 projected.update(variant_id=None, variant_key='', item_level=None, stats={},
-                                 stat_lines=[], effects=[], tooltip_complete=False,
-                                 display_description='', tooltip='')
+                                 stat_lines=[], tooltip_complete=False)
+                projected['tooltip'] = '\n'.join(projected['effects'])
+                projected['display_description'] = projected['tooltip']
             result.append(projected)
             continue
         if require_complete and any(row.effects_json for row in candidates):
@@ -828,6 +846,7 @@ def load_item_tooltip_metadata(requests):
             item_id, snapshot, item_level=item_level, variant=variant, primary_stat=primary_stat,
             game_build=game_build, is_ptr=(data_branch == 'ptr') if data_branch != 'beta' else None, frozen_identity=identity,
             legacy_identity=context.get('legacy_identity', False),
+            data_branch=data_branch,
         ))
     return result
 

@@ -233,6 +233,8 @@ def import_localization(path, *, apply=False, backup_path=None):
                     name=boss['name'], order=boss['order'], payload=boss) for boss in bosses])
             state.active_release = release
             state.save(update_fields=['active_release'])
+        from botend.services.wow_item_effects import sync_central_effects
+        sync_central_effects(season=season, item_ids=ITEM_IDS)
         report.update({'已写入': True, '备份': str(backup_path), '旧手册发布': previous.pk,
                        '当前手册发布': state.active_release_id})
         return report

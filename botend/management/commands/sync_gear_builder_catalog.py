@@ -156,6 +156,8 @@ class Command(BaseCommand):
                     'is_active', 'game_build', 'gear_batch_key', 'gear_sync_status',
                     'gear_synced_at', 'gear_sync_report', 'updated_at',
                 ))
+                from botend.services.wow_item_effects import sync_central_effects
+                sync_central_effects(season=locked, item_ids=item_ids)
             self.stdout.write(self.style.SUCCESS(f'已激活装备目录批次：{batch_key}'))
         else:
             self.stdout.write(self.style.SUCCESS(f'已写入待激活批次：{batch_key}'))

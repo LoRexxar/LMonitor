@@ -56,7 +56,12 @@ class DifficultyImportTests(TestCase):
         before = list(WowItemVariantSnapshot.objects.values())
         self.assertEqual(import_difficulty_variant(**self.kw, apply=True)['status'], 'noop')
         self.assertEqual(list(WowItemVariantSnapshot.objects.values()), before)
-        self.assertEqual(list(WowItemSnapshot.objects.values()), self.base_before)
+        # 公共特效现在归并到中央物品；其他基础资料与身份仍须逐字段保持。
+        current = list(WowItemSnapshot.objects.values())
+        for field in self.base_before[0]:
+            if field not in ('effects', 'updated_at'):
+                self.assertEqual(current[0][field], self.base_before[0][field])
+        self.assertEqual(current[0]['effects']['schema'], 1)
         from botend.services.wow_item_display import load_item_tooltip_metadata
         self.assertEqual(load_item_tooltip_metadata([{'item_id':250243, 'allow_default_variant':True,
             'default_variant_order':'lowest'}])[0]['variant_id'], self.legacy.pk)

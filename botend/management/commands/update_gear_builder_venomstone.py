@@ -118,6 +118,8 @@ class Command(BaseCommand):
                 current.gear_sync_report = deepcopy(current.gear_sync_report or {})
                 current.gear_sync_report['venomstone'] = {'build': SOURCE_BUILD, 'variants': len(targets), 'refreshed_variants': len(refresh), 'levels': [328, 340], 'tooltip_branches': branch_counts}
                 current.save(update_fields=['gear_sync_report'])
+            from botend.services.wow_item_effects import sync_central_effects
+            sync_central_effects(season=current, item_ids={row.item.item_id for row, _ in updates})
         report['created'] = created
         self.stdout.write(json.dumps(report, ensure_ascii=False))
         self.stdout.write(self.style.SUCCESS('毒液石选项及相关预览装备各档位数值已更新；原变体标识、当前批次和打孔规则保持不变。'))

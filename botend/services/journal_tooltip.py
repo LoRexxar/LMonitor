@@ -45,12 +45,16 @@ def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_bran
                 'stats': [], 'effects': [], 'complete': False, 'status': 'not_equipment',
                 'quality': item['quality']}
     if strict and not (item['variant_id'] and item['tooltip_complete']):
+        effects = item.get('effects') or []
         return {
-            'name': item['display_name'], 'lines': [item['display_name']],
+            'name': item['display_name'], 'lines': [item['display_name'], *effects],
             'source': 'LMonitor 中央物品目录', 'url': '', 'icon': item['icon_url'],
-            'quality': item['quality'], 'item_level': None, 'stats': [], 'effects': [],
-            'complete': False, 'status': 'unresolved',
-            'note': '尚无经过验证的此难度装备变体，装等、属性与难度品质未知。',
+            'quality': item['quality'], 'item_level': None, 'stats': [], 'effects': effects,
+            'complete': False, 'status': 'partial' if effects else 'unresolved',
+            'effects_status': item.get('effects_status', 'unknown'),
+            'stats_status': 'unknown',
+            'note': ('已收录此物品的特效资料；此难度适用性及具体数值待确认。' if effects else
+                     '尚无经过验证的此难度装备变体，装等、属性与难度品质未知。'),
         }
     is_ptr = bool(item['variant_metadata'].get('ptr_preview'))
     # variant 完整时直接返回结构化数据
@@ -86,6 +90,8 @@ def _local_item_tooltip(entry_id, build, *, use_current_catalog=False, data_bran
             'item_level': item_level,
             'stats': item['stat_lines'],
             'effects': item['effects'],
+            'effects_status': item.get('effects_status', 'unknown'),
+            'stats_status': 'resolved',
             'complete': True,
         }
     # variant 缺失时从 display_description（含静态属性说明前缀）解析属性

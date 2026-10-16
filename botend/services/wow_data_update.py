@@ -175,6 +175,8 @@ class UpdateSource:
             season=season, batch_key=season.gear_batch_key).select_related('item'))
         supplemental = {}
         for row in previous:
+            if 'difficulty_drop' in (row.metadata or {}):
+                continue
             if variant_branch(row) != branch:
                 continue
             item = by_id.get(row.item.item_id)
@@ -499,6 +501,8 @@ def publish(bundle, version, state, run, task):
                 WowItemVariantSnapshot.objects.create(season=season, batch_key=batch, item=item,
                     variant_key=variant['key'], **defaults)
                 changed_variants += 1
+    from botend.services.wow_item_effects import sync_central_effects
+    sync_central_effects(season=season, item_ids=[item['item_id'] for item in bundle['catalog']['items']], notify=False)
     # 可变资料只保留分支当前值；任务内已冻结的引用无需回写。
     for field, facts in (('item_identity_by_build', bundle.get('identities', [])),
                          ('simc_effect_activation_by_build', bundle.get('activations', []))):

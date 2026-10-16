@@ -113,6 +113,15 @@ def _validate_coverage(payload, key, expected):
         if row.get('class_id') in (2, 4) and not item['equipment']:
             raise ValueError('装备不能标为非装备')
         if item['equipment']:
+            # 掉落范围完整与属性完整分别校验；公共特效可独立发布，不借用其他难度数值。
+            if details.get('status') == 'partial':
+                if (details.get('complete') is not False or details.get('stats_status') != 'unknown'
+                        or details.get('item_level') is not None or details.get('stats') != []
+                        or details.get('effects_status') not in ('reference', 'localized', 'untranslated')
+                        or not isinstance(details.get('effects'), list) or not details['effects']
+                        or not all(isinstance(effect, str) and effect.strip() for effect in details['effects'])):
+                    raise ValueError('公共特效部分展示状态无效')
+                continue
             if (details.get('complete') is not True or details.get('status') != 'complete'
                     or type(details.get('item_level')) is not int or details['item_level'] <= 0
                     or type(details.get('quality')) is not int or not 0 <= details['quality'] <= 7

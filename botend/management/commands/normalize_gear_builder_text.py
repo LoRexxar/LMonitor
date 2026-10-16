@@ -48,5 +48,8 @@ class Command(BaseCommand):
                     if options['apply']:
                         row.effects_json, row.metadata = normalized['effects'], normalized['metadata']
                         row.save(update_fields=['effects_json', 'metadata'])
+        if options['apply']:
+            from botend.services.wow_item_effects import sync_central_effects
+            sync_central_effects(season=season)
         self.stdout.write(json.dumps({'模式': '已写入' if options['apply'] else '仅审计',
             '物品数': changed_items, '变体数': changed_variants}, ensure_ascii=False))

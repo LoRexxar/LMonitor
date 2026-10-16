@@ -263,6 +263,8 @@ class Command(BaseCommand):
                         updated_items.add(item.pk)
 
             # 补齐只刷新审计结果，目录规则等同步信息必须保留。
+            from botend.services.wow_item_effects import sync_central_effects
+            sync_central_effects(season=season)
             audit = {
                 **(season.gear_sync_report if isinstance(season.gear_sync_report, dict) else {}),
                 **SyncCommand()._audit_batch(season, season.gear_batch_key),
