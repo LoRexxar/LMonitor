@@ -29,6 +29,7 @@ from botend.services.gear_builder import (
     SPEC_WEAPON_INVENTORY_TYPES,
     active_season,
     catalog_context,
+    catalog_snapshot_items,
     spec_matches,
     stats_for_identity,
 )
@@ -325,6 +326,113 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
             'class': 'Warrior', 'spec': 'Fury', 'slot': 'head',
         }).json()
         self.assertNotIn(10001, [row['item_id'] for row in wrong_class_mask['items']])
+
+    def test_catalog_excludes_journal_difficulty_display_variants(self):
+        """手册专用难度变体只服务掉落展示，不能成为配装目录装备。"""
+        journal_variant = WowItemVariantSnapshot.objects.create(
+            item=self.helm, season=self.season, batch_key='test-batch',
+            game_build='12.1.0.99999',
+            variant_key='journal-difficulty:retail:12.1.0.99999:1320:16:6:690:aa20aa20aa20aa20aa20',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=690, compatible_slots=['head'],
+            stats_json={'strength': 700, 'stamina': 3000},
+            effects_json=[{'description': 'Equip: english only effect.'}],
+            source_json=[],
+            metadata={
+                'data_branch': 'retail',
+                'difficulty_drop': {'schema': 1, 'difficulty_id': 16, 'item_context': 6,
+                                    'instance_id': 1320, 'rule_build': '12.1.0.99999',
+                                    'quality': 4, 'provider': 'wago', 'bonus_ids': [1, 2]},
+                'tooltip_source': {'provider': 'wowhead', 'url': 'https://nether.wowhead.com/tooltip/item/10001',
+                                   'game_build': '', 'data_env': '1', 'response_sha256': 'a' * 64},
+            },
+        )
+        journal_only_item = WowItemSnapshot.objects.create(
+            item_id=10021, name='Journal Only Helm', name_zh='手册专属头盔',
+            catalog_type='equipment', slot_key='head', item_class_id=4,
+            item_subclass_id=4, inventory_type=1, armor_type='板甲',
+            eligible_specs=['Warrior:Fury'],
+        )
+        journal_only_variant = WowItemVariantSnapshot.objects.create(
+            item=journal_only_item, season=self.season, batch_key='test-batch',
+            game_build='12.1.0.99999',
+            variant_key='journal-difficulty:retail:12.1.0.99999:1320:17:4:679:bb20bb20bb20bb20bb20',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=679, compatible_slots=['head'],
+            stats_json={'strength': 650, 'stamina': 2900},
+            effects_json=[],
+            source_json=[],
+            metadata={
+                'data_branch': 'retail',
+                'difficulty_drop': {'schema': 1, 'difficulty_id': 17, 'item_context': 4,
+                                    'instance_id': 1320, 'rule_build': '12.1.0.99999',
+                                    'quality': 4, 'provider': 'wago', 'bonus_ids': [3, 4]},
+            },
+        )
+
+        response = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head',
+        }).json()
+        rows = response['items']
+        self.assertNotIn(10021, [row['item_id'] for row in rows])
+        helm = next(row for row in rows if row['item_id'] == 10001)
+        self.assertEqual(
+            {row['id'] for row in helm['variants']}, {self.hero.pk, self.myth.pk},
+        )
+        snapshot_rows = catalog_snapshot_items(
+            class_name='Warrior', spec_name='Fury', slot='head', season=self.season,
+        )
+        snapshot_helm = next(row for row in snapshot_rows if row['item_id'] == 10001)
+        self.assertEqual(
+            {variant['id'] for variant in snapshot_helm['variants']},
+            {self.hero.pk, self.myth.pk},
+        )
+        self.assertNotIn(10021, [row['item_id'] for row in snapshot_rows])
+        # 专用变体数据本身保持冻结，不受目录筛选影响。
+        journal_variant.refresh_from_db()
+        journal_only_variant.refresh_from_db()
+
+    def test_catalog_journal_variants_do_not_poison_branch_inference(self):
+        """新增 retail 手册变体不能顶掉原本唯一的 PTR 目录分支。"""
+        item = WowItemSnapshot.objects.create(
+            item_id=10022, name='PTR Only Helm', name_zh='PTR专属头盔',
+            catalog_type='equipment', slot_key='head', item_class_id=4,
+            item_subclass_id=4, inventory_type=1, armor_type='板甲',
+            eligible_specs=['Warrior:Fury'],
+        )
+        ptr_variant = WowItemVariantSnapshot.objects.create(
+            item=item, season=self.season, batch_key='test-batch',
+            game_build='12.1.0.99999', variant_key='ptr-hero-1',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=705, upgrade_track='hero', track_rank=1, track_max_rank=6,
+            compatible_slots=['head'], data_branch='ptr',
+            stats_json={'strength': 880, 'stamina': 3900},
+            effects_json=[{'description_zh': '装备：PTR 测试特效。'}],
+            source_json=[{'type': 'raid', 'instance_zh': 'PTR 测试团本'}],
+            metadata={'data_branch': 'ptr', 'ptr_preview': True},
+        )
+        WowItemVariantSnapshot.objects.create(
+            item=item, season=self.season, batch_key='test-batch',
+            game_build='12.1.0.99999',
+            variant_key='journal-difficulty:retail:12.1.0.99999:1320:16:6:690:cc20cc20cc20cc20cc20',
+            variant_type=WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+            item_level=690, compatible_slots=['head'], data_branch='retail',
+            stats_json={'strength': 700, 'stamina': 3000},
+            effects_json=[], source_json=[],
+            metadata={
+                'data_branch': 'retail',
+                'difficulty_drop': {'schema': 1, 'difficulty_id': 16, 'item_context': 6,
+                                    'instance_id': 1320, 'rule_build': '12.1.0.99999',
+                                    'quality': 4, 'provider': 'wago', 'bonus_ids': [5, 6]},
+            },
+        )
+
+        rows = self.client.get('/portal/api/gear-builder/catalog/', {
+            'class': 'Warrior', 'spec': 'Fury', 'slot': 'head',
+        }).json()['items']
+        row = next(row for row in rows if row['item_id'] == 10022)
+        self.assertEqual([variant['id'] for variant in row['variants']], [ptr_variant.pk])
+        self.assertEqual(row['variants'][0]['item_level'], 705)
 
     def test_catalog_quick_filters_exclude_sources_and_secondary_stats(self):
         mythic_plus = WowItemVariantSnapshot.objects.create(
@@ -1707,7 +1815,7 @@ class GearBuilderFrontendContractTests(TestCase):
         for value in ('装备', '强化', '美化', '宝石', '永久附魔', '导入 SimC', '复制 SimC', '绿字', '游戏预览', '角色装备预览', '保存配装', '配装列表', '保存配装到线上', '分享短链接', '线上配装'):
             self.assertIn(value, template)
         self.assertIn('gear-add-socket', template)
-        self.assertEqual(template.count('<details class="gear-enhancement-section">'), 3)
+        self.assertEqual(template.count('class="gear-enhancement-section"'), 3)
         self.assertEqual(template.count('<summary class="gear-enhancement-heading">'), 3)
         self.assertNotIn('<details class="gear-enhancement-section" open>', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
@@ -1734,7 +1842,7 @@ class GearBuilderFrontendContractTests(TestCase):
             self.assertIn(value, script)
         tooltip_script = (root / 'static/shared/js/wow-item-tooltip.js').read_text(encoding='utf-8')
         self.assertIn('window.__wowItemTooltipInitialized', tooltip_script)
-        self.assertIn("portal/css/gear_builder.css' %}?v=20260928_detail_theme", template)
+        self.assertIn("portal/css/gear_builder.css' %}?v=20261013_gem_quantity", template)
         for value in ('gear-owned-add-icon', 'gear-owned-add-label', 'is-saving', 'is-added', '再次点击会增加数量'):
             self.assertIn(value, script)
         self.assertIn('.gear-owned-add:focus-visible', styles)

@@ -709,6 +709,11 @@ def _is_ptr_equipment(variant):
             or bool(metadata.get('ptr_preview')))
 
 
+def _is_journal_display_variant(variant):
+    """手册专用难度变体只服务掉落展示，不参与配装目录的分支推断与选择。"""
+    return isinstance(variant.metadata, dict) and 'difficulty_drop' in variant.metadata
+
+
 def _equipment_catalog_variants(season, class_name, spec_name, slot, query=''):
     """按物品 ID 选择一个分支：优先正式服，缺少正式服时保留 PTR。"""
     from botend.services.wow_data_branch import variant_branch
@@ -717,6 +722,9 @@ def _equipment_catalog_variants(season, class_name, spec_name, slot, query=''):
         WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
         WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
     ), query).select_related(None).prefetch_related('item'):
+        # Journal 专用变体在分支推断之前排除，避免 retail 手册行顶掉 PTR 独有目录。
+        if _is_journal_display_variant(variant):
+            continue
         if (not _source_track_is_valid(variant)
                 or not slot_matches(variant, slot, class_name, spec_name)
                 or not spec_matches(variant.item, class_name, spec_name, variant, slot)):
