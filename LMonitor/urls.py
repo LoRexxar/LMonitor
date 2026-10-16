@@ -1,4 +1,5 @@
 from botend.dashboard.wow_localization import WowLocalizationAPI
+from botend.dashboard.central_data import CentralDataAPI
 from botend.analytics.views import CollectView, AnalyticsAPIView
 """LMonitor URL Configuration
 
@@ -174,6 +175,7 @@ urlpatterns = [
     path('api/dashboard/class-guides/', GuideCatalogAPI.as_view(), name='dashboard_class_guide_catalog_api'),
     path('api/dashboard/class-guides/disclaimer/', GuideDisclaimerAPI.as_view(), name='dashboard_class_guide_disclaimer_api'),
     path('api/dashboard/wow-localization/', WowLocalizationAPI.as_view(), name='dashboard_wow_localization_api'),
+    path('api/dashboard/central-data/', CentralDataAPI.as_view(), name='dashboard_central_data_api'),
     path('api/dashboard/class-guides/<int:guide_id>/', GuideDetailAPI.as_view(), name='dashboard_class_guide_detail_api'),
     # path('admin/', admin.site.urls),
     path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),

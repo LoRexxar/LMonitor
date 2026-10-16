@@ -543,7 +543,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261014_ai_management"></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261016_central_data"></script>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -566,6 +566,10 @@
     {% endif %}
     <script src="{% static 'dashboard/js/user_management.js' %}?v=20260928_bilibili" defer></script>
     <script src="{% static 'dashboard/js/gear_builder_management.js' %}?v=20260901a" defer></script>
+    {% if 'database.central-data' in dashboard_permissions %}
+    <link rel="stylesheet" href="{% static 'dashboard/css/central-data.css' %}?v=20261016">
+    <script src="{% static 'dashboard/js/central-data.js' %}?v=20261016" defer></script>
+    {% endif %}
     <script src="{% static 'dashboard/js/wow_today_management.js' %}?v=20260903a" defer></script>
     <script src="{% static 'dashboard/js/portal_navigation_management.js' %}?v=20260903b" defer></script>
     <link rel="stylesheet" href="{% static 'dashboard/css/site_analytics.css' %}?v=20260928">
@@ -893,6 +897,9 @@
                             </li>
                         </ul>
                     </li>
+                    {% if 'database.central-data' in dashboard_permissions %}
+                    <li class="nav-item" data-section="central-data"><a href="?section=central-data" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200"><i class="fas fa-layer-group mr-3"></i>装备与天赋查询</a></li>
+                    {% endif %}
                     <li class="nav-item has-submenu open" data-section="database-tables">
                         <a href="#" aria-expanded="true" aria-controls="database-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-database mr-3"></i>
@@ -1292,6 +1299,11 @@
             <div class="content-section" id="wow-localization" style="display: none;">
                 {% if 'tools.wow-localization' in dashboard_permissions %}
                 {% include 'dashboard/guide_terms.html' %}
+                {% endif %}
+            </div>
+            <div class="content-section" id="central-data" style="display: none;">
+                {% if 'database.central-data' in dashboard_permissions %}
+                {% include 'dashboard/central_data.html' %}
                 {% endif %}
             </div>
             <div class="content-section" id="class-guides" style="display: none;">

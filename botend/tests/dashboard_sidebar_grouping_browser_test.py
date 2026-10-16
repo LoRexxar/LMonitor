@@ -34,7 +34,7 @@ class SidebarGroupingBrowserTests(unittest.TestCase):
                 {'key': 'content', 'label': '内容运营', 'entries': ['class-guide-module', 'news', 'site']},
                 {'key': 'tools', 'label': '游戏工具', 'entries': ['simc', 'mythic-planner', 'gear-builder-management', 'tools']},
                 {'key': 'access', 'label': '账号权限', 'entries': ['user-management', 'user-groups', 'bilibili-binding']},
-                {'key': 'operations', 'label': '运行维护', 'entries': ['MonitorTask', 'logs', 'database-tables']},
+                {'key': 'operations', 'label': '运行维护', 'entries': ['MonitorTask', 'logs', 'ai-management', 'central-data', 'database-tables']},
             ])
             # Three grouping folders add only their own header links; no entry lost.
             self.assertEqual(page.locator('#dashboard-primary-nav a').count(), before + 3)

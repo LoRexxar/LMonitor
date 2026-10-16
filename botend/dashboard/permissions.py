@@ -32,6 +32,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'tools.wcl-analysis', 'label': 'WCL 分析', 'section': 'wcl-analysis-entry', 'parent': '工具箱'},
     {'code': 'tools.wago-rerun', 'label': 'Wago 指定版本重跑', 'section': 'wago-skill-diff-rerun', 'parent': '工具箱'},
     {'code': 'database.tables', 'label': '数据库', 'section': 'database-tables', 'parent': '系统'},
+    {'code': 'database.central-data', 'label': '装备与天赋查询', 'section': 'central-data', 'parent': '系统'},
 ))
 
 SECTION_PERMISSION_CODES = {

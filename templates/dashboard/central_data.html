@@ -1,0 +1,20 @@
+<div class="central-data-workspace" id="central-data-workspace">
+    <header class="cd-heading"><div><p class="cd-eyebrow">中央资料</p><h1>装备与天赋查询</h1><p>查看各页面共用的资料、属性和描述。</p></div><span class="cd-badge">只读查询</span></header>
+    <div class="cd-tabs" role="tablist" aria-label="资料类型"><button type="button" role="tab" aria-selected="true" data-cd-resource="items">装备资料</button><button type="button" role="tab" aria-selected="false" data-cd-resource="talents">天赋资料</button></div>
+    <form id="cd-filters" class="cd-panel">
+        <div class="cd-search-row"><label>数据分支<select name="branch"><option value="retail">正式服</option><option value="ptr">测试服 PTR</option></select></label><label class="cd-search">搜索<input name="q" type="search" maxlength="150" placeholder="中文名、英文名或物品 ID" autocomplete="off"></label><button type="submit" class="cd-primary">查询</button><button type="button" id="cd-reset">重置筛选</button></div>
+        <div class="cd-filter-grid" data-cd-fields="items">
+            <label>赛季<select name="season"><option value="">全部已发布赛季</option></select></label><label>类型<select name="variant_type"><option value="">全部类型</option></select></label><label>装备部位<select name="slot"><option value="">全部部位</option></select></label><label>品质<select name="quality"><option value="">全部品质</option></select></label>
+            <label>升级轨道<select name="upgrade_track"><option value="">全部轨道</option></select></label><label>最低装等<input name="min_level" type="number" min="0" max="10000" placeholder="不限"></label><label>最高装等<input name="max_level" type="number" min="0" max="10000" placeholder="不限"></label><label>中文名称<select name="language"><option value="">全部</option><option value="translated">已有中文</option><option value="missing">待补中文</option></select></label>
+        </div>
+        <div class="cd-filter-grid" data-cd-fields="talents" hidden>
+            <label>职业<select name="class_name" disabled><option value="">全部职业</option></select></label><label>专精<select name="spec_name" disabled><option value="">全部专精</option></select></label><label>天赋树<select name="tree_type" disabled><option value="">全部天赋树</option></select></label><label>描述合成<select name="status" disabled><option value="">全部状态</option><option value="ready">已完整合成</option><option value="partial">资料待补齐</option><option value="unbuilt">尚未合成</option></select></label>
+        </div>
+    </form>
+    <section class="cd-panel cd-results" aria-label="查询结果"><div class="cd-result-heading"><div><strong id="cd-result-count">准备查询</strong><p id="cd-result-hint">按物品 ID 聚合，详情展示当前目录中的装等与掉落变体。</p></div><label>每页<select id="cd-page-size"><option value="25">25 条</option><option value="50">50 条</option><option value="100">100 条</option></select></label></div>
+        <div id="cd-message" role="status" aria-live="polite" hidden></div>
+        <div class="cd-table-scroll"><table class="cd-table"><thead id="cd-table-head"></thead><tbody id="cd-table-body"></tbody></table></div>
+        <div class="cd-pagination"><span id="cd-page-info"></span><div><button type="button" id="cd-prev" disabled>上一页</button><button type="button" id="cd-next" disabled>下一页</button></div></div>
+    </section>
+    <dialog id="cd-detail" aria-labelledby="cd-detail-title"><div class="cd-detail-head"><div><p class="cd-eyebrow" id="cd-detail-subtitle"></p><h2 id="cd-detail-title">资料详情</h2></div><button type="button" id="cd-detail-close" aria-label="关闭详情">关闭</button></div><div id="cd-detail-body"></div><div class="cd-pagination"><span id="cd-detail-page-info"></span><div><button type="button" id="cd-detail-prev">上一页</button><button type="button" id="cd-detail-next">下一页</button></div></div></dialog>
+</div>
