@@ -241,6 +241,7 @@ def project_item_identity(item, ref):
         return item
     from botend.services.wow_data_branch import branch_item
     projected = copy(item)
+    projected._central_icon_provenance = getattr(item, '_central_icon_provenance', (item.icon, item.source))
     projected.icon = branch_item(item, 'ptr' if ref['is_ptr'] else 'retail').icon
     for field in IDENTITY_FIELDS:
         setattr(projected, field, ref[field])

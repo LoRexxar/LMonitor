@@ -59,6 +59,21 @@ class ItemIconProjectionTests(TestCase):
                 self.assertEqual(display['journal_item']['icon'], 8268560)
                 self.assertEqual(item.icon, '')
 
+    def test_published_numeric_wowhead_basename_is_not_an_unmapped_fdid(self):
+        # Wowhead's actual item 268240 response publishes "8095063" as its
+        # icon basename, and that exact CDN JPEG exists; it is not a guessed URL.
+        item = WowItemSnapshot(item_id=268240, icon='8095063',
+            source='wowhead_live_tooltip', metadata={
+                'branch_display': {'retail': {'icon': '8095063'}}})
+        projected = branch_item(item, 'retail')
+        display = item_display_metadata(item.item_id, projected)
+        self.assertEqual(display['icon_url'], 'https://oss.wowdaily.cn/wow_icons_oss/small/8095063.jpg')
+        item.metadata['branch_display']['retail']['icon'] = '8268560'
+        self.assertEqual(item_display_metadata(item.item_id, branch_item(item, 'retail'))['icon_url'], '')
+        item.metadata = {}
+        item.source = 'wago'
+        self.assertEqual(item_display_metadata(item.item_id, item)['icon_url'], '')
+
     def test_identity_projection_uses_branch_icon_without_changing_frozen_identity(self):
         ref = identity_reference(fact(NEW), is_ptr=True)
         item = WowItemSnapshot(item_id=281235, icon='inv_base_icon', metadata={

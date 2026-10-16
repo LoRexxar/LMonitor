@@ -461,7 +461,7 @@ def item_display_metadata(
         has_identity_store, resolve_display_identity, variant_identity, project_item_identity,
     )
     identity = frozen_identity or getattr(snapshot, '_resolved_identity', None)
-    from botend.services.wow_data_branch import branch_item, named_item_icon, variant_branch
+    from botend.services.wow_data_branch import branch_item, item_cdn_icon, variant_branch
     if snapshot and variant is not None and not identity:
         projected = branch_item(snapshot, variant_branch(variant))
         if projected is not snapshot:
@@ -500,7 +500,7 @@ def item_display_metadata(
         description_zh = str(raw_descriptions.get('description_zh') or '')
     has_chinese_description = bool(description_zh.strip())
     icon = (snapshot.icon if snapshot else "") or ""
-    icon_name = named_item_icon(icon)
+    icon_name = item_cdn_icon(snapshot)
     normalized_stats = _normalize_stats(stats)
     variant_metadata = (
         variant.metadata if variant is not None and isinstance(variant.metadata, dict) else {}

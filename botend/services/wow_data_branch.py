@@ -15,6 +15,20 @@ def named_item_icon(value):
     return name
 
 
+def item_cdn_icon(item):
+    """Preserve a published numeric basename, never invent one from an overlay FDID."""
+    if item is None:
+        return ''
+    named = named_item_icon(item.icon)
+    if named:
+        return named
+    original, source = getattr(item, '_central_icon_provenance', (item.icon, item.source))
+    if (source == 'wowhead_live_tooltip' and isinstance(original, str)
+            and original.isascii() and original.isdigit() and str(item.icon) == original):
+        return original
+    return ''
+
+
 def current_fact_store(entries):
     """旧构建索引归并为每分支当前事实，兼容读取后写回单份资料。"""
     current = {}
@@ -38,6 +52,7 @@ def branch_item(item, branch):
     if not isinstance(payload, dict):
         return item
     result = copy(item)
+    result._central_icon_provenance = getattr(item, '_central_icon_provenance', (item.icon, item.source))
     allowed = {field.name for field in item._meta.concrete_fields} - {'id', 'item_id', 'metadata', 'updated_at'}
     for key in allowed & payload.keys():
         # A branch's raw FDID is not a replacement for a resolved icon name.
