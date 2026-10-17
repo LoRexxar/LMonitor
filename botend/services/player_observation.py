@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import timedelta
 
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.utils import timezone
 
 from botend.constants.wow import SPEC_IDENTITY_MAP, canonical_class_spec
@@ -158,8 +158,8 @@ def _stamp(value):
     return value.isoformat() if value else None
 
 
-def _context(player):
-    identity = player_identity(player)
+def _context(player, *, identity=None, activity=None):
+    identity = identity or player_identity(player)
     if not identity or identity['character_name'] == 'anonymous':
         return None
     season = SeasonMeta.objects.filter(pk=player.season_id, is_active=True).only('id', 'rio_season', 'raid_encounters').first()
@@ -184,9 +184,10 @@ def _context(player):
             break
     if not eligible:
         return None
-    activity = RaiderIOCharacterActivity.objects.filter(season_id=season.pk,
-        identity_digest=activity_identity_digest(**identity)).only('id', 'season_id', 'identity_digest',
-        'payload_json', 'module_fetched_at', 'fetched_at', 'source_updated_at', 'status', 'last_error', 'scored_runs_json').first()
+    if activity is None:
+        activity = RaiderIOCharacterActivity.objects.filter(season_id=season.pk,
+            identity_digest=activity_identity_digest(**identity)).only('id', 'season_id', 'identity_digest',
+            'payload_json', 'module_fetched_at', 'fetched_at', 'source_updated_at', 'status', 'last_error', 'scored_runs_json').first()
     return (season, identity, activity, candidate.class_name) if activity else None
 
 
@@ -573,6 +574,16 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
     with transaction.atomic():
         row, _ = PlayerObservationAnalysis.objects.get_or_create(activity_id=evidence['activity_id'])
         row = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
+        if row.player_id is None:
+            # Link only an exact, persisted same-season identity. Never rebind a
+            # representative based on a name or overwrite any editorial state.
+            representative = PlayerSpecTopPlayer.objects.filter(pk=player.pk).only(
+                'id', 'season_id', 'region', 'realm', 'character_name', 'profile_url').first()
+            identity = player_identity(representative) if representative else None
+            activity = RaiderIOCharacterActivity.objects.only('season_id', 'identity_digest').get(pk=row.activity_id)
+            if identity and representative.season_id == activity.season_id and activity_identity_digest(**identity) == activity.identity_digest:
+                PlayerObservationAnalysis.objects.filter(pk=row.pk, player__isnull=True).update(player_id=representative.pk)
+                row.player_id = representative.pk
         if row.lease_token and row.lease_expires_at and row.lease_expires_at > now:
             return {'status': 'busy', 'analysis_id': row.pk, **audit}
         if row.next_attempt_at and row.next_attempt_at > now:
@@ -613,7 +624,8 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
             return {**_fail(row.pk, token, 'evidence_changed'), **audit}
         updated = PlayerObservationAnalysis.objects.filter(pk=row.pk, lease_token=token, lease_expires_at__gt=timezone.now()).update(
             evidence_hash=current['evidence_hash'], evidence_json=current, result_json=result, prompt_version=PROMPT_VERSION,
-            status='ready', generated_at=timezone.now(), lease_token='', lease_expires_at=None, next_attempt_at=None, last_error='')
+            status='ready', generated_at=timezone.now(), lease_token='', lease_expires_at=None, next_attempt_at=None, last_error='',
+            revision=F('revision') + 1)
         return {'status': 'ready' if updated else 'lease_expired', 'analysis_id': row.pk, **audit}
 
 
@@ -655,16 +667,42 @@ def project_player_observation(player):
     view = {'status': 'pending', 'generated_at': None, 'model_label': '项目 AI',
         'coverage': dict.fromkeys(COVERAGE_KEYS, 0), 'season_counts': {'total': None, 'timed': None},
         'observations': [], 'conclusion': '', 'limitations': [], 'source_stamps': {}}
-    context = _context(player)
+    # Editorial publication applies to any verified database character, not just
+    # automatic Top20 eligibility. Resolve the SAME season/digest central row.
+    identity = player_identity(player)
+    row = None
+    if identity:
+        row = PlayerObservationAnalysis.objects.select_related('activity').filter(
+            activity__season_id=player.season_id,
+            activity__identity_digest=activity_identity_digest(**identity)).first()
+    if row and (not row.is_published or row.review_status == 'rejected'):
+        return None  # Whole-record hide includes the independent raid projection.
+    if row and row.manual_json:
+        if row.review_status != 'approved':
+            return None  # Never pass an unpublished manual draft off as AI.
+        manual = row.manual_json
+        tags = manual.get('tags', [])
+        def display_evidence(items):
+            return [{**item, 'run_url': item.get('url', '')} for item in items]
+        view.update(status='ready', generated_at=row.reviewed_at, model_label='人工审核',
+            source_kind='manual', manual=manual, analysis_id=row.pk,
+            activity_id=row.activity_id, player_id=row.player_id,
+            conclusion=manual.get('conclusion', ''), evidence=display_evidence(manual.get('evidence', [])),
+            display_judgements=[{**tag, 'code': f'manual:{index}', 'supported': True,
+                'evidence': display_evidence(tag.get('evidence', []))} for index, tag in enumerate(tags)],
+            has_supported_judgements=bool(tags or manual.get('conclusion') or manual.get('evidence')))
+        return view
+    context = _context(player, identity=identity, activity=row.activity if row else None)
     if not context:
         return None
-    row = PlayerObservationAnalysis.objects.filter(activity_id=context[2].pk).first()
     if row is None and 'raid_first_kills' not in context[2].payload_json:
         return None
     from botend.services.player_raid_observation import project_raid_observation
     view['raid_judgement'] = project_raid_observation(context[2], context[0], context[1])
     if row is None:
         return view
+    view.update(source_kind='ai', manual=None, analysis_id=row.pk,
+                activity_id=row.activity_id, player_id=row.player_id)
     current = _build(context)
     view.update(coverage=current['coverage'], season_counts=current['season_counts'], limitations=current['limitations'], source_stamps=current['source_stamps'])
     if not row.result_json:
@@ -691,6 +729,7 @@ def project_player_observation(player):
     if _local_empty(row.result_json, current):
         view.update(status='stale' if row.last_error or current['source_failed'] else 'ready',
                     generated_at=row.generated_at, model_label='',
+                    source_kind='local_deterministic',
                     display_judgements=_display_judgements(current), has_supported_judgements=False,
                     publication_metadata=row.result_json['metadata'])
         return view

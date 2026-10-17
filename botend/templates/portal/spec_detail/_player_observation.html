@@ -1,9 +1,12 @@
-{% if observation.status == 'ready' and observation.has_supported_judgements or observation.status == 'stale' and observation.has_supported_judgements or observation.raid_judgement.supported %}
-<section id="player-observation" class="player-observation" aria-labelledby="player-observation-title" data-status="{{ observation.status }}">
+{% if observation.status != 'hidden' and observation.status != 'archived' and observation.is_published != False and observation.review_status != 'rejected' %}
+{% if observation.source_kind != 'manual' or observation.review_status != 'pending' %}
+{% if observation.status == 'ready' and observation.has_supported_judgements or observation.status == 'stale' and observation.has_supported_judgements or observation.raid_judgement.supported or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'ready' or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'stale' %}
+<section id="player-observation" class="player-observation" aria-labelledby="player-observation-title" data-status="{{ observation.status }}" data-source="{{ observation.source_kind|default:'ai' }}">
     <header class="player-observation__header">
         <h2 id="player-observation-title">玩家观察</h2>
+        {% if observation.source_kind == 'manual' %}<span class="player-observation__source">人工维护</span>{% endif %}
         {% if observation.status == 'ready' or observation.status == 'stale' %}
-        {% if observation.has_supported_judgements and observation.generated_at %}<time class="player-observation__meta" datetime="{{ observation.generated_at|date:'c' }}">{{ observation.generated_at|date:"m-d H:i" }}</time>{% endif %}
+        {% if observation.generated_at %}<time class="player-observation__meta" datetime="{{ observation.generated_at|date:'c' }}">{{ observation.generated_at|date:"m-d H:i" }}</time>{% endif %}
         {% endif %}
     </header>
     {% if observation.status == 'stale' and observation.has_supported_judgements %}<p class="player-observation__meta">大秘境观察已过期，待更新。</p>{% endif %}
@@ -20,7 +23,23 @@
         {% endif %}
     </ul>
     {% if observation.status == 'ready' or observation.status == 'stale' %}
-    {% if observation.has_supported_judgements %}<p class="player-observation__note">仅代表公开样本；当前成绩非历史加分。</p>{% endif %}
+        {% if observation.source_kind == 'manual' %}
+            {% if observation.conclusion %}<p class="player-observation__conclusion">{{ observation.conclusion }}</p>{% endif %}
+            {% if observation.evidence %}
+            <details class="player-observation__details">
+                <summary>查看结论证据</summary>
+                <ul class="player-observation__evidence">
+                {% for evidence in observation.evidence %}
+                    {% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}
+                {% endfor %}
+                </ul>
+            </details>
+            {% endif %}
+        {% else %}
+            {% if observation.has_supported_judgements %}<p class="player-observation__note">仅代表公开样本；当前成绩非历史加分。</p>{% endif %}
+        {% endif %}
     {% endif %}
 </section>
+{% endif %}
+{% endif %}
 {% endif %}

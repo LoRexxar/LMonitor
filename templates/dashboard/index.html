@@ -695,6 +695,7 @@
                         </a>
                     </li>
                     {% if user.is_superuser %}
+                    <li class="dashboard-independent-link"><a href="/dashboard/player-analyses/"><i class="fas fa-user-check" aria-hidden="true"></i>角色分析管理</a></li>
                     <li class="nav-item" data-section="bilibili-binding"><a href="?section=bilibili-binding" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fab fa-bilibili mr-3" aria-hidden="true"></i>B 站绑定设置</a></li>
                     {% endif %}
                     <li class="nav-item" data-section="site-analytics">

@@ -90,6 +90,10 @@ from botend.portal.gear_builder import (
 from botend.dashboard.gear_builder_management import DashboardGearBuilderManagementAPIView
 from botend.dashboard.wow_today_management import DashboardWowTodaySectionAPIView
 from botend.dashboard.ai_management import AIProviderManagementAPIView
+from botend.dashboard.player_analysis_management import (
+    PlayerAnalysisManagementPage, PlayerAnalysisCollectionAPI,
+    PlayerAnalysisDetailAPI, PlayerAnalysisCharactersAPI,
+)
 from botend.dashboard.portal_navigation_management import DashboardPortalNavigationAPIView
 from botend.portal.api import (
     PortalBluepostsAPIView,
@@ -206,6 +210,10 @@ urlpatterns = [
 
     # Dashboard路由
     path('dashboard/', DashboardView.as_view(), name="dashboard"),
+    path('dashboard/player-analyses/', PlayerAnalysisManagementPage.as_view(), name='dashboard_player_analyses'),
+    path('dashboard/api/player-analyses/', PlayerAnalysisCollectionAPI.as_view(), name='dashboard_player_analyses_api'),
+    path('dashboard/api/player-analyses/characters/', PlayerAnalysisCharactersAPI.as_view(), name='dashboard_player_analysis_characters_api'),
+    path('dashboard/api/player-analyses/<int:analysis_id>/', PlayerAnalysisDetailAPI.as_view(), name='dashboard_player_analysis_detail_api'),
     path('api/dashboard/users/', DashboardUserListAPIView.as_view(), name='dashboard_user_list'),
     path('api/dashboard/users/<int:user_id>/', DashboardUserDetailAPIView.as_view(), name='dashboard_user_detail'),
     path('api/dashboard/user-groups/', DashboardUserGroupListAPIView.as_view(), name='dashboard_user_group_list'),

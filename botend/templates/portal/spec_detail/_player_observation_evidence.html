@@ -1,0 +1,5 @@
+<li><span>{{ evidence.text }}</span>
+    {% if evidence.url|lower|slice:':7' == 'http://' or evidence.url|lower|slice:':8' == 'https://' %}<a href="{{ evidence.url }}" target="_blank" rel="noopener noreferrer">证据来源</a>
+    {% elif evidence.run_url|lower|slice:':7' == 'http://' or evidence.run_url|lower|slice:':8' == 'https://' %}<a href="{{ evidence.run_url }}" target="_blank" rel="noopener noreferrer">通关来源</a>{% endif %}
+    {% if evidence.source_url|lower|slice:':7' == 'http://' or evidence.source_url|lower|slice:':8' == 'https://' %}<a href="{{ evidence.source_url }}" target="_blank" rel="noopener noreferrer">首杀来源</a>{% endif %}
+</li>

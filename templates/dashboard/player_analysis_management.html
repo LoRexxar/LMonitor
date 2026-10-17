@@ -1,0 +1,26 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>角色分析管理 · LMonitor 后台</title>
+    <script>
+        try { if (localStorage.getItem('lmonitor-dashboard-theme') === 'dark') document.documentElement.dataset.dashboardTheme = 'dark'; } catch (_) {}
+    </script>
+    <link rel="stylesheet" href="{% static 'dashboard/css/player-analysis-management.css' %}?v=20261018_management_v1">
+    <script defer src="{% static 'dashboard/js/player-analysis-management.js' %}?v=20261018_management_v1"></script>
+</head>
+<body class="player-analysis-page">
+    <header class="pa-header">
+        <div><a href="/dashboard/">← 返回后台</a><h1>角色分析管理</h1></div>
+        <button id="analysis-theme-toggle" type="button" aria-label="切换浅色或深色主题">浅色 / 深色</button>
+    </header>
+    <main class="pa-container">
+        <p class="pa-intro">独立审查 AI 冻结事实与人工维护内容。人工内容仅在批准且公开后出现在门户。</p>
+        <div id="player-analysis-app"></div>
+        <noscript>此管理页面需要启用 JavaScript。请启用后重新加载。</noscript>
+    </main>
+</body>
+</html>
