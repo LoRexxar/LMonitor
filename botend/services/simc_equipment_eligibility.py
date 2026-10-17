@@ -40,12 +40,17 @@ class EquipmentEligibility:
         self.items = {row.item_id: row for row in WowItemSnapshot.objects.filter(item_id__in=item_ids)} if item_ids else {}
         self.variants = defaultdict(list)
         if self.items:
+            # Reuse the one authoritative item instance already loaded above.
+            # select_related would decode the same large metadata JSON once for
+            # every level/bonus variant, even for a single-coordinate detail.
+            items_by_pk = {item.pk: item for item in self.items.values()}
             for row in WowItemVariantSnapshot.objects.filter(
                 item__item_id__in=self.items, season__is_active=True,
                 batch_key=F('season__gear_batch_key'),
                 variant_type__in=(WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
                                   WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT),
-            ).select_related('item').order_by('-season__gear_synced_at', '-season_id', '-pk'):
+            ).order_by('-season__gear_synced_at', '-season_id', '-pk').iterator(chunk_size=256):
+                row.item = items_by_pk[row.item_id]
                 self.variants[row.item.item_id].append(row)
         if any(self._declared_embellishments(swap) != (set(), False)
                for params in candidate_params for swap in candidate_swaps(params)):

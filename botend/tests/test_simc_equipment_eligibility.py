@@ -26,6 +26,27 @@ def params(item_id, slot='trinket1'):
 
 
 class EquipmentEligibilityTests(TestCase):
+    def test_variants_share_the_single_loaded_item_without_duplicate_json(self):
+        item = equipment(123, primary=('strength',))
+        item.metadata['source_evidence'] = {'lines': ['evidence-' + str(i) for i in range(100)]}
+        item.save(update_fields=['metadata'])
+        season = SeasonMeta.objects.create(season_key='shared-item', season_name='Shared',
+            mplus_zone_id=1, raid_zone_id=2, is_active=True, gear_batch_key='current')
+        for level in range(280, 300):
+            WowItemVariantSnapshot.objects.create(item=item, season=season, batch_key='current',
+                variant_key=str(level), variant_type='drop_equipment', item_level=level,
+                stats_json={'strength': 100}, metadata={'level': level})
+        with self.assertNumQueries(2):
+            eligibility = EquipmentEligibility([params(123)])
+            variants = eligibility.variants[123]
+            self.assertEqual(len(variants), 20)
+            for variant in variants:
+                self.assertIs(variant.item, eligibility.items[123])
+                self.assertEqual(variant.item.metadata, item.metadata)
+                self.assertEqual(variant.metadata['level'], variant.item_level)
+            self.assertIsNone(eligibility.reason(params(123), 'warrior_fury'))
+            self.assertIsNotNone(eligibility.reason(params(123), 'mage_fire'))
+
     def test_simulation_does_not_treat_loot_specs_as_equip_restrictions(self):
         # Captured live metadata: the DPS loot lists exclude same-stat tanks.
         from botend.services.gear_builder import spec_matches
