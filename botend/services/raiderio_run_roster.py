@@ -139,6 +139,13 @@ def validate_details(data, run, rio_season):
             raise ValueError('invalid member')
         source = member['character']
         character = {key: _text(source.get(key)) for key in ('name', 'path')}
+        # Raider.IO can anonymize one member as id=0/anonymous realm/no path
+        # while retaining a display name. This is NOT a valid zero character ID:
+        # withdraw the entire roster, preserving all normal ID/scope validation.
+        if (type(source.get('id')) is int and source['id'] == 0
+                and not character['path'] and isinstance(source.get('realm'), dict)
+                and source['realm'].get('slug') == 'anonymous'):
+            return None
         # Legacy central facts omit this field; present IDs must be real integers.
         if 'id' in source:
             character['id'] = _positive(source['id'])
