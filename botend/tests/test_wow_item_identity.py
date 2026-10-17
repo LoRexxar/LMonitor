@@ -55,7 +55,10 @@ class BuildScopedIdentityTests(TestCase):
         result = cached_tooltip('item', 281235, 0, OLD)
         self.assertTrue(result['complete'])
         self.assertEqual(result['name'], "Voidweaver's Leggings")
-        self.assertIn(NEW, result['note'])
+        # Identity follows the current central catalog, but the numeric tooltip
+        # must retain its actual older snapshot build rather than relabel it NEW.
+        self.assertIn(OLD, result['note'])
+        self.assertNotIn(NEW, result['note'])
         display = load_item_tooltip_metadata([{'item_id': 281235, 'game_build': NEW}])[0]
         self.assertEqual(display['item_identity']['is_ptr'], True)
         self.assertEqual(display['stats'], {})

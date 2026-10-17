@@ -758,11 +758,16 @@ def load_item_tooltip_metadata(requests):
         or active.order_by('-id').first()
     )
     variants_by_item = {}
-    if season and item_ids:
+    if season and snapshots:
+        snapshots_by_pk = {row.pk: row for row in snapshots.values()}
+        # Grouping only needs per-item order; the model's item__name_zh ordering
+        # would otherwise reintroduce a JOIN. Reuse the full central instance
+        # (including call-local compiled effects) instead of decoding it per variant.
         for variant in WowItemVariantSnapshot.objects.filter(
             season=season, batch_key=season.gear_batch_key,
-            item__item_id__in=item_ids,
-        ).select_related('item'):
+            item_id__in=snapshots_by_pk,
+        ).order_by('item_level', 'variant_key'):
+            variant.item = snapshots_by_pk[variant.item_id]
             variants_by_item.setdefault(int(variant.item.item_id), []).append(variant)
     result = []
     from botend.services.wow_item_effects import compile_effects
@@ -930,8 +935,10 @@ def refresh_localized_equipment(value, *, class_name='', spec_name=''):
     if not rows:
         return value
     localized = {
-        item.item_id for item in WowItemSnapshot.objects.filter(item_id__in={iid for _, iid in rows}).only('item_id', 'metadata', 'name_zh')
-        if item.name_zh
+        item_id for item_id, name_zh in WowItemSnapshot.objects.filter(
+            item_id__in={iid for _, iid in rows},
+        ).values_list('item_id', 'name_zh')
+        if name_zh
     }
     selected = [(row, iid) for row, iid in rows if iid in localized]
     requests = [{
