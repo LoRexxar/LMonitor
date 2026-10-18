@@ -31,7 +31,7 @@ class SidebarGroupingBrowserTests(unittest.TestCase):
             }))''')
             self.assertEqual(groups, [
                 {'key': 'overview', 'label': '概览统计', 'entries': ['dashboard-home', 'site-analytics']},
-                {'key': 'content', 'label': '内容运营', 'entries': ['class-guide-module', 'news', 'site']},
+                {'key': 'content', 'label': '内容运营', 'entries': ['class-guide-module', 'player-analyses', 'news', 'site']},
                 {'key': 'tools', 'label': '游戏工具', 'entries': ['simc', 'mythic-planner', 'gear-builder-management', 'tools']},
                 {'key': 'access', 'label': '账号权限', 'entries': ['user-management', 'user-groups', 'bilibili-binding']},
                 {'key': 'operations', 'label': '运行维护', 'entries': ['MonitorTask', 'logs', 'ai-management', 'central-data', 'database-tables']},

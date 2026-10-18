@@ -65,7 +65,7 @@
         const groups = [
             {key: 'overview', label: '概览统计', entries: [section('dashboard-home'), section('site-analytics')]},
             {key: 'content', label: '内容运营', entries: [
-                section('class-guide-module'),
+                section('class-guide-module'), section('player-analyses'),
                 folder('news', '资讯与报告', 'fa-newspaper', [section('news'), section('wow-daily-reports'), section('wago-hotfix-reports')]),
                 folder('site', '站点编排', 'fa-compass', [section('wow-today-settings'), section('portal-navigation')]),
             ]},
