@@ -60,7 +60,8 @@ def main():
                 assert request.headers['x-csrftoken'] == 'ui-test-token'
                 fixture.update(payload)
                 fixture['revision'] += 1
-            data = fixture if path.endswith('/7/') else {'items': [fixture], 'page': 1, 'total': 1, 'page_size': 20, 'total_pages': 1}
+            data = ({'state': 'idle', 'message': ''} if path.endswith('/recheck/') else
+                    fixture if path.endswith('/7/') else {'items': [fixture], 'page': 1, 'total': 1, 'page_size': 20, 'total_pages': 1})
             request_route.fulfill(json={'status': 'success', 'data': data})
         elif path == '/dashboard/':
             request_route.fulfill(body=html, content_type='text/html')
@@ -96,6 +97,12 @@ def main():
                 assert page.locator('[data-action="save"]').is_visible()
                 colors = page.locator('.pa-detail').evaluate('(node) => [getComputedStyle(node).backgroundColor, getComputedStyle(node).color]')
                 assert colors[0] != colors[1]
+                box = page.locator('.pa-detail').bounding_box()
+                assert box is not None
+                assert box['y'] == 0 and box['height'] == 1000, box
+                assert box['width'] == (width if width == 390 else 800), box
+                assert page.locator('.pa-detail').evaluate('(n) => n.scrollWidth <= n.clientWidth'), (width, theme)
+                assert page.locator('[role="dialog"]').count() == 1
         page.locator('.pa-edit-form [data-field="review_status"]').select_option('approved')
         page.locator('[data-action="save"]').click()
         try:
@@ -111,13 +118,24 @@ def main():
         assert page.locator('[data-evidence-field="text"]').is_visible()
         page.locator('[data-field="conclusion"]').fill('保留未保存草稿')
         before_return = len(calls)
-        page.locator('[data-section="dashboard-home"] a').click()
+        # Full-screen mobile modal intentionally covers navigation. A history
+        # navigation still hides it and must retain its exact unsaved DOM.
+        page.evaluate('history.replaceState({dashboardLocation:{section:"dashboard-home"}}, "", "/dashboard/"); activateDashboardLocation();')
+        page.locator('.pa-detail').wait_for(state='hidden')
         page.locator('[data-section="player-analyses"] a').click()
         assert page.locator('[data-field="conclusion"]').input_value() == '保留未保存草稿'
-        assert len(calls) == before_return
+        page.wait_for_timeout(100)
+        assert calls[before_return:] == [('/dashboard/api/player-analyses/7/recheck/', 'GET')]
         assert page.evaluate('document.documentElement.scrollWidth <= innerWidth')
         assert page.evaluate('Object.keys(localStorage).length') == 0
         assert errors == [], errors
+        page.once('dialog', lambda dialog: dialog.dismiss())
+        page.keyboard.press('Escape')
+        assert page.locator('.pa-detail').is_visible()
+        page.once('dialog', lambda dialog: dialog.accept())
+        page.keyboard.press('Escape')
+        page.locator('.pa-detail').wait_for(state='hidden')
+        assert page.locator('[data-action="open"]').evaluate('(n) => n === document.activeElement')
         browser.close()
     print(json.dumps({'browser': 'Chromium', 'viewports': [1440, 390], 'themes': ['light', 'dark'],
                       'overflow': False, 'page_errors': errors, 'lazy_detail': True,

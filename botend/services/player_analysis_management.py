@@ -107,7 +107,9 @@ def _result_hash(row):
 
 
 def _common(row):
+    from botend.services.player_analysis_recheck import state
     return {
+        'recheck': state(row),
         'id': row.pk, 'revision': row.revision, 'player_id': row.player_id,
         'player': _player(row.player), 'activity_id': row.activity_id,
         'character': {'character_name': row.activity.character_name, 'region': row.activity.region,
@@ -189,7 +191,10 @@ def _choice(params, key, allowed):
 
 def list_analyses(params):
     # Deliberately do NOT call _detail/frozen_ai/build_evidence on list pages.
-    query = _base_query().defer('evidence_json')
+    from django.db.models.fields.json import KeyTransform
+    query = _base_query().defer('evidence_json').annotate(
+        summary_labels=KeyTransform('eligible_labels', 'evidence_json'),
+        summary_conclusions=KeyTransform('conclusion_options', 'evidence_json'))
     q = _text(params.get('q', ''), 'q', 200).strip()
     if q:
         condition = (Q(player__character_name__icontains=q) | Q(player__realm__icontains=q)
@@ -214,10 +219,15 @@ def list_analyses(params):
         query = query.filter(is_published=visibility == 'published')
 
     def summary(row):
+        labels = {item.get('code'): item.get('label', '') for item in (row.summary_labels or []) if isinstance(item, dict)}
+        options = row.summary_conclusions if isinstance(row.summary_conclusions, dict) else {}
+        option = options.get(row.result_json.get('conclusion_id'), {})
         tags = (row.manual_json.get('tags', []) if row.manual_json else
-                [{'code': item.get('code', ''), 'label': item.get('code', ''), 'value': item.get('confidence', '')}
+                [{'code': item.get('code', ''), 'label': labels.get(item.get('code'), item.get('code', '')), 'value': item.get('confidence', '')}
                  for item in row.result_json.get('observations', []) if isinstance(item, dict)])
-        return {**_common(row), 'tags': [{k: tag.get(k, '') for k in ('label', 'value')} for tag in tags]}
+        conclusion = row.manual_json.get('conclusion', '') if row.manual_json else (option.get('text', '') if isinstance(option, dict) else '')
+        return {**_common(row), 'conclusion': conclusion,
+                'tags': [{k: tag.get(k, '') for k in ('label', 'value')} for tag in tags]}
 
     return _paginate(query.order_by('-id'), params, summary)
 

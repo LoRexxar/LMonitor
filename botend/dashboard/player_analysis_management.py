@@ -1,7 +1,7 @@
 """Independent, superuser-only management of existing player analyses.
 
 These views only read or edit persisted facts through the management service;
-no collector or AI generator is reachable from this workbench.
+recheck only enqueues a detached worker; GET never collects or invokes AI.
 """
 import json
 
@@ -144,6 +144,18 @@ class PlayerAnalysisDetailAPI(_AnalysisAPIView):
     def delete(self, request, analysis_id):
         from botend.services.player_analysis_management import archive_analysis
         return _success(archive_analysis(analysis_id, _json_payload(request), request.user))
+
+
+class PlayerAnalysisRecheckAPI(_AnalysisAPIView):
+    http_method_names = ['get', 'post']
+
+    def get(self, request, analysis_id):
+        from botend.services.player_analysis_recheck import get_state
+        return _success(get_state(analysis_id))
+
+    def post(self, request, analysis_id):
+        from botend.services.player_analysis_recheck import enqueue
+        return _success(enqueue(analysis_id, _json_payload(request)))
 
 
 class PlayerAnalysisCharactersAPI(_AnalysisAPIView):

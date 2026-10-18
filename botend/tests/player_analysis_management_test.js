@@ -53,7 +53,7 @@ test('DOM list is lazy; detail safe text, edit form, unchanged manual omitted; r
  assert.equal(calls.length,1);assert.match(calls[0][0],/page_size=20/);
  assert.equal(doc.querySelector('img'),null);
  await click('[data-action="open"]');
- assert.equal(calls.length,2);assert.match(doc.body.textContent,/冻结证据/);
+ assert.equal(calls.length,3);assert.match(doc.body.textContent,/冻结证据/);
  assert.equal(doc.querySelector('a[href^="javascript"]'),null);
  doc.querySelector('.pa-edit-form [data-field="review_status"]').value='approved';
  await click('[data-action="save"]');
@@ -103,6 +103,12 @@ test('manual edit invalidates old approval; approve/publish then hide/reject; DE
  assert.deepEqual(writes()[2],{revision:5,review_status:'rejected',is_published:false,review_note:'证据不足'});
  await click('[data-action="restore"]');assert.deepEqual(writes()[3],{revision:6,manual:null});
  await click('[data-action="archive"]');assert.deepEqual(writes()[4],{revision:7});assert.equal(calls.filter(c=>c[1].method==='DELETE').length,1);
+});
+test('unchanged manual with database-reordered object keys retains approval',async()=>{
+ const row={...record(),manual:{evidence:[],conclusion:'人工结论',tags:[{evidence:[],reason:'理由',value:'值',label:'标签'}]},review_status:'approved',source_kind:'manual'};
+ const {doc,calls,click,submit}=await fixture({row});
+ await click('[data-action="open"]');doc.querySelector('[data-field="review_note"]').value='仅更新审核意见';await submit('.pa-edit-form');
+ assert.deepEqual(JSON.parse(calls.find(c=>c[1].method==='PATCH')[1].body),{revision:3,review_note:'仅更新审核意见'});
 });
 test('409 preserves editor values and never renders successful save',async()=>{
  const {doc,calls,click,submit}=await fixture({handler:async(_url,options)=>options.method==='PATCH'?{status:409,ok:false,json:async()=>({})}:null});

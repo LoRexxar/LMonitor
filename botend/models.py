@@ -2619,6 +2619,7 @@ class PlayerObservationAnalysis(models.Model):
         related_name='observation_analysis')
     player = models.ForeignKey('PlayerSpecTopPlayer', null=True, blank=True,
         on_delete=models.SET_NULL, related_name='observation_analyses')
+    recheck_json = models.JSONField(default=dict, db_default={}, blank=True)
     manual_json = models.JSONField(default=dict, db_default={}, blank=True)
     review_status = models.CharField(max_length=16, default='pending', db_default='pending',
         choices=[('pending', '待审核'), ('approved', '通过'), ('rejected', '拒绝')])

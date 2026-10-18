@@ -92,7 +92,7 @@ from botend.dashboard.wow_today_management import DashboardWowTodaySectionAPIVie
 from botend.dashboard.ai_management import AIProviderManagementAPIView
 from botend.dashboard.player_analysis_management import (
     PlayerAnalysisManagementPage, PlayerAnalysisCollectionAPI,
-    PlayerAnalysisDetailAPI, PlayerAnalysisCharactersAPI,
+    PlayerAnalysisDetailAPI, PlayerAnalysisCharactersAPI, PlayerAnalysisRecheckAPI,
 )
 from botend.dashboard.portal_navigation_management import DashboardPortalNavigationAPIView
 from botend.portal.api import (
@@ -214,6 +214,7 @@ urlpatterns = [
     path('dashboard/api/player-analyses/', PlayerAnalysisCollectionAPI.as_view(), name='dashboard_player_analyses_api'),
     path('dashboard/api/player-analyses/characters/', PlayerAnalysisCharactersAPI.as_view(), name='dashboard_player_analysis_characters_api'),
     path('dashboard/api/player-analyses/<int:analysis_id>/', PlayerAnalysisDetailAPI.as_view(), name='dashboard_player_analysis_detail_api'),
+    path('dashboard/api/player-analyses/<int:analysis_id>/recheck/', PlayerAnalysisRecheckAPI.as_view(), name='dashboard_player_analysis_recheck_api'),
     path('api/dashboard/users/', DashboardUserListAPIView.as_view(), name='dashboard_user_list'),
     path('api/dashboard/users/<int:user_id>/', DashboardUserDetailAPIView.as_view(), name='dashboard_user_detail'),
     path('api/dashboard/user-groups/', DashboardUserGroupListAPIView.as_view(), name='dashboard_user_group_list'),

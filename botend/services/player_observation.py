@@ -561,7 +561,7 @@ def _local_empty(result, evidence):
             and not any(item['supported'] for item in _display_judgements(evidence)))
 
 
-def generate_observation(player, force=False, engine=None, *, skip_uninformative=False):
+def generate_observation(player, force=False, engine=None, *, skip_uninformative=False, recheck_token=None):
     """Manual generation; force does not steal leases or bypass failure backoff."""
     evidence = build_evidence(player)
     if not evidence or (not skip_uninformative and not evidence['eligible_labels']):
@@ -584,6 +584,9 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
             if identity and representative.season_id == activity.season_id and activity_identity_digest(**identity) == activity.identity_digest:
                 PlayerObservationAnalysis.objects.filter(pk=row.pk, player__isnull=True).update(player_id=representative.pk)
                 row.player_id = representative.pk
+        if recheck_token:
+            from botend.services.player_analysis_recheck import validate_publication
+            validate_publication(row, recheck_token, evidence)
         if row.lease_token and row.lease_expires_at and row.lease_expires_at > now:
             return {'status': 'busy', 'analysis_id': row.pk, **audit}
         if row.next_attempt_at and row.next_attempt_at > now:
@@ -620,6 +623,12 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
         if not locked.lease_expires_at or locked.lease_expires_at <= timezone.now():
             return {**_fail(row.pk, token, 'lease_expired'), **audit}
         current = build_evidence(player)
+        if recheck_token:
+            from botend.services.player_analysis_recheck import validate_publication, Blocked
+            try:
+                validate_publication(locked, recheck_token, current)
+            except Blocked:
+                return {**_fail(row.pk, token, 'recheck_invalidated'), **audit}
         if not current or current['evidence_hash'] != evidence['evidence_hash']:
             return {**_fail(row.pk, token, 'evidence_changed'), **audit}
         updated = PlayerObservationAnalysis.objects.filter(pk=row.pk, lease_token=token, lease_expires_at__gt=timezone.now()).update(

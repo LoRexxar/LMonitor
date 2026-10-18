@@ -116,7 +116,12 @@ class PlayerAnalysisManagementTests(TestCase):
         self.assertEqual(listing['page_size'], 50)
         self.assertNotIn('ai', listing['items'][0])
         selects = [q['sql'] for q in captured if q['sql'].lstrip().upper().startswith('SELECT')]
-        self.assertFalse(any('evidence_json' in sql or 'gear_json' in sql for sql in selects))
+        self.assertEqual(listing['items'][0]['conclusion'], '历史结论')
+        self.assertEqual(listing['items'][0]['tags'][0]['label'], '历史标签')
+        for sql in selects:
+            self.assertNotIn('gear_json', sql)
+            # JSON path extraction is allowed; selecting the full frozen blob is not.
+            self.assertNotRegex(sql, r'(?:SELECT\s+|,\s*)["`]wow_player_observation_analysis["`]\.["`]evidence_json["`](?:\s*,|\s+FROM)')
         self.assertLessEqual(len(selects), 3)
         self.assertEqual(service.list_analyses({'q': str(row.pk)})['total'], 1)
         self.assertEqual(service.list_analyses({'q': 'test-realm'})['total'], 1)

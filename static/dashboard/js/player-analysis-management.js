@@ -5,6 +5,12 @@
     const mounts = new WeakMap(), panels = new WeakMap();
     const names = {draft:'草稿',pending:'待处理',ready:'就绪',stale:'已过期',error:'失败',archived:'已归档',approved:'已批准',rejected:'已拒绝',manual:'人工维护',ai:'AI 分析',local_deterministic:'本地规则分析'};
     const label = value => names[value] || value || '—';
+    // Database JSON object key order is not a content change (notably MySQL).
+    function stableJSON(value) {
+        if(Array.isArray(value))return '['+value.map(stableJSON).join(',')+']';
+        if(value && typeof value==='object')return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+stableJSON(value[k])).join(',')+'}';
+        return JSON.stringify(value);
+    }
     function safeURL(value) {
         if (typeof value !== 'string' || !/^https?:\/\//i.test(value)) return '';
         try { const u = new URL(value); return ['http:', 'https:'].includes(u.protocol) ? value : ''; } catch (_) { return ''; }
@@ -12,7 +18,7 @@
     function buildPatch(row, values) {
         const patch = {revision:row.revision};
         for (const key of ['manual','review_status','is_published','review_note']) {
-            if (Object.hasOwn(values,key) && JSON.stringify(values[key]) !== JSON.stringify(row[key])) patch[key] = values[key];
+            if (Object.hasOwn(values,key) && stableJSON(values[key]) !== stableJSON(row[key])) patch[key] = values[key];
         }
         const review = patch.review_status ?? row.review_status;
         const published = patch.is_published ?? row.is_published;
@@ -27,10 +33,11 @@
             if (method !== 'GET') { headers['Content-Type']='application/json'; headers['X-CSRFToken']=this.csrf(); }
             const response = await this.fetcher(BASE+path,{method,headers,credentials:'same-origin',cache:'no-store', ...(method === 'GET' && this.signal ? {signal:this.signal} : {}), ...(body === undefined ? {} : {body:JSON.stringify(body)})});
             const errors = {401:'登录已失效，请返回后台重新登录。',403:'权限不足或 CSRF 校验失败，请刷新页面并确认超级管理员权限。',409:'版本冲突：其他人已修改此记录。请重新读取详情后再操作；当前输入未保存。'};
-            if (errors[response.status]) throw Error(errors[response.status]);
+            const failure=message=>Object.assign(Error(message),{httpStatus:response.status});
+            if (errors[response.status]) throw failure(errors[response.status]);
             let result;
-            try { result = await response.json(); } catch (_) { throw Error('服务器未返回有效 JSON，请检查登录状态后重试。'); }
-            if (!response.ok || result.status !== 'success') throw Error(result.message || result.error || '请求失败，请稍后重试。');
+            try { result = await response.json(); } catch (_) { throw failure('服务器未返回有效 JSON，请检查登录状态后重试。'); }
+            if (!response.ok || result.status !== 'success') throw failure(result.message || result.error || '请求失败，请稍后重试。');
             return result.data;
         }
         async write(method, id, body) {
@@ -51,7 +58,93 @@
         const listen=(node,type,handler)=>node.addEventListener(type,handler,{signal:lifetime.signal});
         const client=new Client(options.fetch || win.fetch.bind(win),()=>doc.querySelector('meta[name="csrf-token"]')?.content || '',lifetime.signal);
         const confirm=options.confirm || win.confirm.bind(win);
-        let destroyed=false;
+        let destroyed=false, active=true, drawerOpen=false, returnFocus=null, returnID=null, baseline='', previousOverflow='';
+        const checks=new Map();
+        const fingerprint=()=>JSON.stringify(Array.from(detail.querySelectorAll('input,textarea,select')).map(n=>[n.dataset.field || n.dataset.tagField || n.dataset.evidenceField,n.value]));
+        const dirty=()=>drawerOpen && fingerprint()!==baseline;
+        function showDrawer() {
+            drawerOpen=true;detail.hidden=!active;backdrop.hidden=!active;
+            if(active){previousOverflow=doc.body.style.overflow;doc.body.style.overflow='hidden';messageSlot.append(message);}
+        }
+        function hideDrawer(discard=false) {
+            if(client.busy)return;
+            if(discard && dirty() && !confirm('放弃未保存的修改并关闭审查？'))return;
+            drawerOpen=false;detail.hidden=true;backdrop.hidden=true;doc.body.style.overflow=previousOverflow;
+            root.prepend(message);++detailSequence;
+            if(discard){current=null;creating=false;editing=false;detail.replaceChildren();}
+            const target=returnFocus?.isConnected?returnFocus:results.querySelector(`[data-row-id="${returnID}"] [data-action="open"]`) || query;
+            target.focus();
+        }
+        function setActive(value) {
+            if(active===value)return;active=value;
+            detail.hidden=!active || !drawerOpen;backdrop.hidden=detail.hidden;
+            if(drawerOpen){if(active){previousOverflow=doc.body.style.overflow;doc.body.style.overflow='hidden';}else doc.body.style.overflow=previousOverflow;}
+            checks.forEach((check,id)=>{win.clearTimeout(check.timer);if(active && doc.visibilityState!=='hidden')task(()=>pollCheck(id));});
+        }
+        function checkBusy(check){return check && (check.submitting || ['queued','running','unknown'].includes(check.state));}
+        function updateChecks() {
+            root.querySelectorAll('[data-action="recheck"]').forEach(b=>{const c=checks.get(Number(b.dataset.id));b.disabled=b.dataset.allowed==='false'||checkBusy(c)||client.busy;b.textContent=checkBusy(c)?'检查进行中…':'重新检查';});
+            const status=detail.querySelector('[data-check-status]');
+            if(status){const c=checks.get(current?.id);status.textContent=c ? `${({idle:'尚未重查',queued:'已排队',running:'正在检查',succeeded:'检查完成',failed:'检查失败',blocked:'检查受阻',unknown:'状态待确认',unconfirmed:'本次提交未确认',rejected:'提交被拒绝'})[c.state] || '检查状态'} · ${c.notice || ''}${c.message || ''}` : '重新检查只处理当前角色；人工草稿与冻结历史不会被直接覆盖。';}
+        }
+        function recheckButton(row) {
+            const b=button('重新检查','recheck',()=>startCheck(row));b.dataset.id=row.id;b.dataset.allowed=String(row.can_recheck!==false);b.title=row.can_recheck===false?'此角色当前不能重新检查':'重新采集并分析此角色';return b;
+        }
+        async function pollCheck(id) {
+            const check=checks.get(id);if(!check || check.reading || check.submitting || !active || doc.visibilityState==='hidden' || destroyed)return;
+            win.clearTimeout(check.timer);check.reading=true;
+            try {
+                const data=await client.request(id+'/recheck/');if(destroyed || checks.get(id)!==check)return;
+                // A changed server task is observable even when the POST response
+                // was lost; observing it does not prove who submitted it.
+                if(['unknown','rejected'].includes(check.submission)){
+                    const changed=Boolean(data.token && data.token!==check.previousToken);
+                    const liveWithoutToken=!check.previousToken && ['queued','running'].includes(data.state);
+                    if(!changed && !(check.submission==='unknown' && liveWithoutToken)){
+                        if(check.submission==='unknown'){check.state='unconfirmed';check.message='没有确认到新的检查；不会自动重复提交，请刷新状态核实。';}
+                        updateChecks();return;
+                    }
+                    check.notice=check.submission==='rejected'?'上次提交被拒绝；以下为服务器最新检查。':'本次提交归属未确认；以下为服务器最新检查。';
+                    check.submission='observing';check.expectedToken=data.token;
+                }
+                if(check.expectedToken && data.token!==check.expectedToken){
+                    if(check.previousToken && data.token===check.previousToken){
+                        check.state='unknown';check.message='收到旧任务响应，正在重新核对当前任务。';updateChecks();return;
+                    }
+                    // The endpoint stores only the latest job: an unseen successor
+                    // must not leave this tab waiting forever for an obsolete token.
+                    check.notice='原检查已被后续状态替代；以下为服务器最新检查。';
+                    check.submission='observing';check.expectedToken=data.token;
+                }
+                const terminalKey=JSON.stringify([data.token || '',data.state,data.finished_at || data.message || '']);
+                Object.assign(check,data);updateChecks();
+                if(['succeeded','failed','blocked'].includes(data.state) && check.readbackKey!==terminalKey) {
+                    const row=await client.request(id+'/');if(destroyed || checks.get(id)!==check)return;check.readbackKey=terminalKey;
+                    if(current?.id===id && !dirty() && !client.busy){current=row;renderDetail();}
+                    else if(current?.id===id){message.textContent='检查状态已更新；未保存草稿已保留。保存前请核对新版本，版本冲突时先复制草稿再重新读取。';}
+                    await loadList(listPage);
+                }
+            } catch(error){check.message='状态读取失败，请恢复页面后重试：'+error.message;updateChecks();}
+            finally {
+                check.reading=false;
+                if(!destroyed && checks.get(id)===check && active && doc.visibilityState!=='hidden' && checkBusy(check))check.timer=win.setTimeout(()=>task(()=>pollCheck(id)),options.pollInterval || 2500);
+            }
+        }
+        async function startCheck(row) {
+            if(client.busy || checkBusy(checks.get(row.id)) || row.can_recheck===false)return;
+            const previous=checks.get(row.id);win.clearTimeout(previous?.timer);
+            const check={state:'unknown',message:'正在提交…',submitting:true,readback:false,submission:'unknown',previousToken:previous?.token || previous?.previousToken || row.recheck?.token};checks.set(row.id,check);updateChecks();
+            try {
+                const data=await client.request(row.id+'/recheck/','POST',{revision:row.revision});
+                Object.assign(check,data);check.submission='accepted';check.expectedToken=data.token;
+            }
+            catch(error){
+                const rejected=error.httpStatus>=400 && error.httpStatus<500;
+                if(rejected){check.state='rejected';check.submission='rejected';}
+                check.message=(rejected?'提交被拒绝，未启动本次检查。':'本次提交未确认；不会自动重复提交。')+error.message;message.textContent=check.message;message.dataset.kind='error';
+            }
+            finally {check.submitting=false;updateChecks();if(check.submission!=='rejected')await pollCheck(row.id);}
+        }
         let current=null, editing=false, creating=false, selected=null, listPage=1, characterPage=1;
         let pending=Promise.resolve(), readSequence=0, detailSequence=0, characterSequence=0;
         const filters={}, characterFilters={q:''};
@@ -127,8 +220,23 @@
         const search=el('button','搜索',{type:'submit'});filterForm.append(search,button('新增人工分析','new',()=>newRecord()));
         listen(filterForm,'submit',event=>{event.preventDefault();task(()=>loadList(1));});
         const results=el('section',null,{'aria-label':'分析列表',class:'pa-results'});
-        const detail=el('section',null,{'aria-label':'分析详情',class:'pa-detail',tabindex:'-1'});detail.hidden=true;
-        root.append(message,filterForm,results,detail);
+        const backdrop=el('div',null,{class:'pa-backdrop','aria-hidden':'true'});backdrop.hidden=true;
+        const detail=el('section',null,{'aria-label':'分析详情',role:'dialog','aria-modal':'true',class:'pa-detail',tabindex:'-1'});detail.hidden=true;
+        const messageSlot=el('div',null,{class:'pa-drawer-message'});
+        root.append(message,filterForm,results,backdrop,detail);
+        listen(backdrop,'click',()=>hideDrawer(true));
+        listen(doc,'keydown',event=>{
+            if(!drawerOpen || !active)return;
+            if(event.key==='Escape'){event.preventDefault();hideDrawer(true);}
+            if(event.key==='Tab'){
+                const nodes=Array.from(detail.querySelectorAll('button:not(:disabled),input:not(:disabled),select:not(:disabled),textarea:not(:disabled),a[href],summary')).filter(n=>!n.closest('[hidden]'));
+                const first=nodes[0],last=nodes.at(-1);
+                if(event.shiftKey && (doc.activeElement===first || doc.activeElement===detail)){event.preventDefault();last?.focus();}
+                else if(!event.shiftKey && (doc.activeElement===last || !detail.contains(doc.activeElement))){event.preventDefault();first?.focus();}
+            }
+        });
+        listen(doc,'visibilitychange',()=>{checks.forEach((c,id)=>{win.clearTimeout(c.timer);if(active && doc.visibilityState!=='hidden')task(()=>pollCheck(id));});});
+        listen(win,'beforeunload',event=>{if(dirty()){event.preventDefault();event.returnValue='';}});
         async function loadList(page=1) {
             const sequence=++readSequence;
             Object.assign(filters,{q:query.value,page:String(page),page_size:pageSize.value});
@@ -140,21 +248,33 @@
                 listPage=data.page;results.replaceChildren(el('h2','角色分析'));
                 if(!data.items.length)results.append(el('p','没有匹配的分析记录。'));
                 data.items.forEach(row=>{
-                    const card=el('article',null,{class:'pa-list-row'});
-                    const info=el('div');info.append(el('strong',playerText(row.player,row.player_id)),el('p',`#${row.id} · ${label(row.status)} · ${label(row.review_status)} · ${label(row.source_kind)} · ${row.is_published?'已发布':'隐藏'}`));
-                    if(staleReview(row))info.append(el('strong','AI 证据或结论已更新，原审核不适用。'));
-                    card.append(info,button('审查详情','open',()=>open(row.id)));results.append(card);
-                });pageControls(results,data,loadList);
+                    const card=el('article',null,{class:'pa-list-row','data-row-id':row.id});
+                    const info=el('div');info.append(el('strong',playerText(row.player,row.player_id)));
+                    const badges=el('div',null,{class:'pa-badges'});
+                    [row.status,row.review_status,row.source_kind,row.is_published?'已发布':'隐藏'].forEach(value=>badges.append(el('span',label(value),{class:'pa-badge','data-state':value})));
+                    const tagSummary=(row.tags || []).map(t=>[t.label,t.value].filter(Boolean).join(' · ')).join(' / ');
+                    info.append(badges,el('p',row.conclusion || row.effective?.conclusion || row.manual?.conclusion || row.ai?.conclusion || tagSummary || '暂无标签 · 打开审查补充人工结论与证据',{class:'pa-list-summary'}));
+                    if(staleReview(row))info.append(el('strong','AI 证据或结论已更新，原审核不适用。',{class:'pa-warning'}));
+                    const actions=el('div',null,{class:'pa-row-actions'});
+                    actions.append(button('审查详情','open',()=>open(row.id)),button('人工编辑','edit-row',()=>open(row.id,true)),recheckButton(row));
+                    if(row.recheck && !checks.has(row.id))checks.set(row.id,{...row.recheck});
+                    card.append(info,actions);results.append(card);
+                });pageControls(results,data,loadList);updateChecks();
+                checks.forEach((c,id)=>{if(checkBusy(c) && !c.timer && !c.reading && !c.submitting)task(()=>pollCheck(id));});
             } finally { if(sequence===readSequence)results.removeAttribute('aria-busy'); }
         }
-        async function open(id) {
+        async function open(id,focusEditor=false,force=false) {
             if(client.busy)return;
-            if(editing && !confirm('离开将放弃未保存的人工编辑，继续？'))return;
+            if(!force && current?.id===id && drawerOpen){detail.focus();if(focusEditor)detail.querySelector('[data-field="conclusion"]')?.focus();return;}
+            if(dirty() && !confirm('离开将放弃未保存的修改，继续？'))return;
+            if(!detail.contains(doc.activeElement)){returnFocus=doc.activeElement;returnID=id;}
             const seq=++detailSequence;
             message.textContent='正在读取详情…';
             const row=await client.request(id+'/');
             if(seq!==detailSequence)return;
-            current=row;creating=false;editing=false;selected=null;renderDetail();message.textContent='';detail.focus();
+            current=row;creating=false;editing=false;selected=null;renderDetail();message.textContent='';detail.scrollTop=0;detail.focus();
+            if(focusEditor)detail.querySelector('[data-field="conclusion"]')?.focus();
+            if(!checks.has(id))checks.set(id,{state:'idle',...row.recheck});await pollCheck(id);
         }
         function evidenceEditor(parent,items=[]) {
             const group=el('div',null,{class:'pa-evidence-editor'}), rows=el('div');
@@ -193,7 +313,7 @@
                     tag.evidence=getters.get(row)();return tag;
                 });
                 const value={tags:values,conclusion:conclusion.value.trim(),evidence:readEvidence()};
-                if(!value.tags.length && !value.conclusion)throw Error('请填写至少一个标签或综合结论。');
+                if(!value.tags.length && !value.conclusion){if(!creating && !current?.manual && !value.evidence.length)return null;throw Error('请填写至少一个标签或综合结论。清空已有覆盖请使用“清空人工覆盖”操作。');}
                 return value;
             };
         }
@@ -213,11 +333,15 @@
                 current=row;creating=false;editing=false;renderDetail();
                 message.textContent='已保存，并已从服务器重新读取记录。';message.dataset.kind='success';
                 try { await loadList(listPage); } catch(error) {message.textContent+=' 列表刷新失败：'+error.message;}
-            } finally {if(!destroyed)setBusy(false);}
+            } finally {if(!destroyed){setBusy(false);updateChecks();}}
         }
         function renderDetail() {
-            detail.hidden=false;detail.replaceChildren();
-            detail.append(el('h2',creating?'新增人工分析':`审查分析 #${current.id}`));
+            const alreadyOpen=drawerOpen, restoreFocus=detail.contains(doc.activeElement);
+            detail.replaceChildren();
+            const header=el('header',null,{class:'pa-drawer-header'});
+            header.append(el('h2',creating?'新增人工分析':`审查分析 #${current.id}`),button('关闭 ×','close',()=>hideDrawer(true)));
+            detail.append(header,messageSlot);
+            if(!alreadyOpen)showDrawer();else{detail.hidden=!active;messageSlot.append(message);}
             if(creating)renderCharacters(detail);
             else {
                 detail.append(el('p',playerText(current.player,current.player_id)),el('p',`版本 ${current.revision} · ${label(current.status)} · ${label(current.source_kind)} · ${label(current.review_status)} · ${current.is_published?'已发布':'隐藏'} · 活动 #${current.activity_id ?? '—'}`));
@@ -225,37 +349,50 @@
                 if(staleReview(current))detail.append(el('p','AI 证据或结论已更新，原审核不适用于当前 AI；请重新审核。',{'data-review-stale':'',role:'note'}));
                 const columns=el('div',null,{class:'pa-projections'});
                 projection(columns,'AI 原始标签 / 结论 / 冻结证据（只读）',current.ai);
-                projection(columns,'人工维护（独立来源）',current.manual);detail.append(columns);
+                detail.append(columns);
                 const raw=el('details');raw.append(el('summary','展开 AI 原始 JSON（仅供核验）'));
                 listen(raw,'toggle',()=>{if(raw.open && !raw.querySelector('pre'))raw.append(el('pre',JSON.stringify({result_json:current.ai?.result_json,evidence_json:current.ai?.evidence_json},null,2)));});detail.append(raw);
             }
             const form=el('form',null,{class:'pa-edit-form'});
-            const readManual=editing?manualEditor(form,current?.manual):null;
-            if(!editing)form.append(button('编辑人工内容','edit-manual',()=>{editing=true;renderDetail();}));
+            const manualSlot=el('div',null,{class:'pa-manual-slot'});
+            const tools=el('div',null,{class:'pa-actions'});
+            tools.append(el('h3','人工编辑'),button('定位人工结论','edit-manual',()=>manualSlot.querySelector('[data-field="conclusion"]').focus()));
+            let readManual=manualEditor(manualSlot,current?.manual);
+            if(!creating && current.ai)tools.append(button('从 AI 副本填入','copy-ai',()=>{
+                if(dirty() && !confirm('使用 AI 副本替换当前人工编辑区？尚未保存的人工输入会被替换，AI 原文不变。'))return;
+                const ai=current.ai;
+                const cleanEvidence=items=>(Array.isArray(items)?items:[]).map(item=>({text:typeof item==='string'?item:item.text || '',url:safeURL(item.url || item.run_url || item.source_url)}));
+                const copy={tags:(ai.tags || []).map(t=>({label:t.label || '',value:t.value || '',reason:t.reason || '',evidence:cleanEvidence(t.evidence)})),conclusion:ai.conclusion || '',evidence:cleanEvidence(ai.evidence)};
+                manualSlot.replaceChildren();readManual=manualEditor(manualSlot,copy);manualSlot.querySelector('[data-field="conclusion"]').focus();
+            }));
+            form.append(tools,manualSlot);
             const review=selectField(form,'审核决定',current?.review_status || 'pending','review_status',[['pending','待审核'],['approved','批准'],['rejected','拒绝']]);
             const visibility=selectField(form,'发布状态',String(current?.is_published || false),'is_published',[['false','隐藏'],['true','公开（须批准审核）']]);
             const note=inputField(form,'审核意见',current?.review_note || '',{'data-field':'review_note',rows:3},'textarea');
-            if(editing){review.value='pending';visibility.value='false';review.disabled=true;visibility.disabled=true;}
+            if(creating){review.value='pending';visibility.value='false';review.disabled=true;visibility.disabled=true;}
             if(creating)note.disabled=true;
-            form.append(el('p',editing?'人工内容变更将保存为待审核、隐藏状态；保存后请重新批准并发布。未修改内容不会重置审核。':'修改人工内容不会自动恢复 AI。公开人工内容必须获批；隐藏不会删除冻结证据。',{class:'pa-muted'}));
+            form.append(el('p','人工内容变更将保存为待审核、隐藏状态，须保存后重新批准；未修改人工内容时仅更新审核决定。AI 冻结原文不会被改写。',{class:'pa-muted'}));
             const actions=el('div',null,{class:'pa-actions'});
             const submit=el('button',creating?'保存人工草稿':'保存变更',{type:'submit','data-action':'save'});actions.append(submit);
             if(!creating){
-                if(!editing && staleReview(current))actions.append(button('重新批准当前 AI','reapprove-ai',async()=>{
+                if(staleReview(current))actions.append(button('重新批准当前 AI','reapprove-ai',async()=>{
+                    if(dirty()){message.textContent='请先保存或放弃未保存的修改，再重新批准。';return;}
                     if(!confirm('确认已核验当前 AI 标签、结论与证据，并批准此版本？'))return;
                     await save('PATCH',{revision:current.revision,review_status:'approved'});
                 }));
-                actions.append(button('重新读取详情','reload',async()=>{if(!confirm('重新读取会放弃当前未保存的修改，继续？'))return;editing=false;await open(current.id);}));
-                actions.append(button('恢复 AI 来源','restore',async()=>{
+                actions.append(button('重新读取详情','reload',async()=>{if(!confirm('重新读取会放弃当前未保存的修改，继续？'))return;baseline=fingerprint();editing=false;await open(current.id,false,true);}));
+                actions.append(button('清空人工覆盖 · 恢复 AI','restore',async()=>{
                     if(!confirm('确认移除人工覆盖并恢复 AI 来源？冻结 AI 内容保留；未保存的人工编辑将丢失。'))return;
                     await save('PATCH',{revision:current.revision,manual:null});
                 }));
                 actions.append(button('归档（从门户隐藏）','archive',async()=>{
-                    if(!confirm('确认归档此分析并从门户隐藏？此操作不会删除冻结证据。'))return;
+                    if(!confirm('确认归档此分析并从门户隐藏？此操作不会删除冻结证据，但会放弃未保存的修改。'))return;
                     await save('DELETE',{revision:current.revision});
                 }));
             }
             form.append(actions);detail.append(form);
+            if(!creating){const checkSection=el('section',null,{class:'pa-recheck'});checkSection.append(recheckButton(current),button('刷新检查状态','refresh-check',()=>pollCheck(current.id)),el('p','',{'data-check-status':'',role:'status'}));detail.insertBefore(checkSection,form);}
+            baseline=fingerprint();updateChecks();if(restoreFocus && active)detail.focus();
             listen(form,'submit',event=>{event.preventDefault();task(async()=>{
                 if(client.busy)return;
                 if(creating){
@@ -264,10 +401,9 @@
                 }else{
                     const values={review_status:review.value,is_published:visibility.value==='true',review_note:note.value};
                     if(readManual){
-                        values.manual=readManual();
-                        const changed=JSON.stringify(values.manual)!==JSON.stringify(current.manual);
-                        values.review_status=changed?'pending':current.review_status;
-                        values.is_published=changed?false:current.is_published;
+                        const manual=readManual();
+                        const changed=stableJSON(manual)!==stableJSON(current.manual);
+                        if(changed){values.manual=manual;values.review_status='pending';values.is_published=false;}
                     }
                     const patch=buildPatch(current,values);
                     if(Object.keys(patch).length===1){message.textContent='没有需要保存的变更。';return;}
@@ -277,8 +413,9 @@
         }
         function newRecord() {
             if(client.busy)return;
-            if(editing && !confirm('放弃未保存编辑并新增记录？'))return;
-            ++detailSequence;current=null;creating=true;editing=true;selected=null;characterPage=1;renderDetail();detail.focus();
+            if(dirty() && !confirm('放弃未保存编辑并新增记录？'))return;
+            returnFocus=doc.activeElement;
+            ++detailSequence;current=null;creating=true;editing=true;selected=null;characterPage=1;renderDetail();detail.scrollTop=0;detail.focus();
         }
         function renderCharacters(parent) {
             const section=el('section',null,{class:'pa-character-picker'});section.append(el('h3','选择真实角色'));
@@ -299,10 +436,11 @@
             // Search only on demand; no arbitrary typed name can become a player ID.
         }
         const ready=task(()=>loadList());
-        const controller={ready,settled:()=>pending,destroy:()=>{
+        const controller={ready,settled:()=>pending,setActive,destroy:()=>{
             if(destroyed)return;
             destroyed=true;++readSequence;++detailSequence;++characterSequence;
             // Cancel reads and detach listeners, never cancel/replay a submitted write.
+            checks.forEach(c=>win.clearTimeout(c.timer));if(drawerOpen && active)doc.body.style.overflow=previousOverflow;
             lifetime.abort();mounts.delete(root);root.replaceChildren();root.removeAttribute('aria-busy');
         }};
         mounts.set(root,controller);
@@ -318,7 +456,9 @@
         // Follow the existing Dashboard workspace lifecycle (AI/B站): observe
         // the router's visibility, not a second set of navigation listeners.
         const activate=()=>{
-            if(section.classList.contains('active') || section.style.display==='block') app=mount(root);
+            const visible=section.classList.contains('active') || section.style.display==='block';
+            if(visible)app=mount(root);
+            app?.setActive(visible);
         };
         const observer=new win.MutationObserver(activate);
         const destroy=()=>{
