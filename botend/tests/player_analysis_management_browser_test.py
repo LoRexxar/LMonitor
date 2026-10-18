@@ -9,7 +9,7 @@ import os
 import re
 from pathlib import Path
 import sys
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
@@ -38,13 +38,17 @@ def main():
         </ul></nav><main class="main-content"><section class="content-section active" id="dashboard-home">首页</section>''' + panel + '''</main></div></body></html>'''
     fixture = {'id': 7, 'revision': 1, 'player_id': 42,
                'player': {'id': 42, 'character_name': '真实角色测试名字' * 8, 'region': 'cn', 'realm': '测试服务器',
-                          'class_name': '法师', 'spec_name': '火焰', 'season_id': 4},
+                          'class_name': 'Mage', 'spec_name': 'Fire', 'class_label': '法师', 'spec_label': '火焰',
+                          'season_id': 3, 'season_name': '至暗之夜第1赛季'},
                'status': 'ready', 'review_status': 'pending', 'is_published': False, 'review_note': '',
-               'source_kind': 'ai', 'manual': None,
+               'source_kind': 'ai', 'manual': None, 'conclusion': '不应出现在列表的综合简述',
+               'tags': [{'label': '组队模式', 'value': '五人固定车队', 'confidence': 'low', 'confidence_label': '低'},
+                        {'label': '人工标签', 'value': '<script>不执行</script>'}],
                'ai': {'tags': [{'label': '固定队', 'value': '已核验', 'reason': '<script>不能执行</script>', 'evidence': []}],
                       'conclusion': '冻结结论', 'evidence': [{'text': '冻结证据', 'url': 'https://example.com/proof'}],
                       'result_json': {'fixture': True}, 'evidence_json': {}}, 'effective': {}}
     calls = []
+    list_queries = []
 
     def route(request_route):
         request = request_route.request
@@ -60,8 +64,17 @@ def main():
                 assert request.headers['x-csrftoken'] == 'ui-test-token'
                 fixture.update(payload)
                 fixture['revision'] += 1
-            data = ({'state': 'idle', 'message': ''} if path.endswith('/recheck/') else
-                    fixture if path.endswith('/7/') else {'items': [fixture], 'page': 1, 'total': 1, 'page_size': 20, 'total_pages': 1})
+            if path.endswith('/recheck/'):
+                data = {'state': 'idle', 'message': ''}
+            elif path.endswith('/7/'):
+                data = fixture
+            else:
+                params = parse_qs(urlparse(request.url).query, keep_blank_values=True)
+                list_queries.append(params)
+                number = int(params['page'][0])
+                data = {'items': [fixture if number == 1 else {**fixture, 'tags': []}], 'page': number,
+                        'total': 21, 'page_size': 20, 'total_pages': 2,
+                        'tag_options': ['组队模式', '人工标签', '其他页标签']}
             request_route.fulfill(json={'status': 'success', 'data': data})
         elif path == '/dashboard/':
             request_route.fulfill(body=html, content_type='text/html')
@@ -84,6 +97,32 @@ def main():
         page.locator('[data-action="open"]').wait_for()
         assert page.url.endswith('?section=player-analyses')
         assert calls == [('/dashboard/api/player-analyses/', 'GET')], calls
+        listing = page.locator('.pa-results')
+        text = listing.inner_text()
+        assert '法师 火焰' in text and '至暗之夜第1赛季' in text
+        assert not any(value in text for value in ('Mage', 'Fire', '赛季 3', '综合简述', '冻结结论'))
+        assert listing.locator('.pa-list-tag').all_text_contents() == ['组队模式 · 五人固定车队 · 置信度：低', '人工标签 · <script>不执行</script>']
+        assert listing.locator('script').count() == 0
+        tag_filter = page.locator('.pa-filters [data-field="tag"]')
+        assert tag_filter.locator('option').all_text_contents() == ['全部', '组队模式', '人工标签', '其他页标签']
+        tag_filter.select_option('组队模式')
+        with page.expect_response(lambda r: '/player-analyses/?' in r.url):
+            page.locator('.pa-filters button[type="submit"]').click()
+        with page.expect_response(lambda r: '/player-analyses/?' in r.url):
+            listing.locator('[data-action="next"]').click()
+        page.get_by_text('暂无标签', exact=True).wait_for()
+        assert list_queries[-1]['tag'] == ['组队模式'] and list_queries[-1]['page'] == ['2']
+        assert tag_filter.input_value() == '组队模式'
+        with page.expect_response(lambda r: '/player-analyses/?' in r.url):
+            listing.locator('[data-action="prev"]').click()
+        listing.locator('.pa-list-tag').first.wait_for()
+        for width in (1440, 390):
+            page.set_viewport_size({'width': width, 'height': 1000})
+            for theme in ('light', 'dark'):
+                page.evaluate('(theme) => document.documentElement.dataset.dashboardTheme = theme', theme)
+                assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (width, theme)
+                assert listing.evaluate('(n) => n.scrollWidth <= n.clientWidth'), (width, theme)
+                assert listing.locator('.pa-list-tag').first.is_visible()
         page.locator('[data-action="open"]').click()
         page.locator('.pa-detail h2').wait_for()
         assert page.locator('.pa-detail').inner_text().find('冻结证据') >= 0
@@ -140,6 +179,8 @@ def main():
     print(json.dumps({'browser': 'Chromium', 'viewports': [1440, 390], 'themes': ['light', 'dark'],
                       'overflow': False, 'page_errors': errors, 'lazy_detail': True,
                       'csrf_and_readback': True, 'manual_form': True,
+                      'localized_identity_and_real_season': True, 'tags_and_filter_pagination': True,
+                      'no_list_conclusion': True, 'empty_tags': True,
                       'spa_return_keeps_draft': True, 'fixture_scope': 'panel/router, not full site'}, ensure_ascii=False))
 
 

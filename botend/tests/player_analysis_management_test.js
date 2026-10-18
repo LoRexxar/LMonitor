@@ -21,6 +21,52 @@ async function fixture({row=record(),confirm=()=>true,handler}={}) {
  const app=mount(doc.getElementById('player-analysis-app'),{fetch:fetcher,confirm});await app.ready;
  return {app,doc,calls,row,dom,click:async selector=>{doc.querySelector(selector).click();await app.settled();},submit:async selector=>{doc.querySelector(selector).dispatchEvent(new dom.window.Event('submit',{bubbles:true,cancelable:true}));await app.settled();}};
 }
+test('list uses authoritative Chinese identity and season names, never a database season ordinal',async()=>{
+ const row=record();row.player={...row.player,class_name:'Mage',spec_name:'Fire',class_label:'法师',spec_label:'火焰',season_id:3,season_name:'至暗之夜第1赛季'};
+ const orphan={...record(),id:8,player:null,player_id:null,character:{character_name:'孤立角色',region:'cn',realm:'服务器',season_id:3,season_name:'地心之战第2赛季'}};
+ const unknown={...record(),id:9,player:{id:99,character_name:'未知角色',class_name:'FutureClass',spec_name:'FutureSpec',season_id:876}};
+ const f=await fixture({handler:async(url)=>url.includes('?')?response(page([row,orphan,unknown])):null});
+ try {
+  const rows=f.doc.querySelectorAll('.pa-list-row');
+  assert.match(rows[0].textContent,/法师 火焰/);assert.match(rows[0].textContent,/至暗之夜第1赛季/);assert.doesNotMatch(rows[0].textContent,/Mage|Fire|赛季 3/);
+  assert.match(rows[1].textContent,/孤立角色/);assert.match(rows[1].textContent,/地心之战第2赛季/);
+  assert.match(rows[2].textContent,/FutureClass FutureSpec/);assert.match(rows[2].textContent,/赛季未知/);assert.doesNotMatch(rows[2].textContent,/876/);
+ }finally{f.app.destroy();f.dom.window.close();}
+});
+test('list displays every tag safely, preserves confidence and never falls back to any conclusion',async()=>{
+ const row={...record(),tags:[{label:'组队模式',value:'五人固定车队',confidence:'low',confidence_label:'低'},{label:'<img src=x>',value:'第二标签'}],conclusion:'LIST_SECRET',manual:{tags:[],conclusion:'MANUAL_SECRET',evidence:[]},effective:{conclusion:'EFFECTIVE_SECRET'}};
+ const empty={...row,id:8,tags:[]};
+ const f=await fixture({row,handler:async(url)=>url.includes('?')?response(page([row,empty])):null});
+ try {
+  const rows=f.doc.querySelectorAll('.pa-list-row');
+  assert.deepEqual(Array.from(rows[0].querySelectorAll('.pa-list-tag')).map(n=>n.textContent),['组队模式 · 五人固定车队 · 置信度：低','<img src=x> · 第二标签']);
+  assert.match(rows[1].textContent,/暂无标签/);assert.equal(rows[1].querySelectorAll('.pa-list-tag').length,0);
+  assert.equal(f.doc.querySelector('.pa-results img'),null);assert.equal(f.doc.querySelector('.pa-list-summary'),null);
+  assert.doesNotMatch(f.doc.querySelector('.pa-results').textContent,/LIST_SECRET|MANUAL_SECRET|EFFECTIVE_SECRET|冻结结论/);
+  await f.click('[data-action="open"]');assert.match(f.doc.querySelector('.pa-projections').textContent,/冻结结论/);assert.equal(f.doc.querySelector('[data-field="conclusion"]').value,'MANUAL_SECRET');
+ }finally{f.app.destroy();f.dom.window.close();}
+});
+test('tag options follow server metadata; exact selection persists through pagination, option refresh and empty results',async()=>{
+ let options=['组队模式','其他页标签','<img src=x>'],items=[record()];
+ const f=await fixture({handler:async(url)=>{
+  if(!url.includes('?'))return null;
+  const params=new URL(url,'https://example.com').searchParams;
+  return response({...page(items,Number(params.get('page')),items.length?41:0),tag_options:options});
+ }});
+ try {
+  const select=f.doc.querySelector('.pa-filters [data-field="tag"]');assert.ok(select);
+  assert.deepEqual(Array.from(select.options).map(n=>n.value),['',...options]);
+  select.value='组队模式';f.doc.querySelector('[name="q"]').value='角色 42';await f.submit('.pa-filters');await f.click('.pa-results [data-action="next"]');
+  let params=new URL(f.calls.at(-1)[0],'https://example.com').searchParams;
+  assert.equal(params.get('tag'),'组队模式');assert.equal(params.get('page'),'2');assert.equal(params.get('q'),'角色 42');assert.equal(select.value,'组队模式');
+  options=['新选项'];items=[];await f.submit('.pa-filters');
+  assert.deepEqual(Array.from(select.options).map(n=>n.value),['','新选项','组队模式']);assert.equal(select.value,'组队模式');
+  assert.match(f.doc.querySelector('.pa-results').textContent,/没有匹配/);
+  select.value='';await f.submit('.pa-filters');
+  params=new URL(f.calls.at(-1)[0],'https://example.com').searchParams;assert.equal(params.get('tag'),'');assert.equal(params.get('page'),'1');
+  assert.deepEqual(Array.from(select.options).map(n=>n.value),['','新选项']);assert.equal(f.doc.querySelector('.pa-filters img'),null);
+ }finally{f.app.destroy();f.dom.window.close();}
+});
 test('PATCH only changes, preserves manual; explicit restoration and publication gate',()=>{
  const row=record();
  assert.deepEqual(buildPatch(row,{review_status:'approved',review_note:'',is_published:false}),{revision:3,review_status:'approved'});

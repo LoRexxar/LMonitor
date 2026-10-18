@@ -204,8 +204,29 @@
         function staleReview(row) {
             return row.source_kind !== 'manual' && row.reviewed_at && row.review_matches_ai === false;
         }
-        function playerText(player,id) {
-            return player ? `${player.character_name} · ${player.region || ''} ${player.realm || ''} · ${player.class_name || ''} ${player.spec_name || ''} · #${player.id ?? id} · 赛季 ${player.season_id ?? '—'}` : `角色 #${id ?? '—'}（角色资料不可用）`;
+        function playerText(player,id,character) {
+            const identity=player || character;
+            if(!identity)return `角色 #${id ?? '—'}（角色资料不可用） · 赛季未知`;
+            const profession=player ? `${player.class_label || player.class_name || '职业未知'} ${player.spec_label || player.spec_name || '专精未知'}` : '角色资料不可用';
+            return `${identity.character_name} · ${identity.region || ''} ${identity.realm || ''} · ${profession} · #${player?.id ?? id ?? '—'} · ${identity.season_name || '赛季未知'}`;
+        }
+        function refreshTagOptions(values) {
+            const selected=selects.tag.value;
+            const choices=new Set((Array.isArray(values)?values:[]).filter(v=>typeof v==='string' && v));
+            // A narrower search must not silently discard the active filter.
+            if(selected)choices.add(selected);
+            selects.tag.replaceChildren(el('option','全部',{value:''}),...Array.from(choices,v=>el('option',v,{value:v})));
+            selects.tag.value=selected;
+        }
+        function listTags(tags) {
+            const group=el('div',null,{class:'pa-list-tags','aria-label':'分析标签'});
+            if(!Array.isArray(tags) || !tags.length){group.append(el('span','暂无标签',{class:'pa-muted'}));return group;}
+            tags.forEach(tag=>{
+                const text=typeof tag==='string'?tag:[tag.label,tag.value].filter(Boolean).join(' · ');
+                const confidence=tag.confidence_label || tag.confidence;
+                group.append(el('span',text+(confidence?` · 置信度：${label(confidence)}`:''),{class:'pa-badge pa-list-tag'}));
+            });
+            return group;
         }
         const message=el('div','', {role:'status','aria-live':'polite',class:'pa-message'});
         const filterForm=el('form',null,{class:'pa-filters','aria-label':'筛选分析'});
@@ -216,6 +237,7 @@
             ['review_status','审核状态',['pending','approved','rejected']],
             ['source','来源',['manual','ai','local_deterministic']],['visibility','发布状态',['published','hidden']]
         ]) selects[key]=selectField(filterForm,title,'',key,[['','全部'],...values.map(v=>[v,v==='published'?'已发布':v==='hidden'?'隐藏':label(v)])]);
+        selects.tag=selectField(filterForm,'分析标签','','tag',[['','全部']]);
         const pageSize=selectField(filterForm,'每页','20','page_size',[['20','20'],['50','50']]);
         const search=el('button','搜索',{type:'submit'});filterForm.append(search,button('新增人工分析','new',()=>newRecord()));
         listen(filterForm,'submit',event=>{event.preventDefault();task(()=>loadList(1));});
@@ -245,15 +267,15 @@
             try {
                 const data=await client.request('?'+new URLSearchParams(filters));
                 if(sequence!==readSequence)return;
+                refreshTagOptions(data.tag_options);
                 listPage=data.page;results.replaceChildren(el('h2','角色分析'));
                 if(!data.items.length)results.append(el('p','没有匹配的分析记录。'));
                 data.items.forEach(row=>{
                     const card=el('article',null,{class:'pa-list-row','data-row-id':row.id});
-                    const info=el('div');info.append(el('strong',playerText(row.player,row.player_id)));
+                    const info=el('div');info.append(el('strong',playerText(row.player,row.player_id,row.character)));
                     const badges=el('div',null,{class:'pa-badges'});
                     [row.status,row.review_status,row.source_kind,row.is_published?'已发布':'隐藏'].forEach(value=>badges.append(el('span',label(value),{class:'pa-badge','data-state':value})));
-                    const tagSummary=(row.tags || []).map(t=>[t.label,t.value].filter(Boolean).join(' · ')).join(' / ');
-                    info.append(badges,el('p',row.conclusion || row.effective?.conclusion || row.manual?.conclusion || row.ai?.conclusion || tagSummary || '暂无标签 · 打开审查补充人工结论与证据',{class:'pa-list-summary'}));
+                    info.append(badges,listTags(row.tags));
                     if(staleReview(row))info.append(el('strong','AI 证据或结论已更新，原审核不适用。',{class:'pa-warning'}));
                     const actions=el('div',null,{class:'pa-row-actions'});
                     actions.append(button('审查详情','open',()=>open(row.id)),button('人工编辑','edit-row',()=>open(row.id,true)),recheckButton(row));
@@ -344,7 +366,7 @@
             if(!alreadyOpen)showDrawer();else{detail.hidden=!active;messageSlot.append(message);}
             if(creating)renderCharacters(detail);
             else {
-                detail.append(el('p',playerText(current.player,current.player_id)),el('p',`版本 ${current.revision} · ${label(current.status)} · ${label(current.source_kind)} · ${label(current.review_status)} · ${current.is_published?'已发布':'隐藏'} · 活动 #${current.activity_id ?? '—'}`));
+                detail.append(el('p',playerText(current.player,current.player_id,current.character)),el('p',`版本 ${current.revision} · ${label(current.status)} · ${label(current.source_kind)} · ${label(current.review_status)} · ${current.is_published?'已发布':'隐藏'} · 活动 #${current.activity_id ?? '—'}`));
                 detail.append(el('p',`生成时间：${current.generated_at || '—'} · 审核时间：${current.reviewed_at || '—'}`,{class:'pa-muted'}));
                 if(staleReview(current))detail.append(el('p','AI 证据或结论已更新，原审核不适用于当前 AI；请重新审核。',{'data-review-stale':'',role:'note'}));
                 const columns=el('div',null,{class:'pa-projections'});

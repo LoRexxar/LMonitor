@@ -95,7 +95,7 @@ class PlayerAnalysisManagementAPITests(TestCase):
                 self.error(self.send('delete', path, {'revision': analysis['revision']}), 403)
         self.assertEqual(list(PlayerObservationAnalysis.objects.values()), before)
 
-    def test_list_uses_frozen_label_and_conclusion_without_detail_payload(self):
+    def test_list_uses_frozen_label_without_conclusion_or_detail_payload(self):
         row = self.create()
         PlayerObservationAnalysis.objects.filter(pk=row['id']).update(manual_json={},
             result_json={'observations': [{'code': 'fixed_team', 'confidence': '低'}],
@@ -107,9 +107,19 @@ class PlayerAnalysisManagementAPITests(TestCase):
             response = self.client.get(COLLECTION, {'q': row['id']})
         item = self.success(response)['items'][0]
         self.assertEqual(item['tags'], [{'label': '固定队', 'value': '低'}])
-        self.assertEqual(item['conclusion'], '冻结的角色结论')
+        self.assertEqual(self.success(response)['tag_options'], ['固定队'])
+        self.assertNotIn('conclusion', item)
+        self.assertEqual((item['player']['class_label'], item['player']['spec_label']), ('法师', '冰霜'))
+        self.assertEqual(item['player']['season_name'], self.season.season_name)
         self.assertNotIn('evidence_json', item)
         self.assertNotContains(response, 'large_fact')
+        filtered = self.success(self.client.get(COLLECTION, {'tag': '固定队', 'page_size': '1'}))
+        self.assertEqual(filtered['total'], 1)
+        self.assertEqual(filtered['items'][0]['id'], row['id'])
+        unknown = self.success(self.client.get(COLLECTION, {'tag': '未知'}))
+        self.assertEqual(unknown['total'], 0)
+        self.assertEqual(unknown['tag_options'], ['固定队'])
+        self.error(self.client.get(COLLECTION, {'tag': 'x' * 201}), 400)
 
     def test_real_dashboard_section_and_followed_legacy_entry(self):
         target = '/dashboard/?section=player-analyses'

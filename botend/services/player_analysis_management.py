@@ -11,8 +11,11 @@ from urllib.parse import urlsplit
 from django.core.exceptions import ValidationError
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import BooleanField, Case, Func, JSONField, OuterRef, Q, Subquery, Value, When
+from django.db.models.fields.json import KeyTransform
 from django.utils import timezone
+
+from botend.constants.wow import CLASS_CN, SPEC_CN, canonical_class_spec
 
 from botend.models import PlayerObservationAnalysis, PlayerSpecTopPlayer, RaiderIOCharacterActivity, SeasonMeta
 from botend.raiderio_identity import activity_identity_digest
@@ -80,7 +83,9 @@ def normalize_manual(value):
 
 
 def source_kind(row):
-    if row.manual_json:
+    # List projections deliberately defer the potentially huge manual document.
+    has_manual = row.summary_has_manual if hasattr(row, 'summary_has_manual') else bool(row.manual_json)
+    if has_manual:
         return 'manual'
     metadata = row.result_json.get('metadata', {}) if isinstance(row.result_json, dict) else {}
     return 'local_deterministic' if metadata.get('source_kind') == 'local_deterministic' else 'ai'
@@ -90,16 +95,34 @@ def _date(value):
     return value.isoformat() if value else None
 
 
-def _player(player):
-    return {field: getattr(player, field) for field in PLAYER_FIELDS} if player else None
+def _season_name(season_id):
+    # PlayerSpecTopPlayer stores an integer, not a ForeignKey to SeasonMeta.
+    return Subquery(SeasonMeta.objects.filter(pk=OuterRef(season_id)).values('season_name')[:1])
+
+
+def _player(player, season_name=None):
+    if not player:
+        return None
+    pair = canonical_class_spec(player.class_name, player.spec_name)
+    class_name, spec_name = pair or (player.class_name, player.spec_name)
+    if season_name is None:
+        if hasattr(player, 'display_season_name'):
+            season_name = player.display_season_name
+        else:  # Single-object create/update responses, never a per-list-row lookup.
+            season_name = SeasonMeta.objects.filter(pk=player.season_id).values_list('season_name', flat=True).first()
+    return {**{field: getattr(player, field) for field in PLAYER_FIELDS},
+            'class_label': CLASS_CN.get(class_name, class_name),
+            'spec_label': SPEC_CN.get(spec_name, spec_name) if pair else spec_name,
+            'season_name': season_name or ''}
 
 
 def _base_query():
-    return PlayerObservationAnalysis.objects.select_related('player', 'activity').only(
+    return PlayerObservationAnalysis.objects.select_related('player', 'activity__season').only(
         *[field.name for field in PlayerObservationAnalysis._meta.concrete_fields],
         *['player__' + field for field in PLAYER_FIELDS],
         'activity__id', 'activity__season_id', 'activity__region', 'activity__realm_slug', 'activity__character_name',
-    )
+        'activity__season__id', 'activity__season__season_name',
+    ).annotate(player_season_name=_season_name('player__season_id'))
 
 
 def _result_hash(row):
@@ -111,9 +134,11 @@ def _common(row):
     return {
         'recheck': state(row),
         'id': row.pk, 'revision': row.revision, 'player_id': row.player_id,
-        'player': _player(row.player), 'activity_id': row.activity_id,
+        'player': _player(row.player, (row.player_season_name or '') if hasattr(row, 'player_season_name') else None),
+        'activity_id': row.activity_id,
         'character': {'character_name': row.activity.character_name, 'region': row.activity.region,
-                      'realm': row.activity.realm_slug, 'season_id': row.activity.season_id},
+                      'realm': row.activity.realm_slug, 'season_id': row.activity.season_id,
+                      'season_name': row.activity.season.season_name},
         'status': row.status, 'review_status': row.review_status,
         'review_note': row.review_note, 'reviewed_by_id': row.reviewed_by_id,
         'reviewed_at': _date(row.reviewed_at), 'reviewed_evidence_hash': row.reviewed_evidence_hash,
@@ -189,12 +214,50 @@ def _choice(params, key, allowed):
     return value
 
 
+class _ManualTagColumn(Func):
+    """Extract scalar tag fields in SQL, never transfer manual reasons/evidence.
+
+    Manual writes normalize every tag with both label and value, so the two
+    ordered arrays align. SQLite JSON paths lack MySQL's array wildcard.
+    """
+    function = 'JSON_EXTRACT'
+    output_field = JSONField()
+
+    def __init__(self, key):
+        self.key = key
+        super().__init__('manual_json', Value(f'$.tags[*].{key}'))
+
+    def as_sqlite(self, compiler, connection, **extra_context):
+        document, params = compiler.compile(self.source_expressions[0])
+        return (
+            '(SELECT JSON_GROUP_ARRAY(JSON_EXTRACT(tag.value, %s)) '
+            f"FROM JSON_EACH({document}, '$.tags') tag WHERE tag.type = 'object')",
+            [f'$.{self.key}', *params],
+        )
+
+
+def _effective_tags(has_manual, manual_labels, manual_values, labels, observations):
+    if has_manual:
+        values = manual_values if isinstance(manual_values, list) else []
+        tags = [{'label': label, 'value': values[index] if index < len(values) else ''}
+                for index, label in enumerate(manual_labels if isinstance(manual_labels, list) else [])]
+    else:
+        names = {item.get('code'): item.get('label', '') for item in (labels or []) if isinstance(item, dict)}
+        tags = [{'label': names.get(item.get('code'), item.get('code', '')), 'value': item.get('confidence', '')}
+                for item in (observations or []) if isinstance(item, dict)]
+    return [tag for tag in tags if isinstance(tag['label'], str) and tag['label'].strip() and len(tag['label']) <= 200]
+
+
 def list_analyses(params):
     # Deliberately do NOT call _detail/frozen_ai/build_evidence on list pages.
-    from django.db.models.fields.json import KeyTransform
-    query = _base_query().defer('evidence_json').annotate(
+    page, page_size = _page(params)
+    tag = _text(params.get('tag', ''), 'tag', 200)  # Exact label, not a substring or trimmed alias.
+    query = _base_query().defer('evidence_json', 'manual_json').annotate(
+        summary_has_manual=Case(When(manual_json={}, then=Value(False)), default=Value(True), output_field=BooleanField()),
+        summary_manual_labels=_ManualTagColumn('label'),
+        summary_manual_values=_ManualTagColumn('value'),
         summary_labels=KeyTransform('eligible_labels', 'evidence_json'),
-        summary_conclusions=KeyTransform('conclusion_options', 'evidence_json'))
+        summary_observations=KeyTransform('observations', 'result_json'))
     q = _text(params.get('q', ''), 'q', 200).strip()
     if q:
         condition = (Q(player__character_name__icontains=q) | Q(player__realm__icontains=q)
@@ -218,22 +281,40 @@ def list_analyses(params):
     if visibility:
         query = query.filter(is_published=visibility == 'published')
 
-    def summary(row):
-        labels = {item.get('code'): item.get('label', '') for item in (row.summary_labels or []) if isinstance(item, dict)}
-        options = row.summary_conclusions if isinstance(row.summary_conclusions, dict) else {}
-        option = options.get(row.result_json.get('conclusion_id'), {})
-        tags = (row.manual_json.get('tags', []) if row.manual_json else
-                [{'code': item.get('code', ''), 'label': labels.get(item.get('code'), item.get('code', '')), 'value': item.get('confidence', '')}
-                 for item in row.result_json.get('observations', []) if isinstance(item, dict)])
-        conclusion = row.manual_json.get('conclusion', '') if row.manual_json else (option.get('text', '') if isinstance(option, dict) else '')
-        return {**_common(row), 'conclusion': conclusion,
-                'tags': [{k: tag.get(k, '') for k in ('label', 'value')} for tag in tags]}
+    # A tag census must cover every matching row, not just the requested page.
+    # Keyset batches bound memory even with MySQL's client-buffered cursors; only
+    # light JSON subfields cross the wire, and at most page_size IDs are retained.
+    candidates = query.order_by('-id').values('id', 'summary_has_manual',
+        'summary_manual_labels', 'summary_labels', 'summary_observations')
+    options, page_ids = set(), []
+    total, start, before = 0, (page - 1) * page_size, None
+    while True:
+        batch = list((candidates.filter(pk__lt=before) if before is not None else candidates)[:200])
+        for row in batch:
+            labels = {item['label'] for item in _effective_tags(row['summary_has_manual'],
+                row['summary_manual_labels'], [], row['summary_labels'], row['summary_observations'])}
+            options.update(labels)
+            if not tag or tag in labels:
+                if start <= total < start + page_size:
+                    page_ids.append(row['id'])
+                total += 1
+        if len(batch) < 200:
+            break
+        before = batch[-1]['id']
 
-    return _paginate(query.order_by('-id'), params, summary)
+    def summary(row):
+        tags = _effective_tags(row.summary_has_manual, row.summary_manual_labels,
+            row.summary_manual_values, row.summary_labels, row.summary_observations)
+        return {**_common(row), 'tags': tags}
+
+    return {'items': [summary(row) for row in query.filter(pk__in=page_ids).order_by('-id')],
+            'total': total, 'page': page, 'page_size': page_size,
+            'total_pages': (total + page_size - 1) // page_size,
+            'tag_options': sorted(options)}  # Stable Unicode ordering, independent of DB collation.
 
 
 def list_characters(params):
-    query = PlayerSpecTopPlayer.objects.only(*PLAYER_FIELDS)
+    query = PlayerSpecTopPlayer.objects.only(*PLAYER_FIELDS).annotate(display_season_name=_season_name('season_id'))
     q = _text(params.get('q', ''), 'q', 200).strip()
     if q:
         condition = Q(character_name__icontains=q) | Q(realm__icontains=q)

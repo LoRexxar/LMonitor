@@ -116,7 +116,8 @@ class PlayerAnalysisManagementTests(TestCase):
         self.assertEqual(listing['page_size'], 50)
         self.assertNotIn('ai', listing['items'][0])
         selects = [q['sql'] for q in captured if q['sql'].lstrip().upper().startswith('SELECT')]
-        self.assertEqual(listing['items'][0]['conclusion'], '历史结论')
+        self.assertNotIn('conclusion', listing['items'][0])
+        self.assertEqual(listing['tag_options'], ['历史标签'])
         self.assertEqual(listing['items'][0]['tags'][0]['label'], '历史标签')
         for sql in selects:
             self.assertNotIn('gear_json', sql)
@@ -132,6 +133,115 @@ class PlayerAnalysisManagementTests(TestCase):
         self.assertIsNone(service.get_analysis(row.pk)['player'])
         self.user.delete()
         self.assertTrue(PlayerObservationAnalysis.objects.filter(pk=row.pk).exists())
+
+    def test_labels_and_real_season_on_search_detail_list_and_orphans(self):
+        # A database PK is not a season ordinal, nor necessarily the active season.
+        season = SeasonMeta.objects.create(pk=703, season_key='mn-s2-labels',
+            season_name='Mythic+ Season 2', is_active=False, mplus_zone_id=1, raid_zone_id=2)
+        self.player.season_id = season.pk
+        self.player.save(update_fields=['season_id'])
+        sibling = self.make_player(season_id=season.pk, spec_name='Discipline')
+        detail = self.create()
+        with CaptureQueriesContext(connection) as captured:
+            characters = service.list_characters({'q': 'Member', 'season_id': str(season.pk)})
+        self.assertEqual(len(captured), 2)
+        self.assertEqual([p['id'] for p in characters['items']], [self.player.pk, sibling.pk])
+        self.assertEqual([p['spec_label'] for p in characters['items']], ['神圣', '戒律'])
+        self.assertTrue(all(p['class_label'] == '牧师' for p in characters['items']))
+        listing = service.list_analyses({})
+        for player in [detail['player'], *characters['items'], listing['items'][0]['player']]:
+            self.assertEqual(player['season_id'], 703)
+            self.assertEqual(player['season_name'], 'Mythic+ Season 2')
+            self.assertEqual(player['class_name'], 'Priest')
+        self.player.delete()
+        for item in [service.get_analysis(detail['id']), service.list_analyses({})['items'][0]]:
+            self.assertIsNone(item['player'])
+            self.assertEqual(item['character']['season_id'], 703)
+            self.assertEqual(item['character']['season_name'], 'Mythic+ Season 2')
+        unknown = self.make_player(character_name='Unknown', class_name='Unknown', spec_name='Holy', season_id=9999)
+        item = service.list_characters({'q': str(unknown.pk)})['items'][0]
+        self.assertEqual(item['season_name'], '')
+        self.assertEqual(item['spec_label'], 'Holy')  # Do not guess a class from a shared spec name.
+
+    def test_effective_tag_options_filter_before_pagination_and_narrow_payload(self):
+        rows = []
+        for index, manual in enumerate(({}, {'tags': [{'label': '人工标签', 'value': '人工值',
+                'evidence': [{'text': 'large-tag-evidence' * 1000}], 'reason': 'reason' * 1000}],
+                'evidence': [{'text': 'large-manual-evidence' * 1000}]},
+                {'conclusion': '人工无标签'}, {'tags': [], 'evidence': [{'text': 'only evidence'}]}, {})):
+            activity = RaiderIOCharacterActivity.objects.create(season=self.season,
+                region='eu', realm_slug='test-realm', character_name=f'Member{index}')
+            rows.append(PlayerObservationAnalysis.objects.create(activity=activity, player=self.player,
+                status='ready', review_status='approved', is_published=True, manual_json=manual,
+                evidence_json={'eligible_labels': [{'code': 'selected', 'label': '冻结标签'},
+                    {'code': 'unselected', 'label': '未采用标签'}],
+                    'evidence': [{'text': 'large-frozen-evidence' * 1000}],
+                    'conclusion_options': {'old': {'text': '不载入综合结论'}}},
+                result_json={'observations': [{'code': 'selected', 'confidence': '低'}]}))
+        expected_options = sorted(['冻结标签', '人工标签'])
+        # Matching records are separated by manual overrides; count and pagination
+        # must be computed across all records, not by filtering a fetched page.
+        filters = {'q': 'Member', 'status': 'ready', 'review_status': 'approved', 'visibility': 'published', 'page_size': '1'}
+        with CaptureQueriesContext(connection) as captured:
+            first = service.list_analyses({**filters, 'tag': '冻结标签'})
+        self.assertEqual(first['tag_options'], expected_options)
+        self.assertEqual((first['total'], first['total_pages']), (2, 2))
+        self.assertEqual([item['id'] for item in first['items']], [rows[4].pk])
+        second = service.list_analyses({**filters, 'tag': '冻结标签', 'page': '2'})
+        self.assertEqual([item['id'] for item in second['items']], [rows[0].pk])
+        self.assertEqual(second['tag_options'], expected_options)
+        manual = service.list_analyses({'source': 'manual'})
+        self.assertEqual(manual['tag_options'], ['人工标签'])
+        self.assertEqual([item['tags'] for item in manual['items']], [[], [], [{'label': '人工标签', 'value': '人工值'}]])
+        self.assertTrue(all(item['source_kind'] == 'manual' for item in manual['items']))
+        self.assertEqual(service.list_analyses({'source': 'ai'})['tag_options'], ['冻结标签'])
+        self.assertEqual(service.list_analyses({'visibility': 'hidden'})['tag_options'], [])
+        for tag in ('未知标签', '未采用标签', '冻结', '低', ' 冻结标签', '冻结标签 '):
+            result = service.list_analyses({**filters, 'tag': tag})
+            self.assertEqual(result['total'], 0, tag)
+            self.assertEqual(result['items'], [])
+            self.assertEqual(result['tag_options'], expected_options)
+        for tag in ('x' * 201, None, 1):
+            with self.assertRaises(ValidationError):
+                service.list_analyses({'tag': tag})
+        for item in [*first['items'], *manual['items']]:
+            self.assertNotIn('conclusion', item)
+            self.assertNotIn('evidence', item)
+        for query in captured:
+            sql = query['sql']
+            for field in ('gear_json', 'talents_json', 'payload_json', 'conclusion_options'):
+                self.assertNotIn(field, sql)
+            for field in ('manual_json', 'evidence_json'):
+                self.assertNotRegex(sql, rf'(?:SELECT\s+|,\s*)["`]wow_player_observation_analysis["`]\.["`]{field}["`](?:\s*,|\s+FROM)')
+        # Reviewing still compares the complete small result, not a tag-only hash.
+        approved = service.update_analysis(rows[0].pk, {'revision': 0, 'review_status': 'approved'}, self.user)
+        self.assertTrue(approved['review_matches_ai'])
+        self.assertTrue(service.list_analyses({'q': str(rows[0].pk), 'tag': '冻结标签'})['items'][-1]['review_matches_ai'])
+
+    def test_tag_census_crosses_bounded_batches_with_exact_unicode_labels(self):
+        activities = [RaiderIOCharacterActivity(season=self.season, region='eu', realm_slug='test-realm',
+            character_name=f'batch{index}', identity_digest=service.activity_identity_digest('eu', 'test-realm', f'batch{index}'))
+            for index in range(201)]
+        RaiderIOCharacterActivity.objects.bulk_create(activities)
+        rows = [PlayerObservationAnalysis(activity=activity, manual_json={
+            'tags': [{'label': 'Case标签' if index == 0 else '常见标签', 'value': 'true' if index == 0 else '低'}]})
+            for index, activity in enumerate(activities)]
+        PlayerObservationAnalysis.objects.bulk_create(rows)
+        with CaptureQueriesContext(connection) as captured:
+            result = service.list_analyses({'tag': 'Case标签', 'page_size': '1'})
+        self.assertEqual(len(captured), 3)  # Two bounded tag batches plus one page; no per-row identity queries.
+        self.assertEqual(result['total'], 1)
+        self.assertEqual(result['items'][0]['id'], rows[0].pk)
+        self.assertEqual(result['items'][0]['tags'], [{'label': 'Case标签', 'value': 'true'}])
+        self.assertEqual(result['tag_options'], sorted(['Case标签', '常见标签']))
+        self.assertEqual(service.list_analyses({'tag': 'case标签'})['total'], 0)
+        self.assertEqual(service.list_analyses({'tag': 'Case标签', 'page': '2'})['items'], [])
+        PlayerObservationAnalysis.objects.filter(pk=rows[0].pk).update(manual_json={},
+            result_json={'metadata': {'source_kind': 'local_deterministic'}, 'observations': []})
+        local = service.list_analyses({'source': 'local_deterministic'})
+        self.assertEqual(local['total'], 1)
+        self.assertEqual(local['tag_options'], [])
+        self.assertEqual(local['items'][0]['source_kind'], 'local_deterministic')
 
     def test_manual_projection_outside_top20_and_whole_record_hide(self):
         from botend.services.player_observation import project_player_observation
