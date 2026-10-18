@@ -364,7 +364,9 @@ function openDashboardTable(tableName, tableTitle = '') {
  */
 function activateDashboardLocation() {
     const params = new URLSearchParams(window.location.search);
-    const section = params.get('section');
+    // Home intentionally has no section query; preserve its explicit history
+    // target instead of falling back to the server's initial deep-link section.
+    const section = params.get('section') || window.history.state?.dashboardLocation?.section;
     const tool = params.get('tool');
     const table = params.get('table');
     let target = null;

@@ -114,6 +114,26 @@ test('page teardown disconnects the observer and is idempotent; bfcache preserve
     replacement.destroy();dom.window.close();
 });
 
+test('history restores home after direct panel entry without replacing the forward stack',async()=>{
+    const {dom,win,doc,calls,panel,nav}=await dashboard('?section=player-analyses');
+    try {
+        win.DASHBOARD_DEFAULT_SECTION='player-analyses';
+        win.addEventListener('popstate',win.activateDashboardLocation);
+        win.activateDashboardLocation();await tick();
+        nav('dashboard-home');nav('player-analyses');await tick();
+        const length=win.history.length;
+        await new Promise(resolve=>{win.addEventListener('popstate',resolve,{once:true});win.history.back();});
+        await tick();
+        assert.ok(doc.getElementById('dashboard-home').classList.contains('active'));
+        assert.equal(win.location.search,'');
+        assert.equal(win.history.length,length);
+        await new Promise(resolve=>{win.addEventListener('popstate',resolve,{once:true});win.history.forward();});
+        await tick();
+        assert.ok(doc.getElementById('player-analyses').classList.contains('active'));
+        assert.equal(calls.length,1);
+    } finally {panel.destroy();dom.window.close();}
+});
+
 test('absent superuser panel never mounts or fetches',()=>{
     const dom=new JSDOM('<section id="dashboard-home"></section>');
     assert.equal(initDashboard(dom.window.document),null);
