@@ -16,6 +16,7 @@ from botend.services.gear_builder import (
     bootstrap_payload,
     catalog_items,
     hydrate_shared_state,
+    share_payload_arguments,
     import_simc_profile,
     resolve_crafted_variant,
 )
@@ -123,17 +124,18 @@ class PortalGearBuilderCraftedResolveAPIView(View):
 class PortalGearBuilderShareResolveAPIView(View):
     def post(self, request):
         try:
+            from botend.services.gear_builder_storage import MAX_DECODED_STATE_LENGTH
+            if len(request.body) > MAX_DECODED_STATE_LENGTH:
+                raise GearBuilderError('配装请求内容过大')
             body = _json_body(request)
             payload = hydrate_shared_state(
-                share_version=body.get('v'),
-                class_name=body.get('c') or 'Warrior',
-                spec_name=body.get('s') or 'Fury',
-                batch_key=body.get('b') or '',
-                entries=body.get('e') or [],
+                **share_payload_arguments(body),
                 current=body.get('current', True) is True,
+                strict=body.get('strict', False),
             )
         except GearBuilderError as exc:
-            return _error_response(exc)
+            return JsonResponse({'success': False, 'error': str(exc),
+                                 'issues': getattr(exc, 'issues', [])}, status=400)
         return JsonResponse({'success': True, **payload})
 
 

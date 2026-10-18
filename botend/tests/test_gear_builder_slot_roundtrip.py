@@ -94,9 +94,12 @@ class GearBuilderSlotRoundtripTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(set(result['equipment']), set(self.variants))
         self.assertEqual(result['warnings'], [])
         shoulder = next(row for row in entries if row[0] == 'shoulder')
-        for duplicate in ('shoulder', 'shoulders'):
+        merged = self.resolve([shoulder, ['shoulders', *shoulder[1:]]])
+        self.assertEqual(set(merged['equipment']), {'shoulders'})
+        self.assertEqual(merged['issues'], [])
+        for duplicate in ([*shoulder], ['shoulders', shoulder[1], 'different-key']):
             with self.subTest(duplicate=duplicate), self.assertRaisesMessage(builder.GearBuilderError, '重复装备槽位'):
-                self.resolve([shoulder, [duplicate, *shoulder[1:]]])
+                self.resolve([shoulder, duplicate])
         for invalid in ('shirt', 'tabard', 'unknown'):
             with self.subTest(invalid=invalid), self.assertRaisesMessage(builder.GearBuilderError, '未知或重复装备槽位'):
                 self.resolve([[invalid, *shoulder[1:]]])

@@ -290,14 +290,29 @@
     return target && equipmentSlots().some((row) => row.key === target) ? target : slot;
   }
 
+  function sameStoredValue(left, right) {
+    if (left === right) return true;
+    if (!left || !right || typeof left !== "object" || typeof right !== "object" || Array.isArray(left) !== Array.isArray(right)) return false;
+    const keys = Object.keys(left);
+    return keys.length === Object.keys(right).length
+      && keys.every((key) => Object.hasOwn(right, key) && sameStoredValue(left[key], right[key]));
+  }
+
   function normalizeEquipment(equipment) {
     const rows = equipment && typeof equipment === "object" ? equipment : {};
-    // Explicit canonical data (including an empty slot) wins over stale aliases.
-    // Unknown real slots remain in storage/share; only metadata slots enter the UI.
-    return Object.fromEntries(Object.entries(rows).filter(([slot]) => {
+    const normalized = Object.create(null);
+    const origins = Object.create(null);
+    for (const [slot, entry] of Object.entries(rows)) {
       const key = canonicalSlot(slot);
-      return key === slot || !Object.hasOwn(rows, key);
-    }).map(([slot, entry]) => [canonicalSlot(slot), entry]));
+      // Neither an explicit null nor a second item proves which historical edit
+      // was intended. Only identical facts may be deduplicated without data loss.
+      if (Object.hasOwn(normalized, key) && !sameStoredValue(normalized[key], entry)) {
+        throw new Error(`装备槽位 ${origins[key]} / ${slot} 存在冲突，已保留原配装，请先核对原始数据。`);
+      }
+      normalized[key] = entry;
+      origins[key] = slot;
+    }
+    return normalized;
   }
 
   function equippedEntries(currentState = state) {
@@ -321,6 +336,7 @@
     next.viewMode = raw.viewMode === "preview" ? "preview" : "editor";
     next.mobileView = ["slots", "browser", "stats"].includes(raw.mobileView) ? raw.mobileView : "browser";
     next.equipment = normalizeEquipment(raw.equipment);
+    next.snapshotSlots = [...new Set((Array.isArray(raw.snapshotSlots) ? raw.snapshotSlots : []).map(canonicalSlot))];
     next.lockedSlots = [...new Set((Array.isArray(raw.lockedSlots) ? raw.lockedSlots : [])
       .filter((slot) => typeof slot === "string" && slot).map(canonicalSlot))];
     // Metadata may not be available yet: preserve aliases until it can resolve them.
@@ -333,24 +349,63 @@
   }
 
   function loadStored(className, specName) {
-    try {
-      return normalizeState(JSON.parse(localStorage.getItem(storageKey(className, specName)) || "null"));
-    } catch (_error) {
-      return normalizeState(null);
+    const stored = localStorage.getItem(storageKey(className, specName));
+    if (!stored) return normalizeState(null);
+    // An unreadable/conflicting draft is not an empty draft. Propagate failure so
+    // startup cannot overwrite the only remaining copy with freshState().
+    const raw = JSON.parse(stored);
+    if (!raw || typeof raw !== "object" || Array.isArray(raw) || !raw.equipment || typeof raw.equipment !== "object" || Array.isArray(raw.equipment)) {
+      throw new Error("浏览器配装格式无效，已保留原始数据。");
     }
+    return normalizeState(raw);
   }
 
   async function refreshState(currentState) {
     const normalized = normalizeState(currentState);
-    // The shared resolver only accepts supported slots. Retain other historical
-    // data locally rather than dropping it or making the entire startup fail.
-    const refreshed = await WowGearState.refresh({...normalized, equipment: Object.fromEntries(equippedEntries(normalized))}, requestJson);
-    return normalizeState({...refreshed, equipment: {...normalized.equipment, ...refreshed.equipment}});
+    // Strictness is page-local: other consumers of WowGearState retain their
+    // existing refresh contract. Validate before the shared helper can merge.
+    const strictRequest = async (url, options) => {
+      const request = {...JSON.parse(options.body), strict: true};
+      const response = await requestJson(url, {...options, body: JSON.stringify(request)});
+      assertCompleteResolution(request.e, response, request.v);
+      return response;
+    };
+    const refreshed = await WowGearState.refresh({...normalized, equipment: Object.fromEntries(equippedEntries(normalized))}, strictRequest);
+    const equipment = {...normalized.equipment, ...refreshed.equipment};
+    if (refreshed.batchKey !== normalized.batchKey) {
+      for (const [slot, entry] of Object.entries(equipment)) {
+        if (entry && entry === normalized.equipment[slot]) equipment[slot] = withBatchOrigin(entry, normalized.batchKey);
+      }
+    }
+    return normalizeState({...refreshed, equipment});
+  }
+
+  function equipmentComponents(entry) {
+    return entry ? [entry, entry.embellishment, ...(entry.gems || []), entry.enchant].filter(Boolean) : [];
+  }
+
+  function withBatchOrigin(entry, batchKey) {
+    const snapshot = structuredClone(entry);
+    if (batchKey) equipmentComponents(snapshot).forEach((component) => {
+      if (component.variant && !Object.hasOwn(component.variant, "batch_key")) component.variant.batch_key = batchKey;
+    });
+    return snapshot;
+  }
+
+  let restorationError = "";
+
+  function requireRestoredState() {
+    if (restorationError) throw new Error(`配装尚未完整恢复，未保存或复制：${restorationError}`);
   }
 
   function persist() {
+    requireRestoredState();
     state = normalizeState(state);
-    state.batchKey = bootstrap?.catalog?.batch_key || state.batchKey || "";
+    // Never relabel old identities merely because the catalog advanced. Move
+    // the common batch only when every retained component has the same origin.
+    const batches = new Set(Object.values(state.equipment).flatMap(equipmentComponents)
+      .map((component) => component.variant?.batch_key || state.batchKey).filter(Boolean));
+    state.batchKey = batches.size === 1 ? [...batches][0] : state.batchKey || bootstrap?.catalog?.batch_key || "";
     localStorage.setItem(storageKey(), JSON.stringify(state));
     els.save_status.textContent = `已保存到浏览器 · ${new Date().toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"})}`;
   }
@@ -410,6 +465,7 @@
 
   function replaceLoadout(next) {
     state = normalizeState(next);
+    restorationError = "";
   }
 
   function confirmLoadoutReplacement(record) {
@@ -1493,9 +1549,9 @@
   }
 
   function shareEntryNeedsSnapshot(entry) {
-    if (!entry?.variant?.id || entry.external) return true;
+    if (!entry?.variant?.id || !entry?.variant?.key || entry.external) return true;
     const enhancements = [entry.embellishment, ...(entry.gems || []), entry.enchant].filter(Boolean);
-    return enhancements.some((row) => !row?.variant?.id || row.external);
+    return enhancements.some((row) => !row?.variant?.id || !row?.variant?.key || !row?.item?.item_id || row.external);
   }
 
   function compactVariantReference(row) {
@@ -1507,9 +1563,12 @@
   }
 
   function compactShareState(currentState) {
+    requireRestoredState();
     currentState = normalizeState(currentState);
-    const equipment = Object.entries(currentState.equipment || {}).map(([slot, entry]) => {
-      if (!equipmentSlots().some((row) => row.key === slot) || shareEntryNeedsSnapshot(entry)) {
+    const equipment = Object.entries(currentState.equipment || {}).filter(([, entry]) => entry !== null).map(([slot, entry]) => {
+      const mixedBatch = equipmentComponents(entry).some((component) => component.variant?.batch_key
+        && component.variant.batch_key !== currentState.batchKey);
+      if (mixedBatch || currentState.snapshotSlots.includes(slot) || !equipmentSlots().some((row) => row.key === slot) || shareEntryNeedsSnapshot(entry)) {
         return [slot, 0, 0, [], 0, [], 0, entry?.addedSocket ? 1 : 0, structuredClone(entry)];
       }
       return [
@@ -1534,13 +1593,60 @@
     };
   }
 
+  function assertCompleteResolution(rows, response, version) {
+    if (response.warnings?.length) throw new Error(`配装未完整恢复，已保留原配装：${response.warnings.join("；")}`);
+    const equipment = normalizeEquipment(response.equipment);
+    const matches = (entry, reference) => {
+      if (!reference) return !entry;
+      if (!entry?.item || !entry?.variant) return false;
+      // v2 knows only database IDs. The strict backend validates those IDs and
+      // may refresh them to a newer batch; an ID change is not a lost choice.
+      if (version === 2) return true;
+      if (version === 3) {
+        return Array.isArray(reference) && (reference[1] && reference[2]
+          ? Number(entry.item.item_id) === Number(reference[1]) && entry.variant.key === reference[2]
+          : Number(entry.variant.id) === Number(reference[0]));
+      }
+      return Array.isArray(reference) && Number(entry.item.item_id) === Number(reference[0]) && entry.variant.key === reference[1];
+    };
+    for (const row of rows) {
+      if (row[8]) continue; // Complete raw snapshots are independently preserved below.
+      const entry = equipment[canonicalSlot(row[0])];
+      const validItem = entry?.item && Number(entry.item.item_id) === Number(row[1]);
+      const validVariant = version === 4 ? entry?.variant?.key === row[2] : matches(entry, row[2]);
+      const validEnhancements = row.length < 8 || (
+        matches(entry?.embellishment, row[4]) && matches(entry?.enchant, row[6])
+        && (entry?.gems || []).length === (row[5] || []).length
+        && (row[5] || []).every((reference, index) => matches(entry?.gems?.[index], reference))
+        && sameStoredValue(entry?.selectedStats || [], row[3] || [])
+        && Boolean(entry?.addedSocket) === Boolean(row[7]));
+      if (!validItem || !validVariant || !validEnhancements) {
+        throw new Error(`${row[0]} 的装备或增强未完整恢复，已保留原配装。`);
+      }
+    }
+  }
+
   async function hydrateSharePayload(payload) {
+    if (!bootstrap?.slots?.length) throw new Error("装备槽位元数据尚未就绪，请稍后重试。");
     if (!Array.isArray(payload?.e)) {
-      return normalizeState(payload);
+      if (!payload || Object.hasOwn(payload, "v") || payload.version !== 1
+        || !payload.equipment || typeof payload.equipment !== "object" || Array.isArray(payload.equipment)) {
+        throw new Error("分享链接配装格式无效，已保留原配装。");
+      }
+      const next = normalizeState(payload);
+      // Historical full states are snapshots, not proof of valid equipment.
+      // Reuse strict raw-row validation without sending equipment a second time.
+      const validated = await hydrateSharePayload({
+        v: 4, c: payload.className, s: payload.specName, b: payload.batchKey,
+        u: [next.selectedSlot, next.mode, next.viewMode, next.mobileView], l: next.lockedSlots,
+        e: Object.entries(next.equipment).filter(([, entry]) => entry !== null)
+          .map(([slot, entry]) => [slot, 0, 0, [], 0, [], 0, entry?.addedSocket ? 1 : 0, entry]),
+      });
+      return normalizeState({...next, snapshotSlots: validated.snapshotSlots,
+        equipment: {...next.equipment, ...validated.equipment}});
     }
-    if (Number(payload?.v) !== SHARE_FORMAT_VERSION) {
-      throw new Error("分享链接版本已过期，请使用当前配装器重新生成。");
-    }
+    const version = Number(payload.v);
+    if (![2, 3, 4].includes(version)) throw new Error("分享链接版本无法识别，已保留原配装。");
     const ui = Array.isArray(payload.u) ? payload.u : [];
     const next = {
       className: payload.c,
@@ -1551,9 +1657,9 @@
       viewMode: ui[2],
       mobileView: ui[3],
       lockedSlots: payload.l,
+      snapshotSlots: [],
       equipment: {},
     };
-    // Validate original identity before compatibility filtering can hide duplicates.
     const originalKeys = new Set();
     for (const row of payload.e) {
       if (!Array.isArray(row) || row.length < 3 || typeof row[0] !== "string" || !row[0]) {
@@ -1562,24 +1668,28 @@
       if (originalKeys.has(row[0])) throw new Error("分享链接包含重复装备槽位");
       originalKeys.add(row[0]);
     }
-    const rows = payload.e.filter((row) => !Array.isArray(row)
-      || canonicalSlot(row[0]) === row[0] || !originalKeys.has(canonicalSlot(row[0])))
-      .map((row) => Array.isArray(row) ? [canonicalSlot(row[0]), ...row.slice(1)] : row);
+    // Compare every field except the slot spelling, including gems and raw data.
+    const bySlot = normalizeEquipment(Object.fromEntries(payload.e.map((row) => [row[0], row.slice(1)])));
+    const rows = Object.entries(bySlot).map(([slot, fields]) => [slot, ...fields]);
+    const snapshots = Object.create(null);
+    for (const row of rows) {
+      if (row.length > 8 && row[8] !== null) {
+        if (!row[8]?.item?.item_id || !row[8]?.variant || typeof row[8].variant !== "object") {
+          throw new Error(`${row[0]} 的原始装备快照格式无效，已保留原配装。`);
+        }
+        snapshots[row[0]] = structuredClone(row[8]);
+        next.snapshotSlots.push(row[0]);
+      }
+    }
+    const requestRows = rows.filter((row) => !snapshots[row[0]] || equipmentSlots().some((slot) => slot.key === row[0]));
     const response = await requestJson(endpoints.share, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({...payload, current: true, e: rows
-        .filter((row) => !Array.isArray(row) || !row[8] || equipmentSlots().some((slot) => slot.key === row[0]))
-        .map((row) => Array.isArray(row) ? row.slice(0, 8) : row)}),
+      // Keep the real v2/v3/v4 layout and raw fallback; backend owns resolution.
+      body: JSON.stringify({...payload, strict: true, current: true, e: requestRows}),
     });
-    next.equipment = normalizeEquipment(response.equipment);
-    rows.forEach((row) => {
-      if (!Array.isArray(row) || !row[8] || next.equipment[row[0]]) return;
-      const external = row[8];
-      if (!external || typeof external !== "object") return;
-      next.equipment[row[0]] = {...external, item: compactItem(external.item), external: true};
-    });
-    (response.warnings || []).slice(0, 3).forEach((warning) => toast(warning, true));
+    assertCompleteResolution(requestRows, response, version);
+    next.equipment = {...normalizeEquipment(response.equipment), ...snapshots};
     return normalizeState(next);
   }
 
@@ -1716,6 +1826,7 @@
   }
 
   async function saveCurrentLoadout(name, existingId = "") {
+    requireRestoredState();
     const normalizedName = String(name || "").trim().slice(0, 40);
     if (!normalizedName) throw new Error("请输入配装方案名称。");
     const count = equippedCount();
@@ -1798,6 +1909,7 @@
   }
 
   async function saveOnlineLoadout(existingRecord = null) {
+    requireRestoredState();
     const name = existingRecord?.name || els.online_name?.value.trim() || "";
     if (!name) throw new Error("请输入线上配装名称。");
     if (!equippedCount()) throw new Error("请至少选择一件装备后再保存。");
@@ -1940,6 +2052,7 @@
   }
 
   async function copySimcProfile() {
+    requireRestoredState();
     if (!equippedCount()) {
       toast("请至少选择一件装备后再复制 SimC。", true);
       return;
@@ -1959,6 +2072,7 @@
       const url = endpoints.shortLinkDetail.replace("__TOKEN__", encodeURIComponent(shortToken));
       code = (await requestJson(url)).code;
     }
+    if ((shortToken || params.has("code")) && !code) throw new Error("分享链接配装格式无效，未载入空配装。");
     if (!code) return false;
     try {
       state = await hydrateSharePayload(await decodeShare(code));
@@ -1966,7 +2080,7 @@
       return true;
     } catch (error) {
       toast(error.message || "分享链接解析失败。", true);
-      return false;
+      throw error;
     }
   }
 
@@ -2316,12 +2430,22 @@
       const restored = await restoreShareIfPresent();
       if (!restored) state = loadStored(state.className, state.specName);
       if (!state.batchKey) state.batchKey = bootstrap.catalog?.batch_key || "";
-      state = await refreshState(state);
+      try {
+        state = await refreshState(state);
+      } catch (error) {
+        // The local/full snapshot is complete even when its old catalogue
+        // references are gone. Keep every fact and share it as a snapshot.
+        state = normalizeState({...state, snapshotSlots: Object.keys(state.equipment)});
+        toast(`装备资料刷新失败，已保留原始快照：${error.message}`, true);
+      }
       persist();
       document.addEventListener("visibilitychange", async () => {
         if (document.hidden) return;
         try { state = await refreshState(state); persist(); renderAll(); }
-        catch (error) { toast(`装备资料刷新失败，已保留当前配装：${error.message}`); }
+        catch (error) {
+          state = normalizeState({...state, snapshotSlots: Object.keys(state.equipment)});
+          toast(`装备资料刷新失败，已保留当前配装：${error.message}`, true);
+        }
       });
       syncSelectors();
       savedLoadouts = await readSavedLoadouts();
@@ -2332,6 +2456,7 @@
       if (els.online_list) refreshOnlineLoadouts().catch((error) => toast(error.message || "线上配装读取失败。", true));
       await loadActiveBrowser();
     } catch (error) {
+      restorationError = error.message || "配装恢复失败";
       els.catalog_status.textContent = "配装器初始化失败";
       els.catalog_status.classList.add("is-error");
       els.candidate_list.innerHTML = `<div class="gear-empty-state"><div><strong>页面初始化失败</strong>${escapeHtml(error.message)}</div></div>`;

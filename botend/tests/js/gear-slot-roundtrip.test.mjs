@@ -29,7 +29,8 @@ function fixture() {
     return nodes.get(id);
   };
   const context = {structuredClone, URLSearchParams, TextEncoder, TextDecoder, atob, btoa,
-    location: {search: ''}, window: {},
+    URL, location: {search: '', href: 'https://fixture.invalid/gear/'}, window: {confirm: () => true},
+    navigator: {clipboard: {writeText: async value => { context.copied = value; }}},
     localStorage: {getItem: key => store.get(key) || null, setItem: (key, value) => store.set(key, value)},
     document: {querySelector: selector => selector === '.gear-builder-page' ? page : null,
       getElementById: node, addEventListener() {}},
@@ -50,11 +51,15 @@ function fixture() {
       request: value => { requestJson = value; },
       initialize, normalizeState, hydrateSharePayload, compactShareState, buildSimcProfile, importSimc,
       persist, loadStored, equippedCount, renderAll, saveCurrentLoadout, readSavedLoadouts, toggleSlotLock,
+      refreshState, loadSavedLoadout, loadOnlineLoadout, copyShare, copySimcProfile, restoreShareIfPresent,
+      saveOnlineLoadout,
+      setLibrary: rows => { savedLoadouts = rows; },
+      get library() { return savedLoadouts; },
     };
   `), context);
   const api = context.qa;
   api.configure(metadata);
-  return {api, nodes, store, node};
+  return {api, nodes, store, node, context, page};
 }
 const storageKey = 'wowdaily:gear-builder:v1:Warrior:Fury';
 
@@ -92,7 +97,9 @@ test('export → parser alias payload → import updates visible slots without 1
 test('startup restores local and shared aliases, selection and locks without dropping pre-metadata state', async () => {
   for (const shared of [false, true]) {
     const {api, store, node} = fixture();
-    const old = {selectedSlot: 'wrist', lockedSlots: ['shoulder', 'wrist'], equipment: {shoulder: entry(1), wrist: entry(2)}};
+    const old = {...structuredClone(history['v1-full']), lockedSlots: ['shoulder', 'wrist']};
+    const expected = {shoulders: old.equipment.shoulder, wrists: old.equipment.wrist};
+    api.request(async () => ({equipment: expected}));
     api.configure(null);
     const pending = api.normalizeState(old);
     assert.deepEqual(plain(pending.lockedSlots), old.lockedSlots, 'metadata absence must not strip alias locks');
@@ -100,24 +107,24 @@ test('startup restores local and shared aliases, selection and locks without dro
     const restored = shared ? await api.hydrateSharePayload(old) : (store.set(storageKey, JSON.stringify(old)), api.loadStored('Warrior', 'Fury'));
     api.setState(restored);
     api.renderAll();
-    assert.deepEqual(plain(api.state.equipment), {shoulders: entry(1), wrists: entry(2)});
+    assert.deepEqual(plain(api.state.equipment), expected);
     assert.equal(api.state.selectedSlot, 'wrists');
     assert.deepEqual(plain(api.state.lockedSlots), ['shoulders', 'wrists']);
-    assert.match(node('gear-slot-list').innerHTML, /物品1/);
-    assert.match(node('gear-slot-list').innerHTML, /物品2/);
+    assert.ok(node('gear-slot-list').innerHTML.includes(expected.shoulders.item.name));
+    assert.ok(node('gear-slot-list').innerHTML.includes(expected.wrists.item.name));
     api.persist();
     api.request(async url => url === '/bootstrap' ? metadata : {equipment: {}});
     await api.initialize();
-    assert.deepEqual(plain(api.state.equipment), {shoulders: entry(1), wrists: entry(2)}, 'real initialize / shared refresh retains complete entries');
+    assert.deepEqual(plain(api.state.equipment), expected, 'real initialize / shared refresh retains complete entries');
     assert.equal(api.state.selectedSlot, 'wrists');
     assert.deepEqual(plain(api.state.lockedSlots), ['shoulders', 'wrists']);
   }
 });
 
-test('historical duplicate keys prefer canonical objects; imports obey migrated locks including empty slots', async () => {
+test('identical duplicate keys dedupe; imports obey migrated locks including empty slots', async () => {
   const {api, node} = fixture();
   api.setState({selectedSlot: 'shoulder', lockedSlots: ['shoulder', 'wrist'], equipment: {
-    shoulder: entry(1), shoulders: entry(2), wrist: entry(3), wrists: null,
+    shoulder: entry(2), shoulders: entry(2), wrist: null, wrists: null,
   }});
   assert.deepEqual(plain(api.state.equipment), {shoulders: entry(2), wrists: null});
   api.persist();
@@ -164,11 +171,11 @@ test('raw duplicate share slots are rejected before alias merging or snapshot fi
   }
   const {api} = fixture();
   api.request(async (_url, options) => {
-    assert.deepEqual(JSON.parse(options.body).e, [['shoulders', 2, 'v2']]);
+    assert.deepEqual(JSON.parse(options.body).e, [['shoulders', 2, 'variant-2']]);
     return {equipment: {shoulders: entry(2)}};
   });
   const restored = await api.hydrateSharePayload({v: 4, c: 'Warrior', s: 'Fury', e: [
-    ['shoulder', 1, 'v1'], ['shoulders', 2, 'v2'],
+    ['shoulder', 2, 'variant-2'], ['shoulders', 2, 'variant-2'],
   ]});
   assert.equal(restored.equipment.shoulders.item.item_id, 2, 'one legacy alias plus canonical remains compatible');
 });
@@ -177,7 +184,7 @@ test('counts, previews and saved library follow actual slots, preserving unsuppo
   const {api, node, store} = fixture();
   const dynamic = {...metadata, slots: [slots[0], slots[2], {key: 'future_slot', label: '未来槽位', simc_key: 'future_slot'}]};
   api.configure(dynamic);
-  api.setState({equipment: {head: entry(1), shoulders: entry(2), shoulder: entry(9), future_slot: entry(3), shirt: entry(4)}});
+  api.setState({equipment: {head: entry(1), shoulders: entry(2), shoulder: entry(2), future_slot: entry(3), shirt: entry(4)}});
   api.renderAll();
   assert.equal(api.equippedCount(), dynamic.slots.length);
   assert.equal(node('gear-equipped-count').textContent, '3/3');
@@ -192,8 +199,8 @@ test('counts, previews and saved library follow actual slots, preserving unsuppo
   const saved = await api.saveCurrentLoadout('动态槽位');
   assert.equal(saved.record.equippedCount, 3);
   assert.match(node('gear-loadout-list').innerHTML, /3\/3/);
-  const oldCode = 'j' + Buffer.from(JSON.stringify({equipment: {
-    head: entry(1), shoulder: entry(2), shoulders: entry(3), shirt: entry(4),
+  const oldCode = 'j' + Buffer.from(JSON.stringify({version: 1, equipment: {
+    head: entry(1), shoulder: entry(3), shoulders: entry(3), shirt: entry(4),
   }})).toString('base64url');
   store.set('wowdaily:gear-builder:loadouts:v1', JSON.stringify([{id: 'old', code: oldCode, equippedCount: 18}]));
   const library = await api.readSavedLoadouts();
@@ -202,7 +209,7 @@ test('counts, previews and saved library follow actual slots, preserving unsuppo
   assert.ok(share.e.find(row => row[0] === 'shirt')[8], 'unknown entries retain snapshots across save/share');
   api.request(async (_url, options) => {
     assert.ok(!JSON.parse(options.body).e.some(row => row[0] === 'shirt'), 'unsupported snapshot is not sent to slot-restricted resolver');
-    return {equipment: {}};
+    return {equipment: {head: entry(1), shoulders: entry(2), future_slot: entry(3)}};
   });
   const restored = await api.hydrateSharePayload(share);
   assert.equal(restored.equipment.shirt.item.item_id, 4);
@@ -215,4 +222,268 @@ test('counts, previews and saved library follow actual slots, preserving unsuppo
   await api.initialize();
   assert.notEqual(node('gear-catalog-status').textContent, '配装器初始化失败');
   assert.equal(api.state.equipment.shirt.item.item_id, 4);
+});
+
+const history = JSON.parse(fs.readFileSync(new URL('./fixtures/gear-share-history.json', import.meta.url), 'utf8'));
+const codeFor = payload => 'j' + Buffer.from(JSON.stringify(payload)).toString('base64url');
+
+test('real historical v2/v3/v4 producer payloads retain reference layouts and all 16 slots', async () => {
+  for (const name of ['v2-aliases', 'v3-aliases', 'v4-aliases', 'v4-equal-18']) {
+    const {api} = fixture();
+    const old = history[name];
+    let calls = 0;
+    api.request(async (_url, options) => {
+      calls++;
+      const sent = JSON.parse(options.body);
+      assert.equal(sent.strict, true, 'restoration must request all-or-nothing resolution');
+      assert.equal(sent.v, old.v, 'v2 DB IDs and v3 four-field references must not be reinterpreted as v4');
+      assert.equal(sent.e.length, slots.length);
+      for (const row of sent.e) {
+        const original = old.e.find(candidate => (aliases[candidate[0]] || candidate[0]) === row[0]);
+        assert.deepEqual(row.slice(1), original.slice(1), 'retain original references including raw snapshots');
+      }
+      return {equipment: structuredClone(history.resolved.equipment)};
+    });
+    const restored = await api.hydrateSharePayload(old);
+    assert.equal(calls, 1);
+    assert.deepEqual(plain(restored.equipment), history.resolved.equipment);
+    assert.equal(Object.keys(restored.equipment).length, slots.length);
+  }
+});
+
+test('real v1 full snapshots retain all enhancement facts when current refresh cannot resolve them', async () => {
+  const {api, store} = fixture();
+  const old = history['v1-full'];
+  let validations = 0;
+  api.request(async (_url, options) => {
+    validations++;
+    const sent = JSON.parse(options.body);
+    assert.equal(sent.strict, true);
+    assert.equal(sent.v, 4);
+    assert.equal(sent.equipment, undefined, 'full snapshots must not be duplicated in the request');
+    assert.deepEqual(sent.e.map(row => row[8]), Object.values(old.equipment));
+    return {equipment: {}}; // Validated self-contained facts need no central references.
+  });
+  const restored = await api.hydrateSharePayload(old);
+  assert.equal(validations, 1, 'full payloads must pass strict server validation');
+  api.setState(restored);
+  api.persist();
+  const before = plain(api.state);
+  const saved = store.get(storageKey);
+  api.request(async (_url, options) => {
+    assert.equal(JSON.parse(options.body).strict, true);
+    const degraded = structuredClone(restored.equipment);
+    degraded.wrists.gems = [];
+    degraded.shoulders.enchant = null;
+    return {equipment: degraded, warnings: ['宝石引用已失效', '附魔引用已失效']};
+  });
+  await assert.rejects(api.refreshState(api.state), /宝石|附魔|完整|刷新/);
+  assert.deepEqual(plain(api.state), before);
+  assert.equal(store.get(storageKey), saved);
+  const shared = api.compactShareState(api.state);
+  for (const row of shared.e) {
+    const oldSlot = Object.keys(aliases).find(key => aliases[key] === row[0]);
+    assert.deepEqual(plain(row[8]), old.equipment[oldSlot], 'snapshots stay self-contained even if old catalogue IDs are stale');
+  }
+});
+
+test('raw row[8] is sent intact in strict requests and restored without manufacturing items', async () => {
+  const {api} = fixture();
+  const snapshot = history['v1-full'].equipment.wrist;
+  const old = {v: 2, c: 'Warrior', s: 'Fury', e: [['wrist', 0, 0, [], 0, [], 0, 1, snapshot]]};
+  api.request(async (_url, options) => {
+    const sent = JSON.parse(options.body);
+    assert.equal(sent.strict, true);
+    assert.deepEqual(sent.e[0][8], snapshot);
+    return {equipment: {}};
+  });
+  const restored = await api.hydrateSharePayload(old);
+  assert.deepEqual(plain(restored.equipment.wrists), snapshot);
+  assert.deepEqual(plain(api.compactShareState(restored).e[0][8]), snapshot);
+});
+
+test('divergent aliases and explicit null never silently choose a winner or overwrite local state', async () => {
+  for (const equipment of [
+    {shoulder: entry(1), shoulders: entry(2)},
+    {wrist: entry(1), wrists: null},
+    {shoulder: entry(1), shoulders: {...entry(1), addedSocket: false}},
+  ]) {
+    const {api, store} = fixture();
+    api.setState({equipment: {head: entry(3)}, lockedSlots: ['head']});
+    const before = plain(api.state);
+    const stored = JSON.stringify({equipment});
+    store.set(storageKey, stored);
+    assert.throws(() => api.loadStored('Warrior', 'Fury'), /冲突/);
+    assert.throws(() => api.compactShareState({equipment}), /冲突/);
+    await assert.rejects(api.hydrateSharePayload({version: 1, equipment}), /冲突/);
+    assert.deepEqual(plain(api.state), before);
+    assert.equal(store.get(storageKey), stored);
+  }
+  const {api} = fixture();
+  api.request(async () => { throw Error('conflicts must fail before requesting'); });
+  await assert.rejects(api.hydrateSharePayload(history['v4-conflict']), /冲突/);
+});
+
+test('failed local/online loads preserve current state, locks and both original saved codes', async () => {
+  for (const online of [false, true]) {
+    const {api, store, page} = fixture();
+    page.dataset.onlineLoadoutsUrl = '/online/';
+    api.setState({equipment: {head: entry(3)}, lockedSlots: ['head']});
+    api.persist();
+    const before = plain(api.state);
+    const persisted = store.get(storageKey);
+    const record = {id: '41', name: '历史配装', code: codeFor(history['v4-unresolved'])};
+    api.setLibrary([record]);
+    const library = JSON.stringify([record]);
+    store.set('wowdaily:gear-builder:loadouts:v1', library);
+    let writes = 0;
+    api.request(async (_url, options) => {
+      if (!options) return {loadout: record};
+      writes++;
+      return {equipment: {head: entry(1)}, warnings: ['肩部的装备引用已失效']};
+    });
+    await assert.rejects(online ? api.loadOnlineLoadout(record) : api.loadSavedLoadout(record), /失效|完整/);
+    assert.equal(writes, 1);
+    assert.deepEqual(plain(api.state), before);
+    assert.equal(store.get(storageKey), persisted);
+    assert.equal(store.get('wowdaily:gear-builder:loadouts:v1'), library);
+    assert.equal(api.library[0].code, record.code);
+  }
+});
+
+test('startup share failure leaves raw URL/local/library intact and blocks empty copy/save', async () => {
+  const {api, store, context, node} = fixture();
+  const oldCode = codeFor(history['v4-unresolved']);
+  context.location.search = '?code=' + oldCode;
+  const local = JSON.stringify({equipment: {wrist: entry(8)}, lockedSlots: ['wrist']});
+  store.set(storageKey, local);
+  store.set('wowdaily:gear-builder:loadouts:v1', '[]');
+  api.request(async url => url === '/bootstrap' ? metadata : {equipment: {}, warnings: ['肩部的装备引用已失效']});
+  await api.initialize();
+  assert.equal(store.get(storageKey), local);
+  assert.equal(context.location.search, '?code=' + oldCode);
+  await assert.rejects(api.copyShare(), /恢复|载入|完整/);
+  await assert.rejects(api.copySimcProfile(), /恢复|载入|完整/);
+  await assert.rejects(api.saveCurrentLoadout('不得覆盖'), /恢复|载入|完整/);
+  node('gear-online-name').value = '不得覆盖';
+  await assert.rejects(api.saveOnlineLoadout(), /恢复|载入|完整/);
+  assert.equal(context.copied, undefined);
+  assert.equal(store.get('wowdaily:gear-builder:loadouts:v1'), '[]');
+});
+
+test('full saved loads validate before replacing current state and never rewrite saved originals', async () => {
+  for (const online of [false, true]) {
+    for (const invalid of [true, false]) {
+      const {api, store, page} = fixture();
+      page.dataset.onlineLoadoutsUrl = '/online/';
+      api.setState({equipment: {head: entry(3)}, lockedSlots: ['head']});
+      api.persist();
+      const before = plain(api.state);
+      const persisted = store.get(storageKey);
+      const old = structuredClone(history['v1-full']);
+      if (invalid) old.equipment.wrist.variant.item_id = 1; // Server owns identity validation.
+      const record = {id: '41', name: '旧完整方案', code: codeFor(old)};
+      api.setLibrary([record]);
+      const library = JSON.stringify([record]);
+      store.set('wowdaily:gear-builder:loadouts:v1', library);
+      let validations = 0;
+      api.request(async (_url, options) => {
+        if (!options) return {loadout: record};
+        validations++;
+        assert.equal(JSON.parse(options.body).strict, true);
+        assert.deepEqual(plain(api.state), before, 'no replacement before validation completes');
+        assert.equal(store.get(storageKey), persisted);
+        if (invalid) throw Error('快照物品身份无效');
+        return {equipment: {}};
+      });
+      const load = online ? api.loadOnlineLoadout(record) : api.loadSavedLoadout(record);
+      if (invalid) {
+        await assert.rejects(load, /身份/);
+        assert.deepEqual(plain(api.state), before);
+        assert.equal(store.get(storageKey), persisted);
+      } else {
+        await load;
+        assert.deepEqual(plain(api.state.equipment), {shoulders: old.equipment.shoulder, wrists: old.equipment.wrist});
+        assert.deepEqual(plain(api.state.lockedSlots), [], 'independent load replaces old locks');
+      }
+      assert.equal(validations, 1);
+      assert.equal(store.get('wowdaily:gear-builder:loadouts:v1'), library);
+      assert.equal(api.library[0].code, record.code);
+    }
+  }
+});
+
+test('full startup validates snapshots then preserves them on failed reference refresh and re-export', async () => {
+  const {api, context, store} = fixture();
+  const old = history['v1-full'];
+  context.location.search = '?code=' + codeFor(old);
+  let validations = 0, refreshes = 0;
+  api.request(async (url, options) => {
+    if (url === '/bootstrap') return metadata;
+    const sent = JSON.parse(options.body);
+    assert.equal(sent.strict, true);
+    if (sent.e.every(row => row[8])) { validations++; return {equipment: {}}; }
+    refreshes++;
+    throw Error('中央引用失效');
+  });
+  await api.initialize();
+  assert.equal(validations, 1);
+  assert.equal(refreshes, 1);
+  const expected = {shoulders: old.equipment.shoulder, wrists: old.equipment.wrist};
+  assert.deepEqual(plain(api.state.equipment), expected);
+  assert.deepEqual(JSON.parse(store.get(storageKey)).equipment, expected);
+  assert.deepEqual(plain(api.compactShareState(api.state).e.map(row => row[8])), Object.values(expected));
+});
+
+test('persist keeps a historical snapshot batch instead of relabeling it as the current catalog', () => {
+  const {api, store} = fixture();
+  const old = structuredClone(history['v1-full']);
+  api.configure({...metadata, catalog: {batch_key: 'review-new-batch'}});
+  api.setState({...old, snapshotSlots: ['shoulders', 'wrists']});
+  api.persist();
+  const share = api.compactShareState(api.state);
+  assert.equal(share.b, old.batchKey);
+  assert.equal(JSON.parse(store.get(storageKey)).batchKey, old.batchKey);
+  assert.deepEqual(plain(share.e.map(row => row[8])), Object.values(old.equipment));
+});
+
+test('partial refresh preserves each untouched snapshot component origin across batch changes', async () => {
+  const {api} = fixture();
+  const old = {...entry(2), external: true};
+  const newer = structuredClone(entry(1));
+  for (const component of [newer, newer.embellishment, ...newer.gems, newer.enchant]) component.variant.batch_key = 'new-batch';
+  api.configure({...metadata, catalog: {batch_key: 'new-batch'}});
+  api.request(async () => ({equipment: {head: newer}, batch_key: 'new-batch', warnings: []}));
+  const refreshed = await api.refreshState({batchKey: 'old-batch', equipment: {head: entry(1), wrists: old}});
+  api.setState(refreshed);api.persist();
+  const exported = api.compactShareState(api.state);
+  const preserved = exported.e.find(row => row[0] === 'wrists')[8];
+  assert.equal(exported.b, 'new-batch');
+  for (const component of [preserved, preserved.embellishment, ...preserved.gems, preserved.enchant]) assert.equal(component.variant.batch_key, 'old-batch');
+  assert.equal(old.variant.batch_key, undefined, 'source object is not rewritten');
+});
+
+test('mixed known component batches export as explicit snapshots, while uniform current gear stays compact', () => {
+  const {api} = fixture();
+  const mixed = structuredClone(entry(1));
+  mixed.variant.batch_key = 'old-batch';
+  mixed.enchant.variant.batch_key = 'new-batch';
+  api.setState({batchKey: 'old-batch', equipment: {head: mixed}});api.persist();
+  assert.equal(api.compactShareState(api.state).e[0][8].enchant.variant.batch_key, 'new-batch');
+  for (const component of [mixed, mixed.embellishment, ...mixed.gems, mixed.enchant]) component.variant.batch_key = 'new-batch';
+  api.setState({batchKey: 'old-batch', equipment: {head: mixed}});api.persist();
+  const compact = api.compactShareState(api.state);
+  assert.equal(compact.b, 'new-batch');assert.equal(compact.e[0].length, 8);
+});
+
+test('incomplete response without warnings and malformed legacy payload cannot become a successful empty load', async () => {
+  const {api} = fixture();
+  api.request(async () => ({equipment: {}}));
+  await assert.rejects(api.hydrateSharePayload(history['v4-aliases']), /完整|失效/);
+  for (const payload of [{}, {v: 2}, {v: 99, e: []}, {equipment: []}, {equipment: {}},
+    {equipment: {shoulder: {item: {item_id: 1}}}}, {version: 1, equipment: {shoulder: {item: {item_id: 1}}}}]) {
+    await assert.rejects(api.hydrateSharePayload(payload), /格式|版本/);
+  }
+  api.configure(null);
+  await assert.rejects(api.hydrateSharePayload(history['v4-aliases']), /就绪|元数据/);
 });

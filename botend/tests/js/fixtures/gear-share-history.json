@@ -1,0 +1,3425 @@
+{
+  "provenance": [
+    {
+      "name": "v1-full",
+      "sourceCommit": "08ea9e21^ (encodeShare(state))",
+      "entryCount": 2,
+      "encodedLength": 5515,
+      "decodedLength": 15453
+    },
+    {
+      "name": "v2-aliases",
+      "sourceCommit": "08ea9e21",
+      "entryCount": 16,
+      "encodedLength": 499,
+      "decodedLength": 761
+    },
+    {
+      "name": "v3-aliases",
+      "sourceCommit": "98aa6110",
+      "entryCount": 16,
+      "encodedLength": 764,
+      "decodedLength": 1748
+    },
+    {
+      "name": "v4-aliases",
+      "sourceCommit": "b8d42edb",
+      "entryCount": 16,
+      "encodedLength": 605,
+      "decodedLength": 1324
+    },
+    {
+      "name": "v4-equal-18",
+      "sourceCommit": "b8d42edb plus old importer alias duplication",
+      "entryCount": 18,
+      "encodedLength": 619,
+      "decodedLength": 1480
+    },
+    {
+      "name": "v4-unresolved",
+      "sourceCommit": "intentional missing reference, must fail without replacement",
+      "entryCount": 16,
+      "encodedLength": 633,
+      "decodedLength": 1334
+    },
+    {
+      "name": "v4-conflict",
+      "sourceCommit": "intentional divergent alias socket state, must not discard",
+      "entryCount": 18,
+      "encodedLength": 619,
+      "decodedLength": 1480
+    }
+  ],
+  "v1-full": {
+    "version": 1,
+    "className": "Warrior",
+    "specName": "Fury",
+    "batchKey": "gear-12.1.0.69587-20ae9bc9f775",
+    "selectedSlot": "wrist",
+    "mode": "equipment",
+    "viewMode": "editor",
+    "mobileView": "browser",
+    "equipment": {
+      "shoulder": {
+        "item": {
+          "item_id": 271454,
+          "name": "翡翠督军的狂怒肩铠",
+          "name_en": "Raging Pauldrons of the Jade Warlord",
+          "description": "",
+          "text_schema_version": 2,
+          "icon": "inv_shoulder_plate_raidwarriorulatek_d_01",
+          "icon_url": "https://oss.wowdaily.cn/wow_icons_oss/medium/inv_shoulder_plate_raidwarriorulatek_d_01.jpg",
+          "quality": 4,
+          "slot": "shoulders",
+          "armor_type": "板甲",
+          "weapon_type": "",
+          "unique_group": "",
+          "simc_token": "raging_pauldrons_of_the_jade_warlord",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 57463,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 271454,
+          "item_level": 334,
+          "track": "myth",
+          "track_label": "神话",
+          "track_rank": 6,
+          "track_max_rank": 6,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "game_build": "12.1.0.69587",
+          "data_branch": "ptr",
+          "item_identity": null,
+          "compatible_slots": [
+            "shoulders"
+          ],
+          "socket_types": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 2932,
+            "armor": 299,
+            "crit": 46,
+            "mastery": 105,
+            "strength": 141
+          },
+          "effects": [
+            {
+              "description": "(2) Set Arms: Mortal Strike and Execute damage increased by 10% and when you Slam a target, Slam also deals (100% of Attack Power) damage to enemies within 8 yds of it. Deals reduced damage beyond 5 targets."
+            },
+            {
+              "description": "(2) Set Fury: Raging Blow damage increased by 15%. During Recklessness Raging Blow extends the duration of Recklessness by 2 sec, up to 6 sec."
+            },
+            {
+              "description": "(2) Set Protection: Your free Revenges deal 15% additional damage and cause your next Shield Slam to deal 20% additional damage."
+            },
+            {
+              "description": "(4) Set Arms: Overpower damage increased by 15%. Mortal Strike and Overpower increase the damage of your next Slam by 20%, stacking up to 5 times. (500ms cooldown)"
+            },
+            {
+              "description": "(4) Set Fury: Bloodthirst damage increased by 10%. During Recklessness Bloodthirst increases the critical strike bonus of Recklessness by 3%, up to 6%."
+            },
+            {
+              "description": "(4) Set Protection: Ravager and your free Revenges cause all targets to bleed for (304.745% of Attack Power) damage over 12 sec. Ravager's cooldown is reduced by 30 sec."
+            }
+          ],
+          "effects_status": "untranslated",
+          "text_schema_version": 2,
+          "effects_missing": false,
+          "sources": [
+            {
+              "type": "raid",
+              "instance_id": 1320,
+              "instance": "The Venomous Abyss",
+              "encounter_id": 2894,
+              "encounter": "The Lost Explorers",
+              "encounter_order": 3,
+              "loot_item_ids": [
+                270922,
+                270923,
+                270924,
+                270925
+              ],
+              "type_zh": "团队副本",
+              "instance_zh": "烈毒之渊",
+              "encounter_zh": "迷失的探险者",
+              "profession_zh": ""
+            },
+            {
+              "type": "raid",
+              "instance_id": 1320,
+              "instance": "The Venomous Abyss",
+              "encounter_id": 2895,
+              "encounter": "Ula'tek",
+              "encounter_order": 8,
+              "loot_item_ids": [
+                270909
+              ],
+              "type_zh": "团队副本",
+              "instance_zh": "烈毒之渊",
+              "encounter_zh": "乌拉特克",
+              "profession_zh": ""
+            }
+          ],
+          "crafting_options": {},
+          "unique_group": "",
+          "max_equipped": 0,
+          "is_intrinsic_embellishment": false,
+          "metadata": {
+            "item_limit": {},
+            "two_handed": false,
+            "is_tier_set": true,
+            "item_set_id": 2067,
+            "item_set_name": "Jade Warlord's Dominion",
+            "branch_display": {
+              "ptr": {
+                "icon": "inv_shoulder_plate_raidwarriorulatek_d_01",
+                "name": "Raging Pauldrons of the Jade Warlord",
+                "quality": 4,
+                "slot_key": "shoulders",
+                "armor_type": "板甲",
+                "simc_token": "raging_pauldrons_of_the_jade_warlord",
+                "effect_refs": [
+                  {
+                    "spec_id": 73,
+                    "spell_id": 1296648,
+                    "required_items": 4
+                  },
+                  {
+                    "spec_id": 73,
+                    "spell_id": 1296647,
+                    "required_items": 2
+                  },
+                  {
+                    "spec_id": 72,
+                    "spell_id": 1296646,
+                    "required_items": 4
+                  },
+                  {
+                    "spec_id": 72,
+                    "spell_id": 1296645,
+                    "required_items": 2
+                  },
+                  {
+                    "spec_id": 71,
+                    "spell_id": 1296644,
+                    "required_items": 4
+                  },
+                  {
+                    "spec_id": 71,
+                    "spell_id": 1296643,
+                    "required_items": 2
+                  }
+                ],
+                "catalog_type": "equipment",
+                "item_class_id": 4,
+                "loot_spec_ids": [
+                  71,
+                  72,
+                  73
+                ],
+                "eligible_specs": [
+                  "Warrior:Arms",
+                  "Warrior:Fury",
+                  "Warrior:Protection"
+                ],
+                "inventory_type": 3,
+                "loot_spec_build": "12.1.5.70077",
+                "item_subclass_id": 4,
+                "loot_spec_source": "wago:ItemSpec",
+                "allowable_class_mask": 1
+              }
+            },
+            "native_socket_types": [],
+            "text_schema_version": 2,
+            "primary_stat_options": [
+              "intellect",
+              "strength"
+            ],
+            "raidbots_stats_alloc": [
+              {
+                "id": 74,
+                "alloc": 5259
+              },
+              {
+                "id": 7,
+                "alloc": 7889
+              },
+              {
+                "id": 49,
+                "alloc": 4858
+              },
+              {
+                "id": 32,
+                "alloc": 2142
+              }
+            ],
+            "raw_item_descriptions": {
+              "description": "Item Level 292\nUpgrade Level: Myth 6/6\nJade Warlord's Dominion (0/5)",
+              "description_zh": ""
+            },
+            "crafting_profession_id": 0,
+            "crafting_recipe_spell_id": 0,
+            "crafting_reagent_slot_ids": [],
+            "jewelry_socket_baseline_applied": false,
+            "data_branch": "ptr",
+            "ptr_preview": true,
+            "primary_stat_values": {
+              "strength": 141,
+              "intellect": 141
+            }
+          },
+          "tooltip": "物品等级 334\n+2,932 耐力\n+299 护甲\n+46 暴击\n+105 精通\n+141 力量\n(2) Set Arms: Mortal Strike and Execute damage increased by 10% and when you Slam a target, Slam also deals (100% of Attack Power) damage to enemies within 8 yds of it. Deals reduced damage beyond 5 targets.\n(2) Set Fury: Raging Blow damage increased by 15%. During Recklessness Raging Blow extends the duration of Recklessness by 2 sec, up to 6 sec.\n(2) Set Protection: Your free Revenges deal 15% additional damage and cause your next Shield Slam to deal 20% additional damage.\n(4) Set Arms: Overpower damage increased by 15%. Mortal Strike and Overpower increase the damage of your next Slam by 20%, stacking up to 5 times. (500ms cooldown)\n(4) Set Fury: Bloodthirst damage increased by 10%. During Recklessness Bloodthirst increases the critical strike bonus of Recklessness by 3%, up to 6%.\n(4) Set Protection: Ravager and your free Revenges cause all targets to bleed for (304.745% of Attack Power) damage over 12 sec. Ravager's cooldown is reduced by 30 sec.\n来源：团队副本 · 烈毒之渊 · 迷失的探险者；团队副本 · 烈毒之渊 · 乌拉特克",
+          "tooltip_complete": true
+        },
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "embellishment": null,
+        "gems": [],
+        "enchant": {
+          "item": {
+            "item_id": 243991,
+            "name": "附魔护肩 - 阿梅达希尔之赐",
+            "name_en": "Amirdrassil's Grace",
+            "description": "哈籁尼尔强化 - 世界之魂结界\n不能对物品等级低于120的物品使用。",
+            "text_schema_version": 2,
+            "icon": "inv_12_profession_enchanting_enchantedvellum_blue",
+            "icon_url": "https://oss.wowdaily.cn/wow_icons_oss/medium/inv_12_profession_enchanting_enchantedvellum_blue.jpg",
+            "quality": 3,
+            "slot": "shoulders",
+            "armor_type": "",
+            "weapon_type": "",
+            "unique_group": "",
+            "simc_token": "amirdrassil_s_grace",
+            "enchantment_id": 8001
+          },
+          "variant": {
+            "id": 43153,
+            "key": "enchant-q2-e8001",
+            "type": "enchant",
+            "item_id": 243991,
+            "item_level": 0,
+            "track": "",
+            "track_label": "",
+            "track_rank": 0,
+            "track_max_rank": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "game_build": "12.1.0.69587",
+            "data_branch": "retail",
+            "item_identity": null,
+            "compatible_slots": [
+              "shoulders"
+            ],
+            "socket_types": [],
+            "socket_count": 0,
+            "stats": {
+              "avoidance": 111
+            },
+            "effects": [],
+            "effects_status": "unknown",
+            "text_schema_version": 2,
+            "effects_missing": false,
+            "sources": [
+              {
+                "type": "profession",
+                "type_zh": "专业制造",
+                "profession": "Enchanting",
+                "instance_zh": "",
+                "encounter_zh": "",
+                "profession_zh": "附魔"
+              }
+            ],
+            "crafting_options": {},
+            "unique_group": "",
+            "max_equipped": 0,
+            "is_intrinsic_embellishment": false,
+            "metadata": {
+              "item_limit": {},
+              "two_handed": false,
+              "branch_display": {
+                "ptr": {
+                  "icon": "inv_12_profession_enchanting_enchantedvellum_blue",
+                  "name": "Enchant Shoulders - Amirdrassil's Grace",
+                  "quality": 3,
+                  "slot_key": "shoulders",
+                  "simc_token": "amirdrassil_s_grace",
+                  "catalog_type": "enchant",
+                  "item_class_id": 0,
+                  "loot_spec_ids": [
+                    62,
+                    63,
+                    64,
+                    65,
+                    66,
+                    70,
+                    71,
+                    72,
+                    73,
+                    102,
+                    103,
+                    104,
+                    105,
+                    250,
+                    251,
+                    252,
+                    253,
+                    254,
+                    255,
+                    256,
+                    257,
+                    258,
+                    259,
+                    260,
+                    261,
+                    262,
+                    263,
+                    264,
+                    265,
+                    266,
+                    267,
+                    268,
+                    269,
+                    270,
+                    577,
+                    581,
+                    1467,
+                    1468,
+                    1473,
+                    1480
+                  ],
+                  "eligible_specs": [
+                    "Mage:Arcane",
+                    "Mage:Fire",
+                    "Mage:Frost",
+                    "Paladin:Holy",
+                    "Paladin:Protection",
+                    "Paladin:Retribution",
+                    "Warrior:Arms",
+                    "Warrior:Fury",
+                    "Warrior:Protection",
+                    "Druid:Balance",
+                    "Druid:Feral",
+                    "Druid:Guardian",
+                    "Druid:Restoration",
+                    "DeathKnight:Blood",
+                    "DeathKnight:Frost",
+                    "DeathKnight:Unholy",
+                    "Hunter:BeastMastery",
+                    "Hunter:Marksmanship",
+                    "Hunter:Survival",
+                    "Priest:Discipline",
+                    "Priest:Holy",
+                    "Priest:Shadow",
+                    "Rogue:Assassination",
+                    "Rogue:Outlaw",
+                    "Rogue:Subtlety",
+                    "Shaman:Elemental",
+                    "Shaman:Enhancement",
+                    "Shaman:Restoration",
+                    "Warlock:Affliction",
+                    "Warlock:Demonology",
+                    "Warlock:Destruction",
+                    "Monk:Brewmaster",
+                    "Monk:Windwalker",
+                    "Monk:Mistweaver",
+                    "DemonHunter:Havoc",
+                    "DemonHunter:Vengeance",
+                    "Evoker:Devastation",
+                    "Evoker:Preservation",
+                    "Evoker:Augmentation",
+                    "DemonHunter:Devourer"
+                  ],
+                  "enchantment_id": 8001,
+                  "inventory_type": 0,
+                  "loot_spec_build": "12.1.5.70077",
+                  "item_subclass_id": 0,
+                  "loot_spec_source": "wago:AllowableClass",
+                  "allowable_class_mask": 0
+                }
+              },
+              "native_socket_types": [],
+              "text_schema_version": 2,
+              "primary_stat_options": [],
+              "raidbots_stats_alloc": [],
+              "crafting_profession_id": 0,
+              "crafting_recipe_spell_id": 0,
+              "crafting_reagent_slot_ids": [],
+              "jewelry_socket_baseline_applied": false,
+              "simc_name": "amirdrassils_grace_2",
+              "enchantment_id": 8001,
+              "primary_stat_amount": 0
+            },
+            "tooltip": "+111 闪避\n哈籁尼尔强化 - 世界之魂结界\n不能对物品等级低于120的物品使用。\n来源：专业制造 · 附魔",
+            "tooltip_complete": true
+          }
+        },
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "raging_pauldrons_of_the_jade_warlord,id=271454,ilevel=334,enchant_id=8001"
+      },
+      "wrist": {
+        "item": {
+          "item_id": 237834,
+          "name": "破法者的护腕",
+          "name_en": "Spellbreaker's Bracers",
+          "description": "",
+          "text_schema_version": 2,
+          "icon": "inv_plate_questbloodelf_b_01_bracer",
+          "icon_url": "https://oss.wowdaily.cn/wow_icons_oss/medium/inv_plate_questbloodelf_b_01_bracer.jpg",
+          "quality": 4,
+          "slot": "wrists",
+          "armor_type": "板甲",
+          "weapon_type": "",
+          "unique_group": "",
+          "simc_token": "spellbreaker_s_bracers",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 42472,
+          "key": "crafted-myth-q5-331",
+          "type": "crafted_equipment",
+          "item_id": 237834,
+          "item_level": 331,
+          "track": "",
+          "track_label": "",
+          "track_rank": 0,
+          "track_max_rank": 0,
+          "crafting_quality": 5,
+          "bonus_ids": [],
+          "game_build": "12.1.0.69587",
+          "data_branch": "retail",
+          "item_identity": null,
+          "compatible_slots": [
+            "wrists"
+          ],
+          "socket_types": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 2124,
+            "armor": 213,
+            "strength": 103
+          },
+          "effects": [],
+          "effects_status": "unknown",
+          "text_schema_version": 2,
+          "effects_missing": false,
+          "sources": [
+            {
+              "type": "crafted",
+              "type_zh": "专业制造",
+              "instance": "Epic Profession Items",
+              "encounter": "Blacksmithing",
+              "very_rare": false,
+              "instance_id": -88,
+              "instance_zh": "专业制造",
+              "encounter_id": -33,
+              "encounter_zh": "锻造",
+              "profession_zh": "",
+              "encounter_order": 0,
+              "item_sequence_level": 0
+            }
+          ],
+          "crafting_options": {
+            "stat_pool": [
+              "crit",
+              "haste",
+              "mastery",
+              "versatility"
+            ],
+            "stat_count": 2,
+            "secondary_total": 112
+          },
+          "unique_group": "",
+          "max_equipped": 0,
+          "is_intrinsic_embellishment": false,
+          "metadata": {
+            "item_limit": {},
+            "two_handed": false,
+            "branch_display": {
+              "ptr": {
+                "icon": "inv_plate_questbloodelf_b_01_bracer",
+                "name": "Spellbreaker's Bracers",
+                "quality": 4,
+                "slot_key": "wrists",
+                "armor_type": "板甲",
+                "simc_token": "spellbreaker_s_bracers",
+                "catalog_type": "equipment",
+                "item_class_id": 4,
+                "loot_spec_ids": [
+                  65,
+                  66,
+                  70,
+                  71,
+                  72,
+                  73,
+                  250,
+                  251,
+                  252
+                ],
+                "eligible_specs": [
+                  "Paladin:Holy",
+                  "Paladin:Protection",
+                  "Paladin:Retribution",
+                  "Warrior:Arms",
+                  "Warrior:Fury",
+                  "Warrior:Protection",
+                  "DeathKnight:Blood",
+                  "DeathKnight:Frost",
+                  "DeathKnight:Unholy"
+                ],
+                "inventory_type": 9,
+                "loot_spec_build": "12.1.5.70077",
+                "item_subclass_id": 4,
+                "loot_spec_source": "wago:ItemSpec",
+                "allowable_class_mask": 0
+              }
+            },
+            "native_socket_types": [],
+            "text_schema_version": 2,
+            "primary_stat_options": [
+              "intellect",
+              "strength"
+            ],
+            "raidbots_stats_alloc": [
+              {
+                "id": 74,
+                "alloc": 5259
+              },
+              {
+                "id": 7,
+                "alloc": 7889
+              },
+              {
+                "id": 24,
+                "alloc": 3500
+              },
+              {
+                "id": 25,
+                "alloc": 3500
+              }
+            ],
+            "crafting_facts_source": {
+              "build": "12.1.0.69933",
+              "sources": [
+                {
+                  "url": "https://www.raidbots.com/static/data/live/crafting.json",
+                  "sha256": "48d218f5776d5c3044560b45602340bea79468153da5f57aef7545cd44748dc1"
+                },
+                {
+                  "url": "https://www.raidbots.com/static/data/live/encounter-items.json",
+                  "sha256": "31772af08466505ce29fbb270b846e0677b0bd4c28a1eb0618e7373260a8bece"
+                }
+              ],
+              "generated_at": "2026-10-03T00:26:48.710Z"
+            },
+            "raw_item_descriptions": {
+              "description": "Item Level 305",
+              "description_zh": ""
+            },
+            "crafting_profession_id": 164,
+            "crafting_recipe_spell_id": 1229662,
+            "crafting_reagent_slot_ids": [
+              388,
+              391,
+              392,
+              393,
+              401,
+              426,
+              427,
+              466,
+              467
+            ],
+            "jewelry_socket_baseline_applied": false,
+            "primary_stat_values": {
+              "strength": 103,
+              "intellect": 103
+            }
+          },
+          "tooltip": "物品等级 331\n板甲\n+213 护甲\n+103 力量\n+2,124 耐力\n+ 5 随机属性2\n耐久: 55 / 55\n来源：专业制造 · 专业制造 · 锻造",
+          "tooltip_complete": true
+        },
+        "itemLevel": 331,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "embellishment": null,
+        "gems": [
+          {
+            "item": {
+              "item_id": 240906,
+              "name": "无瑕迅捷榴石",
+              "name_en": "Flawless Quick Garnet",
+              "description": "",
+              "text_schema_version": 2,
+              "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_nature_red",
+              "icon_url": "https://oss.wowdaily.cn/wow_icons_oss/medium/inv_12_profession_jewelcrafting_rare_gem_cut_nature_red.jpg",
+              "quality": 3,
+              "slot": "",
+              "armor_type": "",
+              "weapon_type": "",
+              "unique_group": "",
+              "simc_token": "flawless_quick_garnet",
+              "enchantment_id": 8149
+            },
+            "variant": {
+              "id": 43069,
+              "key": "gem-q2-e8149",
+              "type": "gem",
+              "item_id": 240906,
+              "item_level": 0,
+              "track": "",
+              "track_label": "",
+              "track_rank": 0,
+              "track_max_rank": 0,
+              "crafting_quality": 2,
+              "bonus_ids": [],
+              "game_build": "12.1.0.69587",
+              "data_branch": "retail",
+              "item_identity": null,
+              "compatible_slots": [
+                "head",
+                "neck",
+                "shoulders",
+                "back",
+                "chest",
+                "wrists",
+                "hands",
+                "waist",
+                "legs",
+                "feet",
+                "finger",
+                "weapon"
+              ],
+              "socket_types": [
+                "prismatic"
+              ],
+              "socket_count": 1,
+              "stats": {
+                "crit": 16,
+                "haste": 7
+              },
+              "effects": [],
+              "effects_status": "unknown",
+              "text_schema_version": 2,
+              "effects_missing": false,
+              "sources": [
+                {
+                  "type": "profession",
+                  "type_zh": "专业制造",
+                  "profession": "Jewelcrafting",
+                  "instance_zh": "",
+                  "encounter_zh": "",
+                  "profession_zh": "珠宝加工"
+                }
+              ],
+              "crafting_options": {},
+              "unique_group": "",
+              "max_equipped": 0,
+              "is_intrinsic_embellishment": false,
+              "metadata": {
+                "item_limit": {},
+                "two_handed": false,
+                "branch_display": {
+                  "ptr": {
+                    "icon": "inv_12_profession_jewelcrafting_rare_gem_cut_nature_red",
+                    "name": "Flawless Quick Garnet",
+                    "quality": 3,
+                    "simc_token": "flawless_quick_garnet",
+                    "catalog_type": "gem",
+                    "item_class_id": 0,
+                    "loot_spec_ids": [
+                      62,
+                      63,
+                      64,
+                      65,
+                      66,
+                      70,
+                      71,
+                      72,
+                      73,
+                      102,
+                      103,
+                      104,
+                      105,
+                      250,
+                      251,
+                      252,
+                      253,
+                      254,
+                      255,
+                      256,
+                      257,
+                      258,
+                      259,
+                      260,
+                      261,
+                      262,
+                      263,
+                      264,
+                      265,
+                      266,
+                      267,
+                      268,
+                      269,
+                      270,
+                      577,
+                      581,
+                      1467,
+                      1468,
+                      1473,
+                      1480
+                    ],
+                    "eligible_specs": [
+                      "Mage:Arcane",
+                      "Mage:Fire",
+                      "Mage:Frost",
+                      "Paladin:Holy",
+                      "Paladin:Protection",
+                      "Paladin:Retribution",
+                      "Warrior:Arms",
+                      "Warrior:Fury",
+                      "Warrior:Protection",
+                      "Druid:Balance",
+                      "Druid:Feral",
+                      "Druid:Guardian",
+                      "Druid:Restoration",
+                      "DeathKnight:Blood",
+                      "DeathKnight:Frost",
+                      "DeathKnight:Unholy",
+                      "Hunter:BeastMastery",
+                      "Hunter:Marksmanship",
+                      "Hunter:Survival",
+                      "Priest:Discipline",
+                      "Priest:Holy",
+                      "Priest:Shadow",
+                      "Rogue:Assassination",
+                      "Rogue:Outlaw",
+                      "Rogue:Subtlety",
+                      "Shaman:Elemental",
+                      "Shaman:Enhancement",
+                      "Shaman:Restoration",
+                      "Warlock:Affliction",
+                      "Warlock:Demonology",
+                      "Warlock:Destruction",
+                      "Monk:Brewmaster",
+                      "Monk:Windwalker",
+                      "Monk:Mistweaver",
+                      "DemonHunter:Havoc",
+                      "DemonHunter:Vengeance",
+                      "Evoker:Devastation",
+                      "Evoker:Preservation",
+                      "Evoker:Augmentation",
+                      "DemonHunter:Devourer"
+                    ],
+                    "enchantment_id": 8149,
+                    "inventory_type": 0,
+                    "loot_spec_build": "12.1.5.70077",
+                    "item_subclass_id": 0,
+                    "loot_spec_source": "wago:AllowableClass",
+                    "allowable_class_mask": 0
+                  }
+                },
+                "native_socket_types": [],
+                "text_schema_version": 2,
+                "primary_stat_options": [],
+                "raidbots_stats_alloc": [],
+                "crafting_profession_id": 0,
+                "crafting_recipe_spell_id": 0,
+                "crafting_reagent_slot_ids": [],
+                "jewelry_socket_baseline_applied": false,
+                "simc_name": "flawless_quick_garnet_2",
+                "enchantment_id": 8149,
+                "primary_stat_amount": 0
+              },
+              "tooltip": "+16 暴击\n+7 急速\n榴石\n+ 16 爆击和+ 7 急速\n来源：专业制造 · 珠宝加工",
+              "tooltip_complete": true
+            }
+          }
+        ],
+        "enchant": null,
+        "addedSocket": true,
+        "external": false,
+        "rawValue": "spellbreaker_s_bracers,id=237834,ilevel=331,crafting_quality=5,gem_id=240906"
+      }
+    }
+  },
+  "v2-aliases": {
+    "v": 2,
+    "c": "Warrior",
+    "s": "Fury",
+    "b": "gear-12.1.0.69587-20ae9bc9f775",
+    "u": [
+      "head",
+      "equipment",
+      "editor",
+      "browser"
+    ],
+    "e": [
+      [
+        "head",
+        271456,
+        57493,
+        [],
+        0,
+        [
+          43099
+        ],
+        43159,
+        1
+      ],
+      [
+        "neck",
+        268265,
+        56902,
+        [],
+        0,
+        [
+          43069,
+          43069
+        ],
+        0,
+        0
+      ],
+      [
+        "shoulder",
+        271454,
+        57463,
+        [],
+        0,
+        [],
+        43153,
+        0
+      ],
+      [
+        "back",
+        251190,
+        44837,
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "chest",
+        271459,
+        57535,
+        [],
+        0,
+        [],
+        43146,
+        0
+      ],
+      [
+        "waist",
+        268259,
+        56786,
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "wrist",
+        237834,
+        42472,
+        [],
+        0,
+        [
+          43069
+        ],
+        0,
+        1
+      ],
+      [
+        "hands",
+        271457,
+        57517,
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "legs",
+        271455,
+        57481,
+        [],
+        0,
+        [],
+        43462,
+        0
+      ],
+      [
+        "feet",
+        237828,
+        42412,
+        [],
+        0,
+        [],
+        43136,
+        0
+      ],
+      [
+        "finger1",
+        268252,
+        56657,
+        [],
+        0,
+        [
+          43069
+        ],
+        43138,
+        0
+      ],
+      [
+        "finger2",
+        268266,
+        56922,
+        [],
+        0,
+        [
+          43069
+        ],
+        43138,
+        0
+      ],
+      [
+        "trinket1",
+        270173,
+        57195,
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "trinket2",
+        270165,
+        57053,
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "main_hand",
+        268213,
+        55939,
+        [],
+        0,
+        [],
+        49312,
+        0
+      ],
+      [
+        "off_hand",
+        280799,
+        49898,
+        [],
+        0,
+        [],
+        49312,
+        0
+      ]
+    ]
+  },
+  "v3-aliases": {
+    "v": 3,
+    "c": "Warrior",
+    "s": "Fury",
+    "b": "gear-12.1.0.69587-20ae9bc9f775",
+    "u": [
+      "head",
+      "equipment",
+      "editor",
+      "browser"
+    ],
+    "e": [
+      [
+        "head",
+        271456,
+        [
+          57493,
+          271456,
+          "ptr:raid-hero-6-321",
+          321
+        ],
+        [],
+        0,
+        [
+          [
+            43099,
+            240983,
+            "gem-q2-e8552",
+            0
+          ]
+        ],
+        [
+          43159,
+          244007,
+          "enchant-q2-e8017",
+          0
+        ],
+        1
+      ],
+      [
+        "neck",
+        268265,
+        [
+          56902,
+          268265,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [
+          [
+            43069,
+            240906,
+            "gem-q2-e8149",
+            0
+          ],
+          [
+            43069,
+            240906,
+            "gem-q2-e8149",
+            0
+          ]
+        ],
+        0,
+        0
+      ],
+      [
+        "shoulder",
+        271454,
+        [
+          57463,
+          271454,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [],
+        [
+          43153,
+          243991,
+          "enchant-q2-e8001",
+          0
+        ],
+        0
+      ],
+      [
+        "back",
+        251190,
+        [
+          44837,
+          251190,
+          "mythic_plus-hero-6-321",
+          321
+        ],
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "chest",
+        271459,
+        [
+          57535,
+          271459,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [],
+        [
+          43146,
+          243977,
+          "enchant-q2-e7987",
+          0
+        ],
+        0
+      ],
+      [
+        "waist",
+        268259,
+        [
+          56786,
+          268259,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "wrist",
+        237834,
+        [
+          42472,
+          237834,
+          "crafted-myth-q5-331",
+          331
+        ],
+        [],
+        0,
+        [
+          [
+            43069,
+            240906,
+            "gem-q2-e8149",
+            0
+          ]
+        ],
+        0,
+        1
+      ],
+      [
+        "hands",
+        271457,
+        [
+          57517,
+          271457,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "legs",
+        271455,
+        [
+          57481,
+          271455,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [],
+        [
+          43462,
+          244641,
+          "enchant-q2-e8159",
+          0
+        ],
+        0
+      ],
+      [
+        "feet",
+        237828,
+        [
+          42412,
+          237828,
+          "crafted-myth-q5-331",
+          331
+        ],
+        [],
+        0,
+        [],
+        [
+          43136,
+          243953,
+          "enchant-q2-e7963",
+          0
+        ],
+        0
+      ],
+      [
+        "finger1",
+        268252,
+        [
+          56657,
+          268252,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [
+          [
+            43069,
+            240906,
+            "gem-q2-e8149",
+            0
+          ]
+        ],
+        [
+          43138,
+          243957,
+          "enchant-q2-e7967",
+          0
+        ],
+        0
+      ],
+      [
+        "finger2",
+        268266,
+        [
+          56922,
+          268266,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [
+          [
+            43069,
+            240906,
+            "gem-q2-e8149",
+            0
+          ]
+        ],
+        [
+          43138,
+          243957,
+          "enchant-q2-e7967",
+          0
+        ],
+        0
+      ],
+      [
+        "trinket1",
+        270173,
+        [
+          57195,
+          270173,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "trinket2",
+        270165,
+        [
+          57053,
+          270165,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "main_hand",
+        268213,
+        [
+          55939,
+          268213,
+          "ptr:raid-myth-6-334",
+          334
+        ],
+        [],
+        0,
+        [],
+        [
+          49312,
+          273072,
+          "enchant-q2-e8689",
+          0
+        ],
+        0
+      ],
+      [
+        "off_hand",
+        280799,
+        [
+          49898,
+          280799,
+          "ptr-kithix-myth-6",
+          334
+        ],
+        [],
+        0,
+        [],
+        [
+          49312,
+          273072,
+          "enchant-q2-e8689",
+          0
+        ],
+        0
+      ]
+    ]
+  },
+  "v4-aliases": {
+    "v": 4,
+    "c": "Warrior",
+    "s": "Fury",
+    "b": "gear-12.1.0.69587-20ae9bc9f775",
+    "u": [
+      "head",
+      "equipment",
+      "editor",
+      "browser"
+    ],
+    "e": [
+      [
+        "head",
+        271456,
+        "ptr:raid-hero-6-321",
+        [],
+        0,
+        [
+          [
+            240983,
+            "gem-q2-e8552"
+          ]
+        ],
+        [
+          244007,
+          "enchant-q2-e8017"
+        ],
+        1
+      ],
+      [
+        "neck",
+        268265,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ],
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        0
+      ],
+      [
+        "shoulder",
+        271454,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243991,
+          "enchant-q2-e8001"
+        ],
+        0
+      ],
+      [
+        "back",
+        251190,
+        "mythic_plus-hero-6-321",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "chest",
+        271459,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243977,
+          "enchant-q2-e7987"
+        ],
+        0
+      ],
+      [
+        "waist",
+        268259,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "wrist",
+        237834,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        1
+      ],
+      [
+        "hands",
+        271457,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "legs",
+        271455,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          244641,
+          "enchant-q2-e8159"
+        ],
+        0
+      ],
+      [
+        "feet",
+        237828,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [],
+        [
+          243953,
+          "enchant-q2-e7963"
+        ],
+        0
+      ],
+      [
+        "finger1",
+        268252,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        [
+          243957,
+          "enchant-q2-e7967"
+        ],
+        0
+      ],
+      [
+        "finger2",
+        268266,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        [
+          243957,
+          "enchant-q2-e7967"
+        ],
+        0
+      ],
+      [
+        "trinket1",
+        270173,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "trinket2",
+        270165,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "main_hand",
+        268213,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          273072,
+          "enchant-q2-e8689"
+        ],
+        0
+      ],
+      [
+        "off_hand",
+        280799,
+        "ptr-kithix-myth-6",
+        [],
+        0,
+        [],
+        [
+          273072,
+          "enchant-q2-e8689"
+        ],
+        0
+      ]
+    ]
+  },
+  "v4-equal-18": {
+    "v": 4,
+    "c": "Warrior",
+    "s": "Fury",
+    "b": "gear-12.1.0.69587-20ae9bc9f775",
+    "u": [
+      "head",
+      "equipment",
+      "editor",
+      "browser"
+    ],
+    "e": [
+      [
+        "head",
+        271456,
+        "ptr:raid-hero-6-321",
+        [],
+        0,
+        [
+          [
+            240983,
+            "gem-q2-e8552"
+          ]
+        ],
+        [
+          244007,
+          "enchant-q2-e8017"
+        ],
+        1
+      ],
+      [
+        "neck",
+        268265,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ],
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        0
+      ],
+      [
+        "shoulder",
+        271454,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243991,
+          "enchant-q2-e8001"
+        ],
+        0
+      ],
+      [
+        "back",
+        251190,
+        "mythic_plus-hero-6-321",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "chest",
+        271459,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243977,
+          "enchant-q2-e7987"
+        ],
+        0
+      ],
+      [
+        "waist",
+        268259,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "wrist",
+        237834,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        1
+      ],
+      [
+        "hands",
+        271457,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "legs",
+        271455,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          244641,
+          "enchant-q2-e8159"
+        ],
+        0
+      ],
+      [
+        "feet",
+        237828,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [],
+        [
+          243953,
+          "enchant-q2-e7963"
+        ],
+        0
+      ],
+      [
+        "finger1",
+        268252,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        [
+          243957,
+          "enchant-q2-e7967"
+        ],
+        0
+      ],
+      [
+        "finger2",
+        268266,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        [
+          243957,
+          "enchant-q2-e7967"
+        ],
+        0
+      ],
+      [
+        "trinket1",
+        270173,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "trinket2",
+        270165,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "main_hand",
+        268213,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          273072,
+          "enchant-q2-e8689"
+        ],
+        0
+      ],
+      [
+        "off_hand",
+        280799,
+        "ptr-kithix-myth-6",
+        [],
+        0,
+        [],
+        [
+          273072,
+          "enchant-q2-e8689"
+        ],
+        0
+      ],
+      [
+        "shoulders",
+        271454,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243991,
+          "enchant-q2-e8001"
+        ],
+        0
+      ],
+      [
+        "wrists",
+        237834,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        1
+      ]
+    ]
+  },
+  "v4-unresolved": {
+    "v": 4,
+    "c": "Warrior",
+    "s": "Fury",
+    "b": "gear-12.1.0.69587-20ae9bc9f775",
+    "u": [
+      "head",
+      "equipment",
+      "editor",
+      "browser"
+    ],
+    "e": [
+      [
+        "head",
+        271456,
+        "ptr:raid-hero-6-321",
+        [],
+        0,
+        [
+          [
+            240983,
+            "gem-q2-e8552"
+          ]
+        ],
+        [
+          244007,
+          "enchant-q2-e8017"
+        ],
+        1
+      ],
+      [
+        "neck",
+        268265,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ],
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        0
+      ],
+      [
+        "shoulder",
+        271454,
+        "qa-missing-historical-variant",
+        [],
+        0,
+        [],
+        [
+          243991,
+          "enchant-q2-e8001"
+        ],
+        0
+      ],
+      [
+        "back",
+        251190,
+        "mythic_plus-hero-6-321",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "chest",
+        271459,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243977,
+          "enchant-q2-e7987"
+        ],
+        0
+      ],
+      [
+        "waist",
+        268259,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "wrist",
+        237834,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        1
+      ],
+      [
+        "hands",
+        271457,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "legs",
+        271455,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          244641,
+          "enchant-q2-e8159"
+        ],
+        0
+      ],
+      [
+        "feet",
+        237828,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [],
+        [
+          243953,
+          "enchant-q2-e7963"
+        ],
+        0
+      ],
+      [
+        "finger1",
+        268252,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        [
+          243957,
+          "enchant-q2-e7967"
+        ],
+        0
+      ],
+      [
+        "finger2",
+        268266,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        [
+          243957,
+          "enchant-q2-e7967"
+        ],
+        0
+      ],
+      [
+        "trinket1",
+        270173,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "trinket2",
+        270165,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "main_hand",
+        268213,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          273072,
+          "enchant-q2-e8689"
+        ],
+        0
+      ],
+      [
+        "off_hand",
+        280799,
+        "ptr-kithix-myth-6",
+        [],
+        0,
+        [],
+        [
+          273072,
+          "enchant-q2-e8689"
+        ],
+        0
+      ]
+    ]
+  },
+  "v4-conflict": {
+    "v": 4,
+    "c": "Warrior",
+    "s": "Fury",
+    "b": "gear-12.1.0.69587-20ae9bc9f775",
+    "u": [
+      "head",
+      "equipment",
+      "editor",
+      "browser"
+    ],
+    "e": [
+      [
+        "head",
+        271456,
+        "ptr:raid-hero-6-321",
+        [],
+        0,
+        [
+          [
+            240983,
+            "gem-q2-e8552"
+          ]
+        ],
+        [
+          244007,
+          "enchant-q2-e8017"
+        ],
+        1
+      ],
+      [
+        "neck",
+        268265,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ],
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        0
+      ],
+      [
+        "shoulder",
+        271454,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243991,
+          "enchant-q2-e8001"
+        ],
+        0
+      ],
+      [
+        "back",
+        251190,
+        "mythic_plus-hero-6-321",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "chest",
+        271459,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243977,
+          "enchant-q2-e7987"
+        ],
+        0
+      ],
+      [
+        "waist",
+        268259,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "wrist",
+        237834,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        1
+      ],
+      [
+        "hands",
+        271457,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "legs",
+        271455,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          244641,
+          "enchant-q2-e8159"
+        ],
+        0
+      ],
+      [
+        "feet",
+        237828,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [],
+        [
+          243953,
+          "enchant-q2-e7963"
+        ],
+        0
+      ],
+      [
+        "finger1",
+        268252,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        [
+          243957,
+          "enchant-q2-e7967"
+        ],
+        0
+      ],
+      [
+        "finger2",
+        268266,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        [
+          243957,
+          "enchant-q2-e7967"
+        ],
+        0
+      ],
+      [
+        "trinket1",
+        270173,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "trinket2",
+        270165,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        0,
+        0
+      ],
+      [
+        "main_hand",
+        268213,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          273072,
+          "enchant-q2-e8689"
+        ],
+        0
+      ],
+      [
+        "off_hand",
+        280799,
+        "ptr-kithix-myth-6",
+        [],
+        0,
+        [],
+        [
+          273072,
+          "enchant-q2-e8689"
+        ],
+        0
+      ],
+      [
+        "shoulders",
+        271454,
+        "ptr:raid-myth-6-334",
+        [],
+        0,
+        [],
+        [
+          243991,
+          "enchant-q2-e8001"
+        ],
+        1
+      ],
+      [
+        "wrists",
+        237834,
+        "crafted-myth-q5-331",
+        [],
+        0,
+        [
+          [
+            240906,
+            "gem-q2-e8149"
+          ]
+        ],
+        0,
+        1
+      ]
+    ]
+  },
+  "resolved": {
+    "version": 1,
+    "className": "Warrior",
+    "specName": "Fury",
+    "batchKey": "gear-12.1.0.69587-20ae9bc9f775",
+    "selectedSlot": "head",
+    "mode": "equipment",
+    "viewMode": "editor",
+    "mobileView": "browser",
+    "equipment": {
+      "head": {
+        "itemLevel": 321,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": true,
+        "external": false,
+        "rawValue": "tempered_horns_of_the_jade_warlord,id=271456,ilevel=321,gem_id=240983,enchant_id=8017",
+        "item": {
+          "item_id": 271456,
+          "name": "翡翠督军的淬火战角",
+          "slot": "head",
+          "simc_token": "tempered_horns_of_the_jade_warlord",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 57493,
+          "key": "ptr:raid-hero-6-321",
+          "type": "drop_equipment",
+          "item_id": 271456,
+          "item_level": 321,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 3369,
+            "armor": 299,
+            "crit": 133,
+            "haste": 58,
+            "strength": 167
+          },
+          "effects": [
+            {
+              "description": "(2) Set Arms: Mortal Strike and Execute damage increased by 10% and when you Slam a target, Slam also deals (100% of Attack Power) damage to enemies within 8 yds of it. Deals reduced damage beyond 5 targets."
+            },
+            {
+              "description": "(2) Set Fury: Raging Blow damage increased by 15%. During Recklessness Raging Blow extends the duration of Recklessness by 2 sec, up to 6 sec."
+            },
+            {
+              "description": "(2) Set Protection: Your free Revenges deal 15% additional damage and cause your next Shield Slam to deal 20% additional damage."
+            },
+            {
+              "description": "(4) Set Arms: Overpower damage increased by 15%. Mortal Strike and Overpower increase the damage of your next Slam by 20%, stacking up to 5 times. (500ms cooldown)"
+            },
+            {
+              "description": "(4) Set Fury: Bloodthirst damage increased by 10%. During Recklessness Bloodthirst increases the critical strike bonus of Recklessness by 3%, up to 6%."
+            },
+            {
+              "description": "(4) Set Protection: Ravager and your free Revenges cause all targets to bleed for (304.745% of Attack Power) damage over 12 sec. Ravager's cooldown is reduced by 30 sec."
+            }
+          ]
+        },
+        "enchant": {
+          "item": {
+            "item_id": 244007,
+            "name": "附魔头盔 - 强化闪避符文",
+            "slot": "head",
+            "simc_token": "empowered_rune_of_avoidance",
+            "enchantment_id": 8017
+          },
+          "variant": {
+            "id": 43159,
+            "key": "enchant-q2-e8017",
+            "type": "enchant",
+            "item_id": 244007,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {
+              "avoidance": 37
+            },
+            "effects": [
+              {
+                "description_zh": "在至暗之夜区域户外击败敌人时为你提供速度爆发，每60秒最多触发一次。"
+              }
+            ]
+          }
+        },
+        "embellishment": null,
+        "gems": [
+          {
+            "item": {
+              "item_id": 240983,
+              "name": "费解之永歌钻石",
+              "slot": "",
+              "simc_token": "indecipherable_eversong_diamond",
+              "enchantment_id": 8552
+            },
+            "variant": {
+              "id": 43099,
+              "key": "gem-q2-e8552",
+              "type": "gem",
+              "item_id": 240983,
+              "item_level": 0,
+              "crafting_quality": 2,
+              "bonus_ids": [],
+              "socket_count": 1,
+              "stats": {
+                "strength": 32
+              },
+              "effects": []
+            }
+          }
+        ]
+      },
+      "neck": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "aqirbane_reliquary,id=268265,ilevel=334,gem_id=240906/240906",
+        "item": {
+          "item_id": 268265,
+          "name": "亚基克星藏骨匣",
+          "slot": "neck",
+          "simc_token": "aqirbane_reliquary",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 56902,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 268265,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 2,
+          "stats": {
+            "stamina": 2199,
+            "crit": 101,
+            "haste": 101,
+            "mastery": 101,
+            "versatility": 101
+          },
+          "effects": [
+            {
+              "description": "Equip: Damage taken from Deadly Venom on the Coiled Isle and within the Venomous Abyss reduced by 7%."
+            },
+            {
+              "description": "Equip: Your spells and abilities have a chance to increase a random secondary stat by 411 but reduce your other secondary stats by 69 for 12 sec."
+            }
+          ]
+        },
+        "enchant": null,
+        "embellishment": null,
+        "gems": [
+          {
+            "item": {
+              "item_id": 240906,
+              "name": "无瑕迅捷榴石",
+              "slot": "",
+              "simc_token": "flawless_quick_garnet",
+              "enchantment_id": 8149
+            },
+            "variant": {
+              "id": 43069,
+              "key": "gem-q2-e8149",
+              "type": "gem",
+              "item_id": 240906,
+              "item_level": 0,
+              "crafting_quality": 2,
+              "bonus_ids": [],
+              "socket_count": 1,
+              "stats": {
+                "crit": 16,
+                "haste": 7
+              },
+              "effects": []
+            }
+          },
+          {
+            "item": {
+              "item_id": 240906,
+              "name": "无瑕迅捷榴石",
+              "slot": "",
+              "simc_token": "flawless_quick_garnet",
+              "enchantment_id": 8149
+            },
+            "variant": {
+              "id": 43069,
+              "key": "gem-q2-e8149",
+              "type": "gem",
+              "item_id": 240906,
+              "item_level": 0,
+              "crafting_quality": 2,
+              "bonus_ids": [],
+              "socket_count": 1,
+              "stats": {
+                "crit": 16,
+                "haste": 7
+              },
+              "effects": []
+            }
+          }
+        ]
+      },
+      "shoulders": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "raging_pauldrons_of_the_jade_warlord,id=271454,ilevel=334,enchant_id=8001",
+        "item": {
+          "item_id": 271454,
+          "name": "翡翠督军的狂怒肩铠",
+          "slot": "shoulders",
+          "simc_token": "raging_pauldrons_of_the_jade_warlord",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 57463,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 271454,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 2932,
+            "armor": 299,
+            "crit": 46,
+            "mastery": 105,
+            "strength": 141
+          },
+          "effects": [
+            {
+              "description": "(2) Set Arms: Mortal Strike and Execute damage increased by 10% and when you Slam a target, Slam also deals (100% of Attack Power) damage to enemies within 8 yds of it. Deals reduced damage beyond 5 targets."
+            },
+            {
+              "description": "(2) Set Fury: Raging Blow damage increased by 15%. During Recklessness Raging Blow extends the duration of Recklessness by 2 sec, up to 6 sec."
+            },
+            {
+              "description": "(2) Set Protection: Your free Revenges deal 15% additional damage and cause your next Shield Slam to deal 20% additional damage."
+            },
+            {
+              "description": "(4) Set Arms: Overpower damage increased by 15%. Mortal Strike and Overpower increase the damage of your next Slam by 20%, stacking up to 5 times. (500ms cooldown)"
+            },
+            {
+              "description": "(4) Set Fury: Bloodthirst damage increased by 10%. During Recklessness Bloodthirst increases the critical strike bonus of Recklessness by 3%, up to 6%."
+            },
+            {
+              "description": "(4) Set Protection: Ravager and your free Revenges cause all targets to bleed for (304.745% of Attack Power) damage over 12 sec. Ravager's cooldown is reduced by 30 sec."
+            }
+          ]
+        },
+        "enchant": {
+          "item": {
+            "item_id": 243991,
+            "name": "附魔护肩 - 阿梅达希尔之赐",
+            "slot": "shoulders",
+            "simc_token": "amirdrassil_s_grace",
+            "enchantment_id": 8001
+          },
+          "variant": {
+            "id": 43153,
+            "key": "enchant-q2-e8001",
+            "type": "enchant",
+            "item_id": 243991,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {
+              "avoidance": 111
+            },
+            "effects": []
+          }
+        },
+        "embellishment": null,
+        "gems": []
+      },
+      "back": {
+        "itemLevel": 321,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "bloodthorn_burnous,id=251190,ilevel=321",
+        "item": {
+          "item_id": 251190,
+          "name": "血棘披风",
+          "slot": "back",
+          "simc_token": "bloodthorn_burnous",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 44837,
+          "key": "mythic_plus-hero-6-321",
+          "type": "drop_equipment",
+          "item_id": 251190,
+          "item_level": 321,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 1895,
+            "armor": 72,
+            "haste": 70,
+            "mastery": 37,
+            "strength": 94
+          },
+          "effects": []
+        },
+        "enchant": null,
+        "embellishment": null,
+        "gems": []
+      },
+      "chest": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "cuirass_of_the_jade_warlord,id=271459,ilevel=334,enchant_id=7987",
+        "item": {
+          "item_id": 271459,
+          "name": "翡翠督军胸铠",
+          "slot": "chest",
+          "simc_token": "cuirass_of_the_jade_warlord",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 57535,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 271459,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 3910,
+            "armor": 435,
+            "crit": 59,
+            "mastery": 142,
+            "strength": 189
+          },
+          "effects": [
+            {
+              "description": "(2) Set Arms: Mortal Strike and Execute damage increased by 10% and when you Slam a target, Slam also deals (100% of Attack Power) damage to enemies within 8 yds of it. Deals reduced damage beyond 5 targets."
+            },
+            {
+              "description": "(2) Set Fury: Raging Blow damage increased by 15%. During Recklessness Raging Blow extends the duration of Recklessness by 2 sec, up to 6 sec."
+            },
+            {
+              "description": "(2) Set Protection: Your free Revenges deal 15% additional damage and cause your next Shield Slam to deal 20% additional damage."
+            },
+            {
+              "description": "(4) Set Arms: Overpower damage increased by 15%. Mortal Strike and Overpower increase the damage of your next Slam by 20%, stacking up to 5 times. (500ms cooldown)"
+            },
+            {
+              "description": "(4) Set Fury: Bloodthirst damage increased by 10%. During Recklessness Bloodthirst increases the critical strike bonus of Recklessness by 3%, up to 6%."
+            },
+            {
+              "description": "(4) Set Protection: Ravager and your free Revenges cause all targets to bleed for (304.745% of Attack Power) damage over 12 sec. Ravager's cooldown is reduced by 30 sec."
+            }
+          ]
+        },
+        "enchant": {
+          "item": {
+            "item_id": 243977,
+            "name": "附魔胸甲 - 世界之魂印记",
+            "slot": "chest",
+            "simc_token": "mark_of_the_worldsoul",
+            "enchantment_id": 7987
+          },
+          "variant": {
+            "id": 43146,
+            "key": "enchant-q2-e7987",
+            "type": "enchant",
+            "item_id": 243977,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {
+              "strength": 50
+            },
+            "effects": []
+          }
+        },
+        "embellishment": null,
+        "gems": []
+      },
+      "waist": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "girdle_of_toxic_regret,id=268259,ilevel=334",
+        "item": {
+          "item_id": 268259,
+          "name": "剧毒悔恨束带",
+          "slot": "waist",
+          "simc_token": "girdle_of_toxic_regret",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 56786,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 268259,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 2932,
+            "armor": 245,
+            "crit": 106,
+            "mastery": 45,
+            "strength": 141
+          },
+          "effects": []
+        },
+        "enchant": null,
+        "embellishment": null,
+        "gems": []
+      },
+      "wrists": {
+        "itemLevel": 331,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": true,
+        "external": false,
+        "rawValue": "spellbreaker_s_bracers,id=237834,ilevel=331,crafting_quality=5,gem_id=240906",
+        "item": {
+          "item_id": 237834,
+          "name": "破法者的护腕",
+          "slot": "wrists",
+          "simc_token": "spellbreaker_s_bracers",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 42472,
+          "key": "crafted-myth-q5-331",
+          "type": "crafted_equipment",
+          "item_id": 237834,
+          "item_level": 331,
+          "crafting_quality": 5,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 2124,
+            "armor": 213,
+            "strength": 103
+          },
+          "effects": []
+        },
+        "enchant": null,
+        "embellishment": null,
+        "gems": [
+          {
+            "item": {
+              "item_id": 240906,
+              "name": "无瑕迅捷榴石",
+              "slot": "",
+              "simc_token": "flawless_quick_garnet",
+              "enchantment_id": 8149
+            },
+            "variant": {
+              "id": 43069,
+              "key": "gem-q2-e8149",
+              "type": "gem",
+              "item_id": 240906,
+              "item_level": 0,
+              "crafting_quality": 2,
+              "bonus_ids": [],
+              "socket_count": 1,
+              "stats": {
+                "crit": 16,
+                "haste": 7
+              },
+              "effects": []
+            }
+          }
+        ]
+      },
+      "hands": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "jeweled_gauntlets_of_the_jade_warlord,id=271457,ilevel=334",
+        "item": {
+          "item_id": 271457,
+          "name": "翡翠督军的镶玉护手",
+          "slot": "hands",
+          "simc_token": "jeweled_gauntlets_of_the_jade_warlord",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 57517,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 271457,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 2932,
+            "armor": 245,
+            "crit": 101,
+            "haste": 50,
+            "strength": 141
+          },
+          "effects": [
+            {
+              "description": "(2) Set Arms: Mortal Strike and Execute damage increased by 10% and when you Slam a target, Slam also deals (100% of Attack Power) damage to enemies within 8 yds of it. Deals reduced damage beyond 5 targets."
+            },
+            {
+              "description": "(2) Set Fury: Raging Blow damage increased by 15%. During Recklessness Raging Blow extends the duration of Recklessness by 2 sec, up to 6 sec."
+            },
+            {
+              "description": "(2) Set Protection: Your free Revenges deal 15% additional damage and cause your next Shield Slam to deal 20% additional damage."
+            },
+            {
+              "description": "(4) Set Arms: Overpower damage increased by 15%. Mortal Strike and Overpower increase the damage of your next Slam by 20%, stacking up to 5 times. (500ms cooldown)"
+            },
+            {
+              "description": "(4) Set Fury: Bloodthirst damage increased by 10%. During Recklessness Bloodthirst increases the critical strike bonus of Recklessness by 3%, up to 6%."
+            },
+            {
+              "description": "(4) Set Protection: Ravager and your free Revenges cause all targets to bleed for (304.745% of Attack Power) damage over 12 sec. Ravager's cooldown is reduced by 30 sec."
+            }
+          ]
+        },
+        "enchant": null,
+        "embellishment": null,
+        "gems": []
+      },
+      "legs": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "greaves_of_the_jade_warlord,id=271455,ilevel=334,enchant_id=8159",
+        "item": {
+          "item_id": 271455,
+          "name": "翡翠督军腿铠",
+          "slot": "legs",
+          "simc_token": "greaves_of_the_jade_warlord",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 57481,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 271455,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 3910,
+            "armor": 380,
+            "mastery": 66,
+            "versatility": 135,
+            "strength": 189
+          },
+          "effects": [
+            {
+              "description": "(2) Set Arms: Mortal Strike and Execute damage increased by 10% and when you Slam a target, Slam also deals (100% of Attack Power) damage to enemies within 8 yds of it. Deals reduced damage beyond 5 targets."
+            },
+            {
+              "description": "(2) Set Fury: Raging Blow damage increased by 15%. During Recklessness Raging Blow extends the duration of Recklessness by 2 sec, up to 6 sec."
+            },
+            {
+              "description": "(2) Set Protection: Your free Revenges deal 15% additional damage and cause your next Shield Slam to deal 20% additional damage."
+            },
+            {
+              "description": "(4) Set Arms: Overpower damage increased by 15%. Mortal Strike and Overpower increase the damage of your next Slam by 20%, stacking up to 5 times. (500ms cooldown)"
+            },
+            {
+              "description": "(4) Set Fury: Bloodthirst damage increased by 10%. During Recklessness Bloodthirst increases the critical strike bonus of Recklessness by 3%, up to 6%."
+            },
+            {
+              "description": "(4) Set Protection: Ravager and your free Revenges cause all targets to bleed for (304.745% of Attack Power) damage over 12 sec. Ravager's cooldown is reduced by 30 sec."
+            }
+          ]
+        },
+        "enchant": {
+          "item": {
+            "item_id": 244641,
+            "name": "森林猎手的护甲片",
+            "slot": "legs",
+            "simc_token": "forest_hunter_s_armor_kit",
+            "enchantment_id": 8159
+          },
+          "variant": {
+            "id": 43462,
+            "key": "enchant-q2-e8159",
+            "type": "enchant",
+            "item_id": 244641,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {
+              "stamina": 115,
+              "strength": 41
+            },
+            "effects": []
+          }
+        },
+        "embellishment": null,
+        "gems": []
+      },
+      "feet": {
+        "itemLevel": 331,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "spellbreaker_s_march,id=237828,ilevel=331,crafting_quality=5,enchant_id=7963",
+        "item": {
+          "item_id": 237828,
+          "name": "破法者的步伐",
+          "slot": "feet",
+          "simc_token": "spellbreaker_s_march",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 42412,
+          "key": "crafted-myth-q5-331",
+          "type": "crafted_equipment",
+          "item_id": 237828,
+          "item_level": 331,
+          "crafting_quality": 5,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 2832,
+            "armor": 266,
+            "strength": 138
+          },
+          "effects": []
+        },
+        "enchant": {
+          "item": {
+            "item_id": 243953,
+            "name": "附魔靴子 - 山猫之敏",
+            "slot": "feet",
+            "simc_token": "lynx_s_dexterity",
+            "enchantment_id": 7963
+          },
+          "variant": {
+            "id": 43136,
+            "key": "enchant-q2-e7963",
+            "type": "enchant",
+            "item_id": 243953,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {
+              "stamina": 232,
+              "avoidance": 19
+            },
+            "effects": []
+          }
+        },
+        "embellishment": null,
+        "gems": []
+      },
+      "finger1": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "apex_brute_s_claw_ring,id=268252,ilevel=334,gem_id=240906,enchant_id=7967",
+        "item": {
+          "item_id": 268252,
+          "name": "顶级蛮兵爪戒",
+          "slot": "finger",
+          "simc_token": "apex_brute_s_claw_ring",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 56657,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 268252,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 1,
+          "stats": {
+            "stamina": 2199,
+            "crit": 338,
+            "haste": 67
+          },
+          "effects": [
+            {
+              "description": "Equip: Damage taken from Deadly Venom on the Coiled Isle and within the Venomous Abyss reduced by 7%."
+            }
+          ]
+        },
+        "enchant": {
+          "item": {
+            "item_id": 243957,
+            "name": "附魔戒指 - 鹰眼神视",
+            "slot": "finger",
+            "simc_token": "eyes_of_the_eagle",
+            "enchantment_id": 7967
+          },
+          "variant": {
+            "id": 43138,
+            "key": "enchant-q2-e7967",
+            "type": "enchant",
+            "item_id": 243957,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {},
+            "effects": [
+              {
+                "description_zh": "使爆击效果提高2%。"
+              }
+            ]
+          }
+        },
+        "embellishment": null,
+        "gems": [
+          {
+            "item": {
+              "item_id": 240906,
+              "name": "无瑕迅捷榴石",
+              "slot": "",
+              "simc_token": "flawless_quick_garnet",
+              "enchantment_id": 8149
+            },
+            "variant": {
+              "id": 43069,
+              "key": "gem-q2-e8149",
+              "type": "gem",
+              "item_id": 240906,
+              "item_level": 0,
+              "crafting_quality": 2,
+              "bonus_ids": [],
+              "socket_count": 1,
+              "stats": {
+                "crit": 16,
+                "haste": 7
+              },
+              "effects": []
+            }
+          }
+        ]
+      },
+      "finger2": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "alluring_bubbleband,id=268266,ilevel=334,gem_id=240906,enchant_id=7967",
+        "item": {
+          "item_id": 268266,
+          "name": "诱人水泡指环",
+          "slot": "finger",
+          "simc_token": "alluring_bubbleband",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 56922,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 268266,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 1,
+          "stats": {
+            "stamina": 2199,
+            "haste": 316,
+            "versatility": 89
+          },
+          "effects": []
+        },
+        "enchant": {
+          "item": {
+            "item_id": 243957,
+            "name": "附魔戒指 - 鹰眼神视",
+            "slot": "finger",
+            "simc_token": "eyes_of_the_eagle",
+            "enchantment_id": 7967
+          },
+          "variant": {
+            "id": 43138,
+            "key": "enchant-q2-e7967",
+            "type": "enchant",
+            "item_id": 243957,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {},
+            "effects": [
+              {
+                "description_zh": "使爆击效果提高2%。"
+              }
+            ]
+          }
+        },
+        "embellishment": null,
+        "gems": [
+          {
+            "item": {
+              "item_id": 240906,
+              "name": "无瑕迅捷榴石",
+              "slot": "",
+              "simc_token": "flawless_quick_garnet",
+              "enchantment_id": 8149
+            },
+            "variant": {
+              "id": 43069,
+              "key": "gem-q2-e8149",
+              "type": "gem",
+              "item_id": 240906,
+              "item_level": 0,
+              "crafting_quality": 2,
+              "bonus_ids": [],
+              "socket_count": 1,
+              "stats": {
+                "crit": 16,
+                "haste": 7
+              },
+              "effects": []
+            }
+          }
+        ]
+      },
+      "trinket1": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "zul_jin_s_guillotine_technique,id=270173,ilevel=334",
+        "item": {
+          "item_id": 270173,
+          "name": "祖尔金的处斩技法",
+          "slot": "trinket",
+          "simc_token": "zul_jin_s_guillotine_technique",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 57195,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 270173,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "strength": 179
+          },
+          "effects": [
+            {
+              "description": "Equip: You have a chance to follow up your attacks with Guillotine, hurling a massive axe in an arc at your target to deal (44003 * 1) Physical damage. · Damage increased by 2% for every 1% health the target is missing."
+            },
+            {
+              "description": "(2) Set : Perfect your Guillotine technique to ricochet to a second nearby enemy, dealing 100% of its damage and applying Venomfang to both targets."
+            }
+          ]
+        },
+        "enchant": null,
+        "embellishment": null,
+        "gems": []
+      },
+      "trinket2": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "keeper_s_seething_core,id=270165,ilevel=334",
+        "item": {
+          "item_id": 270165,
+          "name": "守护者的躁动核心",
+          "slot": "trinket",
+          "simc_token": "keeper_s_seething_core",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 57053,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 270165,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "strength": 179
+          },
+          "effects": [
+            {
+              "description": "Equip: Your attacks have a high chance to grant you Focus of Ula'tek, increasing your Haste by 127 for 12 sec. Multiple applications may overlap. · When two or more applications are active, your focus sharpens further to increase the effect by 20%."
+            }
+          ]
+        },
+        "enchant": null,
+        "embellishment": null,
+        "gems": []
+      },
+      "main_hand": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "maze_roa_warlord_s_fury,id=268213,ilevel=334,enchant_id=8689",
+        "item": {
+          "item_id": 268213,
+          "name": "迈兹罗阿，督军的狂怒",
+          "slot": "main_hand",
+          "simc_token": "maze_roa_warlord_s_fury",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 55939,
+          "key": "ptr:raid-myth-6-334",
+          "type": "drop_equipment",
+          "item_id": 268213,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "stamina": 3910,
+            "crit": 142,
+            "mastery": 59,
+            "strength": 189
+          },
+          "effects": [
+            {
+              "description": "Equip: Your attacks have a high chance to apply Venomfang, dealing (874 * 6 * 1) Nature damage over 6 sec before bursting to deal 2295 Nature damage to nearby enemies. Multiple applications may overlap."
+            },
+            {
+              "description": "(2) Set : Perfect your Guillotine technique to ricochet to a second nearby enemy, dealing 100% of its damage and applying Venomfang to both targets."
+            }
+          ]
+        },
+        "enchant": {
+          "item": {
+            "item_id": 273072,
+            "name": "附魔武器 - 哈谢仪式",
+            "slot": "weapon",
+            "simc_token": "rite_of_the_hash_ey",
+            "enchantment_id": 8689
+          },
+          "variant": {
+            "id": 49312,
+            "key": "enchant-q2-e8689",
+            "type": "enchant",
+            "item_id": 273072,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {},
+            "effects": [
+              {
+                "description_zh": "使你的法术和技能赋予你哈谢之力，使你获得139点随机次要属性，持续15秒。当你的生命值高于80%时，该效果会优先提升你最高的次要属性。"
+              }
+            ]
+          }
+        },
+        "embellishment": null,
+        "gems": []
+      },
+      "off_hand": {
+        "itemLevel": 334,
+        "selectedStats": [],
+        "resolvedStats": null,
+        "resolvedEffects": null,
+        "addedSocket": false,
+        "external": false,
+        "rawValue": "lu_selama_light_s_justice,id=280799,ilevel=334,enchant_id=8689",
+        "item": {
+          "item_id": 280799,
+          "name": "露瑟拉玛，圣光之裁",
+          "slot": "main_hand",
+          "simc_token": "lu_selama_light_s_justice",
+          "enchantment_id": 0
+        },
+        "variant": {
+          "id": 49898,
+          "key": "ptr-kithix-myth-6",
+          "type": "drop_equipment",
+          "item_id": 280799,
+          "item_level": 334,
+          "crafting_quality": 0,
+          "bonus_ids": [],
+          "socket_count": 0,
+          "stats": {
+            "strength": 189,
+            "stamina": 3910
+          },
+          "effects": [
+            {
+              "description": "Equip: Your damage has a chance to ignite Lu'selama for 10 sec, granting you 756 Haste. While ablaze, further attacks have a chance to smite your target for an additional (1 * 9972) Radiant damage.",
+              "description_zh": "装备：你的伤害有几率点燃露瑟拉玛，持续10秒，使你获得756急速。燃烧期间，后续攻击有几率额外对目标造成(1 * 9972)点光辉伤害。"
+            }
+          ]
+        },
+        "enchant": {
+          "item": {
+            "item_id": 273072,
+            "name": "附魔武器 - 哈谢仪式",
+            "slot": "weapon",
+            "simc_token": "rite_of_the_hash_ey",
+            "enchantment_id": 8689
+          },
+          "variant": {
+            "id": 49312,
+            "key": "enchant-q2-e8689",
+            "type": "enchant",
+            "item_id": 273072,
+            "item_level": 0,
+            "crafting_quality": 2,
+            "bonus_ids": [],
+            "socket_count": 0,
+            "stats": {},
+            "effects": [
+              {
+                "description_zh": "使你的法术和技能赋予你哈谢之力，使你获得139点随机次要属性，持续15秒。当你的生命值高于80%时，该效果会优先提升你最高的次要属性。"
+              }
+            ]
+          }
+        },
+        "embellishment": null,
+        "gems": []
+      }
+    },
+    "lockedSlots": []
+  }
+}

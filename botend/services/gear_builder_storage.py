@@ -27,6 +27,15 @@ class GearBuilderStorageError(ValueError):
     pass
 
 
+def _unique_json_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise GearBuilderStorageError('配装字符串包含重复字段或装备槽位')
+        result[key] = value
+    return result
+
+
 def _decode_state(code):
     code = str(code or '').strip()
     if not code or len(code) > MAX_ENCODED_STATE_LENGTH or code[0] not in ('z', 'j'):
@@ -41,27 +50,24 @@ def _decode_state(code):
             decoded = compressed
         if len(decoded) > MAX_DECODED_STATE_LENGTH:
             raise GearBuilderStorageError('配装字符串解压后过大')
-        payload = json.loads(decoded.decode('utf-8'))
+        payload = json.loads(decoded.decode('utf-8'), object_pairs_hook=_unique_json_object)
     except GearBuilderStorageError:
         raise
     except (OSError, EOFError, UnicodeDecodeError, ValueError, binascii.Error):
         raise GearBuilderStorageError('配装字符串无法解析')
+    from botend.services.gear_builder import (
+        GearBuilderError, canonical_spec, hydrate_shared_state, share_payload_arguments,
+    )
     try:
-        version = int(payload.get('v') or 0) if isinstance(payload, dict) else 0
-    except (TypeError, ValueError):
-        version = 0
-    if not isinstance(payload, dict) or version != SHARE_FORMAT_VERSION:
-        raise GearBuilderStorageError('配装字符串版本无效')
-    entries = payload.get('e')
-    if not isinstance(entries, list) or not entries or len(entries) > 16:
-        raise GearBuilderStorageError('配装字符串中的装备槽位数量无效')
-    class_name = str(payload.get('c') or '').strip()
-    spec_name = str(payload.get('s') or '').strip()
-    batch_key = str(payload.get('b') or '').strip()
-    if not class_name or len(class_name) > 32 or not spec_name or len(spec_name) > 64:
-        raise GearBuilderStorageError('配装字符串缺少有效职业专精')
-    if not batch_key or len(batch_key) > 160:
-        raise GearBuilderStorageError('配装字符串缺少有效装备批次')
+        arguments = share_payload_arguments(payload)
+        entries = arguments['entries']
+        if not isinstance(entries, list) or not entries:
+            raise GearBuilderError('配装字符串中的装备槽位数量无效')
+        hydrate_shared_state(**arguments, current=False, strict=True)
+        class_name, spec_name = canonical_spec(arguments['class_name'], arguments['spec_name'])
+        batch_key = arguments['batch_key']
+    except GearBuilderError as exc:
+        raise GearBuilderStorageError(str(exc)) from exc
     return code, payload, {
         'class_name': class_name,
         'spec_name': spec_name,
