@@ -26,6 +26,7 @@ from botend.models import (
     WowWagoMonitorState,
 )
 from botend.services.simc_player_config import (
+    EQUIPMENT_SLOT_ALIASES as SIMC_EQUIPMENT_SLOT_ALIASES,
     canonical_simc_profile_key,
     parse_simc_player_profile,
     secondary_rule_class_key,
@@ -54,6 +55,18 @@ EQUIPMENT_SLOTS = (
     ('off_hand', '副手'),
 )
 SLOT_LABELS = dict(EQUIPMENT_SLOTS)
+# The shared SimC parser owns SimC spelling; the builder owns its UI slots.
+# Adapt only at the builder boundary, without changing either canonical set.
+SLOT_SIMC_KEYS = {key: SIMC_EQUIPMENT_SLOT_ALIASES.get(key, key) for key, _label in EQUIPMENT_SLOTS}
+SLOT_ALIASES = {simc_key: key for key, simc_key in SLOT_SIMC_KEYS.items() if key != simc_key}
+
+
+def canonical_equipment_slot(value):
+    """Translate known SimC aliases only; callers still validate slot membership."""
+    slot = str(value or '')
+    return SLOT_ALIASES.get(slot, slot)
+
+
 SLOT_FAMILIES = {
     'finger1': 'finger', 'finger2': 'finger',
     'trinket1': 'trinket', 'trinket2': 'trinket',
@@ -396,7 +409,11 @@ def bootstrap_payload():
         'classes': specs_payload(),
         'raid_boss_numbers': raid_boss_numbers(season),
         'tier_set_sources': tier_set_source_catalog(),
-        'slots': [{'key': key, 'label': label, 'family': SLOT_FAMILIES.get(key, key)} for key, label in EQUIPMENT_SLOTS],
+        'slots': [
+            {'key': key, 'label': label, 'family': SLOT_FAMILIES.get(key, key), 'simc_key': SLOT_SIMC_KEYS[key]}
+            for key, label in EQUIPMENT_SLOTS
+        ],
+        'slot_aliases': dict(SLOT_ALIASES),
         'stats': [{'key': key, 'label': label} for key, label in STAT_LABELS.items()],
         'upgrade_tracks': [{'key': key, 'label': label} for key, label in UPGRADE_TRACK_LABELS.items()],
         'rules': {
@@ -1067,7 +1084,7 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
     for row in entries:
         if not isinstance(row, list) or len(row) < 3:
             raise GearBuilderError('分享链接中的装备引用格式无效')
-        slot = str(row[0] or '')
+        slot = canonical_equipment_slot(row[0])
         if slot not in SLOT_LABELS or slot in seen_slots:
             raise GearBuilderError('分享链接包含未知或重复装备槽位')
         seen_slots.add(slot)
@@ -1250,6 +1267,7 @@ def import_simc_profile(profile_text):
     mapped = []
     warnings = []
     for row in all_equipment:
+        slot = canonical_equipment_slot(row.get('slot'))
         item_id = _simc_item_id(row)
         candidates = by_item.get(item_id, [])
         requested_bonus = {str(value) for value in (row.get('bonus_ids') or [])}
@@ -1259,7 +1277,7 @@ def import_simc_profile(profile_text):
         selected = selected or (candidates[0] if candidates else None)
         external = selected is None
         if external:
-            warnings.append(f"{SLOT_LABELS.get(row.get('slot'), row.get('slot'))} 的物品 #{item_id} 不在当前目录中，已作为外部装备保留。")
+            warnings.append(f"{SLOT_LABELS.get(slot, slot)} 的物品 #{item_id} 不在当前目录中，已作为外部装备保留。")
         enchant_payload = row.get('enchant') or {}
         enchant_id = _simc_enchantment_id(enchant_payload)
         enchant_candidates = by_item.get(enchant_id) or by_enchantment.get(enchant_id) or []
@@ -1276,7 +1294,7 @@ def import_simc_profile(profile_text):
                 'name': gem.get('display_name') or f'#{gem_id}',
             })
         mapped.append({
-            'slot': row.get('slot'),
+            'slot': slot,
             'item_id': item_id,
             'name': row.get('display_name') or f'#{item_id}',
             'item_level': requested_level,

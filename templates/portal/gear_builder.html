@@ -100,7 +100,7 @@
         </header>
 
         <nav class="gear-mobile-tabs" data-gear-editor aria-label="配装器区域">
-            <button type="button" data-mobile-view="slots" class="is-active">装备 <span id="gear-mobile-count">0/16</span></button>
+            <button type="button" data-mobile-view="slots" class="is-active">装备 <span id="gear-mobile-count">0/—</span></button>
             <button type="button" data-mobile-view="browser">候选与强化</button>
             <button type="button" data-mobile-view="stats">属性汇总</button>
         </nav>
@@ -109,7 +109,7 @@
             <aside class="gear-panel gear-slots-panel" data-gear-mobile-panel="slots">
                 <div class="gear-panel-heading">
                     <h2>装备栏位</h2>
-                    <span id="gear-equipped-count">0/16</span>
+                    <span id="gear-equipped-count">0/—</span>
                 </div>
                 <div id="gear-slot-list" class="gear-slot-list" role="listbox" aria-label="装备槽位"></div>
             </aside>
@@ -238,7 +238,7 @@
                 </div>
                 <div class="gear-preview-head-meta">
                     <span id="gear-preview-season">当前赛季</span>
-                    <strong id="gear-preview-count">0 / 16</strong>
+                    <strong id="gear-preview-count">0 / —</strong>
                 </div>
             </header>
             <div class="gear-preview-stage">
@@ -320,6 +320,6 @@
     <script src="{% static 'shared/js/wow-gear-state.js' %}?v=20261008"></script>
     <script src="{% static 'portal/js/gear-catalog.js' %}?v=20261014_prefer_retail"></script>
     <script src="{% static 'shared/js/wow-gear-sources.js' %}?v=20261010_sources"></script>
-    <script src="{% static 'portal/js/gear_builder.js' %}?v=20261013_gem_quantity"></script>
+    <script src="{% static 'portal/js/gear_builder.js' %}?v=20261018_slot_identity_roundtrip"></script>
 </body>
 </html>

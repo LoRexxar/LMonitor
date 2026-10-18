@@ -97,7 +97,7 @@ class GearAssistantTests(GearBuilderTestDataMixin, TestCase):
         self.assertContains(response, '清空备选装备')
         self.assertContains(response, '优先备选装备')
         self.assertContains(response, 'id="assistant-allow-mythic-last-two"')
-        self.assertContains(response, '可获取 M 后二装备')
+        self.assertContains(response, '可获取 M 后二 344 档装备')
         self.assertContains(response, '先满足特效装备携带，再匹配目标绿字')
         self.assertContains(response, '固有美化与附加美化合计必须为 2 件')
         self.assertContains(response, 'id="assistant-source-preference"')

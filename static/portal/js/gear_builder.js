@@ -65,7 +65,7 @@
   });
   const ADDITIONAL_SOCKET_SLOTS = new Set(["head", "wrists", "waist"]);
   const PREVIEW_LEFT_SLOTS = ["head", "neck", "shoulders", "back", "chest", "wrists", "hands", "waist"];
-  const PREVIEW_RIGHT_SLOTS = ["legs", "feet", "finger1", "finger2", "trinket1", "trinket2", "main_hand", "off_hand"];
+
   const SIMC_CRAFTED_STAT_IDS = Object.freeze({crit: 40, haste: 49, mastery: 32, versatility: 36});
 
   let bootstrap = null;
@@ -280,19 +280,55 @@
     };
   }
 
+  function equipmentSlots() {
+    return bootstrap?.slots || [];
+  }
+
+  function canonicalSlot(value) {
+    const slot = String(value || "");
+    const target = bootstrap?.slot_aliases?.[slot];
+    return target && equipmentSlots().some((row) => row.key === target) ? target : slot;
+  }
+
+  function normalizeEquipment(equipment) {
+    const rows = equipment && typeof equipment === "object" ? equipment : {};
+    // Explicit canonical data (including an empty slot) wins over stale aliases.
+    // Unknown real slots remain in storage/share; only metadata slots enter the UI.
+    return Object.fromEntries(Object.entries(rows).filter(([slot]) => {
+      const key = canonicalSlot(slot);
+      return key === slot || !Object.hasOwn(rows, key);
+    }).map(([slot, entry]) => [canonicalSlot(slot), entry]));
+  }
+
+  function equippedEntries(currentState = state) {
+    const equipment = normalizeEquipment(currentState.equipment);
+    return equipmentSlots().map(({key}) => [key, equipment[key]]).filter(([, entry]) => entry?.item);
+  }
+
+  function unsupportedEquipmentSlots() {
+    const keys = new Set(equipmentSlots().map((slot) => slot.key));
+    return Object.entries(state.equipment).filter(([slot, entry]) => entry?.item && !keys.has(slot)).map(([slot]) => slot);
+  }
+
   function normalizeState(raw) {
     const next = freshState();
     if (!raw || typeof raw !== "object") return next;
     next.className = String(raw.className || next.className);
     next.specName = String(raw.specName || next.specName);
     next.batchKey = String(raw.batchKey || "");
-    next.selectedSlot = String(raw.selectedSlot || next.selectedSlot);
+    next.selectedSlot = canonicalSlot(raw.selectedSlot || next.selectedSlot);
     next.mode = ["equipment", "enhancement", "owned"].includes(raw.mode) ? raw.mode : "equipment";
     next.viewMode = raw.viewMode === "preview" ? "preview" : "editor";
     next.mobileView = ["slots", "browser", "stats"].includes(raw.mobileView) ? raw.mobileView : "browser";
-    next.equipment = raw.equipment && typeof raw.equipment === "object" ? raw.equipment : {};
-    next.lockedSlots = [...new Set(Array.isArray(raw.lockedSlots) ? raw.lockedSlots : [])]
-      .filter((slot) => [...PREVIEW_LEFT_SLOTS, ...PREVIEW_RIGHT_SLOTS].includes(slot));
+    next.equipment = normalizeEquipment(raw.equipment);
+    next.lockedSlots = [...new Set((Array.isArray(raw.lockedSlots) ? raw.lockedSlots : [])
+      .filter((slot) => typeof slot === "string" && slot).map(canonicalSlot))];
+    // Metadata may not be available yet: preserve aliases until it can resolve them.
+    if (bootstrap?.slots) {
+      const keys = new Set(equipmentSlots().map((slot) => slot.key));
+      next.lockedSlots = next.lockedSlots.filter((slot) => keys.has(slot) || Object.hasOwn(next.equipment, slot));
+      if (!keys.has(next.selectedSlot)) next.selectedSlot = equipmentSlots()[0]?.key || next.selectedSlot;
+    }
     return next;
   }
 
@@ -304,7 +340,16 @@
     }
   }
 
+  async function refreshState(currentState) {
+    const normalized = normalizeState(currentState);
+    // The shared resolver only accepts supported slots. Retain other historical
+    // data locally rather than dropping it or making the entire startup fail.
+    const refreshed = await WowGearState.refresh({...normalized, equipment: Object.fromEntries(equippedEntries(normalized))}, requestJson);
+    return normalizeState({...refreshed, equipment: {...normalized.equipment, ...refreshed.equipment}});
+  }
+
   function persist() {
+    state = normalizeState(state);
     state.batchKey = bootstrap?.catalog?.batch_key || state.batchKey || "";
     localStorage.setItem(storageKey(), JSON.stringify(state));
     els.save_status.textContent = `已保存到浏览器 · ${new Date().toLocaleTimeString("zh-CN", {hour: "2-digit", minute: "2-digit"})}`;
@@ -336,7 +381,7 @@
   }
 
   function isSlotLocked(slot = state.selectedSlot) {
-    return state.lockedSlots.includes(slot);
+    return state.lockedSlots.includes(canonicalSlot(slot));
   }
 
   function blockLockedSlot(slot = state.selectedSlot) {
@@ -352,7 +397,8 @@
   }
 
   function toggleSlotLock(slot) {
-    if (![...PREVIEW_LEFT_SLOTS, ...PREVIEW_RIGHT_SLOTS].includes(slot)) return;
+    slot = canonicalSlot(slot);
+    if (!equipmentSlots().some((row) => row.key === slot)) return;
     state.lockedSlots = isSlotLocked(slot) ? state.lockedSlots.filter((key) => key !== slot) : [...state.lockedSlots, slot];
     // 保存快照，避免锁定前发出的异步制造解析改写已锁定部位。
     if (isSlotLocked(slot) && state.equipment[slot]) state.equipment[slot] = structuredClone(state.equipment[slot]);
@@ -363,7 +409,7 @@
   }
 
   function replaceLoadout(next) {
-    state = next;
+    state = normalizeState(next);
   }
 
   function confirmLoadoutReplacement(record) {
@@ -404,7 +450,7 @@
   }
 
   function equippedCount() {
-    return Object.values(state.equipment).filter((entry) => entry?.item).length;
+    return equippedEntries().length;
   }
 
   function classPayload() {
@@ -475,8 +521,8 @@
       </button><button type="button" class="gear-slot-lock" data-toggle-slot-lock="${escapeHtml(slot.key)}" aria-label="${escapeHtml(lockLabel)}" title="${escapeHtml(lockLabel)}" aria-pressed="${locked}"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="${locked ? 'M8 10V7a4 4 0 0 1 8 0v3' : 'M8 10V7a4 4 0 0 1 7.5-2'}"/><path d="M12 14v3"/></svg></button></div>`;
     }).join("");
     const count = equippedCount();
-    els.equipped_count.textContent = `${count}/16`;
-    els.mobile_count.textContent = `${count}/16`;
+    els.equipped_count.textContent = `${count}/${equipmentSlots().length}`;
+    els.mobile_count.textContent = `${count}/${equipmentSlots().length}`;
     const label = bootstrap?.slots?.find((slot) => slot.key === state.selectedSlot)?.label || state.selectedSlot;
     els.browser_title.textContent = `${label} · ${selectedEntry()?.item?.name || "未选择"}`;
   }
@@ -1171,8 +1217,7 @@
     const effects = [];
     let equipped = 0;
     let missingStats = 0;
-    Object.entries(state.equipment).forEach(([slot, entry]) => {
-      if (!entry) return;
+    equippedEntries().forEach(([slot, entry]) => {
       equipped += 1;
       const equipmentStats = entry.resolvedStats || entry.variant?.stats || {};
       if (!Object.values(equipmentStats).some((value) => number(value))) missingStats += 1;
@@ -1221,8 +1266,7 @@
       addStats(row.stats, stats);
       addStats(group.stats, stats);
     }
-    Object.entries(state.equipment).forEach(([slot, entry]) => {
-      if (!entry) return;
+    equippedEntries().forEach(([slot, entry]) => {
       (entry.gems || []).forEach((gem) => collect(0, gem, slot));
       collect(1, entry.enchant, slot);
       // resolvedEffects 已混合装备与附加美化，分类使用各自的中央变体事实。
@@ -1281,8 +1325,10 @@
     }).join("");
     els.effect_list.innerHTML = effectSummaryMarkup(effectSummaryGroups());
     els.stats_context.textContent = missingStats
-      ? `已装备 ${equipped}/16 · ${missingStats} 件缺少静态属性数据；百分比仍包含 5% 基础暴击与 8% 基础精通`
-      : `已装备 ${equipped}/16 · 含 5% 基础暴击；8% 基础精通与装备精通一并乘以当前专精系数`;
+      ? `已装备 ${equipped}/${equipmentSlots().length} · ${missingStats} 件缺少静态属性数据；百分比仍包含 5% 基础暴击与 8% 基础精通`
+      : `已装备 ${equipped}/${equipmentSlots().length} · 含 5% 基础暴击；8% 基础精通与装备精通一并乘以当前专精系数`;
+    const unsupported = unsupportedEquipmentSlots();
+    if (unsupported.length) els.stats_context.textContent += `；另保留未支持槽位 ${unsupported.join("、")}，不计入属性与 SimC 导出`;
   }
 
   function previewSlotMarkup(slotKey) {
@@ -1311,14 +1357,15 @@
     const currentClass = classPayload() || {};
     const currentSpec = specPayload() || {};
     const {totals, effects, equipped} = totalsAndEffects();
-    const levels = Object.values(state.equipment)
-      .map((entry) => number(entry?.variant?.item_level || entry?.itemLevel))
+    const levels = equippedEntries()
+      .map(([, entry]) => number(entry?.variant?.item_level || entry?.itemLevel))
       .filter((value) => value > 0);
     const averageLevel = levels.length ? Math.round(levels.reduce((sum, value) => sum + value, 0) / levels.length) : 0;
-    const completion = Math.min(100, equipped / 16 * 100);
+    const completion = equipmentSlots().length ? Math.min(100, equipped / equipmentSlots().length * 100) : 0;
     const catalog = bootstrap?.catalog || {};
-    els.preview_left.innerHTML = PREVIEW_LEFT_SLOTS.map(previewSlotMarkup).join("");
-    els.preview_right.innerHTML = PREVIEW_RIGHT_SLOTS.map(previewSlotMarkup).join("");
+    const keys = equipmentSlots().map((slot) => slot.key);
+    els.preview_left.innerHTML = keys.filter((key) => PREVIEW_LEFT_SLOTS.includes(key)).map(previewSlotMarkup).join("");
+    els.preview_right.innerHTML = keys.filter((key) => !PREVIEW_LEFT_SLOTS.includes(key)).map(previewSlotMarkup).join("");
     els.preview_class.textContent = currentClass.name || state.className;
     els.preview_spec.textContent = currentSpec.name || state.specName;
     els.preview_spec_fallback.textContent = String(currentSpec.name || state.specName || "专").slice(0, 1);
@@ -1330,7 +1377,7 @@
     els.preview_spec_icon.hidden = !specIconLoaded;
     els.preview_spec_fallback.hidden = specIconLoaded;
     els.preview_item_level.textContent = String(averageLevel || 0);
-    els.preview_count.textContent = `${equipped} / 16`;
+    els.preview_count.textContent = `${equipped} / ${equipmentSlots().length}`;
     els.preview_season.textContent = `${catalog.season?.name || "当前赛季"} · ${catalog.game_build || "正式服"}`;
     els.preview_progress_bar.style.width = `${completion}%`;
     els.preview_progress_copy.textContent = equipped ? `已完成 ${equipped} 个装备槽位` : "尚未选择装备";
@@ -1460,8 +1507,9 @@
   }
 
   function compactShareState(currentState) {
+    currentState = normalizeState(currentState);
     const equipment = Object.entries(currentState.equipment || {}).map(([slot, entry]) => {
-      if (shareEntryNeedsSnapshot(entry)) {
+      if (!equipmentSlots().some((row) => row.key === slot) || shareEntryNeedsSnapshot(entry)) {
         return [slot, 0, 0, [], 0, [], 0, entry?.addedSocket ? 1 : 0, structuredClone(entry)];
       }
       return [
@@ -1494,7 +1542,7 @@
       throw new Error("分享链接版本已过期，请使用当前配装器重新生成。");
     }
     const ui = Array.isArray(payload.u) ? payload.u : [];
-    const next = normalizeState({
+    const next = {
       className: payload.c,
       specName: payload.s,
       batchKey: payload.b,
@@ -1504,21 +1552,35 @@
       mobileView: ui[3],
       lockedSlots: payload.l,
       equipment: {},
-    });
+    };
+    // Validate original identity before compatibility filtering can hide duplicates.
+    const originalKeys = new Set();
+    for (const row of payload.e) {
+      if (!Array.isArray(row) || row.length < 3 || typeof row[0] !== "string" || !row[0]) {
+        throw new Error("分享链接中的装备引用格式无效");
+      }
+      if (originalKeys.has(row[0])) throw new Error("分享链接包含重复装备槽位");
+      originalKeys.add(row[0]);
+    }
+    const rows = payload.e.filter((row) => !Array.isArray(row)
+      || canonicalSlot(row[0]) === row[0] || !originalKeys.has(canonicalSlot(row[0])))
+      .map((row) => Array.isArray(row) ? [canonicalSlot(row[0]), ...row.slice(1)] : row);
     const response = await requestJson(endpoints.share, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({...payload, current: true, e: payload.e.map((row) => Array.isArray(row) ? row.slice(0, 8) : row)}),
+      body: JSON.stringify({...payload, current: true, e: rows
+        .filter((row) => !Array.isArray(row) || !row[8] || equipmentSlots().some((slot) => slot.key === row[0]))
+        .map((row) => Array.isArray(row) ? row.slice(0, 8) : row)}),
     });
-    next.equipment = response.equipment || {};
-    payload.e.forEach((row) => {
+    next.equipment = normalizeEquipment(response.equipment);
+    rows.forEach((row) => {
       if (!Array.isArray(row) || !row[8] || next.equipment[row[0]]) return;
       const external = row[8];
       if (!external || typeof external !== "object") return;
       next.equipment[row[0]] = {...external, item: compactItem(external.item), external: true};
     });
     (response.warnings || []).slice(0, 3).forEach((warning) => toast(warning, true));
-    return next;
+    return normalizeState(next);
   }
 
   async function encodeShare(payload) {
@@ -1542,24 +1604,37 @@
     return JSON.parse(new TextDecoder().decode(bytes));
   }
 
-  function readSavedLoadouts() {
+  async function readSavedLoadouts() {
     try {
       const rows = JSON.parse(localStorage.getItem(LOADOUT_LIBRARY_KEY) || "[]");
       if (!Array.isArray(rows)) return [];
-      return rows.filter((row) => row && typeof row === "object" && typeof row.code === "string" && ["z", "j"].includes(row.code[0]))
+      return await Promise.all(rows.filter((row) => row && typeof row === "object" && typeof row.code === "string" && ["z", "j"].includes(row.code[0]))
         .slice(0, MAX_SAVED_LOADOUTS)
-        .map((row) => ({
+        .map(async (row) => ({
           id: String(row.id || ""),
           name: String(row.name || "未命名配装").slice(0, 40),
           className: String(row.className || ""),
           specName: String(row.specName || ""),
-          equippedCount: Math.max(0, Math.min(16, Number(row.equippedCount) || 0)),
+          equippedCount: await savedLoadoutEquippedCount(row),
           createdAt: String(row.createdAt || row.updatedAt || ""),
           updatedAt: String(row.updatedAt || row.createdAt || ""),
           code: row.code,
-        }));
+        })));
     } catch (_error) {
       return [];
+    }
+  }
+
+  async function savedLoadoutEquippedCount(record) {
+    try {
+      const payload = await decodeShare(record.code);
+      if (!Array.isArray(payload?.e)) return equippedEntries(normalizeState(payload)).length;
+      const equipment = Object.fromEntries(payload.e.filter(Array.isArray).map((row) => [row[0],
+        row[8] || (row[1] ? {item: {item_id: row[1]}} : null)]));
+      return equippedEntries({equipment}).length;
+    } catch (_error) {
+      // An unreadable share is not evidence for its historical cached count.
+      return null;
     }
   }
 
@@ -1598,7 +1673,7 @@
           const className = online ? record.class_name : record.className;
           const specName = online ? record.spec_name : record.specName;
           const updatedAt = online ? record.updated_at : record.updatedAt;
-          const equipmentCopy = online ? "" : ` · ${record.equippedCount}/16`;
+          const equipmentCopy = online ? "" : ` · ${record.equippedCount ?? "?"}/${equipmentSlots().length}`;
           const actions = online
             ? '<button type="button" data-load-online-loadout>载入</button><button type="button" data-overwrite-online-loadout>覆盖</button><button type="button" data-delete-online-loadout>删除</button>'
             : '<button type="button" data-load-local-loadout>载入</button><button type="button" data-overwrite-local-loadout>覆盖</button><button type="button" data-delete-local-loadout>删除</button>';
@@ -1855,7 +1930,7 @@
     ];
     (bootstrap?.slots || []).forEach((slot) => {
       const entry = state.equipment[slot.key];
-      const equipmentLine = simcEquipmentLine(slot.key, entry);
+      const equipmentLine = simcEquipmentLine(slot.simc_key || slot.key, entry);
       if (!equipmentLine) return;
       const itemLevel = Number(entry.variant?.item_level || entry.itemLevel || 0);
       lines.push(`# ${entry.item?.name || `物品 #${entry.item?.item_id}`}${itemLevel ? ` (${itemLevel})` : ""}`);
@@ -1872,6 +1947,8 @@
     const profile = buildSimcProfile();
     await navigator.clipboard.writeText(profile);
     toast(`已复制 ${equippedCount()} 件装备的 SimC Profile。`);
+    const unsupported = unsupportedEquipmentSlots();
+    if (unsupported.length) toast(`未支持槽位 ${unsupported.join("、")} 已保留在配装中，但未包含在 SimC 导出中。`, true);
   }
 
   async function restoreShareIfPresent() {
@@ -1909,7 +1986,9 @@
           throw new Error("当前有已锁定部位，请先解锁后再导入其他职业专精的配装。");
         }
         const viewMode = state.viewMode;
-        state = loadStored(payload.identity.class_name, payload.identity.spec_name);
+        if (payload.identity.class_name !== state.className || payload.identity.spec_name !== state.specName) {
+          state = loadStored(payload.identity.class_name, payload.identity.spec_name);
+        }
         state.className = payload.identity.class_name;
         state.specName = payload.identity.spec_name;
         state.viewMode = viewMode;
@@ -1917,11 +1996,13 @@
       }
       let importedCount = 0;
       let skippedCount = 0;
+      state = normalizeState(state);
       (payload.equipment || []).forEach((row) => {
         if (!row.slot) return;
-        if (isSlotLocked(row.slot) || (row.variant && lockedWeaponConflict(row.variant, row.slot))) { skippedCount++; return; }
+        const slot = canonicalSlot(row.slot);
+        if (isSlotLocked(slot) || (row.variant && lockedWeaponConflict(row.variant, slot))) { skippedCount++; return; }
         const item = row.item || {item_id: row.item_id, name: row.name || `物品 #${row.item_id}`};
-        state.equipment[row.slot] = {
+        state.equipment[slot] = {
           item: compactItem(item),
           variant: row.variant || {id: null, item_level: row.item_level, stats: {}, effects: [], type: "external", bonus_ids: row.bonus_ids || [], crafting_quality: row.crafting_quality || 0},
           itemLevel: row.item_level || 0,
@@ -1931,7 +2012,7 @@
           embellishment: null,
           gems: (row.gems || []).map((gem) => gem.item && gem.variant ? compactEnhancement(gem.item, gem.variant) : {item: {item_id: gem.item_id, name: gem.name}, variant: gem.variant || {stats: {}, effects: []}, external: true}),
           enchant: row.enchant ? (row.enchant.item && row.enchant.variant ? compactEnhancement(row.enchant.item, row.enchant.variant) : {item: {item_id: row.enchant.item_id, name: row.enchant.name}, variant: row.enchant.variant || {stats: {}, effects: []}, external: true}) : null,
-          addedSocket: Boolean((row.gems || []).length > Number(row.variant?.socket_count || 0) && socketRule(row.slot)),
+          addedSocket: Boolean((row.gems || []).length > Number(row.variant?.socket_count || 0) && socketRule(slot)),
           external: Boolean(row.external),
           rawValue: row.raw_value || "",
         };
@@ -1939,7 +2020,7 @@
       });
       if (endpoints.ownedItems && Array.isArray(payload.owned_equipment) && payload.owned_equipment.length) {
         const items = payload.owned_equipment.filter((row) => row.item_id && row.slot).map((row) => ({
-          variant_id: row.variant_id, item_id: row.item_id, slot: row.slot, item_level: row.item_level,
+          variant_id: row.variant_id, item_id: row.item_id, slot: canonicalSlot(row.slot), item_level: row.item_level,
           bonus_ids: row.bonus_ids || [], selected_stats: row.crafted_stats || [], source: row.import_source || "simc_bag",
           name: row.name, enhancements: {gems: row.gems || [], enchant: row.enchant || null},
           snapshot: {name: row.name, stats: row.variant?.stats || {}, sources: row.variant?.sources || []},
@@ -2079,7 +2160,7 @@
       state.className = className;
       state.specName = specName;
       state.viewMode = viewMode;
-      state = await WowGearState.refresh(state, requestJson);
+      state = await refreshState(state);
       syncSelectors(); persist(); renderAll(); await loadActiveBrowser();
     });
     els.spec_select.addEventListener("change", async () => {
@@ -2088,7 +2169,7 @@
       state.className = els.class_select.value;
       state.specName = els.spec_select.value;
       state.viewMode = viewMode;
-      state = await WowGearState.refresh(state, requestJson);
+      state = await refreshState(state);
       persist(); renderAll(); await loadActiveBrowser();
     });
     els.slot_list.addEventListener("click", async (event) => {
@@ -2235,15 +2316,15 @@
       const restored = await restoreShareIfPresent();
       if (!restored) state = loadStored(state.className, state.specName);
       if (!state.batchKey) state.batchKey = bootstrap.catalog?.batch_key || "";
-      state = await WowGearState.refresh(state, requestJson);
+      state = await refreshState(state);
       persist();
       document.addEventListener("visibilitychange", async () => {
         if (document.hidden) return;
-        try { state = await WowGearState.refresh(state, requestJson); persist(); renderAll(); }
+        try { state = await refreshState(state); persist(); renderAll(); }
         catch (error) { toast(`装备资料刷新失败，已保留当前配装：${error.message}`); }
       });
       syncSelectors();
-      savedLoadouts = readSavedLoadouts();
+      savedLoadouts = await readSavedLoadouts();
       renderSavedLoadouts();
       renderCatalogStatus();
       bindEvents();

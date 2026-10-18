@@ -11,6 +11,7 @@ const context = {document: {
     return nodes.get(id);
   },
 }};
+vm.runInNewContext(fs.readFileSync(new URL('../../../static/shared/js/wow-gear-sources.js', import.meta.url), 'utf8'), context);
 vm.runInNewContext(source.replace('  initialize();', `globalThis.qa = {state, previewSlotMarkup, renderSlots,
   configure: value => {bootstrap = value;}};`), context);
 const {state, previewSlotMarkup, renderSlots, configure} = context.qa;
