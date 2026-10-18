@@ -421,7 +421,7 @@ class DashboardView(View):
                 '',
             )
             response = render(request, 'dashboard/index.html', context)
-            if binding_admin_section or permission_code in ('content.class-guides', 'tools.wow-localization', 'database.central-data'):
+            if binding_admin_section or permission_code in ('content.class-guides', 'tools.wow-localization', 'database.central-data', 'system.player-analyses'):
                 response['Cache-Control'] = 'private, no-store'
                 response['X-Robots-Tag'] = 'noindex, nofollow'
             return response

@@ -61,22 +61,30 @@ class PlayerAnalysisManagementUITests(SimpleTestCase):
         self.assertIn('已审核结论', html)
         self.assertEqual(html.count('href="https://example.com/proof"'), 1)
 
-    def test_dashboard_superuser_link_is_not_a_spa_target(self):
+    def test_dashboard_superuser_panel_and_spa_navigation(self):
         for superuser in (False, True):
-            user = SimpleNamespace(is_superuser=superuser, is_staff=superuser, username='test')
-            html = render_to_string('dashboard/index.html', {'user': user, 'request': SimpleNamespace(user=user)})
-            markup = Markup(html)
-            links = [attrs for tag, attrs in markup.elements if tag == 'a' and attrs.get('href') == '/dashboard/player-analyses/']
+            user = SimpleNamespace(is_superuser=superuser, is_staff=True, username='test')
+            html = render_to_string('dashboard/index.html', {
+                'user': user, 'request': SimpleNamespace(user=user), 'csrf_token': 'ui-csrf', 'page_name': 'dashboard'})
+            elements = Markup(html).elements
+            links = [a for t, a in elements if t == 'a' and a.get('href') == '?section=player-analyses']
+            panels = [a for t, a in elements if a.get('id') == 'player-analyses']
+            roots = [a for t, a in elements if a.get('id') == 'player-analysis-app']
+            assets = [a for t, a in elements if 'player-analysis-management.' in (a.get('src', '') + a.get('href', ''))]
             self.assertEqual(len(links), int(superuser))
+            self.assertEqual(len(panels), int(superuser))
+            self.assertEqual(len(roots), int(superuser))
+            self.assertEqual(len(assets), 2 * int(superuser))
+            self.assertFalse(any(a.get('href') == '/dashboard/player-analyses/' for t, a in elements))
             if superuser:
-                index = next(i for i, item in enumerate(markup.elements) if item[0] == 'a' and item[1].get('href') == '/dashboard/player-analyses/')
-                parent = markup.elements[index - 1][1]
-                self.assertNotIn('nav-item', parent.get('class', '').split())
-                self.assertNotIn('submenu-item', parent.get('class', '').split())
+                self.assertIn('content-section', panels[0]['class'].split())
+                self.assertIn('none', panels[0]['style'])
+                self.assertTrue(any(a.get('data-section') == 'player-analyses' and 'nav-item' in a.get('class', '').split() for t, a in elements))
+                self.assertTrue(any(t == 'meta' and a.get('name') == 'csrf-token' and a.get('content') == 'ui-csrf' for t, a in elements))
 
-    def test_independent_template_contains_return_link_and_csrf(self):
-        html = render_to_string('dashboard/player_analysis_management.html', {'csrf_token': 'ui-csrf'})
+    def test_panel_is_a_fragment_not_another_page_shell(self):
+        html = render_to_string('dashboard/player_analysis_management.html')
         elements = Markup(html).elements
-        self.assertTrue(any(t == 'a' and a.get('href') == '/dashboard/' for t, a in elements))
-        self.assertTrue(any(t == 'meta' and a.get('name') == 'csrf-token' and a.get('content') == 'ui-csrf' for t, a in elements))
+        self.assertFalse(any(t in ('html', 'head', 'body', 'main', 'script', 'iframe') for t, a in elements))
+        self.assertFalse(any(a.get('id') == 'analysis-theme-toggle' for t, a in elements))
         self.assertIn('player-analysis-app', html)

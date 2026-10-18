@@ -581,6 +581,8 @@
     {% if user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}">
     <script src="{% static 'dashboard/js/bilibili_binding_admin.js' %}?v=20260929_workspace" defer></script>
+    <link rel="stylesheet" href="{% static 'dashboard/css/player-analysis-management.css' %}?v=20261018_dashboard_panel">
+    <script src="{% static 'dashboard/js/player-analysis-management.js' %}?v=20261018_dashboard_panel" defer></script>
     {% endif %}
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
@@ -695,7 +697,7 @@
                         </a>
                     </li>
                     {% if user.is_superuser %}
-                    <li class="dashboard-independent-link"><a href="/dashboard/player-analyses/"><i class="fas fa-user-check" aria-hidden="true"></i>角色分析管理</a></li>
+                    <li class="nav-item" data-section="player-analyses"><a href="?section=player-analyses"><i class="fas fa-user-check" aria-hidden="true"></i>角色分析管理</a></li>
                     <li class="nav-item" data-section="bilibili-binding"><a href="?section=bilibili-binding" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fab fa-bilibili mr-3" aria-hidden="true"></i>B 站绑定设置</a></li>
                     {% endif %}
                     <li class="nav-item" data-section="site-analytics">
@@ -2370,6 +2372,7 @@
             
             {% include 'dashboard/site_analytics.html' %}
             {% if user.is_superuser %}
+            {% include 'dashboard/player_analysis_management.html' %}
             {% include 'dashboard/bilibili_binding_admin.html' %}
             {% endif %}
             <!-- 独立用户管理，不接入通用数据库 CRUD -->

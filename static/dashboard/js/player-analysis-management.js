@@ -1,7 +1,8 @@
-/* Independent, server-authoritative analysis administration. No analysis browser storage. */
+/* Server-authoritative Dashboard panel. No analysis browser storage. */
 (function (global) {
     'use strict';
     const BASE = '/dashboard/api/player-analyses/';
+    const mounts = new WeakMap(), panels = new WeakMap();
     const names = {draft:'草稿',pending:'待处理',ready:'就绪',stale:'已过期',error:'失败',archived:'已归档',approved:'已批准',rejected:'已拒绝',manual:'人工维护',ai:'AI 分析',local_deterministic:'本地规则分析'};
     const label = value => names[value] || value || '—';
     function safeURL(value) {
@@ -20,11 +21,11 @@
         return patch;
     }
     class Client {
-        constructor(fetcher, csrf) { this.fetcher=fetcher; this.csrf=csrf; this.busy=false; }
+        constructor(fetcher, csrf, signal) { this.fetcher=fetcher; this.csrf=csrf; this.signal=signal; this.busy=false; }
         async request(path, method='GET', body) {
             const headers = {'Accept':'application/json'};
             if (method !== 'GET') { headers['Content-Type']='application/json'; headers['X-CSRFToken']=this.csrf(); }
-            const response = await this.fetcher(BASE+path,{method,headers,credentials:'same-origin',cache:'no-store', ...(body === undefined ? {} : {body:JSON.stringify(body)})});
+            const response = await this.fetcher(BASE+path,{method,headers,credentials:'same-origin',cache:'no-store', ...(method === 'GET' && this.signal ? {signal:this.signal} : {}), ...(body === undefined ? {} : {body:JSON.stringify(body)})});
             const errors = {401:'登录已失效，请返回后台重新登录。',403:'权限不足或 CSRF 校验失败，请刷新页面并确认超级管理员权限。',409:'版本冲突：其他人已修改此记录。请重新读取详情后再操作；当前输入未保存。'};
             if (errors[response.status]) throw Error(errors[response.status]);
             let result;
@@ -44,9 +45,13 @@
         }
     }
     function mount(root, options={}) {
+        if (mounts.has(root)) return mounts.get(root);
         const doc=root.ownerDocument, win=doc.defaultView;
-        const client=new Client(options.fetch || win.fetch.bind(win),()=>doc.querySelector('meta[name="csrf-token"]')?.content || '');
+        const lifetime=new win.AbortController();
+        const listen=(node,type,handler)=>node.addEventListener(type,handler,{signal:lifetime.signal});
+        const client=new Client(options.fetch || win.fetch.bind(win),()=>doc.querySelector('meta[name="csrf-token"]')?.content || '',lifetime.signal);
         const confirm=options.confirm || win.confirm.bind(win);
+        let destroyed=false;
         let current=null, editing=false, creating=false, selected=null, listPage=1, characterPage=1;
         let pending=Promise.resolve(), readSequence=0, detailSequence=0, characterSequence=0;
         const filters={}, characterFilters={q:''};
@@ -58,10 +63,12 @@
         }
         function button(text, action, run) {
             const b=el('button',text,{type:'button','data-action':action});
-            b.addEventListener('click',()=>task(run));return b;
+            listen(b,'click',()=>task(run));return b;
         }
         function task(run) {
-            pending=Promise.resolve().then(run).catch(error=>{message.textContent=error.message;message.dataset.kind='error';});
+            pending=Promise.resolve().then(()=>{if(!destroyed)return run();}).catch(error=>{
+                if(!destroyed){message.textContent=error.message;message.dataset.kind='error';}
+            });
             return pending;
         }
         function inputField(parent,title,value,attrs={},tag='input') {
@@ -118,7 +125,7 @@
         ]) selects[key]=selectField(filterForm,title,'',key,[['','全部'],...values.map(v=>[v,v==='published'?'已发布':v==='hidden'?'隐藏':label(v)])]);
         const pageSize=selectField(filterForm,'每页','20','page_size',[['20','20'],['50','50']]);
         const search=el('button','搜索',{type:'submit'});filterForm.append(search,button('新增人工分析','new',()=>newRecord()));
-        filterForm.addEventListener('submit',event=>{event.preventDefault();task(()=>loadList(1));});
+        listen(filterForm,'submit',event=>{event.preventDefault();task(()=>loadList(1));});
         const results=el('section',null,{'aria-label':'分析列表',class:'pa-results'});
         const detail=el('section',null,{'aria-label':'分析详情',class:'pa-detail',tabindex:'-1'});detail.hidden=true;
         root.append(message,filterForm,results,detail);
@@ -202,10 +209,11 @@
             setBusy(true);message.textContent='正在提交并重新读取…';
             try {
                 const row=await client.write(method,creating?null:current.id,body);
+                if(destroyed)return;
                 current=row;creating=false;editing=false;renderDetail();
                 message.textContent='已保存，并已从服务器重新读取记录。';message.dataset.kind='success';
                 try { await loadList(listPage); } catch(error) {message.textContent+=' 列表刷新失败：'+error.message;}
-            } finally {setBusy(false);}
+            } finally {if(!destroyed)setBusy(false);}
         }
         function renderDetail() {
             detail.hidden=false;detail.replaceChildren();
@@ -219,7 +227,7 @@
                 projection(columns,'AI 原始标签 / 结论 / 冻结证据（只读）',current.ai);
                 projection(columns,'人工维护（独立来源）',current.manual);detail.append(columns);
                 const raw=el('details');raw.append(el('summary','展开 AI 原始 JSON（仅供核验）'));
-                raw.addEventListener('toggle',()=>{if(raw.open && !raw.querySelector('pre'))raw.append(el('pre',JSON.stringify({result_json:current.ai?.result_json,evidence_json:current.ai?.evidence_json},null,2)));});detail.append(raw);
+                listen(raw,'toggle',()=>{if(raw.open && !raw.querySelector('pre'))raw.append(el('pre',JSON.stringify({result_json:current.ai?.result_json,evidence_json:current.ai?.evidence_json},null,2)));});detail.append(raw);
             }
             const form=el('form',null,{class:'pa-edit-form'});
             const readManual=editing?manualEditor(form,current?.manual):null;
@@ -248,7 +256,7 @@
                 }));
             }
             form.append(actions);detail.append(form);
-            form.addEventListener('submit',event=>{event.preventDefault();task(async()=>{
+            listen(form,'submit',event=>{event.preventDefault();task(async()=>{
                 if(client.busy)return;
                 if(creating){
                     if(!selected)throw Error('请先从真实角色搜索结果中选择角色。');
@@ -287,21 +295,53 @@
                 if(!data.items.length)list.append(el('p','没有匹配角色，请调整 ID 或名字。'));
                 data.items.forEach(player=>list.append(button(playerText(player,player.id),'select-character',()=>{selected=player;selectedText.textContent='已选：'+playerText(player,player.id);})));pageControls(list,data,search);
             }
-            form.addEventListener('submit',event=>{event.preventDefault();task(()=>search(1));});
+            listen(form,'submit',event=>{event.preventDefault();task(()=>search(1));});
             // Search only on demand; no arbitrary typed name can become a player ID.
         }
         const ready=task(()=>loadList());
-        return {ready,settled:()=>pending};
+        const controller={ready,settled:()=>pending,destroy:()=>{
+            if(destroyed)return;
+            destroyed=true;++readSequence;++detailSequence;++characterSequence;
+            // Cancel reads and detach listeners, never cancel/replay a submitted write.
+            lifetime.abort();mounts.delete(root);root.replaceChildren();root.removeAttribute('aria-busy');
+        }};
+        mounts.set(root,controller);
+        return controller;
     }
-    const api={Client,buildPatch,safeURL,mount};
+    function initDashboard(doc) {
+        const section=doc.getElementById('player-analyses');
+        const root=section?.querySelector('#player-analysis-app');
+        if(!root)return null;
+        if(panels.has(section))return panels.get(section);
+        const win=doc.defaultView;
+        let app=null, destroyed=false;
+        // Follow the existing Dashboard workspace lifecycle (AI/B站): observe
+        // the router's visibility, not a second set of navigation listeners.
+        const activate=()=>{
+            if(section.classList.contains('active') || section.style.display==='block') app=mount(root);
+        };
+        const observer=new win.MutationObserver(activate);
+        const destroy=()=>{
+            if(destroyed)return;
+            destroyed=true;
+            observer.disconnect();win.removeEventListener('pagehide',onPageHide);
+            app?.destroy();app=null;panels.delete(section);
+        };
+        const onPageHide=event=>{if(!event.persisted)destroy();};
+        const panel={destroy};
+        panels.set(section,panel);
+        observer.observe(section,{attributes:true,attributeFilter:['class','style']});
+        win.addEventListener('pagehide',onPageHide);
+        // Hiding retains filters, selected record and unsaved edits; returning
+        // reuses the mount and any in-flight request instead of fetching twice.
+        activate();
+        return panel;
+    }
+    const api={Client,buildPatch,safeURL,mount,initDashboard};
     if(typeof module==='object' && module.exports)module.exports=api;
-    else {global.PlayerAnalysisManagement=api;global.document.addEventListener('DOMContentLoaded',()=>{
-        const root=global.document.getElementById('player-analysis-app');if(root)mount(root);
-        const toggle=global.document.getElementById('analysis-theme-toggle');
-        if(toggle)toggle.addEventListener('click',()=>{
-            const dark=global.document.documentElement.dataset.dashboardTheme!=='dark';
-            global.document.documentElement.dataset.dashboardTheme=dark?'dark':'light';toggle.setAttribute('aria-pressed',String(dark));
-            try{global.localStorage.setItem('lmonitor-dashboard-theme',dark?'dark':'light');}catch(_){}
-        });
-    });}
+    else {
+        global.PlayerAnalysisManagement=api;
+        if(global.document.readyState==='loading')global.document.addEventListener('DOMContentLoaded',()=>initDashboard(global.document),{once:true});
+        else initDashboard(global.document);
+    }
 })(typeof window==='undefined'?globalThis:window);

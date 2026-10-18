@@ -8,7 +8,7 @@ import json
 from django.core.exceptions import ObjectDoesNotExist, RequestDataTooBig, ValidationError
 from django.db import DatabaseError
 from django.http import JsonResponse
-from django.shortcuts import render
+from django.shortcuts import redirect
 from django.utils.decorators import method_decorator
 from django.views import View
 from django.views.decorators.cache import never_cache
@@ -90,13 +90,13 @@ class _SuperuserView(View):
 @method_decorator(ensure_csrf_cookie, name='dispatch')
 class PlayerAnalysisManagementPage(_SuperuserView):
     def get(self, request):
-        return render(request, 'dashboard/player_analysis_management.html')
+        return redirect('/dashboard/?section=player-analyses')
 
 
 class _AnalysisAPIView(_SuperuserView):
     def _dispatch_authorized(self, request, *args, **kwargs):
-        # Import only after authorization. The page remains a pure template
-        # render and does not initialize any analysis/collector state.
+        # Import only after authorization. The legacy page only redirects
+        # and does not initialize any analysis/collector state.
         from botend.services import player_analysis_management as service
 
         try:

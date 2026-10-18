@@ -95,6 +95,27 @@ class PlayerAnalysisManagementAPITests(TestCase):
                 self.error(self.send('delete', path, {'revision': analysis['revision']}), 403)
         self.assertEqual(list(PlayerObservationAnalysis.objects.values()), before)
 
+    def test_real_dashboard_section_and_followed_legacy_entry(self):
+        target = '/dashboard/?section=player-analyses'
+        for response in (self.client.get(target), self.client.get(PAGE, follow=True)):
+            self.assertEqual(response.status_code, 200, response.content[:500])
+            self.assertContains(response, 'id="player-analyses"', count=1)
+            self.assertContains(response, 'id="player-analysis-app"', count=1)
+            self.assertContains(response, 'data-section="player-analyses"', count=1)
+            self.assertIn('no-store', response.get('Cache-Control', ''))
+        followed = self.client.get(PAGE, follow=True)
+        self.assertEqual(followed.redirect_chain, [(target, 302)])
+
+    def test_direct_section_cannot_be_granted_to_non_superusers(self):
+        group = DashboardUserGroup.objects.create(name='analysis-forged-menu',
+            permission_codes=['dashboard.home', 'system.player-analyses'])
+        group.users.add(self.staff, self.member)
+        for user in (self.staff, self.member):
+            self.client.force_login(user)
+            self.assertEqual(self.client.get('/dashboard/?section=player-analyses').status_code, 403)
+            self.assertEqual(self.client.get(PAGE, follow=True).status_code, 403)
+            self.assertEqual(self.client.get(COLLECTION).status_code, 403)
+
     def test_csrf_blocks_every_write_and_valid_token_allows_crud(self):
         client = Client(enforce_csrf_checks=True)
         client.force_login(self.admin)
@@ -109,8 +130,8 @@ class PlayerAnalysisManagementAPITests(TestCase):
             self.assertEqual(self.send(method, url, data, client).status_code, 403)
         self.assertEqual(list(PlayerObservationAnalysis.objects.values()), before)
         page = client.get(PAGE)
-        self.assertEqual(page.status_code, 200)
-        self.assertTemplateUsed(page, 'dashboard/player_analysis_management.html')
+        self.assertRedirects(page, '/dashboard/?section=player-analyses', fetch_redirect_response=False)
+        self.assertIn('no-store', page['Cache-Control'])
         token = client.cookies['csrftoken'].value
         headers = {'HTTP_X_CSRFTOKEN': token}
         created = self.create(self.make_player('CSRFValid'), client=client, **headers)
@@ -166,8 +187,8 @@ class PlayerAnalysisManagementAPITests(TestCase):
         self.create(self.make_player('AnalysisBeta'))
         before = list(PlayerObservationAnalysis.objects.values())
         page = self.client.get(PAGE)
-        self.assertEqual(page.status_code, 200)
-        self.assertTemplateUsed(page, 'dashboard/player_analysis_management.html')
+        self.assertRedirects(page, '/dashboard/?section=player-analyses', fetch_redirect_response=False)
+        self.assertIn('no-store', page['Cache-Control'])
         self.success(self.client.get(self.detail_path(first)))
         for url in (COLLECTION, CHARACTERS):
             data = self.success(self.client.get(url, {'q': 'Analysis', 'page_size': 1, 'page': 1}))
