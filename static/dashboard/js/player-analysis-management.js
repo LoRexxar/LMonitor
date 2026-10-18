@@ -195,6 +195,139 @@
             section.append(el('p',data.conclusion || '暂无结论',{class:'pa-conclusion'}));
             evidenceView(section,data.evidence);parent.append(section);
         }
+        function investigationView(parent, ai) {
+            // Only read the detail API's frozen publication. Opening this view
+            // must not discover identities, fetch sources or schedule questions.
+            const object=value=>value && typeof value==='object' && !Array.isArray(value);
+            const array=value=>Array.isArray(value)?value:[];
+            const text=value=>typeof value==='string' || typeof value==='number'?String(value):'';
+
+            const ids=value=>array(value).map(text).filter(Boolean);
+            const facts=ai?.evidence_json?.metrics?.investigation;
+            const model=ai?.result_json?.investigation;
+            const hasFacts=object(facts) && Object.keys(facts).length>0;
+            const hasModel=object(model) && Object.keys(model).length>0;
+            if(!hasFacts && !hasModel)return; // Old records keep their existing UI.
+            const frozen=hasFacts?facts:{}, result=hasModel?model:{};
+            const evidence=array(frozen.evidence).filter(item=>object(item) && text(item.id));
+            const hypotheses=array(frozen.hypotheses).filter(item=>object(item) && text(item.id));
+            const questions=array(frozen.questions).filter(item=>object(item) && text(item.id));
+            const evidenceByID=new Map(evidence.map(item=>[text(item.id),item]));
+            const hypothesesByID=new Map(hypotheses.map(item=>[text(item.id),item]));
+            const questionsByID=new Map(questions.map(item=>[text(item.id),item]));
+            const coreMembers=ids(frozen.core_members);
+            const questionName=key=>questionsByID.has(key)?`问题 ${questions.findIndex(item=>text(item.id)===key)+1}`:'未提供的冻结问题';
+            const states={supported:'有支持线索，尚未证实',weakened:'有反证，解释被削弱',
+                unresolved:'尚待核查',uncertain:'尚不确定',possible:'可能解释，尚未证实',
+                compatible:'与现有事实相容，尚未证实',mixed:'支持与反证并存，尚无定论',
+                unsupported:'现有证据未支持（不等于排除）',unknown:'未知',inconclusive:'尚无定论'};
+            const status=value=>Object.hasOwn(states,text(value))?states[text(value)]:(text(value)?`记录状态：${text(value)}（不代表已证实）`:'状态未提供');
+            const reasons={repeated_below_own_current_with_stable_core:'本人重复低于当前同本成绩上限，且存在稳定核心',
+                no_recent_signal:'当前近期样本未触发调查（不代表没有此类行为）',
+                invalid_identity_or_stale_source:'身份或来源时效不足，无法启动调查',
+                evidence_sufficient_for_comparison:'现有证据足以比较候选解释（不代表动机已证实）',
+                targeted_scores_needed:'仍需定向核查相关成员当前计分记录',not_triggered:'未触发定向调查'};
+            const reason=value=>Object.hasOwn(reasons,text(value))?`${reasons[text(value)]}（${text(value)}）`:text(value);
+            const section=el('section',null,{class:'pa-investigation','data-investigation':'','aria-label':'调查依据与剩余问题'});
+            section.append(el('h3','调查依据与剩余问题（冻结记录 · 只读）'),
+                el('p','已有线索、尚未证实：候选解释和 AI 判断不是确定的带人或商业身份结论。',{class:'pa-warning'}),
+                el('p','当前成绩仅作采集时点的代理，不代表完成当场加分；付款与钥匙归属仍属未知，不能从分差或阵容推定。',{class:'pa-muted'}));
+            function block(title,attrs={}) {
+                const node=el('section',null,{class:'pa-investigation-block',...attrs});
+                node.append(el('h4',title));section.append(node);return node;
+            }
+            function line(node,title,value,fallback='未提供') {
+                const p=el('p');p.append(el('strong',title+'：'),el('span',text(value) || fallback));node.append(p);
+            }
+            function evidenceItem(item) {
+                const li=el('li');li.append(el('strong',text(item.id)+' · '),el('span',text(item.text) || '证据文字未提供'));
+                const url=safeURL(item.run_url);
+                if(url)li.append(el('a','查看来源',{href:url,target:'_blank',rel:'noopener noreferrer'}));
+                return li;
+            }
+            function references(node,title,values) {
+                const group=el('div',null,{class:'pa-investigation-refs'});group.append(el('strong',title));
+                const keys=ids(values);
+                if(!keys.length)group.append(el('p','未提供相关引用（不代表不存在）',{class:'pa-muted'}));
+                else {
+                    const ul=el('ul',null,{class:'pa-evidence'});
+                    keys.forEach(key=>{
+                        const item=evidenceByID.get(key), question=questionsByID.get(key);
+                        ul.append(item?evidenceItem(item):el('li',question?`${questionName(key)} · 待核查：${text(question.reason) || '原因未提供'}`:`${key} · 冻结引用未提供，无法核验`));
+                    });group.append(ul);
+                }
+                node.append(group);
+            }
+            const grounds=block('为什么开始调查 / 冻结事实',{'data-investigation-facts':''});
+            if(!hasFacts)grounds.append(el('p','冻结调查依据未提供，无法据此核验模型解释。',{class:'pa-warning'}));
+            else {
+                line(grounds,'触发状态',frozen.triggered===true?'已由已有线索触发定向调查':frozen.triggered===false?'未触发定向调查':'触发状态未提供');
+                line(grounds,'触发原因',reason(frozen.trigger_reason),'触发原因未提供');
+                line(grounds,'调查范围',frozen.scope);
+                line(grounds,'起始场次',ids(frozen.seed_run_ids).join('、'));
+                line(grounds,'核心成员',coreMembers.length?`${coreMembers.length} 名（身份引用保存在冻结记录）`:'未提供');
+                if(evidence.length){const ul=el('ul',null,{class:'pa-evidence'});evidence.forEach(item=>ul.append(evidenceItem(item)));grounds.append(ul);}
+                else grounds.append(el('p','未提供可展示的冻结证据。',{class:'pa-muted'}));
+            }
+            const alternatives=block('多种候选解释 / 支持与反证',{'data-investigation-hypotheses':''});
+            alternatives.append(el('p','以下为基于冻结事实的候选解释，不是已验证的行为身份。',{class:'pa-muted'}));
+            if(!hypotheses.length)alternatives.append(el('p','未保存候选解释。',{class:'pa-muted'}));
+            hypotheses.forEach(item=>{
+                const card=el('article',null,{class:'pa-investigation-card','data-investigation-hypothesis':text(item.id)});
+                card.append(el('h5',`${text(item.label) || '未命名解释'} · ${text(item.id)}`));
+                line(card,'线索状态',status(item.status));
+                references(card,'支持依据',item.support_ids);references(card,'反证',item.counter_ids);references(card,'未知 / 缺口',item.unknown_ids);
+                alternatives.append(card);
+            });
+            const interpretation=block('AI 模型解释（不是已验证事实）',{'data-investigation-model':'',class:'pa-investigation-block pa-investigation-model'});
+            if(!hasModel)interpretation.append(el('p','未保存模型调查解释；仅展示上方冻结依据。',{class:'pa-muted'}));
+            else {
+                line(interpretation,'模型概述',result.summary,'模型概述未提供');
+                line(interpretation,'模型置信度',result.confidence);
+                array(result.hypotheses).filter(object).forEach(item=>{
+                    const key=text(item.id), hypothesis=hypothesesByID.get(key);
+                    const card=el('article',null,{class:'pa-investigation-card','data-model-hypothesis':key});
+                    card.append(el('h5',`${text(hypothesis?.label) || '冻结候选解释未提供'} · ${key || 'ID 未提供'}`));
+                    line(card,'模型判断',status(item.assessment));line(card,'模型解释',item.explanation);
+                    // evidence_ids may cite support OR gaps. Membership is
+                    // scoped to this frozen hypothesis, never the global facts.
+                    const supportIDs=new Set(ids(hypothesis?.support_ids));
+                    const counterIDs=new Set(ids(hypothesis?.counter_ids));
+                    const unknownIDs=new Set(ids(hypothesis?.unknown_ids));
+                    const support=[], counter=[], unknown=new Set(), unrecognized=new Set();
+                    function classify(values,allowed,matched) {
+                        ids(values).forEach(id=>{
+                            if(unknownIDs.has(id))unknown.add(id);
+                            else if(allowed.has(id) && evidenceByID.has(id))matched.push(id);
+                            else unrecognized.add(id);
+                        });
+                    }
+                    classify(item.evidence_ids,supportIDs,support);
+                    classify(item.counter_evidence_ids,counterIDs,counter);
+                    references(card,'模型引用的支持依据',support);
+                    references(card,'模型引用的反证',counter);
+                    references(card,'模型引用的未知 / 缺口',Array.from(unknown));
+                    if(unrecognized.size)references(card,'未识别 / 无法核验引用（不作为支持或反证）',Array.from(unrecognized));
+                    interpretation.append(card);
+                });
+            }
+            const remaining=block('待核查问题和停止原因',{'data-investigation-questions':''});
+            remaining.append(el('p','这里只展示已保存的问题；打开抽屉不会启动采集，也不会自动执行模型建议。',{class:'pa-muted'}));
+            if(!questions.length)remaining.append(el('p','未提供待核查问题，不代表所有解释已解决。',{class:'pa-muted'}));
+            questions.forEach(item=>{
+                const card=el('article',null,{class:'pa-investigation-card','data-investigation-question':text(item.id),'data-identity-digest':text(item.identity_digest)});
+                card.append(el('h5',questionName(text(item.id))));line(card,'核查原因',item.reason);
+                line(card,'类型',item.kind==='scored_runs'?'当前计分记录（不是历史加分）':item.kind);
+                line(card,'优先级（冻结值）',item.priority);
+                line(card,'目标成员',text(item.identity_digest)?(coreMembers.includes(text(item.identity_digest))?'核心成员（冻结身份已关联）':'相关成员（冻结身份已关联）'):'身份未提供');
+                line(card,'相关场次',ids(item.run_ids).join('、'));
+                line(card,'关联解释',ids(item.hypothesis_ids).map(key=>`${text(hypothesesByID.get(key)?.label) || '候选解释未提供'} · ${key}`).join('；'));
+                remaining.append(card);
+            });
+            if(hasModel)line(remaining,'模型建议后续问题（未执行）',ids(result.next_question_ids).map(key=>`${questionName(key)} · ${text(questionsByID.get(key)?.reason) || '冻结问题未提供，无法核验'}`).join('；'),'未提供');
+            line(remaining,'停止原因',reason(frozen.stop_reason),'停止原因未提供；不能据此判定调查已完成');
+            parent.append(section);
+        }
         function pageControls(parent,data,change) {
             const nav=el('nav',null,{'aria-label':'分页',class:'pa-actions'});
             const prev=button('上一页','prev',()=>change(data.page-1));prev.disabled=data.page<=1;
@@ -372,6 +505,7 @@
                 const columns=el('div',null,{class:'pa-projections'});
                 projection(columns,'AI 原始标签 / 结论 / 冻结证据（只读）',current.ai);
                 detail.append(columns);
+                investigationView(detail,current.ai);
                 const raw=el('details');raw.append(el('summary','展开 AI 原始 JSON（仅供核验）'));
                 listen(raw,'toggle',()=>{if(raw.open && !raw.querySelector('pre'))raw.append(el('pre',JSON.stringify({result_json:current.ai?.result_json,evidence_json:current.ai?.evidence_json},null,2)));});detail.append(raw);
             }

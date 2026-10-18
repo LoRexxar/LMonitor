@@ -29,6 +29,15 @@ html[data-dashboard-theme="dark"] #player-analyses { --pa-accent:#b8b2ff; }
 #player-analyses .pa-projection { border:1px solid var(--dashboard-border); background:var(--dashboard-surface-muted); border-radius:8px; padding:14px; min-width:0; overflow-wrap:anywhere; }
 #player-analyses .pa-tag-view { border-bottom:1px solid var(--dashboard-border); padding:8px 0; }
 #player-analyses .pa-conclusion { white-space:pre-wrap; }
+#player-analyses .pa-investigation { margin:16px 0; min-width:0; overflow-wrap:anywhere; }
+#player-analyses .pa-investigation-block { margin:12px 0; padding:12px; border:1px solid var(--dashboard-border); border-radius:8px; background:var(--dashboard-surface); min-width:0; }
+#player-analyses .pa-investigation-block h4 { margin:0 0 8px; }
+#player-analyses .pa-investigation-block p { margin:6px 0; white-space:pre-wrap; }
+#player-analyses .pa-investigation-card { border-top:1px solid var(--dashboard-border); padding:10px 0; min-width:0; }
+#player-analyses .pa-investigation-card h5 { font-size:14px; margin:0 0 6px; }
+#player-analyses .pa-investigation-refs { margin:8px 0; }
+#player-analyses .pa-investigation-refs .pa-evidence { margin:4px 0; }
+#player-analyses .pa-investigation-model { border-left:3px solid var(--pa-accent); background:var(--dashboard-surface-muted); }
 #player-analyses .pa-evidence { padding-left:20px; }
 #player-analyses .pa-evidence a { display:inline-block; margin-left:8px; }
 #player-analyses .pa-edit-form { display:grid; gap:12px; margin-top:20px; }

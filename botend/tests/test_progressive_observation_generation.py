@@ -14,6 +14,7 @@ from botend.models import PlayerObservationAnalysis, RaiderIOCharacterActivity, 
 from botend.services.player_observation import build_evidence, generate_observation, project_player_observation
 from botend.tests import test_player_observation as fixtures
 from botend.tests import test_player_observation_progression as progression_fixtures
+from botend.tests import test_player_observation_investigation as inquiry_fixtures
 
 
 class ProgressiveObservationGenerationTests(TestCase):
@@ -59,6 +60,8 @@ class ProgressiveObservationGenerationTests(TestCase):
         self.assertTrue(result['ai_called'])
         self.assertEqual(engine.send_message.call_count, 1)
         cached = generate_observation(self.player, engine=engine, skip_uninformative=True)
+        self.assertEqual(engine.send_message.call_args.kwargs['max_tokens'], 1800)
+        self.assertNotIn('metrics.investigation', engine.system_prompt)
         self.assertFalse(cached['ai_called'])
         self.assertEqual(engine.send_message.call_count, 1)
         bad = Mock(send_message=Mock(return_value=json.dumps({'observations': [], 'conclusion_id': 'public_sample'})))
@@ -156,9 +159,9 @@ class ProgressiveObservationGenerationTests(TestCase):
 
 class ProgressiveCoreGenerationTests(TestCase):
     setUp = progression_fixtures.ObservationProgressionTests.setUp
-    engine = fixtures.PlayerObservationTests.engine
+    engine = inquiry_fixtures.InvestigationIntegrationTests.engine
 
-    def test_supported_four_core_calls_once_then_weakened_and_missing_skip(self):
+    def test_supported_four_core_then_weakened_and_missing_each_require_explanation(self):
         engine = self.engine()
         result = generate_observation(self.player, engine=engine, skip_uninformative=True)
         self.assertTrue(result['ai_called'])
@@ -169,11 +172,12 @@ class ProgressiveCoreGenerationTests(TestCase):
         self.assertEqual(build_evidence(self.player)['metrics']['progression']['status'], 'weakened')
         result = generate_observation(self.player, engine=engine, skip_uninformative=True)
         self.assertEqual(result['status'], 'ready')
-        self.assertFalse(result['ai_called'])
-        self.assertEqual(engine.send_message.call_count, 1)
+        self.assertTrue(result['ai_called'])
+        self.assertEqual(engine.send_message.call_count, 2)
         RaiderIOCharacterActivity.objects.filter(character_name__in=['member4', 'member5', 'member6']).update(scored_runs_fetched_at=None)
         self.assertEqual(build_evidence(self.player)['metrics']['progression']['status'], 'insufficient')
         result = generate_observation(self.player, engine=engine, skip_uninformative=True)
         self.assertEqual(result['status'], 'ready')
-        self.assertFalse(result['ai_called'])
-        self.assertFalse(project_player_observation(self.player)['has_supported_judgements'])
+        self.assertTrue(result['ai_called'])
+        self.assertEqual(engine.send_message.call_count, 3)
+        self.assertTrue(project_player_observation(self.player)['has_investigation'])

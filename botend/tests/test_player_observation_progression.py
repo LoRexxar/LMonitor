@@ -107,7 +107,8 @@ class ObservationProgressionTests(TestCase):
         self.activity.module_fetched_at['mythic_plus_recent_runs'] = self.now.isoformat()
         self.activity.save(update_fields=['payload_json', 'module_fetched_at'])
         from botend.services.player_observation import generate_observation, project_player_observation
-        self.assertEqual(generate_observation(self.player, engine=self.engine())['status'], 'ready')
+        from botend.tests.test_player_observation_investigation import InvestigationIntegrationTests
+        self.assertEqual(generate_observation(self.player, engine=InvestigationIntegrationTests.engine(self))['status'], 'ready')
         self.assertEqual(project_player_observation(self.player)['progression']['status'], 'supported')
         RaiderIORunRoster.objects.filter(run_id=200).update(roster_visible=False)
         self.assertEqual(project_player_observation(self.player)['status'], 'pending')

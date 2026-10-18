@@ -3,6 +3,7 @@
 Best + recent is a sample, NOT season history. Teammate facts are centralized
 by verified identity, even when the teammate is not a Top20 primary target.
 """
+import json
 import math
 import re
 import threading
@@ -319,10 +320,83 @@ def _score_cache(character, season):
     return state, None
 
 
-def _followup_plan(evidence, activity, entries, characters, states, scores, rio_season):
-    """Consume canonical classification; select only relevant incomplete comparisons."""
+def _question_outcomes(investigation, entries, characters, states, scores, rio_season):
+    """Bind questions to verified members of their exact canonical runs, never URLs."""
+    from botend.services.player_observation_progression import current_record
+    runs = {run_reference(run, rio_season): fact for run, fact in entries}
+    members = {rid: {activity_identity_digest(**c['identity'])
+                     for c in _characters([fact], '')[0]} for rid, fact in runs.items()}
+    outcomes, seen = [], set()
+    for question in investigation.get('questions', []):
+        if not isinstance(question, dict):
+            continue
+        qid, key = question.get('id'), question.get('identity_digest')
+        if not isinstance(qid, str) or not qid or qid in seen:
+            continue
+        seen.add(qid)
+        item = {field: question.get(field) for field in
+                ('id', 'kind', 'identity_digest', 'run_ids', 'hypothesis_ids', 'priority', 'reason')}
+        item.update(status='invalid_question', request_status='not_requested')
+        outcomes.append(item)
+        ids = question.get('run_ids')
+        if (question.get('kind') != 'scored_runs' or not isinstance(ids, list) or not ids
+                or any(type(rid) is not int or rid not in runs for rid in ids)):
+            continue
+        if not isinstance(key, str) or key not in characters:
+            item['status'] = 'identity_unresolved'
+            continue
+        if any(key not in members[rid] for rid in ids):
+            continue
+        state = states[key]['status']
+        if state in ('ready', 'fresh'):
+            item['request_status'] = 'fresh'
+            fetched = parse_datetime(states[key].get('fetched_at', ''))
+            item['status'] = ('answered' if all(current_record(
+                scores.get(key, {}).get('dungeons', []), runs[rid]['dungeon'])[0] is not None
+                and fetched and timezone.is_aware(fetched)
+                and (completed := parse_datetime(runs[rid]['completed_at']))
+                and timezone.is_aware(completed) and fetched >= completed
+                for rid in ids) else 'source_missing')
+        elif state == 'pending':
+            item['status'] = 'budget_pending'
+        else:
+            item.update(status='source_failed', request_status=state)
+    return outcomes
+
+
+def _preferred_question_ids(activity, evidence):
+    """Reuse only validated AI priorities bound to the same currently valid facts."""
+    from botend.models import PlayerObservationAnalysis
+    from botend.services.player_observation import _same_publication, _validate, InvalidResult
+    plan = (evidence or {}).get('metrics', {}).get('investigation') or {}
+    if plan.get('triggered') is not True or not plan.get('questions'):
+        return []
+    row = PlayerObservationAnalysis.objects.filter(activity_id=activity.pk, status='ready', last_error='').only(
+        'prompt_version', 'evidence_json', 'evidence_hash', 'result_json').first()
+    if row is None or not _same_publication(row, evidence):
+        return []
+    try:
+        result = _validate(json.dumps(row.result_json, ensure_ascii=False), row.evidence_json)
+    except (InvalidResult, TypeError, ValueError):
+        return []
+    allowed = {q['id'] for q in plan['questions']}
+    return [qid for qid in result.get('investigation', {}).get('next_question_ids', []) if qid in allowed][:3]
+
+
+def _followup_plan(evidence, activity, entries, characters, states, scores, rio_season, *, preferred_question_ids=()):
+    """Prefer canonical investigation questions; old evidence keeps its legacy gate."""
     from botend.services.player_observation_progression import current_record, RECENT_WINDOW
     metrics = (evidence or {}).get('metrics', {})
+    investigation = metrics.get('investigation')
+    if isinstance(investigation, dict) and investigation.get('version') == 1:
+        if investigation.get('triggered') is not True:
+            return [], 'no_signal'
+        outcomes = _question_outcomes(investigation, entries, characters, states, scores, rio_season)
+        pending = [q for q in outcomes if q['status'] == 'budget_pending']
+        preference = {qid: index for index, qid in enumerate(preferred_question_ids)}
+        pending.sort(key=lambda q: (preference.get(q['id'], len(preference)),
+                                   -(q['priority'] if type(q['priority']) in (int, float) else 0), q['id']))
+        return list(dict.fromkeys(q['identity_digest'] for q in pending)), 'investigation_questions'
     pattern = metrics.get('team_pattern', {})
     progression = metrics.get('progression') or {}
     if pattern.get('kind') == 'fixed_five':
@@ -386,6 +460,49 @@ def _followup_plan(evidence, activity, entries, characters, states, scores, rio_
             if key not in planned:
                 planned.append(key)
     return planned, reason
+
+
+def _finish_investigation(before, after, entries, characters, states, scores, attempts, result, rio_season):
+    """A completed bounded check is not proof that every hypothesis is resolved."""
+    initial = before['metrics']['investigation']
+    current = (after or {}).get('metrics', {}).get('investigation') or initial
+    questions = {q['id']: q for q in initial.get('questions', [])}
+    questions.update({q['id']: q for q in current.get('questions', [])})
+    outcomes = _question_outcomes({**current, 'questions': list(questions.values())},
+                                 entries, characters, states, scores, rio_season)
+    for item in outcomes:
+        if item['identity_digest'] in attempts:
+            item['request_status'] = attempts[item['identity_digest']]['status']
+    triggered = initial.get('triggered') is True
+    remaining_runs = [s['run_id'] for s in result['runs'] if s['status'] == 'budget_exhausted']
+    allowed_runs = ('ready', 'fresh', 'unavailable', 'budget_exhausted') if triggered else ('ready', 'fresh', 'unavailable')
+    failed = (bool((after or {}).get('source_failed')) or result.get('invalid_references')
+              or result.get('identity_conflicts') or result.get('runs_truncated')
+              or any(q['status'] in ('source_failed', 'invalid_question') for q in outcomes)
+              or any(s['status'] not in allowed_runs for s in result['runs']))
+    remaining = [q['id'] for q in outcomes if q['status'] != 'answered']
+    pending = any(q['status'] == 'budget_pending' for q in outcomes) or bool(remaining_runs)
+    if result.get('followup_budget_reason') == 'rate_limited':
+        stop = 'rate_limited'
+    elif failed:
+        stop = 'source_failed'
+    elif not triggered:
+        stop = 'not_triggered'
+    elif pending:
+        stop = 'budget_completed'
+    elif remaining:
+        stop = 'source_missing'
+    else:
+        stop = 'completed'
+    result['source_failed'] = bool((after or {}).get('source_failed'))
+    result['investigation'] = {**current, 'triggered': triggered,
+        'input_evidence_hash': before.get('evidence_hash'), 'evidence_hash': (after or {}).get('evidence_hash'),
+        'outcomes': outcomes, 'remaining_question_ids': remaining, 'remaining_run_ids': remaining_runs,
+        'requests': [{'identity_digest': key, **state} for key, state in attempts.items()],
+        'api_requests': result['followup_api_requests'], 'api_budget': result['followup_api_budget'],
+        'bounded_complete': stop not in ('rate_limited', 'source_failed'), 'stop_reason': stop}
+    result['followup_triggered'] = triggered
+    result['followup_budget_reason'] = stop if triggered else 'not_needed'
 
 
 def _progressive_sources(primary, season, activity, digest, batch, result,
@@ -458,7 +575,14 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
     start = batch.requests
     if not batch.stop_event.is_set():
         from botend.services.player_observation import build_evidence
-        planned, reason = _followup_plan(build_evidence(primary), activity, entries, characters, states, scores, season.rio_season)
+        before = build_evidence(primary)
+        investigation = (before or {}).get('metrics', {}).get('investigation')
+        allowed_questions = {q['id'] for q in (investigation or {}).get('questions', [])}
+        preferred = [qid for qid in _preferred_question_ids(activity, before) if qid in allowed_questions]
+        planned, reason = _followup_plan(before, activity, entries, characters, states, scores, season.rio_season,
+                                        preferred_question_ids=preferred)
+        result['followup_preferred_question_ids'] = preferred
+        attempts = {}
         result.update(followup_triggered=bool(planned), followup_reason=reason,
                       followup_budget_reason='needed' if planned else 'not_needed')
         batch.budget = start + followup_budget
@@ -467,12 +591,24 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
                 result['followup_budget_reason'] = 'rate_limited' if batch.rate_limited else 'budget_exhausted'
                 break
             # Recheck under the collector lock; force NEVER defeats a needed-cache plan.
+            request_start = batch.requests
             states[key] = batch.scored(characters[key], season, False)
+            attempts[key] = {**states[key], 'api_requests': batch.requests - request_start}
+            if states[key]['status'] in ('ready', 'fresh'):
+                _, score = _score_cache(characters[key], season)
+                if score is not None:
+                    scores[key] = score
         result['followup_api_requests'] = batch.requests - start
         if batch.rate_limited:
             result['followup_budget_reason'] = 'rate_limited'
         elif planned and all(states[key]['status'] in ('ready', 'fresh') for key in planned):
             result['followup_budget_reason'] = 'completed'
+        if isinstance(investigation, dict) and investigation.get('version') == 1:
+            # Rebuild from the just-published central snapshots, never infer the
+            # answer from HTTP success or mutate the original evidence in place.
+            after = build_evidence(primary)
+            _finish_investigation(before, after, entries, characters, states, scores,
+                                  attempts, result, season.rio_season)
     result['characters'] = list(states.values())
     if batch.rate_limited:
         result['status'] = 'rate_limited'

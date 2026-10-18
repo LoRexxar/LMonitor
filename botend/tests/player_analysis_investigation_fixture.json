@@ -1,0 +1,51 @@
+{
+  "id": 7,
+  "revision": 3,
+  "player_id": 42,
+  "player": {"id": 42, "character_name": "调查展示测试角色", "region": "cn", "realm": "测试服务器", "class_label": "法师", "spec_label": "火焰", "season_name": "测试赛季"},
+  "status": "ready",
+  "review_status": "pending",
+  "is_published": false,
+  "source_kind": "ai",
+  "manual": null,
+  "ai": {
+    "tags": [],
+    "conclusion": "旧版冻结结论仍保留",
+    "evidence": [],
+    "evidence_json": {
+      "metrics": {
+        "investigation": {
+          "version": 1,
+          "triggered": true,
+          "trigger_reason": "已有本人低于当前同本计分层数的记录及稳定核心；需区分多种解释。",
+          "scope": "仅限已观测近期记录，不是完整历史",
+          "seed_run_ids": [101, 102],
+          "core_members": ["core-a", "core-b"],
+          "evidence": [
+            {"id": "e-core", "text": "本场层数低于核心各自当前同本成绩上限；来源采集时间 2026-10-17T00:00:00Z，完成时间 2026-10-16T00:00:00Z", "run_url": "https://raider.io/mythic-plus-runs/season-test/101"},
+            {"id": "e-counter", "text": "另一轮换成员当前同本成绩较高", "run_url": "https://raider.io/mythic-plus-runs/season-test/102"},
+            {"id": "e-unknown", "text": "第五人成绩尚未公开 <img src=x onerror=alert(1)>", "run_url": "javascript:alert(1)"}
+          ],
+          "hypotheses": [
+            {"id": "help", "label": "协助较低成绩成员", "status": "unresolved", "support_ids": ["e-core"], "counter_ids": ["e-counter"], "unknown_ids": ["e-unknown"]},
+            {"id": "key", "label": "钥匙供需或朋友互助", "status": "possible", "support_ids": ["e-counter"], "counter_ids": [], "unknown_ids": ["missing-evidence"]}
+          ],
+          "questions": [
+            {"id": "q-fifth", "kind": "scored_runs", "identity_digest": "fifth-identity", "run_ids": [101, 102], "hypothesis_ids": ["help", "key"], "priority": 1, "reason": "核查轮换位当前同本计分记录，区分协助与钥匙供需"}
+          ],
+          "stop_reason": "预算耗尽，保留待核查问题"
+        }
+      }
+    },
+    "result_json": {
+      "investigation": {
+        "summary": "已有线索、尚未证实；朋友互助也是可能解释。",
+        "hypotheses": [
+          {"id": "help", "assessment": "uncertain", "evidence_ids": ["e-core"], "counter_evidence_ids": ["e-counter"], "explanation": "核心重复低层活动不直接证明带人或商业身份。<script>不执行</script>"},
+          {"id": "key", "assessment": "possible", "evidence_ids": ["e-counter"], "counter_evidence_ids": [], "explanation": "当前成绩较高也可能是外援，钥匙归属仍未知。"}
+        ],
+        "next_question_ids": ["q-fifth"]
+      }
+    }
+  }
+}

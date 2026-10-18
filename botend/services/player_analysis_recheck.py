@@ -27,7 +27,7 @@ ACTIVE = ('queued', 'running')
 QUEUE_TTL = timedelta(minutes=5)
 RUN_SECONDS = 600
 RETRY = timedelta(minutes=30)
-PUBLIC_FIELDS = ('state', 'message', 'token', 'phase', 'retry_at', 'queued_at', 'started_at', 'finished_at', 'expires_at')
+PUBLIC_FIELDS = ('state', 'message', 'token', 'phase', 'retry_at', 'queued_at', 'started_at', 'finished_at', 'expires_at', 'collection')
 
 
 class Blocked(Exception):
@@ -240,6 +240,24 @@ def validate_publication(row, token, evidence):
         raise Blocked('参与证据的评分来源存在失败，已保留上次分析。')
 
 
+def _bounded_investigation_complete(sources):
+    """Only explicit successful investigation terminals relax *unattempted* gaps."""
+    trace = sources.get('investigation') or {}
+    requests = sources.get('followup_api_requests')
+    budget = sources.get('followup_api_budget')
+    return (sources.get('collection_mode') == 'progressive'
+        and trace.get('version') == 1 and trace.get('triggered') is True
+        and trace.get('bounded_complete') is True
+        and trace.get('stop_reason') in ('completed', 'source_missing', 'budget_completed')
+        and trace.get('stop_reason') == sources.get('followup_budget_reason')
+        and type(requests) is int and type(budget) is int and 0 <= requests <= budget <= 2
+        and trace.get('api_requests') == requests and trace.get('api_budget') == budget
+        and isinstance(trace.get('outcomes'), list) and isinstance(trace.get('requests'), list)
+        and all(item.get('status') in ('answered', 'source_missing', 'identity_unresolved', 'budget_pending')
+                for item in trace['outcomes'])
+        and all(item.get('status') in ('ready', 'fresh') for item in trace['requests']))
+
+
 def require_sources(sources):
     """Validate bounded progressive work, not an all-teammates census.
 
@@ -248,15 +266,18 @@ def require_sources(sources):
     Those are known sample limits, not failed requests. Actual unfinished work
     and failed requests still block; publication independently checks central facts.
     """
+    if sources.get('source_failed'):
+        raise Blocked('当前证据来源失败，已保留上次有效分析。')
     if sources.get('status') not in ('ready', 'fresh', 'partial'):
         raise Blocked('角色来源检查未完成：' + str(sources.get('status', 'unknown'))[:40])
     if sources.get('activity', {}).get('status') not in ('ready', 'fresh'):
         raise Blocked('角色活动来源未完整就绪或处于退避。')
     if sources.get('invalid_references') or sources.get('identity_conflicts'):
         raise Blocked('通关引用或队友身份冲突，不能生成新分析。')
+    bounded = _bounded_investigation_complete(sources)
     runs = sources.get('runs', [])
-    bad_runs = [item.get('status', 'unknown') for item in runs
-                if item.get('status') not in ('ready', 'fresh', 'unavailable')]
+    allowed_runs = ('ready', 'fresh', 'unavailable', 'budget_exhausted') if bounded else ('ready', 'fresh', 'unavailable')
+    bad_runs = [item.get('status', 'unknown') for item in runs if item.get('status') not in allowed_runs]
     if sources.get('runs_truncated') or bad_runs:
         raise Blocked('阵容来源未完成（' + ', '.join(map(str, bad_runs[:3] or ['sample_truncated'])) + '）；本轮预算或退避结束后请重试。')
     bad_scores = [item.get('status', 'unknown') for item in sources.get('characters', [])
@@ -264,13 +285,31 @@ def require_sources(sources):
     if bad_scores:
         raise Blocked('评分来源未完成（' + ', '.join(map(str, bad_scores[:3])) + '）；已保留上次分析。')
     followup = sources.get('followup_triggered')
-    if followup and sources.get('followup_budget_reason') != 'completed':
+    if followup and not bounded and (sources.get('investigation') is not None
+                                    or sources.get('followup_budget_reason') != 'completed'):
         raise Blocked('所需评分补采尚未完成（' + str(sources.get('followup_budget_reason', 'unknown'))[:40] + '）；请稍后再次检查。')
     known_partial = (followup or sources.get('characters_truncated')
                      or any(item.get('status') == 'unavailable' for item in runs))
     if sources.get('status') == 'partial' and not (
             sources.get('collection_mode') == 'progressive' and known_partial):
         raise Blocked('来源未完整就绪，不能用旧快照冒充本次成功。')
+
+
+def record_sources(pk, token, sources):
+    """Persist literal collection counts and question outcomes under the job fence."""
+    with transaction.atomic():
+        row = PlayerObservationAnalysis.objects.select_for_update().defer('evidence_json', 'result_json').get(pk=pk)
+        if not _live(row, token):
+            raise Blocked('任务已失效或被替代。')
+        trace = sources.get('investigation') or {}
+        collection = {key: sources.get(key) for key in (
+            'status', 'api_requests', 'api_budget', 'basic_api_requests', 'basic_api_budget',
+            'basic_roster_api_budget', 'followup_api_requests', 'followup_api_budget',
+            'followup_triggered', 'followup_reason', 'followup_budget_reason')}
+        collection.update(stop_reason=trace.get('stop_reason'),
+                          remaining_question_ids=trace.get('remaining_question_ids', []),
+                          remaining_run_ids=trace.get('remaining_run_ids', []))
+        _save(row, {**row.recheck_json, 'sources': sources, 'investigation': trace, 'collection': collection})
 
 
 def run(pk, token):
@@ -298,6 +337,7 @@ def run(pk, token):
             phase(pk, token, 'sources')
             sources = refresh_observation_sources(player, progressive=True, refresh_recent=True,
                 max_basic_roster_requests=5, max_followup_requests=2, max_runs=18, max_characters=40)
+            record_sources(pk, token, sources)
             require_sources(sources)
             phase(pk, token, 'raid_sources')
             raid = refresh_raid_sources(player)
@@ -318,7 +358,14 @@ def run(pk, token):
                 raise Blocked('中央分析与当前证据不一致，不能记为重查成功。')
             if not _local_empty(row.result_json, evidence):
                 _validate(json.dumps(row.result_json), evidence)
-            return finish(pk, token, 'succeeded', '重查完成；中央分析已更新，人工编辑与发布设置保持不变。', phase='complete')
+            trace = sources.get('investigation') or {}
+            unfinished = (trace.get('remaining_question_ids') or trace.get('remaining_run_ids')
+                          or any(h.get('status') == 'unknown' or h.get('unknown_ids')
+                                 for h in trace.get('hypotheses', [])))
+            message = ('本次检查完成，仍有待验证假设；中央分析已更新，人工编辑与发布设置保持不变。'
+                       if trace.get('triggered') and unfinished else
+                       '重查完成；中央分析已更新，人工编辑与发布设置保持不变。')
+            return finish(pk, token, 'succeeded', message, phase='complete')
     except Blocked as exc:
         return finish(pk, token, 'blocked', str(exc))
     except Deadline:

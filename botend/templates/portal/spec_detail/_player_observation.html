@@ -1,6 +1,6 @@
 {% if observation.status != 'hidden' and observation.status != 'archived' and observation.is_published != False and observation.review_status != 'rejected' %}
 {% if observation.source_kind != 'manual' or observation.review_status != 'pending' %}
-{% if observation.status == 'ready' and observation.has_supported_judgements or observation.status == 'stale' and observation.has_supported_judgements or observation.raid_judgement.supported or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'ready' or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'stale' %}
+{% if observation.status == 'ready' and observation.has_supported_judgements or observation.status == 'stale' and observation.has_supported_judgements or observation.raid_judgement.supported or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'ready' or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'stale' or observation.investigation.triggered and observation.status == 'ready' or observation.investigation.triggered and observation.status == 'stale' %}
 <section id="player-observation" class="player-observation" aria-labelledby="player-observation-title" data-status="{{ observation.status }}" data-source="{{ observation.source_kind|default:'ai' }}">
     <header class="player-observation__header">
         <h2 id="player-observation-title">玩家观察</h2>
@@ -9,7 +9,7 @@
         {% if observation.generated_at %}<time class="player-observation__meta" datetime="{{ observation.generated_at|date:'c' }}">{{ observation.generated_at|date:"m-d H:i" }}</time>{% endif %}
         {% endif %}
     </header>
-    {% if observation.status == 'stale' and observation.has_supported_judgements %}<p class="player-observation__meta">大秘境观察已过期，待更新。</p>{% endif %}
+    {% if observation.status == 'stale' %}<p class="player-observation__meta">大秘境观察已过期，待更新。</p>{% endif %}
     <ul class="player-observation__items player-observation__judgements" aria-label="玩家判定">
         {% if observation.status == 'ready' or observation.status == 'stale' %}
         {% for judgement in observation.display_judgements %}
@@ -36,6 +36,37 @@
             </details>
             {% endif %}
         {% else %}
+            {% if observation.investigation.triggered %}
+            <div data-player-investigation>
+                <p class="player-observation__conclusion"><strong>已有线索，尚待核查</strong> · 低置信解释，不是确定身份或交易结论。</p>
+                <p>{{ observation.investigation.summary }}</p>
+                <details class="player-observation__details">
+                    <summary>查看候选解释、支持与反证</summary>
+                    {% for hypothesis in observation.investigation.hypotheses %}
+                    <div class="player-observation__note">
+                        <strong>{{ hypothesis.label }}</strong>
+                        <span>（{% if hypothesis.assessment == 'supported' %}有相容信号，仍非证实{% elif hypothesis.assessment == 'weakened' %}当前证据削弱{% elif hypothesis.assessment == 'possible' %}尚有可能{% else %}证据不足{% endif %}）</span>
+                        <p>{{ hypothesis.explanation }}</p>
+                        {% if hypothesis.evidence %}<p>支持线索</p><ul class="player-observation__evidence">
+                        {% for evidence in hypothesis.evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}
+                        </ul>{% endif %}
+                        {% if hypothesis.counter_evidence %}<p>反向线索</p><ul class="player-observation__evidence">
+                        {% for evidence in hypothesis.counter_evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}
+                        </ul>{% endif %}
+                        {% if hypothesis.unknown_evidence %}<p>未知 / 缺口（不作为支持线索）</p><ul class="player-observation__evidence">
+                        {% for evidence in hypothesis.unknown_evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}
+                        </ul>{% endif %}
+                    </div>
+                    {% endfor %}
+                    {% if observation.investigation.questions %}
+                    <p>仍待核查的问题</p><ul class="player-observation__evidence">
+                        {% for question in observation.investigation.questions %}<li>{{ question.reason }}</li>{% endfor %}
+                    </ul>
+                    {% endif %}
+                    <p class="player-observation__note">只基于已观测场次；当前成绩不是当场历史加分。钥匙归属与付款情况未确认。</p>
+                </details>
+            </div>
+            {% endif %}
             {% if observation.has_supported_judgements %}<p class="player-observation__note">仅代表公开样本；当前成绩非历史加分。</p>{% endif %}
         {% endif %}
     {% endif %}
