@@ -177,6 +177,36 @@ test('model references are classified per frozen hypothesis; unrecognized refere
     }finally{f.close();}
 });
 
+test('top-level frozen behavior references resolve safely and legacy trigger display uses only frozen leads',async()=>{
+    const f=await setup(row=>{
+        const plan=row.ai.evidence_json.metrics.investigation;
+        plan.trigger_reason='no_recent_signal';plan.seed_run_ids=[];plan.core_members=[];
+        row.ai.evidence_json.evidence=[
+            {id:'behavior:key_recovery_unknown:101',text:'跑前保护未知 <img src=x onerror=alert(1)>',run_url:'javascript:alert(1)'},
+            {id:'behavior:lead:101',text:'本人已有同本较高层观测',run_url:'https://raider.io/mythic-plus-runs/season-test/101'}];
+        row.ai.evidence_json.metrics.behavior_review={triggered:true,evidence:row.ai.evidence_json.evidence,witnesses:{joint_progress:[102]}};
+        plan.hypotheses[0].unknown_ids.push('behavior:key_recovery_unknown:101');
+        row.ai.result_json.investigation.hypotheses[0].evidence_ids=['e-core','behavior:key_recovery_unknown:101'];
+    });try{
+        const view=f.doc.querySelector('[data-investigation]');
+        const card=view.querySelector('[data-model-hypothesis="help"]');
+        assert.match(card.textContent,/跑前保护未知/);
+        assert.doesNotMatch(card.textContent,/behavior:key_recovery_unknown:101 · 冻结引用未提供/);
+        assert.match(card.textContent,/e-core/); // Nested legacy evidence still resolves.
+        assert.match(view.textContent,/missing-evidence · 冻结引用未提供，无法核验/);
+        const facts=view.querySelector('[data-investigation-facts]');
+        assert.match(facts.textContent,/行为复核发现定向调查线索/);
+        assert.match(facts.textContent,/起始场次：101、102/);
+        assert.doesNotMatch(facts.textContent,/未触发调查|核心成员：5/);
+        assert.match(facts.textContent,/兼容展示/);
+        assert.equal(view.querySelectorAll('img,script').length,0);
+        assert.ok([...view.querySelectorAll('a')].every(a=>/^https?:/.test(a.href)));
+        assert.equal(f.row.ai.evidence_json.metrics.investigation.trigger_reason,'no_recent_signal');
+        assert.deepEqual(f.row.ai.evidence_json.metrics.investigation.seed_run_ids,[]);
+        assert.ok(f.calls.every(([,opt])=>opt.method==='GET'));
+    }finally{f.close();}
+});
+
 test('not-triggered is distinct from unrecorded, with no claims of resolved hypotheses',async()=>{
     const f=await setup(row=>{row.ai.evidence_json.metrics.investigation={version:1,triggered:false,trigger_reason:'未达到调查触发条件',stop_reason:'not_triggered'};row.ai.result_json={};});try{
         const text=f.doc.querySelector('.pa-investigation').textContent;

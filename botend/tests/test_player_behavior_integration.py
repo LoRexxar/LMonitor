@@ -153,6 +153,40 @@ class BehaviorIntegrationTests(TestCase):
         self.assertEqual(row.result_json, before)
         self.assertEqual(service.project_player_observation(self.player)['status'], 'stale')
 
+    def test_behavior_only_trigger_uses_actual_leads_and_preserves_existing_trigger(self):
+        self.prepare_behavior()
+        # Two lower runs suffice for behavior leads, not the older three-run gate.
+        self.activity.refresh_from_db()
+        self.activity.payload_json['mythic_plus_recent_runs'] = self.runs[:2]
+        self.activity.save()
+        data = service.build_evidence(self.player)
+        behavior = data['metrics']['behavior_review']
+        plan = data['metrics']['investigation']
+        self.assertTrue(behavior['triggered'])
+        self.assertTrue(plan['triggered'])
+        self.assertEqual(plan['trigger_reason'], 'behavior_review_signal')
+        self.assertEqual(plan['seed_run_ids'], [123, 124])
+        self.assertEqual(plan['core_members'], [])
+        self.assertNotIn(2001, plan['seed_run_ids'])  # Historical higher record is not a seed.
+        self.assertNotIn(125, plan['seed_run_ids'])
+        self.assertTrue(any(e['id'] == 'behavior:lead:123' for e in data['evidence']))
+        old = {**plan, 'trigger_reason': 'repeated_below_own_current_with_stable_core',
+               'seed_run_ids': [124, 125], 'core_members': ['existing-core']}
+        before = copy.deepcopy(old)
+        merged = service._merge_behavior_investigation(old, behavior)
+        self.assertEqual(merged['trigger_reason'], old['trigger_reason'])
+        self.assertEqual(merged['seed_run_ids'], [123, 124, 125])
+        self.assertEqual(merged['core_members'], ['existing-core'])
+        self.assertEqual(old, before)
+        # A witness may trigger without a subject-higher lead (e.g. joint progress).
+        witnesses_only = {**behavior, 'evidence': [e for e in behavior['evidence']
+                                                 if not e['id'].startswith('behavior:lead:')],
+                          'witnesses': {'joint_progress': [124]}}
+        empty = {**plan, 'triggered': False, 'trigger_reason': 'no_recent_signal', 'seed_run_ids': []}
+        merged = service._merge_behavior_investigation(empty, witnesses_only)
+        self.assertEqual(merged['trigger_reason'], 'behavior_review_signal')
+        self.assertEqual(merged['seed_run_ids'], [124])
+
     def test_prior_higher_records_counter_later_progress_per_run(self):
         self.prepare_behavior()
         evidence = service.build_evidence(self.player)

@@ -213,6 +213,23 @@
             const hypotheses=array(frozen.hypotheses).filter(item=>object(item) && text(item.id));
             const questions=array(frozen.questions).filter(item=>object(item) && text(item.id));
             const evidenceByID=new Map(evidence.map(item=>[text(item.id),item]));
+            // Canonical frozen evidence lives at the publication root; retain
+            // nested-only legacy records without copying facts into the plan.
+            array(ai?.evidence_json?.evidence).filter(item=>object(item) && text(item.id))
+                .forEach(item=>evidenceByID.set(text(item.id),item));
+            const behavior=ai?.evidence_json?.metrics?.behavior_review;
+            const behaviorSeeds=new Set();
+            if(object(behavior) && behavior.triggered===true) {
+                array(behavior.evidence).filter(object).forEach(item=>{
+                    const match=/^behavior:lead:([1-9][0-9]*)$/.exec(text(item.id));
+                    if(match && Number.isSafeInteger(Number(match[1])))behaviorSeeds.add(Number(match[1]));
+                });
+                if(object(behavior.witnesses))Object.values(behavior.witnesses).forEach(values=>
+                    array(values).filter(id=>Number.isSafeInteger(id) && id>0).forEach(id=>behaviorSeeds.add(id)));
+            }
+            // Old publications retain their raw fields. Reconcile only the
+            // known merge contradiction using that same publication's facts.
+            const legacyBehaviorTrigger=frozen.triggered===true && frozen.trigger_reason==='no_recent_signal' && behaviorSeeds.size>0;
             const hypothesesByID=new Map(hypotheses.map(item=>[text(item.id),item]));
             const questionsByID=new Map(questions.map(item=>[text(item.id),item]));
             const coreMembers=ids(frozen.core_members);
@@ -223,6 +240,8 @@
                 unsupported:'现有证据未支持（不等于排除）',unknown:'未知',inconclusive:'尚无定论'};
             const status=value=>Object.hasOwn(states,text(value))?states[text(value)]:(text(value)?`记录状态：${text(value)}（不代表已证实）`:'状态未提供');
             const reasons={repeated_below_own_current_with_stable_core:'本人重复低于当前同本成绩上限，且存在稳定核心',
+                behavior_review_signal:'行为复核发现定向调查线索；需比较协作、成绩时序与钥匙相关解释',
+                targeted_evidence_needed:'仍需定向核查相关成员成绩与跑前条件',
                 no_recent_signal:'当前近期样本未触发调查（不代表没有此类行为）',
                 invalid_identity_or_stale_source:'身份或来源时效不足，无法启动调查',
                 evidence_sufficient_for_comparison:'现有证据足以比较候选解释（不代表动机已证实）',
@@ -262,9 +281,12 @@
             if(!hasFacts)grounds.append(el('p','冻结调查依据未提供，无法据此核验模型解释。',{class:'pa-warning'}));
             else {
                 line(grounds,'触发状态',frozen.triggered===true?'已由已有线索触发定向调查':frozen.triggered===false?'未触发定向调查':'触发状态未提供');
-                line(grounds,'触发原因',reason(frozen.trigger_reason),'触发原因未提供');
+                line(grounds,'触发原因',reason(legacyBehaviorTrigger?'behavior_review_signal':frozen.trigger_reason),'触发原因未提供');
+                if(legacyBehaviorTrigger)grounds.append(el('p','旧记录触发字段不一致；按同份冻结行为线索兼容展示，未改写原始记录。',{class:'pa-muted'}));
                 line(grounds,'调查范围',frozen.scope);
-                line(grounds,'起始场次',ids(frozen.seed_run_ids).join('、'));
+                line(grounds,'起始场次',legacyBehaviorTrigger?
+                    [...new Set([...array(frozen.seed_run_ids).filter(id=>Number.isSafeInteger(id) && id>0),...behaviorSeeds])].sort((a,b)=>a-b).join('、'):
+                    ids(frozen.seed_run_ids).join('、'));
                 line(grounds,'核心成员',coreMembers.length?`${coreMembers.length} 名（身份引用保存在冻结记录）`:'未提供');
                 if(evidence.length){const ul=el('ul',null,{class:'pa-evidence'});evidence.forEach(item=>ul.append(evidenceItem(item)));grounds.append(ul);}
                 else grounds.append(el('p','未提供可展示的冻结证据。',{class:'pa-muted'}));

@@ -258,8 +258,19 @@ def _merge_behavior_investigation(plan, behavior):
     """Bridge the pure review into the existing inquiry and collection contract."""
     if not behavior['triggered'] and not plan['triggered']:
         return plan
+    was_triggered = plan['triggered']
     plan = {**plan, 'triggered': True, 'evidence': list(plan['evidence']),
             'questions': list(plan['questions']), 'hypotheses': [dict(h) for h in plan['hypotheses']]}
+    if behavior['triggered']:
+        # Only triggering leads/witnesses are seeds, not every recent run or
+        # the historical higher records used to compare them. Keep old core semantics.
+        seeds = {rid for values in behavior.get('witnesses', {}).values()
+                 for rid in values if type(rid) is int and rid > 0}
+        seeds.update(int(match.group(1)) for item in behavior['evidence']
+                     if (match := re.fullmatch(r'behavior:lead:([1-9][0-9]*)', item['id'])))
+        plan['seed_run_ids'] = sorted(set(plan.get('seed_run_ids', [])) | seeds)
+        if not was_triggered:
+            plan['trigger_reason'] = 'behavior_review_signal'
     unknown = 'behavior:interpretation_limits'
     plan['evidence'].append({'id': unknown, 'run_url': '',
         'text': '当前快照非历史加分；坚韧按逐场逐人已确认或未知区分，已确认跑前证明不再当作缺口。钥匙归属、收费及完整历史未知；朋友互助可同时属于协助。'})
