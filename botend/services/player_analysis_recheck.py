@@ -254,6 +254,9 @@ def _bounded_investigation_complete(sources):
         and trace.get('api_requests') == requests and trace.get('api_budget') == budget
         and isinstance(trace.get('outcomes'), list) and isinstance(trace.get('requests'), list)
         and all(item.get('status') in ('answered', 'source_missing', 'identity_unresolved', 'budget_pending')
+                or (item.get('status') == 'observed_partial'
+                    and item.get('kind') == 'scored_history'
+                    and item.get('request_status') in ('ready', 'fresh'))
                 for item in trace['outcomes'])
         and all(item.get('status') in ('ready', 'fresh') for item in trace['requests']))
 

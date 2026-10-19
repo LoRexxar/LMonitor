@@ -99,6 +99,16 @@ class HistorySourcesTests(TestCase):
         self.assertFalse(result['source_failed'])
         entries = self.activity.payload_json['mythic_plus_scored_history'].values()
         self.assertEqual([entry['status'] for entry in entries], ['ready'])
+        # The real recheck consumer must accept a successful partial history,
+        # without confusing incomplete history coverage with a failed request.
+        from botend.services.player_analysis_recheck import require_sources, Blocked
+        require_sources(result)
+        for field, value in (('kind', 'scored_runs'), ('request_status', 'private'),
+                             ('request_status', 'error')):
+            bad = copy.deepcopy(result)
+            bad['investigation']['outcomes'][0][field] = value
+            with self.subTest(field=field, value=value), self.assertRaises(Blocked):
+                require_sources(bad)
 
     def test_new_question_cannot_inherit_old_target_authorization(self):
         result = self.collect_resolved_history(replacement={'id': 'new_question'})
