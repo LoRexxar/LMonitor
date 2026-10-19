@@ -346,6 +346,16 @@ def _merge_behavior_questions(evidence, recent_ids):
         if (q.get('kind') not in ('scored_runs', 'scored_history') or not isinstance(ids, list)
                 or not ids or any(type(rid) is not int or rid not in recent_ids for rid in ids)):
             continue
+        if q.get('purpose') == 'resilience_gap':
+            # Do not resurrect raw candidates discarded by the central planner.
+            # Existing canonical questions still go through strict validation.
+            targets = investigation.get('resilience_history_targets', [])
+            if not isinstance(targets, list) or not any(
+                    isinstance(target, dict)
+                    and all(target.get(field) == q.get(field) for field in
+                            ('member_key', 'dungeon_id', 'required_level', 'run_ids'))
+                    for target in targets):
+                continue
         signature = json.dumps([q.get('kind'), q.get('member_key'), q.get('dungeon_id'), sorted(ids)], sort_keys=True)
         qid = 'behavior_' + hashlib.sha256(signature.encode()).hexdigest()[:20]
         if any(old.get('kind') == q.get('kind') and old.get('identity_digest') == q.get('member_key')

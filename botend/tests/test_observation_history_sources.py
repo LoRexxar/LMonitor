@@ -44,6 +44,52 @@ class HistorySourcesTests(TestCase):
         data['metrics']['investigation']['resilience_history_targets'] = [copy.deepcopy(q)]
         return data
 
+    def test_raw_history_cannot_readd_centrally_discarded_level_and_runs(self):
+        # Rollout players 94609/156599 had same-scope raw questions with
+        # different seed runs/levels; only one survived the central planner.
+        from botend.models import RaiderIORunRoster
+        from botend.services.player_observation import _merge_behavior_investigation
+        data = self.resilience_contract()
+        q = data['metrics']['behavior_review']['questions'][0]
+        other = dict(q, run_ids=[124], required_level=q['required_level'] + 1)
+        run = dict(self.run, keystone_run_id=124,
+                   url='https://raider.io/mythic-plus-runs/season-mn-2/124',
+                   mythic_level=other['required_level'] - 1)
+        fact = copy.deepcopy(self.row.payload_json)
+        fact.update(keystone_run_id=124, mythic_level=other['required_level'] - 1)
+        RaiderIORunRoster.objects.create(rio_season=self.season.rio_season, run_id=124,
+            payload_json=fact, roster_visible=True, fetched_at=self.row.fetched_at, status='ready')
+        self.activity.payload_json['mythic_plus_recent_runs'].append(run)
+        self.activity.save(update_fields=['payload_json'])
+        review = data['metrics']['behavior_review']
+        review.update(triggered=True, evidence=[], supported={}, witnesses={},
+                      questions=[q, other], resilience={
+                          'dungeon_ids': [q['dungeon_id']],
+                          'events': [{'run_id': candidate['run_ids'][0],
+                                      'started_at': self.run['completed_at'],
+                                      'level': candidate['required_level'] - 1,
+                                      'members': {candidate['member_key']: {
+                                          'state': 'unknown', 'per_dungeon': {},
+                                          'required_level': candidate['required_level']}}}
+                                     for candidate in (q, other)]})
+        plan = _merge_behavior_investigation(data['metrics']['investigation'], review)
+        data['metrics']['investigation'] = plan
+        self.assertEqual(len(plan['questions']), 1)
+        self.assertEqual(plan['resilience_history_targets'][0]['run_ids'], [123])
+        result = self.collect(data)
+        self.assertEqual(result['followup_api_requests'], 1)
+        self.assertEqual([o['status'] for o in result['investigation']['outcomes']],
+                         ['observed_partial'])
+        self.assertTrue(result['investigation']['bounded_complete'])
+        self.assertFalse(result['source_failed'])
+        # Already canonical invalid questions remain visible to strict validation.
+        plan['questions'].append(dict(other, id='canonical_invalid',
+                                      identity_digest=other['member_key']))
+        result = self.collect(data)
+        outcomes = {o['id']: o for o in result['investigation']['outcomes']}
+        self.assertEqual(outcomes['canonical_invalid']['status'], 'invalid_question')
+        self.assertFalse(result['investigation']['bounded_complete'])
+
     def test_authorized_cross_dungeon_requests_exact_target(self):
         data = self.resilience_contract()
         q = data['metrics']['behavior_review']['questions'][0]
