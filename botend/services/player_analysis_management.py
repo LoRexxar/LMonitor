@@ -131,6 +131,7 @@ def _result_hash(row):
 
 def _common(row):
     from botend.services.player_analysis_recheck import state
+    from botend.services.player_observation import PROMPT_VERSION
     return {
         'recheck': state(row),
         'id': row.pk, 'revision': row.revision, 'player_id': row.player_id,
@@ -140,6 +141,7 @@ def _common(row):
                       'realm': row.activity.realm_slug, 'season_id': row.activity.season_id,
                       'season_name': row.activity.season.season_name},
         'status': row.status, 'review_status': row.review_status,
+        'prompt_version': row.prompt_version, 'rules_current': row.prompt_version == PROMPT_VERSION,
         'review_note': row.review_note, 'reviewed_by_id': row.reviewed_by_id,
         'reviewed_at': _date(row.reviewed_at), 'reviewed_evidence_hash': row.reviewed_evidence_hash,
         'reviewed_result_hash': row.reviewed_result_hash,

@@ -232,6 +232,8 @@ class ActivityCollector:
                 current.last_error = error
                 current.next_attempt_at = timezone.now() + timedelta(seconds=(retry_seconds or min(21600, 300 * 2 ** min(current.failure_count - 1, 6))))
             else:
+                # Merge the freshly locked payload: independent raid_first_kills
+                # and mythic_plus_scored_history retain their own clocks/leases.
                 current.payload_json = {**current.payload_json, **facts}
                 stamp = timezone.now()
                 current.module_fetched_at = {**current.module_fetched_at, **{key: stamp.isoformat() for key in facts}}

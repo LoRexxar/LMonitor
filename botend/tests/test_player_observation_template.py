@@ -35,7 +35,8 @@ class PlayerObservationTemplateTests(SimpleTestCase):
                 {'code': 'off_spec', 'status': '证据不足', 'verdict': '重复未知结论', 'reason': '无效长解释'},
                 {'code': 'rotation', 'status': '支持', 'verdict': '五人固定车队', 'reason': '固定阵容依据'},
             ],
-            'eligible_labels': [{'code': 'fixed_team', 'label': '五人固定车队', 'evidence_ids': ['fixed_team']}],
+            'eligible_labels': [{'code': 'fixed_team', 'label': '近期固定五人／偶尔替补',
+                'reason_options': {'stable_five': '同样五人共同出现8/10场。'}, 'evidence_ids': ['fixed_team']}],
             'evidence': [{'id': 'fixed_team', 'text': '同样五人共同出现8/10场。',
                           'run_url': 'https://raider.io/mythic-plus-runs/season-mn-2/123'}],
             'metrics': {'team_pattern': {'kind': 'fixed_five'}, 'progression': None},
@@ -61,7 +62,7 @@ class PlayerObservationTemplateTests(SimpleTestCase):
         visible = ''.join(text for text, depth in markup.text if not depth)
         self.assertEqual(html.count('data-judgement='), 1)
         self.assertNotIn('证据不足', html)
-        self.assertIn('五人固定车队', visible)
+        self.assertIn('近期固定五人／偶尔替补', visible)
         self.assertIn('依据：同样五人共同出现8/10场。', visible)
         for unwanted in ('无效', '限时经历', '最佳记录', '样本覆盖', '重复未知结论', '旧的否定结论'):
             self.assertNotIn(unwanted, html)
@@ -79,7 +80,7 @@ class PlayerObservationTemplateTests(SimpleTestCase):
         observation['raid_judgement'] = {'code':'raid_consumer', 'supported':False,
             'label':'团本消费', 'value':'证据不足', 'reason':'不应展示的依据'}
         html = self.render(observation)
-        self.assertIn('五人固定车队', html)
+        self.assertIn('近期固定五人／偶尔替补', html)
         self.assertNotIn('raid_consumer', html)
         self.assertNotIn('证据不足', html)
         self.assertNotIn('不应展示', html)
@@ -87,6 +88,7 @@ class PlayerObservationTemplateTests(SimpleTestCase):
     def test_all_unsupported_hide_the_entire_observation_section(self):
         evidence = self.evidence()
         evidence['judgements'][2].update(status='未支持带人判断', reason='无效长解释')
+        evidence['eligible_labels'] = []
         html = self.render(self.observation(evidence))
         self.assertEqual(html.strip(), '')
         for unwanted in ('依据：', '<details', '<a ', '无效', '非历史加分', '置信度'):
@@ -95,23 +97,26 @@ class PlayerObservationTemplateTests(SimpleTestCase):
     def test_pre_progression_four_core_cannot_leak_unsupported_carry_label(self):
         evidence = self.evidence()
         evidence['metrics']['team_pattern']['kind'] = 'suspected_four'
-        evidence['eligible_labels'] = [{'code':'rotating_core', 'label':'疑似四人带人队伍', 'evidence_ids':['fixed_team']}]
+        evidence['eligible_labels'] = [{'code':'rotating_core', 'label':'近期固定组合与轮换成员',
+            'reason_options': {'core_roster': '结构不证明带人。'}, 'evidence_ids':['fixed_team']}]
         html = self.render(self.observation(evidence))
-        self.assertEqual(html.strip(), '')
+        self.assertIn('近期固定组合与轮换成员', html)
         self.assertNotIn('疑似四人带人队伍', html)
-        self.assertNotIn('依据：', html)
+        self.assertIn('结构不证明带人', html)
 
-    def test_supported_progression_uses_short_basis_and_keeps_source_details(self):
+    def test_legacy_current_score_progression_does_not_publish_carry_label(self):
         evidence = self.evidence()
         evidence['metrics']['team_pattern']['kind'] = 'suspected_four'
         evidence['metrics']['progression'] = {'status':'supported', 'core_runs':9, 'below_core_runs':7,
             'core_comparable_runs':9, 'low_fifth_runs':5, 'fifth_comparable_runs':7}
-        evidence['eligible_labels'] = [{'code':'rotating_core', 'label':'疑似四人带人队伍', 'evidence_ids':['fixed_team']}]
+        evidence['eligible_labels'] = [{'code':'rotating_core', 'label':'近期固定组合与轮换成员',
+            'reason_options': {'core_roster': '结构不证明带人。'}, 'evidence_ids':['fixed_team']}]
         html = self.render(self.observation(evidence))
-        self.assertIn('疑似四人带人队伍', html)
-        self.assertIn('7 / 9', html)
-        self.assertIn('5 / 7', html)
-        self.assertIn('当前成绩非历史加分', html)
+        self.assertNotIn('疑似四人带人队伍', html)
+        self.assertNotIn('7 / 9', html)
+        self.assertNotIn('5 / 7', html)
+        self.assertIn('近期固定组合与轮换成员', html)
+        self.assertIn('https://raider.io/mythic-plus-runs/season-mn-2/123', html)
         self.assertNotIn('无效流程说明', html)
 
     def test_state_gating_autoescape_and_absent_observation(self):
@@ -125,11 +130,11 @@ class PlayerObservationTemplateTests(SimpleTestCase):
             else:
                 self.assertEqual(html.strip(), '')
             if status != 'stale':
-                self.assertNotIn('五人固定车队', html)
+                self.assertNotIn('近期固定五人／偶尔替补', html)
                 self.assertNotIn('<a ', html)
                 self.assertNotIn('证据不足', html)
         observation = self.observation()
-        row = observation['display_judgements'][2]
+        row = observation['display_judgements'][0]
         row['value'] = row['reason'] = '<img src=x onerror="bad">'
         row['evidence'][0]['text'] = '<script>bad</script>'
         row['evidence'][0]['run_url'] = 'https://raider.io/test?q=" onmouseover="bad'

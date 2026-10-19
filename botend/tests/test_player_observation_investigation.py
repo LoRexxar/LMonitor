@@ -175,13 +175,24 @@ class InvestigationTests(SimpleTestCase):
 class InvestigationIntegrationTests(TestCase):
     setUp = fixtures.ObservationProgressionTests.setUp
 
+    @staticmethod
+    def legacy_response(data):
+        # Frozen pre-inquiry response shape, independent of the v6 engine fixture.
+        label = next(h for h in data['eligible_labels'] if h['code'] == 'timed_experience')
+        return json.dumps({'observations': [{
+            'code': label['code'], 'confidence': '低',
+            'reason_id': next(iter(label['reason_options'])),
+            'limitation_ids': label['required_limitation_ids'],
+            'evidence_ids': label['evidence_ids'],
+        }], 'conclusion_id': 'public_sample'})
+
     def engine(self, mutate=None):
         def respond(prompt, **kwargs):
             data = json.loads(prompt)
             inquiry = data['metrics']['investigation']
             result = {'observations': [], 'conclusion_id': 'public_sample', 'investigation': {
                 'summary': '现有线索允许比较协作与日常活动解释，动机仍待核验。', 'confidence': '低',
-                'hypotheses': [{'id': h['id'], 'assessment': h['status'], 'evidence_ids': h['support_ids'][:3],
+                'hypotheses': [{'id': h['id'], 'assessment': h['status'], 'evidence_ids': (h['support_ids'] or h['unknown_ids'])[:3],
                     'counter_evidence_ids': h['counter_ids'], 'explanation': '这是基于已列证据的候选解释，不是事实确认。'}
                     for h in inquiry['hypotheses'][:4]],
                 'next_question_ids': [q['id'] for q in inquiry['questions'][:2]]}}
@@ -205,8 +216,9 @@ class InvestigationIntegrationTests(TestCase):
         self.assertEqual(plan['seed_run_ids'], [200, 201, 202])
         self.assertEqual(len(plan['core_members']), 5)
         external = next(h for h in plan['hypotheses'] if h['id'] == 'external_assistance')
-        self.assertEqual(external['status'], 'possible')
-        self.assertTrue(external['support_ids'])
+        self.assertEqual(external['status'], 'unknown')
+        self.assertFalse(external['support_ids'])
+        self.assertTrue(any(':high:' in eid for eid in external['unknown_ids']))
         self.assertFalse(external['counter_ids'])
         self.assertNotIn('外围席位有变化', plan['scope'])
         self.assertIn('不能确定', plan['scope'])
@@ -220,7 +232,7 @@ class InvestigationIntegrationTests(TestCase):
         view = observation.project_player_observation(self.player)
         self.assertTrue(view['has_investigation'])
         projected = next(h for h in view['investigation']['hypotheses'] if h['id'] == 'external_assistance')
-        self.assertEqual(projected['assessment'], 'possible')
+        self.assertEqual(projected['assessment'], 'unknown')
         self.assertFalse(projected['counter_evidence'])
         refs = {e['id']: e for e in frozen['evidence']}
         self.assertEqual(projected['evidence'], [refs[eid] for eid in external['support_ids'][:3]])
@@ -250,7 +262,7 @@ class InvestigationIntegrationTests(TestCase):
 
     def test_strict_inquiry_refs_confidence_and_legacy_result(self):
         data = observation.build_evidence(self.player)
-        legacy = fixtures.ObservationProgressionTests.engine(self).send_message(json.dumps(data), max_tokens=1800, thinking_type='disabled')
+        legacy = self.legacy_response(data)
         self.assertNotIn('investigation', observation._validate(legacy, data))
         for mutate in (
             lambda r: r['investigation']['hypotheses'][0].update(evidence_ids=['outside']),
@@ -263,6 +275,23 @@ class InvestigationIntegrationTests(TestCase):
                 raw = self.engine(mutate).send_message(json.dumps(data))
                 with self.assertRaises(observation.InvalidResult):
                     observation._validate(raw, data)
+
+    def test_semantic_reuse_ignores_only_collection_clocks(self):
+        base = {'relative_comparisons': [{'snapshot_as_of': 'old', 'fetched_at': 'old',
+            'completed_at': 'original', 'level': 20, 'score': 400}],
+            'scope': [1, 2], 'roster_visible': True, 'source_failed': False, 'error': ''}
+        refreshed = copy.deepcopy(base)
+        refreshed['relative_comparisons'][0].update(snapshot_as_of='new', fetched_at='new')
+        self.assertEqual(observation._semantic_evidence(base), observation._semantic_evidence(refreshed))
+        for field, value in [('completed_at', 'changed'), ('level', 21), ('score', 401)]:
+            changed = copy.deepcopy(refreshed)
+            changed['relative_comparisons'][0][field] = value
+            with self.subTest(field=field):
+                self.assertNotEqual(observation._semantic_evidence(base), observation._semantic_evidence(changed))
+        for field, value in [('scope', [1]), ('roster_visible', False), ('source_failed', True), ('error', 'private')]:
+            with self.subTest(field=field):
+                self.assertNotEqual(observation._semantic_evidence(base),
+                    observation._semantic_evidence({**refreshed, field: value}))
 
     def test_timestamp_only_refresh_reuses_ai_but_privacy_and_expiry_retract(self):
         engine = self.engine()
@@ -306,10 +335,14 @@ class InvestigationIntegrationTests(TestCase):
         previous['evidence'] = [e for e in previous['evidence'] if not e['id'].startswith('investigation:')]
         previous['eligible_labels'] = [e for e in previous['eligible_labels'] if e['code'] != 'recent_inquiry']
         previous['evidence_hash'] = observation._hash({k: v for k, v in previous.items() if k not in ('evidence_hash', 'source_failed')})
-        raw = fixtures.ObservationProgressionTests.engine(self).send_message(json.dumps(previous), max_tokens=1800, thinking_type='disabled')
+        raw = self.legacy_response(previous)
         PlayerObservationAnalysis.objects.create(activity=self.activity, player=self.player, prompt_version=5,
             evidence_json=previous, evidence_hash=previous['evidence_hash'], result_json=json.loads(raw), status='ready')
-        self.assertEqual(observation.project_player_observation(self.player)['status'], 'ready')
+        self.assertEqual(observation.project_player_observation(self.player)['status'], 'pending')
+        stored = PlayerObservationAnalysis.objects.get()
+        self.assertEqual(stored.prompt_version, 5)
+        self.assertEqual(stored.evidence_json, previous)
+        self.assertEqual(stored.result_json, json.loads(raw))
         result = observation.generate_observation(self.player, engine=self.engine(), skip_uninformative=True)
         self.assertTrue(result['ai_called'])
         self.assertEqual(result['status'], 'ready')
@@ -360,7 +393,7 @@ class InvestigationIntegrationTests(TestCase):
         validated = observation._validate(json.dumps(raw), data, require_investigation=True)
         self.assertTrue(next(h for h in validated['investigation']['hypotheses'] if h['id'] == 'external_assistance')['evidence_ids'])
         for mutate in (
-            lambda r: r['investigation'].update(hypotheses=r['investigation']['hypotheses'][:2]),
+            lambda r: r['investigation'].update(hypotheses=r['investigation']['hypotheses'][:1]),
             lambda r: r['investigation'].update(summary='相容' * 111),
             lambda r: r['investigation']['hypotheses'][0].update(explanation='相容' * 111),
         ):
@@ -378,8 +411,19 @@ class InvestigationIntegrationTests(TestCase):
         validated = observation._validate(json.dumps(raw), data)
         self.assertEqual([h['assessment'] for h in validated['investigation']['hypotheses'][:2]], ['possible', 'possible'])
         self.assertEqual(raw, before)
-        # Full-menu historical fixtures remain readable; new model output is
-        # deliberately smaller and must choose the most relevant alternatives.
+        # Freeze the actual five-entry v5 contract, not the expanded v6 menu.
+        data = copy.deepcopy(data)
+        data['prompt_version'] = 5
+        data['metrics']['investigation']['hypotheses'] = [
+            {'id': hid, 'status': status, 'support_ids': refs,
+             'counter_ids': [], 'unknown_ids': ['investigation:motive_unknown:200']}
+            for hid, status, refs in (
+                ('routine_group', 'compatible', ['investigation:team:200']),
+                ('assistance', 'mixed', ['investigation:low:200']),
+                ('external_assistance', 'unknown', []),
+                ('later_progress', 'compatible', ['investigation:own:200']),
+                ('key_access', 'unknown', []),
+            )]
         raw['investigation']['hypotheses'] = [
             {'id': h['id'], 'assessment': h['status'], 'evidence_ids': h['support_ids'],
              'counter_evidence_ids': h['counter_ids'], 'explanation': '候选解释仍有待核查。'}
@@ -395,7 +439,7 @@ class InvestigationIntegrationTests(TestCase):
         for mutation in (
             lambda r: r['investigation'].update(hypotheses=r['investigation']['hypotheses'][:1]),
             lambda r: r['investigation']['hypotheses'][0].update(assessment='supported', evidence_ids=[]),
-            lambda r: r['investigation']['hypotheses'][0].update(evidence_ids=hypotheses['assistance']['support_ids'][:1]),
+            lambda r: r['investigation']['hypotheses'][0].update(evidence_ids=hypotheses['assistance']['unknown_ids'][:1]),
             lambda r: next(h for h in r['investigation']['hypotheses'] if h['id'] == 'key_access').update(assessment='supported'),
             lambda r: r['investigation'].update(summary='此人已经付款购买钥匙。'),
             lambda r: r['investigation'].update(summary='钥匙属于本人。'),
@@ -408,23 +452,36 @@ class InvestigationIntegrationTests(TestCase):
             mutation(changed)
             with self.subTest(mutation=mutation), self.assertRaises(observation.InvalidResult):
                 observation._validate(json.dumps(changed), data)
-        plan = copy.deepcopy(data)
-        assistance = next(h for h in plan['metrics']['investigation']['hypotheses'] if h['id'] == 'assistance')
-        assistance['counter_ids'] = assistance['support_ids']
-        assistance['support_ids'] = []
-        assistance['status'] = 'weakened'
-        response = json.loads(self.engine().send_message(json.dumps(plan)))
-        response['investigation']['hypotheses'][1]['counter_evidence_ids'] = []
+        # Missing protection/beneficiary proof is unknown, not a reverse fact.
+        assistance = hypotheses['assistance']
+        self.assertFalse(assistance['counter_ids'])
+        self.assertTrue(any(eid.startswith('behavior:key_recovery_unknown:')
+                            for eid in assistance['unknown_ids']))
+
+    def test_missing_protection_cannot_weaken_assistance_in_strict_validator(self):
+        data = observation.build_evidence(self.player)
+        raw = json.loads(self.engine().send_message(json.dumps(data)))
+        observation._validate(json.dumps(raw), data, require_investigation=True)
+        assistance = next(h for h in raw['investigation']['hypotheses'] if h['id'] == 'assistance')
+        assistance['assessment'] = 'weakened'
+        # Use the actual central evidence classification: no forged plan.
         with self.assertRaises(observation.InvalidResult):
-            observation._validate(json.dumps(response), plan)
+            observation._validate(json.dumps(raw), data, require_investigation=True)
+        plan = next(h for h in data['metrics']['investigation']['hypotheses'] if h['id'] == 'assistance')
+        gaps = [eid for eid in plan['unknown_ids'] if eid.startswith('behavior:key_recovery_unknown:')]
+        self.assertTrue(gaps)
+        assistance.update(assessment='possible', evidence_ids=gaps[:1])
+        observation._validate(json.dumps(raw), data, require_investigation=True)
+        assistance['counter_evidence_ids'] = gaps
+        with self.assertRaises(observation.InvalidResult):
+            observation._validate(json.dumps(raw), data, require_investigation=True)
 
     def test_trigger_requires_new_explanation_and_failed_model_keeps_last_good(self):
         engine = self.engine()
         self.assertEqual(observation.generate_observation(self.player, engine=engine)['status'], 'ready')
         row = PlayerObservationAnalysis.objects.get()
         good = copy.deepcopy(row.result_json)
-        legacy = fixtures.ObservationProgressionTests.engine(self).send_message(
-            json.dumps(observation.build_evidence(self.player)), max_tokens=1800, thinking_type='disabled')
+        legacy = self.legacy_response(observation.build_evidence(self.player))
         old_schema = Mock(send_message=Mock(return_value=legacy))
         outcome = observation.generate_observation(self.player, force=True, engine=old_schema)
         self.assertEqual(outcome['status'], 'missing_investigation')
@@ -436,7 +493,7 @@ class InvestigationIntegrationTests(TestCase):
     def test_old_schema_cached_with_trigger_is_not_reused_as_new_explanation(self):
         self.assertEqual(observation.generate_observation(self.player, engine=self.engine())['status'], 'ready')
         data = observation.build_evidence(self.player)
-        legacy = fixtures.ObservationProgressionTests.engine(self).send_message(json.dumps(data), max_tokens=1800, thinking_type='disabled')
+        legacy = self.legacy_response(data)
         PlayerObservationAnalysis.objects.update(result_json=json.loads(legacy))
         engine = self.engine()
         self.assertEqual(observation.generate_observation(self.player, engine=engine)['status'], 'ready')

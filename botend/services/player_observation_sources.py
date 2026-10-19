@@ -4,6 +4,7 @@ Best + recent is a sample, NOT season history. Teammate facts are centralized
 by verified identity, even when the teammate is not a Top20 primary target.
 """
 import json
+import hashlib
 import math
 import re
 import threading
@@ -320,6 +321,42 @@ def _score_cache(character, season):
     return state, None
 
 
+def _request_key(question):
+    key = question.get('identity_digest')
+    if not isinstance(key, str):
+        return None
+    if question.get('kind') == 'scored_history':
+        did = question.get('dungeon_id')
+        return (key, did) if type(did) is int and did > 0 else None
+    return key
+
+
+def _merge_behavior_questions(evidence, recent_ids):
+    metrics = (evidence or {}).get('metrics', {})
+    review = metrics.get('behavior_review') or {}
+    questions = review.get('questions', [])
+    if not questions:
+        return evidence
+    investigation = dict(metrics.get('investigation') or {'version': 1})
+    merged = list(investigation.get('questions', []))
+    for q in questions[:80]:
+        if not isinstance(q, dict):
+            continue
+        ids = q.get('run_ids')
+        if (q.get('kind') not in ('scored_runs', 'scored_history') or not isinstance(ids, list)
+                or not ids or any(type(rid) is not int or rid not in recent_ids for rid in ids)):
+            continue
+        signature = json.dumps([q.get('kind'), q.get('member_key'), q.get('dungeon_id'), sorted(ids)], sort_keys=True)
+        qid = 'behavior_' + hashlib.sha256(signature.encode()).hexdigest()[:20]
+        if any(old.get('kind') == q.get('kind') and old.get('identity_digest') == q.get('member_key')
+               and old.get('dungeon_id') == q.get('dungeon_id') and old.get('run_ids') == ids
+               for old in merged if isinstance(old, dict)):
+            continue
+        merged.append({**q, 'id': qid, 'identity_digest': q.get('member_key')})
+    investigation.update(questions=merged, triggered=investigation.get('triggered') is True or len(merged) > len(investigation.get('questions', [])))
+    return {**evidence, 'metrics': {**metrics, 'investigation': investigation}}
+
+
 def _question_outcomes(investigation, entries, characters, states, scores, rio_season):
     """Bind questions to verified members of their exact canonical runs, never URLs."""
     from botend.services.player_observation_progression import current_record
@@ -335,11 +372,11 @@ def _question_outcomes(investigation, entries, characters, states, scores, rio_s
             continue
         seen.add(qid)
         item = {field: question.get(field) for field in
-                ('id', 'kind', 'identity_digest', 'run_ids', 'hypothesis_ids', 'priority', 'reason')}
+                ('id', 'kind', 'identity_digest', 'dungeon_id', 'run_ids', 'hypothesis_ids', 'priority', 'reason')}
         item.update(status='invalid_question', request_status='not_requested')
         outcomes.append(item)
         ids = question.get('run_ids')
-        if (question.get('kind') != 'scored_runs' or not isinstance(ids, list) or not ids
+        if (question.get('kind') not in ('scored_runs', 'scored_history') or not isinstance(ids, list) or not ids
                 or any(type(rid) is not int or rid not in runs for rid in ids)):
             continue
         if not isinstance(key, str) or key not in characters:
@@ -347,8 +384,33 @@ def _question_outcomes(investigation, entries, characters, states, scores, rio_s
             continue
         if any(key not in members[rid] for rid in ids):
             continue
-        state = states[key]['status']
-        if state in ('ready', 'fresh'):
+        request_key = _request_key(question)
+        if question.get('kind') == 'scored_history':
+            did = question.get('dungeon_id')
+            if type(did) is not int or did <= 0:
+                continue
+            if any(runs[rid]['dungeon']['id'] != did for rid in ids):
+                level = question.get('required_level')
+                targets = investigation.get('resilience_history_targets', [])
+                if (question.get('purpose') != 'resilience_gap' or type(level) is not int
+                        or any(type(runs[rid].get('mythic_level')) is not int
+                               or level != runs[rid]['mythic_level'] + 1 for rid in ids)
+                        or not isinstance(targets, list)
+                        or not any(isinstance(target, dict)
+                                   and target.get('member_key') == key
+                                   and type(target.get('dungeon_id')) is int
+                                   and target['dungeon_id'] == did
+                                   and target.get('run_ids') == ids
+                                   and isinstance(target.get('run_ids'), list)
+                                   and all(type(rid) is int for rid in target['run_ids'])
+                                   and type(target.get('required_level')) is int
+                                   and target['required_level'] == level
+                                   for target in targets)):
+                    continue
+        state = states.get(request_key, {'status': 'pending'})['status']
+        if question.get('kind') == 'scored_history' and state in ('ready', 'fresh'):
+            item.update(status='observed_partial', request_status=state)
+        elif state in ('ready', 'fresh'):
             item['request_status'] = 'fresh'
             fetched = parse_datetime(states[key].get('fetched_at', ''))
             item['status'] = ('answered' if all(current_record(
@@ -392,11 +454,22 @@ def _followup_plan(evidence, activity, entries, characters, states, scores, rio_
         if investigation.get('triggered') is not True:
             return [], 'no_signal'
         outcomes = _question_outcomes(investigation, entries, characters, states, scores, rio_season)
-        pending = [q for q in outcomes if q['status'] == 'budget_pending']
+        from botend.services.player_observation import canonical_observation_runs
+        _, recent, canonical, _, _ = canonical_observation_runs(activity, rio_season)
+        recent_ids = set()
+        for run in recent:
+            try:
+                rid = run_reference(run, rio_season)
+            except (ValueError, TypeError):
+                continue
+            if rid in canonical:
+                recent_ids.add(rid)
+        pending = [q for q in outcomes if q['status'] == 'budget_pending'
+                   and (q['kind'] != 'scored_history' or set(q['run_ids']) <= recent_ids)]
         preference = {qid: index for index, qid in enumerate(preferred_question_ids)}
         pending.sort(key=lambda q: (preference.get(q['id'], len(preference)),
                                    -(q['priority'] if type(q['priority']) in (int, float) else 0), q['id']))
-        return list(dict.fromkeys(q['identity_digest'] for q in pending)), 'investigation_questions'
+        return list(dict.fromkeys(_request_key(q) for q in pending)), 'investigation_questions'
     pattern = metrics.get('team_pattern', {})
     progression = metrics.get('progression') or {}
     if pattern.get('kind') == 'fixed_five':
@@ -467,12 +540,19 @@ def _finish_investigation(before, after, entries, characters, states, scores, at
     initial = before['metrics']['investigation']
     current = (after or {}).get('metrics', {}).get('investigation') or initial
     questions = {q['id']: q for q in initial.get('questions', [])}
-    questions.update({q['id']: q for q in current.get('questions', [])})
-    outcomes = _question_outcomes({**current, 'questions': list(questions.values())},
-                                 entries, characters, states, scores, rio_season)
+    # Successful collection can remove a gap and its authorization. Re-evaluate
+    # the original questions with their execution-time scope, but current facts
+    # and source states. Never lend that authorization to a new/changed question,
+    # even when it reuses an old ID or the same character/dungeon request key.
+    outcomes_by_id = {q['id']: q for q in _question_outcomes(
+        initial, entries, characters, states, scores, rio_season)}
+    changed = [q for q in current.get('questions', []) if q != questions.get(q['id'])]
+    outcomes_by_id.update({q['id']: q for q in _question_outcomes(
+        {**current, 'questions': changed}, entries, characters, states, scores, rio_season)})
+    outcomes = list(outcomes_by_id.values())
     for item in outcomes:
-        if item['identity_digest'] in attempts:
-            item['request_status'] = attempts[item['identity_digest']]['status']
+        if _request_key(item) in attempts:
+            item['request_status'] = attempts[_request_key(item)]['status']
     triggered = initial.get('triggered') is True
     remaining_runs = [s['run_id'] for s in result['runs'] if s['status'] == 'budget_exhausted']
     allowed_runs = ('ready', 'fresh', 'unavailable', 'budget_exhausted') if triggered else ('ready', 'fresh', 'unavailable')
@@ -498,7 +578,7 @@ def _finish_investigation(before, after, entries, characters, states, scores, at
     result['investigation'] = {**current, 'triggered': triggered,
         'input_evidence_hash': before.get('evidence_hash'), 'evidence_hash': (after or {}).get('evidence_hash'),
         'outcomes': outcomes, 'remaining_question_ids': remaining, 'remaining_run_ids': remaining_runs,
-        'requests': [{'identity_digest': key, **state} for key, state in attempts.items()],
+        'requests': [state for state in attempts.values()],
         'api_requests': result['followup_api_requests'], 'api_budget': result['followup_api_budget'],
         'bounded_complete': stop not in ('rate_limited', 'source_failed'), 'stop_reason': stop}
     result['followup_triggered'] = triggered
@@ -575,7 +655,14 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
     start = batch.requests
     if not batch.stop_event.is_set():
         from botend.services.player_observation import build_evidence
-        before = build_evidence(primary)
+        before = _merge_behavior_questions(build_evidence(primary), recent_ids)
+        from botend.services.player_observation_history import history_cache, collect_history
+        for q in ((before or {}).get('metrics', {}).get('investigation') or {}).get('questions', []):
+            if not isinstance(q, dict):
+                continue
+            key, did = q.get('identity_digest'), q.get('dungeon_id')
+            if q.get('kind') == 'scored_history' and isinstance(key, str) and key in characters and type(did) is int and did > 0:
+                states[(key, did)] = history_cache(characters[key], season, did)
         investigation = (before or {}).get('metrics', {}).get('investigation')
         allowed_questions = {q['id'] for q in (investigation or {}).get('questions', [])}
         preferred = [qid for qid in _preferred_question_ids(activity, before) if qid in allowed_questions]
@@ -592,9 +679,12 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
                 break
             # Recheck under the collector lock; force NEVER defeats a needed-cache plan.
             request_start = batch.requests
-            states[key] = batch.scored(characters[key], season, False)
+            if isinstance(key, tuple):
+                states[key] = collect_history(batch, characters[key[0]], season, key[1])
+            else:
+                states[key] = batch.scored(characters[key], season, False)
             attempts[key] = {**states[key], 'api_requests': batch.requests - request_start}
-            if states[key]['status'] in ('ready', 'fresh'):
+            if not isinstance(key, tuple) and states[key]['status'] in ('ready', 'fresh'):
                 _, score = _score_cache(characters[key], season)
                 if score is not None:
                     scores[key] = score
@@ -606,7 +696,7 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
         if isinstance(investigation, dict) and investigation.get('version') == 1:
             # Rebuild from the just-published central snapshots, never infer the
             # answer from HTTP success or mutate the original evidence in place.
-            after = build_evidence(primary)
+            after = _merge_behavior_questions(build_evidence(primary), recent_ids)
             _finish_investigation(before, after, entries, characters, states, scores,
                                   attempts, result, season.rio_season)
     result['characters'] = list(states.values())

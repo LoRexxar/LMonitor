@@ -83,7 +83,7 @@ class RecheckTests(TestCase):
             self.assertTrue(url == CATALOG or '/api/characters/' in url, url)
             return Mock(status_code=200, headers={}, json=Mock(return_value=catalog if url == CATALOG else details))
         token = self.queue()
-        with patch('requests.Session.get', side_effect=transport), patch('botend.services.player_observation_sources._pace', return_value=True), patch('botend.services.player_raid_observation_sources._pace', return_value=True), patch('core.glm.GLMClient', side_effect=AssertionError('no supported judgement means no AI')):
+        with patch('requests.Session.get', side_effect=transport), patch('botend.services.player_observation_sources._pace', return_value=True), patch('botend.services.player_raid_observation_sources._pace', return_value=True), patch('botend.services.player_observation.PlayerObservationGLMClient', side_effect=AssertionError('no supported judgement means no AI')):
             result = run(self.row.pk, token)
         self.assertEqual(result['state'], 'succeeded', result)
         self.assertEqual(len(calls), 4)

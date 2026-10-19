@@ -296,12 +296,10 @@ class PlayerAnalysisGenerationTests(TestCase):
         class Engine:
             def send_message(self, prompt, **kwargs):
                 evidence = json.loads(prompt)
-                label = evidence['eligible_labels'][0]
+                from botend.tests.test_player_observation import observation_response
                 if before_return:
                     before_return()
-                return json.dumps({'observations': [{'code': label['code'], 'confidence': '低',
-                    'reason_id': next(iter(label['reason_options'])), 'limitation_ids': label['required_limitation_ids'],
-                    'evidence_ids': label['evidence_ids']}], 'conclusion_id': 'public_sample'})
+                return json.dumps(observation_response(evidence))
         return Engine()
 
     def test_ai_refresh_cannot_overwrite_concurrent_editorial_write(self):
