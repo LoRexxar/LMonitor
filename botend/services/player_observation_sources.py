@@ -628,13 +628,14 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
     for run in refs:
         rid = run_reference(run, season.rio_season)
         fact, row = visible[rid], rows.get(rid)
-        # Valid immutable run facts need no TTL refresh, except bounded legacy ID repair.
+        # Immutable facts avoid TTL refresh, not retries of failed collection.
         repair = bool(fact and any('id' not in member['character'] for member in fact['roster']))
-        if fact and not repair:
-            now = timezone.now()
-            protected = row.next_attempt_at and row.next_attempt_at > now and row.status != 'ready'
-            state = {'run_id': rid, 'status': ('busy' if row.status == 'fetching' else 'backoff')
-                     if protected else 'fresh'}
+        protected = (row and row.next_attempt_at and row.next_attempt_at > timezone.now()
+                     and (row.status != 'ready' or row.last_error))
+        if fact and not repair and protected:
+            state = {'run_id': rid, 'status': 'busy' if row.status == 'fetching' else 'backoff'}
+        elif fact and not repair and row.status != 'error' and not row.last_error:
+            state = {'run_id': rid, 'status': 'fresh'}
         elif batch.stop_event.is_set():
             state = {'run_id': rid, 'status': 'batch_stopped'}
         elif batch.requests - roster_start >= roster_budget:
