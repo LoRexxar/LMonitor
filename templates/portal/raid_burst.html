@@ -1,0 +1,85 @@
+{% load static %}
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <meta name="robots" content="noindex,nofollow">
+    <title>战斗统计 · 爆发时间轴 - WowDaily</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
+    <link rel="stylesheet" href="{% static 'portal/css/raid-burst.css' %}?v=20261020_sample_hover">
+</head>
+<body class="portal-bg font-sans">
+    {% include 'portal/_header.html' %}
+    <main id="raid-burst-page">
+        <div class="burst-title">
+            <h1>战斗统计 · 爆发时间轴</h1>
+            <span class="burst-tag">登录可见 · 每日团本统计</span>
+        </div>
+        {% if raid_burst_scopes %}
+        <form method="get" class="burst-controls">
+            <label for="scope">团本与专精<select id="scope" name="scope">
+                {% for item in raid_burst_scopes %}
+                <option value="{{ item.key }}" {% if item.key == raid_burst_payload.scope.key %}selected{% endif %}>{{ item.label }}</option>
+                {% endfor %}
+            </select></label>
+            <button type="submit">查看统计</button>
+        </form>
+        {% endif %}
+        {% if raid_burst_payload %}
+        <p>{{ raid_burst_payload.scope.label }} · 更新时间 {{ raid_burst_updated_at|date:"Y年n月j日 H:i" }}</p>
+        <p>已排除获得灌注及未记录到嗜血的日志。</p>
+        <p id="coverage" class="burst-count" role="status">正在读取样本…</p>
+        <section class="burst-panel" aria-label="统计筛选">
+            <div class="burst-controls">
+                <label for="group">嗜血策略<select id="group">
+                    <option value="all">分别查看全部策略</option>
+                </select></label>
+                <label for="duration">战斗时长（独立条件）<select id="duration">
+                    <option value="all">不限时长</option>
+                    <option value="240,300">4–5分钟</option>
+                    <option value="300,360">5–6分钟</option>
+                    <option value="360,420">6–7分钟</option>
+                    <option value="custom">自定义范围</option>
+                </select></label>
+                <label for="minimum">最短（分:秒）<input id="minimum" type="text" placeholder="如 4:30"></label>
+                <label for="maximum">最长（分:秒）<input id="maximum" type="text" placeholder="如 5:30"></label>
+                <label for="axis">时间轴对齐<select id="axis">
+                    <option value="pull">从开怪起算</option>
+                    <option value="lust">从嗜血起算</option>
+                </select></label>
+            </div>
+            <p class="burst-muted">默认不限时长。窗口与方案按全量样本预先分组，总宽度≤5秒；筛选只显示符合条件的成员和人数，保留已发布的窗口边界。</p>
+            <p id="distribution" class="burst-muted"></p>
+            <p id="selection" class="burst-count" role="status"></p>
+        </section>
+        <section class="burst-panel">
+            <div class="burst-title">
+                <h2>真实施放时间轴</h2>
+                <div class="burst-tabs" aria-label="选择技能">
+                    {% for spell_id, name in raid_burst_payload.skill_names.items %}
+                    <button type="button" data-spell="{{ spell_id }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}">{{ name }}</button>
+                    {% endfor %}
+                </div>
+            </div>
+            <div id="chart" class="burst-chart"></div>
+            <p class="burst-muted">悬停样本行可查看玩家和DPS，也支持点击或键盘聚焦。圆点：施放技能；菱形：阶段转换；橙线：嗜血持续时间；末端竖线：击杀。横轴为分:秒。</p>
+        </section>
+        <section class="burst-panel">
+            <h2>不同的爆发选择</h2>
+            <p>先看嗜血前20秒至后40秒的共同窗口，再看整场选择。仅将次数相同、每个对应节点跨度都≤5秒的日志合并。</p>
+            <div id="groups"></div>
+        </section>
+        <p class="burst-notice">样本用于探索真实打法，尚未证明哪种安排伤害更高。天赋、装备和团队条件仍可能不同。</p>
+        <noscript><p>请启用 JavaScript 以查看时间轴和筛选结果。</p></noscript>
+        {% else %}
+        <section class="burst-panel"><p id="coverage">暂无已生成的战斗统计，请等待团本每日任务完成。</p></section>
+        {% endif %}
+        <p class="burst-muted">当前已支持武器战的爆发技能；其他专精将在确认日志中的技能编号后开放。</p>
+    </main>
+    {{ raid_burst_payload|json_script:"raid-burst-data" }}
+    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261020_daily_snapshot" defer></script>
+</body>
+</html>

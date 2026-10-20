@@ -111,7 +111,9 @@ class SpecDetailAggregationMonitor(BaseScan):
                     spec_dir = os.path.join(base_dir, class_name, spec_name)
                     self._aggregate_dungeon(season, class_name, spec_name, spec_dir, cycle=cycle)
                     self._aggregate_raid(season, class_name, spec_name, spec_dir,
-                                         publish=partial(publish_stats, cycle=cycle))
+                                         publish=partial(publish_stats, cycle=cycle),
+                                         burst_guard=lambda: fenced_cycle(cycle, phases=('aggregating',)),
+                                         source_cutoff=cycle.collected_at)
             finish_publication(cycle)
             return True
         except CycleOwnershipLost:
@@ -122,7 +124,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             error = f'publication_failed:{type(exc).__name__}'
             if cycle is not None:
                 try:
-                    defer_cycle(cycle, error)
+                    defer_cycle(cycle, error, retry_at=getattr(exc, 'retry_at', None))
                 except CycleOwnershipLost:
                     pass
             logger.error('[SpecDetailAggregation] %s', error)
@@ -145,7 +147,8 @@ class SpecDetailAggregationMonitor(BaseScan):
             publish or (partial(publish_stats, cycle=cycle) if cycle else publish_stats), **kwargs)
 
     @staticmethod
-    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None):
+    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None,
+                        burst_guard=None, source_cutoff=None):
         if not season.raid_encounters:
             return
 
@@ -194,6 +197,10 @@ class SpecDetailAggregationMonitor(BaseScan):
                 {'difficulty': 4, 'label': '英雄团本表现', 'zone_groups': heroic_zones},
             ],
         }, class_name, spec_name)
+        if burst_guard is not None:
+            from botend.services.raid_burst_aggregation import aggregate_raid_burst
+            aggregate_raid_burst(season, class_name, spec_name, guard=burst_guard,
+                                 source_cutoff=source_cutoff)
 
     @staticmethod
     def refresh_leaderboard_projection(season_id, class_name, spec_name):

@@ -68,6 +68,7 @@ from botend.portal.views import PortalArticleView, PortalMplusDpsRankingsView, P
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowHotfixClassReportView, PortalWowHotfixClassMetadataAPIView, PortalWowSkillDiffReportView, PortalWowSkillDiffMetadataAPIView
 from botend.portal.views import PortalWowUpdatesView
 from botend.portal.nga_views import PortalNgaView, PortalNgaDetailView
+from botend.portal.raid_burst import PortalRaidBurstView
 from botend.portal.character_navigation import character_redirect
 from botend.portal.spec_detail_views import SpecDetailPlayerView, SpecDetailPlayerDetailView, SpecDetailDungeonView, SpecDetailRaidView, SpecOverviewAPIView, SimcProfileDetailView
 from botend.portal.talent_simulator import PortalTalentSimulatorAPIView, PortalTalentSimulatorEncodeAPIView, PortalTalentSimulatorView
@@ -376,6 +377,7 @@ urlpatterns = [
     path('wcl-analysis/report/<int:task_id>/', WclAnalysisReportView.as_view(), name="wcl_analysis_report"),
 
     # 专精详情页
+    path('portal/raid-burst/', PortalRaidBurstView.as_view(), name='portal_raid_burst'),
     path('portal/api/spec/<str:class_name>/<str:spec_name>/<str:module>/', SpecOverviewAPIView.as_view(), name="spec_overview_api"),
     path('portal/spec/<str:class_name>/<str:spec_name>/simc-profile/<int:profile_id>/', SimcProfileDetailView.as_view(), name="portal_simc_profile_detail"),
     path('portal/spec/<str:class_name>/<str:spec_name>/', SpecDetailPlayerView.as_view(), name="spec_detail_player"),
