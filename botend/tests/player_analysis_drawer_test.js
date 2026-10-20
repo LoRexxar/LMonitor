@@ -5,7 +5,7 @@ const {mount}=require('../../static/dashboard/js/player-analysis-management.js')
 const tick=()=>new Promise(r=>setImmediate(r));
 async function setup({initialState='idle',initialToken,postFailure,postToken,pollInterval=10}={}){
  const dom=new JSDOM('<section id="player-analyses"><div id="app"></div></section><meta name="csrf-token" content="csrf">',{url:'https://example.com',pretendToBeVisual:true});
- const row={id:7,revision:3,player_id:42,player:{character_name:'角色'},status:'ready',review_status:'approved',is_published:false,source_kind:'ai',manual:null,ai:{tags:[{label:'队伍',value:'固定',evidence:[]}],conclusion:'AI冻结',evidence:[]}};
+ const row={id:7,revision:3,player_id:42,player:{character_name:'角色'},status:'ready',review_status:'approved',is_published:false,source_kind:'ai',manual:null,ai:{validation_status:'valid',tags:[{label:'队伍',value:'固定',evidence:[]}],conclusion:'AI冻结',evidence:[]}};
  const calls=[];let state=initialState,token=initialToken,accept=true,failPost=false;
  const app=mount(dom.window.document.querySelector('#app'),{confirm:()=>accept,pollInterval,fetch:async(url,opt)=>{calls.push([url,opt]);let data=row;
  if(url.endsWith('/recheck/')){

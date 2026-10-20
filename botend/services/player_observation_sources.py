@@ -439,7 +439,7 @@ def _question_outcomes(investigation, entries, characters, states, scores, rio_s
 def _preferred_question_ids(activity, evidence):
     """Reuse only validated AI priorities bound to the same currently valid facts."""
     from botend.models import PlayerObservationAnalysis
-    from botend.services.player_observation import _same_publication, _validate, InvalidResult
+    from botend.services.player_observation import _same_publication, _validate_frozen_publication, InvalidResult
     plan = (evidence or {}).get('metrics', {}).get('investigation') or {}
     if plan.get('triggered') is not True or not plan.get('questions'):
         return []
@@ -448,7 +448,7 @@ def _preferred_question_ids(activity, evidence):
     if row is None or not _same_publication(row, evidence):
         return []
     try:
-        result = _validate(json.dumps(row.result_json, ensure_ascii=False), row.evidence_json)
+        result = _validate_frozen_publication(row)
     except (InvalidResult, TypeError, ValueError):
         return []
     allowed = {q['id'] for q in plan['questions']}

@@ -23,7 +23,9 @@ def observation_response(data):
         'limitation_ids': label['required_limitation_ids'],
         'evidence_ids': label['evidence_ids']}], 'conclusion_id': 'public_sample'}
     plan = data.get('metrics', {}).get('investigation', {})
-    if plan.get('triggered'):
+    if plan.get('triggered') and 'response_contract' in plan:
+        result['investigation'] = structured_response(plan['response_contract'])
+    elif plan.get('triggered'):
         hypotheses = sorted(plan['hypotheses'], key=lambda h: h['id'] != 'external_assistance')[:4]
         result['investigation'] = {'summary': '已有公开线索，仍需比较协作解释。',
             'confidence': '低', 'hypotheses': [{
@@ -33,6 +35,17 @@ def observation_response(data):
                 'explanation': '仅为待核查的解释，不确定组队目的。'} for h in hypotheses],
             'next_question_ids': [q['id'] for q in plan['questions'][:3]]}
     return result
+
+
+def structured_response(menu):
+    """Controlled v8 engine choice from the actual transport contract."""
+    return {'schema_version': 8, 'confidence': '低',
+        'hypotheses': [{'id': h['id'],
+            'assessment': ('unknown' if not h['support_ids'] and not h['counter_ids']
+                           and 'unknown' in h['assessment_options'] else h['assessment_options'][0]),
+            'support_ids': h['support_ids'][:3], 'counter_ids': h['counter_ids'],
+            'unknown_ids': h['unknown_ids'][:3]} for h in menu['hypotheses']],
+        'next_question_ids': menu['next_question_ids'][:3]}
 
 
 class PlayerObservationTests(TestCase):
@@ -254,7 +267,11 @@ class PlayerObservationTests(TestCase):
         raw = self.engine().send_message(json.dumps(data), max_tokens=3600, thinking_type='disabled')
         wrapped = '```json\n' + raw + '\n```'
         self.assertEqual(_validate(wrapped, data), _validate(raw, data))
-        self.assertEqual(generate_observation(self.player, engine=Mock(send_message=Mock(return_value=wrapped)))['status'], 'ready')
+        from botend.services.player_observation import _generation_input, _validate_publication
+        generated = json.dumps(observation_response(_generation_input(data)))
+        generated = '```json\n' + generated + '\n```'
+        _validate_publication(generated, data, publication_version=8)
+        self.assertEqual(generate_observation(self.player, engine=Mock(send_message=Mock(return_value=generated)))['status'], 'ready')
         for bad in ('说明\n' + wrapped, wrapped + '\n更多文字', '```python\n' + raw + '\n```', wrapped + wrapped):
             with self.subTest(raw=bad), self.assertRaises(InvalidResult):
                 _validate(bad, data)
@@ -343,8 +360,15 @@ class PlayerObservationTests(TestCase):
 
     def test_previous_prompt_is_retained_but_not_published_as_v6(self):
         from botend.services.player_observation import generate_observation, project_player_observation
-        with patch('botend.services.player_observation.PROMPT_VERSION', 5):
-            self.assertEqual(generate_observation(self.player, engine=self.engine())['status'], 'ready')
+        self.assertEqual(generate_observation(self.player, engine=self.engine())['status'], 'ready')
+        row = PlayerObservationAnalysis.objects.get()
+        row.prompt_version = 5
+        row.evidence_json['prompt_version'] = 5
+        from botend.services.player_observation import _hash
+        row.evidence_hash = _hash({k: v for k, v in row.evidence_json.items()
+            if k not in ('evidence_hash', 'source_failed')})
+        row.evidence_json['evidence_hash'] = row.evidence_hash
+        row.save()
         before = PlayerObservationAnalysis.objects.get().generated_at
         frozen = PlayerObservationAnalysis.objects.get().result_json
         self.assertEqual(project_player_observation(self.player)['status'], 'pending')

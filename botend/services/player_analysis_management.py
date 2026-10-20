@@ -142,6 +142,8 @@ def _common(row):
                       'season_name': row.activity.season.season_name},
         'status': row.status, 'review_status': row.review_status,
         'prompt_version': row.prompt_version, 'rules_current': row.prompt_version == PROMPT_VERSION,
+        # Compatibility is not validation. Lists must not load frozen evidence.
+        'publication_version_supported': row.prompt_version in (7, 8),
         'review_note': row.review_note, 'reviewed_by_id': row.reviewed_by_id,
         'reviewed_at': _date(row.reviewed_at), 'reviewed_evidence_hash': row.reviewed_evidence_hash,
         'reviewed_result_hash': row.reviewed_result_hash,
@@ -154,8 +156,20 @@ def _common(row):
 
 def frozen_ai(row):
     """Render identifiers against their OWN frozen publication, never today's facts."""
-    evidence = row.evidence_json if isinstance(row.evidence_json, dict) else {}
-    result = row.result_json if isinstance(row.result_json, dict) else {}
+    from botend.services.player_observation import (
+        InvalidResult, _validate_frozen_publication, _project_frozen_investigation,
+    )
+    audit = {'result_json': row.result_json, 'evidence_json': row.evidence_json}
+    empty = {'tags': [], 'conclusion': '', 'evidence': [], 'rendered_investigation': None}
+    if not row.result_json:
+        return {**audit, **empty, 'validation_status': 'missing'}
+    try:
+        result = _validate_frozen_publication(row)
+        rendered = _project_frozen_investigation(row, validated=result)
+    except (InvalidResult, ValueError, KeyError, TypeError):
+        # Invalid/unsupported/mixed publications remain available only for audit.
+        return {**audit, **empty, 'validation_status': 'invalid'}
+    evidence = row.evidence_json
     labels = {item['code']: item for item in evidence.get('eligible_labels', []) if isinstance(item, dict) and 'code' in item}
     refs = {item['id']: {'text': item.get('text', ''), 'url': item.get('run_url', item.get('url', ''))}
             for item in evidence.get('evidence', []) if isinstance(item, dict) and 'id' in item}
@@ -170,7 +184,8 @@ def frozen_ai(row):
             'evidence': [refs[key] for key in item.get('evidence_ids', []) if key in refs]})
     option = evidence.get('conclusion_options', {}).get(result.get('conclusion_id'), {})
     return {'tags': tags, 'conclusion': option.get('text', '') if isinstance(option, dict) else '',
-            'evidence': list(refs.values()), 'result_json': row.result_json, 'evidence_json': row.evidence_json}
+            'evidence': list(refs.values()), **audit,
+            'validation_status': 'valid', 'rendered_investigation': rendered}
 
 
 def _detail(row):

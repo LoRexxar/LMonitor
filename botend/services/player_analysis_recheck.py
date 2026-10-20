@@ -311,7 +311,7 @@ def record_sources(pk, token, sources):
 
 
 def run(pk, token):
-    from botend.services.player_observation import build_evidence, generate_observation, PROMPT_VERSION, _validate, _local_empty
+    from botend.services.player_observation import build_evidence, generate_observation, PROMPT_VERSION, _validate_frozen_publication
     from botend.services.player_observation_sources import refresh_observation_sources
     from botend.services.player_raid_observation_sources import refresh_raid_sources
     import json
@@ -354,8 +354,7 @@ def run(pk, token):
             if (row.status != 'ready' or row.last_error or row.prompt_version != PROMPT_VERSION
                     or row.evidence_hash != evidence['evidence_hash'] or row.evidence_json != evidence or not row.result_json):
                 raise Blocked('中央分析与当前证据不一致，不能记为重查成功。')
-            if not _local_empty(row.result_json, evidence):
-                _validate(json.dumps(row.result_json), evidence)
+            _validate_frozen_publication(row)
             trace = sources.get('investigation') or {}
             unfinished = (trace.get('remaining_question_ids') or trace.get('remaining_run_ids')
                           or any(h.get('status') == 'unknown' or h.get('unknown_ids')

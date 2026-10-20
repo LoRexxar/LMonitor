@@ -196,6 +196,9 @@ class InvestigationIntegrationTests(TestCase):
                     'counter_evidence_ids': h['counter_ids'], 'explanation': '这是基于已列证据的候选解释，不是事实确认。'}
                     for h in inquiry['hypotheses'][:4]],
                 'next_question_ids': [q['id'] for q in inquiry['questions'][:2]]}}
+            if 'response_contract' in inquiry:
+                from botend.tests.test_player_observation import structured_response
+                result['investigation'] = structured_response(inquiry['response_contract'])
             if mutate:
                 mutate(result)
             return json.dumps(result, ensure_ascii=False)
@@ -324,7 +327,9 @@ class InvestigationIntegrationTests(TestCase):
         for hypothesis in view['investigation']['hypotheses']:
             for key in ('evidence', 'counter_evidence', 'unknown_evidence'):
                 self.assertTrue(all(item == refs[item['id']] for item in hypothesis[key]))
-        self.assertEqual(view['investigation']['summary'], row.result_json['investigation']['summary'])
+        self.assertEqual(view['investigation']['structured_investigation'], row.result_json['investigation'])
+        self.assertTrue(view['investigation']['summary'])
+        self.assertNotIn('summary', row.result_json['investigation'])
         PlayerObservationAnalysis.objects.update(is_published=False)
         self.assertIsNone(observation.project_player_observation(self.player))
 
