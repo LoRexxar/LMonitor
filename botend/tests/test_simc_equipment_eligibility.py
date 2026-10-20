@@ -26,6 +26,54 @@ def params(item_id, slot='trinket1'):
 
 
 class EquipmentEligibilityTests(TestCase):
+    def test_variants_share_the_single_loaded_item_without_duplicate_json(self):
+        item = equipment(123, primary=('strength',))
+        item.metadata['source_evidence'] = {'lines': ['evidence-' + str(i) for i in range(100)]}
+        item.save(update_fields=['metadata'])
+        season = SeasonMeta.objects.create(season_key='shared-item', season_name='Shared',
+            mplus_zone_id=1, raid_zone_id=2, is_active=True, gear_batch_key='current')
+        for level in range(280, 300):
+            WowItemVariantSnapshot.objects.create(item=item, season=season, batch_key='current',
+                variant_key=str(level), variant_type='drop_equipment', item_level=level,
+                stats_json={'strength': 100}, metadata={'level': level})
+        with self.assertNumQueries(2):
+            eligibility = EquipmentEligibility([params(123)])
+            variants = eligibility.variants[123]
+            self.assertEqual(len(variants), 20)
+            for variant in variants:
+                self.assertIs(variant.item, eligibility.items[123])
+                self.assertEqual(variant.item.metadata, item.metadata)
+                self.assertEqual(variant.metadata['level'], variant.item_level)
+            self.assertIsNone(eligibility.reason(params(123), 'warrior_fury'))
+            self.assertIsNotNone(eligibility.reason(params(123), 'mage_fire'))
+
+    def test_simulation_does_not_treat_loot_specs_as_equip_restrictions(self):
+        # Captured live metadata: the DPS loot lists exclude same-stat tanks.
+        from botend.services.gear_builder import spec_matches
+        flag = equipment(273797, primary=('strength', 'agility'),
+                         eligible=('Warrior:Fury', 'Paladin:Retribution', 'Druid:Feral', 'Monk:Windwalker'))
+        agility = equipment(270166, primary=('agility',),
+                            eligible=('Druid:Feral', 'Monk:Windwalker'))
+        equipment(901, primary=('strength',), class_mask=128)
+        equipment(902, inventory=5, subclass=1, primary=('intellect',))
+        candidates = [{'candidate_key': str(i), 'candidate_params': params(i)}
+                      for i in (273797, 270166, 901)]
+        eligibility = EquipmentEligibility([c['candidate_params'] for c in candidates] + [params(902, 'chest')])
+        for spec in ('warrior_protection', 'paladin_protection', 'druid_guardian', 'monk_brewmaster'):
+            with self.subTest(spec=spec):
+                accepted, skipped = eligibility.filter(candidates, spec)
+                self.assertIn('273797', [c['candidate_key'] for c in accepted])
+                self.assertNotIn('901', [c['candidate_key'] for c in accepted])
+        for spec in ('druid_guardian', 'monk_brewmaster'):
+            self.assertIsNone(eligibility.reason(params(270166), spec))
+        self.assertIsNotNone(eligibility.reason(params(270166), 'warrior_protection'))
+        self.assertIsNotNone(eligibility.reason(params(902, 'chest'), 'warrior_protection'))
+        self.assertEqual(eligibility.reason(params(273797, 'head'), 'warrior_protection')['code'], 'wrong_slot')
+        self.assertFalse(spec_matches(flag, 'Warrior', 'Protection'))
+        self.assertFalse(spec_matches(agility, 'Druid', 'Guardian'))
+        flag.refresh_from_db()
+        self.assertEqual(flag.eligible_specs, ['Warrior:Fury', 'Paladin:Retribution', 'Druid:Feral', 'Monk:Windwalker'])
+
     def test_primary_stats_are_specialization_specific_and_neutral_items_remain(self):
         equipment(1, primary=('agility', 'intellect'))
         equipment(2, primary=('strength', 'agility', 'intellect'))

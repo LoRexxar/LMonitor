@@ -187,7 +187,9 @@ class SpecOverviewService:
 
     @classmethod
     def raid(cls, class_name, spec_name):
-        return cls._raid_payload(*cls._aggregate('raid', class_name, spec_name))
+        from botend.services.raid_instance_projection import project_raid_instances
+        # Central journal metadata stays fresh even on a warm statistics cache.
+        return project_raid_instances(cls._raid_payload(*cls._aggregate('raid', class_name, spec_name)))
 
     @classmethod
     def _raid_payload(cls, data, mtime):

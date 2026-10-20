@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../../../static/portal/js/gear_builder.js', import.meta.url), 'utf8');
 const context = {document: {querySelector: () => ({dataset: {}}), getElementById: () => ({})}};
-vm.runInNewContext(source.replace('  initialize();', 'globalThis.qa = {state, effectSummaryGroups, effectSummaryMarkup, totalsAndEffects};'), context);
+vm.runInNewContext(source.replace('  initialize();', 'bootstrap = {slots: ["neck", "main_hand", "trinket1"].map(key => ({key}))}; globalThis.qa = {state, effectSummaryGroups, effectSummaryMarkup, totalsAndEffects};'), context);
 const {state, effectSummaryGroups, effectSummaryMarkup, totalsAndEffects} = context.qa;
 const gem = {item: {item_id: 1, name: '迅捷宝石'}, variant: {id: 1, stats: {haste: 17}, effects: []}};
 const enchant = {item: {item_id: 2, name: '急速附魔'}, variant: {id: 2, stats: {haste: 21}, effects: []}};

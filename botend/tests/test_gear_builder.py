@@ -939,20 +939,22 @@ class GearBuilderApiTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(payload['equipment']['head']['variant']['id'], self.hero.id)
         self.assertIn('颈部的装备不适用于当前专精，已置空', payload['warnings'])
 
-    def test_share_rejects_outdated_primary_key_encoding(self):
-        response = self.client.post(
-            '/portal/api/gear-builder/resolve-share/',
-            data=json.dumps({
-                'v': 2,
-                'c': 'Warrior',
-                's': 'Fury',
-                'b': 'test-batch',
-                'e': [['head', self.helm.item_id, self.hero.id]],
-            }),
-            content_type='application/json',
-        )
+    def test_share_restores_historical_primary_key_and_rejects_wrong_item_identity(self):
+        payload = {
+            'v': 2, 'c': 'Warrior', 's': 'Fury', 'b': 'test-batch', 'strict': True,
+            'e': [['head', self.helm.item_id, self.hero.id]],
+        }
+        response = self.client.post('/portal/api/gear-builder/resolve-share/',
+            data=json.dumps(payload), content_type='application/json')
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['equipment']['head']['variant']['id'], self.hero.id)
+        self.assertEqual(response.json()['issues'], [])
+        payload['e'][0][1] = self.crafted_item.item_id
+        response = self.client.post('/portal/api/gear-builder/resolve-share/',
+            data=json.dumps(payload), content_type='application/json')
         self.assertEqual(response.status_code, 400)
-        self.assertIn('版本已过期', response.json()['error'])
+        self.assertTrue(response.json()['issues'])
+        self.assertNotIn('equipment', response.json())
 
     def test_simc_import_maps_catalog_and_preserves_external_item(self):
         profile = '\n'.join((
@@ -1844,17 +1846,24 @@ class GearBuilderFrontendContractTests(TestCase):
         self.assertNotIn('<details class="gear-enhancement-section" open>', template)
         for value in ('localStorage', 'CompressionStream', 'parse', 'crafted_stats', 'data-wow-item-tooltip'):
             self.assertIn(value, script)
-        for value in ('SHARE_FORMAT_VERSION = 4', 'compactShareState', 'compactVariantReference', 'hydrateSharePayload', 'endpoints.share', 'row.slice(0, 8)'):
+        for value in ('SHARE_FORMAT_VERSION = 4', 'compactShareState', 'compactVariantReference', 'hydrateSharePayload', 'endpoints.share'):
             self.assertIn(value, script)
-        self.assertIn('Number(payload?.v) !== SHARE_FORMAT_VERSION', script)
-        self.assertIn('分享链接版本已过期', script)
+        hydration = script.split('async function hydrateSharePayload(payload)', 1)[1].split('async function encodeShare', 1)[0]
+        self.assertIn('[2, 3, 4].includes(version)', hydration)
+        self.assertIn('structuredClone(row[8])', hydration)
+        self.assertIn('strict: true', hydration)
+        self.assertIn('e: requestRows', hydration)
+        self.assertNotIn('row.slice(0, 8)', hydration)
+        self.assertIn('assertCompleteResolution(requestRows, response, version)', hydration)
         for value in ('buildSimcProfile', 'simcEquipmentLine', 'SIMC_CRAFTED_STAT_IDS', 'gem_id=', 'enchant_id=', 'navigator.clipboard.writeText(profile)'):
             self.assertIn(value, script)
         for value in ('refreshOnlineLoadouts', 'saveOnlineLoadout', 'loadOnlineLoadout', 'deleteOnlineLoadout', 'copyShortShare', 'initialShareToken'):
             self.assertIn(value, script)
         for value in ('data-loadout-source', 'data-load-online-loadout', 'data-delete-online-loadout', '本地 ${savedLoadouts.length} · 线上 ${onlineLoadouts.length}'):
             self.assertIn(value, script)
-        self.assertIn('return normalizeState(payload);', script)
+        self.assertIn('const next = normalizeState(payload);', hydration)
+        self.assertIn('snapshotSlots: validated.snapshotSlots', hydration)
+        self.assertIn('const validated = await hydrateSharePayload({', hydration)
         for value in ('LOADOUT_LIBRARY_KEY', 'MAX_SAVED_LOADOUTS = 30', 'readSavedLoadouts', 'saveCurrentLoadout', 'loadSavedLoadout', 'deleteSavedLoadout'):
             self.assertIn(value, script)
         self.assertIn('code: await encodeShare(compactShareState(state))', script)

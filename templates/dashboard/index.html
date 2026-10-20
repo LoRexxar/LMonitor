@@ -543,7 +543,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261016_central_data"></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261018_player_analysis_group"></script>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -553,7 +553,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20261013_base_expectation_values"></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20261018_section_history"></script>
     {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_shared_localization">
     <script src="{% static 'dashboard/js/guide_management.js' %}?v=20260909_tag_disclaimers" defer></script>
@@ -581,6 +581,8 @@
     {% if user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}">
     <script src="{% static 'dashboard/js/bilibili_binding_admin.js' %}?v=20260929_workspace" defer></script>
+    <link rel="stylesheet" href="{% static 'dashboard/css/player-analysis-management.css' %}?v=20261018_triggered_investigation">
+    <script src="{% static 'dashboard/js/player-analysis-management.js' %}?v=20261019_frozen_behavior_refs" defer></script>
     {% endif %}
     <script src="{% static 'dashboard/js/simc-result-report.js' %}?v=20260817_result_config_panel"></script>
     <script src="{% static 'dashboard/js/simc-workbench.js' %}?v=20260818_task_compare_selection"></script>
@@ -755,6 +757,13 @@
                             </li>
                         </ul>
                     </li>
+                    {% if user.is_superuser %}
+                    <li class="nav-item" data-section="player-analyses">
+                        <a href="?section=player-analyses" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600">
+                            <i class="fas fa-user-check mr-3" aria-hidden="true"></i>角色分析管理
+                        </a>
+                    </li>
+                    {% endif %}
                     <li class="nav-item" data-section="portal-navigation">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-compass mr-3"></i>
@@ -2369,6 +2378,7 @@
             
             {% include 'dashboard/site_analytics.html' %}
             {% if user.is_superuser %}
+            {% include 'dashboard/player_analysis_management.html' %}
             {% include 'dashboard/bilibili_binding_admin.html' %}
             {% endif %}
             <!-- 独立用户管理，不接入通用数据库 CRUD -->

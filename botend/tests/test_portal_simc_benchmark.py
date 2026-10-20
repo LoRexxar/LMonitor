@@ -36,7 +36,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
             is_public=True, is_active=False,
         )
 
-    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    @patch('botend.portal.simc_benchmark_api.read_panel_result_snapshot')
     def test_list_contains_only_public_fields_and_public_panels(self, serializer):
         with self.assertNumQueries(1):
             response = self.client.get('/portal/api/simc-benchmarks/panels/')
@@ -83,7 +83,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(panel['result_updated_at'], latest.created_at.isoformat())
         self.assertNotEqual(panel['result_updated_at'], first.created_at.isoformat())
 
-    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    @patch('botend.portal.simc_benchmark_api.read_panel_result_snapshot')
     def test_detail_returns_immediate_result_projection(self, serializer):
         projection = {
             'panel_id': self.public.id,
@@ -111,7 +111,7 @@ class PortalSimcBenchmarkAPITests(TestCase):
                 'option_gain_rows': [],
             },
         })
-        serializer.assert_called_once_with(self.public)
+        serializer.assert_called_once_with(self.public, coordinate_filter=None, scenario_filter=None, include_details=False)
         self.assertNotIn('execution', payload)
 
     @patch('botend.portal.simc_benchmark_api.read_panel_result_snapshot')
@@ -159,12 +159,12 @@ class PortalSimcBenchmarkAPITests(TestCase):
             call(
                 self.public,
                 coordinate_filter={'spec_key': 'fury', 'profile_key': 'raid', 'scenario_key': 'st'},
-                scenario_filter=None,
+                scenario_filter=None, include_details=False,
             ),
             call(
                 self.public,
                 coordinate_filter={'spec_key': 'fury', 'profile_key': 'raid', 'scenario_key': 'st'},
-                scenario_filter=None,
+                scenario_filter=None, include_details=False,
             ),
         ])
 
@@ -194,10 +194,10 @@ class PortalSimcBenchmarkAPITests(TestCase):
         serializer.assert_called_once_with(
             self.public,
             scenario_filter='st',
-            coordinate_filter=None,
+            coordinate_filter=None, include_details=False,
         )
 
-    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    @patch('botend.portal.simc_benchmark_api.read_panel_result_snapshot')
     def test_private_panel_is_hidden_from_list_but_openable_by_known_slug(self, serializer):
         serializer.return_value = {'coordinates': [{'spec_key': 'private'}]}
         list_response = self.client.get('/portal/api/simc-benchmarks/panels/')
@@ -209,12 +209,14 @@ class PortalSimcBenchmarkAPITests(TestCase):
             'status': 'ready',
             'panel': {
                 'id': self.private.id, 'slug': 'secret-panel', 'name': 'Secret panel', 'description': 'Secret config',
+                'benchmark_type': 'standard', 'comparison_option': '', 'comparison_config': {},
             },
-            'results': {'coordinates': [{'spec_key': 'private'}]},
+            'results': {'coordinates': [{'spec_key': 'private'}],
+                        'comparison_option_label': '', 'comparison_label': '', 'option_gain_rows': []},
         })
-        serializer.assert_called_once_with(self.private)
+        serializer.assert_called_once_with(self.private, coordinate_filter=None, scenario_filter=None, include_details=False)
 
-    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    @patch('botend.portal.simc_benchmark_api.read_panel_result_snapshot')
     def test_detail_is_openable_by_stable_numeric_panel_id(self, serializer):
         serializer.return_value = {'coordinates': [{'spec_key': 'fury'}]}
         response = self.client.get(f'/portal/api/simc-benchmarks/panels/{self.public.id}/')
@@ -222,9 +224,9 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload['status'], 'ready')
         self.assertEqual(payload['panel']['id'], self.public.id)
-        serializer.assert_called_once_with(self.public)
+        serializer.assert_called_once_with(self.public, coordinate_filter=None, scenario_filter=None, include_details=False)
 
-    @patch('botend.portal.simc_benchmark_api.serialize_incremental_panel_results')
+    @patch('botend.portal.simc_benchmark_api.read_panel_result_snapshot')
     def test_disabled_and_missing_slugs_are_not_ready(self, serializer):
         disabled_response = self.client.get('/portal/api/simc-benchmarks/panels/disabled-panel/')
         missing_response = self.client.get('/portal/api/simc-benchmarks/panels/missing-panel/')

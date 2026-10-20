@@ -23,7 +23,7 @@
     <div class="detail-section">
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?difficulty={{ selected_raid_difficulty }}" class="back-link">← 返回 Boss 列表</a>
         <h2>{{ boss_detail.boss_name }}</h2>
-        {% if boss_detail.raid_zone_cn %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_zone_cn }} ({{ boss_detail.raid_zone_name }})</p>{% endif %}
+        {% if boss_detail.raid_instance_name %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_instance_name }}</p>{% elif boss_detail.raid_zone_cn %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_zone_cn }} ({{ boss_detail.raid_zone_name }})</p>{% endif %}
         <p class="text-muted">样本量: {{ boss_detail.sample_size }} · {% if selected_raid_difficulty == 5 %}史诗难度{% else %}英雄难度{% endif %}</p>
 
         {% if boss_detail.dps %}
@@ -475,10 +475,10 @@
     {% elif zone_groups %}
     <!-- Zone groups -->
     {% for zone in zone_groups %}
-    {% if zone.zone_cn %}
+    {% if zone.instance_name or zone.zone_cn %}
     <div class="zone-header">
-        <h2>{{ zone.zone_cn }}</h2>
-        <span class="zone-name-en">{{ zone.zone_name }}</span>
+        <h2>{{ zone.instance_name|default:zone.zone_cn }}</h2>
+        {% if not zone.instance_name %}<span class="zone-name-en">{{ zone.zone_name }}</span>{% endif %}
     </div>
     {% endif %}
     <div class="dungeon-list">

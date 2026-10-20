@@ -339,6 +339,8 @@ class SpecDetailRaidView(View):
             data = _load_json(season_id, class_name, spec_name, 'raid.json',
                               f'raid-{difficulty}-{bid}' if boss_id else None)
             if data:
+                from botend.services.raid_instance_projection import project_raid_instances
+                data = project_raid_instances(data)
                 for aggregated in data.get('difficulties', []):
                     if not isinstance(aggregated, dict) or aggregated.get('difficulty') not in (4, 5):
                         continue

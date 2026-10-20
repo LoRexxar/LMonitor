@@ -15,6 +15,26 @@ from botend.tests.test_raiderio_run_roster import details
 from botend.tests.test_player_raiderio_activity import payload
 
 
+def observation_response(data):
+    """Schema-only engine substitute; no claim to perform an AI investigation."""
+    label = data['eligible_labels'][0]
+    result = {'observations': [{'code': label['code'], 'confidence': '低',
+        'reason_id': next(iter(label['reason_options'])),
+        'limitation_ids': label['required_limitation_ids'],
+        'evidence_ids': label['evidence_ids']}], 'conclusion_id': 'public_sample'}
+    plan = data.get('metrics', {}).get('investigation', {})
+    if plan.get('triggered'):
+        hypotheses = sorted(plan['hypotheses'], key=lambda h: h['id'] != 'external_assistance')[:4]
+        result['investigation'] = {'summary': '已有公开线索，仍需比较协作解释。',
+            'confidence': '低', 'hypotheses': [{
+                'id': h['id'], 'assessment': 'possible',
+                'evidence_ids': (h['support_ids'] + h['unknown_ids'])[:3],
+                'counter_evidence_ids': h['counter_ids'],
+                'explanation': '仅为待核查的解释，不确定组队目的。'} for h in hypotheses],
+            'next_question_ids': [q['id'] for q in plan['questions'][:3]]}
+    return result
+
+
 class PlayerObservationTests(TestCase):
     def setUp(self):
         self.season = SeasonMeta.objects.create(season_key='mn-s2', season_name='S2', rio_season='season-mn-2', mplus_zone_id=1, raid_zone_id=2)
@@ -44,13 +64,10 @@ class PlayerObservationTests(TestCase):
 
     def engine(self, mutate=None):
         def respond(prompt, **kwargs):
-            self.assertEqual(kwargs, {'max_tokens': 1800, 'thinking_type': 'disabled'})
             data = json.loads(prompt)
-            label = data['eligible_labels'][0]
-            result = {'observations': [{'code': label['code'], 'confidence': '低',
-                'reason_id': next(iter(label['reason_options'])),
-                'limitation_ids': label['required_limitation_ids'],
-                'evidence_ids': label['evidence_ids']}], 'conclusion_id': 'public_sample'}
+            triggered = data.get('metrics', {}).get('investigation', {}).get('triggered')
+            self.assertEqual(kwargs, {'max_tokens': 3600 if triggered else 1800, 'thinking_type': 'disabled'})
+            result = observation_response(data)
             if mutate:
                 mutate(result)
             return json.dumps(result, ensure_ascii=False)
@@ -64,8 +81,9 @@ class PlayerObservationTests(TestCase):
         self.assertEqual(data['season_counts'], {'total': None, 'timed': None})
         self.assertEqual(data['metrics']['highest_timed_level'], 22)
         labels = {v['code']: v for v in data['eligible_labels']}
-        self.assertEqual(labels['higher_teammates']['confidence_max'], '低')
-        self.assertIn('repeated_teammates', labels)
+        self.assertNotIn('higher_teammates', labels)
+        self.assertIn('fixed_team', labels)
+        self.assertFalse(data['metrics']['behavior_review']['supported'])
         self.assertNotIn('rotating_core', labels)
         self.assertNotIn('roster', json.dumps(data['evidence']))
         RaiderIOCharacterActivity.objects.filter(character_name='member4').update(scored_runs_fetched_at=timezone.now()-timedelta(hours=49))
@@ -85,9 +103,12 @@ class PlayerObservationTests(TestCase):
         with patch('requests.get', side_effect=AssertionError('read only')), CaptureQueriesContext(connection) as queries:
             view = project_player_observation(sibling)
         self.assertEqual(view['status'], 'ready')
-        self.assertEqual(view['observations'][0]['reason'], '公开记录提供了可确认的限时经历。')
-        self.assertEqual(view['observations'][0]['limitations'], ['已知限时记录不能说明整个赛季的成功率或未公开经历。'])
-        self.assertIn('高分队友协助', view['conclusion'])
+        self.assertEqual(view['observations'][0]['reason'], '已观测的成绩时序或成员关系形成具体调查线索，仍需比较协作与钥匙解释。')
+        self.assertEqual(view['observations'][0]['limitations'], [
+            '当前成绩仅为代理，不代表历史当场加分。',
+            '协作、练习和后续进步仍可能；无法确认钥匙归属或交易。'])
+        self.assertIn('不由当前分差倒推历史', view['conclusion'])
+        self.assertTrue(view['has_investigation'])
         self.assertNotIn('reason', PlayerObservationAnalysis.objects.get().result_json['observations'][0])
         self.assertEqual(PlayerObservationAnalysis.objects.count(), 1)
         self.assertLessEqual(len(queries), 7)
@@ -133,7 +154,13 @@ class PlayerObservationTests(TestCase):
         data = self.evidence()
         self.assertEqual(data['coverage']['unique_runs'], 2)
         self.assertEqual(data['season_counts']['timed'], None)
-        self.assertEqual(generate_observation(self.player, engine=self.engine(lambda r: r.update(extra='no')))['status'], 'invalid_schema')
+        engine = self.engine(lambda r: r.update(extra='no'))
+        self.assertEqual(generate_observation(self.player, engine=engine)['status'], 'ready')
+        engine.send_message.assert_not_called()
+        self.assertEqual(PlayerObservationAnalysis.objects.get().result_json['metadata']['source_kind'], 'local_deterministic')
+        from botend.services.player_observation import InvalidResult, _validate
+        with self.assertRaisesRegex(InvalidResult, 'invalid_schema'):
+            _validate(json.dumps({**observation_response(data), 'extra': 'no'}), data)
 
     def test_rotation_specs_and_strict_output_guards(self):
         from botend.services.player_observation import generate_observation
@@ -145,10 +172,11 @@ class PlayerObservationTests(TestCase):
         row.payload_json = raw; row.save()
         labels = {label['code']: label for label in self.evidence()['eligible_labels']}
         self.assertIn('multiple_specs', labels)
-        self.assertIn('rotating_core', labels)
-        text = next(item['text'] for item in self.evidence()['evidence'] if item['id'] == 'rotating_core')
-        self.assertIn('4 人核心', text)
-        self.assertIn('其余 1 位', text)
+        self.assertIn('fixed_team', labels)
+        self.assertNotIn('rotating_core', labels)
+        text = next(item['text'] for item in self.evidence()['evidence'] if item['id'] == 'fixed_team')
+        self.assertIn('偶尔替补', text)
+        self.assertIn('结构不证明带人', text)
         for mutation, expected in (
                 (lambda r: r['observations'][0].update(confidence='绝对'), 'invalid_confidence'),
                 (lambda r: r['observations'][0].update(reason='至少99场'), 'invalid_schema'),
@@ -198,14 +226,14 @@ class PlayerObservationTests(TestCase):
     def test_identifier_contract_requires_evidence_alternatives_and_related_summary(self):
         from botend.services.player_observation import InvalidResult, _validate
         data = self.evidence()
-        label = next(x for x in data['eligible_labels'] if x['code'] == 'higher_teammates')
+        label = next(x for x in data['eligible_labels'] if x['code'] == 'recent_inquiry')
         result = {'observations': [{'code': label['code'], 'confidence': '低',
             'reason_id': next(iter(label['reason_options'])),
             'limitation_ids': list(label['required_limitation_ids']),
             'evidence_ids': list(label['evidence_ids'])}], 'conclusion_id': 'public_sample'}
         self.assertEqual(_validate(json.dumps(result), data), result)
         for field, value, error in (
-                ('evidence_ids', label['evidence_ids'][:1], 'invalid_evidence'),
+                ('evidence_ids', [], 'invalid_evidence'),
                 ('confidence', '中', 'invalid_confidence'),
                 ('limitation_ids', ['current_not_history'], 'invalid_limitations'),
                 ('reason_id', '已经完成九十九场限时，且整个赛季从未失败。', 'invalid_reason'),
@@ -223,7 +251,7 @@ class PlayerObservationTests(TestCase):
     def test_single_json_fence_is_transport_format_not_free_text(self):
         from botend.services.player_observation import generate_observation, InvalidResult, _validate
         data = self.evidence()
-        raw = self.engine().send_message(json.dumps(data), max_tokens=1800, thinking_type='disabled')
+        raw = self.engine().send_message(json.dumps(data), max_tokens=3600, thinking_type='disabled')
         wrapped = '```json\n' + raw + '\n```'
         self.assertEqual(_validate(wrapped, data), _validate(raw, data))
         self.assertEqual(generate_observation(self.player, engine=Mock(send_message=Mock(return_value=wrapped)))['status'], 'ready')
@@ -249,16 +277,15 @@ class PlayerObservationTests(TestCase):
                     with self.assertRaises(InvalidResult):
                         _validate(json.dumps(result, ensure_ascii=False), data)
 
-    def test_three_explicit_judgements_and_actionable_conclusion(self):
+    def test_neutral_structure_does_not_promote_current_score_proxies(self):
         from botend.services.player_observation import generate_observation, project_player_observation
         self.assertEqual(generate_observation(self.player, engine=self.engine())['status'], 'ready')
         view = project_player_observation(self.player)
         decisions = {item['code']: item for item in view['judgements']}
-        self.assertEqual(set(decisions), {'assistance', 'off_spec', 'rotation'})
-        self.assertEqual(decisions['assistance']['status'], '支持')
-        self.assertEqual(decisions['off_spec']['status'], '证据不足')
-        self.assertEqual(decisions['rotation']['verdict'], '五人固定车队')
-        self.assertIn('高分队友协助', view['conclusion'])
+        self.assertEqual(set(decisions), {'rotation'})
+        self.assertEqual(decisions['rotation']['verdict'], '近期固定五人／偶尔替补')
+        self.assertNotIn('高分队友协助', view['conclusion'])
+        self.assertTrue(view['has_investigation'])
         for item in decisions.values():
             self.assertTrue(item['reason'])
         for i in range(1, 5):
@@ -267,24 +294,24 @@ class PlayerObservationTests(TestCase):
             row.save()
         self.assertEqual(generate_observation(self.player, force=True, engine=self.engine())['status'], 'ready')
         view = project_player_observation(self.player)
-        self.assertEqual(view['judgements'][0]['status'], '未见明显迹象')
-        self.assertIn('未见明显被带迹象', view['conclusion'])
+        self.assertEqual([row['code'] for row in view['display_judgements']], ['fixed_team'])
+        self.assertNotIn('未见明显被带迹象', view['conclusion'])
         RaiderIOCharacterActivity.objects.filter(character_name='member4').update(scored_runs_fetched_at=None)
         self.assertEqual(generate_observation(self.player, force=True, engine=self.engine())['status'], 'ready')
         view = project_player_observation(self.player)
-        self.assertEqual(view['judgements'][0]['status'], '证据不足')
+        self.assertEqual([row['code'] for row in view['display_judgements']], ['fixed_team'])
         self.assertNotIn('未见明显被带迹象', view['conclusion'])
 
     def test_fixed_five_and_repeated_four_person_rotation_are_distinguished(self):
         data = self.evidence()
         self.assertEqual(data['metrics']['team_pattern']['kind'], 'fixed_five')
-        self.assertIn('五人固定车队', data['judgements'][2]['verdict'])
+        self.assertIn('近期固定五人', data['judgements'][0]['verdict'])
         # One substitution is not enough to infer a carry team.
         row = RaiderIORunRoster.objects.get(run_id=125)
         raw = row.payload_json
         raw['roster'][4]['character'].update(id=105, name='Member5', path='/characters/eu/test-realm/Member5')
         row.payload_json = raw; row.save()
-        self.assertEqual(self.evidence()['metrics']['team_pattern']['kind'], 'rotating_core')
+        self.assertEqual(self.evidence()['metrics']['team_pattern']['kind'], 'fixed_five')
         # Same four players, three different fifth players, repeated beyond one swap.
         runs = []
         for index in range(8):
@@ -301,20 +328,28 @@ class PlayerObservationTests(TestCase):
         self.activity.save()
         data = self.evidence()
         pattern = data['metrics']['team_pattern']
-        self.assertEqual(pattern['kind'], 'suspected_four')
-        self.assertEqual(pattern['lineup_counts'], [5, 2, 1])
-        self.assertEqual(pattern['outside_members'], 3)
-        self.assertIn('疑似四人带人队伍', data['judgements'][2]['verdict'])
-        self.assertIn('本人为稳定核心成员', data['conclusion_options']['public_sample']['text'])
+        self.assertEqual(pattern['kind'], 'rotating_core')
+        structure = data['metrics']['behavior_review']['structure']
+        self.assertEqual([lineup['count'] for lineup in structure['lineups']], [5, 2, 1])
+        teams = [set(lineup['members']) for lineup in structure['lineups']]
+        core = set.intersection(*teams)
+        self.assertEqual(len(core), 4)
+        self.assertEqual(len(set.union(*teams) - core), 3)
+        self.assertEqual(data['judgements'][0]['verdict'], '近期固定组合与轮换成员')
+        self.assertNotIn('疑似四人带人队伍', data['conclusion_options']['public_sample']['text'])
+        self.assertFalse(data['metrics']['behavior_review']['supported'])
         label = next(x for x in data['eligible_labels'] if x['code'] == 'rotating_core')
-        self.assertEqual(label['confidence_max'], '低')
+        self.assertEqual(label['confidence_max'], '中')
 
-    def test_previous_prompt_stays_visible_without_regeneration_but_retracts_changed_sources(self):
+    def test_previous_prompt_is_retained_but_not_published_as_v6(self):
         from botend.services.player_observation import generate_observation, project_player_observation
-        with patch('botend.services.player_observation.PROMPT_VERSION', 3):
+        with patch('botend.services.player_observation.PROMPT_VERSION', 5):
             self.assertEqual(generate_observation(self.player, engine=self.engine())['status'], 'ready')
         before = PlayerObservationAnalysis.objects.get().generated_at
-        self.assertEqual(project_player_observation(self.player)['status'], 'stale')
+        frozen = PlayerObservationAnalysis.objects.get().result_json
+        self.assertEqual(project_player_observation(self.player)['status'], 'pending')
+        self.assertEqual(project_player_observation(self.player)['observations'], [])
+        self.assertEqual(PlayerObservationAnalysis.objects.get().result_json, frozen)
         self.assertEqual(PlayerObservationAnalysis.objects.get().generated_at, before)
         RaiderIORunRoster.objects.filter(run_id=124).update(roster_visible=False)
         self.assertEqual(project_player_observation(self.player)['status'], 'pending')

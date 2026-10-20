@@ -84,6 +84,8 @@
     margin: 8px 0;
     padding: 6px 10px;
 }
+.player-observation__source { background: var(--portal-surface-accent, #e9e8f7); color: var(--portal-accent-primary, #6155b7); border-radius: 4px; font-size: 12px; font-weight: 600; padding: 2px 8px; }
+.player-observation__conclusion { white-space: pre-wrap; }
 .player-observation__note { margin: 8px 0 0; }
 .player-observation__empty { margin: 8px 0 0; }
 .player-observation__sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

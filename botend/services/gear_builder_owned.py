@@ -10,8 +10,10 @@ from django.db import transaction
 from botend.models import GearBuilderOwnedItem, WowItemVariantSnapshot
 from botend.services.gear_builder import (
     GearBuilderError,
+    SLOT_ALIASES,
     SLOT_LABELS,
     active_season,
+    canonical_equipment_slot,
     serialize_item,
     serialize_variant,
 )
@@ -21,7 +23,7 @@ def _fingerprint(payload):
     identity = {
         'variant_id': int(payload.get('variant_id') or 0),
         'item_id': int(payload.get('item_id') or 0),
-        'slot': str(payload.get('slot') or ''),
+        'slot': canonical_equipment_slot(payload.get('slot')),
         'item_level': int(payload.get('item_level') or 0),
         'bonus_ids': sorted(str(value) for value in (payload.get('bonus_ids') or [])),
         'selected_stats': sorted(str(value) for value in (payload.get('selected_stats') or payload.get('crafted_stats') or [])),
@@ -52,6 +54,7 @@ def _snapshot_from_payload(payload, variant=None):
 
 def serialize_owned_item(row, class_name='', spec_name=''):
     variant = row.variant
+    slot = canonical_equipment_slot(row.slot_key)
     snapshot = row.snapshot_json if isinstance(row.snapshot_json, dict) else {}
     item_payload = None
     variant_payload = None
@@ -64,8 +67,8 @@ def serialize_owned_item(row, class_name='', spec_name=''):
     return {
         'id': row.id,
         'item_id': int(row.item_id or 0),
-        'slot': row.slot_key,
-        'slot_label': SLOT_LABELS.get(row.slot_key, row.slot_key),
+        'slot': slot,
+        'slot_label': SLOT_LABELS.get(slot, slot),
         'item_level': int(row.item_level or 0),
         'batch_key': row.batch_key,
         'source': row.source,
@@ -85,7 +88,8 @@ def serialize_owned_item(row, class_name='', spec_name=''):
 def list_owned_items(user, *, class_name='', spec_name='', slot=''):
     rows = GearBuilderOwnedItem.objects.filter(user=user).select_related('variant__item')
     if slot:
-        rows = rows.filter(slot_key=slot)
+        slot = canonical_equipment_slot(slot)
+        rows = rows.filter(slot_key__in=[slot, *[alias for alias, target in SLOT_ALIASES.items() if target == slot]])
     rows = list(rows)
     from botend.services.gear_builder import current_variants
     replacements = current_variants(row.variant for row in rows if row.variant)
@@ -107,7 +111,7 @@ def save_owned_item(user, payload, *, set_quantity=False):
         if not variant:
             raise GearBuilderError('装备变体不存在或已被清理')
     item_id = int(payload.get('item_id') or (variant.item.item_id if variant else 0))
-    slot = str(payload.get('slot') or (variant.item.slot_key if variant else ''))
+    slot = canonical_equipment_slot(payload.get('slot') or (variant.item.slot_key if variant else ''))
     if item_id <= 0 or not slot:
         raise GearBuilderError('备选装备缺少物品或槽位')
     source = str(payload.get('source') or GearBuilderOwnedItem.SOURCE_MANUAL)
@@ -133,6 +137,7 @@ def save_owned_item(user, payload, *, set_quantity=False):
             'item_level': normalized['item_level'],
             'batch_key': variant.batch_key if variant else (season.gear_batch_key if season else ''),
             'source': source,
+            'quantity': min(99, max(1, int(payload.get('quantity') or 1))),
             'bonus_ids': payload.get('bonus_ids') or (variant.bonus_ids if variant else []),
             'selected_stats': payload.get('selected_stats') or payload.get('crafted_stats') or [],
             'enhancements_json': payload.get('enhancements') or {},

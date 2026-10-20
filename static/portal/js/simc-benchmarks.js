@@ -108,11 +108,15 @@
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     if (!data || typeof data !== "object") throw new Error("Invalid response");
+    const generation = data?.results?.snapshot?.generation;
+    if (generation && Array.isArray(data?.results?.coordinates)) {
+      data.results.coordinates.forEach((row) => { row._snapshotGeneration = generation; });
+    }
     return data;
   }
 
   function coordinateDetailKey(detailUrl, coordinate) {
-    return [detailUrl, coordinate?.spec_key, coordinate?.talent_key, coordinate?.scenario_key]
+    return [detailUrl, coordinate?.spec_key, coordinate?.talent_key, coordinate?.scenario_key, coordinate?._snapshotGeneration]
       .map((value) => String(value || "")).join("|");
   }
 
@@ -125,12 +129,22 @@
     query.set("talent", coordinate?.talent_key || "");
     query.set("scenario", coordinate?.scenario_key || "");
     const request = requestJson(`${detailUrl}?${query.toString()}`).then((payload) => {
+      if (payload?.results?.snapshot?.state === "building") {
+        const error = new Error("Detail snapshot is building");
+        error.snapshotPending = true;
+        throw error;
+      }
+      if (coordinate?._snapshotGeneration && payload?.results?.snapshot?.generation !== coordinate._snapshotGeneration) {
+        const error = new Error("Snapshot publication changed");
+        error.snapshotChanged = true;
+        throw error;
+      }
       const rows = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
       const resolved = rows.find((row) => (
         String(row?.spec_key || "") === String(coordinate?.spec_key || "")
         && String(row?.talent_key || "") === String(coordinate?.talent_key || "")
         && String(row?.scenario_key || "") === String(coordinate?.scenario_key || "")
-      )) || rows[0];
+      ));
       if (!resolved?.profile_detail) throw new Error("Frozen profile detail unavailable");
       return resolved;
     }).catch((error) => {
@@ -674,8 +688,14 @@
         );
         details.replaceChildren(...loadedDetails.childNodes);
         mountProfileTalentThumbnail(details);
-      } catch (_) {
-        renderState("冻结 Profile 加载失败，收起后可重试", "error");
+      } catch (error) {
+        if (error?.snapshotPending) {
+          renderState("详情文件正在后台准备，稍后收起并展开重试", "empty");
+        } else if (error?.snapshotChanged) {
+          renderState("结果已更新，请刷新页面后查看详情", "empty");
+        } else {
+          renderState("冻结 Profile 加载失败，收起后可重试", "error");
+        }
       } finally {
         loading = false;
       }

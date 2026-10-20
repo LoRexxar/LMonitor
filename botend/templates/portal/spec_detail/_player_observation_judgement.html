@@ -10,10 +10,7 @@
         <summary>查看证据</summary>
         <ul class="player-observation__evidence">
             {% for evidence in judgement.evidence %}
-            <li><span>{{ evidence.text }}</span>
-                {% if evidence.run_url %}<a href="{{ evidence.run_url }}" target="_blank" rel="noopener noreferrer">通关来源</a>{% endif %}
-                {% if evidence.source_url %}<a href="{{ evidence.source_url }}" target="_blank" rel="noopener noreferrer">首杀来源</a>{% endif %}
-            </li>
+            {% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}
             {% endfor %}
         </ul>
     </details>

@@ -2610,9 +2610,28 @@ class RaiderIOCharacterActivity(models.Model):
 
 
 class PlayerObservationAnalysis(models.Model):
-    """One derived, evidence-bound AI interpretation per central character."""
+    """Central character analysis: immutable AI facts plus separate editorial state.
+
+    ``player`` is a representative ranking row, NOT the cross-spec identity.
+    Database defaults keep old, already-running AI workers insert-compatible.
+    """
     activity = models.OneToOneField(RaiderIOCharacterActivity, on_delete=models.CASCADE,
         related_name='observation_analysis')
+    player = models.ForeignKey('PlayerSpecTopPlayer', null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='observation_analyses')
+    recheck_json = models.JSONField(default=dict, db_default={}, blank=True)
+    manual_json = models.JSONField(default=dict, db_default={}, blank=True)
+    review_status = models.CharField(max_length=16, default='pending', db_default='pending',
+        choices=[('pending', '待审核'), ('approved', '通过'), ('rejected', '拒绝')])
+    review_note = models.TextField(blank=True, default='', db_default='')
+    reviewed_by = models.ForeignKey(settings.AUTH_USER_MODEL, null=True, blank=True,
+        on_delete=models.SET_NULL, related_name='reviewed_player_analyses')
+    reviewed_at = models.DateTimeField(null=True, blank=True)
+    reviewed_evidence_hash = models.CharField(max_length=64, blank=True, default='', db_default='')
+    reviewed_result_hash = models.CharField(max_length=64, blank=True, default='', db_default='')
+    is_published = models.BooleanField(default=True, db_default=True)
+    revision = models.PositiveIntegerField(default=0, db_default=0)
+    updated_at = models.DateTimeField(null=True, blank=True)
     evidence_hash = models.CharField(max_length=64, blank=True, default='')
     evidence_json = models.JSONField(default=dict, blank=True)
     result_json = models.JSONField(default=dict, blank=True)

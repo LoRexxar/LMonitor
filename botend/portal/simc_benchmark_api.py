@@ -259,29 +259,13 @@ class PortalSimcSpecRankingAPIView(_PortalRankingAPIView):
 
 
 def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=None,
-                           include_details=False, use_snapshot=False):
-    if use_snapshot:
-        results = read_panel_result_snapshot(
-            panel, coordinate_filter=coordinate_filter, scenario_filter=scenario_filter,
-        )
-    elif scenario_filter is not None:
-        results = serialize_incremental_panel_results(
-            panel,
-            scenario_filter=scenario_filter,
-            include_coordinate_options=True,
-            include_details=include_details,
-        )
-    elif coordinate_filter is None:
-        results = serialize_incremental_panel_results(
-            panel, include_details=include_details,
-        )
-    else:
-        results = serialize_incremental_panel_results(
-            panel,
-            coordinate_filter=coordinate_filter,
-            include_coordinate_options=True,
-            include_details=include_details,
-        )
+                           include_details=False):
+    # Public reads consume immutable per-coordinate files, including detail.
+    # A missing artifact only queues background repair; never plan in Web.
+    results = read_panel_result_snapshot(
+        panel, coordinate_filter=coordinate_filter, scenario_filter=scenario_filter,
+        include_details=include_details,
+    )
     coordinates = results.get('coordinates', [])
     payload = {
         'status': 'ready' if coordinates else 'not_ready',
@@ -374,5 +358,4 @@ class PortalSimcBenchmarkPanelDetailAPIView(View):
             coordinate_filter=coordinate_filter,
             scenario_filter=scenario_filter,
             include_details=include_details,
-            use_snapshot=request.GET.get('selected') == '1' and not include_details,
         ))

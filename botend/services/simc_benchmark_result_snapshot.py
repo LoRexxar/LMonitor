@@ -217,14 +217,19 @@ def _index(panel_id):
 
 
 def read_panel_result_snapshot(panel, *, coordinate_filter=None, scenario_filter=None,
-                               include_coordinate_options=True):
+                               include_coordinate_options=True, include_details=False):
     """Zero SQL, zero planning, zero historical scanning, including on cache miss."""
+    if include_details and coordinate_filter is None:
+        raise ValueError('Detail snapshots require coordinate_filter')
     from botend.services.simc_benchmark_execution import _selected_plan_coordinate
     directory = _panel_dir(panel.pk)
     # Retry the pointer once if an old reader races cleanup/publication.
     for _ in range(2):
         index = _index(panel.pk)
         if index is None:
+            break
+        files = index.get('details_files' if include_details else 'files')
+        if not isinstance(files, dict):
             break
         options = index['coordinate_options']
         if coordinate_filter is not None:
@@ -240,7 +245,7 @@ def read_panel_result_snapshot(panel, *, coordinate_filter=None, scenario_filter
         result = {'panel_id': panel.pk, 'coordinates': [], **index.get('comparison', {})}
         valid = True
         for option in selected_options:
-            filename = index['files'].get(_coordinate_key(option), '')
+            filename = files.get(_coordinate_key(option), '')
             if not re.fullmatch(r'[a-f0-9]{32}\.json', filename):
                 valid = False
                 break
@@ -286,6 +291,20 @@ def _publication_revision(panel_id):
     return revision
 
 
+def _details_complete(index, directory):
+    """Background-only upgrade/repair check; never scan all files on a read."""
+    if index is None or not isinstance(index.get('details_files'), dict):
+        return False
+    details_files = index['details_files']
+    if set(details_files) != set(index['files']):
+        return False
+    return all(
+        isinstance(filename, str) and re.fullmatch(r'[a-f0-9]{32}\.json', filename)
+        and (directory / 'coordinates' / filename).is_file()
+        for filename in details_files.values()
+    )
+
+
 def rebuild_panel_result_snapshot(panel_id):
     """Publish all requested coordinates together; acknowledge only captured events."""
     from botend.models import SimcBenchmarkPanel
@@ -300,7 +319,8 @@ def rebuild_panel_result_snapshot(panel_id):
         previous = _index(panel_id)
         revision = _publication_revision(panel_id)
         publication_changed = previous is None or previous.get('publication_revision') != revision
-        if previous is not None and not pending and not publication_changed:
+        details_missing = not _details_complete(previous, directory)
+        if previous is not None and not pending and not publication_changed and not details_missing:
             return False
         panel = SimcBenchmarkPanel.objects.filter(pk=panel_id, is_active=True).first()
         if panel is None:
@@ -308,30 +328,38 @@ def rebuild_panel_result_snapshot(panel_id):
         plan = build_execution_plan(panel, lock=False)
         options = [_coordinate_option(row) for row in plan['cases']]
         keys = {_coordinate_key(option) for option in options}
-        full = publication_changed or '*' in pending or keys != set(previous['files'])
+        full = (publication_changed or details_missing or '*' in pending
+                or keys != set(previous['files']))
         files = {} if full else dict(previous['files'])
+        details_files = {} if full else dict(previous['details_files'])
         comparison = {} if full else dict(previous.get('comparison', {}))
         generation = uuid.uuid4().hex
         for option in options:
             key = _coordinate_key(option)
             if not full and key not in pending:
                 continue
-            payload = serialize_incremental_panel_results(
-                panel, coordinate_filter=option, include_details=False, _prepared_plan=plan,
-            )
-            rows = payload.get('coordinates', [])
-            if len(rows) != 1 or _coordinate_key(rows[0]) != key:
-                raise ValueError('Incomplete Benchmark coordinate projection')
-            for label in ('comparison_option_label', 'comparison_label'):
-                if label in payload:
-                    comparison[label] = payload[label]
-            filename = f'{uuid.uuid4().hex}.json'
-            _write(directory / 'coordinates' / filename, payload)
-            files[key] = filename
+            # Keep the serializer's two contracts: detail source-task fallback can
+            # differ from summary semantics. Do not infer summaries by stripping
+            # fields. Both bounded projections share the one prepared plan.
+            for include_details, mapping in ((False, files), (True, details_files)):
+                payload = serialize_incremental_panel_results(
+                    panel, coordinate_filter=option, include_details=include_details,
+                    _prepared_plan=plan,
+                )
+                rows = payload.get('coordinates', [])
+                if len(rows) != 1 or _coordinate_key(rows[0]) != key:
+                    raise ValueError('Incomplete Benchmark coordinate projection')
+                for label in ('comparison_option_label', 'comparison_label'):
+                    if label in payload:
+                        comparison[label] = payload[label]
+                filename = f'{uuid.uuid4().hex}.json'
+                _write(directory / 'coordinates' / filename, payload)
+                mapping[key] = filename
         index = {
             'schema_version': SCHEMA_VERSION, 'generation': generation,
             'generated_at': timezone.now().isoformat(), 'coordinate_options': options,
-            'files': files, 'comparison': comparison, 'publication_revision': revision,
+            'files': files, 'details_files': details_files,
+            'comparison': comparison, 'publication_revision': revision,
         }
         # Even if on_commit has not written its event yet, a terminal transaction
         # cannot cause old/new coordinates of an atomic-targeted batch to mix.
@@ -355,7 +383,9 @@ def rebuild_panel_result_snapshot(panel_id):
             _write(directory / 'pending.json', remaining)
         # Keep current and immediately previous files. A grace period protects slow
         # readers of still older indexes, and removes interrupted-build orphans.
-        retained = set(files.values()) | set((previous or {}).get('files', {}).values())
+        retained = set(files.values()) | set(details_files.values())
+        for mapping in ('files', 'details_files'):
+            retained.update((previous or {}).get(mapping, {}).values())
         for path in (directory / 'coordinates').glob('*.json'):
             if path.name not in retained and path.stat().st_mtime < time.time() - 300:
                 path.unlink(missing_ok=True)
@@ -371,8 +401,10 @@ def refresh_pending_result_snapshots(*, batch_size=1):
             return built
         for panel_id in SimcBenchmarkPanel.objects.filter(is_active=True).order_by('id').values_list('id', flat=True):
             index = _index(panel_id)
-            if index is None or index.get('publication_revision') != _publication_revision(panel_id):
+            if (index is None or not _details_complete(index, _panel_dir(panel_id))
+                    or index.get('publication_revision') != _publication_revision(panel_id)):
                 # Recover terminal commits even after a process dies before enqueue.
+                # Schema-1 summaries remain readable while details upgrade/repair.
                 request_snapshot_refresh(panel_id, only_if_missing=True)
         pending = sorted(snapshot_root().glob('*/pending.json'), key=lambda p: p.stat().st_mtime)
         attempted = 0

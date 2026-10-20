@@ -125,7 +125,10 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
                   '_slot': ('slot_key', CharField())}
         for alias, (field, output) in fields.items():
             path = KeyTextTransform.from_lookup(f'metadata__branch_display__{branch}__{field}')
-            rows = rows.annotate(**{alias: Coalesce(Cast(path, output), F(field))})
+            # Cast the completed fallback, not just its JSON arm: MySQL can
+            # otherwise give COALESCE mixed implicit collations (NONE), which
+            # fails in LIKE, slot equality and the language REGEXP filters.
+            rows = rows.annotate(**{alias: Cast(Coalesce(path, F(field), output_field=output), output)})
         rows = rows.filter(_has_variant=True)
         if params.get('slot'):
             rows = rows.filter(_slot=params['slot'])

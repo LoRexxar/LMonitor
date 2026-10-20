@@ -26,6 +26,7 @@ from botend.models import (
     WowWagoMonitorState,
 )
 from botend.services.simc_player_config import (
+    EQUIPMENT_SLOT_ALIASES as SIMC_EQUIPMENT_SLOT_ALIASES,
     canonical_simc_profile_key,
     parse_simc_player_profile,
     secondary_rule_class_key,
@@ -54,6 +55,18 @@ EQUIPMENT_SLOTS = (
     ('off_hand', '副手'),
 )
 SLOT_LABELS = dict(EQUIPMENT_SLOTS)
+# The shared SimC parser owns SimC spelling; the builder owns its UI slots.
+# Adapt only at the builder boundary, without changing either canonical set.
+SLOT_SIMC_KEYS = {key: SIMC_EQUIPMENT_SLOT_ALIASES.get(key, key) for key, _label in EQUIPMENT_SLOTS}
+SLOT_ALIASES = {simc_key: key for key, simc_key in SLOT_SIMC_KEYS.items() if key != simc_key}
+
+
+def canonical_equipment_slot(value):
+    """Translate known SimC aliases only; callers still validate slot membership."""
+    slot = str(value or '')
+    return SLOT_ALIASES.get(slot, slot)
+
+
 SLOT_FAMILIES = {
     'finger1': 'finger', 'finger2': 'finger',
     'trinket1': 'trinket', 'trinket2': 'trinket',
@@ -182,7 +195,9 @@ FILTERABLE_SECONDARY_STATS = {'crit', 'haste', 'mastery', 'versatility'}
 
 
 class GearBuilderError(ValueError):
-    pass
+    def __init__(self, message, *, issues=None):
+        super().__init__(message)
+        self.issues = issues or []
 
 
 def _number(value, default=0):
@@ -396,7 +411,11 @@ def bootstrap_payload():
         'classes': specs_payload(),
         'raid_boss_numbers': raid_boss_numbers(season),
         'tier_set_sources': tier_set_source_catalog(),
-        'slots': [{'key': key, 'label': label, 'family': SLOT_FAMILIES.get(key, key)} for key, label in EQUIPMENT_SLOTS],
+        'slots': [
+            {'key': key, 'label': label, 'family': SLOT_FAMILIES.get(key, key), 'simc_key': SLOT_SIMC_KEYS[key]}
+            for key, label in EQUIPMENT_SLOTS
+        ],
+        'slot_aliases': dict(SLOT_ALIASES),
         'stats': [{'key': key, 'label': label} for key, label in STAT_LABELS.items()],
         'upgrade_tracks': [{'key': key, 'label': label} for key, label in UPGRADE_TRACK_LABELS.items()],
         'rules': {
@@ -507,7 +526,8 @@ def _item_primary_options(item, variant=None):
     return options
 
 
-def spec_matches(item, class_name, spec_name, variant=None, slot=''):
+def spec_matches(item, class_name, spec_name, variant=None, slot='', *, require_loot_spec=True):
+    """Keep acquisition filtering optional; loot specs are not equip restrictions."""
     if not getattr(item, '_resolved_identity', None) and variant is not None:
         item = _variant_item(variant)
     class_mask = int(item.allowable_class_mask or 0)
@@ -516,7 +536,7 @@ def spec_matches(item, class_name, spec_name, variant=None, slot=''):
         return False
     eligible = [str(value).casefold() for value in (item.eligible_specs or []) if value]
     identity = f'{class_name}:{spec_name}'
-    if eligible:
+    if require_loot_spec and eligible:
         candidates = {
             identity.casefold(),
             f'{class_name}_{spec_name}'.casefold(),
@@ -626,6 +646,7 @@ def serialize_variant(variant, class_name='', spec_name=''):
     )
     return {
         'id': variant.id,
+        'batch_key': variant.batch_key,
         'key': variant.variant_key,
         'type': variant.variant_type,
         'item_id': item.item_id,
@@ -1042,7 +1063,336 @@ def current_variants(rows, season=None):
     return {row.pk: lookup.get(identity(row), row) for row in rows}
 
 
-def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, entries, current=True):
+def _share_integer(value, *, zero=False):
+    # JSON booleans, numeric strings and fractional IDs are not identities.
+    if type(value) is not int or value < (0 if zero else 1) or value > 2 ** 53 - 1:
+        raise GearBuilderError('分享链接包含无效物品或变体 ID')
+    return value
+
+
+def _share_key(value):
+    if not isinstance(value, str) or not value or len(value) > 160:
+        raise GearBuilderError('分享链接中的变体键无效')
+    return value
+
+
+def _share_reference(value, version, item_id=0):
+    if value is None or value == '' or type(value) is int and value == 0:
+        return None
+    if version == 2:
+        return ('pk', _share_integer(value), item_id, '', None)
+    if version == 3:
+        if not isinstance(value, list) or len(value) != 4:
+            raise GearBuilderError('分享链接中的历史变体引用格式无效')
+        pk, ref_item, key, level = value
+        _share_integer(pk)
+        _share_integer(ref_item)
+        _share_integer(level, zero=True)
+        if item_id and ref_item != item_id:
+            raise GearBuilderError('分享链接中的物品身份冲突')
+        return ('pk', pk, ref_item, _share_key(key), level)
+    if item_id:
+        return ('key', item_id, _share_key(value))
+    if not isinstance(value, list) or len(value) != 2:
+        raise GearBuilderError('分享链接中的强化引用格式无效')
+    return ('key', _share_integer(value[0]), _share_key(value[1]))
+
+
+def share_payload_arguments(payload):
+    """Adapt only formats actually emitted by the historical JS codecs.
+
+    This projection never replaces the original encoded string in storage.
+    """
+    if not isinstance(payload, dict):
+        raise GearBuilderError('配装字符串必须是对象')
+    if 'v' in payload or 'e' in payload:
+        return dict(share_version=payload.get('v'), class_name=payload.get('c'),
+                    spec_name=payload.get('s'), batch_key=payload.get('b'), entries=payload.get('e'))
+    if type(payload.get('version')) is not int or payload['version'] != 1:
+        raise GearBuilderError('配装字符串版本无效')
+    equipment = payload.get('equipment')
+    if not isinstance(equipment, dict):
+        raise GearBuilderError('配装字符串中的装备格式无效')
+    return dict(share_version=4, class_name=payload.get('className'),
+                spec_name=payload.get('specName'), batch_key=payload.get('batchKey'),
+                entries=[[slot, 0, 0, [], 0, [], 0, 0, entry] for slot, entry in equipment.items()])
+
+
+def _validated_share_snapshot(snapshot, slot, class_name, spec_name, batch_key):
+    """Validate a self-contained historical state, not a guessed catalog item.
+
+    Old compactItem omitted class masks; check supplied restrictions and any
+    surviving central identity. Missing catalog rows do not invalidate a real
+    snapshot, but contradictory identities or slots do.
+    """
+    from copy import deepcopy
+    from botend.models import WowItemSnapshot
+
+    equipment_types = {WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
+                       WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT}
+
+    def component(value, expected_types, equipment=False):
+        if not isinstance(value, dict) or not isinstance(value.get('item'), dict):
+            raise GearBuilderError('分享快照缺少有效物品身份')
+        item = value['item']
+        item_id = _share_integer(item.get('item_id'))
+        variant = value.get('variant') if value.get('variant') is not None else {}
+        if not isinstance(variant, dict):
+            raise GearBuilderError('分享快照中的变体格式无效')
+        # A snapshot may mix historical equipment with newer enhancements.
+        # Only an absent origin falls back to the payload's legacy batch.
+        component_batch = variant.get('batch_key', batch_key)
+        if not isinstance(component_batch, str) or not component_batch or len(component_batch) > 160:
+            raise GearBuilderError('分享快照中的装备批次无效')
+        metadata = variant.get('metadata') if variant.get('metadata') is not None else {}
+        if not isinstance(metadata, dict):
+            raise GearBuilderError('分享快照元数据无效')
+        if variant.get('type') is not None and not isinstance(variant['type'], str):
+            raise GearBuilderError('分享快照中的物品类型无效')
+        if variant.get('item_id') is not None and _share_integer(variant['item_id']) != item_id:
+            raise GearBuilderError('分享快照中的物品身份冲突')
+        pk = variant.get('id')
+        if pk is not None:
+            _share_integer(pk)
+        if variant.get('key') is not None:
+            _share_key(variant['key'])
+        external = value.get('external') is True
+        if variant.get('type') and variant['type'] not in expected_types and not (
+                external and variant['type'] == 'external'):
+            raise GearBuilderError('分享快照中的物品类型冲突')
+        if variant.get('item_level') is not None:
+            _share_integer(variant['item_level'], zero=True)
+        for key in ('item_id', 'variant_id'):
+            if value.get(key) is not None:
+                actual = _share_integer(value[key])
+                if actual != (item_id if key == 'item_id' else pk):
+                    raise GearBuilderError('分享快照中的物品身份冲突')
+        for key in ('slot', 'slot_key'):
+            if value.get(key) and canonical_equipment_slot(value[key]) != slot:
+                raise GearBuilderError('分享快照中的槽位冲突')
+        family = SLOT_FAMILIES.get(slot, slot)
+        item_slot = canonical_equipment_slot(item.get('slot') or item.get('slot_key') or '')
+        compatible = variant.get('compatible_slots') if variant.get('compatible_slots') is not None else []
+        if not isinstance(compatible, list) or not all(isinstance(v, str) for v in compatible):
+            raise GearBuilderError('分享快照中的适用槽位无效')
+        compatible = [canonical_equipment_slot(v) for v in compatible]
+        if equipment and not item_slot and not compatible and not external:
+            raise GearBuilderError('分享快照缺少装备槽位证据')
+        # Enhancement item slots describe their category, not the carrier.
+        # Their explicit compatible_slots and surviving central rules still apply.
+        if (item_slot and (equipment or item_slot in {*SLOT_LABELS, *SLOT_FAMILIES.values()})
+                and item_slot not in (slot, family)):
+            # Fury two-handed off-hand is validated against central rules below.
+            if not (slot == 'off_hand' and item_slot == 'main_hand'
+                    and (class_name, spec_name) == ('Warrior', 'Fury')
+                    and (variant.get('metadata') or {}).get('two_handed') is True):
+                raise GearBuilderError('分享快照中的槽位冲突')
+        if compatible and slot not in compatible and family not in compatible:
+            if not (slot == 'off_hand' and 'main_hand' in compatible
+                    and (class_name, spec_name) == ('Warrior', 'Fury')
+                    and (variant.get('metadata') or {}).get('two_handed') is True):
+                raise GearBuilderError('分享快照中的槽位冲突')
+        branch = variant.get('data_branch', 'retail')
+        branches = metadata.get('branch_display') if metadata.get('branch_display') is not None else {}
+        if not isinstance(branch, str) or not isinstance(branches, dict):
+            raise GearBuilderError('分享快照中的分支身份无效')
+        display = branches.get(branch) if branches.get(branch) is not None else {}
+        if not isinstance(display, dict):
+            raise GearBuilderError('分享快照中的分支身份无效')
+        facts = {**display, **item}
+        numeric = {}
+        for key in ('item_class_id', 'item_subclass_id', 'inventory_type', 'allowable_class_mask'):
+            numeric[key] = _share_integer(0 if facts.get(key) is None else facts[key], zero=True)
+        eligible = facts.get('eligible_specs') if facts.get('eligible_specs') is not None else []
+        if not isinstance(eligible, list) or not all(isinstance(v, str) for v in eligible):
+            raise GearBuilderError('分享快照中的专精限制无效')
+        model_item = WowItemSnapshot(item_id=item_id, slot_key=item_slot, eligible_specs=eligible,
+                                     **numeric)
+        if not isinstance(variant.get('stats', {}), dict):
+            raise GearBuilderError('分享快照中的属性格式无效')
+        model_variant = WowItemVariantSnapshot(item=model_item,
+            variant_type=variant.get('type') or next(iter(expected_types)), compatible_slots=compatible,
+            stats_json=variant.get('stats') or {})
+        if not spec_matches(model_item, class_name, spec_name, model_variant, slot):
+            raise GearBuilderError('分享快照中的装备不适用于当前专精')
+        existing = WowItemVariantSnapshot.objects.filter(pk=pk).select_related('item').first() if pk else None
+        if not existing and variant.get('key'):
+            existing = WowItemVariantSnapshot.objects.filter(item__item_id=item_id,
+                variant_key=variant['key'], batch_key=component_batch).select_related('item').first()
+        if existing:
+            from botend.services.wow_data_branch import variant_branch
+            if (existing.item.item_id != item_id or existing.batch_key != component_batch
+                    or variant.get('key') and existing.variant_key != variant['key']
+                    or variant.get('item_level') is not None and existing.item_level != variant['item_level']
+                    or variant.get('type') and existing.variant_type != variant['type']
+                    or variant.get('data_branch') is not None and variant_branch(existing) != variant['data_branch']
+                    or existing.variant_type not in expected_types):
+                raise GearBuilderError('分享快照与目录身份冲突')
+            if not slot_matches(existing, slot, class_name, spec_name) or not spec_matches(
+                    existing.item, class_name, spec_name, existing, slot):
+                raise GearBuilderError('分享快照中的装备不适用于当前槽位或专精')
+        return value
+
+    component(snapshot, equipment_types, equipment=True)
+    gems = snapshot.get('gems') if snapshot.get('gems') is not None else []
+    if not isinstance(gems, list) or len(gems) > 3:
+        raise GearBuilderError('分享快照中的宝石数量无效')
+    for gem in gems:
+        component(gem, {WowItemVariantSnapshot.TYPE_GEM})
+    for field, expected in (('enchant', WowItemVariantSnapshot.TYPE_ENCHANT),
+                            ('embellishment', WowItemVariantSnapshot.TYPE_EMBELLISHMENT)):
+        if snapshot.get(field) is not None:
+            component(snapshot[field], {expected})
+    if snapshot.get('itemLevel') is not None:
+        _share_integer(snapshot['itemLevel'], zero=True)
+        level = (snapshot.get('variant') or {}).get('item_level')
+        if level is not None and snapshot['itemLevel'] != level:
+            raise GearBuilderError('分享快照中的装等冲突')
+    if 'addedSocket' in snapshot and type(snapshot['addedSocket']) is not bool:
+        raise GearBuilderError('分享快照中的插槽标记无效')
+    if snapshot.get('addedSocket') and SLOT_FAMILIES.get(slot, slot) not in ADDITIONAL_SOCKET_SLOTS:
+        raise GearBuilderError('分享快照中的槽位不支持额外插槽')
+    stats = snapshot.get('selectedStats', [])
+    if not isinstance(stats, list) or len(stats) > 4 or any(
+            not isinstance(value, str) or value not in FILTERABLE_SECONDARY_STATS for value in stats):
+        raise GearBuilderError('分享快照中的制造属性无效')
+    return deepcopy(snapshot)
+
+
+def _snapshot_matches_reference(component, reference):
+    if reference is None:
+        return True
+    if not isinstance(component, dict):
+        return False
+    item, variant = component.get('item') or {}, component.get('variant') or {}
+    if reference[0] == 'key':
+        return (item.get('item_id'), variant.get('key')) == reference[1:]
+    _, pk, item_id, key, level = reference
+    return (variant.get('id') == pk and (not item_id or item.get('item_id') == item_id)
+            and (not key or variant.get('key') == key)
+            and (level is None or variant.get('item_level') == level))
+
+
+def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, entries, current=True, strict=False):
+    """Recover historical codecs without silently substituting identities.
+
+    strict is opt-in for atomic UI replacement; legacy consumers still receive
+    partial equipment plus warnings. Storage opts in but keeps the exact code.
+    """
+    import json
+
+    if type(strict) is not bool:
+        raise GearBuilderError('strict 必须是布尔值')
+    if type(share_version) is not int or share_version not in (2, 3, 4):
+        raise GearBuilderError('分享链接版本无效')
+    if (not isinstance(class_name, str) or not isinstance(spec_name, str)
+            or len(class_name) > 32 or len(spec_name) > 64):
+        raise GearBuilderError('分享链接缺少有效职业专精')
+    class_name, spec_name = canonical_spec(class_name, spec_name)
+    if not isinstance(batch_key, str) or not batch_key or len(batch_key) > 160:
+        raise GearBuilderError('分享链接缺少有效装备批次')
+    if not isinstance(entries, list) or len(entries) > len(EQUIPMENT_SLOTS) + len(SLOT_ALIASES):
+        raise GearBuilderError('分享链接中的装备槽位数量无效')
+    raw_slots, rows, raw_contents = set(), {}, {}
+    references, snapshots = {}, {}
+    for row in entries:
+        if not isinstance(row, list) or not 3 <= len(row) <= 9:
+            raise GearBuilderError('分享链接中的装备引用格式无效')
+        raw_slot = row[0]
+        if not isinstance(raw_slot, str) or raw_slot not in {*SLOT_LABELS, *SLOT_ALIASES} or raw_slot in raw_slots:
+            raise GearBuilderError('分享链接包含未知或重复装备槽位')
+        raw_slots.add(raw_slot)
+        slot = canonical_equipment_slot(raw_slot)
+        # Only byte-equivalent JSON content (apart from the slot alias) merges.
+        # Validate raw duplicates before canonicalization, never first/last wins.
+        if slot in rows:
+            if json.dumps(raw_contents[slot], sort_keys=True) != json.dumps(row[1:], sort_keys=True):
+                raise GearBuilderError('分享链接包含冲突的重复装备槽位，请保留原字符串')
+            continue
+        item_id = _share_integer(row[1], zero=True)
+        padded = row[:8] + [[], 0, [], 0, 0][len(row) - 3:] if len(row) < 8 else row[:8]
+        stats, embellishment, gems, enchant, socket = padded[3:8]
+        if not isinstance(stats, list) or len(stats) > 4 or any(
+                not isinstance(value, str) or value not in FILTERABLE_SECONDARY_STATS for value in stats):
+            raise GearBuilderError('分享链接中的制造属性无效')
+        if not isinstance(gems, list) or len(gems) > 3:
+            raise GearBuilderError('分享链接中的宝石数量无效')
+        if type(socket) not in (bool, int) or socket not in (0, 1):
+            raise GearBuilderError('分享链接中的插槽标记无效')
+        refs = [_share_reference(row[2], share_version, item_id),
+                _share_reference(embellishment, share_version),
+                [_share_reference(value, share_version) for value in gems],
+                _share_reference(enchant, share_version)]
+        if refs[0] and not item_id:
+            raise GearBuilderError('分享链接缺少有效物品 ID')
+        if item_id and not refs[0]:
+            raise GearBuilderError('分享链接缺少有效装备引用')
+        if any(ref is None for ref in refs[2]):
+            raise GearBuilderError('分享链接中的宝石引用无效')
+        if len(row) == 9:
+            snapshot = _validated_share_snapshot(row[8], slot, class_name, spec_name, batch_key)
+            components = [snapshot, snapshot.get('embellishment'), snapshot.get('gems') or [], snapshot.get('enchant')]
+            if refs[0] and (bool(components[1]) != bool(refs[1]) or bool(components[3]) != bool(refs[3])
+                    or len(components[2]) != len(refs[2]) or snapshot.get('selectedStats', []) != stats
+                    or bool(snapshot.get('addedSocket')) != bool(socket)):
+                raise GearBuilderError('分享快照与强化配置冲突')
+            if (not _snapshot_matches_reference(components[0], refs[0])
+                    or not _snapshot_matches_reference(components[1], refs[1])
+                    or not _snapshot_matches_reference(components[3], refs[3])
+                    or refs[2] and (len(refs[2]) != len(components[2]) or any(
+                        not _snapshot_matches_reference(comp, ref) for comp, ref in zip(components[2], refs[2])))):
+                raise GearBuilderError('分享快照与引用身份冲突')
+            snapshots[slot] = snapshot
+        rows[slot], references[slot], raw_contents[slot] = padded, refs, row[1:]
+
+    legacy_ids = {ref[1] for refs in references.values() for ref in [refs[0], refs[1], *refs[2], refs[3]]
+                  if ref and ref[0] == 'pk'}
+    legacy = {row.pk: row for row in WowItemVariantSnapshot.objects.filter(
+        pk__in=legacy_ids, batch_key=batch_key).select_related('item')} if legacy_ids else {}
+    issues, converted = [], []
+    for slot, row in rows.items():
+        # A verified self-contained snapshot is the historical fact. Do not
+        # recalculate it from today's catalog, even when its references survive.
+        if slot in snapshots:
+            continue
+        refs = references[slot]
+        missing = []
+        def convert(ref, field):
+            if ref is None:
+                return 0
+            if ref[0] == 'key':
+                return list(ref[1:])
+            _, pk, item_id, key, level = ref
+            variant = legacy.get(pk)
+            if (not variant or item_id and variant.item.item_id != item_id
+                    or key and variant.variant_key != key or level is not None and variant.item_level != level):
+                missing.append({'slot': slot, 'field': field, 'code': 'unresolved_reference', 'reference': list(ref)})
+                return 0
+            return [variant.item.item_id, variant.variant_key]
+        equip = convert(refs[0], 'equipment')
+        embellishment = convert(refs[1], 'embellishment')
+        gems = [convert(ref, f'gems.{index}') for index, ref in enumerate(refs[2])]
+        enchant = convert(refs[3], 'enchant')
+        if missing:
+            issues.extend(missing)
+        if not equip:
+            if not missing and slot not in snapshots:
+                issues.append({'slot': slot, 'field': 'equipment', 'code': 'missing_snapshot'})
+            continue
+        converted.append([slot, equip[0], equip[1], row[3], embellishment,
+                          [value for value in gems if value], enchant, row[7]])
+    result = _hydrate_catalog_shared_state(share_version=4, class_name=class_name, spec_name=spec_name,
+        batch_key=batch_key, entries=converted, current=current)
+    issues.extend(result['issues'])
+    result['equipment'].update(snapshots)
+    result['issues'] = issues
+    result['warnings'] = [issue.get('message') or f"{SLOT_LABELS[issue['slot']]}的历史引用无法完整恢复" for issue in issues][:16]
+    if strict and issues:
+        raise GearBuilderError('配装无法完整恢复，请保留原字符串；未替换当前配装', issues=issues)
+    return result
+
+
+def _hydrate_catalog_shared_state(*, share_version, class_name, spec_name, batch_key, entries, current=True):
     """按批次和变体引用恢复紧凑分享数据，不保存任何用户配装。"""
     try:
         share_version = int(share_version or 0)
@@ -1066,7 +1416,7 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
     for row in entries:
         if not isinstance(row, list) or len(row) < 3:
             raise GearBuilderError('分享链接中的装备引用格式无效')
-        slot = str(row[0] or '')
+        slot = canonical_equipment_slot(row[0])
         if slot not in SLOT_LABELS or slot in seen_slots:
             raise GearBuilderError('分享链接包含未知或重复装备槽位')
         seen_slots.add(slot)
@@ -1092,14 +1442,21 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
     batch_variants = list(WowItemVariantSnapshot.objects.filter(
         selection, item__item_id__in=item_ids,
     ).select_related('item'))
+    # Prefer original-batch facts; only current_variants may refresh a proven
+    # same-item/key/level/branch identity, never queryset ordering by accident.
     variants_by_reference = {
-        (row.item.item_id, row.variant_key): row for row in batch_variants
+        (row.item.item_id, row.variant_key): row
+        for row in sorted(batch_variants, key=lambda row: row.batch_key == batch_key)
     }
     if current_season:
         replacements = current_variants(batch_variants, current_season)
         variants_by_reference = {key: replacements.get(row.pk, row) for key, row in variants_by_reference.items()}
     equipment = {}
     warnings = []
+    issues = []
+    def issue(slot, field, message, code='unresolved_reference'):
+        warnings.append(message)
+        issues.append({'slot': slot, 'field': field, 'code': code, 'message': message})
     for slot, item_id, equipment_ref, selected_stats, embellishment_ref, gem_refs, enchant_ref, added_socket in parsed:
         if not equipment_ref:
             continue
@@ -1109,7 +1466,7 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
             variants_by_reference,
         )
         if not variant:
-            warnings.append(f'{SLOT_LABELS[slot]}的装备引用已失效')
+            issue(slot, 'equipment', f'{SLOT_LABELS[slot]}的装备引用已失效')
             continue
         if variant.variant_type not in (
             WowItemVariantSnapshot.TYPE_DROP_EQUIPMENT,
@@ -1117,7 +1474,7 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
         ) or not slot_matches(variant, slot, class_name, spec_name) or not spec_matches(
             variant.item, class_name, spec_name, variant, slot,
         ):
-            warnings.append(f'{SLOT_LABELS[slot]}的装备不适用于当前专精，已置空')
+            issue(slot, 'equipment', f'{SLOT_LABELS[slot]}的装备不适用于当前专精，已置空', 'incompatible_reference')
             continue
 
         item_payload, variant_payload = _state_item_and_variant(variant, class_name, spec_name)
@@ -1142,12 +1499,16 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
             else:
                 enhancement_rows[key] = None
                 if reference:
-                    warnings.append(f'{SLOT_LABELS[slot]}的{("美化" if key == "embellishment" else "附魔")}引用已失效')
+                    issue(slot, key, f'{SLOT_LABELS[slot]}的{("美化" if key == "embellishment" else "附魔")}引用已失效')
 
         gems = []
         socket_family = SLOT_FAMILIES.get(slot, slot)
+        if added_socket and socket_family not in ADDITIONAL_SOCKET_SLOTS:
+            issue(slot, 'addedSocket', f'{SLOT_LABELS[slot]}不支持额外插槽', 'invalid_socket')
         added_socket = bool(added_socket and socket_family in ADDITIONAL_SOCKET_SLOTS)
         capacity = int(variant_payload.get('socket_count') or 0) + (1 if added_socket else 0)
+        if len(gem_refs) > capacity:
+            issue(slot, 'gems', f'{SLOT_LABELS[slot]}的宝石数量超过插槽容量', 'socket_capacity')
         for reference in gem_refs[:capacity]:
             gem = _resolve_share_variant(
                 reference, (WowItemVariantSnapshot.TYPE_GEM,), variants_by_reference,
@@ -1158,7 +1519,7 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
                 or not slot_matches(gem, slot, class_name, spec_name)
                 or not spec_matches(gem.item, class_name, spec_name, gem, slot)
             ):
-                warnings.append(f'{SLOT_LABELS[slot]}的宝石引用已失效')
+                issue(slot, 'gems', f'{SLOT_LABELS[slot]}的宝石引用已失效')
                 continue
             gem_item, gem_variant = _state_item_and_variant(gem, class_name, spec_name)
             gems.append({'item': gem_item, 'variant': gem_variant})
@@ -1187,7 +1548,7 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
             'addedSocket': added_socket,
             'external': False,
         }
-    return {'equipment': equipment, 'warnings': warnings[:16],
+    return {'equipment': equipment, 'warnings': warnings[:16], 'issues': issues,
             'batch_key': current_season.gear_batch_key if current_season else batch_key}
 
 
@@ -1249,6 +1610,7 @@ def import_simc_profile(profile_text):
     mapped = []
     warnings = []
     for row in all_equipment:
+        slot = canonical_equipment_slot(row.get('slot'))
         item_id = _simc_item_id(row)
         candidates = by_item.get(item_id, [])
         requested_bonus = {str(value) for value in (row.get('bonus_ids') or [])}
@@ -1258,7 +1620,7 @@ def import_simc_profile(profile_text):
         selected = selected or (candidates[0] if candidates else None)
         external = selected is None
         if external:
-            warnings.append(f"{SLOT_LABELS.get(row.get('slot'), row.get('slot'))} 的物品 #{item_id} 不在当前目录中，已作为外部装备保留。")
+            warnings.append(f"{SLOT_LABELS.get(slot, slot)} 的物品 #{item_id} 不在当前目录中，已作为外部装备保留。")
         enchant_payload = row.get('enchant') or {}
         enchant_id = _simc_enchantment_id(enchant_payload)
         enchant_candidates = by_item.get(enchant_id) or by_enchantment.get(enchant_id) or []
@@ -1275,7 +1637,7 @@ def import_simc_profile(profile_text):
                 'name': gem.get('display_name') or f'#{gem_id}',
             })
         mapped.append({
-            'slot': row.get('slot'),
+            'slot': slot,
             'item_id': item_id,
             'name': row.get('display_name') or f'#{item_id}',
             'item_level': requested_level,

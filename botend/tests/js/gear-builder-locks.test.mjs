@@ -4,8 +4,11 @@ import vm from 'node:vm';
 
 // 执行真实状态变更函数，仅替换显示、存储和网络边界。
 const source = fs.readFileSync(new URL('../../../static/portal/js/gear_builder.js', import.meta.url), 'utf8');
+const service = fs.readFileSync(new URL('../../services/gear_builder.py', import.meta.url), 'utf8');
+const slotKeys = [...service.match(/EQUIPMENT_SLOTS = \(([\s\S]*?)\n\)/)[1].matchAll(/\('([^']+)',/g)].map(match => match[1]);
 const element = {querySelector: () => null, querySelectorAll: () => []};
 const context = {
+    slotKeys,
     structuredClone,
     atob, TextDecoder,
     window: {confirm(message) { context.confirmMessage = message; return false; },
@@ -19,7 +22,7 @@ vm.runInContext(fs.readFileSync(new URL('../../../static/shared/js/wow-gear-sour
 vm.runInNewContext(source.replace(marker, `
   const renderCachedDetail = renderDetail;
   persist = renderAll = renderDetail = openDetail = loadEnhancements = toast = () => {};
-  bootstrap = {slots: [], rules: {}};
+  bootstrap = {slots: slotKeys.map(key => ({key})), rules: {}};
   globalThis.qa = {
     get state() { return state; },
     setState(value) { state = normalizeState(value); },

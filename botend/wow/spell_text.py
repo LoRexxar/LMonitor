@@ -133,11 +133,14 @@ def _cached_dump_effect_index(
 ) -> dict[int, dict[int, dict[str, str]]]:
     path = Path(path_value)
     index: dict[int, dict[int, dict[str, str]]] = {}
-    if not path.exists():
-        return index
     try:
+        if not path.exists():
+            return index
         with path.open(newline='', encoding='utf-8-sig') as handle:
             for row in csv.DictReader(handle):
+                # Native DB2 includes difficulty variants with identical keys.
+                if path.name == 'SpellEffect.csv' and row.get('DifficultyID') != '0':
+                    continue
                 spell_id = _to_int(row.get('SpellID'))
                 effect_index = _to_int(row.get('EffectIndex'))
                 if not spell_id:
@@ -652,6 +655,15 @@ class SpellTextResolver:
     def _load_dump_effect_index(self) -> dict[int, dict[int, dict[str, str]]]:
         if self._dump_effect_index_cache is None:
             path = self._dump_file('spell_effect_index.csv')
+            # A bound native table is authoritative over its derived index.
+            # Keep unbound legacy dump lookup unchanged.
+            if self.dump_dir:
+                native = self._dump_file('SpellEffect.csv')
+                try:
+                    if native.is_file():
+                        path = native
+                except OSError:
+                    pass
             self._dump_effect_index_cache = _cached_dump_effect_index(*_file_cache_key(path))
         return self._dump_effect_index_cache
 
@@ -1077,9 +1089,11 @@ class SpellTextResolver:
             text = _BARE_COND_ONE_RE.sub(lambda m: m.group(1) or "", text)
             text = _SWITCH_RE.sub(lambda m: (m.group(1) or m.group(2) or ""), text)
         text = _SPELLNAME_RE.sub(lambda m: self._spell_name(_to_int(m.group(1))) or "", text)
+        # Cleanup is terminal, including depth-limit and exception fallbacks.
+        # Never restart reference expansion here with a fresh recursion budget.
         text = _SPELLDESC_RE.sub("", text)
-        text = _SPELLTOOLTIP_RE.sub(lambda m: self.resolve(self._spell_desc(_to_int(m.group(1))), _to_int(m.group(1))), text)
-        text = _SPELLAURA_RE.sub(lambda m: self.resolve(self._spell_aura(_to_int(m.group(1))), _to_int(m.group(1))), text)
+        text = _SPELLTOOLTIP_RE.sub("", text)
+        text = _SPELLAURA_RE.sub("", text)
         text = _SPELLICON_RE.sub("", text)
         text = _BARE_SPELLNAME_RE.sub("", text)
         text = _AURA_CASTER_RE.sub('施法者' if self.locale == 'zhCN' else 'the caster', text)

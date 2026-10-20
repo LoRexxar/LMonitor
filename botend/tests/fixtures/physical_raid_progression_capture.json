@@ -1,0 +1,303 @@
+{
+  "central": {
+    "season": {
+      "id": 3,
+      "season_key": "mn-s2",
+      "season_name": "Mythic+ Season 2",
+      "rio_season": "season-mn-2",
+      "raid_zone_id": 53,
+      "raid_zone_name": "The Venomous Abyss",
+      "raid_zones": [
+        {
+          "id": 53,
+          "name": "The Venomous Abyss",
+          "encounters": [
+            {
+              "id": 3470,
+              "name": "Nek'zali the Soulcoiler",
+              "index": 1
+            },
+            {
+              "id": 3445,
+              "name": "Entombed Sentinels",
+              "index": 2
+            },
+            {
+              "id": 3455,
+              "name": "Vashnik the Malignant",
+              "index": 3
+            },
+            {
+              "id": 3497,
+              "name": "The Lost Explorers",
+              "index": 4
+            },
+            {
+              "id": 3420,
+              "name": "Sszorak",
+              "index": 5
+            },
+            {
+              "id": 3421,
+              "name": "The Twin Fangs",
+              "index": 6
+            },
+            {
+              "id": 3429,
+              "name": "The Coiled Altar",
+              "index": 7
+            },
+            {
+              "id": 3492,
+              "name": "Ula'tek",
+              "index": 8
+            },
+            {
+              "id": 3379,
+              "name": "Nymrissa Wavecaller",
+              "index": 9
+            },
+            {
+              "id": 3513,
+              "name": "Kith'ix",
+              "index": 10
+            }
+          ]
+        }
+      ],
+      "raid_encounters": [
+        {
+          "id": 3470,
+          "name": "Nek'zali the Soulcoiler",
+          "index": 1
+        },
+        {
+          "id": 3445,
+          "name": "Entombed Sentinels",
+          "index": 2
+        },
+        {
+          "id": 3455,
+          "name": "Vashnik the Malignant",
+          "index": 3
+        },
+        {
+          "id": 3497,
+          "name": "The Lost Explorers",
+          "index": 4
+        },
+        {
+          "id": 3420,
+          "name": "Sszorak",
+          "index": 5
+        },
+        {
+          "id": 3421,
+          "name": "The Twin Fangs",
+          "index": 6
+        },
+        {
+          "id": 3429,
+          "name": "The Coiled Altar",
+          "index": 7
+        },
+        {
+          "id": 3492,
+          "name": "Ula'tek",
+          "index": 8
+        },
+        {
+          "id": 3379,
+          "name": "Nymrissa Wavecaller",
+          "index": 9
+        },
+        {
+          "id": 3513,
+          "name": "Kith'ix",
+          "index": 10
+        }
+      ]
+    }
+  },
+  "mapping": [
+    [
+      3379,
+      1317,
+      "潮缚石窟"
+    ],
+    [
+      3420,
+      1320,
+      "烈毒之渊"
+    ],
+    [
+      3445,
+      1320,
+      "烈毒之渊"
+    ],
+    [
+      3455,
+      1320,
+      "烈毒之渊"
+    ],
+    [
+      3429,
+      1320,
+      "烈毒之渊"
+    ],
+    [
+      3421,
+      1320,
+      "烈毒之渊"
+    ],
+    [
+      3470,
+      1320,
+      "烈毒之渊"
+    ],
+    [
+      3497,
+      1320,
+      "烈毒之渊"
+    ],
+    [
+      3492,
+      1320,
+      "烈毒之渊"
+    ],
+    [
+      3513,
+      1324,
+      "基希克斯破封"
+    ]
+  ],
+  "catalog": {
+    "url": "https://cdn.raiderio.net/assets/data/siteMeta-9ba6e81bf4f44d6f2038733dd45a787d.json",
+    "data": {
+      "raids": [
+        {
+          "id": 17059,
+          "slug": "the-unbinding-of-kithix",
+          "name": "The Unbinding of Kith'ix",
+          "difficulty": "mythic",
+          "encounters": [
+            {
+              "ordinal": 0,
+              "slug": "kithix",
+              "wowEncounterId": 3513,
+              "encounterId": 197189
+            }
+          ]
+        },
+        {
+          "id": 16915,
+          "slug": "the-venomous-abyss",
+          "name": "The Venomous Abyss",
+          "difficulty": "mythic",
+          "encounters": [
+            {
+              "ordinal": 0,
+              "slug": "nekzali-the-soulcoiler",
+              "wowEncounterId": 3470,
+              "encounterId": 197163
+            },
+            {
+              "ordinal": 1,
+              "slug": "entombed-sentinels",
+              "wowEncounterId": 3445,
+              "encounterId": 197164
+            },
+            {
+              "ordinal": 2,
+              "slug": "the-lost-explorers",
+              "wowEncounterId": 3497,
+              "encounterId": 197165
+            },
+            {
+              "ordinal": 3,
+              "slug": "vashnik-the-malignant",
+              "wowEncounterId": 3455,
+              "encounterId": 197166
+            },
+            {
+              "ordinal": 4,
+              "slug": "sszorak",
+              "wowEncounterId": 3420,
+              "encounterId": 197167
+            },
+            {
+              "ordinal": 5,
+              "slug": "the-twin-fangs",
+              "wowEncounterId": 3421,
+              "encounterId": 197168
+            },
+            {
+              "ordinal": 6,
+              "slug": "the-coiled-altar",
+              "wowEncounterId": 3429,
+              "encounterId": 197169
+            },
+            {
+              "ordinal": 7,
+              "slug": "ulatek",
+              "wowEncounterId": 3492,
+              "encounterId": 197170
+            }
+          ]
+        },
+        {
+          "id": 16671,
+          "slug": "the-tidebound-grotto",
+          "name": "The Tidebound Grotto",
+          "difficulty": "mythic",
+          "encounters": [
+            {
+              "ordinal": 0,
+              "slug": "nymrissa-wavecaller",
+              "wowEncounterId": 3379,
+              "encounterId": 197188
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "data": {
+    "name": "Monosuper",
+    "region": "cn",
+    "realm": "Silver Hand",
+    "profile_url": "https://raider.io/characters/cn/silver-hand/Monosuper",
+    "last_crawled_at": "2026-10-15T00:14:00.000Z",
+    "mythic_plus_scores_by_season": [
+      {
+        "season": "season-mn-2"
+      }
+    ],
+    "raid_progression": {
+      "the-unbinding-of-kithix": {
+        "summary": "1/1 H",
+        "expansion_id": 11,
+        "total_bosses": 1,
+        "normal_bosses_killed": 0,
+        "heroic_bosses_killed": 1,
+        "mythic_bosses_killed": 0
+      },
+      "the-venomous-abyss": {
+        "summary": "8/8 M",
+        "expansion_id": 11,
+        "total_bosses": 8,
+        "normal_bosses_killed": 8,
+        "heroic_bosses_killed": 2,
+        "mythic_bosses_killed": 8
+      },
+      "the-tidebound-grotto": {
+        "summary": "1/1 M",
+        "expansion_id": 11,
+        "total_bosses": 1,
+        "normal_bosses_killed": 1,
+        "heroic_bosses_killed": 0,
+        "mythic_bosses_killed": 1
+      }
+    }
+  }
+}
