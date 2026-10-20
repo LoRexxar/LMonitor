@@ -3273,7 +3273,10 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             },
         ]
 
-        result = _compute_gear_popularity(records, top_n=10)
+        # 此处验证槽位合并；中央装备本地化由独立数据库测试覆盖。
+        with patch('botend.services.wow_item_display.WowItemSnapshot.objects.filter') as items:
+            items.return_value.values_list.return_value = []
+            result = _compute_gear_popularity(records, top_n=10)
 
         self.assertIn('戒指', result)
         self.assertNotIn('戒指1', result)
@@ -3714,7 +3717,14 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         )
         mock_filter.return_value.first.return_value = player
 
-        detail = SpecStatsService.get_player_detail(player.id)
+        # 天赋渲染测试仅使用角色样本；装备、观察报告和外链有独立回归。
+        with patch('botend.services.wow_item_display.WowItemSnapshot.objects.filter') as items, \
+                patch.object(TalentVersionResolver, 'resolve', return_value=None), \
+                patch('botend.services.player_observation.project_player_observation', return_value={}), \
+                patch('botend.services.spec_stats_service.build_player_external_links', return_value={}), \
+                patch('botend.services.spec_stats_service.project_player_activity', return_value={}):
+            items.return_value.values_list.return_value = []
+            detail = SpecStatsService.get_player_detail(player.id)
 
         self.assertEqual(detail['talent_render_model']['build_code'], 'BwQAAAAAAAAAAAAAAAAAAAAA')
         self.assertEqual(detail['talent_render_model']['nodes'], detail['talents'])
