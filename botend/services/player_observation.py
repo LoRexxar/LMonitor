@@ -1119,8 +1119,57 @@ def _frozen_evidence(row):
     return previous
 
 
+def _history_audit_append_only(previous, current):
+    """Only fresh public history references may be added, never canonical facts.
+
+    _build emits these five fields only after the history source gate succeeds;
+    there is deliberately no status/runs/value field to normalize away. Current
+    source_failed must be explicitly false, not inferred from the frozen row.
+    This is read equivalence, never a replacement for the exact publication CAS.
+    """
+    from urllib.parse import parse_qs, urlencode, urlsplit
+    from botend.services.player_observation_history import URL, _date, scope
+
+    if previous.get('source_failed') is not False or current.get('source_failed') is not False:
+        return False
+    indexes = []
+    for evidence in (previous, current):
+        stamps = evidence.get('source_stamps')
+        if not isinstance(stamps, dict) or not isinstance(stamps.get('histories'), list):
+            return False
+        index = {}
+        for item in stamps['histories']:
+            if (not isinstance(item, dict) or set(item) != {
+                    'activity_id', 'dungeon_id', 'fetched_at', 'source_url', 'digest'}
+                    or any(type(item[k]) is not int or item[k] <= 0 for k in ('activity_id', 'dungeon_id'))
+                    or not _date(item['fetched_at'])
+                    or not isinstance(item['digest'], str)
+                    or not re.fullmatch(r'[0-9a-f]{64}', item['digest'])
+                    or not isinstance(item['source_url'], str)):
+                return False
+            try:
+                query = parse_qs(urlsplit(item['source_url']).query)
+                character_id = int(query['characterId'][0])
+                expected_url = URL + '?' + urlencode(scope(evidence['season'], character_id, item['dungeon_id']))
+            except (KeyError, TypeError, ValueError):
+                return False
+            if item['source_url'] != expected_url:
+                return False
+            key = (item['activity_id'], item['dungeon_id'])
+            if key in index:
+                return False
+            index[key] = _semantic_evidence(item)
+        indexes.append(index)
+    old, new = indexes
+    if not old.keys() < new.keys() or any(old[key] != new[key] for key in old):
+        return False
+    reduced = {**current, 'source_stamps': {**current['source_stamps'],
+        'histories': previous['source_stamps']['histories']}}
+    return _hash(_semantic_evidence(previous)) == _hash(_semantic_evidence(reduced))
+
+
 def _same_publication(row, evidence):
-    """Prompt-only v7→v8 migration is not a new fact or a publication CAS."""
+    """Prompt-only migration and successful audit appends are not new facts."""
     try:
         previous = _frozen_evidence(row)
     except InvalidResult:
@@ -1131,6 +1180,8 @@ def _same_publication(row, evidence):
     old = {k: v for k, v in previous.items() if k != 'prompt_version'}
     current = {k: v for k, v in evidence.items() if k != 'prompt_version'}
     if _semantic_evidence(old) == _semantic_evidence(current):
+        return True
+    if _history_audit_append_only(old, current):
         return True
     # Historical additive exception stays within a single version; never use it
     # to waive newly added facts during cross-version compatibility.
