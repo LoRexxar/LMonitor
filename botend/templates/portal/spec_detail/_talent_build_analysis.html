@@ -1,0 +1,49 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'portal/css/log-talent-analysis.css' %}?v=20261020f">
+<section id="log-talents" class="section-block log-talent-analysis" aria-label="日志天赋模板与变化">
+    <h4>天赋模板与变化</h4>
+    {% if popularity.analysis_version %}
+    <p class="log-talent-muted">只统计本次战斗日志。使用率以 {{ popularity.total }} 份有效日志为分母，同一玩家的不同战斗分别计数；使用率不代表伤害提升。</p>
+    <div class="log-talent-coverage">
+        <span>日志 <strong>{{ popularity.sample_total }}</strong> 份</span>
+        <span>有效天赋 <strong>{{ popularity.total }}</strong> 份</span>
+        {% if popularity.excluded_count %}<span>未计入 <strong>{{ popularity.excluded_count }}</strong> 份</span>{% endif %}
+    </div>
+    {% if popularity.excluded_count %}
+    <p class="log-talent-quality">未计入原因：{% if popularity.missing_count %}日志未提供天赋 {{ popularity.missing_count }} 份；{% endif %}{% if popularity.unresolved_count %}节点资料无法匹配 {{ popularity.unresolved_count }} 份；{% endif %}{% if popularity.conflict_count %}节点、点数或英雄树冲突 {{ popularity.conflict_count }} 份；{% endif %}{% if popularity.partial_count %}天赋树不完整 {{ popularity.partial_count }} 份；{% endif %}不使用角色当前天赋补齐。</p>
+    {% endif %}
+    {% if popularity.primary_template %}
+    {% with build=popularity.primary_template %}
+    <article class="log-talent-primary">
+        <div class="log-talent-primary-heading">
+            <div><span class="log-talent-eyebrow">最常用完整模板</span><h5>{% for hero in build.hero_talent_summary %}{{ hero.name }}{% endfor %}</h5></div>
+            <div class="log-talent-primary-stat"><strong>{{ build.count }} <small>份</small></strong><span>{{ build.overall_pct }}% 完全相同</span></div>
+        </div>
+        <p>相同专精与英雄天赋共有 <strong>{{ popularity.template_family.count }} 份（{{ popularity.template_family.pct }}%）</strong>，其中 {{ popularity.template_family.variant_count }} 种完整方案仅在职业天赋上不同。</p>
+        {% include "portal/spec_detail/_talent_log_code.html" with primary=True %}
+        <details class="log-talent-players"><summary>查看使用此模板的日志样本</summary>
+            {% for player in build.top_players %}<div>{{ player.name }}{% if player.realm %}-{{ player.realm }}{% endif %} {% if player.dps_fmt %}· {{ player.dps_fmt }} DPS{% endif %}</div>{% endfor %}
+        </details>
+    </article>
+    {% endwith %}
+    {% if popularity.common_changes %}
+    <div class="log-talent-subhead"><h5>大家最常改哪些点</h5><span>相对主模板 · 每项独立统计，比例不可相加</span></div>
+    {% include "portal/spec_detail/_talent_log_diffs.html" with diffs=popularity.common_changes|slice:":6" show_count=True %}
+    {% if popularity.common_changes|length > 6 %}
+    <details class="log-talent-more"><summary>展开其余节点变化</summary>
+        {% include "portal/spec_detail/_talent_log_diffs.html" with diffs=popularity.common_changes|slice:"6:" show_count=True %}
+    </details>
+    {% endif %}
+    {% endif %}
+    <div id="talent-alternatives" class="log-talent-subhead"><h5>其他人怎么搭配</h5><span>{{ popularity.family_count }} 个核心方案 · {{ popularity.build_count }} 种完整天赋</span></div>
+    <p class="log-talent-muted">按专精与英雄天赋分组，展示常见搭配相对主模板的变化。＋新增 · −移除 · →调整；使用率均以有效日志为分母。</p>
+    <div class="log-talent-family-grid">
+    {% for family in popularity.families %}
+        {% include "portal/spec_detail/_talent_log_family.html" %}
+    {% endfor %}
+    </div>
+    {% else %}<p class="aggregation-pending">当前日志没有可完整比较的天赋样本。</p>{% endif %}
+    {% else %}
+    <p class="aggregation-pending">日志天赋模板等待后台重新聚合。</p>
+    {% endif %}
+</section>

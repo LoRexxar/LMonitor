@@ -3919,7 +3919,10 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
             first_row=SimpleNamespace(dungeon_name='Ara-Kara, City of Echoes'),
         )
 
-        detail = SpecStatsService.get_dungeon_detail(42, 'Monk', 'Windwalker', season_id=1)
+        # 此夹具只验证连线渲染；日志完整性与条目解析由独立回归覆盖。
+        with patch('botend.services.log_talent_analysis.prepare_log_talents',
+                   side_effect=lambda rows, *_args, **_kwargs: rows):
+            detail = SpecStatsService.get_dungeon_detail(42, 'Monk', 'Windwalker', season_id=1)
 
         self.assertIsNotNone(detail['talent_popularity_tree'])
         render_model = detail['talent_popularity_tree']['render_model']
@@ -4603,103 +4606,22 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
         self.assertIn('100.0%', html)
 
 class SpecStatsTalentBuildDiffTooltipTemplateTests(SimpleTestCase):
-    def test_stats_templates_render_talent_build_diff_top_players(self):
-        talent_build_popularity = {
-            'total': 3,
-            'template_code': 'CODE_A',
-            'template_count': 2,
-            'hero_groups': [
-                {
-                    'hero_talent_name': '山丘之王',
-                    'total': 3,
-                    'template_count': 2,
-                    'builds': [
-                {
-                    'rank': 1,
-                    'code': 'CODE_B',
-                    'count': 1,
-                    'pct': 33.3,
-                    'is_template': False,
-                    'merged_code_count': 2,
-                    'top_players': [
-                        {'name': 'VariantOne', 'realm': 'RealmB', 'dps_fmt': '3,000'},
-                        {'name': 'VariantTwo', 'realm': 'RealmC', 'dps_fmt': '2,500'},
-                    ],
-                    'hero_talent_summary': [],
-                    'diff_count': 3,
-                    'added_talents': [
-                        {
-                            'name': '变体天赋',
-                            'icon': '',
-                            'top_players': [{'name': 'VariantOne', 'realm': 'RealmB', 'dps_fmt': '3,000'}],
-                        },
-                    ],
-                    'missing_talents': [
-                        {
-                            'name': '模板天赋',
-                            'icon': '',
-                            'top_players': [{'name': 'TemplateTwo', 'realm': 'RealmA', 'dps_fmt': '2,000'}],
-                        },
-                    ],
-                    'changed_talents': [
-                        {
-                            'name': '两级天赋',
-                            'icon': '',
-                            'template_points': 2,
-                            'points': 1,
-                            'template_choice_name': '',
-                            'choice_name': '',
-                            'top_players': [],
-                        },
-                    ],
-                    },
-                    ],
-                },
-            ],
-        }
-        nav = {
-            'class_name': 'Monk',
-            'spec_name': 'Windwalker',
-            'class_cn': '武僧',
-            'spec_cn': '踏风',
-            'spec_icon': 'ability_monk_flyingdragonkick',
-            'role': 'dps',
-        }
-
-        for template_name, detail_key, detail_name_key in [
-            ('portal/spec_detail/dungeon_stats.html', 'dungeon_detail', 'dungeon_name'),
-            ('portal/spec_detail/raid_stats.html', 'boss_detail', 'boss_name'),
+    def test_stats_templates_require_rebuilt_log_talent_analysis(self):
+        """旧快照的角色字符串不能冒充战斗日志模板。"""
+        for template_name, detail_key in [
+            ('portal/spec_detail/dungeon_stats.html', 'dungeon_detail'),
+            ('portal/spec_detail/raid_stats.html', 'boss_detail'),
         ]:
-            html = render_to_string(
-                template_name,
-                {
-                    'class_name': 'Monk',
-                    'spec_name': 'Windwalker',
-                    'nav': nav,
-                    detail_key: {
-                        detail_name_key: '测试目标',
-                        'sample_size': 3,
-                        'talent_build_popularity': talent_build_popularity,
+            html = render_to_string(template_name, {
+                'class_name': 'Monk', 'spec_name': 'Windwalker',
+                'selected_dungeon_id': '1',
+                detail_key: {
+                    'sample_size': 3,
+                    'talent_build_popularity': {
+                        'total': 3, 'template_code': 'OLD_PROFILE_CODE',
+                        'hero_groups': [{'builds': [{'code': 'OLD_PROFILE_CODE'}]}],
                     },
                 },
-            )
-
-            self.assertIn('talent-build-player-tooltip', html)
-            self.assertIn('使用该字符串 Top5', html)
-            self.assertIn(
-                '/portal/talents/?class=Monk&amp;spec=Windwalker&amp;code=CODE_B',
-                html,
-            )
-            self.assertNotIn('version=retail-12.0.7', html)
-            self.assertIn('打开天赋模拟器', html)
-            self.assertIn('class="talent-build-actions"', html)
-            self.assertIn('按解码后的节点、精确点数和二选一选项归类', html)
-            self.assertIn('合并 2 种等价字符串', html)
-            self.assertIn('两级天赋：', html)
-            self.assertIn('2 点 → 1 点', html)
-            self.assertNotIn('选取该天赋 Top5', html)
-            self.assertNotIn('模板选取 Top5', html)
-            self.assertIn('VariantOne-RealmB', html)
-            self.assertIn('VariantTwo-RealmC', html)
-            self.assertNotIn('TemplateTwo-RealmA', html)
-            self.assertIn('3,000 DPS', html)
+            })
+            self.assertIn('日志天赋模板等待后台重新聚合', html)
+            self.assertNotIn('OLD_PROFILE_CODE', html)

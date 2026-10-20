@@ -22,7 +22,7 @@ from botend.wow.talents.versioning import TalentVersionResolver
 
 
 # Bump when selection, aggregation, source interpretation or display code changes.
-ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v2-level-floor'
+ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v3-log-talents'
 _NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at'}
 
 

@@ -1,0 +1,94 @@
+.log-talent-analysis { color: var(--text-main, #1e293b); scroll-margin-top: 145px; }
+.log-talent-analysis h5 { margin: 0; font-size: 17px; font-weight: 700; }
+.log-talent-analysis h6 { margin: 0 0 10px; font-size: 14px; font-weight: 700; }
+.log-talent-muted, .log-talent-subhead > span { font-size: 13px; color: #64748b; line-height: 1.7; }
+.log-talent-coverage { display: flex; flex-wrap: wrap; gap: 8px 24px; margin: 12px 0; font-size: 14px; }
+.log-talent-quality { color: #92400e; background: #fffbeb; padding: 10px 14px; border-radius: 10px; font-size: 13px; }
+.log-talent-primary { margin-top: 16px; padding: 20px; border: 1px solid #93c5fd; border-radius: 14px; background: linear-gradient(120deg, #eff6ff, #f8fafc); color: #1e293b; }
+.log-talent-primary-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
+.log-talent-eyebrow { color: #1d4ed8; font-size: 12px; display: block; margin-bottom: 4px; }
+.log-talent-primary-stat { display: flex; flex-direction: column; text-align: right; color: #1d4ed8; }
+.log-talent-primary-stat > strong { font-size: 30px; line-height: 1.2; }
+.log-talent-primary-stat small, .log-talent-primary-stat span { font-size: 13px; }
+.log-talent-primary p { font-size: 14px; margin: 12px 0; line-height: 1.7; }
+.log-talent-code-actions { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px; margin-top: 12px; }
+.log-talent-analysis .log-talent-button {
+    display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box;
+    min-height: 36px; padding: 7px 14px; border: 1px solid #cbd5e1; border-radius: 8px;
+    background: #fff; color: #334155; font: inherit; font-size: 13px; font-weight: 600;
+    line-height: 20px; text-decoration: none; white-space: nowrap; cursor: pointer;
+    transition: background-color .15s, border-color .15s, color .15s;
+}
+.log-talent-analysis .log-talent-button:hover { background: #f1f5f9; border-color: #94a3b8; color: #0f172a; text-decoration: none; }
+.log-talent-analysis .log-talent-button--primary { background: #2563eb; border-color: #2563eb; color: #fff; }
+.log-talent-analysis .log-talent-button--primary:hover { background: #1d4ed8; border-color: #1d4ed8; color: #fff; }
+.log-talent-analysis .log-talent-button.is-copied { background: #f0fdf4; border-color: #86efac; color: #15803d; }
+.log-talent-analysis .log-talent-button.is-failed { background: #fef2f2; border-color: #fca5a5; color: #b91c1c; }
+.log-talent-code { min-width: 0; flex: 1 1 130px; font-size: 13px; }
+.log-talent-code code { display: block; overflow-wrap: anywhere; word-break: break-all; padding: 12px; margin-top: 8px; background: #f1f5f9; color: #475569; border-radius: 8px; }
+.log-talent-analysis summary { cursor: pointer; list-style: none; border-radius: 8px; }
+.log-talent-analysis summary::-webkit-details-marker { display: none; }
+.log-talent-analysis summary::before { content: ""; display: inline-block; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor; transform: rotate(-45deg); flex: 0 0 6px; transition: transform .15s; }
+.log-talent-analysis details[open] > summary::before { transform: rotate(45deg); }
+.log-talent-analysis summary:focus-visible, .log-talent-analysis .log-talent-button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.log-talent-code > summary, .log-talent-players > summary, .log-talent-variants > summary, .log-talent-more > summary { display: flex; align-items: center; gap: 10px; width: fit-content; max-width: 100%; box-sizing: border-box; min-height: 36px; padding: 7px 10px; color: #475569; font-size: 13px; font-weight: 500; line-height: 20px; }
+.log-talent-analysis summary:hover { background: #eff6ff; color: #1d4ed8; }
+.log-talent-players { margin-top: 12px; font-size: 12px; line-height: 1.9; color: #64748b; }
+.log-talent-subhead { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin: 22px 0 10px; }
+.log-talent-diffs { display: flex; flex-wrap: wrap; gap: 8px; }
+.log-talent-diff { display: inline-flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; padding: 8px 10px; border-radius: 8px; background: #f1f5f9; color: #334155; font-size: 13px; max-width: 100%; overflow-wrap: anywhere; }
+.log-talent-diff > small { color: #64748b; font-size: 11px; }
+.log-talent-diff > strong { font-weight: 600; white-space: nowrap; }
+.log-talent-diff-node { display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.log-talent-diff-node img { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 3px; object-fit: cover; }
+.log-talent-diff--added { background: #ecfdf5; color: #065f46; }
+.log-talent-diff--missing { background: #fff1f2; color: #9f1239; }
+.log-talent-diff--changed { background: #eff6ff; color: #1e40af; }
+.log-talent-family-grid { margin-top: 10px; }
+.log-talent-family { display: grid; grid-template-columns: 150px minmax(0, 1fr) 100px; align-items: start; gap: 6px 12px; min-width: 0; border-top: 1px solid #e2e8f0; padding: 9px 0; }
+.log-talent-family-heading { display: flex; flex-direction: column; gap: 0; font-size: 12px; font-weight: 600; line-height: 20px; }
+.log-talent-family-heading > span { color: #64748b; font-weight: 500; }
+.log-talent-family-heading h6 { margin: 0; }
+.log-talent-family small { color: #64748b; font-weight: 400; }
+.log-talent-family-changes { min-width: 0; }
+.log-talent-family-changes > p { margin: 0 0 3px; font-size: 12px; }
+.log-talent-family-preview { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; padding: 2px 0; }
+.log-talent-family-preview .log-talent-diffs { flex: 1 1 240px; }
+.log-talent-preview-count { font-size: 12px; line-height: 20px; color: #64748b; }
+.log-talent-family-preview .log-talent-diffs { gap: 5px; }
+.log-talent-family-preview .log-talent-diff { padding: 3px 6px; font-size: 12px; line-height: 18px; border-radius: 5px; }
+.log-talent-family .log-talent-variants { margin-top: 0; }
+.log-talent-family .log-talent-variants[open] { grid-column: 1 / -1; }
+.log-talent-family .log-talent-variants > summary { padding: 4px 2px; min-height: 30px; font-size: 12px; }
+#talent-alternatives { scroll-margin-top: 145px; }
+.log-talent-variants, .log-talent-more { margin-top: 12px; font-size: 13px; }
+.log-talent-variant { border-left: 2px solid #cbd5e1; padding: 12px; margin-top: 12px; }
+@media (max-width: 900px) {
+    .log-talent-family { grid-template-columns: minmax(0, 1fr) auto; }
+    .log-talent-family-heading { flex-direction: row; flex-wrap: wrap; gap: 0 8px; }
+    .log-talent-family-changes { grid-column: 1 / -1; grid-row: 2; }
+    .log-talent-family .log-talent-variants { grid-column: 2; grid-row: 1; }
+    .log-talent-family .log-talent-variants[open] { grid-column: 1 / -1; grid-row: 3; }
+}
+@media (max-width: 600px) {
+    .spec-detail-page .log-talent-analysis { padding: 12px; }
+    .log-talent-primary { padding: 14px; }
+    .log-talent-primary-stat span { white-space: nowrap; font-size: 12px; }
+    .log-talent-analysis .log-talent-button { min-height: 40px; flex: 1 1 120px; }
+    .log-talent-code { flex-basis: 100%; }
+    .log-talent-family-heading { font-size: 13px; }
+    .log-talent-family-preview { gap: 3px; }
+    .log-talent-subhead { margin-top: 18px; }
+    .log-talent-diff { width: 100%; }
+}
+[data-theme="dark"] .log-talent-primary { background: #16253b; border-color: #31558b; color: #e2e8f0; }
+[data-theme="dark"] .log-talent-family { border-color: #334155; }
+[data-theme="dark"] .log-talent-diff { background: #243247; color: #e2e8f0; }
+[data-theme="dark"] .log-talent-analysis .log-talent-button { background: #1e293b; border-color: #475569; color: #e2e8f0; }
+[data-theme="dark"] .log-talent-analysis .log-talent-button:hover { background: #334155; border-color: #64748b; }
+[data-theme="dark"] .log-talent-analysis .log-talent-button--primary { background: #2563eb; border-color: #3b82f6; color: #fff; }
+[data-theme="dark"] .log-talent-analysis .log-talent-button--primary:hover { background: #1d4ed8; }
+[data-theme="dark"] .log-talent-analysis .log-talent-button.is-copied { background: #14532d; border-color: #22c55e; color: #dcfce7; }
+[data-theme="dark"] .log-talent-analysis .log-talent-button.is-failed { background: #7f1d1d; border-color: #ef4444; color: #fee2e2; }
+[data-theme="dark"] .log-talent-analysis summary { color: #cbd5e1; }
+[data-theme="dark"] .log-talent-analysis summary:hover, [data-theme="dark"] .log-talent-code code { background: #243247; color: #dbeafe; }

@@ -483,15 +483,23 @@ class SpecDetailBase(BaseScan):
             return []
         result = []
         for t in talent_list:
+            if not isinstance(t, dict):
+                result.append({'source': 'wcl_log', 'invalid': True})
+                continue
+            entry_id = t.get('talentID') or t.get('talent_id') or t.get('id')
             result.append({
                 'tree_type': t.get('treeType') or t.get('tree_type') or 'spec',
-                'talentID': t.get('talentID'),
-                'spellID': t.get('spellID') or t.get('talentID'),
-                'talent_id': t.get('talentID'),
-                'spell_id': t.get('spellID') or t.get('talentID'),
+                'entry_id': entry_id,
+                'talentID': entry_id,
+                'spellID': t.get('spellID') or t.get('spell_id'),
+                'talent_id': entry_id,
+                'spell_id': t.get('spellID') or t.get('spell_id'),
+                'node_id': entry_id,
+                'db2_trait_node_id': t.get('nodeID') or t.get('node_id'),
+                'source': 'wcl_log',
                 'name': t.get('name', ''),
                 'icon': t.get('icon', ''),
-                'points': t.get('points', 0),
+                'points': t.get('points', t.get('rank', 0)),
                 'row': t.get('row'),
                 'column': t.get('column'),
             })
@@ -504,13 +512,17 @@ class SpecDetailBase(BaseScan):
             return []
         result = []
         for t in talent_tree:
+            if not isinstance(t, dict):
+                result.append({'source': 'wcl_combatantinfo', 'invalid': True})
+                continue
             entry_id = t.get('id')
             result.append({
                 'tree_type': t.get('treeType') or t.get('tree_type') or 'spec',
                 'talentID': entry_id,
-                'spellID': t.get('spellID') or entry_id,
+                'entry_id': entry_id,
+                'spellID': t.get('spellID') or t.get('spell_id'),
                 'talent_id': entry_id,
-                'spell_id': t.get('spellID') or entry_id,
+                'spell_id': t.get('spellID') or t.get('spell_id'),
                 'node_id': entry_id,
                 'db2_trait_node_id': t.get('nodeID') or t.get('node_id'),
                 'points': t.get('rank', 0),

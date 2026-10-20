@@ -113,3 +113,7 @@ class StatsRequestPerformanceTests(TestCase):
                           and 'talent_build_code' not in q['sql'] and 'gear_json' not in q['sql']
                           and 'stats_json' not in q['sql']]
         self.assertEqual(len(identity_scans), 1)
+        self.assertFalse(any(
+            'wow_spec_top_player' in query['sql'].lower() and 'talent_build_code' in query['sql']
+            for query in queries
+        ), '团本天赋不能查询或回填当前角色导入码')

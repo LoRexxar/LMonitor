@@ -30,6 +30,7 @@ from botend.wow.talents.service import TalentBuildCodeService
 
 import json
 import re
+import hashlib
 
 
 def _translate_gem_name(name):
@@ -482,7 +483,7 @@ class SpecStatsService:
             'field_sources': {
                 'performance': 'Warcraft Logs 原始日志',
                 'talent_usage': 'Warcraft Logs 日志天赋（仅有效天赋样本）',
-                **({'talent_build_popularity': 'Warcraft Logs 日志导入码；缺失不使用当前角色构筑替代'}
+                **({'talent_build_popularity': 'Warcraft Logs 对应战斗的天赋节点；导入码由日志节点生成'}
                    if include_talent_build_popularity else {}),
                 'gear': 'Warcraft Logs 对应战斗的装备、宝石与附魔',
                 'secondary_stats': 'Warcraft Logs 对应角色的 CombatantInfo 原始绿字；可能包含日志时点增益，不等同于无增益装备面板；未提供百分比时不推算',
@@ -566,6 +567,9 @@ class SpecStatsService:
         from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
         records = (enriched_records if enriched_records is not None else
                    enrich_dungeon_records(selected_records, class_name, spec_name))
+        from botend.services.log_talent_analysis import prepare_log_talents
+        records = prepare_log_talents(records, class_name, spec_name,
+                                      encode_builds=include_talent_build_popularity)
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
         usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
@@ -748,6 +752,8 @@ class SpecStatsService:
 
         # 天赋/装备热门度（概览也展示）
         records = list(qs.values('talents_json', 'talent_build_code', 'gear_json', 'faction', 'character_name', 'realm', 'region', 'dps'))
+        from botend.services.log_talent_analysis import prepare_log_talents
+        records = prepare_log_talents(records, class_name, spec_name)
         profile_cache = {}
         talent_limit = 20 if full else 10
         gear_limit = 5 if full else 3
@@ -770,16 +776,8 @@ class SpecStatsService:
             top_n=talent_limit,
             snapshot=usage_snapshot,
         )
-        talent_build_records = _merge_player_profile_fields(
-            records,
-            season_id,
-            class_name,
-            spec_name,
-            fields=('talent_build_code',),
-            profile_cache=profile_cache,
-        )
         stats['talent_build_popularity'] = _compute_talent_build_popularity(
-            talent_build_records,
+            records,
             class_name,
             spec_name,
             top_n=20 if full else 5,
@@ -1399,6 +1397,8 @@ def _compute_talent_usage(records, class_name, spec_name, top_n=20, snapshot=Non
 
 
 def _request_normalized_talent_node(raw, provider, class_name, spec_name, context):
+    if isinstance(raw, dict) and raw.get('_log_resolved'):
+        return TalentNodeModel.from_raw(raw)
     # Full observation, including source overrides, choice, points and parents.
     # Consumers only read the model; per-record dictionaries are built afresh.
     if context is None:
@@ -1485,6 +1485,13 @@ def _talent_build_choice_payload(node, choice_selection):
 
 def _talent_build_semantic_state(record, provider, class_name, spec_name, decoder_nodes, decoder_nodes_by_key, context=None):
     """将原始字符串和结构化节点合并为可比较、可归类的规范状态。"""
+    if record.get('_log_talent_state'):
+        state = record['_log_talent_state']
+        signature = tuple(sorted(
+            (key, node['points'], node.get('choice_key') or -1)
+            for key, node in state['nodes'].items()
+        ))
+        return signature, state
     structured_state = _talent_build_record_state(record, provider, class_name, spec_name, context=context)
     structured_nodes = structured_state.get('nodes') or {}
     structured_nodes_by_alias = {}
@@ -1632,8 +1639,27 @@ def _build_hero_talent_summary(hero_nodes_by_subtree, class_name, spec_name, con
 
 
 def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
+    """日志投影保留全部方案，旧调用方仍可使用有界的历史语义投影。"""
+    is_log = any('_log_talent_status' in row for row in records or [])
+    result = _aggregate_talent_build_popularity(
+        records, class_name, spec_name, top_n=(len(records) or 1) if is_log else top_n)
+    if is_log:
+        from botend.services.log_talent_analysis import add_template_analysis
+        states = {}
+        for row in records:
+            state = row.get('_log_talent_state')
+            if state:
+                signature = tuple(sorted((key, node['points'], node.get('choice_key') or -1)
+                                         for key, node in state['nodes'].items()))
+                states[hashlib.sha256(repr(signature).encode()).hexdigest()] = state
+        return add_template_analysis(result, states, records)
+    return result
+
+
+def _aggregate_talent_build_popularity(records, class_name, spec_name, top_n=20):
     """按解码后的天赋语义聚合，并输出与最热门模板状态的完整差异。"""
-    coded_records = [record for record in records or [] if str(record.get('talent_build_code') or '').strip()]
+    coded_records = [record for record in records or []
+                     if record.get('_log_talent_state') or str(record.get('talent_build_code') or '').strip()]
     if not coded_records:
         return {
             'semantic_state_version': 2,
@@ -1723,7 +1749,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
         }
 
     def _representative_code(build_key):
-        counts = raw_code_counts.get(build_key) or {}
+        counts = {code: count for code, count in (raw_code_counts.get(build_key) or {}).items() if code}
         if not counts:
             return ''
         return min(
@@ -1810,6 +1836,7 @@ def _compute_talent_build_popularity(records, class_name, spec_name, top_n=20):
                 })
                 changed_talents.append(payload)
             builds.append({
+                'state_key': hashlib.sha256(repr(build_key[1]).encode()).hexdigest(),
                 'rank': index,
                 'code': build_code,
                 'count': count,

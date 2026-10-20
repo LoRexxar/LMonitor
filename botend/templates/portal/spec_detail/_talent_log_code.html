@@ -1,0 +1,9 @@
+{% if build.code %}
+<div class="log-talent-code-actions">
+    <button type="button" class="talent-build-copy log-talent-button{% if primary %} log-talent-button--primary{% endif %}" data-build-code="{{ build.code }}">复制{% if primary %}主模板{% else %}此方案{% endif %}</button>
+    <a class="log-talent-button" href="/portal/talents/?class={{ class_name|urlencode }}&amp;spec={{ spec_name|urlencode }}&amp;code={{ build.code|urlencode }}">查看天赋树</a>
+    <details class="log-talent-code"><summary>导入字符串</summary><code>{{ build.code }}</code></details>
+</div>
+{% else %}
+<p class="log-talent-muted">日志节点可比较，导入码暂不可用。</p>
+{% endif %}

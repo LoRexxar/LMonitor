@@ -1,0 +1,30 @@
+    <article class="log-talent-family">
+        <div class="log-talent-family-heading"><h6>{% if family.is_template_family %}主模板核心{% else %}方案 {{ family.rank }}{% endif %} · {% for hero in family.representative.hero_talent_summary %}{{ hero.name }}{% endfor %}</h6><span>{{ family.count }} 份 · {{ family.pct }}%</span></div>
+        <div class="log-talent-family-changes">
+        {% if family.is_template_family %}
+        <p class="log-talent-muted">{% if family.variant_count > 1 %}仅调整职业天赋{% else %}与主模板完全一致{% endif %}</p>
+        {% for build in family.builds|slice:":3" %}
+        {% if build.state_key != popularity.primary_template.state_key %}
+        <div class="log-talent-family-preview">
+            <span class="log-talent-preview-count">此搭配 {{ build.count }} 份 · {{ build.overall_pct }}%</span>
+            {% include "portal/spec_detail/_talent_log_diffs.html" with diffs=build.template_diffs show_count=False %}
+        </div>
+        {% endif %}
+        {% endfor %}
+        {% else %}
+        <div class="log-talent-family-preview">
+            <span class="log-talent-preview-count">常用搭配 {{ family.representative.count }} 份 · {{ family.representative.overall_pct }}%</span>
+            {% include "portal/spec_detail/_talent_log_diffs.html" with diffs=family.representative.template_diffs show_count=False %}
+        </div>
+        {% endif %}
+        </div>
+        <details class="log-talent-variants"><summary title="查看完整搭配与导入码">{{ family.variant_count }} 种搭配</summary>
+        {% for build in family.builds %}
+            <article class="log-talent-variant">
+                <h6>{{ build.count }} 份 · {{ build.overall_pct }}%{% if build.state_key == popularity.primary_template.state_key %} · 主模板{% endif %}</h6>
+                {% include "portal/spec_detail/_talent_log_diffs.html" with diffs=build.template_diffs show_count=False %}
+                {% include "portal/spec_detail/_talent_log_code.html" with primary=False %}
+            </article>
+        {% endfor %}
+        </details>
+    </article>

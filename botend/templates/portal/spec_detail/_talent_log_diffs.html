@@ -1,0 +1,22 @@
+{% load wow_tags %}
+<div class="log-talent-diffs">
+{% for diff in diffs %}
+    <span class="log-talent-diff log-talent-diff--{{ diff.kind }}">
+        <small>{{ diff.tree_label }}</small>
+        {% if diff.kind == 'added' %}
+        <span class="log-talent-diff-node">+ {% if diff.after_icon %}<img src="{% wow_icon diff.after_icon 'tiny' %}" alt="" width="18" height="18" loading="lazy">{% endif %}{{ diff.after_name }} {{ diff.after_points }} 点</span>
+        {% elif diff.kind == 'missing' %}
+        <span class="log-talent-diff-node">− {% if diff.before_icon %}<img src="{% wow_icon diff.before_icon 'tiny' %}" alt="" width="18" height="18" loading="lazy">{% endif %}{{ diff.before_name }} {{ diff.before_points }} 点</span>
+        {% elif diff.before_name == diff.after_name %}
+        <span class="log-talent-diff-node">{% if diff.after_icon %}<img src="{% wow_icon diff.after_icon 'tiny' %}" alt="" width="18" height="18" loading="lazy">{% endif %}{{ diff.after_name }}：{{ diff.before_points }} → {{ diff.after_points }} 点</span>
+        {% else %}
+        <span class="log-talent-diff-node">{% if diff.before_icon %}<img src="{% wow_icon diff.before_icon 'tiny' %}" alt="" width="18" height="18" loading="lazy">{% endif %}{{ diff.before_name }} {{ diff.before_points }} 点</span>
+        <span>→</span>
+        <span class="log-talent-diff-node">{% if diff.after_icon %}<img src="{% wow_icon diff.after_icon 'tiny' %}" alt="" width="18" height="18" loading="lazy">{% endif %}{{ diff.after_name }} {{ diff.after_points }} 点</span>
+        {% endif %}
+        {% if show_count %}<strong>{{ diff.count }} 份 · {{ diff.pct }}%</strong>{% endif %}
+    </span>
+{% empty %}
+    <span class="log-talent-muted">与主模板完全一致</span>
+{% endfor %}
+</div>
