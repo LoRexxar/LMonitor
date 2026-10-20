@@ -100,7 +100,6 @@ class ResilienceGuardTests(SimpleTestCase):
         for text in (
             '本人跑前保护已确认，但仍缺队友跑前保护记录。',
             '本人跑前保护已确认，仍缺其他场次跑前保护记录。',
-            '多数场次全层跑前保护未知。',
             '不能据同本更高和阵容固定削弱自然掉钥解释。',
             '不能断言本人无收益或并非为本人上分。',
             '钥匙归属、交易与动机均无公开事实。',
@@ -108,6 +107,23 @@ class ResilienceGuardTests(SimpleTestCase):
             for explanation in (False, True):
                 with self.subTest(text=text, explanation=explanation):
                     self.validate(text, explanation=explanation)
+        # The original fixture has one confirmed and one unknown subject run:
+        # one of two is not a majority. Preserve the exact claim, but give its
+        # positive case two unknown runs out of three, and reject the old pair.
+        text = '多数场次全层跑前保护未知。'
+        majority_unknown = {'subject_key': 'subject', 'events': [
+            {'run_id': 200, 'level': 22, 'members': {'subject': {
+                'state': 'confirmed_before_start', 'required_level': 23}}},
+            {'run_id': 201, 'level': 22, 'members': {'subject': {'state': 'unknown'}}},
+            {'run_id': 202, 'level': 22, 'members': {'subject': {'state': 'unknown'}}},
+        ]}
+        for explanation in (False, True):
+            with self.subTest(text=text, explanation=explanation, majority=True):
+                self.validate(text, explanation=explanation, resilience=majority_unknown,
+                              run_ids=(200, 201, 202))
+            with self.subTest(text=text, explanation=explanation, majority=False):
+                with self.assertRaisesRegex(observation.InvalidResult, '^unsupported_inference_assertion$'):
+                    self.validate(text, explanation=explanation, run_ids=(200, 201))
 
     def test_joint_protection_requires_same_run_and_l_plus_one(self):
         text = '本人同本更高且开打前全更高层坚韧保护已确认可削弱自然掉钥解释。'

@@ -647,11 +647,10 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
         for event in resilience.get('events', []))
 
     def prose(text, maximum, run_scope=()):
-        # Event quantifiers range over the cited domain; only an explicit
-        # whole-sample claim expands it. Member quantifiers are independent.
+        # Explicit 全样本 claims include uncited events; ordinary 所有场次
+        # quantifies only the field's domain. Member quantifiers stay separate.
         def scope_facts(clause):
-            universal = bool(re.search(r'(?:所有|全部|每个|每一)场(?:次)?', clause))
-            ids = set(events) if '全样本' in clause or not run_scope else set(run_scope)
+            ids = set(events) if '全样本' in clause else (set(run_scope) if run_scope else set(events))
             selected = [events.get(rid, {}) for rid in ids]
 
             def confirmed(event, member):
@@ -663,6 +662,13 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
             states = [m.get('state') for e in selected for m in e.get('members', {}).values()]
             teams = [len(e.get('members', {})) == 5 and all(
                 confirmed(e, m) for m in e['members'].values()) for e in selected]
+            def quantified_state(states):
+                if re.search(r'多数场(?:次)?', clause):
+                    return bool(states) and sum(states) * 2 > len(states)
+                if re.search(r'(?:部分|另一|另外一|个别|某些|有些)场(?:次)?', clause):
+                    return any(states)
+                return bool(states) and all(states)
+
             return {
                 'subject': any(subject_states),
                 'joint': bool(subject_key and run_scope and selected) and all(subject_states),
@@ -670,7 +676,8 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                             for key, m in e.get('members', {}).items() if key != subject_key),
                 'confirmed': 'confirmed_before_start' in states,
                 'mixed': 'confirmed_before_start' in states and 'unknown' in states,
-                'team': bool(teams) and (all(teams) if universal else any(teams)),
+                'team': quantified_state(teams),
+                'selected': selected,
                 'present': bool(selected),
             }
 
@@ -689,34 +696,39 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                      r'(?:组队|协作|私人|协助)?(?:动机|目的)|关系|受益者|'
                      r'(?:受益成员|同伴|外围成员)?完整(?:坚韧|同本|计分)?历史|'
                      r'受益成员完整成绩|外围成员历史|历史(?:加分|收益)|加分|(?:全员|每场|任何人)?净增分|'
-                     r'(?:长期)?身份|商业(?:性质|性)?|朋友互助性质|日常协作|升钥|'
+                     r'(?:真实)?核心(?:身份)?|(?:长期)?身份|商业(?:性质|性)?|朋友互助性质|日常协作|协助|协作|升钥|'
+                     r'(?:完整|长期)历史|(?:稳定合作|固定五人)(?:性质|结构)|(?:纯粹)?社交协作|'
                      r'(?:(?:各|全部)成员)?跑前(?:坚韧)?保护(?:状态|确认)?')
-        noun = rf'(?:{fact_noun})(?:行为|事实|状态|目的|关系|情况|信息|性质|问题)?'
+        # Nominal modifiers compose with the same bounded complement grammar.
+        # They never consume a new finite predicate or a conjunction of clauses.
+        noun = rf'(?:全员|全体|任何人)?(?:实际)?(?:{fact_noun})(?:行为|事实|状态|目的|关系|情况|信息|性质|问题|动机)?'
         noun_list = rf'{noun}(?:[、和与及或]{noun}){{0,5}}'
         boundary = r'(?=$|且|并|而)'
         degree = r'(?:均|皆|也|亦|仍|尚|目前|暂时|都|还|完全|全部|同样|更){0,3}'
         evidence_tail = r'(?:的)?(?:直接|任何|确切|可靠|相关|足够|公开|已确认|可核验|可验证){0,3}(?:证据|事实|信息|记录)'
-        unknown = (rf'(?:在公开(?:数据|记录)中)?{degree}'
-                   r'(?:未知(?:项)?|是未知项|不明|不可见|未出现|缺失|未经证实|'
+        unknown = (rf'(?:(?:在)?公开(?:数据|记录|通关与当前计分)中)?{degree}'
+                   r'(?:未知(?:项)?|是未知项|不明|不可见|不可知|不可得|未出现|未观测|缺失|未经证实|'
                    r'(?:尚)?未(?:确认|证实|确定)|'
-                   r'(?:无法|不能)(?:从公开(?:记录|数据)|由结构)?(?:确认|证明|证实|认定|推断)|'
+                   r'(?:无法|不能|不可)(?:从公开(?:记录|数据)|由结构)?(?:确认|证明|证实|认定|推断)|'
                    r'无从(?:确认|判断|证实)|'
                    rf'(?:无|没有){evidence_tail}(?:支持|依据|支撑)?)')
         following_hedge = rf'^(?:行为|事实|状态|目的|关系|情况|信息|性质|问题|与否)?(?:[、和与及或]{noun}){{0,5}}{unknown}{boundary}'
         negation = (r'(?:不(?:据此)?(?:确认|推断|断言|定性|涉及|外推|下|作(?:任何)?)|'
                     r'不得(?:据此)?(?:作|推定|泛化为)|不给|不构成|不延伸到|'
-                    r'(?:不等于|而非)(?:证明)?|不(?:证明|代表|说明|表示)|'
-                    r'(?:不能|无法|不应|不可|不足以)(?:据此)?(?:确认|证明|认定|推断|断言|确定|定性|延伸为)|'
+                    r'(?:不等于|而非)(?:证明|确认)?|不(?:证明|代表|说明|表示)|'
+                    r'(?:不能|无法|不应|不可|不足以)(?:据此)?(?:确认|证明|认定|推断|反推|倒推|断言|确定|定性(?:为)?|上升为|延伸为)|'
+                    r'不(?:指向|外推为|由此得出)|'
                     r'不以(?:任何)?(?:单场)?跑前记录推断|不决定(?:本场)?)')
         # cannot next to Chinese is not a Unicode word boundary. Restrict its
         # English edge explicitly, and require the complement to be adjacent.
-        hedge = (r'(?:不能|无法|尚未)(?:确认|证明|认定)?(?:谁)?$|'
+        hedge = (r'(?:不能|无法|尚未)(?:确认|证明|认定)?(?:谁(?:是)?)?$|'
                  r'(?:可能|假设|待核)(?:是|为)?(?:他人|他|本人|当事人)?$|'
                  r'(?<![a-z])(?:cannot|unknown|unconfirmed|possible|may|might|no evidence)'
                  r'(?![a-z])\s*(?:确认谁|确认|谁)?$')
         prior_runs = {int(m.group(1)) for h in plan.get('hypotheses', [])
                       for ref in h.get('counter_ids', [])
                       if (m := re.fullmatch(r'behavior:prior_higher:([1-9][0-9]*)', ref))}
+        prior_supported = bool(run_scope) and set(run_scope) <= prior_runs
         # Only adjacent comma-linked clauses share this limited discourse
         # context; a sentence/conclusion/new predicate cannot borrow a hedge.
         previous_clause = ''
@@ -735,8 +747,8 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                     r'(?:在)?(?:本人|自己)(?:跑前|开打前)全(?:本)?更高层(?:坚韧)?保护'
                     r'(?:已确认|已证实)(?:的联合前提下)?', preceding_clause))
                 # Narrow lexical defenses, not general semantic entailment.
-                non_entailment = r'不(?:证明|代表|说明|表示|等于)'
-                negated = rf'(?:(?:不能|无法|不应|不可|不足以|并非|不等于)|{non_entailment})[^、和与及或且]{{0,24}}$'
+                non_entailment = r'不(?:证明|代表|说明|表示|等同于?|等于)'
+                negated = rf'(?:(?:不能|无法|不应|不可|不得|不足以|并非|不等于)|{non_entailment})[^、和与及或且]{{0,24}}$'
                 higher = re.search(r'(?:单本|同本|单一本).{0,8}更高', clause)
                 if higher:
                     reason = r'(?:(?:本人)?(?:单本|同本|单一本)更高|阵容固定|固定阵容)'
@@ -764,6 +776,48 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                 # Explicit observed-state quantifiers, not the general rule
                 # "保护状态混合意味着…" or a conditional/negated statement.
                 conditional = re.match(r'(?:若(?!干)|如果|假如|假设|倘若)', clause)
+                # Count only run assertions, never people, ordinals, or rules
+                # about a category of runs. No cross-field evidence borrowing.
+                if run_scope and not conditional:
+                    numbers = {'一': 1, '两': 2, '二': 2, '三': 3, '四': 4,
+                               '五': 5, '六': 6, '七': 7, '八': 8, '九': 9, '十': 10, '多': 2}
+                    for count in re.finditer(r'(?<![第另每一两二三四五六七八九十])([一两二三四五六七八九十]+|多)场(?:次)?', clause):
+                        numeral = count[1]
+                        if '十' in numeral:
+                            tens, units = numeral.split('十', 1)
+                            quantity = numbers.get(tens, 1) * 10 + numbers.get(units, 0)
+                        else:
+                            quantity = numbers.get(numeral, 0)
+                        if (quantity > len(set(run_scope))
+                                and not re.search(negated, clause[:count.start()])
+                                and not re.match(r'(?:时|则|意味着)', clause[count.end():])):
+                            raise InvalidResult('unsupported_inference_assertion')
+                # An existential/majority qualifier is a factual obligation,
+                # not an exemption from checking unknown states in this domain.
+                quantified = re.search(r'(多数|部分|其他|其它|其余|个别|某些|有些|另一些|另一|另外一)(?:的)?场(?:次)?', clause)
+                unknown_assertion = re.search(r'(?:跑前|开打前).{0,8}(?:保护|坚韧).*未知|'
+                                              r'(?:缺少|缺乏|缺|没有).{0,8}(?:跑前|开打前).{0,8}(?:保护|坚韧)(?:记录|证据)', clause)
+                category = re.search(r'(?:未知|记录|证据)的场次(?:不能|无法|须|应)', clause)
+                if (quantified and unknown_assertion and not category
+                        and not conditional and not re.search(negated, clause[:quantified.start()])):
+                    selected = facts['selected']
+                    all_members = bool(re.search(r'全员|全队|所有成员', clause))
+                    # Bare 全跑前保护 denotes all-dungeon protection of the
+                    # subject, not a silent change of subject to five people.
+                    subject_only = bool(re.search(r'本人|自己|场(?:次)?全(?:跑前|开打前)', clause))
+                    unknown_runs = 0
+                    for event in selected:
+                        members = event.get('members', {})
+                        if all_members:
+                            unknown_run = len(members) == 5 and all(m.get('state') == 'unknown' for m in members.values())
+                        elif subject_only:
+                            unknown_run = members.get(subject_key, {}).get('state') == 'unknown'
+                        else:
+                            unknown_run = any(m.get('state') == 'unknown' for m in members.values())
+                        unknown_runs += bool(unknown_run)
+                    if not unknown_runs or (quantified[1] == '多数'
+                                            and unknown_runs * 2 <= len(selected)):
+                        raise InvalidResult('unsupported_inference_assertion')
                 mixed = r'保护状态(?:在已确认与未知之间)?混合$'
                 team = (r'确认为全队(?:跑前|开打前)(?:更高层)?保护|'
                         r'全队(?:跑前|开打前)(?:更高层)?保护(?:亦|也)?已确认')
@@ -788,7 +842,13 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                     r'(?:只反驳对应场次的后续进步解释|后续进步解释已被反驳)', clause)
                 if (prior_assertion and progress_claim
                         and not re.search(r'(?:若|如果|不能断言|不证明)', preceding_clause)
-                        and not (prior_runs & set(run_scope) if run_scope else prior_runs)):
+                        and not prior_supported):
+                    raise InvalidResult('unsupported_inference_assertion')
+                carried_claim = re.search(r'(?:削弱|反驳|排除)被带(?:低层)?(?:的)?解释', clause)
+                if (carried_claim
+                        and re.search(r'(?:已有|当前).{0,8}同本.{0,8}(?:观测|记录)', preceding_clause + clause)
+                        and not prior_supported and not conditional
+                        and not re.search(negated, clause[:carried_claim.start()])):
                     raise InvalidResult('unsupported_inference_assertion')
                 if facts['subject'] or ('任何人' in clause and facts['confirmed']):
                     protection = r'(?:(?:跑前|开打前).{0,8}(?:保护|坚韧)(?:状态)?|坚韧(?:保护|资格|条件)?)'
@@ -804,7 +864,16 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                                            r'(?:其他成员|其它成员|队友|同伴|外围成员|他人)(?:的)?$', scope_text)
                         # A bare missing-members record may mean teammates;
                         # it does not erase the subject's confirmed record.
-                        scoped = scoped or (claim.group('missing_scope') == '完整历史与成员')
+                        scoped = scoped or (claim.group('missing_scope') in ('完整历史与成员', '完整历史与'))
+                        scoped = scoped or re.search(r'(?:另一|另外一)场(?:全)?$', scope_text)
+                        scoped = scoped or re.search(r'(?:多数|部分)场次[^。；]{0,12}$', scope_text)
+                        scoped = scoped or re.search(r'其他成员(?:的)?(?:同本历史与)?(?:跑前|开打前)?$', scope_text)
+                        scoped = scoped or (re.match(r'(?:多数|部分)场次', prefix)
+                                            and prefix.endswith('且')
+                                            and not re.search(r'(?:均|全部|全都)未知', claim.group()))
+                        # A restrictive category is not an assertion that all
+                        # cited runs lack evidence. Its consequent stays live.
+                        scoped = scoped or re.match(r'的场次(?:不能|无法|仍|须|应)', clause[claim.end():])
                         scoped = scoped or (clause == '逐场坚韧未知'
                                             and re.fullmatch(r'(?:跑前)?保护状态多数未知', preceding_clause))
                         scoped = scoped or re.search(r'(?:其余|多数|部分)成员(?:的)?$', scope_text)
@@ -815,6 +884,7 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                 overclaim = (r'(?:本人|自己)(?:当场|本场|实际|完全)?(?:无|没有|未获)(?:任何)?(?:收益|净收益|净增分|加分)|'
                              r'(?:本人|自己)(?:无|没有|未获)(?:当时|当场|本场)(?:净收益|净增分|加分)(?!可能)|'
                              r'(?:并非|不是|不)(?:为了|为)(?:本人|自己)(?:当场|本场)?(?:上分|提分)|'
+                             r'(?:这些|该|本)场次不构成(?:其|本人|自己)(?:净加分|净增分|净收益)|'
                              r'(?:差距|此前.{0,8}场|早先.{0,8}场).{0,16}(?:已由|已经|确实).{0,12}(?:跑前|开打前).{0,12}(?:覆盖|证明)')
                 for assertion in re.finditer(overclaim, clause):
                     prefix = clause[:assertion.start()]
@@ -824,6 +894,17 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                             and not re.search(rf'{non_entailment}[^、和与及或且]{{0,12}}$', prefix)
                             and not re.search(r'(?:不能|无法|不应|不足以)(?:据此)?(?:确认|证明|认定|断言|说明)?[^、和与及或且]{0,12}$|(?:可能|假设|是否)[^、和与及或且]{0,8}$', prefix)):
                         raise InvalidResult('unsupported_inference_assertion')
+                # Positive chronology/protection conclusions require the
+                # corresponding fact, even when another field hid this error.
+                chronology = (r'(?:已观测|已有)(?:同本)?(?:较高|更高)层(?:观测)?(?:仅|只)反驳对应场次的后续进步解释|'
+                              r'说明被引用场次跑前已有更高记录|这只反驳对应场次的后续进步叙述')
+                protection_claim = r'(?:仅)?证明(?:被引用|对应|该)场次跑前保护'
+                for pattern, supported in (
+                        (chronology, prior_supported),
+                        (protection_claim, facts['team'] if re.search(r'全队|全员|所有成员', clause) else facts['joint'])):
+                    for assertion in re.finditer(pattern, clause):
+                        if not supported and not conditional and not re.search(negated, clause[:assertion.start()]):
+                            raise InvalidResult('unsupported_inference_assertion')
             # Shared evidence tails and negations cover noun lists only. A
             # new predicate (even inside an apparent absence) is conservative
             # rejection; do not use a wildcard to hunt for a distant 事实.
@@ -831,11 +912,18 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                 rf'(?:没有|并无|也无|毫无|未见|未提供|未公开|缺乏|缺少|无|不存在)'
                 rf'(?:直接|任何|确切|可靠|相关|足够|公开){{0,3}}{noun_list}(?:{evidence_tail})?(?:时)?{boundary}', clause)]
             absences += [m.span() for m in re.finditer(
-                rf'(?:不(?:包含|含)|{negation}){noun_list}(?:证明|定性|结论|判断)?{boundary}', clause)]
+                # Coordinated complements may repeat the governing verb;
+                # independent assertions after 且/并 cannot inherit negation.
+                rf'(?:不(?:包含|含)|{negation}){noun_list}'
+                rf'(?:或(?:确认|排除){noun_list})?(?:证明|定性|定论|结论|判断)?{boundary}', clause)]
             absences += [m.span() for m in re.finditer(
                 rf'{noun_list}(?:判断)?(?:都)?不成立{boundary}|'
                 rf'无证据能将{noun_list}区分开{boundary}|'
                 rf'协助不(?:需要|要求)收费{boundary}', clause)]
+            # Embedded alternatives are questions under an epistemic verb,
+            # not assertions; keep the complete interrogative complement.
+            absences += [m.span() for m in re.finditer(
+                rf'(?:不能|无法)确认(?:谁受益[、或])?是否{noun_list}{boundary}', clause)]
             for match in re.finditer(risky, clause, re.I):
                 prefix = clause[:match.start()]
                 absent = any(start <= match.start() and match.end() <= end for start, end in absences)
