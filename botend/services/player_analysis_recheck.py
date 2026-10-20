@@ -21,7 +21,7 @@ from django.utils.dateparse import parse_datetime
 from botend.models import PlayerObservationAnalysis, PlayerSpecTopPlayer, RaiderIOCharacterActivity
 from botend.raiderio_identity import activity_identity_digest
 from botend.services.player_analysis_management import AnalysisConflict
-from botend.services.player_raiderio_activity import player_identity, MODULES, TTL
+from botend.services.player_raiderio_activity import player_identity, mplus_modules_ready
 
 ACTIVE = ('queued', 'running')
 QUEUE_TTL = timedelta(minutes=5)
@@ -220,13 +220,8 @@ def validate_publication(row, token, evidence):
     now = timezone.now()
     if not evidence or evidence.get('activity_id') != activity.pk or evidence.get('source_failed'):
         raise Blocked('当前证据来源失败，已保留上次有效分析。')
-    if (activity.status != 'ready' or activity.last_error or not activity.fetched_at
-            or not timedelta(0) <= now - activity.fetched_at <= TTL):
+    if not mplus_modules_ready(activity):
         raise Blocked('角色活动来源未完整就绪或已过期。')
-    for key in MODULES.values():
-        stamp = _date(activity.module_fetched_at.get(key))
-        if not stamp or not timedelta(0) <= now - stamp <= TTL:
-            raise Blocked('角色活动模块缺失或已过期。')
     from botend.services.player_raid_observation_sources import TTL as RAID_TTL
     raid = activity.payload_json.get('raid_first_kills') or {}
     stamp = _date(raid.get('fetched_at'))

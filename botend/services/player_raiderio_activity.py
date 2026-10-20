@@ -32,6 +32,31 @@ MODULES = {
 TTL = timedelta(hours=24)
 
 
+def mplus_modules_ready(row):
+    """Current validated M+ facts, independent of raid progress completeness.
+
+    A retained last-good module is not a successful response to the latest
+    attempt. Explicit empty lists count only with their own publication clock.
+    This does not override collector leases, backoffs or failed requests.
+    """
+    now = timezone.now()
+    if (row.status not in ('ready', 'partial') or row.last_error or not row.fetched_at
+            or not timedelta(0) <= now - row.fetched_at <= TTL):
+        return False
+    for module, field in MODULES.items():
+        if module == 'raid_progression':
+            continue
+        try:
+            stamp = _date(row.module_fetched_at.get(field))
+        except (ValueError, TypeError):
+            return False
+        if (not isinstance(row.payload_json.get(field), list) or not stamp
+                or not timedelta(0) <= now - stamp <= TTL
+                or (row.last_attempt_at and stamp < row.last_attempt_at)):
+            return False
+    return True
+
+
 def activity_fields(rio_season, raid_slugs=None):
     raid = 'raid_progression:' + (':'.join(sorted(set(raid_slugs))) if raid_slugs is not None else 'current-tier')
     return ','.join(filter(None, ('mythic_plus_best_runs:all', 'mythic_plus_recent_runs',

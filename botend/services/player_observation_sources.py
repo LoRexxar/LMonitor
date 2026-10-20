@@ -20,7 +20,7 @@ from django.utils.dateparse import parse_datetime
 from botend.constants.wow import canonical_class_spec
 from botend.models import PlayerSpecTopPlayer, RaiderIOCharacterActivity, RaiderIORunRoster, SeasonMeta
 from botend.raiderio_identity import activity_identity_digest, normalized_name
-from botend.services.player_raiderio_activity import ActivityCollector, player_identity
+from botend.services.player_raiderio_activity import ActivityCollector, player_identity, mplus_modules_ready
 from botend.services.raiderio_run_roster import (
     RosterCollector, _pace, _positive, _profile_url, run_reference, validate_details,
 )
@@ -779,10 +779,28 @@ Unused basic budget cannot spill into followup; force cannot bypass needed cache
     try:
         activity_collector = _ActivityOnlyCollector(transport=batch.get, proxies=batch.proxies)
         result['activity'] = activity_collector.refresh(primary, season, include_profile=False, refresh_ready=refresh_recent)
+        collector_status = result['activity']['status']
+        activity = None
+        if collector_status == 'backoff' and not batch.stop_event.is_set():
+            # A successful raid-partial envelope has a retry timer too. Reuse
+            # only this collector's exact identity/season row, with all M+
+            # clocks current to the latest attempt; failed last-good stays blocked.
+            activity = RaiderIOCharacterActivity.objects.filter(
+                pk=result['activity'].get('activity_id'), season=season, identity_digest=digest).first()
+            if activity is not None and activity.status == 'partial' and mplus_modules_ready(activity):
+                result['activity'] = {**result['activity'], 'status': 'fresh',
+                                      'collector_status': collector_status}
         if batch.stop_event.is_set() or result['activity']['status'] not in ('ready', 'fresh', 'partial'):
             result['status'] = 'rate_limited' if batch.rate_limited else result['activity']['status']
             return result
-        activity = RaiderIOCharacterActivity.objects.get(season=season, identity_digest=digest)
+        if activity is None:
+            activity = RaiderIOCharacterActivity.objects.get(season=season, identity_digest=digest)
+        # This source checkpoint describes M+, not the global raid+M+ envelope.
+        # Keep the actual envelope status for audit; never rewrite central state.
+        result['activity'] = {**result['activity'], 'scope': 'mythic_plus',
+                              'global_status': activity.status}
+        if result['activity']['status'] == 'partial' and mplus_modules_ready(activity):
+            result['activity']['status'] = 'ready'
         if progressive:
             return _progressive_sources(primary, season, activity, digest, batch, result,
                                         max_runs, max_characters, max_basic_roster_requests, max_followup_requests)

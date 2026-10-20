@@ -135,6 +135,10 @@ class RecheckTests(TestCase):
         now = timezone.now()
         self.activity.refresh_from_db()
         self.activity.module_fetched_at = {key: now.isoformat() for key in MODULES.values()}
+        # This publication-fence fixture must contain the counted module whose
+        # clock it declares; missing is not an authoritative empty response.
+        from botend.tests.test_player_raiderio_activity import payload
+        self.activity.payload_json['mythic_plus_dungeon_run_counts'] = payload()['mythic_plus_dungeon_run_counts']
         self.activity.payload_json['raid_first_kills'] = {'version': 1, 'visible': True, 'status': 'ready',
             'last_error': '', 'identity_digest': self.activity.identity_digest, 'rio_season': self.season.rio_season,
             'fetched_at': now.isoformat(), 'source': {'character_id': 100}, 'raids': []}
