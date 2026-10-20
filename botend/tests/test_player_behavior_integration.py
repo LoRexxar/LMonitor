@@ -134,7 +134,7 @@ class BehaviorIntegrationTests(TestCase):
         outcome = service.generate_observation(self.player, engine=engine)
         self.assertEqual(outcome['status'], 'ready')
         row = PlayerObservationAnalysis.objects.get()
-        self.assertEqual(row.prompt_version, 6)
+        self.assertEqual(row.prompt_version, service.PROMPT_VERSION)
         view = service.project_player_observation(self.player)
         self.assertEqual(view['status'], 'ready')
         html = render_to_string('portal/spec_detail/_player_observation.html', {'observation': view})

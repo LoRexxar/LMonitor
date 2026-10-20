@@ -16,6 +16,9 @@ def compact_ai_input(evidence):
         'highest_timed_level', 'observed_spec_count', 'team_pattern') if key in source}
     review = source.get('behavior_review')
     if isinstance(review, dict):
+        # The recent-sample structure supersedes the legacy overall classifier.
+        # Canonical top-level evidence remains untouched, including old facts.
+        metrics.pop('team_pattern', None)
         structure = review.get('structure', {})
         summary = {key: deepcopy(structure[key]) for key in (
             'codes', 'recent_runs', 'roster_runs', 'untimed_runs', 'observed_config_switches') if key in structure}
@@ -25,7 +28,24 @@ def compact_ai_input(evidence):
         metrics['behavior_review'] = {key: deepcopy(review[key]) for key in (
             'version', 'triggered', 'supported', 'witnesses', 'questions', 'limitations') if key in review}
         metrics['behavior_review']['structure'] = summary
-        metrics['behavior_review']['proof_scope'] = '逐场完整坚韧证明存于冻结证据；此处只引用后端已计算的事实，不允许从未观测记录作否定推断。'
+        resilience = review.get('resilience')
+        if isinstance(resilience, dict):
+            compact = {key: deepcopy(resilience[key]) for key in (
+                'subject_key', 'scope_verified', 'baseline_season') if key in resilience}
+            compact['events'] = []
+            for event in resilience.get('events', []):
+                row = {key: deepcopy(event[key]) for key in (
+                    'run_id', 'started_at', 'level') if key in event}
+                row['members'] = {
+                    member: {key: deepcopy(proof[key]) for key in ('state', 'required_level') if key in proof}
+                    for member, proof in event.get('members', {}).items()}
+                compact['events'].append(row)
+            metrics['behavior_review']['resilience'] = compact
+        metrics['behavior_review']['proof_scope'] = (
+            '整体阵容以structure为准，局部同队事实不代表整体固定五人。'
+            '逐场坚韧状态见resilience.events[].members；subject_key仅在已知时标识本人，旧输入缺失时不得猜测。'
+            '完整八本证明存于冻结证据；confirmed_before_start不得说成保护未知，缺可比受益成员不等于保护未知。'
+            '只引用后端已计算事实，不允许从未观测记录作否定推断。')
     if isinstance(source.get('investigation'), dict):
         metrics['investigation'] = deepcopy({key: value for key, value in source['investigation'].items()
                                             if key not in ('evidence', 'comparison_groups', 'core_members')})

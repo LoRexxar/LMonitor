@@ -92,6 +92,24 @@ class BehaviorReviewTests(TestCase):
         self.records(self.keys[0], 23, all_dungeons=True, when=self.now-timedelta(hours=1))
         self.assertNotIn('carrying', self.build()['supported'])
 
+    def test_recovery_unknown_distinguishes_missing_comparison_from_protection(self):
+        self.records(self.keys[0], 23, all_dungeons=True)
+        confirmed = self.build()
+        self.assertEqual(confirmed['resilience']['subject_key'], self.keys[0])
+        texts = [e['text'] for e in confirmed['evidence'] if ':key_recovery_unknown:' in e['id']]
+        self.assertEqual(len(texts), 3)
+        for text in texts:
+            self.assertIn('全23跑前保护已证实', text)
+            self.assertIn('缺可比受益成员', text)
+            self.assertNotIn('保护未完整证实', text)
+        self.args['scores'][self.keys[0]].pop()
+        unknown = self.build()
+        texts = [e['text'] for e in unknown['evidence'] if ':key_recovery_unknown:' in e['id']]
+        self.assertEqual(len(texts), 3)
+        self.assertTrue(all('保护未知' in text for text in texts))
+        self.assertNotIn('carrying', confirmed['supported'])
+        self.assertNotIn('carrying', unknown['supported'])
+
     def test_same_level_decimal_boundary_is_not_downlevel(self):
         rows = self.records(self.keys[0], 22, all_dungeons=True)
         rows[0]['score'] = 520.2

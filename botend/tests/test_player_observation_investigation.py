@@ -384,6 +384,42 @@ class InvestigationIntegrationTests(TestCase):
             with self.subTest(text=text), self.assertRaises(observation.InvalidResult):
                 observation._validate(json.dumps(raw), data, require_investigation=True)
 
+    def test_clause_scoped_unknowns_and_new_assertion_gate(self):
+        data = observation.build_evidence(self.player)
+        raw = json.loads(self.engine().send_message(json.dumps(data)))
+        legal = (
+            '公开通关与当前计分不含钥匙归属、背包库存或交易事实。',
+            '钥匙归属、收费与完整坚韧历史未知。',
+            '不据此定性交易或带人。',
+            '钥匙归属、动机、收费及外围成员历史均未知。',
+            '不能确认本人无收益。',
+            '不能据此说明这些场次并非为本人当场上分。',
+            '不能确认此前场次的差距已由跑前更高成绩覆盖。',
+        )
+        for text in legal:
+            with self.subTest(legal=text):
+                raw['investigation']['summary'] = text
+                observation._validate(json.dumps(raw), data, require_investigation=True)
+        for text in (
+            '钥匙归属、收费与完整坚韧历史未知；他已经交易钥匙。',
+            '不据此定性交易或带人但他收费。',
+            '不含钥匙归属所以他交易钥匙。',
+            '收费未知因此他交易钥匙。',
+            '没有证据却能确定他收费。',
+            '本人无收益。',
+            '说明这些场次并非为本人当场上分。',
+            '此前两场的差距确实已由跑前更高成绩覆盖。',
+            '不能确认动机，但本人没有净增分。',
+            '无法确认此前场次的差距，因此此前场次已由跑前更高成绩覆盖。',
+        ):
+            with self.subTest(illegal=text):
+                raw['investigation']['summary'] = text
+                with self.assertRaises(observation.InvalidResult):
+                    observation._validate(json.dumps(raw), data, require_investigation=True)
+        # The added assertion gate is generation-only, not frozen read policy.
+        raw['investigation']['summary'] = '本人无收益。'
+        observation._validate(json.dumps(raw), data)
+
     def test_reverse_generation_must_compare_alternative_and_bounded_output(self):
         for person in RaiderIOCharacterActivity.objects.filter(character_name__in=['member4', 'member5', 'member6']):
             person.scored_runs_json['dungeons'][0].update(mythic_level=30, score=600)

@@ -74,7 +74,7 @@ class TriggeredWorkerTests(TestCase):
         self.assertTrue(generated['ai_called'])
         sent = json.loads(engine.send_message.call_args.args[0])
         self.assertEqual(len(sent['metrics']['investigation']['questions']), 1)
-        self.assertTrue(any(':high:' in e['id'] for e in sent['metrics']['investigation']['evidence']))
+        self.assertTrue(any(':high:' in e['id'] for e in sent['evidence']))
         saved = PlayerObservationAnalysis.objects.get(activity=self.activity)
         self.assertEqual(len(saved.result_json['investigation']['next_question_ids']), 1)
 
@@ -87,9 +87,21 @@ class TriggeredWorkerTests(TestCase):
         self.assertEqual(before['metrics']['team_pattern']['kind'], 'fixed_five')
         self.assertTrue(before['metrics']['investigation']['triggered'])
         self.assertEqual(self.collect()['followup_api_requests'], 2)
-        # Remove the recent seed while retaining exactly the same fixed-five roster.
+        # Two repeated lower runs are now a legitimate behavior lead,
+        # independent of the older three-run inquiry threshold.
         self.activity.payload_json['mythic_plus_recent_runs'] = self.runs[:2]
-        self.activity.save()
+        self.activity.save(update_fields=['payload_json'])
+        two = observation.build_evidence(self.player)
+        self.assertTrue(two['metrics']['behavior_review']['triggered'])
+        self.assertEqual(two['metrics']['investigation']['seed_run_ids'], [200, 201])
+        self.assertTrue(two['metrics']['investigation']['questions'])
+        # Remove all recent activity for the zero-seed/read-only case; retain
+        # best records and the exact fixed-five roster facts as background.
+        self.activity.payload_json['mythic_plus_recent_runs'] = []
+        self.activity.save(update_fields=['payload_json'])
+        no_seed = observation.build_evidence(self.player)
+        self.assertFalse(no_seed['metrics']['behavior_review']['triggered'])
+        self.assertFalse(no_seed['metrics'].get('investigation', {}).get('triggered'))
         self.calls.clear()
         self.assertEqual(self.collect()['followup_api_requests'], 0)
         self.assertEqual(self.calls, [])
@@ -102,7 +114,7 @@ class TriggeredWorkerTests(TestCase):
         engine = self.engine()
         with patch('requests.Session.get', side_effect=self.transport), \
                 patch('botend.services.player_observation_sources._pace', return_value=True), \
-                patch('core.glm.GLMClient', return_value=engine):
+                patch('botend.services.player_observation.PlayerObservationGLMClient', return_value=engine):
             result = recheck.run(row.pk, token)
         row.refresh_from_db()
         return row, token, engine, result
@@ -123,7 +135,7 @@ class TriggeredWorkerTests(TestCase):
         self.assertEqual(row.evidence_json, observation.build_evidence(self.player))
         self.assertEqual(engine.send_message.call_count, 1)
         with patch('requests.Session.get', side_effect=AssertionError('GET must be read only')), \
-                patch('core.glm.GLMClient', side_effect=AssertionError('GET must not generate')):
+                patch('botend.services.player_observation.PlayerObservationGLMClient', side_effect=AssertionError('GET must not generate')):
             self.assertEqual(recheck.get_state(row.pk)['collection'], result['collection'])
         with self.assertRaises(recheck.Blocked):
             recheck.record_sources(row.pk, 'different-token', {'status': 'ready'})

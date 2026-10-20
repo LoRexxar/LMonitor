@@ -84,7 +84,7 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
     structure = dict(recent_runs=0, roster_runs=0, untimed_runs=0, codes=[],
                      lineups=[], comparison_groups=[], observed_config_switches=0)
     out = dict(version=1, triggered=False, structure=structure, evidence=[], supported={},
-               witnesses={code: [] for code in _CODES}, resilience=dict(events=[]), questions=[],
+               witnesses={code: [] for code in _CODES}, resilience=dict(subject_key=subject, events=[]), questions=[],
                limitations=[
                    '仅最近至多10条公开完成记录中14天内的样本，含未限时；不是完整历史。',
                    '行为仅为低置信事实候选，不证明动机、钥匙主人、背包库存或收费；朋友互助不是带人反证。',
@@ -351,7 +351,13 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         if priors[subject] and states[subject]['state'] == 'confirmed_before_start' and lower_peers:
             witness('carrying', rid, f"开打前本人已有更高同本限时（前场{','.join(str(r['run_id']) for r in priors[subject])}）且八本全{rec['level']+1}已达标；同伴带抓取时点的计分快照低于本人跑前记录（{len(lower_peers)}人），不保证每场净增分。")
         elif priors[subject]:
-            evidence('key_recovery_unknown', rid, f"本人此前同本更高，但全{rec['level']+1}跑前保护未完整证实或缺可比受益成员；保留升钥/库存解释。")
+            if states[subject]['state'] == 'confirmed_before_start':
+                text = (f"本人此前同本更高，且全{rec['level']+1}跑前保护已证实，但缺可比受益成员；"
+                        '这削弱本人钥匙自然降至本层的解释，仍不排除旧库存或他人钥匙，钥匙归属与供给未知。')
+            else:
+                text = (f"本人此前同本更高，但全{rec['level']+1}跑前保护未知（未完整证实）；"
+                        '保留升钥/库存解释。')
+            evidence('key_recovery_unknown', rid, text)
         if len(higher_peers) >= 3:
             witness('being_carried', rid, '本人有效dated计分快照低于至少三名同场同伴的跑前更高同本限时，且这些同伴全更高层保护达标；不是历史净增分。')
         if priors[subject] and len(lower_peers) >= 3 and stable:
