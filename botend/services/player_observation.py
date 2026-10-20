@@ -1168,8 +1168,59 @@ def _history_audit_append_only(previous, current):
     return _hash(_semantic_evidence(previous)) == _hash(_semantic_evidence(reduced))
 
 
+def _source_audit_clock_only(previous, current):
+    """Read equivalence for verified profile clocks, not coverage/source scope.
+
+    Keep raw comparison everywhere else: the generic recursive clock stripper
+    could hide a future field named fetched_at in coverage or behavioral facts.
+    In particular, scores/histories/rosters and their owner sets stay exact here.
+    This does not rewrite the frozen publication or relax the publication CAS.
+    """
+    from datetime import datetime
+
+    if previous.get('source_failed') is not False or current.get('source_failed') is not False:
+        return False
+    old_stamps, new_stamps = previous.get('source_stamps'), current.get('source_stamps')
+    if not isinstance(old_stamps, dict) or not isinstance(new_stamps, dict):
+        return False
+
+    def forward_clock(old, new):
+        if any(not isinstance(v, str) or not re.fullmatch(_ISO_STAMP, v) for v in (old, new)):
+            return False
+        try:
+            return datetime.fromisoformat(old) <= datetime.fromisoformat(new)
+        except ValueError:
+            return False
+
+    reduced = deepcopy(current)
+    for field in ('source_updated_at', 'activity_fetched_at'):
+        if not forward_clock(old_stamps.get(field), new_stamps.get(field)):
+            return False
+        reduced['source_stamps'][field] = old_stamps[field]
+    old_modules, new_modules = old_stamps.get('module_fetched_at'), new_stamps.get('module_fetched_at')
+    if not isinstance(old_modules, dict) or not isinstance(new_modules, dict):
+        return False
+    for field in ('mythic_plus_best_runs', 'mythic_plus_recent_runs',
+                  'mythic_plus_dungeon_run_counts', 'raid_progression'):
+        if field in old_modules and field in new_modules:
+            if not forward_clock(old_modules[field], new_modules[field]):
+                return False
+            reduced['source_stamps']['module_fetched_at'][field] = old_modules[field]
+    # Only _build's timed_experience display of the same activity clock. Do not
+    # normalize arbitrary strings, completion times, or future evidence fields.
+    if not isinstance(reduced.get('evidence'), list):
+        return False
+    for item in reduced['evidence']:
+        if isinstance(item, dict) and item.get('id') == 'timed_experience' and isinstance(item.get('text'), str):
+            item['text'] = item['text'].replace(
+                f"活动采集时间 {new_stamps['activity_fetched_at']}。",
+                f"活动采集时间 {old_stamps['activity_fetched_at']}。")
+    return _hash({k: v for k, v in previous.items() if k != 'evidence_hash'}) == _hash(
+        {k: v for k, v in reduced.items() if k != 'evidence_hash'})
+
+
 def _same_publication(row, evidence):
-    """Prompt-only migration and successful audit appends are not new facts."""
+    """Prompt-only migration and narrowly checked audit drift are not new facts."""
     try:
         previous = _frozen_evidence(row)
     except InvalidResult:
@@ -1182,6 +1233,8 @@ def _same_publication(row, evidence):
     if _semantic_evidence(old) == _semantic_evidence(current):
         return True
     if _history_audit_append_only(old, current):
+        return True
+    if _source_audit_clock_only(old, current):
         return True
     # Historical additive exception stays within a single version; never use it
     # to waive newly added facts during cross-version compatibility.
