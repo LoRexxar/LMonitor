@@ -672,7 +672,9 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
         following_hedge = (r'^(?:行为|事实|关系|情况|信息|性质|问题)?'
                            rf'(?:[、和与及或](?:{fact_noun})){{0,4}}'
                            r'(?:均|皆|也|仍|尚|目前|暂时|都|还)?'
-                           r'(?:无法(?:确认|证明|证实)|不能(?:确认|证明|认定)|未知|不明(?=$|[、和与及或]|且)|未经证实|尚未(?:确认|证实)|无公开事实)')
+                           r'(?:无法(?:确认|证明|证实)|不能(?:确认|证明|认定)|未知|不明(?=$|[、和与及或]|且)|未经证实|尚未(?:确认|证实)|'
+                           r'(?:亦)?无(?:公开)?(?:证据|事实)(?:支持|依据)?(?=$|且)|'
+                           r'在公开数据中(?:完全)?缺失(?=$|且))')
         for clause in re.split(r'[，,。.!！?？;；\n]|但是|但|然而|可是|所以|因此|从而|于是|故而|可见|却', text):
             if bounded:
                 # Narrow lexical defenses, not general semantic entailment.
@@ -728,6 +730,13 @@ def _validate_investigation(value, plan, *, bounded=False, resilience=None):
                 r'(?:(?!所以|因此|从而|于是|故而|可见|却).){0,40}?(?:证据|事实|信息|记录)', clause)]
             absences += [m.span() for m in re.finditer(
                 rf'(?:不含|不(?:据此)?定性|不作)(?:{fact_noun})(?:[、和与及或](?:{fact_noun})){{0,5}}', clause)]
+            # Shared missing-evidence tails and direct non-confirmation govern
+            # bounded noun lists only, never a new predicate or a causal claim.
+            absence_noun = rf'(?:{fact_noun}|净增分)'
+            absences += [m.span() for m in re.finditer(
+                rf'无{absence_noun}(?:[、和与及或]{absence_noun}){{0,5}}(?:证据|事实)(?=$|且)', clause)]
+            absences += [m.span() for m in re.finditer(
+                rf'不确认(?:{fact_noun})(?:[、和与及或](?:{fact_noun})){{0,5}}(?=$|且)', clause)]
             for match in re.finditer(risky, clause, re.I):
                 prefix = clause[:match.start()]
                 absent = any(start <= match.start() and match.end() <= end for start, end in absences)
