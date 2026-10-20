@@ -85,11 +85,12 @@
         <section class="rio-module rio-module--wide" aria-labelledby="rio-raid-title">
             <div class="rio-module__header">
                 <h3 id="rio-raid-title">当前团本进度</h3>
-                <span class="rio-activity__note">已击败首领 / 来源提供的首领总数</span>
+                <span class="rio-activity__note">已击败首领 / 当前实体团本首领总数</span>
             </div>
-            {% if activity.raid_progression.status == 'missing' %}
-            <p class="rio-module__empty">来源未提供当前团本进度。</p>
-            {% elif activity.raid_progression.rows %}
+            {% if activity.raid_progression.status == 'unresolved' %}
+            <p class="rio-module__empty">当前团本来源映射待校验，未将最新单本作为完整赛季进度。</p>
+            {% endif %}
+            {% if activity.raid_progression.rows %}
             <ul class="rio-raids">
                 {% for raid in activity.raid_progression.rows %}
                 <li>

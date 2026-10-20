@@ -74,6 +74,8 @@ class SpecDetailSeasonMonitor(SpecDetailBase):
         # 新赛季必须由后台手动设置 is_active=1 后，专精详情页才会切换过去；
         # 否则刚发现的新赛季在 ranking/player 数据尚未采集完成时会让页面整体变空。
         existing = SeasonMeta.objects.filter(season_key=season_key).first()
+        from botend.services.player_raid_progression import preserve_references
+        raid_zones = preserve_references(existing, raid_zones, all_raid_encounters, rio_season)
         keep_active = bool(existing and existing.is_active)
         obj, created = SeasonMeta.objects.update_or_create(
             season_key=season_key,

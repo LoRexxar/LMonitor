@@ -4,6 +4,15 @@ from collections import defaultdict
 from botend.journal_models import JournalEncounter
 
 
+def current_raid_encounter_rows(boss_ids):
+    """Narrow shared join; include release identity for consumer invalidation."""
+    return list(JournalEncounter.objects.filter(
+        instance__release__journalstate__key='wow-zhCN',
+        instance__kind='raid', payload__dungeon_encounter_id__in=boss_ids,
+    ).order_by().values_list('payload__dungeon_encounter_id', 'instance__journal_id',
+                            'instance__name', 'instance__release_id'))
+
+
 def project_raid_instances(payload):
     """Join only published bosses to the current central journal in one narrow query.
 
@@ -19,11 +28,7 @@ def project_raid_instances(payload):
     if not boss_ids:
         return payload
     matches = defaultdict(list)
-    rows = JournalEncounter.objects.filter(
-        instance__release__journalstate__key='wow-zhCN',
-        instance__kind='raid', payload__dungeon_encounter_id__in=boss_ids,
-    ).order_by().values_list('payload__dungeon_encounter_id', 'instance__journal_id', 'instance__name')
-    for boss_id, instance_id, name in rows:
+    for boss_id, instance_id, name, _release in current_raid_encounter_rows(boss_ids):
         matches[boss_id].append((instance_id, name))
     known = {bid: values[0] for bid, values in matches.items() if len(values) == 1}
     if not known:

@@ -32,10 +32,11 @@ MODULES = {
 TTL = timedelta(hours=24)
 
 
-def activity_fields(rio_season):
-    return ','.join(('mythic_plus_best_runs:all', 'mythic_plus_recent_runs',
+def activity_fields(rio_season, raid_slugs=None):
+    raid = 'raid_progression:' + (':'.join(sorted(set(raid_slugs))) if raid_slugs is not None else 'current-tier')
+    return ','.join(filter(None, ('mythic_plus_best_runs:all', 'mythic_plus_recent_runs',
                      f'mythic_plus_dungeon_run_counts:{rio_season}',
-                     'raid_progression:current-tier', 'mythic_plus_scores_by_season:current'))
+                     raid if raid_slugs is None or raid_slugs else '', 'mythic_plus_scores_by_season:current')))
 
 
 def player_identity(player):
@@ -99,8 +100,15 @@ def validate_payload(data, identity, season):
             or scores[0].get('season') != season.rio_season):
         raise ValueError('wrong current season')
     updated = _date(data.get('last_crawled_at'))
+    from botend.services.player_raid_progression import bound_scope
+    try:
+        raid_scope = bound_scope(season)
+    except (ValueError, KeyError, TypeError):
+        raid_scope = False
     facts = {}
     for module, field in MODULES.items():
+        if module == 'raid_progression' and raid_scope is False:
+            continue
         if field not in data or data[field] is None:
             continue
         value = data[field]
@@ -109,6 +117,12 @@ def validate_payload(data, identity, season):
             raise ValueError('invalid module')
         if len(value) > (10 if module == 'recent_runs' else 100):
             raise ValueError('unbounded module')
+        if module == 'raid_progression' and raid_scope:
+            expected_raids = {r['slug']: len(r['boss_ids']) for r in raid_scope['raids']}
+            value = {slug: item for slug, item in value.items() if slug in expected_raids}
+            if any(not isinstance(item, dict) or type(item.get('total_bosses')) is not int
+                   or item['total_bosses'] != expected_raids[slug] for slug, item in value.items()):
+                raise ValueError('invalid physical raid total')
         rows = value.values() if isinstance(value, dict) else value
         for row in rows:
             if not isinstance(row, dict):
@@ -166,11 +180,19 @@ class ActivityCollector:
             return {'status': 'unresolved'}
         if not season.is_active or not season.rio_season or player.season_id != season.pk:
             return {'status': 'wrong_season'}
+        from botend.services.player_raid_progression import (
+            bound_scope, merge_progress, source_is_older, seed_source_clock, progress_complete, progress_meta, META)
+        try:
+            raid_scope = bound_scope(season)
+            raid_slugs = [r['slug'] for r in raid_scope['raids']] if raid_scope else None
+        except (ValueError, TypeError, KeyError):
+            raid_scope, raid_slugs = False, []
         now = timezone.now()
         with transaction.atomic():
             row, _ = RaiderIOCharacterActivity.objects.get_or_create(
                 season=season, identity_digest=activity_identity_digest(**identity), defaults=identity)
             row = RaiderIOCharacterActivity.objects.select_for_update().get(pk=row.pk)
+            starting_raid_clock = row.module_fetched_at.get('raid_progression')
             deferred = None
             if row.next_attempt_at and row.next_attempt_at > now:
                 if row.status == 'fetching':
@@ -187,7 +209,7 @@ class ActivityCollector:
                 row.save(update_fields=['status', 'last_attempt_at', 'next_attempt_at'])
         if deferred and not include_profile:
             return self._refresh_rosters({'status': deferred, 'activity_id': row.pk}, row, season, player)
-        fields = activity_fields(season.rio_season) if collect_activity else ''
+        fields = activity_fields(season.rio_season, raid_slugs) if collect_activity else ''
         if include_profile:
             fields = ','.join(filter(None, ('gear,talents', fields)))
         result = {'activity_id': row.pk}
@@ -234,13 +256,34 @@ class ActivityCollector:
             else:
                 # Merge the freshly locked payload: independent raid_first_kills
                 # and mythic_plus_scored_history retain their own clocks/leases.
-                current.payload_json = {**current.payload_json, **facts}
+                complete_response = len(facts) == len(MODULES)
                 stamp = timezone.now()
+                seed_source_clock(current)
+                if raid_scope and 'raid_progression' not in facts:
+                    current.payload_json[META] = {**current.payload_json.get(META, {}),
+                        'status': 'partial', 'complete': False,
+                        'next_attempt_at': (stamp + timedelta(hours=1)).isoformat()}
+                if 'raid_progression' in facts:
+                    raid_complete = progress_complete(raid_scope, facts['raid_progression'])
+                    complete_response = complete_response and raid_complete
+                    try:
+                        latest_scope = bound_scope(SeasonMeta.objects.get(pk=season.pk))
+                    except (ValueError, TypeError, KeyError):
+                        latest_scope = False
+                    if (current.module_fetched_at.get('raid_progression') != starting_raid_clock
+                            or latest_scope != raid_scope or source_is_older(current, updated)):
+                        facts.pop('raid_progression')
+                        complete_response = False
+                    else:
+                        current.payload_json[META] = progress_meta(current.payload_json.get(META, {}),
+                            raid_scope, updated, stamp, raid_complete)
+                        facts['raid_progression'] = merge_progress(current.payload_json.get('raid_progression'), facts['raid_progression'])
+                current.payload_json = {**current.payload_json, **facts}
                 current.module_fetched_at = {**current.module_fetched_at, **{key: stamp.isoformat() for key in facts}}
                 if facts:
                     current.fetched_at = stamp
                     current.source_updated_at = updated
-                current.status = 'ready' if len(facts) == len(MODULES) else 'partial'
+                current.status = 'ready' if complete_response else 'partial'
                 current.failure_count = 0
                 current.last_error = ''
                 current.next_attempt_at = stamp + (TTL if current.status == 'ready' else timedelta(hours=1))
@@ -338,6 +381,10 @@ def project_player_activity(player):
             'fetched_at': None, 'source_updated_at': None,
             **{key: {'status': 'missing', 'rows': []} for key in MODULES}}
     view['dungeon_counts'].update(total=None, timed=None, timed_percent=None)
+    from botend.services.player_raid_progression import project_progress
+    physical_progress = project_progress(season, {}) if season else None
+    if physical_progress is not None:
+        view['raid_progression'] = physical_progress
     identity = player_identity(player)
     if not identity or not season:
         view['status'] = 'unavailable'
@@ -347,7 +394,10 @@ def project_player_activity(player):
     if not row:
         return view
     view.update(fetched_at=row.fetched_at, source_updated_at=row.source_updated_at)
-    present = set(row.payload_json)
+    if physical_progress is not None:
+        view['raid_progression'] = project_progress(season, row.payload_json.get('raid_progression', {}),
+                                                   row.payload_json.get('raid_progression_meta'))
+    present = set(row.payload_json) & set(MODULES.values())
     if not present:
         view['status'] = 'unavailable' if row.last_error else 'partial' if row.status == 'partial' else 'pending'
         return view
@@ -357,6 +407,8 @@ def project_player_activity(player):
         view['status'] = 'stale'
     for module, field in MODULES.items():
         if field not in present:
+            continue
+        if module == 'raid_progression' and physical_progress is not None:
             continue
         raw = row.payload_json[field]
         block = view[module]
