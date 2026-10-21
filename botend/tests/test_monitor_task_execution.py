@@ -1,4 +1,7 @@
-from datetime import timedelta
+import json
+from datetime import datetime, timedelta
+from contextlib import ExitStack
+
 from threading import Event
 from unittest.mock import MagicMock, patch
 
@@ -42,6 +45,102 @@ class MonitorTaskExecutionLeaseTests(TestCase):
         claimed = claim_next_monitor_task(now=now, lease_owner=owner)
         self.assertEqual(claimed.id, task.id)
         return claimed
+
+    def test_execution_logs_preserve_scan_and_lease_semantics(self):
+        scenarios = [
+            ('true', True, 'returned_true', 'completed'),
+            ('false', False, 'returned_false', 'completed'),
+            ('none', None, 'returned_none', 'completed'),
+            ('scan_error', None, 'exception', 'completed'),
+            ('setup_error', None, 'setup_failure', 'release_attempted'),
+            ('start_error', None, 'setup_failure', 'release_attempted'),
+            ('release_error', None, 'setup_failure', 'release_attempted'),
+            ('lost', True, 'returned_true', 'ownership_lost'),
+            ('cleanup_error', True, 'returned_true', 'exception'),
+            ('browser_cleanup_error', True, 'returned_true', 'completed'),
+        ]
+        for scenario, result, outcome, lease_outcome in scenarios:
+            with self.subTest(scenario=scenario):
+                MonitorTaskLease.objects.all().delete()
+                MonitorTask.objects.update(is_active=False)
+                task = self._claim_task('private-owner')
+                task.target = 'private-target'
+                request = MagicMock()
+
+                class Plugin:
+                    requires_browser = False
+
+                    def __init__(self, request, monitor_task):
+                        self.task = monitor_task
+
+                    def scan(self, target):
+                        if scenario == 'scan_error':
+                            raise ValueError('private-error-detail')
+                        if scenario == 'lost':
+                            MonitorTaskLease.objects.filter(task=task).update(owner='replacement')
+                        self.task.flag = 'plugin flag'
+                        return result
+
+                with ExitStack() as stack:
+                    stack.enter_context(patch('botend.views._MonitorTaskLeaseHeartbeat', _FakeHeartbeat))
+                    stack.enter_context(patch('botend.views.Monitor_Type_BaseObject_List', [Plugin]))
+                    stack.enter_context(patch('botend.views._record_monitor_task_alert'))
+                    log = stack.enter_context(patch('botend.views.logger'))
+                    stack.enter_context(patch('botend.views.time.monotonic', side_effect=[100.0, 102.75]))
+                    stack.enter_context(patch('botend.views.LReq', return_value=request,
+                                              side_effect=RuntimeError('setup') if scenario in ('setup_error', 'release_error') else None))
+                    if scenario == 'start_error':
+                        stack.enter_context(patch.object(_FakeHeartbeat, 'start', side_effect=RuntimeError('setup')))
+                    if scenario == 'release_error':
+                        stack.enter_context(patch('botend.views.release_monitor_task_lease', side_effect=RuntimeError('release')))
+                    if scenario == 'cleanup_error':
+                        stack.enter_context(patch('botend.views.complete_monitor_task_lease', side_effect=RuntimeError('cleanup')))
+                    if scenario == 'browser_cleanup_error':
+                        request.close_driver.side_effect = RuntimeError('close')
+                    if scenario in ('setup_error', 'start_error', 'release_error', 'cleanup_error'):
+                        with self.assertRaisesRegex(RuntimeError, 'setup|cleanup'):
+                            LMonitorCore()._execute_claimed_task(task, 'private-owner')
+                    else:
+                        self.assertIsNone(LMonitorCore()._execute_claimed_task(task, 'private-owner'))
+                messages = [call.args[0] for call in log.info.call_args_list
+                            if call.args[0].startswith('[MonitorTask Execution] ')]
+                self.assertEqual(len(messages), 2)
+                start, finish = [json.loads(message.split('] ', 1)[1]) for message in messages]
+                self.assertEqual(start['event'], 'started')
+                self.assertEqual(finish['event'], 'finished')
+                self.assertEqual(finish['task_id'], task.pk)
+                self.assertEqual(finish['task_name'], task.name)
+                self.assertEqual(start['started_at'], finish['started_at'])
+                self.assertTrue(timezone.is_aware(datetime.fromisoformat(finish['started_at'])))
+                self.assertTrue(timezone.is_aware(datetime.fromisoformat(finish['finished_at'])))
+                self.assertEqual(finish['elapsed_seconds'], 2.75)
+                self.assertEqual(finish['scan_outcome'], outcome)
+                self.assertEqual(finish['lease_outcome'], lease_outcome)
+                self.assertNotIn('private-', ''.join(messages))
+                if scenario == 'browser_cleanup_error':
+                    self.assertEqual(finish['cleanup_errors'], ['RuntimeError'])
+                task.refresh_from_db()
+                if scenario == 'lost':
+                    self.assertTrue(MonitorTaskLease.objects.filter(task=task, owner='replacement').exists())
+                    self.assertNotEqual(task.flag, 'plugin flag')
+                elif scenario == 'release_error':
+                    self.assertTrue(MonitorTaskLease.objects.filter(task=task).exists())
+                    self.assertIs(finish['release_result'], False)
+                else:
+                    self.assertFalse(MonitorTaskLease.objects.filter(task=task).exists())
+                if scenario in ('true', 'false', 'none', 'browser_cleanup_error'):
+                    self.assertEqual(task.flag, 'plugin flag')
+
+    def test_logging_failure_does_not_mask_setup_error_or_prevent_release(self):
+        task = self._claim_task('logging-failure-owner')
+        with (
+            patch('botend.views._MonitorTaskLeaseHeartbeat', _FakeHeartbeat),
+            patch('botend.views.LReq', side_effect=RuntimeError('original setup error')),
+            patch('botend.views.logger.info', side_effect=OSError('log unavailable')),
+        ):
+            with self.assertRaisesRegex(RuntimeError, 'original setup error'):
+                LMonitorCore()._execute_claimed_task(task, 'logging-failure-owner')
+        self.assertFalse(MonitorTaskLease.objects.filter(task=task).exists())
 
     def test_lease_is_released_when_browser_construction_fails(self):
         task = self._claim_task('browser-failure-owner')

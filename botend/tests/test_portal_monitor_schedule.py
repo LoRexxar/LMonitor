@@ -27,7 +27,7 @@ class PortalMonitorScheduleTests(SimpleTestCase):
     def _task(self, name, last_scan_time):
         return SimpleNamespace(name=name, last_scan_time=last_scan_time)
 
-    def test_portal_data_tasks_use_daily_staggered_slots_and_ten_minute_peak_refresh(self):
+    def test_portal_data_tasks_use_midnight_slots_and_ten_minute_peak_refresh(self):
         shanghai = ZoneInfo('Asia/Shanghai')
         player = self._task(
             'SpecDetailPlayerMonitor',
@@ -50,7 +50,7 @@ class PortalMonitorScheduleTests(SimpleTestCase):
         self.assertFalse(portal_data_task_is_due(player, afternoon))
         self.assertFalse(portal_data_task_is_due(ranking, afternoon))
         self.assertFalse(portal_data_task_is_due(aggregation, afternoon))
-        self.assertTrue(portal_data_task_is_due(player, datetime(2026, 8, 21, 2, 0, tzinfo=shanghai)))
+        self.assertTrue(portal_data_task_is_due(player, datetime(2026, 8, 21, 0, 0, tzinfo=shanghai)))
         self.assertEqual(monitor_default_wait_time('PortalPeakSpecRankMonitor'), 600)
         self.assertLess(portal_monitor_task_priority(peak), portal_monitor_task_priority(player))
         self.assertLess(portal_monitor_task_priority(player), portal_monitor_task_priority(ranking))

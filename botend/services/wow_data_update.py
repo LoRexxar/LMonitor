@@ -55,10 +55,11 @@ def build_number(value):
 
 
 def get_monitor_task():
+    from botend.plugin_sync import monitor_default_wait_time
     return MonitorTask.objects.get_or_create(name=TASK_NAME, defaults={
         'type': TASK_TYPE, 'target': 'https://wago.tools/builds', 'is_active': True,
-        'wait_time': 43200, 'last_scan_time': timezone.now(),
-        'notes': '每 12 小时检测已启用分支；独立执行，下载并发 2，按 ID 原位更新，失败保留数据并在下一周期重试。',
+        'wait_time': monitor_default_wait_time(TASK_NAME), 'last_scan_time': timezone.now(),
+        'notes': '每日北京时间 00:00 起随低频队列串行检测已启用分支；下载并发 2，按 ID 原位更新，失败保留数据并在下一周期重试。',
     })[0]
 
 

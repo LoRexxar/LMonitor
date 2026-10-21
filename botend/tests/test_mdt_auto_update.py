@@ -133,7 +133,11 @@ class MdtReleaseTests(SimpleTestCase):
         self.assertEqual(monitor_default_wait_time(updater.TASK_NAME), 86400)
         now = timezone.now()
         task = SimpleNamespace(name=updater.TASK_NAME, last_scan_time=now, wait_time=86400)
-        self.assertIsNone(monitor_task_due_at(task, now + timedelta(hours=23)))
+        from zoneinfo import ZoneInfo
+        midnight = now.astimezone(ZoneInfo('Asia/Shanghai')).replace(
+            hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        self.assertIsNone(monitor_task_due_at(task, midnight - timedelta(seconds=1)))
+        self.assertEqual(monitor_task_due_at(task, midnight), midnight)
         self.assertIsNotNone(monitor_task_due_at(task, now + timedelta(days=1)))
 
     def test_new_monitor_is_appended_without_changing_existing_indexes(self):

@@ -25,15 +25,21 @@ def _monitor_task_lease_ttl(lease_seconds=None):
     return ttl_seconds
 
 
+NIGHT_LANE_TASKS = (
+    'SpecDetailSeasonMonitor', 'WowDataVersionMonitor',
+    'MythicDungeonToolsMonitor', 'MaxrollClassGuideMonitor',
+    'WowDailyReportMonitor', 'SpecDetailPlayerMonitor',
+    'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor',
+)
+NIGHT_LANE_PRIORITY = {name: index for index, name in enumerate(NIGHT_LANE_TASKS)}
+
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
     # Wowhead 在北美日常重置后会先返回无身份信息的 Active 占位行，
     # 随后才补齐具体地下堡。分三次渐进刷新，配合载荷完整性门禁，避免
     # 占位内容覆盖当天快照，并在上午自动补齐上游迟到的数据。
     "WowTodayMonitor": (4, 8, 10),
     # 每日大更新：人物内容先重抓，完整排名随后，聚合投影最后生成。
-    "SpecDetailPlayerMonitor": (2,),
-    "SpecDetailRankingMonitor": (3,),
-    "SpecDetailAggregationMonitor": (6,),
+    **{name: (0,) for name in NIGHT_LANE_TASKS},
 }
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
@@ -61,14 +67,12 @@ PORTAL_MONITOR_TASK_PRIORITY = {
 
 
 def monitor_default_wait_time(name):
-    if name == 'WowDataVersionMonitor':
-        return 43200  # 每 12 小时轻量检测，发现更新后才下载。
-    if name == 'MythicDungeonToolsMonitor':
-        return 86400  # 每日检查正式发布，后台可调整间隔和开关。
+    if name in NIGHT_LANE_TASKS:
+        return 86400
+
     if name == 'AdventureJournalMonitor':
         return 604800  # 保留历史 type=35 的间隔；任务默认关闭且只允许手动刷新。
-    if name == 'MaxrollClassGuideMonitor':
-        return 21600  # 6 小时，后续间隔由后台维护。
+
     if name == "PortalPeakSpecRankMonitor":
         return 600  # 10m，仅轻量刷新榜单；新入榜人物按需初始化
     if name == "PortalMplusCutoffMonitor":
@@ -165,6 +169,29 @@ def _locked_monitor_tasks_and_scopes(claim_time):
     return rows, {monitor_scope_key(row) for row in rows if row.pk in owners}
 
 
+def _night_lane_scopes(rows):
+    # Labels can differ on legacy duplicates; protect the exact execution scope.
+    return {monitor_scope_key(row) for row in rows if row.name in NIGHT_LANE_TASKS}
+
+
+def _night_lane_head(tasks):
+    # Resume unfinished old WCL cycles before starting a new day's heavy work.
+    if not tasks:
+        return None
+    from botend.models import SeasonMeta
+    from botend.services.wcl_collection_cycle import active_cycle
+    season = SeasonMeta.objects.filter(is_active=True).only('id').first()
+    cycle = active_cycle(season.pk, only_fields=('phase',)) if season else None
+    resume_name = None
+    if cycle:
+        resume_name = ('SpecDetailRankingMonitor' if cycle.phase in ('rankings', 'combatants')
+                       else 'SpecDetailAggregationMonitor')
+    return min(tasks, key=lambda task: (
+        task.name != resume_name,
+        NIGHT_LANE_PRIORITY.get(task.name, len(NIGHT_LANE_TASKS)), task.pk,
+    ), default=None)
+
+
 def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, task_names=None):
     """原子领取当前工作队列中到期最久的任务；普通队列排除独立任务。"""
     claim_time = now or timezone.now()
@@ -181,9 +208,16 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
         for row in rows:
             if row.is_active and is_task_runnable(row):
                 canonical.setdefault(monitor_scope_key(row), row)
-        runnable_tasks = [row for row in canonical.values()
-                          if (row.name in task_names if task_names is not None
-                              else row.name not in ISOLATED_MONITOR_TASKS)]
+        lane_scopes = _night_lane_scopes(rows)
+        due_tasks = [row for row in canonical.values()
+                     if monitor_task_due_at(row, now=claim_time) is not None]
+        lane_head = None if lane_scopes & active_scopes else _night_lane_head(
+            [row for row in due_tasks if monitor_scope_key(row) in lane_scopes])
+        # Choose the global lane head BEFORE applying worker-specific routing.
+        runnable_tasks = [row for row in due_tasks
+                          if (monitor_scope_key(row) not in lane_scopes or row is lane_head)
+                          and (row.name in task_names if task_names is not None
+                               else row.name not in ISOLATED_MONITOR_TASKS)]
         tasks = [
             task
             for task in runnable_tasks
@@ -221,6 +255,9 @@ def claim_monitor_task(task_id, now=None, *, lease_owner=None, lease_seconds=Non
         if task is None:
             return None
         if monitor_scope_key(task) in active_scopes:
+            return None
+        lane_scopes = _night_lane_scopes(rows)
+        if monitor_scope_key(task) in lane_scopes and lane_scopes & active_scopes:
             return None
         MonitorTaskLease.objects.update_or_create(task_id=task_id, defaults={
             'owner': owner, 'claimed_at': claim_time,

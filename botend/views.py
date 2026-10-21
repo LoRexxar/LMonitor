@@ -3,6 +3,8 @@
 
 
 import os
+import json
+from datetime import datetime, timezone as datetime_timezone
 import threading
 import time
 import traceback
@@ -240,76 +242,121 @@ class LMonitorCore:
     """
 
     def _execute_claimed_task(self, now_task, lease_owner):
-        Lreq = None
-        task_runner_ready = False
-        original_flag = now_task.flag
-        heartbeat = _MonitorTaskLeaseHeartbeat(now_task.id, lease_owner)
-        try:
-            heartbeat.start()
-            logger.info("[Main] New Task {} start...".format(now_task.name))
-            task_type = now_task.type
-            task_url = now_task.target
-            task_class = Monitor_Type_BaseObject_List[task_type]
+        # Return values describe scan(), not completeness of the business data.
+        started_at = datetime.now(datetime_timezone.utc).isoformat()
+        started_clock = time.monotonic()
+        scan_outcome = 'setup_failure'
+        scan_error_type = None
+        error_type = None
+        lease_outcome = 'not_attempted'
+        cleanup_errors = []
+        release_result = None
 
-            Lreq = LReq(is_chrome=bool(getattr(task_class, 'requires_browser', True)))
+        def log_execution(event, **fields):
+            # Observability must never change task results or mask an exception.
             try:
-                Lreq.set_current_task(now_task)
+                logger.info('[MonitorTask Execution] ' + json.dumps({
+                    'event': event, 'task_id': now_task.id,
+                    'task_name': now_task.name, 'started_at': started_at,
+                    **fields,
+                }, ensure_ascii=False))
             except Exception:
                 pass
-            task_runner = task_class(Lreq, now_task)
-            task_runner_ready = True
-            try:
-                scan_result = task_runner.scan(task_url)
-            except Exception as scan_exc:
-                logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
-                _record_monitor_task_alert(now_task, exc=scan_exc)
-            else:
-                if scan_result is False:
-                    detail = getattr(task_runner, 'last_error_detail', '') or 'scan returned False'
-                    _record_monitor_task_alert(now_task, error_message=detail)
-        finally:
-            if Lreq is not None:
-                try:
-                    Lreq.set_current_task(None)
-                except Exception:
-                    pass
-                try:
-                    Lreq.close_driver()
-                except Exception:
-                    pass
-            heartbeat.stop()
 
-            if not task_runner_ready:
-                _release_monitor_task_lease_safely(now_task.id, lease_owner)
-            else:
-                task_updates = {}
-                if now_task.flag != original_flag:
-                    task_updates['flag'] = now_task.flag
+        log_execution('started')
+        try:
+            Lreq = None
+            task_runner_ready = False
+            original_flag = now_task.flag
+            heartbeat = _MonitorTaskLeaseHeartbeat(now_task.id, lease_owner)
+            try:
+                heartbeat.start()
                 try:
-                    completed = complete_monitor_task_lease(
-                        now_task.id,
-                        lease_owner,
-                        task_updates=task_updates,
-                    )
+                    logger.info("[Main] New Task {} start...".format(now_task.name))
                 except Exception:
-                    logger.warning(
-                        '[MonitorTask Lease] completion error task_id={}, {}'.format(
+                    pass
+                task_type = now_task.type
+                task_url = now_task.target
+                task_class = Monitor_Type_BaseObject_List[task_type]
+
+                Lreq = LReq(is_chrome=bool(getattr(task_class, 'requires_browser', True)))
+                try:
+                    Lreq.set_current_task(now_task)
+                except Exception:
+                    pass
+                task_runner = task_class(Lreq, now_task)
+                task_runner_ready = True
+                scan_outcome = 'exception'
+                try:
+                    scan_result = task_runner.scan(task_url)
+                except Exception as scan_exc:
+                    scan_error_type = type(scan_exc).__name__
+                    logger.warning('[Scan] task error, {}'.format(traceback.format_exc()))
+                    _record_monitor_task_alert(now_task, exc=scan_exc)
+                else:
+                    scan_outcome = ('returned_true' if scan_result is True else
+                                    'returned_false' if scan_result is False else
+                                    'returned_none' if scan_result is None else 'returned_other')
+                    if scan_result is False:
+                        detail = getattr(task_runner, 'last_error_detail', '') or 'scan returned False'
+                        _record_monitor_task_alert(now_task, error_message=detail)
+            finally:
+                lease_outcome = 'exception'
+                if Lreq is not None:
+                    try:
+                        Lreq.set_current_task(None)
+                    except Exception as cleanup_exc:
+                        cleanup_errors.append(type(cleanup_exc).__name__)
+                    try:
+                        Lreq.close_driver()
+                    except Exception as cleanup_exc:
+                        cleanup_errors.append(type(cleanup_exc).__name__)
+                heartbeat.stop()
+
+                if not task_runner_ready:
+                    release_result = _release_monitor_task_lease_safely(now_task.id, lease_owner)
+                    lease_outcome = 'release_attempted'
+                else:
+                    task_updates = {}
+                    if now_task.flag != original_flag:
+                        task_updates['flag'] = now_task.flag
+                    try:
+                        completed = complete_monitor_task_lease(
                             now_task.id,
-                            traceback.format_exc(),
+                            lease_owner,
+                            task_updates=task_updates,
                         )
-                    )
-                    _release_monitor_task_lease_safely(now_task.id, lease_owner)
-                    raise
-                if not completed:
-                    logger.error(
-                        '[MonitorTask Lease] completion rejected after ownership loss '
-                        'task_id={}, owner={}'.format(now_task.id, lease_owner)
-                    )
-                    _release_monitor_task_lease_safely(
-                        now_task.id,
-                        lease_owner,
-                        log_rejection=False,
-                    )
+                    except Exception:
+                        logger.warning(
+                            '[MonitorTask Lease] completion error task_id={}, {}'.format(
+                                now_task.id,
+                                traceback.format_exc(),
+                            )
+                        )
+                        release_result = _release_monitor_task_lease_safely(now_task.id, lease_owner)
+                        raise
+                    lease_outcome = 'completed' if completed else 'ownership_lost'
+                    if not completed:
+                        logger.error(
+                            '[MonitorTask Lease] completion rejected after ownership loss '
+                            'task_id={}, owner={}'.format(now_task.id, lease_owner)
+                        )
+                        release_result = _release_monitor_task_lease_safely(
+                            now_task.id,
+                            lease_owner,
+                            log_rejection=False,
+                        )
+        except BaseException as exc:
+            error_type = type(exc).__name__
+            raise
+        finally:
+            log_execution(
+                'finished', finished_at=datetime.now(datetime_timezone.utc).isoformat(),
+                elapsed_seconds=time.monotonic() - started_clock,
+                scan_outcome=scan_outcome, scan_error_type=scan_error_type,
+                error_type=error_type, lease_outcome=lease_outcome,
+                cleanup_errors=cleanup_errors, release_result=release_result,
+            )
 
     def scan(self, *, task_names=None):
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')

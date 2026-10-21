@@ -30,12 +30,14 @@ class CycleOwnershipLost(RuntimeError):
 
 def ranking_slot(now=None):
     now = (now or timezone.now()).astimezone(LOCAL_TZ)
-    slot = now.replace(hour=3, minute=0, second=0, microsecond=0)
+    slot = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return slot if slot <= now else slot - timedelta(days=1)
 
 
-def active_cycle(season_id, *, lock=False):
+def active_cycle(season_id, *, lock=False, only_fields=None):
     rows = WclCollectionCycle.objects.filter(season_id=season_id).exclude(phase='published')
+    if only_fields is not None:
+        rows = rows.only(*only_fields)
     if lock:
         rows = rows.select_for_update()
     return rows.order_by('slot', 'pk').first()
@@ -85,8 +87,14 @@ def begin_collection(season, task=None, *, now=None):
             cycle.error = ''
             cycle.save(update_fields=['owner', 'last_attempt_at', 'next_retry_at', 'error'])
             return cycle
+        slot = ranking_slot(now)
+        # Legacy 03:00 cycles already represent this local day; never duplicate
+        # them just because the configured slot moved to midnight.
+        if WclCollectionCycle.objects.filter(
+                season=season, slot__gte=slot, slot__lt=slot + timedelta(days=1)).exists():
+            return None
         cycle, created = WclCollectionCycle.objects.get_or_create(
-            season=season, slot=ranking_slot(now),
+            season=season, slot=slot,
             defaults={'owner': owner, 'started_at': now, 'last_attempt_at': now})
         return cycle if created else None
 
@@ -228,7 +236,7 @@ def begin_aggregation(season, task=None, *, now=None, replay_published=False):
         allowed = PUBLISHING + (('published',) if replay_published or catch_up_burst else ())
         if cycle is None or cycle.phase not in allowed or not cycle.collected_at:
             return None
-        due = max(cycle.slot.astimezone(LOCAL_TZ).replace(hour=6), cycle.collected_at)
+        due = max(ranking_slot(cycle.slot), cycle.collected_at)
         if not replay_published and (due > now or (cycle.next_retry_at and cycle.next_retry_at > now)):
             return None
         cycle.owner = getattr(task, '_wcl_cycle_owner', None) or uuid4().hex
@@ -275,22 +283,24 @@ def scheduled_cycle_due_at(task, now):
             return NO_OVERRIDE
         slot = ranking_slot(now)
         # last_scan_time is a CLAIM, never completion evidence.
-        return None if WclCollectionCycle.objects.filter(season=season, slot=slot).exists() else slot
+        return None if WclCollectionCycle.objects.filter(
+            season=season, slot__gte=slot, slot__lt=slot + timedelta(days=1)).exists() else slot
     if cycle and cycle.phase in PUBLISHING:
-        due = max(cycle.slot.astimezone(LOCAL_TZ).replace(hour=6),
+        due = max(ranking_slot(cycle.slot),
                   cycle.collected_at or cycle.last_attempt_at,
                   cycle.next_retry_at or cycle.slot)
         if due <= now:
             return due
+        return None
     if cycle is None:
         published = WclCollectionCycle.objects.filter(season=season, phase='published').order_by('-slot').first()
         if published:
             from botend.services.raid_burst_snapshot import needs_raid_burst_refresh
             if needs_raid_burst_refresh(published):
                 # 新功能在当天发布完成后部署，也会补建；不受 last_scan_time 的已领取标记抑制。
-                due = max(published.slot.astimezone(LOCAL_TZ).replace(hour=6), published.collected_at)
+                due = max(ranking_slot(published.slot), published.collected_at)
                 return due if due <= now else None
-    # At 06:00 the independent leaderboard may still run while WCL waits.
+    # The independent leaderboard can run daily; WCL publication still requires ready.
     return NO_OVERRIDE
 
 
@@ -311,8 +321,12 @@ def fence_claimed_cycle(task, *, claim_time):
     phases = COLLECTING if task.name == 'SpecDetailRankingMonitor' else PUBLISHING
     task._wcl_cycle_owner = uuid4().hex
     if cycle is None and task.name == 'SpecDetailRankingMonitor':
+        slot = ranking_slot(claim_time)
+        if WclCollectionCycle.objects.filter(
+                season=season, slot__gte=slot, slot__lt=slot + timedelta(days=1)).exists():
+            return
         cycle, _ = WclCollectionCycle.objects.get_or_create(
-            season=season, slot=ranking_slot(claim_time),
+            season=season, slot=slot,
             defaults={'owner': task._wcl_cycle_owner, 'started_at': claim_time,
                       'last_attempt_at': claim_time})
     if cycle and cycle.phase in phases:

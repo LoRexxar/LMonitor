@@ -25,22 +25,32 @@ class UpdateSchedulingTests(TestCase):
         self.task.last_scan_time = timezone.now()
         self.task.save()
 
-    def test_default_is_twelve_hours_and_normal_worker_never_claims_update(self):
+    def test_default_is_daily_and_normal_worker_never_claims_update(self):
         from botend.plugin_sync import claim_next_monitor_task, monitor_default_wait_time
-        self.assertEqual(monitor_default_wait_time(update.TASK_NAME), 43200)
+        self.assertEqual(monitor_default_wait_time(update.TASK_NAME), 86400)
+        # Migration-created rows retain their operator interval; automatic
+        # eligibility now follows the fixed midnight schedule instead.
         self.assertEqual(self.task.wait_time, 43200)
-        before = self.task.last_scan_time + timedelta(hours=11)
-        after = self.task.last_scan_time + timedelta(hours=12, seconds=1)
+        from zoneinfo import ZoneInfo
+        after = self.task.last_scan_time.astimezone(ZoneInfo('Asia/Shanghai')).replace(
+            hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+        before = after - timedelta(seconds=1)
         self.assertIsNone(claim_next_monitor_task(now=before, task_names=[update.TASK_NAME]))
         self.assertIsNone(claim_next_monitor_task(now=after))
         claimed = claim_next_monitor_task(now=after, task_names=[update.TASK_NAME])
         self.assertEqual(claimed.pk, self.task.pk)
         self.assertIsNone(claim_next_monitor_task(now=after, task_names=[update.TASK_NAME]))
 
+    def test_new_task_uses_central_nightly_default(self):
+        self.task.delete()
+        task = update.get_monitor_task()
+        self.assertEqual(task.wait_time, 86400)
+        self.assertIn('00:00', task.notes)
+
     def test_normal_task_can_run_while_update_is_leased(self):
         from botend.models import MonitorTask
         from botend.plugin_sync import claim_next_monitor_task
-        now = self.task.last_scan_time + timedelta(hours=13)
+        now = self.task.last_scan_time + timedelta(days=1)
         normal = MonitorTask.objects.create(name='OtherMonitor', type=500, target='',
             is_active=True, wait_time=60, last_scan_time=now - timedelta(hours=1))
         claimed = claim_next_monitor_task(now=now, task_names=[update.TASK_NAME])

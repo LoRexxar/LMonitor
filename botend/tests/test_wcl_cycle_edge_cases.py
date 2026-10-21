@@ -3,11 +3,12 @@ from datetime import datetime, timedelta
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from zoneinfo import ZoneInfo
 
 from django.core.management import call_command
-from django.test import TestCase, TransactionTestCase
+from django.db import connection, transaction
+from django.test import TransactionTestCase
 
 from botend.models import (MonitorTask, PlayerSpecTopPlayer, SeasonMeta,
                            SpecDungeonRanking, SpecRaidRanking, WclCollectionCycle)
@@ -96,9 +97,10 @@ class WclAggregationPublicationRetryTests(TransactionTestCase):
         self.assertEqual(json.loads(self.path.read_text())['players'][0]['id'], self.player.pk)
 
 
-class WclCycleEdgeCasesTests(TestCase):
+class WclCycleEdgeCasesTests(TransactionTestCase):
+    # Exercise real WCL transport admission: TestCase's outer atomic block
+    # correctly forbids HTTP, including the burst events added to aggregation.
     def setUp(self):
-        self.enterContext(patch('botend.services.raid_burst_aggregation.aggregate_raid_burst'))
         self.now = datetime(2026, 10, 12, 8, tzinfo=ZoneInfo('Asia/Shanghai'))
         self.season = SeasonMeta.objects.create(season_key='edges', season_name='Edges',
             is_active=True, mplus_zone_id=1, raid_zone_id=2,
@@ -283,6 +285,55 @@ class WclCycleEdgeCasesTests(TestCase):
         self.assertEqual(set(cycle.completed_scopes), {'raid:5:201', 'raid:4:201'})
 
     def test_frozen_scope_survives_season_changes_and_manual_replay(self):
+        from botend.services.raid_burst_snapshot import load_published
+        from botend.services.wcl_api_budget import graphql_request
+
+        settings = self.settings(
+            MEDIA_ROOT=str(Path(self.directory.name) / 'media'),
+            RAID_BURST_SNAPSHOT_ROOT=str(Path(self.directory.name) / 'private'),
+            WCL_V2_CONFIG={'client_id': 'freeze-fixture', 'client_secret': 'fixture'})
+        settings.enable()
+        self.addCleanup(settings.disable)
+        event_kinds = []
+
+        def post(url, **kwargs):
+            # Keep real budget admission, event fetching, fencing and publication.
+            # Only the external HTTP boundary is replaced with a valid log.
+            self.assertFalse(connection.in_atomic_block)
+            if url.endswith('/oauth/token'):
+                return Mock(status_code=200, json=lambda: {
+                    'access_token': 'fixture', 'expires_in': 3600})
+            variables = kwargs['json']['variables'] or {}
+            quota = dict(limitPerHour=18000, pointsSpentThisHour=20,
+                         pointsResetIn=3600, currentRequest={'total': 1})
+            data = {'rateLimitData': quota, '_wclBudget': quota}
+            if variables.get('code'):
+                self.assertEqual(variables['code'], 'Report')
+                self.assertEqual(variables['ids'], [1])
+                kind = variables.get('kind')
+                event_kinds.append(kind)
+                if kind is None:
+                    report = {'fights': [{'id': 1, 'encounterID': 201,
+                        'difficulty': 5, 'kill': True, 'startTime': 10000,
+                        'endTime': 310000, 'phaseTransitions': []}],
+                        'masterData': {'actors': [{'id': 7, 'name': 'Player',
+                            'server': 'Realm', 'subType': 'Mage'}]}}
+                else:
+                    events = ([{'fight': 1, 'sourceID': 7, 'specID': 63,
+                                'auras': [{'ability': 2825}]}]
+                              if kind == 'CombatantInfo' else [])
+                    report = {'page': {'data': events, 'nextPageTimestamp': None}}
+                data['reportData'] = {'report': report}
+            return Mock(status_code=200, json=lambda: {'data': data})
+
+        transport = patch('botend.services.wcl_api_budget.requests.post', side_effect=post)
+        http = transport.start()
+        self.addCleanup(transport.stop)
+        # Explicitly retain the prohibition: nested transactions may not send HTTP.
+        with transaction.atomic():
+            result = graphql_request('freeze-fixture', 'fixture', 'query { x }', {})
+        self.assertEqual(result.error, 'transaction_context')
+        http.assert_not_called()
         self.old_raid()
         self.season.mplus_encounters = [{'id': 101, 'name': 'Old dungeon'}]
         self.season.save()
@@ -306,6 +357,12 @@ class WclCycleEdgeCasesTests(TestCase):
         self.assert_frozen_season(raid.call_args.args[0])
         cycle.refresh_from_db()
         self.assertEqual(cycle.phase, 'published')
+        self.assertEqual(event_kinds, [None, 'Casts', 'Buffs', 'CombatantInfo'])
+        payload, options = load_published(f'{self.season.pk}/Mage/Fire/5/201')
+        self.assertEqual(payload['attempted'], 1)
+        self.assertEqual(payload['samples'][0]['player']['name'], 'Player')
+        self.assertEqual({item['key'].split('/')[-1] for item in options}, {'201'})
+        http.reset_mock()
         MonitorTask.objects.create(name='SpecDetailAggregationMonitor', target='', type=889)
         from botend.management.commands.aggregate_spec_stats import Command
         with patch.object(Command, '_aggregate_leaderboard'), \
@@ -314,6 +371,10 @@ class WclCycleEdgeCasesTests(TestCase):
             call_command('aggregate_spec_stats', class_name='Mage', spec_name='Fire')
         self.assert_frozen_season(dungeon.call_args.args[0])
         self.assert_frozen_season(raid.call_args.args[0])
+        http.assert_not_called()  # replay reuses the complete, validated snapshot
+        self.assertEqual(load_published(f'{self.season.pk}/Mage/Fire/5/201')[0], payload)
+        cycle.refresh_from_db()
+        self.assertEqual(cycle.phase, 'published')
         self.season.refresh_from_db()
         self.assertEqual(self.season.mplus_encounters[0]['id'], 102)
 
