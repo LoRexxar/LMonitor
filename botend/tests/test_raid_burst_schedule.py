@@ -33,29 +33,22 @@ class RaidBurstScheduleTests(TestCase):
             slot=self.now.replace(hour=3), collected_at=self.now.replace(hour=5),
             published_at=self.now.replace(hour=6), completed_scopes=['raid:5:3470', 'raid:4:3470'])
 
-    def test_published_before_deployment_is_claimed_and_backfilled_once(self):
-        module = 'botend.controller.plugins.portal.SpecDetailAggregationMonitor'
-        profiles = {('Warrior', 'Arms'): SUPPORTED[('Warrior', 'Arms')]}
-        with patch('django.utils.timezone.now', return_value=self.now), \
-                patch('botend.services.raid_burst_aggregation.SUPPORTED', profiles), \
-                patch(f'{module}.CLASS_SPEC_MAP', {'Warrior': ['Arms']}), \
-                patch(f'{module}.publish_stats'), \
-                patch.object(SpecDetailAggregationMonitor, '_aggregate_leaderboard'), \
-                patch('botend.services.spec_stats_service.SpecStatsService._compute_raid_stats', return_value={}), \
-                patch('botend.services.raid_burst_events.fetch_events', side_effect=AssertionError('空样本不联网')):
-            self.assertTrue(needs_raid_burst_refresh(self.cycle))
-            claimed = claim_next_monitor_task(now=self.now, lease_owner='补建')
-            self.assertEqual(claimed.pk, self.task.pk)
-            self.assertTrue(SpecDetailAggregationMonitor(None, claimed).scan(''))
-            release_monitor_task_lease(claimed.pk, '补建')
-            self.cycle.refresh_from_db()
-            self.assertEqual(self.cycle.phase, 'published')
-            self.assertFalse(needs_raid_burst_refresh(self.cycle))
+    def test_missing_or_outdated_burst_does_not_reopen_published_cycle(self):
+        with patch('botend.services.raid_burst_snapshot.needs_raid_burst_refresh',
+                   side_effect=AssertionError('普通周期不得检查爆发')) as check:
             self.assertIsNone(claim_next_monitor_task(now=self.now))
             self.assertIsNone(begin_aggregation(self.season, self.task, now=self.now))
-            with patch('botend.services.raid_burst_aggregation.ANALYSIS_VERSION', 999):
-                self.assertTrue(needs_raid_burst_refresh(self.cycle))
-                self.assertLessEqual(scheduled_cycle_due_at(self.task, self.now), self.now)
+            replay = begin_aggregation(self.season, self.task, now=self.now, replay_published=True)
+            self.assertEqual(replay.pk, self.cycle.pk)
+            check.assert_not_called()
+
+    def test_central_metadata_refresh_is_scheduled_without_burst(self):
+        from botend.models import WowDataUpdateState
+        WowDataUpdateState.objects.create(branch='retail', published_at=self.now)
+        with patch('botend.services.raid_burst_snapshot.needs_raid_burst_refresh',
+                   side_effect=AssertionError('普通周期不得检查爆发')):
+            self.assertLessEqual(scheduled_cycle_due_at(self.task, self.now), self.now)
+            self.assertEqual(begin_aggregation(self.season, self.task, now=self.now).pk, self.cycle.pk)
 
     def test_incomplete_current_cycle_is_never_bypassed_by_old_published_cycle(self):
         self.cycle.slot -= timedelta(days=1)
@@ -68,8 +61,8 @@ class RaidBurstScheduleTests(TestCase):
         pending.refresh_from_db()
         self.assertEqual(pending.phase, 'combatants')
 
-    def test_today_ready_cycle_generates_burst_after_six_without_backfill(self):
-        """昨日已部署、今日采集完成的正常路径，不能依赖已发布周期补建。"""
+    def test_ready_cycle_publishes_without_burst_permissions(self):
+        """旧版本已完成采集的周期也能发布，不依赖爆发权限或预算。"""
         self.cycle.phase = 'ready'
         self.cycle.published_at = None
         self.cycle.save(update_fields=['phase', 'published_at'])
@@ -83,14 +76,15 @@ class RaidBurstScheduleTests(TestCase):
                 patch(f'{module}.publish_stats'), \
                 patch.object(SpecDetailAggregationMonitor, '_aggregate_leaderboard'), \
                 patch('botend.services.spec_stats_service.SpecStatsService._compute_raid_stats', return_value={}), \
-                patch('botend.services.raid_burst_aggregation.fetch_events', side_effect=AssertionError('空样本不联网')):
+                patch('botend.services.raid_burst_aggregation.aggregate_raid_burst',
+                      side_effect=PermissionError('爆发无权限')) as burst:
             claimed = claim_next_monitor_task(now=self.now.replace(hour=6), lease_owner='今日聚合')
             self.assertEqual(claimed.pk, self.task.pk)
             self.assertTrue(SpecDetailAggregationMonitor(None, claimed).scan(''))
             release_monitor_task_lease(claimed.pk, '今日聚合')
             self.cycle.refresh_from_db()
             self.assertEqual(self.cycle.phase, 'published')
-            self.assertFalse(needs_raid_burst_refresh(self.cycle))
+            burst.assert_not_called()
 
     def test_diagnostics_do_not_change_task_or_cycle(self):
         output = StringIO()

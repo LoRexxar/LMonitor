@@ -17,11 +17,16 @@
         {% if raid_burst_back_url %}<a href="{{ raid_burst_back_url }}">← 返回本首领职业聚合</a>{% endif %}
         <div class="burst-title">
             <h1>{{ raid_burst_title }} · 战斗统计</h1>
-            <span class="burst-tag">登录可见 · 每日团本统计</span>
+            <span class="burst-tag">登录可见 · 独立手动更新</span>
         </div>
         {% if raid_burst_payload %}
         <p>{{ raid_burst_payload.scope.label }} · 更新时间 {{ raid_burst_updated_at|date:"Y年n月j日 H:i" }}</p>
         <p>已排除获得灌注及未记录到嗜血的日志。</p>
+        {% if raid_burst_payload.selection_limit %}
+        <p>按排名依次筛选，最多保留前{{ raid_burst_payload.selection_limit }}位可用且不重复的玩家；不足时展示实际数量。每日自动更新已关闭。</p>
+        {% else %}
+        <p>当前显示历史采样版本，尚未按前10位唯一玩家规则重新生成。每日自动更新已关闭。</p>
+        {% endif %}
         <p id="coverage" class="burst-count" role="status">正在读取样本…</p>
         <section class="burst-panel" aria-label="统计筛选">
             <div class="burst-controls">
@@ -66,11 +71,11 @@
         <p class="burst-notice">样本用于探索真实打法，尚未证明哪种安排伤害更高。天赋、装备和团队条件仍可能不同。</p>
         <noscript><p>请启用 JavaScript 以查看时间轴和筛选结果。</p></noscript>
         {% else %}
-        <section class="burst-panel"><p id="coverage">{% if raid_burst_back_url %}本首领当前专精与难度暂无已生成的战斗统计，请等待团本每日任务完成。{% else %}请从职业团本聚合的具体首领详情页进入战斗统计。{% endif %}</p></section>
+        <section class="burst-panel"><p id="coverage">{% if raid_burst_back_url %}本首领当前专精与难度暂无已生成的战斗统计，需通过独立手动任务生成；每日自动更新已关闭。{% else %}请从职业团本聚合的具体首领详情页进入战斗统计。{% endif %}</p></section>
         {% endif %}
         <p class="burst-muted">按当前专精标注主动爆发与关键技能，仅统计玩家本人实际施放。治疗和坦克专精同时包含主要治疗、减伤技能；样本仍来自团本 DPS 排名，不代表治疗量或承伤排名。</p>
     </main>
     {{ raid_burst_payload|json_script:"raid-burst-data" }}
-    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261020_daily_snapshot" defer></script>
+    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261021_manual_top10" defer></script>
 </body>
 </html>

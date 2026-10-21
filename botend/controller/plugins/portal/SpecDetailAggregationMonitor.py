@@ -118,7 +118,7 @@ class SpecDetailAggregationMonitor(BaseScan):
                             f'周期={pending.pk}，阶段={pending.phase}，重试时间={pending.next_retry_at}'
                             if pending else '无待发布周期且无需要补建的已完成周期')
                 return True
-            logger.info('[SpecDetailAggregation] 启动团本统计及战斗时间轴：周期=%s，数据截止=%s',
+            logger.info('[SpecDetailAggregation] 启动普通团本统计：周期=%s，数据截止=%s',
                         getattr(cycle, 'pk', '未知'), cycle.collected_at)
             season = frozen_season(cycle, season)
             for class_name, specs in CLASS_SPEC_MAP.items():
@@ -126,9 +126,7 @@ class SpecDetailAggregationMonitor(BaseScan):
                     spec_dir = os.path.join(base_dir, class_name, spec_name)
                     self._aggregate_dungeon(season, class_name, spec_name, spec_dir, cycle=cycle)
                     self._aggregate_raid(season, class_name, spec_name, spec_dir,
-                                         publish=partial(publish_stats, cycle=cycle),
-                                         burst_guard=lambda: fenced_cycle(cycle, phases=('aggregating',)),
-                                         source_cutoff=cycle.collected_at)
+                                         publish=partial(publish_stats, cycle=cycle))
             finish_publication(cycle)
             return True
         except CycleOwnershipLost:
@@ -162,8 +160,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             publish or (partial(publish_stats, cycle=cycle) if cycle else publish_stats), **kwargs)
 
     @staticmethod
-    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None,
-                        burst_guard=None, source_cutoff=None):
+    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None):
         if not season.raid_encounters and not season.raid_zones:
             return
 
@@ -223,10 +220,6 @@ class SpecDetailAggregationMonitor(BaseScan):
         }, class_name, spec_name)
         logger.info('[SpecDetailAggregation] %s/%s 团本计算复用 %s/%s',
                     class_name, spec_name, reused, len(fingerprints))
-        if burst_guard is not None:
-            from botend.services.raid_burst_aggregation import aggregate_raid_burst
-            aggregate_raid_burst(season, class_name, spec_name, guard=burst_guard,
-                                 source_cutoff=source_cutoff)
 
     @staticmethod
     def refresh_leaderboard_projection(season_id, class_name, spec_name):

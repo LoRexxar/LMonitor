@@ -101,7 +101,7 @@ class WclAggregationPublicationRetryTests(TransactionTestCase):
 
 class WclCycleEdgeCasesTests(TransactionTestCase):
     # Exercise real WCL transport admission: TestCase's outer atomic block
-    # correctly forbids HTTP, including the burst events added to aggregation.
+    # correctly forbids HTTP; ordinary aggregation must not fetch burst events.
     def setUp(self):
         isolate_work_cache(self)
         self.now = datetime(2026, 10, 12, 8, tzinfo=ZoneInfo('Asia/Shanghai'))
@@ -332,6 +332,10 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
         transport = patch('botend.services.wcl_api_budget.requests.post', side_effect=post)
         http = transport.start()
         self.addCleanup(transport.stop)
+        burst_patch = patch('botend.services.raid_burst_aggregation.aggregate_raid_burst',
+                            side_effect=PermissionError('普通聚合不得请求爆发'))
+        burst = burst_patch.start()
+        self.addCleanup(burst_patch.stop)
         # Explicitly retain the prohibition: nested transactions may not send HTTP.
         with transaction.atomic():
             result = graphql_request('freeze-fixture', 'fixture', 'query { x }', {})
@@ -360,11 +364,10 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
         self.assert_frozen_season(raid.call_args.args[0])
         cycle.refresh_from_db()
         self.assertEqual(cycle.phase, 'published')
-        self.assertEqual(event_kinds, [None, 'Casts', 'Buffs', 'CombatantInfo'])
-        payload, options = load_published(f'{self.season.pk}/Mage/Fire/5/201')
-        self.assertEqual(payload['attempted'], 1)
-        self.assertEqual(payload['samples'][0]['player']['name'], 'Player')
-        self.assertEqual({item['key'].split('/')[-1] for item in options}, {'201'})
+        self.assertEqual(event_kinds, [])
+        burst.assert_not_called()
+        http.assert_not_called()
+        self.assertIsNone(load_published(f'{self.season.pk}/Mage/Fire/5/201')[0])
         http.reset_mock()
         MonitorTask.objects.create(name='SpecDetailAggregationMonitor', target='', type=889)
         from botend.management.commands.aggregate_spec_stats import Command
@@ -374,8 +377,9 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
             call_command('aggregate_spec_stats', class_name='Mage', spec_name='Fire')
         self.assert_frozen_season(dungeon.call_args.args[0])
         self.assert_frozen_season(raid.call_args.args[0])
-        http.assert_not_called()  # replay reuses the complete, validated snapshot
-        self.assertEqual(load_published(f'{self.season.pk}/Mage/Fire/5/201')[0], payload)
+        http.assert_not_called()  # manual replay also excludes burst entirely
+        burst.assert_not_called()
+        self.assertIsNone(load_published(f'{self.season.pk}/Mage/Fire/5/201')[0])
         cycle.refresh_from_db()
         self.assertEqual(cycle.phase, 'published')
         self.season.refresh_from_db()

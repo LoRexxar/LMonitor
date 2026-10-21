@@ -3,7 +3,7 @@
 from django.utils import timezone
 from utils.log import logger
 
-from botend.services.raid_burst_events import RAW_VERSION, fetch_events
+from botend.services.raid_burst_events import RAW_VERSION, fetch_events, realm_key
 from botend.services.raid_burst_skills import SUPPORTED, CATALOG_BUILD
 from botend.services.raid_burst_snapshot import (
     SCHEMA, digest, private_root, read_blob, read_json, read_manifest, write_json,
@@ -11,6 +11,8 @@ from botend.services.raid_burst_snapshot import (
 
 
 ANALYSIS_VERSION = 1
+SAMPLE_LIMIT = 10
+SELECTION_POLICY = 'top-usable-unique-player-no-pi-v1'
 LUST = {2825, 32182, 80353, 390386, 264667, 272678}
 FIELDS = ('report_code', 'fight_id', 'character_name', 'realm', 'region', 'class_name',
           'spec_name', 'boss_id', 'difficulty', 'dps')
@@ -116,6 +118,16 @@ def build_groups(samples, spells):
     return result
 
 
+def player_key(row):
+    """Only reserve an identity after a valid sample; failed logs may retry."""
+    fields = [row.get(k) for k in ('region', 'realm', 'character_name')]
+    if not all(isinstance(value, str) and value.strip() for value in fields):
+        return None
+    region, realm, name = fields
+    realm = realm_key(realm)
+    return (region.strip().casefold(), realm, name.strip().casefold()) if realm else None
+
+
 def build_scope(rows, scope, config, root, guard, client):
     # 身份稳定排序后再按 DPS 排名；数据库换主键、刷新时间不导致重抓或重算。
     rows = sorted([{field: row.get(field) for field in FIELDS} for row in rows],
@@ -124,6 +136,7 @@ def build_scope(rows, scope, config, root, guard, client):
                  for r in reversed(rows)}.values())
     rows.sort(key=lambda r: (-r['dps'], digest(r)))
     fingerprint = digest({'version': ANALYSIS_VERSION, 'raw_version': RAW_VERSION,
+                          'selection_policy': SELECTION_POLICY, 'sample_limit': SAMPLE_LIMIT,
                           'scope': scope, 'config': config, 'rows': rows})
     directory = root / str(scope['season_id']) / scope['class_name'] / scope['spec_name']
     prepared_path = directory / 'prepared' / f'{fingerprint}.json'
@@ -141,19 +154,36 @@ def build_scope(rows, scope, config, root, guard, client):
             logger.info('[RaidBurst] 复用已发布快照 %s', scope['key'])
             return previous
     logger.info('[RaidBurst] 开始生成 %s，日志数=%s', scope['key'], len(rows))
-    samples, counts = [], dict(pi=0, no_lust=0, invalid=0)
+    samples, counts = [], dict(pi=0, no_lust=0, invalid=0, duplicate=0)
+    selected, attempted = set(), 0
     for rank, row in enumerate(rows, 1):
+        if len(samples) >= SAMPLE_LIMIT:
+            break
+        identity = player_key(row)
+        if identity is not None and identity in selected:
+            counts['duplicate'] += 1
+            continue
+        # Counts checked candidates, including cache hits and missing identity,
+        # never unvisited tails or duplicates skipped before fetching.
+        attempted += 1
+        if identity is None:
+            counts['invalid'] += 1
+            continue
         raw = fetch_events(root, row, client, guard)
         sample, reason = normalize(raw, row, rank, config)
         if reason:
             counts[reason] += 1
         else:
             samples.append(sample)
+            selected.add(identity)
     payload = {
         'schema': SCHEMA, 'input_fingerprint': fingerprint, 'scope': scope,
         'generated_at': timezone.now().isoformat(), 'skill_names': config['spells'],
         'skill_role': config.get('role', '输出'), 'catalog_build': CATALOG_BUILD,
-        'attempted': len(rows), 'successful': len(rows) - counts['invalid'],
+        'selection_policy': SELECTION_POLICY, 'selection_limit': SAMPLE_LIMIT,
+        'candidate_count': len(rows), 'attempted': attempted,
+        'successful': attempted - counts['invalid'],
+        'excluded_duplicate': counts['duplicate'],
         'excluded_pi': counts['pi'], 'excluded_no_lust': counts['no_lust'],
         'excluded_invalid': counts['invalid'], 'samples': samples,
         'groups': build_groups(samples, config['spells']),
@@ -194,13 +224,17 @@ def aggregate_raid_burst(season, class_name, spec_name, *, guard, source_cutoff=
                     boss_id=boss_id, difficulty=difficulty)
                 if source_cutoff is not None:
                     from django.db.models import Q
+                    from botend.services.wcl_collection_cycle import CycleOwnershipLost
+                    if rows.filter(last_updated__gt=source_cutoff).exists():
+                        raise CycleOwnershipLost('raid scope facts newer than collected cutoff')
                     rows = rows.filter(Q(last_updated__lte=source_cutoff) | Q(last_updated__isnull=True))
                 rows = list(rows.values(*FIELDS))
             scopes.append(build_scope(rows, scope, config, root, guard, client))
     directory = root / str(season.id) / class_name / spec_name
     manifest = {'schema': SCHEMA, 'scopes': scopes,
                 'source_cutoff': source_cutoff.isoformat() if hasattr(source_cutoff, 'isoformat') else source_cutoff,
-                'profile_digest': digest({'analysis': ANALYSIS_VERSION, 'raw': RAW_VERSION, 'config': config})}
+                'profile_digest': digest({'analysis': ANALYSIS_VERSION, 'raw': RAW_VERSION, 'config': config,
+                                          'selection_policy': SELECTION_POLICY, 'sample_limit': SAMPLE_LIMIT})}
     with guard():
         previous = read_manifest(directory)
         if previous != manifest:

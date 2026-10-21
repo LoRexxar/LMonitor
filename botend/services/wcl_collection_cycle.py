@@ -219,21 +219,15 @@ def begin_aggregation(season, task=None, *, now=None, replay_published=False):
         cycle = active_cycle(season.pk, lock=True)
         if cycle is not None and replay_published:
             return None
-        catch_up_burst = False
+        refresh_projection = False
         if cycle is None:
             published = WclCollectionCycle.objects.select_for_update().filter(
                 season=season, phase='published').order_by('-slot').first()
             if published and not replay_published:
-                from botend.services.raid_burst_snapshot import needs_raid_burst_refresh
-                catch_up_burst = needs_raid_burst_refresh(published)
-                if not catch_up_burst and published.published_at:
-                    from botend.models import WowDataUpdateState
-                    # 中央装备/天赋发布后即重建受影响投影，不必等下一次全量采集。
-                    catch_up_burst = WowDataUpdateState.objects.filter(
-                        branch='retail', published_at__gt=published.published_at).exists()
-            if replay_published or catch_up_burst:
+                refresh_projection = _metadata_projection_due(published)
+            if replay_published or refresh_projection:
                 cycle = published
-        allowed = PUBLISHING + (('published',) if replay_published or catch_up_burst else ())
+        allowed = PUBLISHING + (('published',) if replay_published or refresh_projection else ())
         if cycle is None or cycle.phase not in allowed or not cycle.collected_at:
             return None
         due = max(ranking_slot(cycle.slot), cycle.collected_at)
@@ -245,6 +239,13 @@ def begin_aggregation(season, task=None, *, now=None, replay_published=False):
         cycle.next_retry_at = None
         cycle.save(update_fields=['owner', 'phase', 'last_attempt_at', 'next_retry_at'])
         return cycle
+
+
+def _metadata_projection_due(published):
+    """中央装备/天赋发布后刷新普通投影；不依赖独立爆发统计。"""
+    from botend.models import WowDataUpdateState
+    return bool(published.published_at and WowDataUpdateState.objects.filter(
+        branch='retail', published_at__gt=published.published_at).exists())
 
 
 def finish_publication(cycle):
@@ -294,12 +295,10 @@ def scheduled_cycle_due_at(task, now):
         return None
     if cycle is None:
         published = WclCollectionCycle.objects.filter(season=season, phase='published').order_by('-slot').first()
-        if published:
-            from botend.services.raid_burst_snapshot import needs_raid_burst_refresh
-            if needs_raid_burst_refresh(published):
-                # 新功能在当天发布完成后部署，也会补建；不受 last_scan_time 的已领取标记抑制。
-                due = max(ranking_slot(published.slot), published.collected_at)
-                return due if due <= now else None
+        if published and published.collected_at and _metadata_projection_due(published):
+            # 中央资料发布不受当天已领取标记抑制；爆发缺失不触发普通聚合。
+            due = max(ranking_slot(published.slot), published.collected_at)
+            return due if due <= now else None
     # The independent leaderboard can run daily; WCL publication still requires ready.
     return NO_OVERRIDE
 

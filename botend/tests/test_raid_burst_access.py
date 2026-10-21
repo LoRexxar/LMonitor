@@ -67,6 +67,28 @@ class RaidBurstAccessTests(SimpleTestCase):
         self.assertIn('Cookie', response['Vary'])
         self.assertEqual(response['X-Robots-Tag'], 'noindex, nofollow')
 
+    def test_manual_update_labels_do_not_claim_old_payload_is_top10(self):
+        response = PortalRaidBurstView.as_view()(self.request(authenticated=True))
+        self.assertContains(response, '独立手动更新')
+        self.assertContains(response, '当前显示历史采样版本')
+        self.assertNotContains(response, '每日团本统计')
+        self.assertNotContains(response, '请等待团本每日任务完成')
+
+    def test_top10_policy_is_rendered_only_from_published_payload(self):
+        payload, _ = load_published('1/Warrior/Arms/5/3470')
+        assert payload is not None
+        payload.update(selection_limit=10, candidate_count=100, excluded_duplicate=2)
+        directory = self.root / '1/Warrior/Arms'
+        signature = digest(payload)
+        write_json(directory / 'snapshots' / f'{signature}.json', payload)
+        manifest = {'schema': 1, 'scopes': [{'key': payload['scope']['key'],
+                    'label': '测试首领', 'season_id': 1, 'blob': signature}]}
+        write_json(directory / 'index.json', {'data': manifest, 'digest': digest(manifest)})
+        response = PortalRaidBurstView.as_view()(self.request(authenticated=True))
+        self.assertContains(response, '最多保留前10位可用且不重复的玩家')
+        self.assertContains(response, '每日自动更新已关闭')
+        self.assertNotContains(response, '当前显示历史采样版本')
+
     def test_global_header_never_renders_battle_entry(self):
         for authenticated in (False, True):
             header = render_to_string('portal/_header.html', request=self.request(authenticated))

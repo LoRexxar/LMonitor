@@ -101,19 +101,22 @@ def load_published(selection=None):
 
 
 def needs_raid_burst_refresh(cycle):
-    """已发布团本周期缺少本版战斗统计时，交给原聚合任务补建。
+    """只读检查当前周期是否缺少本版战斗统计，供独立手动任务诊断。
 
-    只查索引，不联网，不扫描原始事件；未完成的采集周期由调用者优先处理。
+    不触发普通聚合、不联网、不扫描原始事件；缺失不再阻塞普通发布。
     """
     raid_scopes = [scope for scope in cycle.completed_scopes if scope.startswith('raid:')]
     if not raid_scopes or not cycle.collected_at:
         return False
-    from botend.services.raid_burst_aggregation import ANALYSIS_VERSION, RAW_VERSION, SUPPORTED
+    from botend.services.raid_burst_aggregation import (
+        ANALYSIS_VERSION, RAW_VERSION, SUPPORTED, SELECTION_POLICY, SAMPLE_LIMIT,
+    )
     cutoff = cycle.collected_at.isoformat()
     root = private_root() / str(cycle.season_id)
     for (class_name, spec_name), config in SUPPORTED.items():
         manifest = read_manifest(root / class_name / spec_name, verify_blobs=False)
-        revision = digest({'analysis': ANALYSIS_VERSION, 'raw': RAW_VERSION, 'config': config})
+        revision = digest({'analysis': ANALYSIS_VERSION, 'raw': RAW_VERSION, 'config': config,
+                           'selection_policy': SELECTION_POLICY, 'sample_limit': SAMPLE_LIMIT})
         if not manifest or manifest.get('profile_digest') != revision or manifest.get('source_cutoff') != cutoff:
             return True
         keys = {scope['key'] for scope in manifest['scopes']}

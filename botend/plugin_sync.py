@@ -126,6 +126,9 @@ def portal_data_task_due_at(task, now=None):
 
 def monitor_task_due_at(task, now=None):
     """Return when this task became runnable, or None when it is not due."""
+    # Manual-only until an explicit scheduling contract is introduced.
+    if getattr(task, "name", "") == "RaidBurstAggregationMonitor":
+        return None
     claim_time = _normalized_now(now)
     if getattr(task, "name", "") in PORTAL_DATA_SCHEDULED_TASKS:
         return portal_data_task_due_at(task, now=claim_time)

@@ -3,6 +3,7 @@
 import re
 
 from botend.services.raid_burst_snapshot import digest, read_json, write_json
+from utils.log import logger
 
 
 RAW_VERSION = 1
@@ -57,6 +58,11 @@ def fetch_events(root, row, client, guard):
             pass
         data = client._wcl_graphql(query, variables)
         if data is None:
+            # Only the transport's explicit report/path permission classification
+            # is sample-local. HTTP 403, auth, budget and malformed pages defer.
+            if client._wcl_last_error == 'permission':
+                logger.warning('[RaidBurst] 日志权限拒绝（permission），排除不可用样本')
+                return None
             raise EventFetchDeferred(client._wcl_last_error or '事件请求失败', client._wcl_retry_at)
         report = (data.get('reportData') or {}).get('report')
         if not isinstance(report, dict):
@@ -66,7 +72,10 @@ def fetch_events(root, row, client, guard):
     if not row.get('report_code') or not row.get('fight_id'):
         return {'invalid': '缺少日志地址'}
     if 'report' not in state:
-        state['report'] = request(META, {'code': row['report_code'], 'ids': [row['fight_id']]})
+        report = request(META, {'code': row['report_code'], 'ids': [row['fight_id']]})
+        if report is None:
+            return {'invalid': '日志权限拒绝（permission）'}
+        state['report'] = report
         save()
     report = state['report']
     fights = [f for f in report.get('fights', []) if f['id'] == row['fight_id']]
@@ -85,9 +94,14 @@ def fetch_events(root, row, client, guard):
         stream = state['streams'].setdefault(field, {'data': [], 'cursor': initial_cursor, 'complete': False})
         while not stream['complete']:
             cursor = stream['cursor']
-            page = request(PAGE, {'code': row['report_code'], 'ids': [row['fight_id']],
+            report_page = request(PAGE, {'code': row['report_code'], 'ids': [row['fight_id']],
                                  'actor': actor['id'], 'start': cursor,
-                                 'end': fight['endTime'], 'kind': kind}).get('page')
+                                 'end': fight['endTime'], 'kind': kind})
+            if report_page is None:
+                # Preserve the checkpoint, but never return partial streams as
+                # usable events or persist a permission denial as empty success.
+                return {'invalid': '日志权限拒绝（permission）'}
+            page = report_page.get('page')
             if not isinstance(page, dict) or not isinstance(page.get('data'), list) or 'nextPageTimestamp' not in page:
                 raise EventFetchDeferred('事件分页结构不完整')
             next_cursor = page['nextPageTimestamp']

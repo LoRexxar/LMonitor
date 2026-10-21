@@ -46,6 +46,7 @@ from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailS
 from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
 from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
 from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
+from botend.controller.plugins.portal.RaidBurstAggregationMonitor import RaidBurstAggregationMonitor
 from botend.controller.plugins.portal.SpecDungeonDpsRankingMonitor import SpecDungeonDpsRankingMonitor
 
 class DedicatedSimcWorkerSlot(BaseScan):
@@ -93,4 +94,5 @@ Monitor_Type_BaseObject_List = [
     AdventureJournalMonitor,
     MythicDungeonToolsMonitor,
     WowDataVersionMonitor,
+    RaidBurstAggregationMonitor,
 ]

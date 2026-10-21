@@ -35,7 +35,11 @@ backoff does not occupy a lease after release, so other runnable daily work can
 proceed. WCL daily identity and aggregation earliest gate both use midnight;
 ready/collected evidence remains mandatory for WCL publication. A legacy 03:00
 published cycle already represents its local day and is not duplicated as a
-new 00:00 cycle. Published-to-raid-burst catch-up remains available. Independent
+new 00:00 cycle. Retail central metadata publication can refresh ordinary
+projections from the completed cohort. Missing/outdated burst snapshots do not
+schedule or gate ordinary WCL aggregation. Neither the daily aggregator nor
+`aggregate_spec_stats` (including legacy/manual replay) builds burst statistics;
+burst updates belong to the independent, default-disabled entry point. Independent
 player leaderboard generation retains its existing no-ready-cycle behavior;
 it is not evidence of WCL aggregation success.
 
