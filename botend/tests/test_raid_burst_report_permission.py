@@ -38,8 +38,10 @@ class ReportPermissionTests(SimpleTestCase):
                 fetch_events(self.root, self.row, self.client, nullcontext)
                 good_bytes = cache_path(self.root, self.row).read_bytes()
                 self.client.calls.clear()
-                private = dict(self.row, report_code=f'Private{mid_page}')
-                following = dict(self.row, report_code=f'Following{mid_page}')
+                # Three distinct ranked player identities: this test exercises
+                # permission recovery, not the separate duplicate-player filter.
+                private = dict(self.row, report_code=f'Private{mid_page}', region='US')
+                following = dict(self.row, report_code=f'Following{mid_page}', region='EU')
                 self.client.paginate = mid_page
                 self.client._wcl_last_error = self.denial()
                 self.client.failure = lambda v: v['code'] == private['report_code'] and (

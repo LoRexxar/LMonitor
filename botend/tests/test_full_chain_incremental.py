@@ -185,7 +185,7 @@ with _scope_lock(Path(sys.argv[1]), blocking=False) as acquired:
         self.cycle.slot = past; self.cycle.collected_at = past
         self.cycle.phase = 'published'; self.cycle.published_at = past; self.cycle.save()
         WowDataUpdateState.objects.create(branch='retail', published_at=timezone.now(), published_build='12.0.0.1')
-        with patch('botend.services.raid_burst_snapshot.needs_raid_burst_refresh', return_value=False):
+        with patch('botend.services.raid_burst_snapshot.needs_raid_burst_refresh', side_effect=AssertionError('普通投影不得检查爆发')):
             reopened = begin_aggregation(self.season)
             self.assertIsNotNone(reopened)
             finish_publication(reopened)

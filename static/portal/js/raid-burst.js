@@ -276,9 +276,11 @@
         renderGroups(rows);
     }
 
-    $('#coverage').textContent = `${payload.attempted}份日志 · ${payload.successful}份完整 · `
+    $('#coverage').textContent = (payload.selection_limit
+        ? `${payload.candidate_count}份候选 · ${payload.excluded_duplicate}份重复玩家跳过 · ` : '')
+        + `${payload.attempted}份已检查日志 · ${payload.successful}份完整 · `
         + `${payload.excluded_pi}份灌注剔除 · ${payload.excluded_no_lust}份无嗜血记录剔除 · `
-        + `${payload.excluded_invalid}份身份或战斗不符 · ${payload.samples.length}份可分析`;
+        + `${payload.excluded_invalid}份不可读取或校验不通过 · ${payload.samples.length}份可分析`;
     $('#duration').addEventListener('change', () => {
         const value = $('#duration').value;
         if (value === 'all') {

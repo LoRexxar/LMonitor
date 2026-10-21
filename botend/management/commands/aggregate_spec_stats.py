@@ -14,7 +14,7 @@ from botend.controller.plugins.portal.SpecDetailAggregationMonitor import (
 from botend.plugin_sync import claim_monitor_task, release_monitor_task_lease
 from botend.services.wcl_collection_cycle import (
     CycleOwnershipLost, active_cycle, begin_aggregation, defer_cycle, finish_publication,
-    frozen_season, fenced_cycle, legacy_publication,
+    frozen_season,
 )
 
 
@@ -71,10 +71,7 @@ class Command(BaseCommand):
                                             cycle=cycle, publish=publish)
                     if not options.get('dungeon_only'):
                         self._aggregate_raid(
-                            season, class_name, spec_name, spec_dir, publish=publish,
-                            burst_guard=(lambda: fenced_cycle(cycle, phases=('aggregating',))) if cycle
-                            else (lambda: legacy_publication(season)),
-                            source_cutoff=cycle.collected_at if cycle else None)
+                            season, class_name, spec_name, spec_dir, publish=publish)
                         self._aggregate_leaderboard(season.pk, class_name, spec_name, spec_dir)
                     total_files += 1 if options.get('dungeon_only') else 3
                     self.stdout.write(f'  {class_name}/{spec_name} ✓')

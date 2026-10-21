@@ -94,7 +94,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
     def test_new_log_only_fetches_new_identity_and_dps_change_uses_raw_cache(self):
         self.publish(self.build())
         self.client.calls.clear()
-        self.build([self.row, dict(self.row, report_code='NEW456', fight_id=2, dps=90000)])
+        self.build([self.row, dict(self.row, region='EU', report_code='NEW456', fight_id=2, dps=90000)])
         self.assertEqual(len(self.client.calls), 4)
         self.assertTrue(all(c['code'] == 'NEW456' for c in self.client.calls))
         self.client.calls.clear()
@@ -116,7 +116,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
         before = (self.directory / 'index.json').read_bytes()
         self.client.paginate = True
         self.client.failure = lambda v: v.get('kind') == 'Casts' and v.get('start') == 130000
-        new = dict(self.row, report_code='NEW456')
+        new = dict(self.row, region='EU', report_code='NEW456')
         with self.assertRaises(EventFetchDeferred) as caught:
             self.build([self.row, new])
         self.assertEqual(caught.exception.retry_at, self.client._wcl_retry_at)
@@ -221,14 +221,14 @@ class RaidBurstAggregationTests(SimpleTestCase):
         self.assertEqual([p['ranks'] for p in groups['plans']], [[1, 2], [3]])
         self.assertTrue(all(w['end'] - w['start'] <= 5 for w in groups['windows']))
 
-    def test_raid_entry_builds_private_statistics_and_other_specs_skip(self):
+    def test_raid_entry_does_not_build_private_statistics_and_other_specs_skip(self):
         from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
         season = SimpleNamespace(id=1, raid_encounters=[{'id': 3470, 'name': '测试首领'}], raid_zones=[])
         with patch('botend.services.raid_aggregation.raid_stats', return_value=({}, '范围指纹', False)), \
                 patch.object(agg, 'aggregate_raid_burst') as build:
             SpecDetailAggregationMonitor._aggregate_raid(
-                season, 'Warrior', 'Arms', str(self.root), publish=Mock(), burst_guard=nullcontext)
-        build.assert_called_once_with(season, 'Warrior', 'Arms', guard=nullcontext, source_cutoff=None)
+                season, 'Warrior', 'Arms', str(self.root), publish=Mock())
+        build.assert_not_called()
         with patch('botend.models.SpecRaidRanking.objects.filter', side_effect=AssertionError('不支持的职业查询')):
             self.assertIsNone(agg.aggregate_raid_burst(season, 'Unknown', 'Unknown', guard=nullcontext))
 
@@ -250,7 +250,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
         payload, _ = load_published('1/Warrior/Arms/5/3470')
         self.assertEqual(payload['samples'], [])
 
-    def test_daily_task_passes_fence_and_cutoff_and_defers_budget(self):
+    def test_daily_task_ignores_burst_budget_failure(self):
         from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
         module = 'botend.controller.plugins.portal.SpecDetailAggregationMonitor'
         season = SimpleNamespace(id=1, raid_encounters=[{'id': 3470, 'name': '测试首领'}], raid_zones=[])
@@ -268,14 +268,14 @@ class RaidBurstAggregationTests(SimpleTestCase):
                 patch.object(agg, 'aggregate_raid_burst') as build:
             seasons.return_value.first.return_value = season
             self.assertTrue(SpecDetailAggregationMonitor(None, None).scan(''))
-            self.assertEqual(build.call_args.kwargs['source_cutoff'], cycle.collected_at)
-            self.assertTrue(callable(build.call_args.kwargs['guard']))
+            build.assert_not_called()
             finish.assert_called_once_with(cycle)
             finish.reset_mock()
             build.side_effect = EventFetchDeferred('budget_wait', self.client._wcl_retry_at)
-            self.assertFalse(SpecDetailAggregationMonitor(None, None).scan(''))
-            finish.assert_not_called()
-            self.assertEqual(defer.call_args.kwargs['retry_at'], self.client._wcl_retry_at)
+            self.assertTrue(SpecDetailAggregationMonitor(None, None).scan(''))
+            finish.assert_called_once_with(cycle)
+            build.assert_not_called()
+            defer.assert_not_called()
 
     def test_dungeon_only_manual_command_never_calls_raid_or_burst(self):
         from botend.management.commands.aggregate_spec_stats import Command

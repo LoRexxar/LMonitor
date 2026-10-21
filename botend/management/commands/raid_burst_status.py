@@ -1,4 +1,4 @@
-"""只读核对每日团本战斗统计的调度门槛与中间文件。"""
+"""只读核对独立手动战斗统计、来源采集周期与私有文件。"""
 import json
 from django.core.management.base import BaseCommand
 from django.core.serializers.json import DjangoJSONEncoder
@@ -23,7 +23,7 @@ class Command(BaseCommand):
             result['提示'].append('数据库迁移不完整，调度器无法正常判断采集周期。请确认当前连接的是线上业务库。')
         else:
             from botend.services.wcl_collection_cycle import active_cycle
-            for name in ('SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor'):
+            for name in ('SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor', 'RaidBurstAggregationMonitor'):
                 task = MonitorTask.objects.filter(name=name).first()
                 if not task:
                     result['提示'].append(f'{name} 未注册')
@@ -33,7 +33,8 @@ class Command(BaseCommand):
                                        '上次领取时间': task.last_scan_time,
                                        '正在执行的租约截止': lease.expires_at if lease else None})
                 if not task.is_active:
-                    result['提示'].append(f'{name} 已停用')
+                    result['提示'].append(f'{name} 自动执行已关闭；仍可从独立手动入口执行'
+                                        if name == 'RaidBurstAggregationMonitor' else f'{name} 已停用')
             season = SeasonMeta.objects.filter(is_active=True).first()
             if not season:
                 result['提示'].append('没有活跃赛季')
@@ -51,17 +52,18 @@ class Command(BaseCommand):
                     if pending.phase in ('rankings', 'combatants'):
                         result['提示'].append('采集尚未完成，团本聚合和战斗统计均被前置条件阻止。')
                     if pending.next_retry_at and pending.next_retry_at > now:
-                        result['提示'].append('等待记录中的下次重试时间；当前不会重跑。')
+                        result['提示'].append('普通WCL周期处于退避；独立爆发任务仍需遵守自身租约和WCL共享预算。')
                 else:
                     published = WclCollectionCycle.objects.filter(season=season, phase='published').order_by('-slot').first()
                     if published:
                         result['需要补建战斗统计'] = needs_raid_burst_refresh(published)
                         if result['需要补建战斗统计']:
-                            result['提示'].append('已完成周期缺少本版战斗统计，原团本聚合任务应自动补建。')
+                            result['提示'].append('已完成周期缺少本版战斗统计；需独立手动生成，不再由普通团本聚合自动补建。')
                     else:
                         result['提示'].append('没有采集周期；需先运行正常排名采集任务。')
         root = private_root()
         result['私有快照目录'] = str(root)
+        result['提示'].append('爆发分析已与普通团本聚合分离；独立任务默认关闭自动执行。')
         result['已发布专精索引数'] = len(list(root.glob('*/*/*/index.json')))
         result['提示'].append('上次领取时间不等于任务成功；本诊断不证明后台工作进程正在运行。')
         self.stdout.write(json.dumps(result, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2))
