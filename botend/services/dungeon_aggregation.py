@@ -1,7 +1,7 @@
-"""One selected/hydrated log cohort for single and combined M+ publications.
+"""复用同一批日志生成大秘境单本与汇总统计。
 
-Only fingerprints/references are persisted here; raw rankings and CombatantInfo
-remain in their central tables. Cache hits never aggregate, enrich or publish.
+原始排名与战斗事实保留在中央表；可重建的范围结果独立缓存。
+完整投影命中时不再计算、补全或发布。
 """
 from botend.services.talent_source_retention import protect_sources
 from functools import lru_cache
@@ -42,12 +42,14 @@ def _variant_dependencies(items, gear_records):
     metadata column on historical/unselected variants.
     """
     from botend.services.wow_item_display import _positive_int, _variant_score
+    if not items:
+        return None, []
     active = SeasonMeta.objects.filter(is_active=True).exclude(gear_batch_key='').annotate(
         has_gear_catalog=Exists(WowItemVariantSnapshot.objects.filter(
             season_id=OuterRef('pk'), batch_key=OuterRef('gear_batch_key'))))
     season = (active.filter(has_gear_catalog=True).order_by('-gear_synced_at', '-id').first()
               or active.order_by('-id').first())
-    if season is None or not items:
+    if season is None:
         return None, []
     variants = WowItemVariantSnapshot.objects.filter(
         season=season, batch_key=season.gear_batch_key, item__item_id__in=items)
@@ -204,12 +206,9 @@ def _metadata_dependencies(records, facts, class_name, spec_name):
         Q(reference_id__in=reference_ids) | Q(folded_name__in=names)
     ).order_by('pk').values('talent_version_id', 'reference_id', 'name_kind', 'name', 'name_zh', 'icon'))
     subtree_ids = sorted({row['db2_subtree_id'] for row in nodes if row['db2_subtree_id']})
-    resolved_versions = {usage: getattr(TalentVersionResolver.get_default(usage), 'pk', None)
-                         for usage in TalentVersionResolver.DEFAULT_FLAG_BY_USAGE}
-    try:
-        resolved_versions['retail'] = TalentVersionResolver.resolve(version_key='retail').pk
-    except ValueError:
-        resolved_versions['retail'] = None
+    # 当前版本解析器将所有使用场景固定到正式服；同一依赖检查无需重复查询四次。
+    resolved_versions = {usage: getattr(version, 'pk', None)
+                         for usage in (*TalentVersionResolver.DEFAULT_FLAG_BY_USAGE, 'retail')}
     return {
         'items': item_rows,
         'enchant_catalog': sorted(catalog.items()),
@@ -265,13 +264,14 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
         by_dungeon[dungeon_id] = selected
     selected = [row for rows in by_dungeon.values() for row in rows]
     facts = combatants._load_facts(selected, fetched_before=source_cutoff)
+    metadata = _metadata_dependencies(selected, facts, class_name, spec_name)
     fingerprint = content_digest({
         'algorithm': ALGORITHM_VERSION,
         'scope': [season.pk, class_name, spec_name],
         'encounters': [(key, stats._lookup_dungeon_cn(enc['name'])) for key, enc in encounters.items()],
         'selected': list(by_dungeon.items()),
         'facts': [(list(key), events) for key, events in sorted(facts.items())],
-        'metadata': _metadata_dependencies(selected, facts, class_name, spec_name),
+        'metadata': metadata,
     })
     required_keys = [f'dungeon-{key}' for key in encounters] + ['dungeon-all']
     index = reusable_projection(path, fingerprint, required_keys)
@@ -283,9 +283,17 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
         for dungeon_id, enc in encounters.items():
             rows = by_dungeon[dungeon_id]
             name = stats._lookup_dungeon_cn(enc['name'])
-            singles.append(stats.SpecStatsService._compute_dungeon_records(
-                rows, season.id, dungeon_id, name, class_name, spec_name, full=True,
-                enriched_records=[enriched_by_id[row['id']] for row in rows]))
+            from botend.services.spec_aggregation_cache import load_work, save_work
+            scope = f'dungeon:{class_name}:{spec_name}:{dungeon_id}'
+            scope_fingerprint = content_digest({'algorithm': ALGORITHM_VERSION, 'name': name,
+                'rows': rows, 'facts': [enriched_by_id[row['id']] for row in rows], 'metadata': metadata})
+            detail = load_work(season.id, scope, scope_fingerprint)
+            if detail is None:
+                detail = stats.SpecStatsService._compute_dungeon_records(
+                    rows, season.id, dungeon_id, name, class_name, spec_name, full=True,
+                    enriched_records=[enriched_by_id[row['id']] for row in rows])
+                detail = save_work(season.id, scope, scope_fingerprint, detail)
+            singles.append(detail)
             contributed = 0
             for row in rows:
                 identity = stats._dungeon_log_identity(row)
@@ -297,9 +305,14 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
             coverage.append({'dungeon_id': dungeon_id, 'dungeon_name': name,
                              'sample_size': len(rows), 'contributed_sample_size': contributed,
                              'target_sample_size': 100})
-        summary = stats.SpecStatsService._compute_dungeon_records(
-            union, season.id, 'all', '全部副本汇总', class_name, spec_name, full=True,
-            include_talent_build_popularity=False, enriched_records=union_enriched)
+        from botend.services.spec_aggregation_cache import load_work, save_work
+        summary_scope = f'dungeon:{class_name}:{spec_name}:all'
+        summary = load_work(season.id, summary_scope, fingerprint)
+        if summary is None:
+            summary = stats.SpecStatsService._compute_dungeon_records(
+                union, season.id, 'all', '全部副本汇总', class_name, spec_name, full=True,
+                include_talent_build_popularity=False, enriched_records=union_enriched)
+            summary = save_work(season.id, summary_scope, fingerprint, summary)
         target = len(encounters) * 100
         summary.update(target_sample_size=target, missing_sample_size=max(0, target - len(union)),
                        dungeon_samples=coverage)

@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
@@ -94,7 +95,8 @@ def assert_lease(task):
 class BranchCatalogSource(CurrentGearCatalogSource):
     """固定来源分支；各来源构建号仅记录，不要求同步升级。"""
     def __init__(self, branch, build, heartbeat, directory):
-        super().__init__(cache_dir=directory, progress=heartbeat, refresh_wowhead_cache=True, workers=2)
+        super().__init__(cache_dir=directory, progress=heartbeat, workers=2,
+                         wowhead_cache_ttl_hours=24)
         self.branch, self.target_build, self.heartbeat = branch, build, heartbeat
 
     def _get(self, url, **kwargs):
@@ -116,7 +118,8 @@ class BranchCatalogSource(CurrentGearCatalogSource):
         return self.cache_root / 'current' / 'wowhead'
 
     def venomstone_tooltip(self, item_id, item_level, cache_dir, branch='live'):
-        details = super().venomstone_tooltip(item_id, item_level, cache_dir, BRANCHES[self.branch][2])
+        details = super().venomstone_tooltip(item_id, item_level, cache_dir,
+            BRANCHES[self.branch][2], cache_version=self.target_build)
         if item_level and details.get('item_level') != item_level:
             raise ValueError(f'{item_id} 返回装等与请求的 {item_level} 不同')
         return details
@@ -171,7 +174,25 @@ class UpdateSource:
         season = active_season()
         if not season:
             raise ValueError('需先初始化赛季目录；自动更新不会猜测赛季')
-        payload = source.build(season_key=season.season_key)
+        from botend.services.spec_aggregation_cache import load_work, save_work
+        from botend.services.spec_stats_snapshot import content_digest
+        stage_scope = f'catalog-source:{branch}'
+        stage_fingerprint = content_digest(['catalog-source-v1', season.season_key, build,
+            getattr(run, '_source_fingerprint', None)])
+        staged = load_work(season.pk, stage_scope, stage_fingerprint)
+        if staged and 0 <= time.time() - staged['checked_at'] < 86400:
+            payload = staged['catalog']
+            logger.info('[WowDataUpdate] %s/%s 复用已完成装备来源阶段', branch, build)
+        else:
+            payload = source.build(season_key=season.season_key)
+            # 只保留完成的来源阶段；缺失属性的目录仍须补采，不能因缓存冻结缺口。
+            if payload.get('items') and all(item.get('variants') and all(
+                    (value.get('stats') or value.get('effects') or
+                     (value.get('metadata') or {}).get('primary_stat_values')) and
+                    (value.get('effects') or not (item.get('effect_refs') or item.get('inventory_type') == 12))
+                    for value in item['variants']) for item in payload['items']):
+                save_work(season.pk, stage_scope, stage_fingerprint,
+                    {'checked_at': time.time(), 'catalog': payload})
         # 目录更新须覆盖已有的每种装备/强化及装等，不能只更新新增物品。
         by_id = {int(item['item_id']): item for item in payload['items']}
         previous = list(WowItemVariantSnapshot.objects.filter(
@@ -359,20 +380,36 @@ class UpdateSource:
         parser._write_icon_cache(str(directory / 'file_data_icon_cache.csv'), icons)
         descriptions = {int(row['ID']): row.get('Description_lang') for row in rows('Spell_zhCN.csv')}
         missing = {sid for sid in spell_ids if not descriptions.get(sid) or not icons.get(spell_icons.get(sid))}
-        fallback = {}
+        fallback_path = directory / 'display_fallback.json'
+        try:
+            saved = json.loads(fallback_path.read_text(encoding='utf-8'))
+        except (OSError, ValueError):
+            saved = {}
+        fallback = {key: value for key, value in saved.items()
+                    if isinstance(value, dict) and value.get('_cache_branch') == source.branch
+                    and value.get('_cache_build') == source.target_build} if isinstance(saved, dict) else {}
+        now = time.time()
+
+        def reusable(sid):
+            record = fallback.get(str(sid), {})
+            stamp = record.get('_cache_checked_at')
+            return (isinstance(stamp, (int, float)) and 0 <= now - stamp < 86400
+                    and all(record.get(key) for key in ('name_zh', 'description_zh', 'icon')))
+
         prefix = '' if source.branch == 'retail' else BRANCHES[source.branch][2] + '/'
         def fetch_text(sid):
             payload = source._get_json(f'https://nether.wowhead.com/{prefix}tooltip/spell/{sid}?locale=zhcn')
-            return TooltipSource._record_from_payload(payload)
+            return {**TooltipSource._record_from_payload(payload), '_cache_checked_at': time.time(),
+                    '_cache_branch': source.branch, '_cache_build': source.target_build}
         with ThreadPoolExecutor(max_workers=2) as pool:
-            pending = {pool.submit(fetch_text, sid): sid for sid in missing}
+            pending = {pool.submit(fetch_text, sid): sid for sid in missing if not reusable(sid)}
             for future in as_completed(pending):
                 heartbeat()
                 try:
                     fallback[str(pending[future])] = future.result()
                 except Exception:
                     pass
-        (directory / 'display_fallback.json').write_text(json.dumps(fallback, ensure_ascii=False), encoding='utf-8')
+        fallback_path.write_text(json.dumps(fallback, ensure_ascii=False), encoding='utf-8')
 
 
 def validate_catalog(bundle, branch, build):
@@ -396,9 +433,52 @@ def validate_catalog(bundle, branch, build):
     return report
 
 
+def prepare_talent_version(bundle, branch, build, heartbeat):
+    """完成的解析阶段独立复用，后续发布失败不再重导入所有天赋。"""
+    from botend.services.spec_aggregation_cache import load_work, save_work
+    from botend.services.spec_stats_snapshot import content_digest
+    directory = Path(bundle['dump_dir'])
+    if not (directory / 'manifest.json').is_file():
+        return _prepare_talent_version(bundle, branch, build, heartbeat)
+    with source_access():
+        # 图标等补充文件可能每轮重写；使用内容，避免只有时间戳变化就全量导入。
+        files = []
+        for path in sorted(directory.glob('*.csv')):
+            with path.open('rb') as handle:
+                files.append((path.name, hashlib.file_digest(handle, 'sha256').hexdigest()))
+        fallback_path = directory / 'display_fallback.json'
+        fallback = json.loads(fallback_path.read_text(encoding='utf-8')) if fallback_path.exists() else {}
+        fingerprint = content_digest(['talent-parse-v1', branch, build, str(directory), files,
+            json.loads((directory / 'manifest.json').read_text(encoding='utf-8')),
+            {key: {field: value for field, value in row.items() if not field.startswith('_cache_')}
+             for key, row in fallback.items()}])
+        scope = f'talent-parse:{branch}'
+        cached = load_work(bundle['season_id'], scope, fingerprint)
+        if cached:
+            baseline_count = WowTalentNodeMetadata.objects.filter(
+                talent_version__branch=branch, talent_version__status='active',
+                talent_version__is_active=True).count()
+            if len(cached['nodes']) >= baseline_count * .8:
+                version = WowTalentVersion(**cached['version'])
+                version._prepared_nodes = [WowTalentNodeMetadata(**row) for row in cached['nodes']]
+                version._missing_fields = cached['missing_fields']
+                logger.info('[WowDataUpdate] %s/%s 复用天赋解析结果 %s 条', branch, build, len(cached['nodes']))
+                heartbeat()
+                return version
+        version = _prepare_talent_version(bundle, branch, build, heartbeat)
+        fields = [field.attname for field in WowTalentNodeMetadata._meta.concrete_fields
+                  if field.name not in ('id', 'talent_version', 'last_updated')]
+        save_work(bundle['season_id'], scope, fingerprint, {
+            'version': {field: getattr(version, field) for field in
+                        ('label', 'branch', 'major_version', 'current_build', 'source_dir', 'granted_entries_json')},
+            'nodes': [{field: getattr(node, field) for field in fields} for node in version._prepared_nodes],
+            'missing_fields': version._missing_fields})
+        return version
+
+
 @protect_sources
 @transaction.atomic
-def prepare_talent_version(bundle, branch, build, heartbeat):
+def _prepare_talent_version(bundle, branch, build, heartbeat):
     version = WowTalentVersion.objects.create(
         key=f'{branch}-{build}-{uuid4().hex[:8]}', branch=branch,
         label=f'{dict(retail="正式服", ptr="PTR", beta="Beta")[branch]} {build}',
@@ -657,13 +737,19 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
                 state.status, state.error = 'preparing', ''
                 state.save(update_fields=['status', 'error'])
                 with source_access():
+                    phase_started = time.monotonic()
                     bundle = source.prepare(branch, build, run, heartbeat)
+                    logger.info(f'[WowDataUpdate] {branch}/{build} 来源准备耗时 {time.monotonic() - phase_started:.1f}s')
                     run.report = validate_catalog(bundle, branch, build)
                     run.save(update_fields=['report'])
+                    phase_started = time.monotonic()
                     version = prepare_talent_version(bundle, branch, build, heartbeat)
+                    logger.info(f'[WowDataUpdate] {branch}/{build} 天赋导入耗时 {time.monotonic() - phase_started:.1f}s')
                     run.report.setdefault('missing_fields', []).extend(getattr(version, '_missing_fields', []))
                     heartbeat()
+                    phase_started = time.monotonic()
                     state = publish(bundle, version, state, run, task)
+                    logger.info(f'[WowDataUpdate] {branch}/{build} 数据发布耗时 {time.monotonic() - phase_started:.1f}s')
                 refresh_projections(state)
                 results[branch] = {'status': 'published', **state.report}
                 _maintain_talent_sources(branch, heartbeat)

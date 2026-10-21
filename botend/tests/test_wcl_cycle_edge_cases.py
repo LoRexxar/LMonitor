@@ -98,6 +98,7 @@ class WclAggregationPublicationRetryTests(TransactionTestCase):
 
 class WclCycleEdgeCasesTests(TestCase):
     def setUp(self):
+        self.enterContext(patch('botend.services.raid_burst_aggregation.aggregate_raid_burst'))
         self.now = datetime(2026, 10, 12, 8, tzinfo=ZoneInfo('Asia/Shanghai'))
         self.season = SeasonMeta.objects.create(season_key='edges', season_name='Edges',
             is_active=True, mplus_zone_id=1, raid_zone_id=2,
@@ -135,7 +136,7 @@ class WclCycleEdgeCasesTests(TestCase):
         old.refresh_from_db()
         self.assertEqual(old.talents_json, self.monitor.parse_wcl_talent_tree(events[0]['talentTree']))
         self.assertTrue(old.talents_json)
-        self.assertEqual(fetch.call_count, 2)  # one bounded cache per difficulty
+        self.assertEqual(fetch.call_count, 1)  # 两个难度共享中央战斗事实。
 
     def test_raid_quota_preserves_entire_boss_then_resumes(self):
         old = self.old_raid()
@@ -254,7 +255,7 @@ class WclCycleEdgeCasesTests(TestCase):
                      patch(RANKING + '.timezone.now', return_value=cycle.next_retry_at), \
                      patch.object(self.monitor, '_wcl_graphql', return_value=valid_response) as fetch:
                     self.assertTrue(self.monitor.scan(''))
-                self.assertEqual(fetch.call_count, 4)
+                self.assertEqual(fetch.call_count, 3)  # 成功的史诗第一页不再重抓。
                 cycle.refresh_from_db()
                 self.assertEqual(WclCollectionCycle.objects.count(), 1)
                 self.assertEqual(cycle.phase, 'ready')

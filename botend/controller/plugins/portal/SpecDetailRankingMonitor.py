@@ -122,9 +122,22 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
     def _fetch_rankings_with_retry(self, enc_id, class_name, spec_name, metric='dps', difficulty=None, page=1, max_retries=3):
         """带加强重试的排名获取，处理限流和临时错误"""
+        from botend.services.spec_aggregation_cache import load_work, save_work
+        from botend.services.spec_stats_snapshot import content_digest
+        cycle = getattr(self, '_cycle', None)
+        scope = f'ranking-page:{enc_id}:{class_name}:{spec_name}:{metric}:{difficulty}:{page}'
+        fingerprint = content_digest(['ranking-page-v1', cycle.pk]) if cycle else None
+        if cycle:
+            with fenced_cycle(cycle, phases=('rankings',)):
+                cached = load_work(cycle.season_id, scope, fingerprint)
+            if cached is not None:
+                return cached
         for attempt in range(max_retries):
             rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, metric, difficulty=difficulty, page=page)
             if rankings is not None:
+                if cycle and self._valid_ranking_page(rankings):
+                    with fenced_cycle(cycle, phases=('rankings',)):
+                        save_work(cycle.season_id, scope, fingerprint, rankings)
                 return rankings
             if getattr(self, '_wcl_retry_at', None):
                 return None
@@ -139,6 +152,40 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
         logger.error(f"[SpecDetailRanking] 获取失败（已耗尽重试）: {enc_id}/{class_name}/{spec_name}/page={page}")
         return None
+
+    @staticmethod
+    def _valid_ranking_page(payload):
+        """仅保存结构完整的成功页，坏页和临时空页下轮重新请求。"""
+        if (not isinstance(payload, dict) or not isinstance(payload.get('rankings'), list)
+                or not isinstance(payload.get('hasMorePages'), bool)
+                or (not payload['rankings'] and payload['hasMorePages'])):
+            return False
+        for row in payload['rankings']:
+            if not isinstance(row, dict):
+                return False
+            if any(row.get(key) is not None and not isinstance(row[key], dict)
+                   for key in ('server', 'report', 'guild')):
+                return False
+            if any(row.get(key) is not None and not isinstance(row[key], list)
+                   for key in ('talents', 'gear', 'affixes')):
+                return False
+            value = row.get('amount')
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+                return False
+            # 请求成功不代表可入库；不将错误字段永久固定在本轮检查点中。
+            for key in ('duration', 'hardModeLevel', 'faction', 'fightID'):
+                value = row.get(key)
+                if value is not None and (type(value) is not int):
+                    return False
+            if 'name' in row and not isinstance(row['name'], str):
+                return False
+            for key, fields in (('server', ('name', 'region')), ('report', ('code',)), ('guild', ('name',))):
+                if any(field in (row.get(key) or {}) and not isinstance(row[key][field], str) for field in fields):
+                    return False
+            report = row.get('report') or {}
+            if report.get('fightID') is not None and type(report['fightID']) is not int:
+                return False
+        return True
 
     def _collect_dungeon_rankings(self, season):
         """采集 M+ 副本排名：按副本成功后替换，失败保留旧数据。"""
@@ -299,11 +346,26 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         logger.info(f"[SpecDetailRanking] M+ 排名采集完成: {total} 条, 空天赋 {empty_talent_total} 条")
         return ok
 
-    def _parse_rank_talents(self, ranking, combatant_cache):
+    def _parse_rank_talents(self, ranking, combatant_cache, *, class_name=None, spec_name=None):
         """优先使用 ranking 自带 talents，缺失时再尝试 report CombatantInfo.talentTree。"""
         talents = self.parse_wcl_talents(ranking.get('talents', []))
         if talents:
             return talents
+
+        if class_name and spec_name:
+            from botend.services.wcl_combatant_snapshot import (
+                collect_dungeon_combatants, _load_facts, _fight_key, match_combatant)
+            report, server = ranking.get('report') or {}, ranking.get('server') or {}
+            row = {'report_code': report.get('code'), 'fight_id': report.get('fightID') or ranking.get('fightID'),
+                   'character_name': ranking.get('name'), 'realm': server.get('name'),
+                   'region': server.get('region'), 'class_name': class_name, 'spec_name': spec_name}
+            # 团本补天赋也复用中央日志事实和负缓存，避免每个难度重抓同一战斗。
+            counts = collect_dungeon_combatants([row], self, apply=True)
+            if counts.get('failed') or counts.get('pending'):
+                raise ValueError('raid talent fallback incomplete')
+            facts = _load_facts([row])
+            combatant = match_combatant(facts.get(_fight_key(row), []), row, class_name, spec_name)
+            return self.parse_wcl_talent_tree((combatant or {}).get('talentTree') or [])
 
         report = ranking.get('report', {}) or {}
         report_code = report.get('code', '')
@@ -398,7 +460,8 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                             report = r.get('report', {}) or {}
                             guild = r.get('guild', {}) or {}
 
-                            talents_payload = self._parse_rank_talents(r, combatant_cache)
+                            talents_payload = self._parse_rank_talents(r, combatant_cache,
+                                class_name=class_name, spec_name=spec_name)
                             records.append(SpecRaidRanking(
                                 season_id=season.id,
                                 boss_id=enc_id,

@@ -903,7 +903,7 @@ class CurrentGearCatalogSource:
     def _tooltip_cache_directory(self, game_build):
         return self.cache_root / game_build / 'wowhead'
 
-    def venomstone_tooltip(self, item_id, item_level, cache_dir, branch='live'):
+    def venomstone_tooltip(self, item_id, item_level, cache_dir, branch='live', *, cache_version=None):
         """毒液石新增档位使用独立缓存，避免命中旧服同装等提示。"""
         directory = cache_dir / branch
         directory.mkdir(parents=True, exist_ok=True)
@@ -915,8 +915,16 @@ class CurrentGearCatalogSource:
             details['source'] = {'provider': 'wowhead', 'branch': branch, 'url': url}
             return details
         if path.is_file() and not self.refresh_wowhead_cache and self.wowhead_cache_ttl_seconds:
-            if time.time() - path.stat().st_mtime <= self.wowhead_cache_ttl_seconds:
-                return parse(json.loads(path.read_text(encoding='utf-8')))
+            try:
+                if 0 <= time.time() - path.stat().st_mtime <= self.wowhead_cache_ttl_seconds:
+                    cached = json.loads(path.read_text(encoding='utf-8'))
+                    if isinstance(cached, dict) and (cache_version is None
+                            or cached.get('_lmonitor_cache_version') == cache_version):
+                        return parse(cached)
+            except (OSError, ValueError, TypeError):
+                pass
         payload = self._get_json(url)
+        if cache_version is not None:
+            payload = {**payload, '_lmonitor_cache_version': cache_version}
         path.write_text(json.dumps(payload, ensure_ascii=False), encoding='utf-8')
         return parse(payload)

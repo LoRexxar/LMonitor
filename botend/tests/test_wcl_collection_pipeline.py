@@ -21,6 +21,7 @@ from botend.tests.test_wcl_combatant_snapshot import event
 
 class DungeonCollectionPipelineTests(TestCase):
     def setUp(self):
+        self.enterContext(patch('botend.services.raid_burst_aggregation.aggregate_raid_burst'))
         directory = tempfile.TemporaryDirectory(prefix='pipeline-')
         self.addCleanup(directory.cleanup)
         self.media = Path(directory.name)

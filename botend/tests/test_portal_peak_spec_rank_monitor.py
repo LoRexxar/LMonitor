@@ -471,6 +471,10 @@ class PortalPeakStatsBackfillTests(TestCase):
 
         self.preload(players)
 
+        self.assertEqual(self.stats.call_count, 3)  # 同一退避窗口不立即重试。
+        import time
+        with patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.time.time', return_value=time.time() + 301):
+            self.preload(players)
         self.assertEqual(self.stats.call_count, 5)
         self.assertEqual(PlayerSpecTopPlayer.objects.filter(stats_crawl_status=1).count(), 3)
         self.oauth.assert_called_once()  # successful OAuth reused across the batch and retry
@@ -522,7 +526,7 @@ class PortalPeakStatsBackfillTests(TestCase):
         expected = candidates[:self.monitor.PLAYER_RANKING_LIMIT - 3]
         self.assertEqual(success, len(expected))
         selects = [query['sql'] for query in queries if query['sql'].startswith('SELECT')]
-        self.assertEqual(len(selects), 2)
+        self.assertEqual(len(selects), 3)  # 两次人物查询加一次批量缓存查询。
         self.assertNotIn('stats_json', selects[0])
         self.assertIn(f'LIMIT {self.monitor.PLAYER_RANKING_LIMIT}', selects[0])
         self.assertIn(' IN (', selects[1])

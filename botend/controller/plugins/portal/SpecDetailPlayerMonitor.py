@@ -50,6 +50,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
     def scan(self, url):
         logger.info("[SpecDetailPlayer] 开始采集人物榜")
+        started = time.monotonic()
+        from botend.services.raiderio_profile_cache import ProfileCache
+        self._profile_cache = ProfileCache()
         self._activity_collector = None
 
         season = SeasonMeta.objects.filter(is_active=True).first()
@@ -73,6 +76,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         # 遍历所有专精
         for class_name, specs in CLASS_SPEC_MAP.items():
             for spec_name in specs:
+                spec_started = time.monotonic()
+                before_counts = self._get_profile_cache().counts.copy()
                 # 从 Raider.IO 获取榜单玩家
                 players = self._fetch_top_players(class_name, spec_name, rio_season)
                 if not players:
@@ -156,12 +161,19 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     limit=self.RANKING_SAMPLE_BACKFILL_LIMIT,
                 )
 
+                logger.info(f"[SpecDetailPlayer] 专精 {class_name}/{spec_name} "
+                            f"耗时 {time.monotonic() - spec_started:.1f}s，详情缓存统计 "
+                            f"{dict(self._get_profile_cache().counts - before_counts)}")
+
                 time.sleep(0.2)
 
         logger.info(f"[SpecDetailPlayer] 人物榜采集完成，共 {total_inserted} 条")
 
         # 补充 Battle.net 属性（排除国服）
-        self._crawl_battlenet_stats(season.id)
+        self._crawl_battlenet_stats(season.id, ranked_only=True)
+
+        logger.info(f"[SpecDetailPlayer] 人物采集耗时 {time.monotonic() - started:.1f}s，"
+                    f"详情缓存统计 {dict(self._get_profile_cache().counts)}")
 
         self.task.flag = f"{season.season_key}@players={total_inserted}@{int(time.time())}"
         self.task.save()
@@ -445,7 +457,6 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             self._apply_ranking_row_to_profile(profile, row)
             if needs_profile and (profile.region or '').lower() != 'cn':
                 self._enrich_profile_model_from_raiderio(profile)
-                time.sleep(0.2)
 
             if profile.pk:
                 values = {
@@ -463,7 +474,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             existing[key] = profile
             updated += int(changed)
 
-        logger.info(f"[SpecDetailPlayer] 定向补齐 ranking 样本: {class_name}/{spec_name} {updated} 条")
+        logger.info(f"[SpecDetailPlayer] 定向补齐 ranking 样本: {class_name}/{spec_name} "
+                    f"候选 {len(sample_map)}，更新 {updated} 条")
         return updated
 
     def _add_profile_rows_to_sample_map(self, sample_map, rows):
@@ -607,12 +619,39 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return self._activity_collector
 
     def _fetch_profile_with_activity(self, profile, season):
-        result = self._get_activity_collector().refresh(profile, season, include_profile=True)
-        if result['status'] == 'unresolved' and (profile.realm or '').lower() != 'anonymous':
-            # Preserve legacy gear/talent behavior; unresolved identity is never used
-            # to collect or publish activity. Anonymous characters stay private.
-            return self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
-        return result.get('profile_payload')
+        fetched = False
+
+        def fetch():
+            nonlocal fetched
+            fetched = True
+            try:
+                result = self._get_activity_collector().refresh(profile, season, include_profile=True)
+            finally:
+                time.sleep(0.2)
+            if result['status'] == 'unresolved' and (profile.realm or '').lower() != 'anonymous':
+                return self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
+            return result.get('profile_payload')
+
+        payload = self._get_profile_cache().get(
+            profile, season, fetch, signal=getattr(profile, '_ranking_signal', ''),
+            signal_scope=getattr(profile, '_ranking_scope', ''))
+        if not fetched:
+            # 详情复用不能冻结活动与队伍成员各自的更新时钟。
+            self._get_activity_collector().refresh(profile, season)
+        return payload
+
+    def _request_raiderio_character(self, region, realm, name):
+        """限速仅发生在实际请求后，缓存命中无需等待。"""
+        try:
+            return self.fetch_raiderio_character(region, realm, name)
+        finally:
+            time.sleep(0.2)
+
+    def _get_profile_cache(self):
+        if not getattr(self, '_profile_cache', None):
+            from botend.services.raiderio_profile_cache import ProfileCache
+            self._profile_cache = ProfileCache()
+        return self._profile_cache
 
     def refresh_top20_activity(self, season, class_name, spec_name):
         from botend.services.player_raiderio_activity import top20_candidates
@@ -627,12 +666,14 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
     def _enrich_profile_model_from_raiderio(self, profile):
         rank = getattr(profile, 'rank', None)
-        season = (SeasonMeta.objects.filter(pk=profile.season_id, is_active=True).first()
-                  if isinstance(rank, int) and 1 <= rank <= 20 else None)
-        if season:
+        season = SeasonMeta.objects.filter(pk=profile.season_id, is_active=True).first()
+        if season and isinstance(rank, int) and 1 <= rank <= 20:
             char_data = self._fetch_profile_with_activity(profile, season)
+        elif season:
+            char_data = self._get_profile_cache().get(profile, season, lambda:
+                self._request_raiderio_character(profile.region, profile.realm, profile.character_name))
         else:
-            char_data = self.fetch_raiderio_character(profile.region, profile.realm, profile.character_name)
+            char_data = self._request_raiderio_character(profile.region, profile.realm, profile.character_name)
         if not char_data:
             return False
 
@@ -786,6 +827,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 if season:
                     identity = SimpleNamespace(season_id=season.pk, region=region, realm=realm,
                         character_name=name, profile_url=player.get('profile_url'))
+                    from botend.services.raiderio_profile_cache import ranking_signal
+                    identity._ranking_signal = ranking_signal(player)
+                    identity._ranking_scope = f"{player.get('_class_name', '')}/{player.get('_spec_name', '')}"
                     if region.lower() == 'cn':
                         # Preserve the existing CN profile branch, but activity is supported.
                         self._get_activity_collector().refresh(identity, season)
@@ -794,7 +838,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 else:
                     if region.lower() == 'cn':
                         continue
-                    char_data = self.fetch_raiderio_character(region, realm, name)
+                    char_data = self._request_raiderio_character(region, realm, name)
                 if not char_data:
                     player['_profile_refresh_failed'] = True
                     continue
@@ -833,7 +877,6 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         player['talents'] = []
 
                 if self._has_display_ready_talents(player.get('talents')):
-                    time.sleep(0.2)
                     continue
                 structured = []
                 if not talent_build_code or TalentBuildCodeDecoder.matches_spec(
@@ -865,8 +908,6 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             except Exception as e:
                 player['_profile_refresh_failed'] = True
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
-
-            time.sleep(0.2)  # Raider.IO rate limit
 
         # 再从本地 ranking 表补充缺失的天赋（WCL 的 talents_json 更可靠）
         self._enrich_from_local_rankings(players)
@@ -1073,23 +1114,27 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             return default
         return parsed if parsed >= 0 else default
 
-    def _crawl_battlenet_stats(self, season_id, class_name=None, spec_name=None, retry_failed=False, limit=None):
+    def _crawl_battlenet_stats(self, season_id, class_name=None, spec_name=None, retry_failed=False, limit=None,
+                              ranked_only=False):
         """补充 Battle.net 属性面板"""
         pending = PlayerSpecTopPlayer.objects.filter(season_id=season_id).exclude(region='cn')
+        if ranked_only:
+            pending = pending.filter(rank__gte=1, rank__lte=self.PLAYER_RANKING_LIMIT)
         if class_name:
             pending = pending.filter(class_name=class_name)
         if spec_name:
             pending = pending.filter(spec_name=spec_name)
-        if retry_failed:
-            pending = pending.filter(stats_crawl_status__in=[0, -1, -2])
-        else:
-            pending = pending.filter(stats_crawl_status=0)
+        # 每日核对当前榜单属性，成功状态不能意味着永久不更新。
+        if not ranked_only:
+            pending = pending.filter(stats_crawl_status__in=[0, -1, -2] if retry_failed else [0])
         if limit:
             pending = pending[:limit]
+        pending = list(pending.only('id', 'season_id', 'region', 'realm', 'character_name',
+                                    'stats_json', 'stats_crawl_status'))
 
         if not self._get_battlenet_token():
             updated = 0
-            for player in pending.iterator(chunk_size=50) if hasattr(pending, 'iterator') else pending:
+            for player in pending:
                 if player.stats_crawl_status != -2:
                     player.stats_crawl_status = -2
                     player.save(update_fields=['stats_crawl_status'])
@@ -1099,26 +1144,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         success = 0
         fail = 0
+        self._prime_battlenet_cache(pending)
 
-        for player in pending.iterator(chunk_size=50) if hasattr(pending, 'iterator') else pending:
-            data = self.fetch_battlenet_stats(player.realm, player.character_name, player.region)
-            if data:
-                stats = self.parse_battlenet_stats(data)
-                if stats:
-                    player.stats_json = stats
-                    player.stats_crawl_status = 1
-                    player.save(update_fields=['stats_json', 'stats_crawl_status'])
-                    success += 1
-                else:
-                    player.stats_crawl_status = -1
-                    player.save(update_fields=['stats_crawl_status'])
-                    fail += 1
+        for player in pending:
+            if self._crawl_battlenet_stats_for_profile(player):
+                success += 1
             else:
-                player.stats_crawl_status = -1
-                player.save(update_fields=['stats_crawl_status'])
                 fail += 1
-
-            time.sleep(0.1)
 
         logger.info(f"[SpecDetailPlayer] Battle.net 属性补充: 成功 {success}, 失败 {fail}")
 
@@ -1142,7 +1174,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             stats_json={},
             stats_crawl_status__in=(0, -1, -2),
         ).exclude(region__iexact='cn').only(
-            'id', 'region', 'realm', 'character_name', 'stats_json',
+            'id', 'season_id', 'region', 'realm', 'character_name', 'stats_json',
             'stats_crawl_status', 'last_updated',
         ).order_by('rank', 'id'))
         if not pending:
@@ -1153,6 +1185,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             return 0
 
         success = 0
+        self._prime_battlenet_cache(pending)
         for player in pending:
             try:
                 success += int(self._crawl_battlenet_stats_for_profile(player))
@@ -1161,29 +1194,67 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     f"[SpecDetailPlayer] 旧人物属性补采失败 "
                     f"{class_name}/{spec_name}/{player.character_name}: {exc}"
                 )
-            time.sleep(0.1)
-
         logger.info(
             f"[SpecDetailPlayer] 旧人物属性补采 {class_name}/{spec_name}: "
             f"成功 {success}, 失败 {len(pending) - success}"
         )
         return success
 
+    @staticmethod
+    def _battlenet_scope(player):
+        from botend.services.spec_stats_snapshot import content_digest
+        return 'battlenet:' + content_digest([
+            (player.region or '').casefold(), (player.realm or '').casefold(),
+            (player.character_name or '').casefold()])
+
+    def _prime_battlenet_cache(self, players):
+        from botend.models import SpecAggregationWorkCache
+        from botend.services.spec_stats_snapshot import content_digest
+        keys = {(player.season_id, self._battlenet_scope(player)) for player in players}
+        self._battlenet_cached = {key: None for key in keys}
+        for row in SpecAggregationWorkCache.objects.filter(
+                season_id__in={key[0] for key in keys}, scope__in={key[1] for key in keys},
+                fingerprint=content_digest('battlenet-stats-v1')):
+            if content_digest(row.payload) == row.payload_hash:
+                self._battlenet_cached[(row.season_id, row.scope)] = row.payload
+
     def _crawl_battlenet_stats_for_profile(self, player):
         """只写单个人物的 Battle.net 属性及状态，不刷新 RIO 内容。"""
         if (player.region or '').lower() == 'cn':
             return False
+        from botend.services.spec_aggregation_cache import load_work, save_work
+        from botend.services.spec_stats_snapshot import content_digest
+        scope = self._battlenet_scope(player)
+        fingerprint = content_digest('battlenet-stats-v1')
+        cached_rows = getattr(self, '_battlenet_cached', {})
+        cache_key = (player.season_id, scope)
+        cached = (cached_rows[cache_key] if cache_key in cached_rows else
+                  load_work(player.season_id, scope, fingerprint))
+        now = time.time()
+        if cached and cached['next_attempt'] > now:
+            if cached.get('ok') and cached.get('stats'):
+                self._save_changed_profile(player, {'stats_json': cached['stats'], 'stats_crawl_status': 1})
+            return cached.get('ok', False)
         if not self._get_battlenet_token():
             player.stats_crawl_status = -2
             player.save(update_fields=['stats_crawl_status'])
             return False
 
-        data = self.fetch_battlenet_stats(player.realm, player.character_name, player.region)
-        stats = self.parse_battlenet_stats(data) if data else None
+        try:
+            data = self.fetch_battlenet_stats(player.realm, player.character_name, player.region)
+        finally:
+            time.sleep(0.1)
+        try:
+            stats = self.parse_battlenet_stats(data) if data else None
+        except (ValueError, TypeError, AttributeError):
+            stats = None
+        failures = 0 if stats else min(8, (cached or {}).get('failures', 0) + 1)
+        saved = save_work(player.season_id, scope, fingerprint, {'ok': bool(stats), 'stats': stats or {},
+            'failures': failures, 'next_attempt': now + (86400 if stats else min(21600, 300 * 2 ** (failures - 1)))})
+        cached_rows[cache_key] = saved
+        self._battlenet_cached = cached_rows
         if stats:
-            player.stats_json = stats
-            player.stats_crawl_status = 1
-            player.save(update_fields=['stats_json', 'stats_crawl_status'])
+            self._save_changed_profile(player, {'stats_json': stats, 'stats_crawl_status': 1})
             return True
 
         player.stats_crawl_status = -1

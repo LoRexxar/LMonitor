@@ -62,6 +62,15 @@ def publish_stats(path, payload, class_name, spec_name, *, cycle=None, legacy_se
     if payload.get('data_branch', 'retail') != 'retail':
         raise ValueError('正式服统计目录不能发布测试服资料')
     payload['data_branch'] = 'retail'
+    # 输入指纹已经包含展示依赖时，在昂贵的展示补全之前验证整个已发布版本。
+    from botend.services.spec_stats_snapshot import reusable_projection
+    if payload.get('_input_fingerprint'):
+        keys = ([f"dungeon-{row['dungeon_id']}" for row in payload.get('dungeons', [])] + ['dungeon-all']
+                if os.path.basename(path) == 'dungeon.json' else
+                [f"raid-{item['difficulty']}-{boss['boss_id']}" for item in payload.get('difficulties', [])
+                 for zone in item.get('zone_groups', []) for boss in zone.get('bosses', [])])
+        if reusable_projection(path, payload['_input_fingerprint'], keys) is not None:
+            return
     from botend.services.wow_item_display import refresh_aggregate_equipment
     from botend.services.wow_talent_display import refresh_aggregate_talents
     payload = refresh_aggregate_equipment(payload, class_name=class_name, spec_name=spec_name)
@@ -158,6 +167,19 @@ class SpecDetailAggregationMonitor(BaseScan):
         if not season.raid_encounters and not season.raid_zones:
             return
 
+        from botend.services.raid_aggregation import raid_stats
+        from botend.services.spec_stats_snapshot import content_digest
+        fingerprints = []
+        reused = 0
+
+        def compute(enc, cn_name, difficulty):
+            nonlocal reused
+            result, fingerprint, hit = raid_stats(
+                season.id, enc['id'], cn_name, class_name, spec_name, difficulty)
+            fingerprints.append([difficulty, enc['id'], fingerprint])
+            reused += int(hit)
+            return result
+
         def aggregate_difficulty(difficulty):
             if season.raid_zones:
                 zone_groups = []
@@ -166,10 +188,7 @@ class SpecDetailAggregationMonitor(BaseScan):
                     zone_bosses = []
                     for enc in rz.get('encounters', []):
                         cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
-                        stats = SpecStatsService._compute_raid_stats(
-                            season.id, enc['id'], cn_name, class_name, spec_name, full=True,
-                            difficulty=difficulty,
-                        )
+                        stats = compute(enc, cn_name, difficulty)
                         stats['raid_zone_id'] = rz.get('id')
                         stats['raid_zone_name'] = rz.get('name', '')
                         stats['raid_zone_cn'] = zone_cn
@@ -186,10 +205,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             bosses = []
             for enc in season.raid_encounters:
                 cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
-                bosses.append(SpecStatsService._compute_raid_stats(
-                    season.id, enc['id'], cn_name, class_name, spec_name, full=True,
-                    difficulty=difficulty,
-                ))
+                bosses.append(compute(enc, cn_name, difficulty))
             return [{'zone_id': 0, 'zone_name': '', 'zone_cn': '', 'bosses': bosses}]
 
         mythic_zones = aggregate_difficulty(5)
@@ -197,12 +213,16 @@ class SpecDetailAggregationMonitor(BaseScan):
 
         path = os.path.join(spec_dir, 'raid.json')
         (publish or publish_stats)(path, {
+            '_input_fingerprint': content_digest({'algorithm': 'raid-publication-v1', 'scopes': fingerprints,
+                'zones': season.raid_zones, 'encounters': season.raid_encounters}),
             'zone_groups': mythic_zones,
             'difficulties': [
                 {'difficulty': 5, 'label': '史诗团本表现', 'zone_groups': mythic_zones},
                 {'difficulty': 4, 'label': '英雄团本表现', 'zone_groups': heroic_zones},
             ],
         }, class_name, spec_name)
+        logger.info('[SpecDetailAggregation] %s/%s 团本计算复用 %s/%s',
+                    class_name, spec_name, reused, len(fingerprints))
         if burst_guard is not None:
             from botend.services.raid_burst_aggregation import aggregate_raid_burst
             aggregate_raid_burst(season, class_name, spec_name, guard=burst_guard,

@@ -218,6 +218,11 @@ def begin_aggregation(season, task=None, *, now=None, replay_published=False):
             if published and not replay_published:
                 from botend.services.raid_burst_snapshot import needs_raid_burst_refresh
                 catch_up_burst = needs_raid_burst_refresh(published)
+                if not catch_up_burst and published.published_at:
+                    from botend.models import WowDataUpdateState
+                    # 中央装备/天赋发布后即重建受影响投影，不必等下一次全量采集。
+                    catch_up_burst = WowDataUpdateState.objects.filter(
+                        branch='retail', published_at__gt=published.published_at).exists()
             if replay_published or catch_up_burst:
                 cycle = published
         allowed = PUBLISHING + (('published',) if replay_published or catch_up_burst else ())

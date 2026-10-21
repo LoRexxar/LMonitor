@@ -5,7 +5,6 @@ Unknown history is never inferred from directory times. A disabled marker is
 sticky: repair by a publisher does not authorize deletion of uncertain history.
 """
 from contextlib import contextmanager
-import fcntl
 import hashlib
 import json
 import os
@@ -13,6 +12,9 @@ from pathlib import Path
 import re
 import stat
 import time
+
+if os.name != 'nt':
+    import fcntl
 
 from .simc_benchmark_result_snapshot import _write
 
@@ -46,7 +48,8 @@ class AdoptionRequired(PublicationDeferred):
 
 def _safe_path(path):
     for parent in (path, *path.parents):
-        if parent.is_symlink():
+        if parent.is_symlink() or (parent.exists() and getattr(parent.lstat(), 'st_file_attributes', 0)
+                                  & getattr(stat, 'FILE_ATTRIBUTE_REPARSE_POINT', 0)):
             raise Unsafe('symlink')
 
 
@@ -82,6 +85,17 @@ def _scope_lock(path, blocking=True, create=True):
         yield True
         return
     path.parent.mkdir(parents=True, exist_ok=True)
+    if os.name == 'nt':
+        # 复用已有真实跨进程字节锁；不通过空实现绕过发布互斥。
+        from .simc_benchmark_result_snapshot import _lock
+        before = _identity(path)[:2] if path.exists() else None
+        with _lock(path, blocking=blocking) as acquired:
+            if acquired:
+                _safe_path(path)
+                if before is not None and _identity(path)[:2] != before:
+                    raise Unsafe('lock replaced')
+            yield acquired
+        return
     fd = os.open(path, os.O_RDWR | os.O_NOFOLLOW | (os.O_CREAT if create else 0), 0o600)
     try:
         st = os.fstat(fd)
@@ -218,7 +232,7 @@ class Budget:
         if size > self.remaining:
             raise Paused('file or byte budget')
         try:
-            fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+            fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
         except FileNotFoundError as exc:
             raise ObservationChanged('file disappeared during read') from exc
         with os.fdopen(fd, 'rb') as stream:
@@ -410,6 +424,9 @@ def _pending_paths(scope, item, budget):
 
 
 def _sync_directory(path):
+    if os.name == 'nt':
+        # Windows不支持目录fsync；文件内容仍由原子写入器刷新后替换。
+        return
     fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
     try:
         os.fsync(fd)

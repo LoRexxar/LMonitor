@@ -2668,6 +2668,39 @@ class RaiderIORunRoster(models.Model):
             fields=['rio_season', 'run_id'], name='uniq_rio_run_roster')]
 
 
+class SpecAggregationWorkCache(models.Model):
+    """每个采集或计算范围仅保留一份可校验的中间结果。"""
+    season = models.ForeignKey('SeasonMeta', on_delete=models.CASCADE)
+    scope = models.CharField(max_length=240)
+    fingerprint = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict)
+    payload_hash = models.CharField(max_length=64)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = 'wow_spec_aggregation_work_cache'
+        constraints = [models.UniqueConstraint(
+            fields=['season', 'scope'], name='spec_work_season_scope')]
+
+
+class RaiderIOProfileCache(models.Model):
+    """跨专精复用角色详情；成功采集时间独立于内容变更时间。"""
+    season = models.ForeignKey('SeasonMeta', on_delete=models.CASCADE)
+    identity_digest = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict)
+    ranking_signals = models.JSONField(default=dict)
+    fetched_at = models.DateTimeField(null=True, blank=True)
+    next_attempt_at = models.DateTimeField(null=True, blank=True)
+    failure_count = models.PositiveIntegerField(default=0)
+    lease_owner = models.CharField(max_length=32, blank=True, default='')
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = 'wow_raiderio_profile_cache'
+        constraints = [models.UniqueConstraint(
+            fields=['season', 'identity_digest'], name='rio_profile_season_identity')]
+
+
 class PlayerSpecTopPlayer(models.Model):
     """人物资料缓存（Raider.IO + Battle.net），每角色每专精每赛季 1 条"""
     season_id = models.IntegerField("赛季ID", help_text="赛季 ID")

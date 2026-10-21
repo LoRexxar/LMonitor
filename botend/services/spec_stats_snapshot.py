@@ -157,6 +157,12 @@ def reusable_projection(path, fingerprint, required_keys):
     meta = index.get('_snapshot', {}) if isinstance(index, dict) else {}
     if meta.get('input_fingerprint') != fingerprint:
         return None
+    try:
+        index_hash = content_digest({k: v for k, v in index.items() if k != '_snapshot'})
+    except (ValueError, TypeError):
+        return None
+    if meta.get('index_hash') != index_hash:
+        return None
     return _validated_details(path, index, required_keys)
 
 

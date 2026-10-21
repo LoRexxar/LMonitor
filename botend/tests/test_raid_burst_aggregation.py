@@ -224,7 +224,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
     def test_raid_entry_builds_private_statistics_and_other_specs_skip(self):
         from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
         season = SimpleNamespace(id=1, raid_encounters=[{'id': 3470, 'name': '测试首领'}], raid_zones=[])
-        with patch('botend.services.spec_stats_service.SpecStatsService._compute_raid_stats', return_value={}), \
+        with patch('botend.services.raid_aggregation.raid_stats', return_value=({}, '范围指纹', False)), \
                 patch.object(agg, 'aggregate_raid_burst') as build:
             SpecDetailAggregationMonitor._aggregate_raid(
                 season, 'Warrior', 'Arms', str(self.root), publish=Mock(), burst_guard=nullcontext)
@@ -264,7 +264,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
                 patch(f'{module}.defer_cycle') as defer, \
                 patch.object(SpecDetailAggregationMonitor, '_aggregate_leaderboard'), \
                 patch.object(SpecDetailAggregationMonitor, '_aggregate_dungeon'), \
-                patch('botend.services.spec_stats_service.SpecStatsService._compute_raid_stats', return_value={}), \
+                patch('botend.services.raid_aggregation.raid_stats', return_value=({}, '范围指纹', False)), \
                 patch.object(agg, 'aggregate_raid_burst') as build:
             seasons.return_value.first.return_value = season
             self.assertTrue(SpecDetailAggregationMonitor(None, None).scan(''))
