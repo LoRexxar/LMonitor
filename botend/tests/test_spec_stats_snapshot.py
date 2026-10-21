@@ -16,7 +16,9 @@ from botend.portal import spec_detail_views as views
 
 def fixture(module, size=60000):
     def detail(identifier, difficulty=5):
-        return {('boss_id' if module == 'raid' else 'dungeon_id'): identifier,
+        # 页面只展示已声明当前 WCL 契约的装备字段，样本也使用当前契约。
+        return {**({'data_contract': 'wcl-log-v1'} if module == 'dungeon' else {}),
+                ('boss_id' if module == 'raid' else 'dungeon_id'): identifier,
                 ('boss_name' if module == 'raid' else 'dungeon_name'): f'测试范围 {identifier}',
                 'sample_size': 20, 'difficulty': difficulty,
                 'dps': {'avg': difficulty * 1000, 'max': 9000, 'median': 4500},
@@ -189,6 +191,9 @@ class SpecStatsSnapshotTests(SimpleTestCase):
                 self.assertEqual(snapshots.read_projection(path), data)
 
     def test_public_views_preserve_selected_scope_and_overview_api_uses_only_index(self):
+        # 此处固定当前手册的团本归属，单独验证统计文件读取边界。
+        self.enterContext(patch('botend.services.raid_instance_projection.current_raid_encounter_rows',
+                                return_value=[(i, 99, '测试团本', 1) for i in range(1, 9)]))
         self.publish('dungeon')
         self.publish('raid')
         factory = RequestFactory()

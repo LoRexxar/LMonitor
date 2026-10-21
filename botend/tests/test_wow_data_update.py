@@ -4,6 +4,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch, Mock
 
+from botend.tests.aggregation_cache_helpers import isolate_work_cache
 from django.test import TestCase
 from django.utils import timezone
 from botend.models import (SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot, WowTalentVersion,
@@ -18,6 +19,7 @@ OLD, NEW = '12.1.0.100', '12.1.0.101'
 
 class UpdateSchedulingTests(TestCase):
     def setUp(self):
+        isolate_work_cache(self)
         from botend.models import MonitorTask
         MonitorTask.objects.update(is_active=False)
         self.task = update.get_monitor_task()
@@ -96,6 +98,7 @@ class UpdateSchedulingTests(TestCase):
 
 class IncrementalUpdateTests(TestCase):
     def setUp(self):
+        isolate_work_cache(self)
         self.season = SeasonMeta.objects.create(season_key='增量测试', season_name='测试',
             is_active=True, mplus_zone_id=1, raid_zone_id=2, game_build=OLD,
             gear_batch_key='stable', gear_sync_status='ready')

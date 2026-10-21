@@ -7,6 +7,7 @@ from tempfile import TemporaryDirectory
 from unittest.mock import Mock, patch
 
 from django.db import connection
+from botend.tests.aggregation_cache_helpers import isolate_work_cache
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
@@ -23,6 +24,7 @@ from botend.controller.plugins.portal.SpecDetailAggregationMonitor import publis
 
 class DungeonAggregationReuseTests(TestCase):
     def setUp(self):
+        isolate_work_cache(self)
         self.tmp = TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.path = Path(self.tmp.name) / '77/Warrior/Arms/dungeon.json'
@@ -540,4 +542,9 @@ class DungeonAggregationReuseTests(TestCase):
         fetcher.fetch_wcl_combatant_info.assert_called_once()
         self.assertFalse(WclCombatantFetchState.objects.exists())
         self.assertFalse(WclCombatantSnapshot.objects.exists())
-        self.assertTrue(all(isinstance(v, int) for k, v in result.items() if k != 'retry_at'))
+        duration_fields = {'fetch_seconds', 'save_seconds', 'elapsed_seconds'}
+        for key in duration_fields:
+            self.assertIsInstance(result[key], (int, float))
+            self.assertGreaterEqual(result[key], 0)
+        self.assertTrue(all(isinstance(v, int) for k, v in result.items()
+                            if k not in duration_fields | {'retry_at'}))

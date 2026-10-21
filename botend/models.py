@@ -2669,7 +2669,7 @@ class RaiderIORunRoster(models.Model):
 
 
 class SpecAggregationWorkCache(models.Model):
-    """每个采集或计算范围仅保留一份可校验的中间结果。"""
+    """人物属性刷新状态及旧版中间缓存兼容；新的大块结果保存到私有文件。"""
     season = models.ForeignKey('SeasonMeta', on_delete=models.CASCADE)
     scope = models.CharField(max_length=240)
     fingerprint = models.CharField(max_length=64)

@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.core.management import call_command
 from django.db import connection, transaction
+from botend.tests.aggregation_cache_helpers import isolate_work_cache
 from django.test import TransactionTestCase
 
 from botend.models import (MonitorTask, PlayerSpecTopPlayer, SeasonMeta,
@@ -23,6 +24,7 @@ AGGREGATION = 'botend.controller.plugins.portal.SpecDetailAggregationMonitor'
 
 class WclAggregationPublicationRetryTests(TransactionTestCase):
     def setUp(self):
+        isolate_work_cache(self)
         MonitorTask.objects.update(is_active=False)
         self.now = datetime(2026, 10, 12, 8, tzinfo=ZoneInfo('Asia/Shanghai'))
         self.season = SeasonMeta.objects.create(season_key='publication-retry',
@@ -101,6 +103,7 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
     # Exercise real WCL transport admission: TestCase's outer atomic block
     # correctly forbids HTTP, including the burst events added to aggregation.
     def setUp(self):
+        isolate_work_cache(self)
         self.now = datetime(2026, 10, 12, 8, tzinfo=ZoneInfo('Asia/Shanghai'))
         self.season = SeasonMeta.objects.create(season_key='edges', season_name='Edges',
             is_active=True, mplus_zone_id=1, raid_zone_id=2,

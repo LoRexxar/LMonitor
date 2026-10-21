@@ -1222,14 +1222,14 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         """只写单个人物的 Battle.net 属性及状态，不刷新 RIO 内容。"""
         if (player.region or '').lower() == 'cn':
             return False
-        from botend.services.spec_aggregation_cache import load_work, save_work
+        from botend.services.spec_aggregation_cache import load_state, save_state
         from botend.services.spec_stats_snapshot import content_digest
         scope = self._battlenet_scope(player)
         fingerprint = content_digest('battlenet-stats-v1')
         cached_rows = getattr(self, '_battlenet_cached', {})
         cache_key = (player.season_id, scope)
         cached = (cached_rows[cache_key] if cache_key in cached_rows else
-                  load_work(player.season_id, scope, fingerprint))
+                  load_state(player.season_id, scope, fingerprint))
         now = time.time()
         if cached and cached['next_attempt'] > now:
             if cached.get('ok') and cached.get('stats'):
@@ -1249,7 +1249,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         except (ValueError, TypeError, AttributeError):
             stats = None
         failures = 0 if stats else min(8, (cached or {}).get('failures', 0) + 1)
-        saved = save_work(player.season_id, scope, fingerprint, {'ok': bool(stats), 'stats': stats or {},
+        saved = save_state(player.season_id, scope, fingerprint, {'ok': bool(stats), 'stats': stats or {},
             'failures': failures, 'next_attempt': now + (86400 if stats else min(21600, 300 * 2 ** (failures - 1)))})
         cached_rows[cache_key] = saved
         self._battlenet_cached = cached_rows

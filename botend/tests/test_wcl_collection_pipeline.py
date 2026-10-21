@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.db import connection
+from botend.tests.aggregation_cache_helpers import isolate_work_cache
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 
@@ -21,6 +22,7 @@ from botend.tests.test_wcl_combatant_snapshot import event
 
 class DungeonCollectionPipelineTests(TestCase):
     def setUp(self):
+        isolate_work_cache(self)
         self.enterContext(patch('botend.services.raid_burst_aggregation.aggregate_raid_burst'))
         directory = tempfile.TemporaryDirectory(prefix='pipeline-')
         self.addCleanup(directory.cleanup)

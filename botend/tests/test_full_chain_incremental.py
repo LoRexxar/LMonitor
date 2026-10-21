@@ -20,10 +20,12 @@ from botend.services.raid_aggregation import raid_stats
 from botend.services.dungeon_aggregation import aggregate_dungeon
 from botend.services.spec_stats_service import SpecStatsService
 from botend.services.spec_stats_snapshot import read_projection
+from botend.tests.aggregation_cache_helpers import isolate_work_cache
 
 
 class FullChainIncrementalTests(TestCase):
     def setUp(self):
+        self.work_root = isolate_work_cache(self)
         root = Path(__file__).resolve().parents[2] / 'tmp'
         root.mkdir(exist_ok=True)
         self.root = Path(tempfile.mkdtemp(prefix='全链路验证-', dir=root))
@@ -63,6 +65,7 @@ class FullChainIncrementalTests(TestCase):
         with patch.object(self.monitor, 'fetch_wcl_rankings', return_value={'rankings': [], 'hasMorePages': True}):
             self.monitor._fetch_rankings_with_retry(1, 'Mage', 'Fire')
         self.assertFalse(SpecAggregationWorkCache.objects.exists())
+        self.assertFalse(list(self.work_root.rglob('*.json')))
 
     def test_raid_change_recomputes_only_affected_boss_and_profile_changes_invalidate(self):
         first, second = self.raid(), self.raid(2)
@@ -109,7 +112,11 @@ class FullChainIncrementalTests(TestCase):
         self.raid()
         args = (self.season.pk, 1, '首领', 'Mage', 'Fire', 5)
         expected = raid_stats(*args)[0]
-        SpecAggregationWorkCache.objects.filter(scope='raid:Mage:Fire:5:1').update(payload={'错误': True})
+        from botend.services.spec_aggregation_cache import work_path
+        path = work_path(self.season.pk, 'raid:Mage:Fire:5:1')
+        envelope = json.loads(path.read_text(encoding='utf-8'))
+        envelope['data']['payload'] = {'错误': True}
+        path.write_text(json.dumps(envelope), encoding='utf-8')
         actual, _, hit = raid_stats(*args)
         self.assertFalse(hit); self.assertEqual(actual, expected)
 

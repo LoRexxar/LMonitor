@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 
 from django.core.management import call_command
 from django.core.management.base import CommandError
+from botend.tests.aggregation_cache_helpers import isolate_work_cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
@@ -22,6 +23,7 @@ COMBATANTS = 'botend.services.wcl_combatant_snapshot'
 
 class WclCollectionCycleTests(TestCase):
     def setUp(self):
+        isolate_work_cache(self)
         directory = tempfile.TemporaryDirectory()
         self.addCleanup(directory.cleanup)
         self.media = directory.name
