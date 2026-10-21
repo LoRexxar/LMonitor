@@ -1,28 +1,6 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-
-// 在轻量 DOM 替身中执行真实渲染函数，验证公式与条件筛选的输出契约。
-const source = fs.readFileSync(path.join(__dirname, '../../static/dashboard/js/main.js'), 'utf8');
-const start = source.indexOf('function renderSimcSkillIdentity(');
-const end = source.indexOf('function initSimcSkillDamagePanel(', start);
-const elements = new Map();
-function element(id) {
-    if (!elements.has(id)) elements.set(id, {
-        value: '', dataset: {}, innerHTML: '', textContent: '',
-        classList: {add() {}, remove() {}}, setAttribute() {},
-    });
-    return elements.get(id);
-}
-element('simc-skill-damage-spec').value = 'warrior:fury';
-element('simc-skill-damage-hero-tree').value = '60';
-const target = {dataset: {targetCount: '1'}, getAttribute: () => 'true'};
-const context = vm.createContext({
-    document: {getElementById: element, querySelectorAll: () => [target]},
-    escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'),
-});
-vm.runInContext(source.slice(start, end), context);
+const {skillRenderer} = require('./vm_harness');
+const {context, element, elements, target} = skillRenderer();
 const payload = {actors: [{class: 'warrior', specialization: 'fury',
     hero_talent_trees: [{id: 60, name_zh: '屠戮者'}], actions: [{
     spell_id: 23881, display_name: '嗜血', variant: {},

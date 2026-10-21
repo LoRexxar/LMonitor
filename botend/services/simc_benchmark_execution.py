@@ -3328,13 +3328,14 @@ def summarize_execution(execution):
     return summary
 
 
-def _collect_success_results(execution, live, *, require_complete_execution):
-    """Extract immutable rows for complete successful Cases from a frozen snapshot.
+def _collect_success_results(execution, live, *, require_complete_execution, require_complete_cases=False):
+    """Extract valid candidate rows from the frozen snapshot.
 
-    A Case is independently publishable to the Panel's aggregate once its frozen
-    candidate collection is complete. ``require_complete_execution`` remains true
-    only when creating the Execution-level publication seal.
+    Incremental collection may retain valid siblings of an unfinished/invalid
+    candidate. Retry success additionally requires every materialized Case to be
+    complete; only the Execution publication seal requires all snapshot Cases.
     """
+    complete_cases = require_complete_execution or require_complete_cases
     layout = _snapshot_layout(execution)
     if layout is None or (require_complete_execution and live['status'] != 'success'):
         return None
@@ -3365,19 +3366,19 @@ def _collect_success_results(execution, live, *, require_complete_execution):
         runs_by_key = {run['key']: run for run in case['runs']}
         if len(runs_by_key) != len(case['runs']) or not set(runs_by_key).issubset(candidate_keys):
             return None
-        if require_complete_execution and (
+        if complete_cases and (
                 case['status'] != 'success' or list(runs_by_key) != candidate_keys):
             return None
         for candidate_key in candidate_keys:
             run = runs_by_key.get(candidate_key)
             if run is None or run.get('status') != 'success':
-                if require_complete_execution:
+                if complete_cases:
                     return None
                 continue
             dps = run.get('_raw_dps')
             if (isinstance(dps, bool) or not isinstance(dps, (int, float))
                     or not math.isfinite(dps) or dps <= 0):
-                if require_complete_execution:
+                if complete_cases:
                     return None
                 continue
             rows.append({
@@ -3680,9 +3681,12 @@ def reconcile_execution(execution):
             snapshot.get('execution_mode') == 'supplement'
             and type(snapshot.get('source_execution_id')) is int
         )
-        if is_failed_case_retry and partial_rows is not None:
+        retry_rows = _collect_success_results(
+            locked, live, require_complete_execution=False, require_complete_cases=True,
+        ) if is_failed_case_retry else None
+        if is_failed_case_retry and retry_rows is not None:
             # A failed-case retry intentionally materializes only its failed Cases.
-            # The partial collector has verified every materialized Case/candidate,
+            # Strict case collection verified every materialized Case/candidate,
             # and those immutable rows can enter the incremental projection.  This
             # Execution must not claim the full-snapshot publication seal, even when
             # every coordinate in the source snapshot happened to fail.

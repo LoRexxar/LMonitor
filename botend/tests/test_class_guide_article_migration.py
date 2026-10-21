@@ -4,18 +4,19 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class GuideArticleMigrationTests(TransactionTestCase):
     before = [('botend', '0218_consolidate_class_guide_monitor')]
     after = [('botend', '0219_simplify_class_guide_articles')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.before)
         self.apps = executor.loader.project_state(self.before).apps
 
-    def tearDown(self):
-        executor = MigrationExecutor(connection)
-        executor.migrate(executor.loader.graph.leaf_nodes())
 
     def test_migration_keeps_displayed_manual_article_and_drops_history(self):
         Guide = self.apps.get_model('botend', 'ClassGuide')

@@ -1,8 +1,11 @@
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError
+from django.db import transaction
 from django.db.models import Index
 from django.test import TestCase
-
-from botend.models import SimcAplSymbol, SimcAplSymbolScope
+from botend.models import SimcAplSymbol
+from botend.models import SimcAplSymbolScope
+from django.apps import apps
+from django.test import SimpleTestCase
 
 
 class SimcAplSymbolSchemaTests(TestCase):
@@ -170,3 +173,9 @@ class SimcAplSymbolIdentityTests(TestCase):
         SimcAplSymbol.objects.create(token='BloodThirst', symbol_kind='action')
         with self.assertRaises(IntegrityError), transaction.atomic():
             SimcAplSymbol.objects.create(token='bloodthirst', symbol_kind='action')
+
+
+class SimcAplKeywordPairRemovalTests(SimpleTestCase):
+    def test_legacy_keyword_model_is_not_registered(self):
+        with self.assertRaises(LookupError):
+            apps.get_model('botend', 'SimcAplKeywordPair')

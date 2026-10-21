@@ -11,6 +11,7 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 from botend.raiderio_identity import activity_identity_digest
+from botend.tests.migration_test_helpers import restore_migration_schema
 
 
 class PlayerAnalysisMigrationTests(TransactionTestCase):
@@ -20,8 +21,8 @@ class PlayerAnalysisMigrationTests(TransactionTestCase):
     def test_upgrade_exact_backfill_preserves_facts_and_old_worker_defaults(self):
         self.assertTrue(connection.settings_dict.get('TEST', {}).get('MIGRATE', True))
         executor = MigrationExecutor(connection)
+        self.addCleanup(restore_migration_schema)
         executor.migrate(self.migrate_from)
-        self.addCleanup(lambda: MigrationExecutor(connection).migrate(self.migrate_to))
         old = executor.loader.project_state(self.migrate_from).apps
         Season = old.get_model('botend', 'SeasonMeta')
         Player = old.get_model('botend', 'PlayerSpecTopPlayer')

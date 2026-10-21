@@ -13,14 +13,17 @@ from botend.plugin_sync import claim_next_monitor_task
 from botend.services.wcl_collection_cycle import begin_collection
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class WclCycleUpgradeTests(TransactionTestCase):
     before = [('botend', '0238_wclcombatantfetchstate')]
     after = [('botend', '0239_wcl_budget_collection_cycle')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         self.executor = MigrationExecutor(connection)
         self.executor.migrate(self.before)
-        self.addCleanup(self.restore_latest_schema)
         self.old_apps = self.executor.loader.project_state(self.before).apps
         self.Season = self.old_apps.get_model('botend', 'SeasonMeta')
         self.Task = self.old_apps.get_model('botend', 'MonitorTask')
@@ -37,8 +40,6 @@ class WclCycleUpgradeTests(TransactionTestCase):
             last_scan_time=self.claimed_at,
             flag=f'upgrade@rankings@{int((self.claimed_at - timedelta(days=1)).timestamp())}')
 
-    def restore_latest_schema(self):
-        MigrationExecutor(connection).migrate(self.after)
 
     def lease(self, **kwargs):
         values = dict(task_id=self.task.pk, owner='legacy-worker',

@@ -8,11 +8,15 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class SimcBenchmarkResultMigrationTests(TransactionTestCase):
     migrate_from = [('botend', '0131_simctask_queue_indexes')]
     migrate_to = [('botend', '0133_backfill_simc_benchmark_results')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_from)
         old_apps = executor.loader.project_state(self.migrate_from).apps
@@ -35,9 +39,6 @@ class SimcBenchmarkResultMigrationTests(TransactionTestCase):
         self.older_id = older.pk
         self.newer_id = newer.pk
 
-    def tearDown(self):
-        MigrationExecutor(connection).migrate(self.migrate_to)
-        super().tearDown()
 
     def test_forward_migration_claims_newest_execution_and_terminalizes_duplicate(self):
         executor = MigrationExecutor(connection)

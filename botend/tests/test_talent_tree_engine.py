@@ -9,7 +9,7 @@ import tempfile
 from pathlib import Path
 
 from django.template.loader import render_to_string
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, SimpleTestCase, TestCase
 
 from botend.services.spec_stats_service import (
     SpecStatsService,
@@ -795,7 +795,7 @@ class FakeRankingQuerySet:
 
 
 
-class TalentVersionResolverTests(SimpleTestCase):
+class TalentVersionResolverTests(TestCase):
     def test_serialize_returns_stable_payload_for_version_object(self):
         version = SimpleNamespace(
             key='retail-12.0.7',
@@ -817,15 +817,17 @@ class TalentVersionResolverTests(SimpleTestCase):
         self.assertEqual(payload['status'], 'active')
         self.assertTrue(payload['is_active'])
 
-    @patch('botend.wow.talents.versioning.WowTalentVersion')
-    def test_get_default_uses_usage_specific_flag_before_retail_fallback(self, version_model):
-        default_version = SimpleNamespace(key='retail-12.0.7')
-        version_model.objects.filter.return_value.order_by.return_value.first.return_value = default_version
-
-        resolved = TalentVersionResolver.get_default(TalentVersionResolver.USAGE_STATS)
-
-        self.assertIs(resolved, default_version)
-        version_model.objects.filter.assert_called_with(is_active=True, is_default_stats=True)
+    def test_get_default_uses_current_retail_for_every_usage(self):
+        from botend.models import WowTalentVersion
+        retail, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={
+            'branch': 'retail', 'status': 'active', 'is_active': True})
+        WowTalentVersion.objects.update_or_create(key='ptr', defaults={
+            'branch': 'ptr', 'status': 'active', 'is_active': True,
+            'is_default_stats': True, 'is_default_simulator': True})
+        for usage in (TalentVersionResolver.USAGE_STATS, TalentVersionResolver.USAGE_SIMULATOR,
+                      TalentVersionResolver.USAGE_PLAYER_TREE):
+            with self.subTest(usage=usage):
+                self.assertEqual(TalentVersionResolver.get_default(usage), retail)
 
 class TalentTreeModelTests(SimpleTestCase):
     def test_talent_node_model_from_legacy_dict_normalizes_fields(self):
@@ -1132,7 +1134,7 @@ class TalentTreeAdapterTests(SimpleTestCase):
         self.assertEqual(node.description_zh, '')
 
 
-class TalentMetadataProviderTests(SimpleTestCase):
+class TalentMetadataProviderTests(TestCase):
     def test_spell_resolvers_keep_english_and_chinese_dump_locales_separate(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, 'SpellName_enUS.csv').write_text('ID,Name_lang\n6673,Battle Shout\n')
@@ -1155,40 +1157,25 @@ class TalentMetadataProviderTests(SimpleTestCase):
             )
             self.assertEqual(
                 provider._spell_resolver('zhCN').snapshot_build,
-                '12.1.0.68914',
+                '',  # mutable central facts are branch-current, not build-keyed
             )
 
-    @patch('botend.wow.talents.metadata.WowSpellSnapshot')
-    def test_snapshot_fallback_uses_resolved_version_branch_and_exact_build(self, snapshot_model):
-        exact = SimpleNamespace(name='Exact', name_zh='精确版本')
-
-        def filtered_rows(**filters):
-            query = MagicMock()
-            query.order_by.return_value = query
-            # Wrong branch/build snapshots are deliberately unavailable once
-            # the provider supplies all three exact identity dimensions.
-            query.first.return_value = exact if filters == {
-                'spell_id': 6673,
-                'branch': 'ptr',
-                'snapshot_build': '12.1.0.68914',
-            } else None
-            return query
-
-        snapshot_model.objects.filter.side_effect = filtered_rows
-        provider = TalentMetadataProvider(talent_version=SimpleNamespace(
-            id=9,
-            key='ptr-12.1.0',
-            branch='ptr',
-            current_build='12.1.0.68914',
-            source_dir='',
-        ))
-
-        self.assertEqual(provider._lookup_spell_snapshot(6673)['name'], '精确版本')
-        snapshot_model.objects.filter.assert_called_once_with(
-            spell_id=6673,
-            branch='ptr',
-            snapshot_build='12.1.0.68914',
-        )
+    def test_snapshot_fallback_uses_current_branch_compiled_display(self):
+        from botend.models import WowSpellSnapshot, WowTalentVersion
+        from botend.services.wow_spell_display import sync_spell_display
+        from botend.wow.branches import spell_branch
+        version, _ = WowTalentVersion.objects.update_or_create(key='ptr', defaults={
+            'branch': 'ptr', 'current_build': '12.1.0.68914', 'is_active': True, 'status': 'active'})
+        WowSpellSnapshot.objects.create(spell_id=6673, branch=spell_branch('retail'), locale='zhCN',
+            name='错误分支', name_zh='错误分支')
+        row = WowSpellSnapshot.objects.create(spell_id=6673, branch=spell_branch('ptr'), locale='zhCN',
+            snapshot_build='12.1.0.68915', name='当前中文', name_zh='当前中文', description='当前描述')
+        sync_spell_display(branch='ptr', apply=True, spell_ids=[6673])
+        row.refresh_from_db()
+        self.assertTrue(row.display_data)
+        provider = TalentMetadataProvider(talent_version=version)
+        self.assertEqual(provider._lookup_spell_snapshot(6673)['name'], '当前中文')
+        self.assertEqual(provider._lookup_spell_snapshot(6673)['description_zh'], '当前描述')
 
     def test_authoritative_empty_description_clears_external_scrape_pollution(self):
         provider = TalentMetadataProvider()
@@ -1239,7 +1226,8 @@ class TalentMetadataProviderTests(SimpleTestCase):
         self.assertEqual(merged['column'], 10800)
         self.assertEqual(merged['max_points'], 2)
         self.assertEqual(merged['parents'], [9001, 9002])
-        self.assertEqual(merged['name'], '运行态名称')
+        # Central metadata owns displayed names as well as structure.
+        self.assertEqual(merged['name'], '静态元数据名称')
 
     @patch('botend.wow.talents.metadata.TalentVersionResolver')
     @patch('botend.wow.talents.metadata.WowTalentNodeMetadata')
@@ -3089,7 +3077,7 @@ class TalentSimulatorBuildCodeTests(SimpleTestCase):
         self.assertEqual(spec_choice['spell_id'], 107574)
 
 
-class SpecStatsTalentRenderTests(SimpleTestCase):
+class SpecStatsTalentRenderTests(TestCase):
     ARMS_REFERENCE_CODE = 'CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA'
     FURY_REFERENCE_CODE = 'CgEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAgGDDjZ2WmZmZmxMmZMjZmZWmZGjxsMmZGAAIMwGssZ0YGQmNMjFAzgxAgZGADzMzMMYA'
 
@@ -3170,11 +3158,12 @@ class SpecStatsTalentRenderTests(SimpleTestCase):
 
     def test_fury_profile_ignores_active_arms_code_without_erasing_verified_fury_code(self):
         monitor = SpecDetailPlayerMonitor(MagicMock(), MagicMock())
-        monitor.fetch_raiderio_character = MagicMock(return_value={
+        monitor._request_raiderio_character = MagicMock(return_value={
             'talentLoadout': {'loadout_text': self.ARMS_REFERENCE_CODE},
         })
-        profile = SimpleNamespace(
-            region='us', realm='realm', character_name='Player',
+        from botend.models import PlayerSpecTopPlayer
+        profile = PlayerSpecTopPlayer.objects.create(
+            season_id=987, region='us', realm='realm', character_name='Player',
             class_name='Warrior', spec_name='Fury',
             talent_build_code=self.FURY_REFERENCE_CODE,
             talents_json=[{'node_id': 1}], gear_json=[], item_level=0,

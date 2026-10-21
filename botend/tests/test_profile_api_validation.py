@@ -200,7 +200,12 @@ class SimcProfileAPIValidationTests(TestCase):
         }), content_type='application/json')
         self.assertTrue(response.json()['success'], response.json())
 
-    def test_battlenet_mode_clears_stale_manual_player_block(self):
+    @patch('botend.dashboard.api.fetch_battlenet_character_preflight')
+    def test_battlenet_mode_clears_stale_manual_player_block(self, preflight):
+        frozen = 'warrior="Tester"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222'
+        preflight.return_value = {'simc_ready': True, 'warnings': [], 'simc_config': {
+            'player_equipment': frozen, 'spec': 'warrior_fury', 'class_name': 'warrior',
+        }}
         response = self.client.post('/api/simc-profile/', data=json.dumps({
             'name': 'Battlenet canonical', 'spec': 'fury',
             'player_config_mode': 'battlenet',
@@ -210,7 +215,8 @@ class SimcProfileAPIValidationTests(TestCase):
         self.assertTrue(response.json()['success'], response.json())
         profile = SimcProfile.objects.get(name='Battlenet canonical')
         self.assertEqual(profile.player_config_mode, 'battlenet')
-        self.assertEqual(profile.player_equipment, '')
+        self.assertEqual(profile.player_equipment, frozen)
+        self.assertNotIn('Stale', profile.player_equipment)
 
         profile.player_config_mode = 'manual_equipment'
         profile.player_equipment = 'warrior="Stale"\nlevel=90\nspec=fury\nhead=,id=212048\nmain_hand=,id=222222'
@@ -223,7 +229,8 @@ class SimcProfileAPIValidationTests(TestCase):
         self.assertTrue(response.json()['success'], response.json())
         profile.refresh_from_db()
         self.assertEqual(profile.player_config_mode, 'battlenet')
-        self.assertEqual(profile.player_equipment, '')
+        self.assertEqual(profile.player_equipment, frozen)
+        self.assertNotIn('Stale', profile.player_equipment)
 
     def test_profile_update_validates_same_rules(self):
         """Requirement 2: Update must apply same validation as create."""
@@ -282,7 +289,7 @@ class SimcProfileAPIValidationTests(TestCase):
         self.assertTrue(payload['success'], payload)
         self.assertEqual(payload['gear_strength'], 123)
 
-    def test_attribute_profile_simulate_now_creates_frozen_attribute_task(self):
+    def test_attribute_profile_comparison_endpoint_creates_frozen_attribute_task(self):
         profile = SimcProfile.objects.create(
             user_id=self.user.id,
             name='Runnable Attribute Profile',
@@ -296,25 +303,39 @@ class SimcProfileAPIValidationTests(TestCase):
             gear_mastery=3000,
             gear_versatility=4000,
         )
-        response = self.client.post('/api/simc-profile/', data=json.dumps({
-            'simulate_now': True,
-            'profile_id': profile.id,
-            'task_type': 2,
-            'selected_attributes': 'crit_haste',
-            'attribute_step': 50,
-        }), content_type='application/json')
+        from botend.models import SimcApl, SimcContentTemplate
+        from botend.tests.simc_api_worker_fixtures import independent_talent
+        import hashlib
+        template = SimcContentTemplate.objects.create(
+            name='Attribute template', spec='warrior_fury',
+            content='{player_config}\n{action_list}\n{simulation_options}\n{stat_overrides}\n{output_options}',
+        )
+        apl = SimcApl.objects.create(name='Attribute APL', spec='warrior_fury',
+            owner_user_id=self.user.id, content='actions=/bloodthirst', is_selectable=True)
+        talent = independent_talent(self.user.id, talent='SIMULATE_BUILD')
+        validation = {'valid': True, 'content_hash': hashlib.sha256(apl.content.encode()).hexdigest(),
+                      'revision': 'test-revision', 'game_build': 'test-build'}
+        with patch('botend.services.simc_task_service.current_validation_identity', return_value=('test-revision', 'test-build')), patch(
+            'botend.services.simc_task_service.validate_apl_for_profile', return_value=validation,
+        ):
+            response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
+                'kind': 'attribute_variants', 'name': 'Frozen attribute task', 'spec': 'warrior_fury',
+                'simc_profile_id': profile.id,
+                'base_template_id': template.id, 'selected_apl_id': apl.id,
+                'talent_string_id': talent.id, 'attribute_step': 100,
+            }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertTrue(payload['success'], payload)
-        task = SimcTask.objects.get(id=payload['task_id'], simc_profile_id=profile.id, user_id=self.user.id)
-        ext = json.loads(task.ext)
-        self.assertEqual(task.task_type, 2)
-        self.assertEqual(task.result_file, '')
-        self.assertEqual(ext['player_config_mode'], 'attribute_only')
-        self.assertEqual(ext['talent'], 'SIMULATE_BUILD')
-        self.assertEqual(ext['gear_strength'], 0)
-        self.assertEqual(ext['selected_attributes'], 'crit_haste')
-        self.assertEqual(ext['attribute_step'], 50)
+        task = SimcTask.objects.get(id=payload['data']['task_id'], user_id=self.user.id)
+        self.assertEqual(task.mode, 'attribute_sweep')
+        self.assertEqual(task.profile_version.payload['player_config_mode'], 'attribute_only')
+        self.assertEqual(task.talent_version.payload['talent'], 'SIMULATE_BUILD')
+        self.assertEqual(task.mode_params['initial_candidates'][0]['candidate_params']['attribute_ratings'],
+                         {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000})
+        self.assertEqual(len(task.mode_params['initial_candidates']), 13)
+        self.assertEqual(task.simulation_runs.count(), 0)
+
 
     def test_historical_empty_attribute_profile_cannot_simulate_now_or_create_task(self):
         profile = SimcProfile.objects.create(

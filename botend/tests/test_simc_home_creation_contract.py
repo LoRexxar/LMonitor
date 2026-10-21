@@ -1,3 +1,4 @@
+from botend.tests.simc_api_worker_fixtures import independent_talent
 import hashlib
 import json
 from types import SimpleNamespace
@@ -59,6 +60,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
                 'simc_profile_id': profile.id,
                 'player_source': {'type': 'saved_profile', 'profile_id': profile.id},
                 'base_template_id': template.id, 'selected_apl_id': apl.id,
+            'talent_string_id': self.talent.id,
             }), content_type='application/json')
 
         self.assertEqual(response.status_code, 200, response.content)
@@ -69,6 +71,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(username='home-flow', password='pwd')
         self.client.force_login(self.user)
+        self.talent = independent_talent(self.user.id)
         identity = patch(
             'botend.services.simc_task_service.current_validation_identity',
             return_value=(REVISION, BUILD),
@@ -162,6 +165,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
             'name': 'Default source task', 'spec': 'fury',
             'player_source': {'type': 'default'},
             'base_template_id': template.id, 'selected_apl_id': apl.id,
+            'talent_string_id': self.talent.id,
             'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
         }), content_type='application/json')
 
@@ -180,6 +184,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
             'name': 'Addon source task', 'spec': 'fury',
             'player_source': {'type': 'simc_addon', 'simc_code': addon},
             'base_template_id': template.id, 'selected_apl_id': apl.id,
+            'talent_string_id': self.talent.id,
             'use_ptr': True,
         }), content_type='application/json')
 
@@ -197,6 +202,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
             'name': 'Conflicting source', 'spec': 'arms',
             'player_source': {'type': 'simc_addon', 'simc_code': DEFAULT_PLAYER},
             'base_template_id': template.id, 'selected_apl_id': apl.id,
+            'talent_string_id': self.talent.id,
         }), content_type='application/json')
 
         self.assertEqual(response.status_code, 400, response.content)
@@ -212,6 +218,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
                 'player_config_mode': 'battlenet',
                 'battlenet_region': 'eu', 'battlenet_realm': 'Kazzak',
                 'battlenet_character': 'Bloodmastêr', 'spec': 'fury', 'talent': 'BN_BUILD',
+                'player_equipment': 'warrior="Bloodmastêr"\nspec=fury\nhead=,id=212048',
                 'gear_strength': 5000, 'gear_crit': 1000, 'gear_haste': 2000,
                 'gear_mastery': 3000, 'gear_versatility': 4000,
             },
@@ -221,12 +228,15 @@ class SimcHomeCreationResourceContractTests(TestCase):
                 'name': 'Battle.net source task', 'spec': 'fury',
                 'player_source': {'type': 'battlenet', 'region': 'eu', 'realm': 'Kazzak', 'character': 'Bloodmastêr'},
                 'base_template_id': template.id, 'selected_apl_id': apl.id,
+            'talent_string_id': self.talent.id,
             }), content_type='application/json')
 
         self.assertEqual(response.status_code, 200, response.content)
         task = SimcTask.objects.select_related('profile_version').get(id=response.json()['data']['id'])
         self.assertEqual(task.profile_version.payload['battlenet_character'], 'Bloodmastêr')
-        self.assertEqual(task.profile_version.payload['gear_crit'], 1000)
+        self.assertIn('warrior="Bloodmastêr"', task.profile_version.payload['player_equipment'])
+        self.assertIsNone(task.profile_version.payload['gear_crit'])
+        self.assertEqual(task.talent_version.payload['talent'], self.talent.talent)
 
     def test_generic_base_template_is_valid_for_target_spec_task(self):
         template, apl = self._task_resources()
@@ -236,6 +246,7 @@ class SimcHomeCreationResourceContractTests(TestCase):
             'name': 'Generic base template task', 'spec': 'fury',
             'player_source': {'type': 'default'},
             'base_template_id': template.id, 'selected_apl_id': apl.id,
+            'talent_string_id': self.talent.id,
         }), content_type='application/json')
 
         self.assertEqual(response.status_code, 200, response.content)

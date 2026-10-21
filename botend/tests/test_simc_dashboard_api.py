@@ -1,5 +1,6 @@
 import importlib
 import hashlib
+from botend.tests.simc_api_worker_fixtures import independent_talent, plate_head
 import json
 import tempfile
 from pathlib import Path
@@ -1236,12 +1237,13 @@ class SimcProfileResourceListTests(TestCase):
         self.assertIn("String(row.canonical_spec || '')", source)
         self.assertNotIn("frost_death_knight: ['deathknight', 'frost']", source)
         self.assertNotIn("frost_mage: ['mage', 'frost']", source)
-        self.assertIn('data-profile-equipment-slot', source)
-        self.assertIn('item_id', source)
-        self.assertIn('item_level', source)
-        self.assertIn("method: 'PUT'", source)
-        self.assertIn("body: JSON.stringify({ id:", source)
-        self.assertIn("equipment })", source)
+        start = source.index('async function simcWbSaveProfile()')
+        end = source.index('async function simcWbDeleteProfile', start)
+        save = source[start:end]
+        self.assertIn("player_equipment: gv('player_equipment')", save)
+        self.assertIn('payload.id = simcWbProfileFormEditId', save)
+        self.assertIn("method: 'PUT'", save)
+        self.assertIn('body: JSON.stringify(payload)', save)
 
 
 class SimcTemplateAPIViewTests(TestCase):
@@ -1935,7 +1937,7 @@ main_hand=,id=222222
             talent='PTR_BASE',
             is_active=True,
         )
-        create_task.return_value = SimpleNamespace(id=9981, mode='comparison')
+        create_task.return_value = SimpleNamespace(id=9981, mode='comparison', mode_params={'initial_candidates': []})
 
         response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
             'kind': 'talent_candidates',
@@ -1999,6 +2001,7 @@ main_hand=,id=222222
             },
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
+            'talent_string_id': independent_talent(self.user.id, talent='ACTIVE_BUILD').id,
             'attribute_step': 100, 'fight_style': 'Patchwerk', 'time': 300, 'target_count': 1,
         }), content_type='application/json')
 
@@ -2011,7 +2014,8 @@ main_hand=,id=222222
         profile = task.profile_version.payload
         self.assertEqual(profile['player_config_mode'], 'attribute_only')
         self.assertEqual(profile['spec'], 'fury')
-        self.assertEqual(profile['talent'], '')
+        self.assertNotIn('talent', profile)
+        self.assertEqual(task.talent_version.payload['talent'], 'ACTIVE_BUILD')
         self.assertEqual(
             [profile['gear_crit'], profile['gear_haste'], profile['gear_mastery'], profile['gear_versatility']],
             [None, None, None, None],
@@ -2042,6 +2046,7 @@ main_hand=,id=222222
             'player_source': {'type': 'battlenet', 'region': 'eu', 'realm': 'Kazzak', 'character': 'Batcher'},
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
+            'talent_string_id': independent_talent(self.user.id, talent='ACTIVE_BUILD').id,
             'attribute_step': 100,
         }), content_type='application/json')
 
@@ -2070,7 +2075,7 @@ main_hand=,id=222222
                 'target_count': task.simulation_params.get('desired_targets', 1),
                 'player_import_mode': task.profile_version.payload['player_config_mode'],
                 'player_equipment': task.profile_version.payload['player_equipment'],
-                'talent': task.profile_version.payload['talent'],
+                'talent': task.talent_version.payload['talent'],
                 'gear_strength': task.profile_version.payload['gear_strength'],
                 'gear_crit': task.profile_version.payload['gear_crit'],
                 'gear_haste': task.profile_version.payload['gear_haste'],
@@ -3142,7 +3147,11 @@ DPS=208365 DPS-Error=200/0.1%
         self.assertIn("if (row.mode === 'attribute_sweep')", detail)
         self.assertIn('attribute.search_path', attribute_renderer)
         self.assertIn('attribute.final_result', attribute_renderer)
-        self.assertIn('查看最终结果报告', attribute_renderer)
+        import subprocess
+        script = "const esc=String,value=(v,f='—')=>v??f,number=v=>String(v??'—'),statusKey=String,statusClass=()=>'',card=()=>'',objectId=1;\n" + attribute_renderer + "\nconsole.log(renderAttributeTask({status:2,attribute_report:{converged:true,final_result:{id:7,dps:100,report_url:'/report/7'}}}));"
+        rendered = subprocess.check_output(['node', '-e', script], text=True)
+        self.assertIn('查看最终结果报告', rendered)
+        self.assertIn('href="/report/7"', rendered)
         for generic_section in ('SimcResultReport', '技能伤害与触发明细', '动态 Buff / Proc', 'Artifact / 原生报告'):
             self.assertNotIn(generic_section, attribute_renderer)
 
@@ -3861,8 +3870,12 @@ html=simc_task_99.html
             payload=apl_payload,
         )
 
+        talent = independent_talent(self.user.id, spec='warrior_arms')
+        from botend.services.simc_task_service import _create_or_reuse_version
+        talent_version = _create_or_reuse_version('talent', talent.id, {'spec': 'warrior_arms', 'talent': talent.talent, 'class_name': 'warrior'})
         # Create completed reference task
         original = create_test_task(
+            talent_string=talent, talent_version=talent_version,
             user_id=self.user.id,
             name='Completed reference task',
             task_type=1,
@@ -4431,6 +4444,7 @@ trinket1=,id=111,ilevel=639
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
+            'talent_string_id': independent_talent(self.user.id, talent='ACTIVE_BUILD').id,
             'candidates': [{'talent': 'CLEAVE_BUILD'}],
         }), content_type='application/json')
         self.assertEqual(response.status_code, 200)
@@ -4482,6 +4496,7 @@ trinket1=,id=111,ilevel=639
             },
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
+            'talent_string_id': independent_talent(self.user.id, talent='ACTIVE_BUILD').id,
             'include_base': True,
             'candidates': [
                 {'name': '团本', 'talent': 'RAID_BUILD', 'source': 'battlenet_loadout'},
@@ -4494,7 +4509,8 @@ trinket1=,id=111,ilevel=639
         task = SimcTask.objects.get(id=response.json()['data']['task_id'])
         profile = task.profile_version.payload
         self.assertEqual(profile['player_config_mode'], 'manual_equipment')
-        self.assertEqual(profile['player_equipment'], player_snapshot)
+        self.assertEqual(profile['player_equipment'], player_snapshot.replace('talents=ACTIVE_BUILD\n', ''))
+        self.assertEqual(task.talent_version.payload['talent'], 'ACTIVE_BUILD')
         self.assertEqual(task.simulation_runs.count(), 0)
         frozen = task.mode_params['initial_candidates']
         self.assertEqual(len(frozen), 3)
@@ -4516,6 +4532,7 @@ main_hand=,id=222
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
+            'talent_string_id': independent_talent(self.user.id, talent='ACTIVE_BUILD').id,
             'candidates': [{
                 'name': '手工单体方案', 'talent': 'MANUAL_TALENT_BUILD', 'source': 'manual',
             }],
@@ -4600,6 +4617,7 @@ head=,id=222,ilevel=645
         self.assertIn('不可重复选择', response.json()['error'])
 
     def test_gear_candidate_batch_accepts_valid_manual_slot_override(self):
+        plate_head(444)
         profile = self._create_profile('Manual candidate Test', '''warrior="Batcher"
 spec=fury
 talents=ACTIVE_BUILD
@@ -4612,6 +4630,7 @@ main_hand=,id=222
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
+            'talent_string_id': independent_talent(self.user.id, talent='ACTIVE_BUILD').id,
             'candidates': [{
                 'slot': 'head', 'item_id': 444, 'source': 'manual',
                 'raw_value': ',id=444,ilevel=650', 'name': '手工候选头盔',
@@ -4630,6 +4649,7 @@ main_hand=,id=222
         })
 
     def test_gear_candidate_batch_accepts_full_simc_gear_line(self):
+        plate_head(444)
         profile = self._create_profile('Full manual candidate', '''warrior="Batcher"
 spec=fury
 talents=ACTIVE_BUILD
@@ -4642,6 +4662,7 @@ main_hand=,id=222
             'simc_profile_id': profile.id,
             'base_template_id': self.base_template.id,
             'selected_apl_id': self.default_apl.id,
+            'talent_string_id': independent_talent(self.user.id, talent='ACTIVE_BUILD').id,
             'candidates': [{
                 'slot': 'head', 'item_id': 444, 'source': 'manual',
                 'raw_value': 'head=手工候选头盔,id=444,ilevel=650',
@@ -5330,12 +5351,19 @@ class SimcComparisonTaskAPIViewGetTests(TestCase):
         runs = self.client.get('/api/simc-task/comparison/', {'task_id': task.id}).json()['data']['runs']
         self.assertEqual([row['candidate_label'] for row in runs], ['expected'])
 
-    def test_get_enforces_user_isolation(self):
+    def test_known_foreign_result_is_readable_but_list_remains_owned(self):
+        owned = self._task(name='owned listing')
         foreign = self._task(user=self.other_user)
         self._run(foreign, 1)
         response = self.client.get('/api/simc-task/comparison/', {'task_id': foreign.id})
-        self.assertEqual(response.status_code, 404)
-        self.assertFalse(response.json()['success'])
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()['success'])
+        self.assertEqual(response.json()['data']['task_id'], foreign.id)
+        listed = self.client.get('/api/simc-task/')
+        self.assertEqual(listed.status_code, 200)
+        task_ids = {row['id'] for row in listed.json()['data']}
+        self.assertIn(owned.id, task_ids)
+        self.assertNotIn(foreign.id, task_ids)
 
     def test_get_rejects_inactive_and_normal_tasks(self):
         inactive = self._task(active=False)

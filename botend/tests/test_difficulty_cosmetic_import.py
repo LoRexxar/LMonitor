@@ -58,7 +58,18 @@ class CosmeticImportTests(TestCase):
             self.assertEqual(selected['variant_id'], row.pk)
             self.assertEqual(selected['item_level'], 1)
             self.assertEqual(selected['quality'], 3)
-        self.assertEqual(list(WowItemSnapshot.objects.values()), self.base_before)
+        # Import now publishes central effect definitions. All non-effect base
+        # facts remain immutable; the sole permitted change is verified below.
+        current = list(WowItemSnapshot.objects.values())
+        stable = lambda rows: [{k: v for k, v in row.items()
+                                if k not in ('effects', 'updated_at')} for row in rows]
+        self.assertEqual(stable(current), stable(self.base_before))
+        definitions = current[0]['effects']['branches']['retail']['definitions']
+        self.assertEqual(len(definitions), 1)
+        definition = next(iter(definitions.values()))
+        self.assertEqual(definition['template_zh'], '使用：将此外观添加到你的战团收藏中。')
+        self.assertEqual(definition['source']['item_id'], 258045)
+        self.assertEqual(definition['source']['provider'], 'wowhead')
         self.assertEqual(load_item_tooltip_metadata([dict(item_id=258045, allow_default_variant=True)])[0]['variant_id'], self.legacy.pk)
 
     def test_spoofed_kind_or_modified_typed_sparse_rejected(self):

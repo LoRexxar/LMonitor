@@ -7,7 +7,9 @@ from django.test import override_settings
 
 
 def isolate_journal_snapshots(test):
-    root = Path(tempfile.mkdtemp(prefix='journal-loot-test-'))
+    directory = tempfile.TemporaryDirectory(prefix='journal-loot-test-')
+    test.addCleanup(directory.cleanup)
+    root = Path(directory.name)
     override = override_settings(JOURNAL_LOOT_SNAPSHOT_ROOT=root / 'journal',
                                  JOURNAL_SNAPSHOT_ROOT=root / 'catalog', GEAR_CATALOG_SNAPSHOT_ROOT=root / 'gear')
     override.enable()

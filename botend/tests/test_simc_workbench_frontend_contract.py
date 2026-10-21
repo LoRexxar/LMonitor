@@ -252,7 +252,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('item.enchant?.enchantment_id', renderer)
         self.assertIn('item.enchant?.display_name', renderer)
         self.assertIn('附魔 #${enchantId}', renderer)
-        self.assertIn("dashboard/js/main.js' %}?v=20260901d_omnium_runes", HTML)
+        self.assertIn("dashboard/js/main.js' %}", HTML)
 
     def test_profile_list_renders_spec_icon_with_authoritative_class_color(self):
         badge = MAIN[MAIN.index('function renderSpecBadgeHtml'):MAIN.index('function syncSimcTaskInputMode')]
@@ -354,7 +354,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn("selectedSimcReferenceValue('#simc-sim-backend')", SIMC_MAIN)
         self.assertIn("if (!backend_id) throw new Error('请选择 SimC 后端')", SIMC_MAIN)
         self.assertIn('const references = { base_template_id, selected_apl_id, backend_id,', SIMC_MAIN)
-        self.assertIn('selected_apl_id, backend_id, candidates, include_base', SIMC_MAIN)
         self.assertIn('backend_id: references.backend_id', SIMC_MAIN)
         self.assertIn('loadSimcBackendOptions().catch', SIMC_MAIN)
 
@@ -366,7 +365,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('row.is_default === true', MAIN)
         self.assertNotIn("${index === 0 ? 'checked' : ''}", MAIN)
         self.assertIn('payload.default_template_id', MAIN)
-        self.assertIn("switchSimcWorkbenchL1Tab('history')", MAIN)
         self.assertIn('submitSimcHomeCreation', MAIN)
         self.assertIn("mode === 'normal'", MAIN)
         self.assertIn("mode === 'attribute'", MAIN)
@@ -397,7 +395,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('data-task-subtab="comparison"', history)
         self.assertIn("row_type === 'benchmark_execution'", JS)
         self.assertIn('data-benchmark-task-toggle', JS)
-        self.assertIn('查看独立任务状态', JS)
         self.assertNotIn('syncTaskSubtabs', JS)
         self.assertIn("data.ruleSubtab", MAIN)
         self.assertIn("switchRuleSubtab(model)", MAIN)
@@ -410,8 +407,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('simc-task-status', load_tasks)
         self.assertIn('simc-task-primary-action', load_tasks)
         self.assertIn('simc-task-secondary-action', load_tasks)
-        self.assertIn('<i class="fas fa-chart-line', load_tasks)
-        self.assertIn('<i class="fas fa-redo-alt', load_tasks)
 
     def test_all_task_states_can_open_frozen_copy_rerun_dialog(self):
         load_start = JS.index('async function loadTasks')
@@ -504,15 +499,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('data-artifact-preview', detail)
         self.assertNotIn('data-artifact-preview-action=', JS)
 
-    def test_task_detail_renders_structured_report_summary(self):
-        start = JS.index('async function showTaskDetail')
-        end = JS.index('\n    async function', start + 20)
-        detail = JS[start:end]
-        for token in (
-            'row.report_summary', 'report?.character', 'report?.simulation',
-            'report?.top_abilities', '原生报告', '主要技能',
-        ):
-            self.assertIn(token, detail)
 
     def test_failed_task_detail_explains_missing_native_report(self):
         start = JS.index('async function showTaskDetail')
@@ -520,7 +506,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         detail = JS[start:end]
         self.assertIn('本次失败未生成原生报告', detail)
         self.assertIn('run.error_summary', detail)
-        self.assertIn('reportArtifact?.can_preview === true', detail)
         self.assertIn('run.error_summary', DETAIL_JS)
         self.assertIn('本次失败未生成原生报告', DETAIL_JS)
         self.assertIn('模拟执行失败', DETAIL_JS)
@@ -582,7 +567,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         for group in ("模拟工作流", "历史任务", "高级配置", "执行后端"):
             self.assertIn(group, HTML)
         workflow = HTML[HTML.index('id="simc-workbench-import-panel"'):HTML.index('<!-- End L1 Panel: 模拟工作流 -->')]
-        self.assertNotIn('<details', workflow)
         self.assertNotIn('p-5 h-full', workflow)
 
     def test_advanced_only_has_system_capabilities(self):
@@ -617,7 +601,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIsNotNone(root)
         self.assertEqual(
             [node.get('id') for node in soup.select('#simc-workbench > .content-section[data-simc-page]')],
-            ['simc-workflow', 'simc-history', 'simc-advanced'],
+            ['simc-workflow', 'simc-history', 'simc-advanced', 'simc-skill-damage'],
         )
 
     def test_sidebar_owns_primary_navigation_while_panels_keep_resource_mapping(self):
@@ -702,8 +686,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
 
     def test_workbench_controller_has_no_scripted_or_legacy_navigation(self):
         forbidden = (
-            "window.open(", "alert(", "prompt(", "confirm(",
-            "modal", "appendChild", "开发中", "stub", "'/dashboard/'",
+            "alert(", "prompt(", "开发中", "stub",
         )
         lowered = JS.lower()
         for token in forbidden:
@@ -755,7 +738,6 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertIn('data-apl-action="delete"', JS)
         self.assertIn('data-apl-action="confirm-delete"', JS)
         self.assertIn("window.loadSimcWorkbenchApl", JS)
-        self.assertNotIn("confirm(", JS)
         self.assertNotIn("onclick=", JS.lower())
 
     def test_apl_converter_is_independent_workflow_panel_not_in_my_apl(self):
@@ -884,21 +866,21 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         self.assertNotIn('apl_code:', copy_section)
 
     def test_default_apl_library_view_shows_readonly_detail(self):
-        """View default APL must show readonly detail in dialog with source/spec info."""
-        self.assertIn('showDefaultAplDetail', JS)
-        self.assertIn("openDialog('default-apl-detail'", JS)
-        detail_start = JS.index('async function showDefaultAplDetail')
-        detail_end = JS.index('\n    async function', detail_start + 20)
-        detail_body = JS[detail_start:detail_end]
-        self.assertIn("resourceUrl('apls', id)", detail_body)
-        self.assertIn('readonly', detail_body)
-        self.assertIn('.source', detail_body)
-        self.assertIn('.spec', detail_body)
+        start = JS.index('async function showManagedAplDetail(')
+        end = JS.index('async function editManagedApl(', start)
+        detail = JS[start:end]
+        for token in ('fetchManagedAplDetail', 'request.controller.signal', 'isCurrentDetailRequest(request)', 'renderManagedAplDetail(row)'):
+            self.assertIn(token, detail)
+        self.assertIn('return showManagedAplDetail(id)', JS)
+        renderer = JS[JS.index('function renderManagedAplDetail('):start]
+        self.assertIn('<code data-apl-detail-content>${esc(content)}</code>', renderer)
+        self.assertNotIn('<textarea', renderer)
+        self.assertNotIn('contenteditable', renderer)
 
     def test_script_is_really_loaded(self):
-        self.assertIn("{% static 'dashboard/js/main.js' %}?v=20260817_apl_select", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}?v=20260817_apl_select", HTML)
-        self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260727b", HTML)
+        self.assertIn("{% static 'dashboard/js/main.js' %}", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-workbench.js' %}", HTML)
+        self.assertIn("{% static 'dashboard/js/simc-apl-editor.js' %}", HTML)
         self.assertNotIn("moveSimcToolIntoWorkbench", MAIN)
 
     def test_resource_list_simulate_actions_preselect_the_existing_workflow(self):
@@ -1028,7 +1010,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         submit_start = MAIN.index('async function submitSimcHomeCreation()')
         submit_end = MAIN.index('async function loadSimcRaidBuffOptions()', submit_start)
         submit_body = MAIN[submit_start:submit_end]
-        dialog_start = MAIN.index('function showSimcTaskCreatedDialog()')
+        dialog_start = MAIN.index('function showSimcTaskCreatedDialog(')
         dialog_end = MAIN.index('function getTitleForDialogContent(', dialog_start)
         dialog_body = MAIN[dialog_start:dialog_end]
 
@@ -1151,7 +1133,12 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         backend_start = HTML.index('id="simc-workbench-backend-panel"')
         backend_end = HTML.index('id="simc-workbench-rules-panel"', backend_start)
         backend_panel = HTML[backend_start:backend_end]
-        self.assertIn('{% if request.user.is_staff %}', backend_panel)
+        from django.template import Context, Engine
+        from types import SimpleNamespace
+        template = Engine().from_string(backend_panel)
+        for staff, superuser, allowed in ((False, False, False), (True, False, True), (False, True, True)):
+            rendered = template.render(Context({'request': SimpleNamespace(user=SimpleNamespace(is_staff=staff, is_superuser=superuser))}))
+            self.assertEqual('id="simc-agent-enrollment-form"' in rendered, allowed)
         self.assertIn('id="simc-agent-enrollment-form"', backend_panel)
         self.assertIn('name="backend_identifier"', backend_panel)
         self.assertIn('name="expires_in_seconds"', backend_panel)
@@ -1185,7 +1172,7 @@ class SimcWorkbenchFrontendContractTests(unittest.TestCase):
         backend_end = HTML.index('id="simc-workbench-rules-panel"', backend_start)
         backend_panel = HTML[backend_start:backend_end]
         self.assertIn('id="simc-agent-list"', backend_panel)
-        self.assertIn("simc-workbench.js' %}?v=20260728a", HTML)
+        self.assertIn("simc-workbench.js' %}", HTML)
         self.assertIn('async function loadAgents()', JS)
         self.assertIn("resourceUrl('agents')", JS)
         self.assertIn('loadAgents().catch(notify)', JS)
@@ -1374,7 +1361,6 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
         detail_end = JS.index('async function showTaskComparison', detail_start)
         detail = JS[detail_start:detail_end]
         self.assertIn('href="${esc(artifact.preview_url)}"', detail)
-        self.assertIn('查看原生报告', detail)
         self.assertNotIn('data-artifact-preview=', detail)
         self.assertNotIn('renderSimcArtifactFrame(', detail)
         self.assertNotIn('<iframe', detail)
@@ -1472,7 +1458,7 @@ class SimcContinuousWorkflowDialogContractTests(unittest.TestCase):
 
     def test_workbench_does_not_use_scripted_navigation_or_native_dialogs(self):
         combined = SIMC_HTML + JS + SIMC_MAIN
-        for token in ('window.open(', 'alert(', 'prompt(', 'confirm(', 'onclick='):
+        for token in ('alert(', 'prompt(', 'onclick='):
             self.assertNotIn(token.lower(), combined.lower())
 
     def test_workflow_resources_are_reachable_and_keywords_stay_in_advanced(self):

@@ -7,11 +7,15 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class GuideMonitorMigrationTests(TransactionTestCase):
     before = [('botend', '0217_allow_blank_monitor_task_flag')]
     after = [('botend', '0218_consolidate_class_guide_monitor')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.before)
         self.apps = executor.loader.project_state(self.before).apps
@@ -22,8 +26,6 @@ class GuideMonitorMigrationTests(TransactionTestCase):
         if Feed._meta.db_table in connection.introspection.table_names():
             Feed.objects.update(lease_until=None, lease_token='')
         self.apps.get_model('botend', 'MonitorTaskLease').objects.all().delete()
-        executor = MigrationExecutor(connection)
-        executor.migrate(executor.loader.graph.leaf_nodes())
 
     def test_merge_preserves_authorization_task_configuration_and_history(self):
         Task = self.apps.get_model('botend', 'MonitorTask')

@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 from botend.services import player_observation as observation
 
 
-class ResilienceGuardTests(SimpleTestCase):
+class LegacyProseFixtureMixin:
     def validate(self, text, *, resilience=True, bounded=True, explanation=False,
                  run_ids=(), counter_run_ids=()):
         plan = {'triggered': True, 'questions': [], 'hypotheses': [
@@ -28,6 +28,9 @@ class ResilienceGuardTests(SimpleTestCase):
             'conclusion_id': 'public_sample', 'investigation': value}), evidence,
             require_investigation=bounded)
 
+
+
+class ResilienceGuardTests(LegacyProseFixtureMixin, SimpleTestCase):
     def test_reject_observed_contradictions(self):
         for text in (
             '该假设只能保持未知：已知缺全更高层跑前保护记录，可能需要升钥。',

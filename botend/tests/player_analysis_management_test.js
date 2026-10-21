@@ -1,14 +1,12 @@
+const {test, createDOM, mount, initDashboard, closeDOM, response, tick} = require('./player_analysis_dom_harness');
 // Install only this test dependency: npm install --prefix /tmp/lmonitor-analysis-ui-test jsdom@26
 // Run: NODE_PATH=/tmp/lmonitor-analysis-ui-test/node_modules node --test botend/tests/player_analysis_management_test.js
-const {test} = require('node:test');
 const assert = require('node:assert/strict');
-const {JSDOM} = require('jsdom');
-const {Client, mount, buildPatch, safeURL} = require('../../static/dashboard/js/player-analysis-management.js');
+const {Client, buildPatch, safeURL} = require('../../static/dashboard/js/player-analysis-management.js');
 const record = () => ({id:7,revision:3,player_id:42,player:{id:42,character_name:'<img src=x onerror=bad>',realm:'Realm'},status:'ready',review_status:'pending',is_published:false,review_note:'',source_kind:'ai',manual:null,ai:{validation_status:'valid',tags:[{label:'AI',value:'判断',reason:'依据',evidence:[]}],conclusion:'冻结结论',evidence:[{text:'冻结证据',url:'javascript:bad'}],result_json:{large:true}},effective:{}});
-const response = data => ({ok:true,status:200,json:async()=>({status:'success',data:structuredClone(data)})});
 const page = (items,number=1,total=1) => ({items,total,page:number,page_size:20,total_pages:Math.ceil(total/20)});
 async function fixture({row=record(),confirm=()=>true,handler}={}) {
- const dom=new JSDOM('<main id="player-analysis-app"></main><meta name="csrf-token" content="token">',{url:'https://example.com/dashboard/player-analyses/'});
+ const dom=createDOM('<main id="player-analysis-app"></main><meta name="csrf-token" content="token">',{url:'https://example.com/dashboard/player-analyses/'});
  const calls=[];
  const fetcher=async(url,options)=>{
   calls.push([url,options]);const overridden=handler && await handler(url,options,row);if(overridden)return overridden;
@@ -31,7 +29,7 @@ test('list uses authoritative Chinese identity and season names, never a databas
   assert.match(rows[0].textContent,/法师 火焰/);assert.match(rows[0].textContent,/至暗之夜第1赛季/);assert.doesNotMatch(rows[0].textContent,/Mage|Fire|赛季 3/);
   assert.match(rows[1].textContent,/孤立角色/);assert.match(rows[1].textContent,/地心之战第2赛季/);
   assert.match(rows[2].textContent,/FutureClass FutureSpec/);assert.match(rows[2].textContent,/赛季未知/);assert.doesNotMatch(rows[2].textContent,/876/);
- }finally{f.app.destroy();f.dom.window.close();}
+ }finally{closeDOM(f.dom,f.app);}
 });
 test('list displays every tag safely, preserves confidence and never falls back to any conclusion',async()=>{
  const row={...record(),tags:[{label:'组队模式',value:'五人固定车队',confidence:'low',confidence_label:'低'},{label:'<img src=x>',value:'第二标签'}],conclusion:'LIST_SECRET',manual:{tags:[],conclusion:'MANUAL_SECRET',evidence:[]},effective:{conclusion:'EFFECTIVE_SECRET'}};
@@ -44,7 +42,7 @@ test('list displays every tag safely, preserves confidence and never falls back 
   assert.equal(f.doc.querySelector('.pa-results img'),null);assert.equal(f.doc.querySelector('.pa-list-summary'),null);
   assert.doesNotMatch(f.doc.querySelector('.pa-results').textContent,/LIST_SECRET|MANUAL_SECRET|EFFECTIVE_SECRET|冻结结论/);
   await f.click('[data-action="open"]');assert.match(f.doc.querySelector('.pa-projections').textContent,/冻结结论/);assert.equal(f.doc.querySelector('[data-field="conclusion"]').value,'MANUAL_SECRET');
- }finally{f.app.destroy();f.dom.window.close();}
+ }finally{closeDOM(f.dom,f.app);}
 });
 test('tag options follow server metadata; exact selection persists through pagination, option refresh and empty results',async()=>{
  let options=['组队模式','其他页标签','<img src=x>'],items=[record()];
@@ -65,7 +63,7 @@ test('tag options follow server metadata; exact selection persists through pagin
   select.value='';await f.submit('.pa-filters');
   params=new URL(f.calls.at(-1)[0],'https://example.com').searchParams;assert.equal(params.get('tag'),'');assert.equal(params.get('page'),'1');
   assert.deepEqual(Array.from(select.options).map(n=>n.value),['','新选项']);assert.equal(f.doc.querySelector('.pa-filters img'),null);
- }finally{f.app.destroy();f.dom.window.close();}
+ }finally{closeDOM(f.dom,f.app);}
 });
 test('PATCH only changes, preserves manual; explicit restoration and publication gate',()=>{
  const row=record();

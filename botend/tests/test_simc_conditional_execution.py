@@ -1,24 +1,24 @@
 from copy import deepcopy
 from django.test import TestCase, override_settings
 from botend.models import SimulationRun, WowItemSnapshot
-from botend.tests.test_simc_conditional_store import ConditionalStoreTests
-from botend.tests.test_simc_agent_jobs_api import SimcAgentJobAPITests
+from botend.tests import test_simc_conditional_store as store_fixtures
+from botend.tests import test_simc_agent_jobs_api as job_fixtures
 
 
 @override_settings(SIMC_AGENT_REQUIRED_REVISION='a' * 40, ALLOWED_HOSTS=['testserver'])
 class ConditionalExecutionTests(TestCase):
-    import_source = ConditionalStoreTests.import_source
-    approve = ConditionalStoreTests.approve
-    backend_row = SimcAgentJobAPITests.backend_row
-    agent_row = SimcAgentJobAPITests.agent_row
-    task = SimcAgentJobAPITests.task
-    claim = SimcAgentJobAPITests.claim
-    post_json = SimcAgentJobAPITests.post_json
-    complete = SimcAgentJobAPITests.complete
+    import_source = store_fixtures.ConditionalStoreTests.import_source
+    approve = store_fixtures.ConditionalStoreTests.approve
+    backend_row = job_fixtures.SimcAgentJobAPITests.backend_row
+    agent_row = job_fixtures.SimcAgentJobAPITests.agent_row
+    task = job_fixtures.SimcAgentJobAPITests.task
+    claim = job_fixtures.SimcAgentJobAPITests.claim
+    post_json = job_fixtures.SimcAgentJobAPITests.post_json
+    complete = job_fixtures.SimcAgentJobAPITests.complete
 
     def setUp(self):
-        ConditionalStoreTests.setUp(self)
-        SimcAgentJobAPITests.setUp(self)
+        store_fixtures.ConditionalStoreTests.setUp(self)
+        job_fixtures.SimcAgentJobAPITests.setUp(self)
         identity = self.expectation['identity']
         self.agent.platform = 'linux'
         self.agent.capabilities = {

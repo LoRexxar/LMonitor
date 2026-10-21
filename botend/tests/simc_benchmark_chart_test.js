@@ -1,3 +1,4 @@
+const {beforeMarker} = require('./vm_harness');
 // 执行真实图表渲染器，防止装等与收益顺序不一致时发生反向覆盖。
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
@@ -20,7 +21,7 @@ function renderer(file, startup) {
   const source = fs.readFileSync(path.join(__dirname, '../../', file), 'utf8');
   const context = vm.createContext({document: {createElement: element}, Intl, URL});
   assert.ok(source.includes(startup));
-  vm.runInContext(source.slice(0, source.indexOf(startup)) + 'globalThis.render = renderGearResultChart; globalThis.render.scale = typeof gearChartScale === "function" ? gearChartScale : null;})();', context);
+  vm.runInContext(beforeMarker(source, startup) + 'globalThis.render = renderGearResultChart; globalThis.render.scale = typeof gearChartScale === "function" ? gearChartScale : null;})();', context);
   return context.render;
 }
 const portal = renderer('static/portal/js/simc-benchmarks.js', '  document.addEventListener("DOMContentLoaded", loadBenchmarks);');

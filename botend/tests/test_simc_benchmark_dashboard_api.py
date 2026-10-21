@@ -86,6 +86,10 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             user_id=self.staff.id, name='Fury profile', class_name='warrior',
             spec='warrior_fury', is_active=True,
         )
+        self.talent = SimcTalentString.objects.create(
+            name='Fury talents', spec='warrior_fury', talent='CYEAoonA',
+            owner_user_id=self.staff.id, is_active=True, is_selectable=True,
+        )
         self.payload = {
             'name': 'Weekly benchmark', 'slug': 'weekly-dashboard-api',
             'description': 'Dashboard API fixture', 'is_active': True,
@@ -95,7 +99,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
                 'class_name': 'warrior', 'spec_key': 'warrior_fury',
                 'label': 'Fury', 'apl_id': self.apl.id,
                 'template_id': self.template.id, 'backend_id': self.backend.id,
-                'profiles': [{'profile_id': self.profile.id, 'label': 'Raid'}],
+                'profiles': [{'profile_id': self.profile.id, 'talent_string_id': self.talent.id, 'label': 'Raid'}],
             }],
             'scenarios': [{
                 'key': 'patchwerk', 'name': 'Patchwerk',
@@ -1066,7 +1070,7 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         })
         self.assertEqual(set(run['Allow'].split(', ')), {'GET', 'HEAD', 'POST', 'OPTIONS'})
 
-    def test_physical_delete_removes_config_execution_and_case_but_keeps_task(self):
+    def test_retired_physical_delete_is_rejected_without_removing_evidence(self):
         panel = self._create_panel()
         execution = SimcBenchmarkExecution.objects.create(
             panel=panel, config_snapshot={}, config_hash='a' * 64,
@@ -1082,9 +1086,11 @@ class SimcBenchmarkDashboardApiTests(TestCase):
             coordinate_hash='b' * 64,
         )
         response = self.client.delete(f'/api/simc-benchmarks/panels/{panel.id}/')
-        self.assertEqual(response.status_code, 204)
-        self.assertFalse(SimcBenchmarkPanel.objects.filter(pk=panel.id).exists())
-        self.assertFalse(SimcBenchmarkExecution.objects.filter(pk=execution.id).exists())
+        self.assertEqual(response.status_code, 405)
+        self.assertEqual(response.json()['error'], 'use_panel_purge')
+        self.assertTrue(SimcBenchmarkPanel.objects.filter(pk=panel.id).exists())
+        self.assertTrue(SimcBenchmarkExecution.objects.filter(pk=execution.id).exists())
+        self.assertTrue(SimcBenchmarkCase.objects.filter(execution=execution).exists())
         self.assertTrue(SimcTask.objects.filter(pk=task.id).exists())
 
     def test_manual_run_is_async_active_only_and_maps_conflict(self):
@@ -1201,14 +1207,14 @@ class SimcBenchmarkDashboardApiTests(TestCase):
         case = data['cases'][0]
         self.assertEqual(set(case), {
             'coordinate', 'labels', 'status', 'task_id', 'task_status',
-            'task_status_label', 'task_progress', 'error', 'runs',
+            'task_status_label', 'task_progress', 'error', 'error_log', 'runs',
         })
         self.assertEqual(set(case['coordinate']), {
             'spec_key', 'scenario_key', 'profile_key',
         })
         self.assertEqual(set(case['labels']), {'spec', 'scenario', 'profile'})
         self.assertEqual(set(case['runs'][0]), {
-            'key', 'label', 'status', 'dps', 'error',
+            'key', 'label', 'status', 'dps', 'error', 'error_log',
         })
         self.assertEqual(set(data['run_counts']), {
             'pending', 'running', 'success', 'failed', 'cancelled',

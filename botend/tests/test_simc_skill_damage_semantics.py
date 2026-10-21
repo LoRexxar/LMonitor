@@ -91,8 +91,12 @@ class SkillDamageSemanticRegressionTests(SimpleTestCase):
             }]
         effects = classify_global_skill_effects(high, low, [])
         self.assertEqual(len(effects), 1)
-        self.assertEqual(effects[0]['projections'], [])
-        self.assertEqual(effects[0]['value_status'], 'configuration_dependent_or_unresolved')
+        self.assertEqual(effects[0]['projections'], [{
+            'kind': 'damage_multiplier_range', 'operation': 'display_only',
+            'minimum': 1.5, 'maximum': 1.7,
+            'minimum_bonus_percent': 50.0, 'maximum_bonus_percent': 70.0,
+        }])
+        self.assertEqual(effects[0]['value_status'], 'configuration_dependent')
         self.assertFalse(any(row['variant']['scenario_tokens'] for row in
                              flatten_single_talent_damage_variants(high, low, [], global_effects=effects)))
 

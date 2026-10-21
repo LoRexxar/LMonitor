@@ -539,7 +539,9 @@ class SimcWorkerTests(TestCase):
                 worker.request_stop()
             return found
 
-        with patch('botend.services.simc_worker.time.monotonic', side_effect=[0, 0, 1, 2]), patch.object(
+        # Hold the clock within one maintenance interval, independent of the
+        # number of reads made by the separately throttled purge loop.
+        with patch.object(worker, 'run_scheduled_backend_maintenance') as backend_maintenance, patch('botend.services.simc_worker.process_next_purge') as purge, patch('botend.services.simc_worker.time.monotonic', return_value=0), patch.object(
             worker, 'recover_stale_tasks', side_effect=RuntimeError('recovery failed'),
         ) as recover, patch.object(worker, 'consume_once', side_effect=consume) as consume_mock, patch(
             'botend.services.simc_worker.simc_benchmark_scheduler.schedule_due_panels',
@@ -553,6 +555,8 @@ class SimcWorkerTests(TestCase):
         schedule.assert_called_once_with()
         sweep.assert_called_once_with()
         self.assertEqual(consume_mock.call_count, 3)
+        backend_maintenance.assert_called_once_with()
+        purge.assert_called_once_with()
 
     def test_consume_terminal_task_targets_reconcile_without_changing_result_on_failure(self):
         from botend.services.simc_worker import SimcWorker
@@ -577,7 +581,11 @@ class SimcWorkerTests(TestCase):
         stale_at = timezone.now() - timedelta(minutes=5)
         old = self.make_task(status=1, started_at=stale_at)
         old.mode = 'comparison'
-        old.save(update_fields=['mode'])
+        old.mode_params = {'initial_candidates': [{
+            'candidate_key': 'baseline', 'candidate_label': 'Baseline',
+            'candidate_params': {'candidate_type': 'base', 'is_base': True},
+        }]}
+        old.save(update_fields=['mode', 'mode_params'])
         SimcTask.objects.filter(pk=old.pk).update(modified_time=stale_at)
         panel = SimcBenchmarkPanel.objects.create(
             name='stale', slug='stale', created_by_id=old.user_id,
@@ -604,6 +612,9 @@ class SimcWorkerTests(TestCase):
         self.assertEqual(old.current_status, 3)
         self.assertEqual(case.task_id, retry.id)
         self.assertEqual(retry.source_task_id, old.id)
+        self.assertEqual(list(retry.simulation_runs.values_list(
+            'candidate_key', 'status',
+        )), [('baseline', 'pending')])
 
     def test_management_command_runs_worker_once(self):
         worker = MagicMock()

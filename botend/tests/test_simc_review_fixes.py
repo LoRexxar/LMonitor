@@ -1,3 +1,4 @@
+from botend.tests.simc_api_worker_fixtures import independent_talent
 import hashlib
 import json
 import tempfile
@@ -56,6 +57,11 @@ class SimcReviewFixTests(TestCase):
             validation_game_build='test-game-build',
         )
         self.factory = RequestFactory()
+        self.talent = independent_talent(self.user.id)
+        identity = patch('botend.services.simc_task_service.current_validation_identity',
+                         return_value=('test-simc-revision', 'test-game-build'))
+        identity.start()
+        self.addCleanup(identity.stop)
 
     def _task(self, **values):
         validation = {
@@ -70,7 +76,7 @@ class SimcReviewFixTests(TestCase):
                 name=values.pop("name", "review task"),
                 profile_id=self.profile.id,
                 template_id=self.template.id,
-                apl_id=self.apl.id,
+                apl_id=self.apl.id, talent_string_id=self.talent.id,
                 mode=values.pop("mode", "normal"),
                 candidates=values.pop("candidates", None),
             )

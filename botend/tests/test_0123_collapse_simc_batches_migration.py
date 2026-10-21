@@ -5,11 +5,15 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class CollapseSimcBatchesMigrationTests(TransactionTestCase):
     migrate_from = [('botend', '0122_simcaplsymbol_trait_id')]
     migrate_to = [('botend', '0123_collapse_simc_batches_into_tasks')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_from)
         old_apps = executor.loader.project_state(self.migrate_from).apps
@@ -119,10 +123,6 @@ class CollapseSimcBatchesMigrationTests(TransactionTestCase):
             file_path='simc/haste.log',
         ).pk
 
-    def tearDown(self):
-        # Leave the connection at the repository leaf state for other tests.
-        MigrationExecutor(connection).migrate(self.migrate_to)
-        super().tearDown()
 
     def test_forward_fold_is_lossless_and_uses_baseline_representative(self):
         executor = MigrationExecutor(connection)

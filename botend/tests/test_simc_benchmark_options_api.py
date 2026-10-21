@@ -274,6 +274,10 @@ class SimcBenchmarkOptionsApiTests(TestCase):
             name='Unavailable system APL', spec='mage_fire', content='actions=/auto_attack',
             owner_user_id=None, is_system=True, is_active=True, is_selectable=False,
         )
+        other_talent = SimcTalentString.objects.create(
+            name='Other fire talent', spec='mage_fire', talent='fire-build',
+            owner_user_id=self.editor.id, is_active=True, is_selectable=True,
+        )
         other_profile = SimcProfile.objects.create(
             user_id=self.editor.id, name='Other profile', spec='mage_fire',
             class_name='mage', is_active=True,
@@ -296,7 +300,7 @@ class SimcBenchmarkOptionsApiTests(TestCase):
                 'class_name': 'mage', 'spec_key': 'mage_fire',
                 'apl_id': personal_apl.id, 'template_id': other_template.id,
                 'backend_id': self.backend.id,
-                'profiles': [{'profile_id': other_profile.id}],
+                'profiles': [{'profile_id': other_profile.id, 'talent_string_id': other_talent.id}],
             }],
             'scenarios': [{'name': 'Patchwerk', 'simulation_params': {}}],
             'candidates': [],

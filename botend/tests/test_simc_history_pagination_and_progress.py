@@ -717,12 +717,13 @@ class SimcHistoryBackendPaginationTests(TestCase):
         request.user = self.user
 
         with patch.object(
-            self.view, '_benchmark_history_row', wraps=self.view._benchmark_history_row,
+            self.view, '_benchmark_history_summary', wraps=self.view._benchmark_history_summary,
         ) as row_builder:
             response = self.view.get(request, resource='history')
 
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(row_builder.call_count, 1)
+        row_builder.assert_called_once()
+        self.assertEqual(row_builder.call_args.args[0].id, executions[1].id)
         data = json.loads(response.content)
         self.assertEqual(data['pagination']['total'], 2)
         self.assertEqual(len(data['data']), 1)
@@ -1168,7 +1169,7 @@ class SimcHistoryBackendPaginationTests(TestCase):
         """有 Runs 的未完成任务仍提供安全的 task_id 对比入口。"""
         task = SimcTask.objects.create(
             user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
-            name='Incomplete Task', mode='attribute_sweep', current_status=1, is_active=True)
+            name='Incomplete Task', mode='comparison', current_status=1, is_active=True)
         SimulationRun.objects.create(
             task=task, sequence=1, candidate_key='pending', status='pending')
         request = self.factory.get(f'/api/simc-workbench/tasks/{task.id}/')
@@ -1177,12 +1178,19 @@ class SimcHistoryBackendPaginationTests(TestCase):
         data = json.loads(response.content)
         self.assertTrue(data['success'])
         self.assertEqual(data['data']['report_url'], f'/simc-compare/?task_id={task.id}')
+        task.mode = 'attribute_sweep'
+        task.save(update_fields=['mode'])
+        attribute_response = self.view.get(request, resource='tasks', object_id=task.id)
+        attribute_data = json.loads(attribute_response.content)['data']
+        self.assertEqual(attribute_data['report_url'], '')
+        self.assertFalse(attribute_data['has_report'])
+
 
     def test_batch_report_url_empty_when_has_failures(self):
         """部分失败任务的 report_url 仍按 task_id 定位且不泄露错误详情。"""
         task = SimcTask.objects.create(
             user_id=self.user.id, simc_profile_id=self.profile.id, backend=self.backend,
-            name='Failed Task', mode='attribute_sweep', current_status=2, is_active=True)
+            name='Failed Task', mode='comparison', current_status=2, is_active=True)
         SimulationRun.objects.create(
             task=task, sequence=1, candidate_key='done', status='completed',
             result_summary={'dps': 1000})
@@ -1196,6 +1204,13 @@ class SimcHistoryBackendPaginationTests(TestCase):
         self.assertTrue(data['success'])
         self.assertEqual(data['data']['report_url'], f'/simc-compare/?task_id={task.id}')
         self.assertNotIn('SECRET FAILURE', json.dumps(data, ensure_ascii=False))
+        task.mode = 'attribute_sweep'
+        task.save(update_fields=['mode'])
+        attribute_response = self.view.get(request, resource='tasks', object_id=task.id)
+        attribute_data = json.loads(attribute_response.content)['data']
+        self.assertEqual(attribute_data['report_url'], '')
+        self.assertFalse(attribute_data['has_report'])
+
 
     def test_compare_summary_does_not_expose_full_result_or_candidate_payload(self):
         task = SimcTask.objects.create(

@@ -184,8 +184,9 @@ class SimcCoreClosureTests(TestCase):
             apl_id=self.apl.id, talent_string_id=self.talent.id,
         )
         task.current_status = 1
+        task.execution_owner = SimcTask.EXECUTION_OWNER_LOCAL
         task.started_at = timezone.now()
-        task.save(update_fields=['current_status', 'started_at', 'modified_time'])
+        task.save(update_fields=['current_status', 'execution_owner', 'started_at', 'modified_time'])
         monitor = SimcMonitor(None, task)
 
         def recover_during_run(_task, run):
@@ -200,8 +201,9 @@ class SimcCoreClosureTests(TestCase):
             )
             return True
 
-        with patch.object(monitor, 'process_reference_run', side_effect=recover_during_run):
+        with patch.object(monitor, 'process_reference_run', side_effect=recover_during_run) as process_run:
             self.assertFalse(monitor.process_reference_task(task))
+        process_run.assert_called_once()
 
         task.refresh_from_db()
         self.assertEqual(task.current_status, 3)
@@ -265,7 +267,7 @@ class SimcCoreClosureTests(TestCase):
         task = create_task(user_id=self.user.id, name='detail', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id)
         task.mode_params = {
             'candidate_type': 'gear_swap', 'is_base': False, 'batch_index': 1,
-            'gear_swap': {'slot': 'head', 'raw_value': 'secret frozen input'},
+            'gear_swap': {'slot': 'head', 'raw_value': 'test_helm,id=123,private_option=secret frozen input'},
             'talent_override': 'secret talent body',
         }
         task.save(update_fields=['mode_params'])
@@ -286,8 +288,12 @@ class SimcCoreClosureTests(TestCase):
         self.assertEqual(body['runs'][0]['error_summary'], '任务执行失败')
         self.assertEqual(body['mode_summary'], {
             'candidate_type': 'gear_swap', 'is_base': False,
+            'gear_swap': {'slot': 'head', 'name': 'test_helm', 'item_id': 123,
+                          'item_level': None, 'source': '', 'modifiers': {}},
         })
         self.assertNotIn('mode_params', body)
+        for secret in ('secret frozen input', 'secret talent body', '/private/path', 'stderr=secret'):
+            self.assertNotIn(secret, json.dumps(body))
 
     def test_artifact_can_be_bound_to_specific_run(self):
         task = create_task(user_id=self.user.id, name='artifact', profile_id=self.profile.id, template_id=self.template.id, apl_id=self.apl.id, talent_string_id=self.talent.id)

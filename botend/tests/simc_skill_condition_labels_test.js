@@ -1,25 +1,6 @@
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
-const vm = require('node:vm');
-
-// Execute the real table renderer: the condition cell must preserve every
-// independently frozen talent, health and runtime-state condition.
-const source = fs.readFileSync(path.join(__dirname, '../../static/dashboard/js/main.js'), 'utf8');
-const elements = new Map();
-function element(id) {
-    if (!elements.has(id)) elements.set(id, {value: '', dataset: {}, innerHTML: '', textContent: '',
-        classList: {add() {}, remove() {}}, setAttribute() {}});
-    return elements.get(id);
-}
-element('simc-skill-damage-spec').value = 'warrior:fury';
-element('simc-skill-damage-hero-tree').value = '60';
-const context = vm.createContext({
-    document: {getElementById: element, querySelectorAll: () => [{dataset: {targetCount: '1'}, getAttribute: () => 'true'}]},
-    escapeHtml: value => String(value).replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;'),
-});
-const start = source.indexOf('function renderSimcSkillIdentity(');
-vm.runInContext(source.slice(start, source.indexOf('function initSimcSkillDamagePanel(', start)), context);
+const {skillRenderer} = require('./vm_harness');
+const {context, element, elements, target} = skillRenderer();
 const product = {damage_metric: 'critical_expectation', normalized_base_damage: 100,
     final_normalized_damage: 156, formula_components: [{base_damage: 100, runtime_factors: [1.3],
         noncrit_damage: 130, crit_damage: 260, crit_chance: 0.2,

@@ -19,9 +19,9 @@ class IncrementalSchedulerTests(TransactionTestCase):
 
     def setUp(self):
         fixtures.SimcBenchmarkExecutionTests.setUp(self)
-        fixtures.WowItemSnapshot.objects.create(
-            item_id=123, name='Test trinket', item_class_id=4,
-            inventory_type=12, metadata={'primary_stat_options': ['strength']},
+        fixtures.WowItemSnapshot.objects.update_or_create(
+            item_id=123,
+            defaults={'name': 'Test trinket', 'item_class_id': 4, 'inventory_type': 12, 'metadata': {'primary_stat_options': ['strength']}},
         )
         for number in range(4):
             fixtures.SimcBenchmarkScenario.objects.create(

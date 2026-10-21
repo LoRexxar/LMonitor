@@ -3674,22 +3674,27 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             result = service.generate()
 
         snapshot.refresh_from_db()
-        self.assertEqual(run.call_count, 4)
+        expected_names = {'skill_damage_base', *(
+            f'skill_damage_talent_{talent.pk}_trait_{talent.node_id}' for talent in talents
+        )}
+        batch_size = service.ACTOR_CONFIG_BATCH_SIZE
+        self.assertGreater(batch_size, 0)
+        expected_sizes = [min(batch_size, len(expected_names) - start)
+                          for start in range(0, len(expected_names), batch_size)]
+        self.assertEqual(run.call_count, len(expected_sizes) * 2)
         self.assertEqual(
             [len(call.kwargs['actor_plan']) for call in run.call_args_list],
-            [24, 3, 24, 3],
+            expected_sizes * 2,
         )
         self.assertEqual(
             [call.kwargs['target_health'] for call in run.call_args_list],
-            [100, 100, 34, 34],
+            [health for health in (100, 34) for _ in expected_sizes],
         )
-        first_health_actor_names = {
-            actor_spec['name']
-            for call in run.call_args_list[:2]
-            for actor_spec in call.kwargs['actor_plan']
-        }
-        self.assertEqual(len(first_health_actor_names), 27)
-        self.assertIn('skill_damage_base', first_health_actor_names)
+        for health in (100, 34):
+            names = [actor['name'] for call in run.call_args_list
+                     if call.kwargs['target_health'] == health
+                     for actor in call.kwargs['actor_plan']]
+            self.assertCountEqual(names, expected_names)
         self.assertEqual(snapshot.status, snapshot.STATUS_SUCCEEDED)
         self.assertEqual(result['actors'][0]['specialization'], 'fury')
         self.assertEqual(result['actors'][0]['variant_model'], 'single_talent_runtime')
@@ -3700,6 +3705,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(result['identity'], {
             'simc_revision': 'c' * 40,
             'game_build': '12.1.0.69299',
+            'data_branch': 'retail',
             'schema_revision': 8,
         })
         self.assertNotIn('talent', result['identity'])
@@ -3837,17 +3843,23 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             pass
 
         original_load = _CanonicalActorSpool.load
-        initial_baselines = set()
+        tracking_consumers = False
         loaded_refs = []
         peak_live = 0
         peak_context = None
 
+        def classify_with_tracking(base_high, base_low, variants):
+            nonlocal tracking_consumers
+            # Exclude the fixed base pair, not the first load of each name:
+            # activation-context planning also reads base actors beforehand.
+            # All subsequent lazy reference/base loads must still be counted.
+            tracking_consumers = True
+            return classify_global_skill_effects(base_high, base_low, variants)
+
         def tracked_load(spool, target_health, canonical_name):
             nonlocal peak_live, peak_context
             actor = original_load(spool, target_health, canonical_name)
-            key = (target_health, canonical_name)
-            if canonical_name == 'skill_damage_base' and key not in initial_baselines:
-                initial_baselines.add(key)
+            if not tracking_consumers:
                 return actor
             gc.collect()
             probe = LoadedGraphProbe()
@@ -3873,9 +3885,15 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                  return_value={talent.pk: [] for talent in talents},
              ), \
              mock.patch.object(service, '_run_profile_export', side_effect=export_batch), \
+             mock.patch(
+                 'botend.services.simc_skill_damage.classify_global_skill_effects',
+                 new=classify_with_tracking,
+             ), \
              mock.patch.object(_CanonicalActorSpool, 'load', new=tracked_load):
             service._generate_profile_product_actor(profile)
 
+        self.assertTrue(tracking_consumers)
+        self.assertGreater(len(loaded_refs), 8)
         self.assertLessEqual(
             peak_live,
             8,
@@ -5590,13 +5608,12 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('aria-sort="none"', template)
         self.assertIn("localeCompare(rightName, 'zh-CN'", renderer)
         self.assertIn('const formulaGroups = new Map()', renderer)
-        self.assertIn("const formulaBaseLabel = '基础伤害'", renderer)
         self.assertIn('component.runtime_factors', renderer)
         self.assertNotIn('formulaBaseLabels', renderer)
         self.assertNotIn('component.base_multiplier', renderer)
         self.assertNotIn('baseFactorFormula', renderer)
-        self.assertIn('group.baseDamage += baseDamage', renderer)
-        self.assertIn('formatSimcSkillDamageFactor(group.baseDamage)', renderer)
+        # Component sums/critical expectation are exercised by the real renderer
+        # in simc_skill_damage_renderer_test.js; accumulator names are not a contract.
         self.assertIn(
             'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = [],',
             renderer,
@@ -5694,7 +5711,6 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('id="simc-skill-damage-panel"', template)
         self.assertIn('技能归一化伤害', template)
         self.assertIn('基础伤害按 AP/SP 100 归一化', template)
-        self.assertIn('多段、主副手和周期伤害分别计算后合并', template)
         self.assertIn('统一基础暴击率：20%', template)
         self.assertNotIn('最终伤害仍为非暴击', template)
         self.assertIn('id="simc-skill-damage-global-modifiers"', template)
@@ -5726,36 +5742,9 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertIn('renderSimcSkillDamageSnapshot', script)
         self.assertIn('initSimcSkillDamagePanel();', script)
         self.assertNotIn('bg-gray-900 simc-skill-damage', template)
-
-    def test_dashboard_shows_base_formula_and_critical_damage_expectation(self):
-        template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
-        script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
-        renderer = script.split('function renderSimcSkillDamageSnapshot(snapshot) {', 1)[1].split(
-            'function initSimcSkillDamagePanel()', 1,
-        )[0]
-
-        for label in ('基础 AP/SP 伤害', '伤害公式', '归一化伤害期望'):
-            self.assertIn(label, template)
-        for removed_label in ('该条件实际伤害', '技能实际暴击率'):
-            self.assertNotIn(removed_label, template)
-        for field in (
-            'normalized_base_damage', 'final_normalized_damage', 'formula_components',
-            'base_damage', 'runtime_factors', 'final_damage',
-        ):
-            self.assertIn(field, renderer)
-        for removed_field in (
-            'attack_power_coefficient', 'spell_power_coefficient', 'runtime_multiplier',
-        ):
-            self.assertNotIn(removed_field, renderer)
-        self.assertIn('formatSimcSkillDamageFactor', renderer)
-        self.assertIn('toFixed(6)', renderer)
-        self.assertNotIn('等效总倍率', renderer)
-        self.assertNotIn('SimC 总乘区', renderer)
-        for crit_field in ('crit_damage', 'crit_chance', 'noncrit_contribution', 'crit_contribution'):
-            self.assertIn(crit_field, renderer)
-        self.assertIn('旧快照为非暴击值，需重新生成', renderer)
-        self.assertIn('统一基础暴击率：20%', template)
+        # Keep the independent theme boundary after consolidating formula checks.
         self.assertIn('html[data-dashboard-theme="dark"] #simc-skill-damage-panel', template)
+
 
     def test_dashboard_requires_spec_and_hero_tree_and_renders_single_talent_runtime_conditions(self):
         template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')

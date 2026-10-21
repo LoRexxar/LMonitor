@@ -78,10 +78,6 @@ def tearDownModule():
 class SimcResourceVersionModelTests(TestCase):
     """Test SimcResourceVersion model for immutable snapshots."""
 
-    def test_resource_version_model_exists(self):
-        """RED: SimcResourceVersion model should exist."""
-        from botend.models import SimcResourceVersion
-        self.assertTrue(hasattr(SimcResourceVersion, '_meta'))
 
     def test_resource_version_has_required_fields(self):
         """RED: SimcResourceVersion should have resource_type, resource_id, content_hash, payload, created_at."""
@@ -1248,12 +1244,3 @@ class TaskRerunWithVersionsTests(TestCase):
                 self.user_id,
                 overrides={'mode_params': {'initial_candidates': []}},
             )
-
-
-class SimulationRunModelTests(TestCase):
-    """Test SimulationRun model existence."""
-
-    def test_simulation_run_model_exists(self):
-        """GREEN: SimulationRun model should exist."""
-        from botend.models import SimulationRun
-        self.assertTrue(hasattr(SimulationRun, '_meta'))

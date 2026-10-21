@@ -5,7 +5,7 @@ from copy import deepcopy
 
 from django.test import TestCase
 
-from botend.tests.test_simc_conditional_store import ConditionalStoreTests
+from botend.tests import test_simc_conditional_store as store_fixtures
 from botend.services.simc_conditional_store import freeze_conditional_contract
 from botend.controller.plugins.simc.SimcMonitor import SimcMonitor
 from botend.services.simc_composer import SimcComposer
@@ -13,9 +13,9 @@ from simc_equipment_control import MARKER, EXPECTATION_MARKER, prepare_control_i
 
 
 class ConditionalComposerTests(TestCase):
-    setUp = ConditionalStoreTests.setUp
-    import_source = ConditionalStoreTests.import_source
-    approve = ConditionalStoreTests.approve
+    setUp = store_fixtures.ConditionalStoreTests.setUp
+    import_source = store_fixtures.ConditionalStoreTests.import_source
+    approve = store_fixtures.ConditionalStoreTests.approve
 
     def test_reversed_profile_order_preserves_policy_order_through_prepare(self):
         self.approve()

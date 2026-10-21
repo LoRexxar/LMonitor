@@ -18,6 +18,7 @@ from botend.models import (
     SimcContentTemplate,
     SimcProfile,
     SimcTask,
+    SimcTalentString,
 )
 
 
@@ -132,14 +133,25 @@ class SimcBenchmarkModelContractTests(TestCase):
                     backend=self.backend,
                 )
 
+        talent = SimcTalentString.objects.create(
+            name='Fury talent', spec='warrior_fury', talent='build-one',
+        )
         SimcBenchmarkProfile.objects.create(
-            panel_spec=self.panel_spec, profile=self.profile, label='Default',
+            panel_spec=self.panel_spec, profile=self.profile, talent_string=talent, label='Default',
         )
         with self.assertRaises(IntegrityError):
             with transaction.atomic():
                 SimcBenchmarkProfile.objects.create(
-                    panel_spec=self.panel_spec, profile=self.profile, label='Duplicate',
+                    panel_spec=self.panel_spec, profile=self.profile, talent_string=talent, label='Duplicate',
                 )
+
+        alternate = SimcTalentString.objects.create(
+            name='Alternate Fury', spec='warrior_fury', talent='build-two',
+        )
+        SimcBenchmarkProfile.objects.create(
+            panel_spec=self.panel_spec, profile=self.profile,
+            talent_string=alternate, label='Independent talent coordinate',
+        )
 
         SimcBenchmarkScenario.objects.create(
             panel=self.panel, key='patchwerk', name='Patchwerk',

@@ -31,76 +31,10 @@ from botend.services.simc_benchmark_execution import (
 from botend.services.simc_run_control import build_frozen_run_input
 
 
-class SimcBenchmarkExecutionTests(TestCase):
-    user_id = 701
+from botend.tests.simc_benchmark_test_fixtures import BenchmarkExecutionFixtureMixin, benchmark_trinket
 
-    def setUp(self):
-        self.backend = SimcBackendBinary.objects.create(
-            identifier='benchmark-execution', name='Benchmark', is_active=True,
-            current_version='a' * 40,
-        )
-        self.apl = SimcApl.objects.create(
-            name='Fury APL', spec='warrior_fury', content='actions=/auto_attack',
-            owner_user_id=self.user_id, is_active=True, is_selectable=True,
-            validation_status=SimcApl.VALIDATION_VALID,
-            validated_content_hash=hashlib.sha256(b'actions=/auto_attack').hexdigest(),
-            validation_revision='a' * 40, validation_game_build='12.0.1',
-        )
-        self.template = SimcContentTemplate.objects.create(
-            name='Template', spec='warrior_fury', content='iterations=1000',
-            owner_user_id=self.user_id,
-        )
-        self.profile = SimcProfile.objects.create(
-            user_id=self.user_id, name='Profile', class_name='warrior',
-            spec='warrior_fury', is_active=True,
-        )
-        self.talent = SimcTalentString.objects.create(
-            name='Slayer talents', spec='warrior_fury', talent='CYEAoonA',
-            owner_user_id=self.user_id,
-        )
-        self.panel = SimcBenchmarkPanel.objects.create(
-            name='Weekly', slug='weekly-execution', created_by_id=self.user_id,
-            is_active=True, schedule_enabled=True,
-        )
-        spec = SimcBenchmarkSpec.objects.create(
-            panel=self.panel, class_name='warrior', spec_key='warrior_fury',
-            label='Fury', apl=self.apl, template=self.template, backend=self.backend,
-        )
-        self.benchmark_profile = SimcBenchmarkProfile.objects.create(
-            panel_spec=spec, profile=self.profile, talent_string=self.talent,
-            label='Raid profile',
-        )
-        SimcBenchmarkScenario.objects.create(
-            panel=self.panel, key='patchwerk', name='Patchwerk',
-            simulation_params={'iterations': 1000},
-        )
-        SimcBenchmarkCandidate.objects.create(
-            panel=self.panel, key='trinket', label='Trinket',
-            candidate_type='gear_swap', params={
-                'candidate_type': 'gear_swap', 'is_base': False,
-                'gear_swap': {'slot': 'trinket1', 'raw_value': ',id=123',
-                              'item_id': 123, 'source': 'manual'},
-                'simc_options': [
-                    'midnight.crucible_of_erratic_energies_predation=1',
-                ],
-            },
-        )
-        self.validation = {
-            'valid': True,
-            'content_hash': hashlib.sha256(self.apl.content.encode()).hexdigest(),
-            'revision': 'a' * 40, 'game_build': '12.0.1', 'diagnostics': [],
-        }
 
-    def _create(self, **kwargs):
-        with patch('botend.services.simc_task_service.current_validation_identity',
-                   return_value=('a' * 40, '12.0.1')), patch(
-            'botend.services.simc_task_service.validate_apl_for_profile',
-            return_value=self.validation,
-        ):
-            return create_execution(
-                self.panel, requested_by=self.user_id, **kwargs,
-            )
-
+class SimcBenchmarkExecutionTests(BenchmarkExecutionFixtureMixin, TestCase):
     def test_incremental_results_overlay_the_active_variant_tooltip(self):
         candidate = self.panel.candidates.get(key='trinket')
         params = deepcopy(candidate.params)
@@ -115,7 +49,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             game_build='12.1.0.1', gear_batch_key='benchmark-tooltip-batch',
             gear_sync_status='ready', mplus_zone_id=1, raid_zone_id=2,
         )
-        item = WowItemSnapshot.objects.create(
+        item = benchmark_trinket(
             item_id=123, name='Test Trinket', name_zh='统一测试饰品',
             description='Equip: stale tooltip.', icon='inv_test_trinket',
             catalog_type='equipment', slot_key='trinket', inventory_type=12,
@@ -160,7 +94,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             gear_batch_key='benchmark-tooltip-incomplete-batch', gear_sync_status='ready',
             mplus_zone_id=1, raid_zone_id=2,
         )
-        item = WowItemSnapshot.objects.create(
+        item = benchmark_trinket(
             item_id=123, name='Test Trinket', name_zh='大副的甲壳结界',
             icon='inv_test_trinket', catalog_type='equipment',
             slot_key='trinket', inventory_type=12,
@@ -207,22 +141,23 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(task.talent_string_id, self.talent.pk)
         self.assertIsNotNone(task.talent_version_id)
         self.assertEqual(frozen_talent_name, 'Slayer talents')
-        self.assertEqual(coordinate['profile_detail']['talents']['name'], 'Slayer talents')
+        self.assertEqual(coordinate['profile_detail']['talents']['name'], '屠戮者 talents')
         self.assertEqual(result.hero_talent_names, ['屠戮者'])
         self.assertEqual(coordinate['labels']['hero_talent'], '屠戮者')
 
+        # Legacy profile-only display remains readable, but cannot be scheduled.
         self.benchmark_profile.talent_string = None
         self.benchmark_profile.save(update_fields=['talent_string'])
-        self.profile.name = 'MID2 默认玩家-屠戮者'
-        self.profile.save(update_fields=['name'])
-        self._published_success(hero_talent_names=['屠戮者'])
-
-        payload = serialize_incremental_panel_results(self.panel)
-        coordinate = payload['coordinates'][0]
-        self.assertEqual(
-            coordinate['profile_detail']['talents']['name'],
-            'MID2 默认玩家-屠戮者',
+        with self.assertRaises(ValidationError):
+            self._create()
+        result.refresh_from_db()
+        self.assertEqual(result.hero_talent_names, ['屠戮者'])
+        self.assertEqual(task.talent_version.payload['name'], 'Slayer talents')
+        from botend.services.simc_benchmark_execution import _profile_detail_from_payload
+        legacy = _profile_detail_from_payload(
+            {}, 'warrior_fury', fallback_talent_name='MID2 默认玩家-屠戮者',
         )
+        self.assertEqual(legacy['talents']['name'], 'MID2 默认玩家-屠戮者')
 
     def test_legacy_hero_talent_name_is_standardized_only_for_display(self):
         self.profile.name = 'MID2 默认玩家-法术投射者'
@@ -533,6 +468,10 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
         SimcBenchmarkProfile.objects.create(
             panel_spec=priest_spec, profile=priest_profile, label='Shadow raid profile',
+            talent_string=SimcTalentString.objects.create(
+                name='Shadow talents', spec='priest_shadow', talent='Cshadow',
+                owner_user_id=self.user_id,
+            ),
         )
 
         config = serialize_panel_config(self.panel)
@@ -630,18 +569,19 @@ class SimcBenchmarkExecutionTests(TestCase):
             {
                 'spec_key': 'warrior_fury', 'spec_label': '狂怒 · 战士',
                 'spec_icon_url': _spec_icon_url('warrior_fury'),
-                'profile_key': str(self.profile.pk), 'profile_label': 'Profile',
+                'profile_key': f'{self.profile.pk}:talent:{self.talent.pk}',
+                'profile_label': 'Profile',
                 'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
-                'baseline_dps': 1000.0, 'enabled_dps': 1100.0,
+                'baseline_dps': 1000.0, 'enabled_dps': 1100.0, 'comparison_dps': 1100.0,
                 'gain_dps': 100.0, 'gain_percent': 10.0,
             },
             {
                 'spec_key': 'priest_shadow', 'spec_label': '暗影 · 牧师',
                 'spec_icon_url': _spec_icon_url('priest_shadow'),
-                'profile_key': str(priest_profile.pk),
+                'profile_key': f'{priest_profile.pk}:talent:{priest_spec.profiles.get().talent_string_id}',
                 'profile_label': 'Shadow Profile',
                 'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
-                'baseline_dps': 2000.0, 'enabled_dps': 2100.0,
+                'baseline_dps': 2000.0, 'enabled_dps': 2100.0, 'comparison_dps': 2100.0,
                 'gain_dps': 100.0, 'gain_percent': 5.0,
             },
         ])
@@ -721,7 +661,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         compared_options = SimcComposer(self.user_id)._resolve_simulation_options(
             compared_request,
         ).value.content
-        self.assertIn('external_buffs.power_infusion=0', compared_options)
+        # External buffs belong to player scope, not global simulation options.
+        self.assertNotIn('external_buffs.power_infusion=', compared_options)
         self.assertNotIn('external_buffs.pool', compared_options)
 
         execution = self._create()
@@ -746,7 +687,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(payload['comparison_rows'], [{
             'spec_key': 'warrior_fury', 'spec_label': '狂怒 · 战士',
             'spec_icon_url': _spec_icon_url('warrior_fury'),
-            'profile_key': str(self.profile.pk), 'profile_label': 'Profile',
+            'profile_key': f'{self.profile.pk}:talent:{self.talent.pk}',
+            'profile_label': 'Profile',
             'scenario_key': 'patchwerk', 'scenario_label': 'Patchwerk',
             'baseline_dps': 1000.0, 'comparison_dps': 1150.0,
             'gain_dps': 150.0, 'gain_percent': 15.0,
@@ -845,51 +787,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIn('trinket1=,id=456,ilevel=300', rendered)
         self.assertIn('trinket2=Original Two,id=123,ilevel=300', rendered)
 
-    def _run(self, task, sequence, status, key=None, label=None, dps=None,
-             hero_talent_names=None):
-        return SimulationRun.objects.create(
-            task=task, sequence=sequence, candidate_key=key or f'candidate-{sequence}',
-            candidate_label=label or key or f'Candidate {sequence}', status=status,
-            result_summary={'dps': dps} if dps is not None else None,
-            resource_manifest={'hero_talent_names': list(hero_talent_names or [])},
-        )
 
-    def _aggregate_candidate(self, key, dps, task_id, source_result_id, *, label=None,
-                             candidate_type=None, icon_url='', source_label=''):
-        return {
-            'key': key, 'label': label or key.title(),
-            'type': candidate_type or ('base' if key == 'baseline' else 'gear_swap'),
-            'icon_url': icon_url, 'source_label': source_label,
-            'dps': dps, 'task_id': task_id, 'source_result_id': source_result_id,
-        }
 
-    def _published_success(self, hero_talent_names=None):
-        # A completed immutable coordinate is intentionally not scheduled again.
-        # Serializer-contract subtests need an independent fixture, so vary the
-        # frozen scenario input after the first completed fixture in this database.
-        completed = SimcBenchmarkExecution.objects.filter(
-            panel=self.panel, results_finalized_at__isnull=False,
-        ).count()
-        if completed:
-            SimcBenchmarkScenario.objects.filter(panel=self.panel, key='patchwerk').update(
-                simulation_params={'iterations': 1000 + completed}
-            )
-        execution = self._create()
-        task = execution.cases.get().task
-        task.current_status = 2
-        task.save(update_fields=['current_status'])
-        self._run(
-            task, 1, 'completed', 'baseline', dps=1234,
-            hero_talent_names=hero_talent_names,
-        )
-        self._run(
-            task, 2, 'completed', 'trinket', dps=1300,
-            hero_talent_names=hero_talent_names,
-        )
-        reconcile_execution(execution)
-        self.panel.is_public = True
-        self.panel.save(update_fields=['is_public'])
-        return execution
 
     def test_semantically_invalid_completed_run_is_not_published_as_benchmark_result(self):
         execution = self._create()
@@ -913,7 +812,13 @@ class SimcBenchmarkExecutionTests(TestCase):
         case.refresh_from_db()
         self.assertEqual(execution.status, 'partial')
         self.assertEqual(case.status, 'partial')
-        self.assertEqual(case.results.count(), 0)
+        self.assertEqual(list(case.results.values_list('candidate_key', 'dps')),
+                         [('trinket', 1300.0)])
+        self.assertFalse(case.results.filter(candidate_key='baseline').exists())
+        self.assertFalse(execution.result_hash)
+        self.assertIsNone(execution.results_finalized_at)
+        self.panel.refresh_from_db()
+        self.assertNotEqual(self.panel.published_execution_id, execution.id)
         self.assertIn('英雄天赋未进入任何有效 APL 分流', case.error_detail)
 
     def test_failed_case_rerun_copies_only_failed_task_and_keeps_original_result_immutable(self):
@@ -1191,6 +1096,8 @@ class SimcBenchmarkExecutionTests(TestCase):
             self.assertNotIn('render.worldofwarcraft.com', url)
 
     def test_incremental_projection_uses_profile_frozen_by_result_source_task(self):
+        self.talent.talent = 'frozen-build'
+        self.talent.save(update_fields=['talent'])
         self.profile.player_equipment = (
             'warrior="Frozen Player"\nlevel=80\nspec=fury\n'
             'talents=frozen-build\nhead=,id=100\n'
@@ -1204,6 +1111,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
         self.profile.talent = 'changed-build'
         self.profile.save(update_fields=['player_equipment', 'talent'])
+        self.talent.talent = 'changed-independent-build'
+        self.talent.save(update_fields=['talent'])
 
         profile = serialize_incremental_panel_results(
             self.panel,
@@ -1252,12 +1161,13 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(coordinate['simulation_detail'], {
             'fight_style': {
                 'value': 'HecticAddCleave',
-                'label': 'HecticAddCleave（高频小怪顺劈）',
+                'label': '高频小怪顺劈（HecticAddCleave）',
             },
             'desired_targets': 4,
             'max_time': 240,
             'vary_combat_length': 0.15,
             'enemy_type': 'humanoid',
+            'enemy_initial_health_percentage': 100,
             'iterations': 20000,
             'target_error': 0.05,
             'use_class_raid_buff': True,
@@ -1300,6 +1210,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIn("'附加 SimC 输入'", dashboard)
 
     def test_incremental_projection_uses_profile_frozen_by_failed_source_task(self):
+        self.talent.talent = 'frozen-failure-build'
+        self.talent.save(update_fields=['talent'])
         self.profile.player_equipment = (
             'warrior="Frozen Failure"\nlevel=80\nspec=fury\n'
             'talents=frozen-failure-build\nhead=,id=101\n'
@@ -1316,6 +1228,8 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
         self.profile.talent = 'changed-build'
         self.profile.save(update_fields=['player_equipment', 'talent'])
+        self.talent.talent = 'changed-independent-build'
+        self.talent.save(update_fields=['talent'])
 
         profile = serialize_incremental_panel_results(
             self.panel,
@@ -1416,7 +1330,7 @@ class SimcBenchmarkExecutionTests(TestCase):
             'execution__panel_id': self.panel.id,
             'results__isnull': False,
             'spec_key': 'warrior_fury',
-            'profile_key': str(self.profile.id),
+            'profile_key': f'{self.profile.id}:talent:{self.talent.id}',
             'scenario_key': 'patchwerk',
         }])
         self.assertNotIn('candidates', result['coordinate_options'][0])
@@ -1452,6 +1366,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         }])
 
     def test_incremental_candidate_creates_only_missing_candidate_task_and_aggregates_old_result(self):
+        benchmark_trinket(456)
         original = self._published_success()
         original_case = original.cases.get()
         original_task = original_case.task
@@ -1901,8 +1816,10 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual(after, before)
         self.assertEqual(public['status'], 'ready')
         sql = ' '.join(query['sql'].lower() for query in captured.captured_queries)
-        self.assertNotIn('simulation_run', sql)
-        self.assertNotIn('simc_task', sql)
+        # Failed-run diagnostics are intentionally loaded, never mutable DPS/input.
+        self.assertNotIn('result_summary', sql)
+        self.assertNotIn('profile_snapshot', sql)
+        self.assertNotIn('mode_params', sql)
 
         original_hash = execution.result_hash
         reconcile_execution(execution)
@@ -1944,15 +1861,6 @@ class SimcBenchmarkExecutionTests(TestCase):
                 ).exists())
                 self.assertNotEqual(self.panel.published_execution_id, execution.pk)
 
-    def _replace_snapshot(self, execution, mutate, *, update_hash=True):
-        snapshot = deepcopy(execution.config_snapshot)
-        mutate(snapshot)
-        values = {'config_snapshot': snapshot}
-        if update_hash:
-            values['config_hash'] = hashlib.sha256(json.dumps(
-                snapshot, sort_keys=True, separators=(',', ':'), ensure_ascii=False,
-            ).encode()).hexdigest()
-        SimcBenchmarkExecution.objects.filter(pk=execution.pk).update(**values)
 
     def test_create_execution_uses_real_task_service_and_freezes_safe_plan(self):
         execution = self._create()
@@ -2097,7 +2005,7 @@ class SimcBenchmarkExecutionTests(TestCase):
         )
         SimcBenchmarkProfile.objects.create(
             panel_spec=self.panel.specs.get(), profile=rejected_profile,
-            label='Rejected profile',
+            talent_string=self.talent, label='Rejected profile',
         )
         from botend.services.simc_task_service import (
             TaskCreationError, prepare_task_creation as real_prepare,
@@ -2127,8 +2035,8 @@ class SimcBenchmarkExecutionTests(TestCase):
 
         cases = list(execution.cases.select_related('task').order_by('profile_key'))
         self.assertEqual(len(cases), 2)
-        failed = next(case for case in cases if case.profile_key == str(rejected_profile.pk))
-        successful = next(case for case in cases if case.profile_key == str(self.profile.pk))
+        failed = next(case for case in cases if case.profile_key == f'{rejected_profile.pk}:talent:{self.talent.pk}')
+        successful = next(case for case in cases if case.profile_key == f'{self.profile.pk}:talent:{self.talent.pk}')
         self.assertIsNone(failed.task)
         self.assertEqual(failed.status, 'failed')
         self.assertIn('warrior_fury / patchwerk / ' + str(rejected_profile.pk), failed.error_detail)
@@ -2294,6 +2202,11 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertIn(f'Profile #{self.profile.id}', retry_case.error_detail)
 
     def test_validator_unavailability_is_conflict_but_content_rejection_is_validation(self):
+        # Validation moved to editor save; test classification and the actual
+        # Benchmark preflight boundary, not an unused task-service validator hook.
+        from botend.services.simc_task_service import (
+            TaskCreationError, TaskValidationUnavailable, _validation_failure_is_retryable,
+        )
         retryable_results = [{
             'valid': False, 'content_hash': self.validation['content_hash'],
             'revision': 'a' * 40, 'game_build': '12.0.1', 'error': error,
@@ -2317,9 +2230,10 @@ class SimcBenchmarkExecutionTests(TestCase):
                 'botend.services.simc_task_service.current_validation_identity',
                 return_value=('a' * 40, '12.0.1'),
             ), patch(
-                'botend.services.simc_task_service.validate_apl_for_profile',
-                return_value=validation,
-            ):
+                'botend.services.simc_benchmark_execution.prepare_task_creation',
+                side_effect=TaskValidationUnavailable('unavailable', details=validation),
+            ) as prepare:
+                self.assertTrue(_validation_failure_is_retryable(validation))
                 with self.assertRaises(BenchmarkExecutionConflict):
                     create_execution(self.panel, requested_by=self.user_id)
                 self.assertFalse(SimcBenchmarkExecution.objects.exists())
@@ -2339,9 +2253,10 @@ class SimcBenchmarkExecutionTests(TestCase):
                 'botend.services.simc_task_service.current_validation_identity',
                 return_value=('a' * 40, '12.0.1'),
             ), patch(
-                'botend.services.simc_task_service.validate_apl_for_profile',
-                return_value=validation,
-            ):
+                'botend.services.simc_benchmark_execution.prepare_task_creation',
+                side_effect=TaskCreationError('rejected', details=validation),
+            ) as prepare:
+                self.assertFalse(_validation_failure_is_retryable(validation))
                 with self.assertRaises(ValidationError):
                     create_execution(self.panel, requested_by=self.user_id)
                 self.assertFalse(SimcBenchmarkExecution.objects.exists())
@@ -2416,7 +2331,11 @@ class SimcBenchmarkExecutionTests(TestCase):
         self.assertEqual((result['total_cases'], result['total_runs']), (1, 0))
         self.assertEqual(result['running'], 1)
         self.assertEqual(result['cases'][0]['runs'], [])
-        self.assertIsNone(result['cases'][0]['error'])
+        self.assertEqual(result['cases'][0]['error'], task.error_detail)
+        # Service owns diagnostics; the API owns redaction, not the ORM summary.
+        from botend.dashboard.api import _benchmark_safe_detail
+        safe = _benchmark_safe_detail(result, execution)
+        self.assertNotIn('/srv/private/profile.simc', repr(safe))
         self.assertNotIn('file_path', repr(result))
 
     def test_backfill_completed_case_results_restores_only_success_cases_idempotently(self):
@@ -2518,6 +2437,10 @@ class SimcBenchmarkExecutionTests(TestCase):
         reconcile_execution(retry)
         retry.refresh_from_db()
         self.assertEqual(retry.status, 'failed')
+        self.assertEqual(list(retry_case.results.values_list('candidate_key', 'dps')),
+                         [('baseline', 1234.0)])
+        # Reproduce a historical missing result; modern reconcile preserves it.
+        retry_case.results.all().delete()
         self.assertEqual(retry_case.results.count(), 0)
 
         self.assertEqual(backfill_completed_case_results(retry), 1)

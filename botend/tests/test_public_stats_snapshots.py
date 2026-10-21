@@ -5,12 +5,12 @@ from pathlib import Path
 import tempfile
 from types import SimpleNamespace
 from unittest.mock import patch
-from django.test import SimpleTestCase, RequestFactory, override_settings
+from django.test import TestCase, RequestFactory, override_settings
 from botend.portal import spec_detail_views as views
 from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor, publish_stats
 
 
-class PublicStatsSnapshotTests(SimpleTestCase):
+class PublicStatsSnapshotTests(TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix='public-stats-'))
         self.settings_override = override_settings(MEDIA_ROOT=self.root)

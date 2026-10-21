@@ -28,8 +28,10 @@ class SimcBenchmarkTargetedRerunTests(TestCase):
     def setUp(self):
         fixtures.SimcBenchmarkExecutionTests.setUp(self)
         for item_id, inventory in ((123,12),(456,11)):
-            WowItemSnapshot.objects.create(item_id=item_id, item_class_id=4, inventory_type=inventory,
-                item_subclass_id=0, metadata={'primary_stat_options':['strength']})
+            WowItemSnapshot.objects.update_or_create(
+                item_id=item_id,
+                defaults={'item_class_id': 4, 'inventory_type': inventory, 'item_subclass_id': 0, 'metadata': {'primary_stat_options':['strength']}},
+            )
         candidate = self.panel.candidates.get(key='trinket')
         candidate.params['gear_swap'].update(item_level=321, raw_value=',id=123,ilevel=321')
         candidate.label = '测试饰品 · 321'

@@ -9,16 +9,14 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 from unittest import skipUnless
-
 from django.test import SimpleTestCase
-
-from botend.services.simc_skill_damage import (
-    SimcSkillDamageSnapshotService,
-    _validate_global_scope_catalog,
-    classify_global_skill_effects,
-    plan_unique_talent_actor_configs,
-    prune_global_damage_talents,
-)
+from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
+from botend.services.simc_skill_damage import _validate_global_scope_catalog
+from botend.services.simc_skill_damage import classify_global_skill_effects
+from botend.services.simc_skill_damage import plan_unique_talent_actor_configs
+from botend.services.simc_skill_damage import prune_global_damage_talents
+from botend.models import SimcBackendBinary
+from botend.models import SimcSkillDamageSnapshot
 
 
 class SkillDamageNativePruningTests(SimpleTestCase):
@@ -379,7 +377,7 @@ class SkillDamagePruningTests(SimpleTestCase):
             'token': 'colossus_smash', 'spell_id': 167105, 'supported': False, 'player_skill': True,
             'reporting_root_token': 'colossus_smash', 'reporting_root_spell_id': 167105,
             'reporting_root_component': True, 'selected_trait_effects': [], 'unsupported_reason': 'weapon_dependent',
-            'scenarios': [{'buffs': [{
+            'scenarios': [{'affected_target_counts': [1], 'buffs': [{
                 'token': 'debuff.colossus_smash', 'spell_id': 208086, 'scope': 'target', 'stacks': 1,
             }], 'values': {'unresolved_reason': 'weapon_dependent'}}],
         }]
@@ -446,3 +444,21 @@ class SkillDamagePruningTests(SimpleTestCase):
         )
         with self.assertRaisesRegex(ValueError, '展示目录与实际剔除分量不一致'):
             _validate_global_scope_catalog(actor)
+
+
+"""A diagnostic parser-disabled export must never be publishable data."""
+
+
+class PassiveCounterfactualBoundaryTests(SimpleTestCase):
+    def test_counterfactual_marker_is_rejected_before_normal_export_validation(self):
+        service = SimcSkillDamageSnapshotService(
+            SimcSkillDamageSnapshot(simc_revision='a' * 40, game_build='test'),
+            backend=SimcBackendBinary(identifier='local-diagnostic'),
+        )
+        for marker in (None, {}, {
+            'method': 'initialization_parser_only_v1',
+            'excluded_effects': [{'source_spell_id': 137006, 'effect_index': 0}],
+        }):
+            with self.subTest(marker=marker):
+                with self.assertRaisesRegex(ValueError, 'parser counterfactual'):
+                    service._validate_export({'parser_counterfactual': marker})

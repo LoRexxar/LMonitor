@@ -1178,7 +1178,7 @@ def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=Non
         swap.get('item_id') for candidate in candidates
         for swap in candidate_swaps(candidate['candidate_params'])
         if swap.get('item_id')
-    ])
+    ], loaded_items=eligibility.items)
     preset = _freeze_trinket_benchmark_preset(spec_key, marked[0]) if marked else None
     if preset:
         baseline['candidate_params']['equipment_preset'] = deepcopy(preset)
@@ -1625,5 +1625,6 @@ def duplicate_panel_config(panel, user_id):
     for candidate in payload['candidates']:
         candidate.pop('id', None)
         candidate.pop('effect', None)
+        candidate.pop('excluded_specs', None)  # Derived eligibility, not reusable configuration.
 
     return replace_panel_config(payload, user_id)

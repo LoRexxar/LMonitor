@@ -3,11 +3,15 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class SimcProfileVersionMigrationTests(TransactionTestCase):
     migrate_from = [('botend', '0134_merge_20260728_1055')]
     migrate_to = [('botend', '0135_simcprofile_version')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_from)
         old_apps = executor.loader.project_state(self.migrate_from).apps
@@ -28,9 +32,6 @@ class SimcProfileVersionMigrationTests(TransactionTestCase):
             ).pk,
         ]
 
-    def tearDown(self):
-        MigrationExecutor(connection).migrate(self.migrate_to)
-        super().tearDown()
 
     def test_existing_profiles_are_backfilled_to_version_12_0(self):
         executor = MigrationExecutor(connection)
