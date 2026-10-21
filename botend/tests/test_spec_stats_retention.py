@@ -595,7 +595,7 @@ class RetentionTests(SimpleTestCase):
             with patch.object(retention.Budget, 'read', side_effect=fault):
                 with self.assertRaises(retention.PublicationDeferred): self.publish(value=2)
             self.assertEqual(self.files(), before)
-        with patch.object(retention, 'MAX_BYTES', 1):
+        with patch.object(retention, 'PUBLICATION_MAX_BYTES', 1):
             with self.assertRaises(retention.PublicationDeferred): self.publish(value=2)
         self.assertEqual(self.files(), before)
         real = retention._identity
@@ -686,11 +686,63 @@ class RetentionTests(SimpleTestCase):
             release.set(); process.join(5)
         self.assertEqual(process.exitcode, 0)
 
+    def test_publication_budget_large_real_currents_is_bounded_and_gc_unchanged(self):
+        # Real producer envelopes and hashes on disk, not mocked byte accounting.
+        padding = 'x' * (34 * 1024 * 1024)
+        snapshot.publish_projection(self.scope / 'dungeon.json', {
+            'dungeons': [{'dungeon_id': 1, 'players': padding}]}, _write)
+        snapshot.publish_projection(self.scope / 'raid.json', {
+            'zone_groups': [{'bosses': [{'boss_id': 1, 'players': padding}]}]}, _write)
+        del padding
+        total = sum(p.stat().st_size for p in self.scope.rglob('*.json'))
+        self.assertGreater(total, 64 * 1024 * 1024)
+        self.assertLess(total, 128 * 1024 * 1024)
+        before = retention._inventory(self.scope)
+        gc = retention.maintain_scope(self.scope, dry_run=True)
+        self.assertEqual(gc['status'], 'paused', gc)
+        self.assertEqual(gc['deleted'], 0)
+        self.assertEqual(retention._inventory(self.scope), before)
+        # Exercise the actual publisher, including the post-gate manifest check.
+        self.publish(value=2)
+        self.assertFalse((self.scope / retention.DISABLED).exists())
+        self.assertEqual(retention.Budget().remaining, 64 * 1024 * 1024)
+        with patch.object(retention, 'MAX_BYTES', 1):
+            self.assertEqual(retention.Budget().remaining, 1)
+        raid_index = json.loads((self.scope / 'raid.json').read_text())
+        detail = (self.scope / 'stats-details' /
+                  raid_index['_snapshot']['generation'] / 'raid-5-1.json')
+        # A changed content hash still fails the read-only gate; repair policy is unchanged.
+        with detail.open('r+b') as stream:
+            raw = stream.read(1024)
+            position = raw.index(b'xxx')
+            stream.seek(position)
+            stream.write(b'y')
+        before = retention._inventory(self.scope)
+        budget = retention.Budget(reuse=True, max_bytes=retention.PUBLICATION_MAX_BYTES)
+        self.assertIsInstance(retention._publication_gate(self.scope, budget), retention.Unsafe)
+        self.assertEqual(retention._inventory(self.scope), before)
+        with detail.open('r+b') as stream:
+            stream.seek(position)
+            stream.write(b'x')
+        # JSON whitespace keeps the exact envelope/content hash valid while the
+        # current closure exceeds 128 MiB. The real reader must defer, not write.
+        with detail.open('ab') as stream:
+            for _ in range(95):
+                stream.write(b' ' * (1024 * 1024))
+        self.assertGreater(detail.stat().st_size, 128 * 1024 * 1024)
+        before = retention._inventory(self.scope)
+        with self.assertRaises(retention.PublicationDeferred) as error:
+            self.publish(value=3)
+        self.assertIsInstance(error.exception.__cause__, retention.Paused)
+        self.assertEqual(retention._inventory(self.scope), before)
+        self.assertFalse((self.scope / retention.DISABLED).exists())
+        self.assertFalse((self.scope / retention.CHECKPOINT).exists())
+
     def test_gate_reuses_body_reads_within_original_budget(self):
         self.publish()
         (self.scope / retention.MANIFEST).unlink()
         total = sum(p.stat().st_size for p in self.scope.rglob('*.json'))
-        with patch.object(retention, 'MAX_BYTES', total):
+        with patch.object(retention, 'PUBLICATION_MAX_BYTES', total):
             with retention.publication(self.scope): pass
         self.assertFalse((self.scope / retention.DISABLED).exists())
 

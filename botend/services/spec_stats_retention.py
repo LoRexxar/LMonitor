@@ -22,6 +22,9 @@ LOCK = '.stats-publish.lock'
 CHECKPOINT = '.stats-validation.json'
 MAX_ENTRIES = 512
 MAX_BYTES = 64 * 1024 * 1024
+# Publication must observe both currents atomically (observed closure: ~75 MB).
+# Keep its bounded allowance independent of resumable maintenance/GC reads.
+PUBLICATION_MAX_BYTES = 128 * 1024 * 1024
 GRACE = 48 * 3600
 MODULES = ('dungeon', 'raid')
 GEN = re.compile(r'[0-9a-f]{32}')
@@ -123,11 +126,11 @@ def _inventory(scope):
 
 
 class Budget:
-    def __init__(self, *, reuse=False):
+    def __init__(self, *, reuse=False, max_bytes=None):
         self.reuse = reuse
         self.reads = {}
         self.identities = {}
-        self.remaining = MAX_BYTES
+        self.remaining = MAX_BYTES if max_bytes is None else max_bytes
         self.hashes = {}
         self.cache = {}
         self.scope = None
@@ -436,7 +439,7 @@ def publication(scope):
     scope = Path(scope)
     _safe_path(scope / LOCK)
     with _scope_lock(scope / LOCK):
-        budget = Budget(reuse=True)
+        budget = Budget(reuse=True, max_bytes=PUBLICATION_MAX_BYTES)
         corrupt = _publication_gate(scope, budget)
         try:
             if corrupt is not None:
