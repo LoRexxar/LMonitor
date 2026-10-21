@@ -1,0 +1,1104 @@
+[
+  {
+    "provenance": {
+      "source_file": "analysis-8/270ec8daaa745a30a4bd7f98174c1a858c6b48196330c2f8066d7df93ccc449e.json",
+      "source_sha256": "eb55f73d616b0f843b660a73bee95786b80031d2ee024350c1f5110bdf4e933d",
+      "sent_canonical_sha256": "c413db2bcc4a13267334e45f475b6d443a1b98e012bc60dffb3f45192172ab40",
+      "projection": "Only evidence and metrics.investigation retained verbatim; character identity and unrelated metrics omitted.",
+      "projection_sha256": "429feeddccec094eed6d64f79f03496f3558140b6b317315017474aa5bef83d8"
+    },
+    "evidence": {
+      "evidence": [
+        {
+          "id": "timed_experience",
+          "text": "本次样本最高限时为 21 层；已知限时记录 16 场；通关时间 2026-10-04T15:47:30.000Z；活动采集时间 2026-10-19T19:53:05.937585+00:00。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/18320727-21-kings-rest"
+        },
+        {
+          "id": "multiple_specs",
+          "text": "本人的已验证当场阵容或近期记录显示 2 种专精；不以当前专精回填历史。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/18320727-21-kings-rest"
+        },
+        {
+          "id": "behavior:prior_higher:19809918",
+          "text": "本场开打时间2026-10-09T12:32:05.675000+00:00之前，本人已于2026-10-05T16:02:50+00:00完成同本21层限时（前场18535367）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/19809918-12-altar-of-fangs"
+        },
+        {
+          "id": "behavior:key_recovery_unknown:19809918",
+          "text": "本人此前同本更高，且全13跑前保护已证实，但缺可比受益成员；这削弱本人钥匙自然降至本层的解释，仍不排除旧库存或他人钥匙，钥匙归属与供给未知。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/19809918-12-altar-of-fangs"
+        },
+        {
+          "id": "behavior:prior_higher:19809746",
+          "text": "本场开打时间2026-10-10T16:27:54.647000+00:00之前，本人已于2026-10-05T16:02:50+00:00完成同本21层限时（前场18535367）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/19809746-10-altar-of-fangs"
+        },
+        {
+          "id": "behavior:lead:19809746",
+          "text": "本人已有同本较高层观测；本场10层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/19809746-10-altar-of-fangs"
+        },
+        {
+          "id": "behavior:key_recovery_unknown:19809746",
+          "text": "本人此前同本更高，但全11跑前保护未知（未完整证实）；保留升钥/库存解释。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/19809746-10-altar-of-fangs"
+        },
+        {
+          "id": "behavior:prior_higher:19809761",
+          "text": "本场开打时间2026-10-10T16:48:34.745000+00:00之前，本人已于2026-10-04T15:47:30+00:00完成同本21层限时（前场18320727）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/19809761-12-kings-rest"
+        },
+        {
+          "id": "behavior:lead:19809761",
+          "text": "本人已有同本较高层观测；本场12层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/19809761-12-kings-rest"
+        },
+        {
+          "id": "behavior:key_recovery_unknown:19809761",
+          "text": "本人此前同本更高，且全13跑前保护已证实，但缺可比受益成员；这削弱本人钥匙自然降至本层的解释，仍不排除旧库存或他人钥匙，钥匙归属与供给未知。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/19809761-12-kings-rest"
+        },
+        {
+          "id": "behavior:prior_higher:20398377",
+          "text": "本场开打时间2026-10-13T12:09:46.460000+00:00之前，本人已于2026-10-04T14:15:59+00:00完成同本21层限时（前场18320735）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20398377-9-voidscar-arena"
+        },
+        {
+          "id": "behavior:key_recovery_unknown:20398377",
+          "text": "本人此前同本更高，但全10跑前保护未知（未完整证实）；保留升钥/库存解释。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20398377-9-voidscar-arena"
+        },
+        {
+          "id": "behavior:prior_higher:20897274",
+          "text": "本场开打时间2026-10-15T12:01:49.232000+00:00之前，本人已于2026-10-04T14:15:59+00:00完成同本21层限时（前场18320735）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897274-15-voidscar-arena"
+        },
+        {
+          "id": "behavior:lead:20897274",
+          "text": "本人已有同本较高层观测；本场15层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897274-15-voidscar-arena"
+        },
+        {
+          "id": "behavior:carrying:20897274",
+          "text": "开打前本人已有更高同本限时（前场18320735）且八本全16已达标；同伴带抓取时点的计分快照低于本人跑前记录（1人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897274-15-voidscar-arena"
+        },
+        {
+          "id": "behavior:prior_higher:20897268",
+          "text": "本场开打时间2026-10-15T12:29:56.638000+00:00之前，本人已于2026-10-05T14:43:36+00:00完成同本21层限时（前场18535437）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897268-15-den-of-nalorakk"
+        },
+        {
+          "id": "behavior:lead:20897268",
+          "text": "本人已有同本较高层观测；本场15层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897268-15-den-of-nalorakk"
+        },
+        {
+          "id": "behavior:key_recovery_unknown:20897268",
+          "text": "本人此前同本更高，且全16跑前保护已证实，但缺可比受益成员；这削弱本人钥匙自然降至本层的解释，仍不排除旧库存或他人钥匙，钥匙归属与供给未知。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897268-15-den-of-nalorakk"
+        },
+        {
+          "id": "behavior:prior_higher:20897266",
+          "text": "本场开打时间2026-10-15T13:00:28.839000+00:00之前，本人已于2026-10-04T15:47:30+00:00完成同本21层限时（前场18320727）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897266-16-kings-rest"
+        },
+        {
+          "id": "behavior:lead:20897266",
+          "text": "本人已有同本较高层观测；本场16层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897266-16-kings-rest"
+        },
+        {
+          "id": "behavior:carrying:20897266",
+          "text": "开打前本人已有更高同本限时（前场18320727）且八本全17已达标；同伴带抓取时点的计分快照低于本人跑前记录（1人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897266-16-kings-rest"
+        },
+        {
+          "id": "rotating_core",
+          "text": "近期已验证阵容中重复组合与轮换成员共同出现；结构本身不证明带人。",
+          "run_url": ""
+        },
+        {
+          "id": "investigation:own:20897266",
+          "text": "本场16层（限时），低于本人profile best 当前成绩代理（非完整计分缓存）的21层；通关时间2026-10-15T13:30:46+00:00。不是历史加分或动机证据。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897266-16-kings-rest"
+        },
+        {
+          "id": "investigation:team:20897266",
+          "text": "已验证本场五人身份，所选3人稳定组合均在场；频率只计独立近期通关，不确定真实核心身份。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897266-16-kings-rest"
+        },
+        {
+          "id": "investigation:unknown:20897266",
+          "text": "外围成员当前同本限时层数方向：未知，不能判为反证或零分。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897266-16-kings-rest"
+        },
+        {
+          "id": "investigation:core_unknown:20897266",
+          "text": "部分核心当前同本成绩缺失，无法确认全核心均在低于各自上限的层数活动；本人线索仍成立。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897266-16-kings-rest"
+        },
+        {
+          "id": "investigation:motive_unknown:20897266",
+          "text": "公开通关与当前计分没有历史加分、钥匙归属、组队目的或交易事实。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897266-16-kings-rest"
+        },
+        {
+          "id": "investigation:own:20897268",
+          "text": "本场15层（限时），低于本人profile best 当前成绩代理（非完整计分缓存）的21层；通关时间2026-10-15T12:54:51+00:00。不是历史加分或动机证据。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897268-15-den-of-nalorakk"
+        },
+        {
+          "id": "investigation:team:20897268",
+          "text": "已验证本场五人身份，所选3人稳定组合均在场；频率只计独立近期通关，不确定真实核心身份。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897268-15-den-of-nalorakk"
+        },
+        {
+          "id": "investigation:unknown:20897268",
+          "text": "外围成员当前同本限时层数方向：未知，不能判为反证或零分。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897268-15-den-of-nalorakk"
+        },
+        {
+          "id": "investigation:core_unknown:20897268",
+          "text": "部分核心当前同本成绩缺失，无法确认全核心均在低于各自上限的层数活动；本人线索仍成立。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897268-15-den-of-nalorakk"
+        },
+        {
+          "id": "investigation:motive_unknown:20897268",
+          "text": "公开通关与当前计分没有历史加分、钥匙归属、组队目的或交易事实。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897268-15-den-of-nalorakk"
+        },
+        {
+          "id": "investigation:own:20897274",
+          "text": "本场15层（限时），低于本人profile best 当前成绩代理（非完整计分缓存）的21层；通关时间2026-10-15T12:24:38+00:00。不是历史加分或动机证据。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897274-15-voidscar-arena"
+        },
+        {
+          "id": "investigation:team:20897274",
+          "text": "已验证本场五人身份，所选3人稳定组合均在场；频率只计独立近期通关，不确定真实核心身份。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897274-15-voidscar-arena"
+        },
+        {
+          "id": "investigation:unknown:20897274",
+          "text": "外围成员当前同本限时层数方向：未知，不能判为反证或零分。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897274-15-voidscar-arena"
+        },
+        {
+          "id": "investigation:core_unknown:20897274",
+          "text": "部分核心当前同本成绩缺失，无法确认全核心均在低于各自上限的层数活动；本人线索仍成立。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897274-15-voidscar-arena"
+        },
+        {
+          "id": "investigation:motive_unknown:20897274",
+          "text": "公开通关与当前计分没有历史加分、钥匙归属、组队目的或交易事实。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20897274-15-voidscar-arena"
+        },
+        {
+          "id": "behavior:interpretation_limits",
+          "run_url": "",
+          "text": "当前快照非历史加分；坚韧按逐场逐人已确认或未知区分，已确认跑前证明不再当作缺口。钥匙归属、收费及完整历史未知；朋友互助可同时属于协助。"
+        }
+      ],
+      "metrics": {
+        "investigation": {
+          "version": 1,
+          "triggered": true,
+          "trigger_reason": "repeated_below_own_current_with_stable_core",
+          "scope": "最近至多10条公开完成记录、14天内；包含未限时，不代表完整历史。其中3场本人低于自己的当前同本限时层数，同一3人稳定组合共同出现；外围席位有变化。稳定组合不等于真实核心；保留竞争分组，不能确定其中谁是核心或外援。当前成绩不是历史当场加分；所有动机仅为候选解释，不能确认钥匙归属或交易。",
+          "seed_run_ids": [
+            19809746,
+            19809761,
+            20897266,
+            20897268,
+            20897274
+          ],
+          "hypotheses": [
+            {
+              "id": "key_access",
+              "label": "钥匙协调线索",
+              "status": "unknown",
+              "support_ids": [],
+              "counter_ids": [],
+              "unknown_ids": [
+                "behavior:interpretation_limits",
+                "investigation:motive_unknown:20897266",
+                "investigation:motive_unknown:20897268",
+                "investigation:motive_unknown:20897274"
+              ]
+            },
+            {
+              "id": "assistance",
+              "label": "疑似协助他人上分",
+              "status": "supported",
+              "support_ids": [
+                "behavior:carrying:20897274",
+                "behavior:carrying:20897266"
+              ],
+              "counter_ids": [],
+              "unknown_ids": [
+                "behavior:interpretation_limits",
+                "investigation:unknown:20897266",
+                "investigation:core_unknown:20897266",
+                "investigation:unknown:20897268",
+                "investigation:core_unknown:20897268",
+                "investigation:unknown:20897274",
+                "investigation:core_unknown:20897274",
+                "investigation:motive_unknown:20897266",
+                "investigation:motive_unknown:20897268",
+                "investigation:motive_unknown:20897274",
+                "behavior:key_recovery_unknown:19809918",
+                "behavior:key_recovery_unknown:19809746",
+                "behavior:key_recovery_unknown:19809761",
+                "behavior:key_recovery_unknown:20398377",
+                "behavior:key_recovery_unknown:20897268"
+              ]
+            },
+            {
+              "id": "routine_group",
+              "label": "日常协作、朋友互助或练习",
+              "status": "compatible",
+              "support_ids": [
+                "investigation:team:20897266",
+                "investigation:team:20897268",
+                "investigation:team:20897274"
+              ],
+              "counter_ids": [],
+              "unknown_ids": [
+                "investigation:motive_unknown:20897266",
+                "investigation:motive_unknown:20897268",
+                "investigation:motive_unknown:20897274"
+              ]
+            },
+            {
+              "id": "later_progress",
+              "label": "后续进步造成当前上限与近期通关差距",
+              "status": "weakened",
+              "support_ids": [],
+              "counter_ids": [
+                "behavior:prior_higher:19809918",
+                "behavior:prior_higher:19809746",
+                "behavior:prior_higher:19809761",
+                "behavior:prior_higher:20398377",
+                "behavior:prior_higher:20897274",
+                "behavior:prior_higher:20897268",
+                "behavior:prior_higher:20897266"
+              ],
+              "unknown_ids": [
+                "investigation:motive_unknown:20897266",
+                "investigation:motive_unknown:20897268",
+                "investigation:motive_unknown:20897274"
+              ]
+            }
+          ],
+          "questions": [
+            {
+              "id": "scored_runs:bafa3bee307faf1b6329f56dcb40076a41541fd440250b040d69fb9144e3bfcf",
+              "kind": "scored_runs",
+              "identity_digest": "bafa3bee307faf1b6329f56dcb40076a41541fd440250b040d69fb9144e3bfcf",
+              "run_ids": [
+                20897266,
+                20897268
+              ],
+              "hypothesis_ids": [
+                "assistance",
+                "external_assistance",
+                "routine_group",
+                "key_access"
+              ],
+              "priority": 100,
+              "reason": "补外围当前同本成绩以区分低、高、近似方向；不能确认钥匙归属。"
+            },
+            {
+              "id": "scored_runs:d3c6cce9ac1e5fffa7a35e28696d0d50083df9dbbcd11e8f3a78837c7ebb85d8",
+              "kind": "scored_runs",
+              "identity_digest": "d3c6cce9ac1e5fffa7a35e28696d0d50083df9dbbcd11e8f3a78837c7ebb85d8",
+              "run_ids": [
+                20897268,
+                20897274
+              ],
+              "hypothesis_ids": [
+                "assistance",
+                "external_assistance",
+                "routine_group",
+                "key_access"
+              ],
+              "priority": 100,
+              "reason": "补外围当前同本成绩以区分低、高、近似方向；不能确认钥匙归属。"
+            },
+            {
+              "kind": "scored_runs",
+              "member_key": "270ec8daaa745a30a4bd7f98174c1a858c6b48196330c2f8066d7df93ccc449e",
+              "dungeon_id": null,
+              "run_ids": [
+                19809746,
+                19809761,
+                20897266,
+                20897268,
+                20897274
+              ],
+              "priority": 60,
+              "id": "scored_runs:270ec8daaa745a30a4bd7f98174c1a858c6b48196330c2f8066d7df93ccc449e",
+              "identity_digest": "270ec8daaa745a30a4bd7f98174c1a858c6b48196330c2f8066d7df93ccc449e",
+              "hypothesis_ids": [
+                "assistance",
+                "being_carried",
+                "joint_progress",
+                "key_access",
+                "external_assistance"
+              ],
+              "reason": "核验相关成员同本成绩，区分受益关系与钥匙恢复解释。"
+            },
+            {
+              "kind": "scored_runs",
+              "member_key": "67bc09f200247fb1cc133a88618d608726ae155805dfa789cab1feedd7e07410",
+              "dungeon_id": null,
+              "run_ids": [
+                19809746,
+                19809761
+              ],
+              "priority": 60,
+              "id": "scored_runs:67bc09f200247fb1cc133a88618d608726ae155805dfa789cab1feedd7e07410",
+              "identity_digest": "67bc09f200247fb1cc133a88618d608726ae155805dfa789cab1feedd7e07410",
+              "hypothesis_ids": [
+                "assistance",
+                "being_carried",
+                "joint_progress",
+                "key_access",
+                "external_assistance"
+              ],
+              "reason": "核验相关成员同本成绩，区分受益关系与钥匙恢复解释。"
+            },
+            {
+              "id": "scored_runs:20cdbe84968fb2fae4a719c3e4b45c64cce3adb82bd5578a186150189e7adaf4",
+              "kind": "scored_runs",
+              "identity_digest": "20cdbe84968fb2fae4a719c3e4b45c64cce3adb82bd5578a186150189e7adaf4",
+              "run_ids": [
+                20897266,
+                20897268,
+                20897274
+              ],
+              "hypothesis_ids": [
+                "assistance",
+                "external_assistance",
+                "routine_group",
+                "key_access"
+              ],
+              "priority": 50,
+              "reason": "补核心当前同本成绩，核验本人线索能否推广到稳定成员。"
+            },
+            {
+              "id": "scored_runs:f29ddb3078e902dd0e309a9bda88ca872ff5fd234a59ad3bce6eb881f3c2eb3b",
+              "kind": "scored_runs",
+              "identity_digest": "f29ddb3078e902dd0e309a9bda88ca872ff5fd234a59ad3bce6eb881f3c2eb3b",
+              "run_ids": [
+                20897266,
+                20897268,
+                20897274
+              ],
+              "hypothesis_ids": [
+                "assistance",
+                "external_assistance",
+                "routine_group",
+                "key_access"
+              ],
+              "priority": 50,
+              "reason": "补核心当前同本成绩，核验本人线索能否推广到稳定成员。"
+            }
+          ],
+          "stop_reason": "targeted_evidence_needed",
+          "resilience_history_targets": [],
+          "response_templates": [
+            {
+              "id": "key_access",
+              "assessment_options": [
+                "possible",
+                "unknown"
+              ],
+              "evidence_ids": [
+                "behavior:interpretation_limits"
+              ],
+              "counter_evidence_ids": []
+            },
+            {
+              "id": "assistance",
+              "assessment_options": [
+                "possible",
+                "unknown",
+                "supported"
+              ],
+              "evidence_ids": [
+                "behavior:carrying:20897274",
+                "behavior:carrying:20897266",
+                "behavior:interpretation_limits"
+              ],
+              "counter_evidence_ids": []
+            },
+            {
+              "id": "routine_group",
+              "assessment_options": [
+                "possible",
+                "unknown",
+                "supported"
+              ],
+              "evidence_ids": [
+                "investigation:team:20897266",
+                "investigation:team:20897268",
+                "investigation:motive_unknown:20897266"
+              ],
+              "counter_evidence_ids": []
+            },
+            {
+              "id": "later_progress",
+              "assessment_options": [
+                "possible",
+                "unknown",
+                "weakened"
+              ],
+              "evidence_ids": [
+                "investigation:motive_unknown:20897266"
+              ],
+              "counter_evidence_ids": [
+                "behavior:prior_higher:19809918",
+                "behavior:prior_higher:19809746",
+                "behavior:prior_higher:19809761",
+                "behavior:prior_higher:20398377",
+                "behavior:prior_higher:20897274",
+                "behavior:prior_higher:20897268",
+                "behavior:prior_higher:20897266"
+              ]
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "provenance": {
+      "source_file": "analysis-8/69dd7a00f3a244fa7db5c3b41f91ea8a1b852ececef5871c5ef069b38d112c9c.json",
+      "source_sha256": "bd09845a747a1e2b6e4b57af1ec28aa5915eae534e55937b47b68fed52e55896",
+      "sent_canonical_sha256": "ebe9aa7c54e6a31bb9758e48a7fecbfb0469573f8c9b9b583a632e83a9514fd0",
+      "projection": "Only evidence and metrics.investigation retained verbatim; character identity and unrelated metrics omitted.",
+      "projection_sha256": "3b745e063e7af390356cf4126171864df49dc64dafe922f888fc17bc63adbb2f"
+    },
+    "evidence": {
+      "evidence": [
+        {
+          "id": "timed_experience",
+          "text": "本次样本最高限时为 23 层；已知限时记录 18 场；通关时间 2026-10-15T12:45:26.000Z；活动采集时间 2026-10-19T09:09:04.391248+00:00。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20744392-23-temple-of-sethraliss"
+        },
+        {
+          "id": "comparison:21201192",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21201192-23-altar-of-fangs",
+          "text": "本场 23 层；抓取时本人同本计分记录：23 层 / 531.4 分 / 限时；四名队友依次为：23 层 / 532.4 分 / 限时；23 层 / 531.4 分 / 限时；23 层 / 531.4 分 / 限时；23 层 / 531.4 分 / 限时。通关时间 2026-10-17T15:44:40.000Z；成绩采集时间 2026-10-18T17:29:12.961787+00:00 至 2026-10-19T14:48:12.252646+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "comparison:21330847",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330847-23-den-of-nalorakk",
+          "text": "本场 23 层；抓取时本人同本计分记录：23 层 / 533.2 分 / 限时；四名队友依次为：23 层 / 533.2 分 / 限时；23 层 / 531.1 分 / 限时；23 层 / 531.1 分 / 限时；23 层 / 531.1 分 / 限时。通关时间 2026-10-18T07:39:32.000Z；成绩采集时间 2026-10-18T17:28:39.447817+00:00 至 2026-10-19T13:15:25.320292+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "comparison:21330850",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss",
+          "text": "本场 22 层；抓取时本人同本计分记录：23 层 / 531.7 分 / 限时；四名队友依次为：23 层 / 531.7 分 / 限时；22 层 / 515.5 分 / 限时；22 层 / 515.5 分 / 限时；22 层 / 515.5 分 / 限时。通关时间 2026-10-18T06:17:38.000Z；成绩采集时间 2026-10-18T17:28:39.447817+00:00 至 2026-10-19T13:15:25.320292+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "comparison:21330852",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row",
+          "text": "本场 22 层；抓取时本人同本计分记录：23 层 / 531.8 分 / 限时；四名队友依次为：22 层 / 518.7 分 / 限时；22 层 / 517.1 分 / 限时；22 层 / 517.1 分 / 限时；22 层 / 517.1 分 / 限时。通关时间 2026-10-18T05:41:13.000Z；成绩采集时间 2026-10-18T17:28:39.447817+00:00 至 2026-10-19T13:15:25.320292+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "comparison:21330853",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools",
+          "text": "本场 22 层；抓取时本人同本计分记录：23 层 / 530.6 分 / 限时；四名队友依次为：23 层 / 530.6 分 / 限时；22 层 / 518.4 分 / 限时；22 层 / 516.8 分 / 限时；22 层 / 516.8 分 / 限时。通关时间 2026-10-18T08:12:22.000Z；成绩采集时间 2026-10-18T17:28:39.447817+00:00 至 2026-10-19T13:15:25.320292+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "comparison:21342605",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale",
+          "text": "本场 22 层；抓取时本人同本计分记录：23 层 / 530.5 分 / 限时；四名队友依次为：23 层 / 530.5 分 / 限时；22 层 / 517.9 分 / 限时；22 层 / 516.7 分 / 限时；22 层 / 516.7 分 / 限时。通关时间 2026-10-18T09:30:39.000Z；成绩采集时间 2026-10-18T17:28:39.447817+00:00 至 2026-10-19T13:15:25.320292+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "comparison:21365256",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21365256-22-the-blinding-vale",
+          "text": "本场 22 层；抓取时本人同本计分记录：23 层 / 530.5 分 / 限时；四名队友依次为：23 层 / 530.5 分 / 限时；23 层 / 530.5 分 / 限时；22 层 / 517.7 分 / 限时；22 层 / 517.7 分 / 限时。通关时间 2026-10-18T12:35:04.000Z；成绩采集时间 2026-10-18T17:28:11.050372+00:00 至 2026-10-19T12:32:47.230210+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "comparison:21438245",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438245-22-altar-of-fangs",
+          "text": "本场 22 层；抓取时本人同本计分记录：23 层 / 531.4 分 / 限时；四名队友依次为：23 层 / 531.4 分 / 限时；23 层 / 531.4 分 / 限时；22 层 / 515.7 分 / 限时；22 层 / 515.7 分 / 限时。通关时间 2026-10-18T13:24:30.000Z；成绩采集时间 2026-10-18T17:28:11.050372+00:00 至 2026-10-19T12:32:47.230210+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "comparison:21438277",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438277-22-murder-row",
+          "text": "本场 22 层；抓取时本人同本计分记录：23 层 / 531.8 分 / 限时；四名队友依次为：22 层 / 518.7 分 / 限时；23 层 / 531.8 分 / 限时；22 层 / 518.7 分 / 限时；22 层 / 518.7 分 / 限时。通关时间 2026-10-18T16:28:39.000Z；成绩采集时间 2026-10-18T17:28:11.050372+00:00 至 2026-10-19T12:32:47.230210+00:00。这是当前限时计分记录比较，不是历史加分。"
+        },
+        {
+          "id": "below_current_best",
+          "text": "完整可比记录中有 7 场低于本人当前同副本计分层数；不能据此认定副专精活动。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "multiple_specs",
+          "text": "本人的已验证当场阵容或近期记录显示 2 种专精；不以当前专精回填历史。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/20744392-23-temple-of-sethraliss"
+        },
+        {
+          "id": "behavior:prior_higher:21330852",
+          "text": "本场开打时间2026-10-18T05:09:05.180000+00:00之前，本人已于2026-10-16T09:29:55+00:00完成同本23层限时（前场20900674）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "behavior:lead:21330852",
+          "text": "本人已有同本较高层观测；本场22层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "behavior:carrying:21330852",
+          "text": "开打前本人已有更高同本限时（前场20900674）且八本全23已达标；同伴带抓取时点的计分快照低于本人跑前记录（4人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "behavior:high_score_collaborator:21330852",
+          "text": "本人是已有较高同本记录的合作成员，至少三名同伴存在较低同本记录；不确定社会核心或外援身份。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "behavior:key_access:21330852",
+          "text": "较高成绩本人与较低同本成员稳定合作，可保留协调钥匙的竞争解释；钥匙归属与实际供给未知。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "behavior:prior_higher:21330850",
+          "text": "本场开打时间2026-10-18T05:46:01.906000+00:00之前，本人已于2026-10-15T12:45:26+00:00完成同本23层限时（前场20744392）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "behavior:lead:21330850",
+          "text": "本人已有同本较高层观测；本场22层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "behavior:carrying:21330850",
+          "text": "开打前本人已有更高同本限时（前场20744392）且八本全23已达标；同伴带抓取时点的计分快照低于本人跑前记录（3人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "behavior:high_score_collaborator:21330850",
+          "text": "本人是已有较高同本记录的合作成员，至少三名同伴存在较低同本记录；不确定社会核心或外援身份。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "behavior:key_access:21330850",
+          "text": "较高成绩本人与较低同本成员稳定合作，可保留协调钥匙的竞争解释；钥匙归属与实际供给未知。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "behavior:prior_higher:21330853",
+          "text": "本场开打时间2026-10-18T07:45:44.539000+00:00之前，本人已于2026-10-15T16:32:55+00:00完成同本23层限时（前场20778900）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "behavior:lead:21330853",
+          "text": "本人已有同本较高层观测；本场22层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "behavior:carrying:21330853",
+          "text": "开打前本人已有更高同本限时（前场20778900）且八本全23已达标；同伴带抓取时点的计分快照低于本人跑前记录（3人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "behavior:high_score_collaborator:21330853",
+          "text": "本人是已有较高同本记录的合作成员，至少三名同伴存在较低同本记录；不确定社会核心或外援身份。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "behavior:key_access:21330853",
+          "text": "较高成绩本人与较低同本成员稳定合作，可保留协调钥匙的竞争解释；钥匙归属与实际供给未知。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "behavior:prior_higher:21342605",
+          "text": "本场开打时间2026-10-18T09:02:00.672000+00:00之前，本人已于2026-10-15T15:47:17+00:00完成同本23层限时（前场20769578）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:lead:21342605",
+          "text": "本人已有同本较高层观测；本场22层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:carrying:21342605",
+          "text": "开打前本人已有更高同本限时（前场20769578）且八本全23已达标；同伴带抓取时点的计分快照低于本人跑前记录（3人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:high_score_collaborator:21342605",
+          "text": "本人是已有较高同本记录的合作成员，至少三名同伴存在较低同本记录；不确定社会核心或外援身份。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:key_access:21342605",
+          "text": "较高成绩本人与较低同本成员稳定合作，可保留协调钥匙的竞争解释；钥匙归属与实际供给未知。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:prior_higher:21365256",
+          "text": "本场开打时间2026-10-18T12:07:11.891000+00:00之前，本人已于2026-10-15T15:47:17+00:00完成同本23层限时（前场20769578）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21365256-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:lead:21365256",
+          "text": "本人已有同本较高层观测；本场22层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21365256-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:carrying:21365256",
+          "text": "开打前本人已有更高同本限时（前场20769578）且八本全23已达标；同伴带抓取时点的计分快照低于本人跑前记录（2人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21365256-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:prior_higher:21438245",
+          "text": "本场开打时间2026-10-18T12:55:02.790000+00:00之前，本人已于2026-10-17T15:44:40+00:00完成同本23层限时（前场21201192）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438245-22-altar-of-fangs"
+        },
+        {
+          "id": "behavior:lead:21438245",
+          "text": "本人已有同本较高层观测；本场22层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438245-22-altar-of-fangs"
+        },
+        {
+          "id": "behavior:carrying:21438245",
+          "text": "开打前本人已有更高同本限时（前场21201192,21289128）且八本全23已达标；同伴带抓取时点的计分快照低于本人跑前记录（2人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438245-22-altar-of-fangs"
+        },
+        {
+          "id": "behavior:prior_higher:21438277",
+          "text": "本场开打时间2026-10-18T15:58:00.029000+00:00之前，本人已于2026-10-16T09:29:55+00:00完成同本23层限时（前场20900674）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438277-22-murder-row"
+        },
+        {
+          "id": "behavior:lead:21438277",
+          "text": "本人已有同本较高层观测；本场22层，稳定合作仍需区分协助、升钥与后续进步。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438277-22-murder-row"
+        },
+        {
+          "id": "behavior:carrying:21438277",
+          "text": "开打前本人已有更高同本限时（前场20900674）且八本全23已达标；同伴带抓取时点的计分快照低于本人跑前记录（3人），不保证每场净增分。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438277-22-murder-row"
+        },
+        {
+          "id": "behavior:high_score_collaborator:21438277",
+          "text": "本人是已有较高同本记录的合作成员，至少三名同伴存在较低同本记录；不确定社会核心或外援身份。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438277-22-murder-row"
+        },
+        {
+          "id": "behavior:key_access:21438277",
+          "text": "较高成绩本人与较低同本成员稳定合作，可保留协调钥匙的竞争解释；钥匙归属与实际供给未知。 仅为低置信候选，不证明动机或交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21438277-22-murder-row"
+        },
+        {
+          "id": "behavior:prior_higher:21476300",
+          "text": "本场开打时间2026-10-18T17:04:28.127000+00:00之前，本人已于2026-10-15T15:47:17+00:00完成同本23层限时（前场20769578）；不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21476300-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:key_recovery_unknown:21476300",
+          "text": "本人此前同本更高，且全23跑前保护已证实，但缺可比受益成员；这削弱本人钥匙自然降至本层的解释，仍不排除旧库存或他人钥匙，钥匙归属与供给未知。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21476300-22-the-blinding-vale"
+        },
+        {
+          "id": "fixed_team",
+          "text": "近期已验证阵容呈固定五人或偶尔替补结构；结构不证明带人。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:own:21330850",
+          "text": "本场22层（限时），低于本人当前计分缓存（限时记录）的23层；通关时间2026-10-18T06:17:38+00:00。不是历史加分或动机证据。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:team:21330850",
+          "text": "已验证本场五人身份，所选5人稳定组合均在场；频率只计独立近期通关，不确定真实核心身份。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:near:group0:21330850",
+          "text": "竞争分组1的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:near:group1:21330850",
+          "text": "竞争分组2的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:near:group2:21330850",
+          "text": "竞争分组3的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:near:group3:21330850",
+          "text": "竞争分组4的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:near:group4:21330850",
+          "text": "竞争分组5的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:group_unknown:21330850",
+          "text": "竞争分组不能确定真实核心或成员角色；一种分组的成绩方向不能反证另一种协作解释。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:motive_unknown:21330850",
+          "text": "公开通关与当前计分没有历史加分、钥匙归属、组队目的或交易事实。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330850-22-temple-of-sethraliss"
+        },
+        {
+          "id": "investigation:own:21330852",
+          "text": "本场22层（限时），低于本人当前计分缓存（限时记录）的23层；通关时间2026-10-18T05:41:13+00:00。不是历史加分或动机证据。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:team:21330852",
+          "text": "已验证本场五人身份，所选5人稳定组合均在场；频率只计独立近期通关，不确定真实核心身份。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:near:group0:21330852",
+          "text": "竞争分组1的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:near:group1:21330852",
+          "text": "竞争分组2的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:near:group2:21330852",
+          "text": "竞争分组3的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:near:group3:21330852",
+          "text": "竞争分组4的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:near:group4:21330852",
+          "text": "竞争分组5的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:group_unknown:21330852",
+          "text": "竞争分组不能确定真实核心或成员角色；一种分组的成绩方向不能反证另一种协作解释。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:motive_unknown:21330852",
+          "text": "公开通关与当前计分没有历史加分、钥匙归属、组队目的或交易事实。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330852-22-murder-row"
+        },
+        {
+          "id": "investigation:own:21330853",
+          "text": "本场22层（限时），低于本人当前计分缓存（限时记录）的23层；通关时间2026-10-18T08:12:22+00:00。不是历史加分或动机证据。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:team:21330853",
+          "text": "已验证本场五人身份，所选5人稳定组合均在场；频率只计独立近期通关，不确定真实核心身份。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:near:group0:21330853",
+          "text": "竞争分组1的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:near:group1:21330853",
+          "text": "竞争分组2的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:near:group2:21330853",
+          "text": "竞争分组3的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:near:group3:21330853",
+          "text": "竞争分组4的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:near:group4:21330853",
+          "text": "竞争分组5的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:group_unknown:21330853",
+          "text": "竞争分组不能确定真实核心或成员角色；一种分组的成绩方向不能反证另一种协作解释。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:motive_unknown:21330853",
+          "text": "公开通关与当前计分没有历史加分、钥匙归属、组队目的或交易事实。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21330853-22-ruby-life-pools"
+        },
+        {
+          "id": "investigation:own:21342605",
+          "text": "本场22层（限时），低于本人当前计分缓存（限时记录）的23层；通关时间2026-10-18T09:30:39+00:00。不是历史加分或动机证据。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "investigation:team:21342605",
+          "text": "已验证本场五人身份，所选5人稳定组合均在场；频率只计独立近期通关，不确定真实核心身份。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "investigation:near:group0:21342605",
+          "text": "竞争分组1的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "investigation:near:group1:21342605",
+          "text": "竞争分组2的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "investigation:near:group2:21342605",
+          "text": "竞争分组3的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "investigation:near:group3:21342605",
+          "text": "竞争分组4的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "investigation:near:group4:21342605",
+          "text": "竞争分组5的组外稳定成员当前同本限时层数方向：近似于该4人成绩对照组（明显差距至少2层）。此分组仅为成员对照，不证明真实核心或外围变化。高成绩只提示外援、朋友等替代解释，不证明钥匙归属；低成绩也不证明交易。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "investigation:group_unknown:21342605",
+          "text": "竞争分组不能确定真实核心或成员角色；一种分组的成绩方向不能反证另一种协作解释。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "investigation:motive_unknown:21342605",
+          "text": "公开通关与当前计分没有历史加分、钥匙归属、组队目的或交易事实。",
+          "run_url": "https://raider.io/mythic-plus-runs/season-mn-2/21342605-22-the-blinding-vale"
+        },
+        {
+          "id": "behavior:interpretation_limits",
+          "run_url": "",
+          "text": "当前快照非历史加分；坚韧按逐场逐人已确认或未知区分，已确认跑前证明不再当作缺口。钥匙归属、收费及完整历史未知；朋友互助可同时属于协助。"
+        }
+      ],
+      "metrics": {
+        "investigation": {
+          "version": 1,
+          "triggered": true,
+          "trigger_reason": "repeated_below_own_current_with_stable_core",
+          "scope": "最近至多10条公开完成记录、14天内；包含未限时，不代表完整历史。其中4场本人低于自己的当前同本限时层数，同一5人稳定组合共同出现；固定五人也保留解释探索。稳定组合不等于真实核心；保留竞争分组，不能确定其中谁是核心或外援。当前成绩不是历史当场加分；所有动机仅为候选解释，不能确认钥匙归属或交易。",
+          "seed_run_ids": [
+            21330850,
+            21330852,
+            21330853,
+            21342605,
+            21365256,
+            21438245,
+            21438277
+          ],
+          "hypotheses": [
+            {
+              "id": "key_access",
+              "label": "钥匙协调线索",
+              "status": "unknown",
+              "support_ids": [
+                "behavior:key_access:21330852",
+                "behavior:key_access:21330850",
+                "behavior:key_access:21330853"
+              ],
+              "counter_ids": [],
+              "unknown_ids": [
+                "behavior:interpretation_limits",
+                "investigation:motive_unknown:21330850",
+                "investigation:motive_unknown:21330852",
+                "investigation:motive_unknown:21330853",
+                "investigation:motive_unknown:21342605"
+              ]
+            },
+            {
+              "id": "external_assistance",
+              "label": "高成绩协作者线索",
+              "status": "supported",
+              "support_ids": [
+                "behavior:high_score_collaborator:21330852",
+                "behavior:high_score_collaborator:21330850",
+                "behavior:high_score_collaborator:21330853"
+              ],
+              "counter_ids": [],
+              "unknown_ids": [
+                "behavior:interpretation_limits",
+                "investigation:near:group0:21330850",
+                "investigation:near:group1:21330850",
+                "investigation:near:group2:21330850",
+                "investigation:near:group3:21330850",
+                "investigation:near:group4:21330850",
+                "investigation:group_unknown:21330850",
+                "investigation:near:group0:21330852",
+                "investigation:near:group1:21330852",
+                "investigation:near:group2:21330852",
+                "investigation:near:group3:21330852",
+                "investigation:near:group4:21330852",
+                "investigation:group_unknown:21330852",
+                "investigation:near:group0:21330853",
+                "investigation:near:group1:21330853",
+                "investigation:near:group2:21330853",
+                "investigation:near:group3:21330853",
+                "investigation:near:group4:21330853",
+                "investigation:group_unknown:21330853",
+                "investigation:near:group0:21342605",
+                "investigation:near:group1:21342605",
+                "investigation:near:group2:21342605",
+                "investigation:near:group3:21342605",
+                "investigation:near:group4:21342605",
+                "investigation:group_unknown:21342605",
+                "investigation:motive_unknown:21330850",
+                "investigation:motive_unknown:21330852",
+                "investigation:motive_unknown:21330853",
+                "investigation:motive_unknown:21342605"
+              ]
+            },
+            {
+              "id": "assistance",
+              "label": "疑似协助他人上分",
+              "status": "supported",
+              "support_ids": [
+                "behavior:carrying:21330852",
+                "behavior:carrying:21330850",
+                "behavior:carrying:21330853"
+              ],
+              "counter_ids": [],
+              "unknown_ids": [
+                "behavior:interpretation_limits",
+                "investigation:near:group0:21330850",
+                "investigation:near:group1:21330850",
+                "investigation:near:group2:21330850",
+                "investigation:near:group3:21330850",
+                "investigation:near:group4:21330850",
+                "investigation:group_unknown:21330850",
+                "investigation:near:group0:21330852",
+                "investigation:near:group1:21330852",
+                "investigation:near:group2:21330852",
+                "investigation:near:group3:21330852",
+                "investigation:near:group4:21330852",
+                "investigation:group_unknown:21330852",
+                "investigation:near:group0:21330853",
+                "investigation:near:group1:21330853",
+                "investigation:near:group2:21330853",
+                "investigation:near:group3:21330853",
+                "investigation:near:group4:21330853",
+                "investigation:group_unknown:21330853",
+                "investigation:near:group0:21342605",
+                "investigation:near:group1:21342605",
+                "investigation:near:group2:21342605",
+                "investigation:near:group3:21342605",
+                "investigation:near:group4:21342605",
+                "investigation:group_unknown:21342605",
+                "investigation:motive_unknown:21330850",
+                "investigation:motive_unknown:21330852",
+                "investigation:motive_unknown:21330853",
+                "investigation:motive_unknown:21342605",
+                "behavior:key_recovery_unknown:21476300"
+              ]
+            },
+            {
+              "id": "routine_group",
+              "label": "日常协作、朋友互助或练习",
+              "status": "compatible",
+              "support_ids": [
+                "investigation:team:21330850",
+                "investigation:team:21330852",
+                "investigation:team:21330853",
+                "investigation:team:21342605"
+              ],
+              "counter_ids": [],
+              "unknown_ids": [
+                "investigation:motive_unknown:21330850",
+                "investigation:motive_unknown:21330852",
+                "investigation:motive_unknown:21330853",
+                "investigation:motive_unknown:21342605"
+              ]
+            }
+          ],
+          "questions": [],
+          "stop_reason": "evidence_sufficient_for_comparison",
+          "resilience_history_targets": [],
+          "response_templates": [
+            {
+              "id": "key_access",
+              "assessment_options": [
+                "possible",
+                "unknown"
+              ],
+              "evidence_ids": [
+                "behavior:key_access:21330852",
+                "behavior:key_access:21330850",
+                "behavior:interpretation_limits"
+              ],
+              "counter_evidence_ids": []
+            },
+            {
+              "id": "external_assistance",
+              "assessment_options": [
+                "possible",
+                "unknown",
+                "supported"
+              ],
+              "evidence_ids": [
+                "behavior:high_score_collaborator:21330852",
+                "behavior:high_score_collaborator:21330850",
+                "behavior:interpretation_limits"
+              ],
+              "counter_evidence_ids": []
+            },
+            {
+              "id": "assistance",
+              "assessment_options": [
+                "possible",
+                "unknown",
+                "supported"
+              ],
+              "evidence_ids": [
+                "behavior:carrying:21330852",
+                "behavior:carrying:21330850",
+                "behavior:interpretation_limits"
+              ],
+              "counter_evidence_ids": []
+            },
+            {
+              "id": "routine_group",
+              "assessment_options": [
+                "possible",
+                "unknown",
+                "supported"
+              ],
+              "evidence_ids": [
+                "investigation:team:21330850",
+                "investigation:team:21330852",
+                "investigation:motive_unknown:21330850"
+              ],
+              "counter_evidence_ids": []
+            }
+          ]
+        }
+      }
+    }
+  }
+]

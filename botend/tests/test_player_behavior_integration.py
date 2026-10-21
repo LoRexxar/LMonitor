@@ -123,12 +123,8 @@ class BehaviorIntegrationTests(TestCase):
                 'evidence_ids': label['evidence_ids']}.items()}], 'conclusion_id': 'public_sample'}
             plan = data['metrics'].get('investigation')
             if plan:
-                output['investigation'] = {'summary': '已有公开线索，仍需比较协作与钥匙恢复。', 'confidence': '低',
-                    'hypotheses': [{'id': h['id'], 'assessment': 'possible',
-                        'evidence_ids': (h['support_ids'] + h['unknown_ids'])[:1],
-                        'counter_evidence_ids': h['counter_ids'], 'explanation': '与协作解释相容，动机仍未知。'}
-                        for h in [next(h for h in plan['hypotheses'] if h['id'] == hid)
-                                  for hid in ('assistance', 'external_assistance')]], 'next_question_ids': []}
+                from botend.tests.test_player_observation import structured_response
+                output['investigation'] = structured_response(plan['response_contract'])
             return json.dumps(output, ensure_ascii=False)
         engine = Mock(send_message=Mock(side_effect=response))
         outcome = service.generate_observation(self.player, engine=engine)
@@ -146,7 +142,7 @@ class BehaviorIntegrationTests(TestCase):
         forged = copy.deepcopy(row.evidence_json)
         forged['metrics']['behavior_review']['witnesses']['carrying'] = [123]
         with self.assertRaises(service.InvalidResult):
-            service._validate(json.dumps(before, ensure_ascii=False), forged, require_investigation=True)
+            service._validate_publication(json.dumps(before, ensure_ascii=False), forged, publication_version=8, require_investigation=True)
         broken = Mock(send_message=Mock(return_value='{"observations": [], "unexpected": true}'))
         self.assertEqual(service.generate_observation(self.player, force=True, engine=broken)['status'], 'invalid_schema')
         row.refresh_from_db()
@@ -237,8 +233,11 @@ class BehaviorIntegrationTests(TestCase):
             'reason_id': next(iter(label['reason_options'])),
             'limitation_ids': label['required_limitation_ids'],
             'evidence_ids': label['evidence_ids']}], 'conclusion_id': 'public_sample'}
+        from botend.tests.test_player_observation import structured_response
+        result['investigation'] = structured_response(
+            service._generation_input(initial)['metrics']['investigation']['response_contract'])
         publication = PlayerObservationAnalysis.objects.create(activity=self.activity,
-            player=self.player, prompt_version=service.PROMPT_VERSION, evidence_json=initial,
+            player=self.player, prompt_version=8, evidence_json=initial,
             evidence_hash=initial['evidence_hash'], result_json=result, status='ready')
         self.assertEqual(service.project_player_observation(self.player)['status'], 'ready')
         self.activity.refresh_from_db()

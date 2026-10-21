@@ -27,6 +27,48 @@ class CompactInputTests(unittest.TestCase):
         result['evidence'][0]['text']='modified'
         self.assertEqual(data,frozen)
 
+    def test_generation_guide_binds_facts_to_local_polarity_and_full_counters(self):
+        import json
+        from pathlib import Path
+        from botend.services.player_observation import _generation_input
+        from botend.services.player_observation_contract import build_contract, validate_investigation, InvalidContract
+
+        captures = json.loads((Path(__file__).parent / 'fixtures/player_observation_contract_v8.json').read_text())
+        for capture in captures:
+            evidence = copy.deepcopy(capture['evidence'])
+            before = copy.deepcopy(evidence)
+            data = _generation_input(evidence)
+            plan = data['metrics']['investigation']
+            contract = build_contract(evidence)
+            self.assertEqual(plan['response_contract'], contract)
+            guides = plan['selection_guide']
+            self.assertEqual([g['id'] for g in guides], [h['id'] for h in contract['hypotheses']])
+            facts = {f['id']: f['text'] for f in evidence['evidence']}
+            for guide, menu in zip(guides, contract['hypotheses']):
+                for field in ('support_ids', 'counter_ids', 'unknown_ids'):
+                    self.assertEqual(guide[field]['operation'], 'copy_all' if field == 'counter_ids' else 'select_up_to_3')
+                    self.assertEqual(guide[field]['candidates'], [{'id': ref, 'text': facts[ref]} for ref in menu[field]])
+            self.assertEqual(data['evidence'], evidence['evidence'])
+            self.assertEqual(evidence, before)
+            # Test-only selections, not model outputs: the same unchanged validator
+            # must still reject moving an unknown into support or dropping a counter.
+            value = {'schema_version': 8, 'confidence': '低', 'next_question_ids': [],
+                     'hypotheses': [{'id': h['id'], 'assessment': 'possible',
+                         'support_ids': h['support_ids'][:3], 'counter_ids': h['counter_ids'][:],
+                         'unknown_ids': h['unknown_ids'][:3]} for h in contract['hypotheses']]}
+            validate_investigation(value, evidence)
+            for row in value['hypotheses']:
+                if row['unknown_ids']:
+                    bad = copy.deepcopy(value)
+                    next(h for h in bad['hypotheses'] if h['id'] == row['id'])['support_ids'] = row['unknown_ids'][:1]
+                    with self.assertRaisesRegex(InvalidContract, 'invalid_polarity_or_id'):
+                        validate_investigation(bad, evidence)
+                if row['counter_ids']:
+                    bad = copy.deepcopy(value)
+                    next(h for h in bad['hypotheses'] if h['id'] == row['id'])['counter_ids'] = []
+                    with self.assertRaisesRegex(InvalidContract, 'missing_counter_ids'):
+                        validate_investigation(bad, evidence)
+
     def test_legacy_absent_behavior_keeps_eligible_facts(self):
         data={'evidence':[{'id':'timed_experience'}],'eligible_labels':[{'code':'timed_experience'}],'metrics':{}}
         self.assertEqual(compact_ai_input(data)['evidence'],data['evidence'])

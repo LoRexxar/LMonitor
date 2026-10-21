@@ -11,7 +11,8 @@ class CapturedInvestigationContractTests(SimpleTestCase):
         previous = SimpleNamespace(prompt_version=6, evidence_hash='same-facts')
         self.assertFalse(observation._same_publication(previous, evidence))
         previous.prompt_version = observation.PROMPT_VERSION
-        self.assertTrue(observation._same_publication(previous, evidence))
+        # Exact hash equality cannot bypass missing frozen evidence integrity.
+        self.assertFalse(observation._same_publication(previous, evidence))
 
     def test_captured_raw_contracts(self):
         for case in CASES:

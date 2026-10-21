@@ -4,7 +4,7 @@ const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const {JSDOM} = require('jsdom');
 const {Client, mount, buildPatch, safeURL} = require('../../static/dashboard/js/player-analysis-management.js');
-const record = () => ({id:7,revision:3,player_id:42,player:{id:42,character_name:'<img src=x onerror=bad>',realm:'Realm'},status:'ready',review_status:'pending',is_published:false,review_note:'',source_kind:'ai',manual:null,ai:{tags:[{label:'AI',value:'判断',reason:'依据',evidence:[]}],conclusion:'冻结结论',evidence:[{text:'冻结证据',url:'javascript:bad'}],result_json:{large:true}},effective:{}});
+const record = () => ({id:7,revision:3,player_id:42,player:{id:42,character_name:'<img src=x onerror=bad>',realm:'Realm'},status:'ready',review_status:'pending',is_published:false,review_note:'',source_kind:'ai',manual:null,ai:{validation_status:'valid',tags:[{label:'AI',value:'判断',reason:'依据',evidence:[]}],conclusion:'冻结结论',evidence:[{text:'冻结证据',url:'javascript:bad'}],result_json:{large:true}},effective:{}});
 const response = data => ({ok:true,status:200,json:async()=>({status:'success',data:structuredClone(data)})});
 const page = (items,number=1,total=1) => ({items,total,page:number,page_size:20,total_pages:Math.ceil(total/20)});
 async function fixture({row=record(),confirm=()=>true,handler}={}) {

@@ -104,11 +104,17 @@ class PlayerAnalysisManagementTests(TestCase):
         activity = RaiderIOCharacterActivity.objects.create(season=self.season, **player_identity(self.player))
         evidence = {'eligible_labels': [{'code': 'historical', 'label': '历史标签', 'reason_options': {'old': '历史理由'}}], 'evidence': [{'id': 'e1', 'text': '冻结事实', 'run_url': 'https://raider.io/old'}], 'conclusion_options': {'old': {'text': '历史结论'}}}
         result = {'observations': [{'code': 'historical', 'confidence': '中', 'reason_id': 'old', 'evidence_ids': ['e1']}], 'conclusion_id': 'old'}
-        row = PlayerObservationAnalysis.objects.create(activity=activity, player=self.player, status='ready', evidence_json=evidence, result_json=result)
+        row = PlayerObservationAnalysis.objects.create(activity=activity, player=self.player, status='ready', prompt_version=7, evidence_json=evidence, result_json=result)
         detail = service.get_analysis(row.pk)
-        self.assertEqual(detail['ai']['conclusion'], '历史结论')
-        self.assertEqual(detail['ai']['tags'][0]['reason'], '历史理由')
-        self.assertEqual(detail['ai']['evidence'][0]['text'], '冻结事实')
+        self.assertTrue(detail['publication_version_supported'])
+        self.assertFalse(detail['rules_current'])
+        # A readable row version alone cannot validate this unhashed legacy fixture:
+        # retain it for audit, never publish its unvalidated interpretation.
+        self.assertEqual(detail['ai']['validation_status'], 'invalid')
+        self.assertEqual(detail['ai']['conclusion'], '')
+        self.assertEqual(detail['ai']['tags'], [])
+        self.assertEqual(detail['ai']['evidence'], [])
+        self.assertEqual(detail['ai']['evidence_json'], evidence)
         self.assertEqual(detail['ai']['result_json'], result)
         with CaptureQueriesContext(connection) as captured:
             listing = service.list_analyses({'q': 'Member', 'page_size': '100', 'source': 'ai', 'visibility': 'published'})
@@ -299,7 +305,16 @@ class PlayerAnalysisGenerationTests(TestCase):
                 from botend.tests.test_player_observation import observation_response
                 if before_return:
                     before_return()
-                return json.dumps(observation_response(evidence))
+                result = observation_response(evidence)
+                if result.get('investigation') and evidence.get('prompt_version') == 8:
+                    from botend.services.player_observation_contract import build_contract
+                    contract = build_contract(evidence)
+                    result['investigation'] = {'schema_version': 8, 'confidence': '低',
+                        'hypotheses': [{'id': h['id'], 'assessment': 'possible',
+                            'support_ids': h['support_ids'][:2], 'counter_ids': h['counter_ids'],
+                            'unknown_ids': h['unknown_ids'][:1]} for h in contract['hypotheses']],
+                        'next_question_ids': contract['next_question_ids'][:3]}
+                return json.dumps(result)
         return Engine()
 
     def test_ai_refresh_cannot_overwrite_concurrent_editorial_write(self):

@@ -63,6 +63,7 @@
                         {% for question in observation.investigation.questions %}<li>{{ question.reason }}</li>{% endfor %}
                     </ul>
                     {% endif %}
+                    {% for limitation in observation.investigation.limitations %}<p class="player-observation__note">{{ limitation }}</p>{% endfor %}
                     <p class="player-observation__note">只基于已观测场次；当前成绩不是当场历史加分。钥匙归属与付款情况未确认。</p>
                 </details>
             </div>
