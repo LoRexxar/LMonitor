@@ -1,9 +1,4 @@
-"""Pure role/temporal evidence projection over collector-validated facts.
-
-No I/O, ORM, combat variables or motive classification. Frequencies use only the
-first ten recent rows inside fourteen days. Other sources retain their timestamps
-and are evidence of observed attainment, never a complete personal history.
-"""
+"""对已验证记录作纯时序分析；近期与已有缓存最多二十场，不把样本当作完整历史。"""
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -73,21 +68,20 @@ def _record(row, *, rid=None, dungeon=None, profile=False):
 def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
                           score_times, fetched_at, rio_season, now,
                           dungeon_ids=None, histories=None):
-    """Return JSON-safe v1 evidence, without mutating inputs or requesting data.
+    """返回可序列化的行为证据，不修改输入或发送请求。
 
-    ``supported`` contains only low-confidence behavior candidates backed by two
-    distinct recent run IDs. ``witnesses`` also exposes single-run leads. History
-    identity authentication belongs to the collector; its exact scope is checked
-    again here. ``resilience.events[].members`` maps identity to an L+1 proof,
-    with one dated run per dungeon, or unknown. Eligibility is not key inventory.
+    supported 只包含通过对应行为条件的标签；4带1另外要求重复四人组合与
+    两名独立受益成员。witnesses 保留单场线索，evidence_strengths 单独分级。
+    历史身份由采集层认证，本层再次核对范围。保护证据逐成员、逐副本绑定
+    有日期的场次，未核实则保持未知；成绩达标不代表实际钥匙库存。
     """
     structure = dict(recent_runs=0, roster_runs=0, untimed_runs=0, codes=[],
                      lineups=[], comparison_groups=[], observed_config_switches=0)
     out = dict(version=1, triggered=False, structure=structure, evidence=[], supported={},
                witnesses={code: [] for code in _CODES}, resilience=dict(subject_key=subject, events=[]), questions=[],
                limitations=[
-                   '仅最近至多10条公开完成记录中14天内的样本，含未限时；不是完整历史。',
-                   '行为仅为低置信事实候选，不证明动机、钥匙主人、背包库存或收费；朋友互助不是带人反证。',
+                   '仅近期公开完成记录及中央已有阵容，最多20场、14天内；不是完整历史。',
+                   '行为证据强度与动机、钥匙主人、背包库存或收费分别判断；朋友互助不是带人反证。',
                    '全L保护仍可能需要从L升至L+1；全L+1只削弱自然掉至L的解释，不排除旧钥匙或他人钥匙。',
                    '当前成绩不回填过去；未观测记录不是零分或未达成，后续低分快照不作硬否定。'])
     now, fetched = _date(now), _date(fetched_at)
@@ -127,7 +121,7 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
                 if rec and asof and rec['completed'] <= asof <= now:
                     snapshot_rows[key].append(rec)
 
-    valid_history = set()
+    accepted_histories = defaultdict(dict)
     for key, dungeons in (histories or {}).items():
         for did, history in dungeons.items():
             if not isinstance(history, dict):
@@ -141,9 +135,9 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
                     or history.get('private') is True
                     or history.get('status') in {'private', 'error', 'fetching'}
                     or history.get('last_error')
-                    or not asof or not now-timedelta(hours=48) <= asof <= now):
+                    or not asof or asof > now):
                 continue
-            valid_history.add((key, ui['dungeonId']))
+            accepted_histories[key][str(ui['dungeonId'])] = history
             for row in history.get('runs', []):
                 rec = _record(row)
                 if rec and rec['dungeon_id'] == ui['dungeonId']:
@@ -176,7 +170,7 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         add(subject, _record(row, rid=rid, dungeon=dungeon, profile=True), fetched)
 
     selected = {}
-    for row in recent[:10]:
+    for row in recent[:20]:
         rid = _reference(row, rio_season)
         completed = _date(row.get('completed_at'))
         if (rid not in runs or not completed or not now-timedelta(days=14) <= completed <= fetched
@@ -262,9 +256,6 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         return candidate
 
     evidence_ids = defaultdict(list)
-    pending = defaultdict(set)
-    history_pending = defaultdict(set)
-    resilience_pending = defaultdict(set)
 
     def relative_lower(peer, leader_prior, rec, start):
         """Compare a dated score proxy with a verified pre-start higher run.
@@ -301,7 +292,7 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
     def witness(code, rid, text):
         if rid not in out['witnesses'][code]:
             out['witnesses'][code].append(rid)
-            evidence_ids[code].append(evidence(code, rid, text+' 仅为低置信候选，不证明动机或交易。'))
+            evidence_ids[code].append(evidence(code, rid, text+' 仅说明所引场次的行为，不证明动机或交易。'))
 
     for rid in visible:
         rec, team = run_records[rid], teams[rid]
@@ -320,7 +311,6 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
                 f"本场开打时间{start.isoformat()}之前，本人已于{prior['completed'].isoformat()}"
                 f"完成同本{prior['level']}层限时（前场{prior['run_id']}）；"
                 '不能以本场之后才达到该更高层解释这场记录；这不证明本场净增分、动机或坚韧资格。')
-        current = {key: snapshot(key, rec) for key in team}
         observed = {key: [r for r in records[key].values() if r['dungeon_id'] == rec['dungeon_id']
                           and r['timed'] and r['level'] > rec['level']] for key in team}
         stable = any(rid in g['run_ids'] for g in structure['comparison_groups'])
@@ -328,18 +318,6 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         if clue:
             out['triggered'] = True
             evidence('lead', rid, f"本人已有同本较高层观测；本场{rec['level']}层，稳定合作仍需区分协助、升钥与后续进步。")
-            for key in sorted(team):
-                if current[key] is None:
-                    pending[key].add(rid)
-            if not priors[subject] and (subject, rec['dungeon_id']) not in valid_history:
-                history_pending[(subject, rec['dungeon_id'])].add(rid)
-        if stable and known_scope and start:
-            for key in sorted(team):
-                if not priors[key] or not 12 <= rec['level']+1 <= 30:
-                    continue
-                for did in sorted(universe):
-                    if str(did) not in states[key]['per_dungeon'] and (key, did) not in valid_history:
-                        resilience_pending[(key, did, rec['level']+1)].add(rid)
 
         lower_peers = [comparison for key in sorted(team-{subject})
                        if (comparison := relative_lower(key, priors[subject], rec, start))]
@@ -348,11 +326,9 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         higher_peers = [dict(comparison, leader_key=key) for key in protected_peers
                         if (comparison := relative_lower(subject, priors[key], rec, start))]
         event['relative_comparisons'] = dict(lower_peers=lower_peers, higher_peers=higher_peers)
-        if priors[subject] and states[subject]['state'] == 'confirmed_before_start' and lower_peers:
-            witness('carrying', rid, f"开打前本人已有更高同本限时（前场{','.join(str(r['run_id']) for r in priors[subject])}）且八本全{rec['level']+1}已达标；同伴带抓取时点的计分快照低于本人跑前记录（{len(lower_peers)}人），不保证每场净增分。")
-        elif priors[subject]:
+        if priors[subject]:
             if states[subject]['state'] == 'confirmed_before_start':
-                text = (f"本人此前同本更高，且全{rec['level']+1}跑前保护已证实，但缺可比受益成员；"
+                text = (f"本人此前同本更高，且全{rec['level']+1}跑前保护已证实；受益关系由独立事件核验；"
                         '这削弱本人钥匙自然降至本层的解释，仍不排除旧库存或他人钥匙，钥匙归属与供给未知。')
             else:
                 text = (f"本人此前同本更高，但全{rec['level']+1}跑前保护未知（未完整证实）；"
@@ -384,17 +360,29 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         out['witnesses'][code].sort()
         if len(out['witnesses'][code]) >= 2:
             out['supported'][code] = evidence_ids[code]
-    for (key, did), ids in sorted(history_pending.items()):
-        out['questions'].append(dict(kind='scored_history', member_key=key, dungeon_id=did,
-                                     run_ids=sorted(ids), priority=90))
-    for (key, did, level), ids in sorted(resilience_pending.items(),
-            key=lambda item: (item[0][0] != subject, -len(item[1]), item[0])):
-        out['questions'].append(dict(kind='scored_history', member_key=key, dungeon_id=did,
-            run_ids=sorted(ids), priority=85, purpose='resilience_gap', required_level=level))
-    for key, ids in sorted(pending.items(), key=lambda item: (-len(item[1]), item[0])):
-        out['questions'].append(dict(kind='scored_runs', member_key=key, dungeon_id=None,
-                                     run_ids=sorted(ids), priority=60))
-    out['questions'] = out['questions'][:4]
+    # 取证只围绕四人协作与具体受益事件，不补全队八本资料。
+    from botend.services.player_observation_questions import four_plus_one
+    inquiry = four_plus_one(subject=subject, selected=selected, teams=teams,
+        run_records=run_records, rosters=rosters, records=records, histories=accepted_histories)
+    from botend.services.player_observation_strength import grade_review, CONTEXT_UNKNOWNS, RULES
+    # 分级只消费本轮已有事实，不触发新问题或新抓取。
+    structure['recent_run_ids'] = sorted(selected)
+    out['evidence_strengths'] = grade_review(out, inquiry, teams, run_records)
+    out['strength_rules'] = RULES
+    out['context_unknowns'] = list(CONTEXT_UNKNOWNS)
+    out['questions'] = inquiry['questions']
+    for event in inquiry['events']:
+        rid = event['run_id']
+        guest_name = next(member.get('character', {}).get('name', '该第五人')
+                          for key, member in rosters[rid][1] if key == event['guest'])
+        witness('carrying', rid,
+            f"同一四人组合反复与不同第五人通关；四人的跑前同本证据场次为{','.join(str(x) for x in sorted(set(event['prior_run_ids'].values())))}；"
+            f"第五人{guest_name}的可见成绩由前场{event['guest_prior_run_id']}（{event['guest_prior_level']}层、{event['guest_prior_score']:g}分）"
+            f"提高至本场（{event['level']}层、{event['score']:g}分）。"
+            '已核验至少两名不同受益成员，未将一个成员的连续通关重复计数；公开历史可能不完整。')
+    if inquiry['events']:
+        out['supported']['carrying'] = evidence_ids['carrying']
+    out['triggered'] = bool(out['triggered'] or inquiry['questions'])
     out['triggered'] = bool(out['triggered'] or any(out['witnesses'].values()))
     if invalid:
         out['limitations'].append('冲突的角色/场次成绩已隔离，不作时序证据。')

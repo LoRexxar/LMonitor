@@ -48,15 +48,16 @@ class BehaviorReviewTests(TestCase):
         self.assertTrue(any(self.keys[0] not in g['members'] for g in out['structure']['comparison_groups']))
         self.assertFalse(out['supported'])
         self.assertEqual(set(out), {'version', 'triggered', 'structure', 'evidence', 'supported',
-                                    'witnesses', 'resilience', 'questions', 'limitations'})
+                                    'witnesses', 'resilience', 'questions', 'limitations',
+                                    'evidence_strengths', 'strength_rules', 'context_unknowns'})
         json.dumps(out)
 
-    def test_carrying_requires_two_independent_runs_and_all_next_level_before_start(self):
+    def test_single_subject_protection_and_fixed_five_do_not_establish_four_plus_one(self):
         self.records(self.keys[0], 23, all_dungeons=True)
         self.current_snapshot(self.keys[4])
         out = self.build()
-        self.assertEqual(out['witnesses']['carrying'], [100, 101, 102])
-        self.assertEqual(len(out['supported']['carrying']), 3)
+        self.assertEqual(out['witnesses']['carrying'], [])
+        self.assertNotIn('carrying', out['supported'])
         self.assertEqual(out['resilience']['events'][0]['members'][self.keys[0]]['state'], 'confirmed_before_start')
         single = self.build(recent=[self.args['recent'][0]]*3)
         self.assertNotIn('carrying', single['supported'])
@@ -87,7 +88,7 @@ class BehaviorReviewTests(TestCase):
         self.records(self.keys[0], 23, all_dungeons=True)
         out = self.build()
         self.assertNotIn('carrying', out['supported'])
-        self.assertTrue(out['questions'])
+        self.assertEqual(out['questions'], [])
         self.records(self.keys[4], 21)
         self.records(self.keys[0], 23, all_dungeons=True, when=self.now-timedelta(hours=1))
         self.assertNotIn('carrying', self.build()['supported'])
@@ -100,7 +101,7 @@ class BehaviorReviewTests(TestCase):
         self.assertEqual(len(texts), 3)
         for text in texts:
             self.assertIn('全23跑前保护已证实', text)
-            self.assertIn('缺可比受益成员', text)
+            self.assertIn('受益关系由独立事件核验', text)
             self.assertNotIn('保护未完整证实', text)
         self.args['scores'][self.keys[0]].pop()
         unknown = self.build()
@@ -146,9 +147,9 @@ class BehaviorReviewTests(TestCase):
         for i in range(3, 12):
             self.add_run(100+i, 22, self.now-timedelta(hours=15-i), self.keys[:5])
         out = self.build(best=[self.args['recent'][-1]])
-        self.assertEqual(out['structure']['recent_runs'], 10)
+        self.assertEqual(out['structure']['recent_runs'], 12)
         self.assertEqual(out['structure']['untimed_runs'], 1)
-        self.assertEqual(out['structure']['roster_runs'], 10)
+        self.assertEqual(out['structure']['roster_runs'], 12)
 
     def test_rotations_distinguish_single_change_and_occasional_substitution(self):
         self.add_run(103, 22, self.now-timedelta(hours=1), self.keys[:4]+[self.keys[5]])
@@ -168,10 +169,10 @@ class BehaviorReviewTests(TestCase):
                        timed=True, completed_at=old['completed_at'])])
         self.args['histories'] = {self.keys[0]: {'8': hist}}
         before = copy.deepcopy(self.args)
-        self.assertIn('carrying', self.build()['supported'])
+        self.assertEqual(self.build()['resilience']['events'][0]['members'][self.keys[0]]['state'], 'confirmed_before_start')
         self.assertEqual(self.args, before)
         hist['ui']['mode'] = 'all'
-        self.assertNotIn('carrying', self.build()['supported'])
+        self.assertEqual(self.build()['resilience']['events'][0]['members'][self.keys[0]]['state'], 'unknown')
 
     def current_snapshot(self, key):
         row = self.args['runs'][102]
@@ -184,9 +185,9 @@ class BehaviorReviewTests(TestCase):
         for key in self.keys[1:5]:
             self.current_snapshot(key)
         out = self.build()
-        self.assertIn('carrying', out['supported'])
+        self.assertNotIn('carrying', out['supported'])
         self.assertIn('high_score_collaborator', out['supported'])
-        self.assertIn('快照', ' '.join(e['text'] for e in out['evidence']))
+        self.assertTrue(out['resilience']['events'][0]['relative_comparisons']['lower_peers'])
         self.current_snapshot(self.keys[0])
         for key in self.keys[1:4]:
             self.records(key, 23, all_dungeons=True)
@@ -204,23 +205,21 @@ class BehaviorReviewTests(TestCase):
         old = self.args['scores'][self.keys[0]].pop()
         self.current_snapshot(self.keys[4])
         out = self.build()
-        question = next(q for q in out['questions'] if q.get('purpose') == 'resilience_gap')
-        self.assertEqual((question['dungeon_id'], question['required_level']), (8, 23))
-        self.assertEqual(question['run_ids'], [100, 101, 102])
-        self.assertLessEqual(len(out['questions']), 4)
+        self.assertEqual(out['questions'], [])
         hist = dict(fetched_at=self.now.isoformat(), source_url='https://raider.io/api/characters/mythic-plus-runs',
             ui=dict(season='season-mn-2', characterId=77, role='all', mode='scored', affixes='all', date='all', dungeonId=8),
             runs=[dict(run_id=old['keystone_run_id'], dungeon_id=8, level=23, score=530,
                        timed=True, completed_at=old['completed_at'])])
         for extra in ({'private': True}, {'status': 'private'}, {'status': 'error'},
-                      {'status': 'fetching'}, {'last_error': 'failed'},
-                      {'fetched_at': (self.now-timedelta(hours=49)).isoformat()}):
+                      {'status': 'fetching'}, {'last_error': 'failed'}):
             with self.subTest(extra=extra):
                 out = self.build(histories={self.keys[0]: {8: hist | extra}})
                 self.assertNotIn('carrying', out['supported'])
-                self.assertTrue(any(q.get('purpose') == 'resilience_gap' for q in out['questions']))
+                self.assertEqual(out['questions'], [])
+                self.assertEqual(out['resilience']['events'][0]['members'][self.keys[0]]['state'], 'unknown')
         out = self.build(histories={self.keys[0]: {8: hist}})
-        self.assertIn('carrying', out['supported'])
+        self.assertNotIn('carrying', out['supported'])
+        self.assertEqual(out['resilience']['events'][0]['members'][self.keys[0]]['state'], 'confirmed_before_start')
         self.assertFalse(any(q.get('purpose') == 'resilience_gap' for q in out['questions']))
         out = self.build(histories={self.keys[0]: {8: hist | {'runs': []}}})
         self.assertNotIn('carrying', out['supported'])

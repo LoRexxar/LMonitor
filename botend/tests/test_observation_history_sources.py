@@ -18,7 +18,9 @@ class HistorySourcesTests(TestCase):
         data['metrics']['investigation']['triggered'] = False
         data['metrics']['behavior_review'] = {'questions': [dict(
             kind='scored_history', member_key=q['identity_digest'], dungeon_id=1,
-            run_ids=q['run_ids'], priority=q['priority']) for q in questions]}
+            run_ids=q['run_ids'], priority=q['priority'], purpose='verify_guest_gain',
+            reason='核验具体第五人的跑前记录',expected_change=q['expected_change'],
+            core_members=q['core_members'],prior_run_ids=q['prior_run_ids']) for q in questions]}
         return data
 
     def transport(self, url, **kwargs):
@@ -77,9 +79,9 @@ class HistorySourcesTests(TestCase):
         self.assertEqual(len(plan['questions']), 1)
         self.assertEqual(plan['resilience_history_targets'][0]['run_ids'], [123])
         result = self.collect(data)
-        self.assertEqual(result['followup_api_requests'], 1)
+        self.assertEqual(result['followup_api_requests'], 0)
         self.assertEqual([o['status'] for o in result['investigation']['outcomes']],
-                         ['observed_partial'])
+                         ['budget_pending'])
         self.assertTrue(result['investigation']['bounded_complete'])
         self.assertFalse(result['source_failed'])
         # Already canonical invalid questions remain visible to strict validation.
@@ -90,18 +92,15 @@ class HistorySourcesTests(TestCase):
         self.assertEqual(outcomes['canonical_invalid']['status'], 'invalid_question')
         self.assertFalse(result['investigation']['bounded_complete'])
 
-    def test_authorized_cross_dungeon_requests_exact_target(self):
-        data = self.resilience_contract()
-        q = data['metrics']['behavior_review']['questions'][0]
-        result = self.collect(data)
-        self.assertEqual(result['followup_api_requests'], 1)
-        self.assertEqual(self.calls[0][1]['params']['dungeonId'], q['dungeon_id'])
-        self.activity.refresh_from_db()
-        self.assertIn(str(q['dungeon_id']), self.activity.payload_json['mythic_plus_scored_history'])
+    def test_cross_dungeon_completeness_is_not_request_authorization(self):
+        data=self.resilience_contract()
+        self.assertEqual(self.collect(data)['followup_api_requests'],0)
+        self.assertEqual(self.calls,[])
 
     def collect_resolved_history(self, *, replacement=None):
         """Rebuild evidence after the real collector publishes its ORM snapshot."""
-        data = self.resilience_contract()
+        data = self.history_contract()
+        data['metrics']['behavior_review']['questions'][0]['dungeon_id'] = self.row.payload_json['dungeon']['id']
         target = data['metrics']['behavior_review']['questions'][0]
         snapshots = []
 
@@ -128,13 +127,13 @@ class HistorySourcesTests(TestCase):
                 patch('botend.services.player_observation_sources._pace', return_value=True):
             result = self.refresh(progressive=True, force=True)
         self.assertEqual(len(snapshots), 2)
-        self.assertTrue(snapshots[0]['metrics']['investigation']['resilience_history_targets'])
+        self.assertTrue(snapshots[0]['metrics']['behavior_review']['questions'])
         self.assertEqual(snapshots[1]['metrics']['investigation']['resilience_history_targets'], [])
         self.assertEqual(result['followup_api_requests'], 1)
         self.activity.refresh_from_db()
         return result
 
-    def test_resolved_cross_dungeon_keeps_executed_authorization(self):
+    def test_resolved_guest_question_keeps_executed_authorization(self):
         result = self.collect_resolved_history()
         trace = result['investigation']
         self.assertEqual(trace['questions'], [])
@@ -157,14 +156,14 @@ class HistorySourcesTests(TestCase):
                 require_sources(bad)
 
     def test_new_question_cannot_inherit_old_target_authorization(self):
-        result = self.collect_resolved_history(replacement={'id': 'new_question'})
+        result = self.collect_resolved_history(replacement={'id': 'new_question','dungeon_id':999999})
         outcomes = {q['id']: q for q in result['investigation']['outcomes']}
         self.assertEqual(outcomes.pop('new_question')['status'], 'invalid_question')
         self.assertEqual(next(iter(outcomes.values()))['status'], 'observed_partial')
         self.assertFalse(result['investigation']['bounded_complete'])
 
     def test_changed_question_id_cannot_inherit_old_authorization(self):
-        result = self.collect_resolved_history(replacement={'purpose': 'other'})
+        result = self.collect_resolved_history(replacement={'purpose': 'other','dungeon_id':999999})
         self.assertEqual(result['investigation']['outcomes'][0]['status'], 'invalid_question')
         self.assertFalse(result['investigation']['bounded_complete'])
 
@@ -224,16 +223,12 @@ class HistorySourcesTests(TestCase):
         self.assertEqual(result['rosters_visible'], 2)
         self.assertEqual(result['investigation']['outcomes'][0]['status'], 'invalid_question')
 
-    def test_cross_dungeon_questions_keep_two_request_budget(self):
-        data = self.history_contract(4)
-        questions = data['metrics']['behavior_review']['questions']
-        for q in questions:
-            q.update(dungeon_id=2, purpose='resilience_gap',
-                     required_level=self.row.payload_json['mythic_level'] + 1)
-        data['metrics']['investigation']['resilience_history_targets'] = copy.deepcopy(questions)
-        result = self.collect(data)
-        self.assertEqual(result['followup_api_requests'], 2)
-        self.assertEqual([kwargs['params']['dungeonId'] for _, kwargs in self.calls], [2, 2])
+    def test_cross_dungeon_gaps_do_not_consume_request_budget(self):
+        data=self.history_contract(4)
+        for q in data['metrics']['behavior_review']['questions']:
+            q.update(dungeon_id=2,purpose='resilience_gap',required_level=23)
+        self.assertEqual(self.collect(data)['followup_api_requests'],0)
+        self.assertEqual(self.calls,[])
 
     def test_private_tombstones_and_expired_leases_never_reuse_last_good(self):
         from datetime import timedelta
@@ -379,7 +374,7 @@ class HistorySourcesTests(TestCase):
         data['metrics']['behavior_review']['questions'][0]['kind'] = 'scored_runs'
         result = self.collect(data)
         self.assertEqual(result['followup_api_requests'], 2)
-        self.assertEqual(sum(url.endswith('/mythic-plus-runs') for url, _ in self.calls), 1)
+        self.assertEqual(sum(url.endswith('/mythic-plus-runs') for url, _ in self.calls), 2)
         self.calls.clear()
         for q in data['metrics']['behavior_review']['questions']:
             q['run_ids'] = [9999]

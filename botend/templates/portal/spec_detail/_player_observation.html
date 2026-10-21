@@ -38,14 +38,19 @@
         {% else %}
             {% if observation.investigation.triggered %}
             <div data-player-investigation>
+                {% if observation.investigation.schema_version == 9 %}
+                <p class="player-observation__conclusion"><strong>行为模式与证据强度</strong> · 依据已核实的近期记录分项评估。</p>
+                <p class="player-observation__note"><strong>未核实信息：</strong>{{ observation.investigation.context_unknowns|join:'；' }}。这些未知不否定已核实的行为模式。</p>
+                {% else %}
                 <p class="player-observation__conclusion"><strong>已有线索，尚待核查</strong> · 低置信解释，不是确定身份或交易结论。</p>
+                {% endif %}
                 <p>{{ observation.investigation.summary }}</p>
                 <details class="player-observation__details">
                     <summary>查看候选解释、支持与反证</summary>
                     {% for hypothesis in observation.investigation.hypotheses %}
                     <div class="player-observation__note">
                         <strong>{{ hypothesis.label }}</strong>
-                        <span>（{% if hypothesis.assessment == 'supported' %}有相容信号，仍非证实{% elif hypothesis.assessment == 'weakened' %}当前证据削弱{% elif hypothesis.assessment == 'possible' %}尚有可能{% else %}证据不足{% endif %}）</span>
+                        <span>（{% if hypothesis.evidence_strength %}{{ hypothesis.evidence_strength.label }}{% elif hypothesis.assessment == 'supported' %}有相容信号，仍非证实{% elif hypothesis.assessment == 'weakened' %}当前证据削弱{% elif hypothesis.assessment == 'possible' %}尚有可能{% else %}证据不足{% endif %}）</span>
                         <p>{{ hypothesis.explanation }}</p>
                         {% if hypothesis.evidence %}<p>支持线索</p><ul class="player-observation__evidence">
                         {% for evidence in hypothesis.evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}
@@ -53,7 +58,7 @@
                         {% if hypothesis.counter_evidence %}<p>反向线索</p><ul class="player-observation__evidence">
                         {% for evidence in hypothesis.counter_evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}
                         </ul>{% endif %}
-                        {% if hypothesis.unknown_evidence %}<p>未知 / 缺口（不作为支持线索）</p><ul class="player-observation__evidence">
+                        {% if hypothesis.unknown_evidence %}<p>尚未核实的事项（不作为支持或反证）</p><ul class="player-observation__evidence">
                         {% for evidence in hypothesis.unknown_evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}
                         </ul>{% endif %}
                     </div>
@@ -62,6 +67,15 @@
                     <p>仍待核查的问题</p><ul class="player-observation__evidence">
                         {% for question in observation.investigation.questions %}<li>{{ question.reason }}</li>{% endfor %}
                     </ul>
+                    {% endif %}
+                    {% if observation.evidence_strength_rules %}
+                    <details class="player-observation__details">
+                        <summary>证据等级标准</summary>
+                        <p>4带1协助上分模式</p>
+                        <ul>{% for rule in observation.evidence_strength_rules.carrying %}<li>{{ rule }}</li>{% endfor %}</ul>
+                        <p>其他行为模式</p>
+                        <ul>{% for rule in observation.evidence_strength_rules.other %}<li>{{ rule }}</li>{% endfor %}</ul>
+                    </details>
                     {% endif %}
                     {% for limitation in observation.investigation.limitations %}<p class="player-observation__note">{{ limitation }}</p>{% endfor %}
                     <p class="player-observation__note">只基于已观测场次；当前成绩不是当场历史加分。钥匙归属与付款情况未确认。</p>

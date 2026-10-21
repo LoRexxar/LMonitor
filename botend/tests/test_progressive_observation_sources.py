@@ -29,21 +29,13 @@ class ProgressiveSourcesTests(TestCase):
         self.assertEqual(result['followup_api_requests'], 0)
         self.assertFalse(result['followup_triggered'])
 
-    def test_four_core_followup_is_two_real_requests_not_two_members_times_runs(self):
-        from botend.services.player_observation_sources import _characters
-        chars, _ = _characters([self.row.payload_json], self.activity.identity_digest)
-        from botend.raiderio_identity import activity_identity_digest
-        core = [activity_identity_digest(**c['identity']) for c in chars[:4]]
-        evidence = {'metrics': {'team_pattern': {'kind': 'suspected_four', 'core_size': 4,
-                     'core_members': core}, 'progression': {'status': 'insufficient',
-                     'details': [{'run_id': 123, 'below_core': None}]}}}
-        with patch('botend.services.player_observation.build_evidence', return_value=evidence):
+    def test_structure_alone_never_authorizes_followup(self):
+        # 阵容初筛和资料缺口本身不再授权额外请求。
+        with patch('botend.services.player_observation.build_evidence', return_value=self.four_evidence()):
             result = self.refresh(progressive=True, max_followup_requests=2)
-        self.assertEqual(len(self.calls), 2)
-        self.assertEqual(result['followup_api_requests'], 2)
-        self.assertEqual(result['basic_api_requests'], 0)
-        self.assertTrue(result['followup_triggered'])
-        self.assertTrue(all(c[0].endswith('/mythic-plus-scored-runs') for c in self.calls))
+        self.assertEqual(self.calls, [])
+        self.assertEqual(result['followup_api_requests'], 0)
+        self.assertFalse(result['followup_triggered'])
 
     def test_fixed_five_never_requests_scores(self):
         with patch('botend.services.player_observation.build_evidence', return_value={
@@ -74,24 +66,13 @@ class ProgressiveSourcesTests(TestCase):
         self.assertEqual(result['api_requests'], 0)
         self.assertFalse(result['followup_triggered'])
 
-    def test_429_and_timeout_consume_literal_followup_budget(self):
-        import requests
-        for kind in ('429', 'timeout', '500'):
-            self.calls.clear()
-            self.http_status = int(kind) if kind != 'timeout' else 200
-            original = self.transport
-            def transport(url, **kwargs):
-                response = original(url, **kwargs)
-                if kind == 'timeout':
-                    raise requests.Timeout()
-                return response
-            with patch('botend.services.player_observation.build_evidence', return_value=self.four_evidence()), \
-                    patch.object(self, 'transport', side_effect=transport):
-                result = self.refresh(progressive=True)
-            expected = 1 if kind == '429' else 2
-            self.assertEqual(result['followup_api_requests'], expected)
-            self.assertEqual(len(self.calls), expected)
-            self.assertEqual(result['status'], 'rate_limited' if kind == '429' else 'partial')
+    def test_no_question_does_not_contact_failing_source(self):
+        # 没有具体问题时，即使远端会报错，也不应触发任何请求。
+        self.http_status = 429
+        with patch('botend.services.player_observation.build_evidence', return_value=self.four_evidence()):
+            result = self.refresh(progressive=True)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(result['followup_api_requests'], 0)
 
     def test_basic_budget_does_not_write_unattempted_errors(self):
         import copy
@@ -105,11 +86,11 @@ class ProgressiveSourcesTests(TestCase):
         self.activity.save()
         self.row.delete()
         result = self.refresh(progressive=True)
-        self.assertEqual(result['basic_api_requests'], 5)
+        self.assertEqual(result['basic_api_requests'], 0)
         self.assertEqual(result['followup_api_requests'], 0)
-        self.assertEqual(RaiderIORunRoster.objects.count(), 5)
+        self.assertEqual(RaiderIORunRoster.objects.count(), 0)
         self.assertFalse(RaiderIORunRoster.objects.filter(status='error').exists())
-        self.assertEqual(sum(s['status'] == 'budget_exhausted' for s in result['runs']), 5)
+        self.assertEqual(sum(s['status'] == 'not_needed' for s in result['runs']), 10)
 
     def test_force_preserves_privacy_leases_backoff_and_top20(self):
         from datetime import timedelta
@@ -139,11 +120,11 @@ class ProgressiveSourcesTests(TestCase):
                 defaults={'status': 'fetching', 'next_attempt_at': timezone.now() + timedelta(hours=1)})
         with patch('botend.services.player_observation.build_evidence', return_value=self.four_evidence()):
             result = self.refresh(progressive=True, force=True)
-        self.assertEqual(result['followup_api_requests'], 1)
-        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(result['followup_api_requests'], 0)
+        self.assertEqual(len(self.calls), 0)
         self.assertEqual(sum(s['status'] == 'busy' for s in result['characters']), 4)
 
-    def test_total_budget_includes_activity_five_rosters_and_two_scores(self):
+    def test_due_activity_does_not_spend_unused_extra_budget(self):
         import copy
         from datetime import timedelta
         from django.utils import timezone
@@ -166,14 +147,14 @@ class ProgressiveSourcesTests(TestCase):
         with patch('botend.services.player_observation.build_evidence', return_value=evidence), \
                 patch.object(self, 'transport', side_effect=transport):
             result = self.refresh(progressive=True)
-        self.assertEqual(result['basic_api_requests'], 6)
-        self.assertEqual(result['followup_api_requests'], 2)
-        self.assertEqual(result['api_requests'], 8)
+        self.assertEqual(result['basic_api_requests'], 1)
+        self.assertEqual(result['followup_api_requests'], 0)
+        self.assertEqual(result['api_requests'], 1)
         self.assertEqual(result['api_budget'], 8)
-        self.assertEqual(len(self.calls), 8)
+        self.assertEqual(len(self.calls), 1)
         self.assertEqual(type(self.player).objects.values().get(pk=self.player.pk), before)
 
-    def test_fresh_fifth_cache_not_refetched_and_missing_fifth_preferred(self):
+    def test_missing_fifth_snapshot_alone_is_not_a_question(self):
         from botend.models import RaiderIOCharacterActivity
         from botend.services.player_observation_sources import _characters
         from botend.tests.test_player_observation_sources import scored
@@ -191,15 +172,15 @@ class ProgressiveSourcesTests(TestCase):
                 defaults={'scored_runs_json': scored(char['character_id']), 'scored_runs_fetched_at': timezone.now()})
         with patch('botend.services.player_observation.build_evidence', return_value=evidence):
             result = self.refresh(progressive=True, force=True)
-        self.assertEqual(result['followup_api_requests'], 1)
-        self.assertEqual(self.calls[0][1]['params']['characterId'], fifth['character_id'])
+        self.assertEqual(result['followup_api_requests'], 0)
+        self.assertEqual(self.calls, [])
         self.calls.clear()
         with patch('botend.services.player_observation.build_evidence', return_value=evidence):
             result = self.refresh(progressive=True, force=True)
         self.assertEqual(result['api_requests'], 0)
         self.assertEqual(self.calls, [])
 
-    def test_cached_old_best_cannot_starve_uncached_recent_canonical_sample(self):
+    def test_uncached_recent_without_signal_is_left_unknown(self):
         import copy
         from django.utils import timezone
         from botend.models import RaiderIORunRoster
@@ -231,14 +212,12 @@ class ProgressiveSourcesTests(TestCase):
         self.activity.save()
         with patch('botend.services.player_observation_sources._score_cache', wraps=_score_cache) as cache:
             result = self.refresh(progressive=True)
-        self.assertEqual(len(self.calls), 1)
-        self.assertTrue(self.calls[0][0].endswith('/run-details'))
-        self.assertEqual(self.calls[0][1]['params']['id'], 999)
-        self.assertTrue(RaiderIORunRoster.objects.get(run_id=999).roster_visible)
+        self.assertEqual(self.calls, [])
+        self.assertFalse(RaiderIORunRoster.objects.filter(run_id=999).exists())
         selected = {row['run_id'] for row in result['runs']}
         self.assertEqual(selected, set(range(123, 131)) | {999})
         evidence = build_evidence(self.player)
-        self.assertEqual(selected, {row['run_id'] for row in evidence['source_stamps']['rosters']})
+        self.assertEqual(selected - {999}, {row['run_id'] for row in evidence['source_stamps']['rosters']})
         self.assertEqual(evidence['coverage']['unique_runs'], 9)
         self.assertEqual(evidence['coverage']['roster_runs'], result['rosters_visible'])
         self.assertEqual(cache.call_count, 5)
@@ -290,42 +269,24 @@ class ProgressiveSourcesTests(TestCase):
                                ({'max_characters': 1}, 'characters_truncated')):
             with self.subTest(options=options):
                 result = self.refresh(progressive=True, **options)
-                self.assertTrue(result[field])
-                self.assertEqual(result['status'], 'partial')
+                self.assertEqual(result[field], field == 'characters_truncated')
+                self.assertEqual(result['status'], 'partial' if field == 'characters_truncated' else 'ready')
                 self.assertEqual(result['api_requests'], 0)
 
-    def test_last_good_error_retries_after_backoff_through_real_collector(self):
+    def test_failed_roster_without_question_preserves_failure_without_retry(self):
         from datetime import timedelta
         from django.utils import timezone
         from botend.services.player_observation import build_evidence
-        for status, error in (('error', 'http_504'), ('error', ''), ('ready', 'http_504')):
-            for http_status in (200, 504):
-                with self.subTest(status=status, error=error, http_status=http_status):
-                    self.calls.clear()
-                    self.http_status = http_status
-                    self.row.status, self.row.last_error = status, error
-                    self.row.failure_count = 1
-                    self.row.next_attempt_at = timezone.now() - timedelta(seconds=1)
-                    self.row.save()
-                    last_good, fetched_at = self.row.payload_json, self.row.fetched_at
-                    result = self.refresh(progressive=True, max_followup_requests=0)
-                    self.assertEqual(len(self.calls), 1)
-                    self.assertTrue(self.calls[0][0].endswith('/run-details'))
-                    self.assertEqual(self.calls[0][1]['params']['id'], self.row.run_id)
-                    self.assertEqual(result['basic_api_requests'], 1)
-                    self.assertEqual(result['api_requests'], 1)
-                    self.assertEqual(result['runs'][0]['status'], 'ready' if http_status == 200 else 'http_504')
-                    self.row.refresh_from_db()
-                    self.assertEqual(self.row.status, 'ready' if http_status == 200 else 'error')
-                    self.assertEqual(self.row.last_error, '' if http_status == 200 else 'http_504')
-                    self.assertEqual(self.row.failure_count, 0 if http_status == 200 else 2)
-                    self.assertTrue(self.row.roster_visible)
-                    self.assertGreater(self.row.next_attempt_at, timezone.now())
-                    self.assertEqual(build_evidence(self.player)['source_failed'], http_status != 200)
-                    if http_status != 200:
-                        self.assertEqual(result['status'], 'partial')
-                        self.assertEqual(self.row.payload_json, last_good)
-                        self.assertEqual(self.row.fetched_at, fetched_at)
+        for status,error in (('error','http_504'),('error',''),('ready','http_504')):
+            self.row.status,self.row.last_error=status,error
+            self.row.next_attempt_at=timezone.now()-timedelta(seconds=1)
+            self.row.save()
+            before=type(self.row).objects.values().get(pk=self.row.pk)
+            result=self.refresh(progressive=True,max_followup_requests=0)
+            self.assertEqual(self.calls,[])
+            self.assertEqual(result['runs'][0]['status'],'not_needed')
+            self.assertEqual(type(self.row).objects.values().get(pk=self.row.pk),before)
+            self.assertTrue(build_evidence(self.player)['source_failed'])
 
     def test_last_good_error_backoff_and_fetching_lease_are_unchanged(self):
         from datetime import timedelta
@@ -358,7 +319,7 @@ class ProgressiveSourcesTests(TestCase):
         self.assertEqual(type(self.row).objects.values().get(pk=self.row.pk), before)
         self.assertFalse(build_evidence(self.player)['source_failed'])
 
-    def test_last_good_error_retries_respect_roster_budget_without_clearing_failures(self):
+    def test_unused_roster_budget_does_not_clear_existing_failures(self):
         import copy
         from datetime import timedelta
         from django.utils import timezone
@@ -382,13 +343,12 @@ class ProgressiveSourcesTests(TestCase):
             with self.subTest(budget=budget):
                 before = {row['run_id']: row for row in RaiderIORunRoster.objects.values()}
                 result = self.refresh(progressive=True, max_basic_roster_requests=budget, max_followup_requests=0)
-                self.assertEqual(len(self.calls), budget)
-                self.assertEqual(result['basic_api_requests'], budget)
-                self.assertEqual(result['api_requests'], budget)
+                self.assertEqual(len(self.calls), 0)
+                self.assertEqual(result['basic_api_requests'], 0)
+                self.assertEqual(result['api_requests'], 0)
                 self.assertLessEqual(result['api_requests'], result['api_budget'])
-                self.assertEqual(sum(s['status'] == 'budget_exhausted' for s in result['runs']), 6 - budget)
-                self.assertEqual(sum(s['status'] == 'http_504' for s in result['runs']), budget)
-                self.assertEqual(result['status'], 'partial')
+                self.assertEqual(sum(s['status'] == 'not_needed' for s in result['runs']), 6)
+                self.assertEqual(sum(s['status'] == 'http_504' for s in result['runs']), 0)
                 self.assertTrue(build_evidence(self.player)['source_failed'])
                 attempted = {call[1]['params']['id'] for call in self.calls}
                 for row in RaiderIORunRoster.objects.values():

@@ -114,7 +114,17 @@ def _state(entry, expected, now):
     return 'pending'
 
 
-def history_cache(character, season, dungeon_id):
+def _event_state(entry, expected, now, required_after=None):
+    """仅当具体待核验场次晚于缓存时，允许刷新仍在有效期内的历史。"""
+    state = _state(entry, expected, now)
+    if (state == 'fresh' and required_after is not None
+            and timezone.is_aware(required_after) and required_after <= now
+            and _date(entry.get('fetched_at')) < required_after):
+        return 'pending'
+    return state
+
+
+def history_cache(character, season, dungeon_id, *, required_after=None):
     digest = activity_identity_digest(**character['identity'])
     row = RaiderIOCharacterActivity.objects.filter(season=season, identity_digest=digest).first()
     result = {'identity_digest': digest, 'character_id': character['character_id'],
@@ -124,7 +134,8 @@ def history_cache(character, season, dungeon_id):
         if row.next_attempt_at and row.next_attempt_at > now and row.status in ('fetching', 'error'):
             return {**result, 'status': 'busy' if row.status == 'fetching' else 'backoff'}
         entry = row.payload_json.get(MODULE, {}).get(str(dungeon_id), {})
-        result.update(activity_id=row.pk, status=_state(entry, scope(season.rio_season, character['character_id'], dungeon_id), now))
+        result.update(activity_id=row.pk, status=_event_state(entry,
+            scope(season.rio_season, character['character_id'], dungeon_id), now, required_after))
         if entry.get('fetched_at'):
             result['fetched_at'] = entry['fetched_at']
     return result
@@ -144,9 +155,9 @@ def _write(row, did, entry, season):
     row.save(update_fields=['payload_json'])
 
 
-def collect_history(batch, character, season, dungeon_id):
+def collect_history(batch, character, season, dungeon_id, *, required_after=None):
     expected = scope(season.rio_season, character['character_id'], dungeon_id)
-    result = history_cache(character, season, dungeon_id)
+    result = history_cache(character, season, dungeon_id, required_after=required_after)
     token = uuid.uuid4().hex
     try:
         with transaction.atomic():
@@ -159,7 +170,7 @@ def collect_history(batch, character, season, dungeon_id):
             entry = dict(row.payload_json.get(MODULE, {}).get(str(dungeon_id), {}))
             if entry.get('ui') is not None and entry['ui'] != expected:
                 return {**result, 'status': 'identity_mismatch'}
-            state = _state(entry, expected, now)
+            state = _event_state(entry, expected, now, required_after)
             if state != 'pending':
                 return {**result, 'status': state}
             if batch.stop_event.is_set() or batch.requests >= batch.budget:

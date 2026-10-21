@@ -118,7 +118,7 @@ class HistoryAppendTests(TestCase):
         from urllib.parse import urlencode
         from botend.services.player_observation_history import scope, URL
         from botend.tests.test_player_observation_versions import PublicationVersionTests
-        row = PublicationVersionTests.legacy(self)
+        row = PublicationVersionTests.current(self)
         before = PlayerObservationAnalysis.objects.values().get(pk=row.pk)
         self.activity.refresh_from_db()
         ui = scope(self.season.rio_season, 100, 9527)
@@ -150,7 +150,7 @@ class HistoryAppendTests(TestCase):
 
     def test_real_current_source_gate_still_blocks_reuse(self):
         from botend.tests.test_player_observation_versions import PublicationVersionTests
-        row = PublicationVersionTests.legacy(self)
+        row = PublicationVersionTests.current(self)
         self.activity.last_error = 'source_error'
         self.activity.save()
         engine = Mock()

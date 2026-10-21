@@ -106,6 +106,9 @@ def _missing_management_table(error, table):
 
 
 def _read_rows():
+    # 本地独立配置可以显式关闭共享数据库覆盖，默认行为保持不变。
+    if not getattr(settings, 'AI_PROVIDER_USE_DATABASE', True):
+        return {}
     model = _configuration_model()
     if model is None:
         return {}
@@ -319,6 +322,8 @@ def _classify_result(response, error):
 
 def record_ai_result(provider_key, config, *, response=None, error=None, latency_ms=None, model=None):
     """Persist only bounded diagnostics; never affect the business completion."""
+    if not getattr(settings, 'AI_PROVIDER_USE_DATABASE', True):
+        return
     try:
         configuration_model = _configuration_model()
         if provider_key not in PROVIDERS or configuration_model is None:

@@ -110,14 +110,14 @@ class BehaviorIntegrationTests(TestCase):
         from django.template.loader import render_to_string
         self.prepare_behavior()
         data = service.build_evidence(self.player)
-        self.assertIn('carrying', data['metrics']['behavior_review']['supported'])
-        self.assertIn('carrying', {x['code'] for x in data['eligible_labels']})
+        self.assertIn('high_score_collaborator', data['metrics']['behavior_review']['supported'])
+        self.assertIn('high_score_collaborator', {x['code'] for x in data['eligible_labels']})
         self.assertEqual(service._season_dungeon_ids(self.season, RaiderIOCharacterActivity.objects.get(pk=self.activity.pk)), set(range(1, 9)))
         def response(prompt, **kwargs):
             data = json.loads(prompt)
-            label = next(x for x in data['eligible_labels'] if x['code'] == 'carrying')
+            label = next(x for x in data['eligible_labels'] if x['code'] == 'high_score_collaborator')
             output = {'observations': [{key: value for key, value in {
-                'code': label['code'], 'confidence': '低',
+                'code': label['code'], 'confidence': label['confidence_max'],
                 'reason_id': next(iter(label['reason_options'])),
                 'limitation_ids': label['required_limitation_ids'],
                 'evidence_ids': label['evidence_ids']}.items()}], 'conclusion_id': 'public_sample'}
@@ -134,20 +134,21 @@ class BehaviorIntegrationTests(TestCase):
         view = service.project_player_observation(self.player)
         self.assertEqual(view['status'], 'ready')
         html = render_to_string('portal/spec_detail/_player_observation.html', {'observation': view})
-        self.assertIn('疑似协助他人上分（低置信）', html)
+        self.assertIn('高成绩协作者线索 · 部分支持', html)
         self.assertIn('已有线索', html)
         self.assertTrue(get_analysis(row.pk)['ai']['tags'])
         self.assertTrue(list_analyses({})['items'])
         before = row.result_json
         forged = copy.deepcopy(row.evidence_json)
-        forged['metrics']['behavior_review']['witnesses']['carrying'] = [123]
+        forged['metrics']['behavior_review']['witnesses']['high_score_collaborator'] = [123]
         with self.assertRaises(service.InvalidResult):
-            service._validate_publication(json.dumps(before, ensure_ascii=False), forged, publication_version=8, require_investigation=True)
+            service._validate_publication(json.dumps(before, ensure_ascii=False), forged, publication_version=service.PROMPT_VERSION, require_investigation=True)
         broken = Mock(send_message=Mock(return_value='{"observations": [], "unexpected": true}'))
         self.assertEqual(service.generate_observation(self.player, force=True, engine=broken)['status'], 'invalid_schema')
         row.refresh_from_db()
         self.assertEqual(row.result_json, before)
         self.assertEqual(service.project_player_observation(self.player)['status'], 'stale')
+
 
     def test_behavior_only_trigger_uses_actual_leads_and_preserves_existing_trigger(self):
         self.prepare_behavior()
@@ -228,8 +229,8 @@ class BehaviorIntegrationTests(TestCase):
     def test_history_gates_retract_publication_without_erasing_last_good(self):
         self.prepare_behavior()
         initial = service.build_evidence(self.player)
-        label = next(x for x in initial['eligible_labels'] if x['code'] == 'carrying')
-        result = {'observations': [{'code': 'carrying', 'confidence': '低',
+        label = next(x for x in initial['eligible_labels'] if x['code'] == 'high_score_collaborator')
+        result = {'observations': [{'code': 'high_score_collaborator', 'confidence': label['confidence_max'],
             'reason_id': next(iter(label['reason_options'])),
             'limitation_ids': label['required_limitation_ids'],
             'evidence_ids': label['evidence_ids']}], 'conclusion_id': 'public_sample'}
@@ -237,15 +238,14 @@ class BehaviorIntegrationTests(TestCase):
         result['investigation'] = structured_response(
             service._generation_input(initial)['metrics']['investigation']['response_contract'])
         publication = PlayerObservationAnalysis.objects.create(activity=self.activity,
-            player=self.player, prompt_version=8, evidence_json=initial,
+            player=self.player, prompt_version=service.PROMPT_VERSION, evidence_json=initial,
             evidence_hash=initial['evidence_hash'], result_json=result, status='ready')
         self.assertEqual(service.project_player_observation(self.player)['status'], 'ready')
         self.activity.refresh_from_db()
         good = copy.deepcopy(self.activity.payload_json['mythic_plus_scored_history']['8'])
         for changes in ({'status': 'private'}, {'private': True},
                         {'status': 'error'}, {'last_error': 'transport_error'},
-                        {'status': 'fetching', 'lease_token': 'secret'},
-                        {'fetched_at': (timezone.now()-timedelta(hours=49)).isoformat()}):
+                        {'status': 'fetching', 'lease_token': 'secret'}):
             with self.subTest(changes=changes):
                 self.activity.payload_json['mythic_plus_scored_history']['8'] = {**good, **changes}
                 self.activity.save()
@@ -278,32 +278,16 @@ class BehaviorIntegrationTests(TestCase):
         self.activity.save()
         self.assertEqual(service.build_evidence(self.player)['evidence_hash'], initial['evidence_hash'])
 
-    def test_resilience_targets_derive_only_from_unknown_current_event_proofs(self):
+
+    def test_missing_protection_does_not_create_collection_targets(self):
         self.prepare_behavior()
         self.activity.refresh_from_db()
         self.activity.payload_json.pop('mythic_plus_scored_history')
         self.activity.save()
         evidence = service.build_evidence(self.player)
-        behavior = evidence['metrics']['behavior_review']
-        plan = evidence['metrics']['investigation']
-        target = next(t for t in plan['resilience_history_targets']
-                      if t['member_key'] == self.activity.identity_digest and t['dungeon_id'] == 8)
-        self.assertEqual(target['required_level'], 23)
-        self.assertEqual(target['run_ids'], [123, 124, 125])
-        question = next(q for q in behavior['questions'] if q.get('purpose') == 'resilience_gap'
-                        and q['member_key'] == target['member_key'] and q['dungeon_id'] == 8)
-        empty = {'triggered': True, 'evidence': [], 'questions': [], 'hypotheses': []}
-        for changes in ({'dungeon_id': 99}, {'dungeon_id': 1}, {'required_level': 22},
-                        {'member_key': 'not-in-roster'}, {'run_ids': [999]},
-                        {'run_ids': [123, 123]}):
-            forged = copy.deepcopy(behavior)
-            forged['questions'] = [{**question, **changes}]
-            merged = service._merge_behavior_investigation(empty, forged)
-            self.assertFalse(merged['resilience_history_targets'], changes)
-            self.assertFalse(merged['questions'], changes)
-        duplicate = copy.deepcopy(behavior)
-        duplicate['questions'] = [question, question]
-        self.assertEqual(len(service._merge_behavior_investigation(empty, duplicate)['resilience_history_targets']), 1)
+        self.assertEqual(evidence['metrics']['investigation']['resilience_history_targets'], [])
+        self.assertEqual(evidence['metrics']['behavior_review']['questions'], [])
+        self.assertEqual(evidence['metrics']['behavior_review']['resilience']['events'][0]['members'][self.activity.identity_digest]['state'], 'unknown')
 
     def test_json_mode_is_player_scoped(self):
         from core.glm import GLMClient

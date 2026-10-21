@@ -382,7 +382,7 @@ def _question_outcomes(investigation, entries, characters, states, scores, rio_s
             continue
         seen.add(qid)
         item = {field: question.get(field) for field in
-                ('id', 'kind', 'identity_digest', 'dungeon_id', 'run_ids', 'hypothesis_ids', 'priority', 'reason')}
+                ('id', 'kind', 'identity_digest', 'dungeon_id', 'run_ids', 'hypothesis_ids', 'priority', 'reason', 'purpose', 'expected_change', 'core_members', 'prior_run_ids')}
         item.update(status='invalid_question', request_status='not_requested')
         outcomes.append(item)
         ids = question.get('run_ids')
@@ -394,6 +394,14 @@ def _question_outcomes(investigation, entries, characters, states, scores, rio_s
             continue
         if any(key not in members[rid] for rid in ids):
             continue
+        if question.get('purpose') == 'verify_guest_gain':
+            core = question.get('core_members')
+            proofs = question.get('prior_run_ids')
+            if (not isinstance(core, list) or len(set(core)) != 4
+                    or not isinstance(proofs, dict) or set(proofs) != set(core)
+                    or any(type(rid) is not int or rid <= 0 or rid in ids for rid in proofs.values())
+                    or any(set(core) != members[rid] - {key} for rid in ids)):
+                continue
         request_key = _request_key(question)
         if question.get('kind') == 'scored_history':
             did = question.get('dungeon_id')
@@ -456,93 +464,21 @@ def _preferred_question_ids(activity, evidence):
 
 
 def _followup_plan(evidence, activity, entries, characters, states, scores, rio_season, *, preferred_question_ids=()):
-    """Prefer canonical investigation questions; old evidence keeps its legacy gate."""
-    from botend.services.player_observation_progression import current_record, RECENT_WINDOW
-    metrics = (evidence or {}).get('metrics', {})
-    investigation = metrics.get('investigation')
-    if isinstance(investigation, dict) and investigation.get('version') == 1:
-        if investigation.get('triggered') is not True:
-            return [], 'no_signal'
-        outcomes = _question_outcomes(investigation, entries, characters, states, scores, rio_season)
-        from botend.services.player_observation import canonical_observation_runs
-        _, recent, canonical, _, _ = canonical_observation_runs(activity, rio_season)
-        recent_ids = set()
-        for run in recent:
-            try:
-                rid = run_reference(run, rio_season)
-            except (ValueError, TypeError):
-                continue
-            if rid in canonical:
-                recent_ids.add(rid)
-        pending = [q for q in outcomes if q['status'] == 'budget_pending'
-                   and (q['kind'] != 'scored_history' or set(q['run_ids']) <= recent_ids)]
-        preference = {qid: index for index, qid in enumerate(preferred_question_ids)}
-        pending.sort(key=lambda q: (preference.get(q['id'], len(preference)),
-                                   -(q['priority'] if type(q['priority']) in (int, float) else 0), q['id']))
-        return list(dict.fromkeys(_request_key(q) for q in pending)), 'investigation_questions'
-    pattern = metrics.get('team_pattern', {})
-    progression = metrics.get('progression') or {}
-    if pattern.get('kind') == 'fixed_five':
-        return [], 'fixed_five'
-    if progression.get('status') in ('supported', 'weakened'):
-        return [], 'already_resolved'
-    core = set(pattern.get('core_members', []))
-    four = (pattern.get('kind') in ('suspected_four', 'rotating_core') and len(core) == 4)
-    details = {d['run_id']: d for d in progression.get('details', [])}
-    recent = {}
-    stamp = activity.module_fetched_at.get('mythic_plus_recent_runs') or activity.fetched_at
-    if isinstance(stamp, str):
-        stamp = parse_datetime(stamp)
-    if stamp and timezone.is_aware(stamp):
-        for run in activity.payload_json.get('mythic_plus_recent_runs', [])[:10]:
-            try:
-                completed = parse_datetime(run.get('completed_at', ''))
-                if (completed and timezone.is_aware(completed) and stamp - RECENT_WINDOW <= completed <= stamp
-                        and type(run.get('num_keystone_upgrades')) is int and run['num_keystone_upgrades'] > 0):
-                    recent[run_reference(run, rio_season)] = completed
-            except (ValueError, TypeError):
-                continue
-    candidates = []
-    subject = activity.identity_digest
-    for run, fact in entries:
-        rid = run_reference(run, rio_season)
-        if rid not in recent:
-            continue
-        members, _ = _characters([fact], subject)
-        team = {activity_identity_digest(**member['identity']) for member in members}
-        if len(team) != 5 or subject not in team:
-            continue
-        records = {key: current_record(scores.get(key, {}).get('dungeons', []), fact['dungeon'])[0]
-                   for key in team}
-        missing = {key for key in team if states.get(key, {}).get('status') == 'pending'}
-        if four and core <= team:
-            if details.get(rid, {}).get('below_core') is False:
-                continue
-            needed = missing & core
-            # Fifth seats are relevant only after the canonical below-core check,
-            # or while completing that same four-person comparison.
-            if needed or details.get(rid, {}).get('below_core') is True:
-                needed |= missing - core
-            reason = 'four_core_missing_scores'
-        else:
-            own = records.get(subject)
-            signal = own and any(record and record['mythic_level'] - own['mythic_level'] >= 2
-                                 and record['score'] > own['score']
-                                 for key, record in records.items() if key != subject)
-            if not signal:
-                continue
-            needed, reason = missing, 'partial_same_dungeon_gap'
-        needed &= characters.keys()
-        if needed:
-            candidates.append((len(needed), -recent[rid].timestamp(), sorted(needed), reason))
-    # Prefer comparisons that the small budget can actually complete, not hash order.
-    planned, reason = [], 'cache_sufficient' if four else 'no_signal'
-    for _, _, needed, why in sorted(candidates):
-        reason = why
-        for key in sorted(needed, key=lambda key: (key not in core, key)):
-            if key not in planned:
-                planned.append(key)
-    return planned, reason
+    """只执行有具体成员、场次、跑前证明和预期判断变化的待验证问题。"""
+    if (evidence or {}).get('source_failed'):
+        return [], 'source_failed'
+    plan = (evidence or {}).get('metrics', {}).get('investigation') or {}
+    if not plan.get('triggered'):
+        return [], 'no_signal'
+    permitted = [q for q in plan.get('questions', []) if isinstance(q, dict) and q.get('purpose') == 'verify_guest_gain'
+                 and q.get('kind') == 'scored_history' and q.get('reason') and q.get('expected_change')
+                 and isinstance(q.get('core_members'), list) and len(q['core_members']) == 4
+                 and isinstance(q.get('prior_run_ids'), dict) and len(q['prior_run_ids']) == 4]
+    preference = {qid: i for i, qid in enumerate(preferred_question_ids)}
+    permitted.sort(key=lambda q: (preference.get(q.get('id'), len(preference)), -q.get('priority', 0)))
+    outcomes = _question_outcomes({**plan, 'questions': permitted}, entries, characters, states, scores, rio_season)
+    pending = {q['id'] for q in outcomes if q['status'] == 'budget_pending'}
+    return list(dict.fromkeys(_request_key(q) for q in permitted if q['id'] in pending)), 'verify_guest_gain'
 
 
 def _finish_investigation(before, after, entries, characters, states, scores, attempts, result, rio_season):
@@ -557,20 +493,32 @@ def _finish_investigation(before, after, entries, characters, states, scores, at
     outcomes_by_id = {q['id']: q for q in _question_outcomes(
         initial, entries, characters, states, scores, rio_season)}
     changed = [q for q in current.get('questions', []) if q != questions.get(q['id'])]
+    attempted_questions = [state['question'] for state in attempts.values()]
+    outcomes_by_id.update({q['id']: q for q in _question_outcomes(
+        {**current, 'questions': attempted_questions}, entries, characters, states, scores, rio_season)})
     outcomes_by_id.update({q['id']: q for q in _question_outcomes(
         {**current, 'questions': changed}, entries, characters, states, scores, rio_season)})
     outcomes = list(outcomes_by_id.values())
+    active = {q['id'] for q in current.get('questions', [])}
+    review = (after or {}).get('metrics', {}).get('behavior_review', {})
+    confirmed_runs = (set(review.get('witnesses', {}).get('carrying', []))
+                      if review.get('supported', {}).get('carrying') else set())
     for item in outcomes:
         if _request_key(item) in attempts:
             item['request_status'] = attempts[_request_key(item)]['status']
+        elif item['id'] not in active and item['status'] == 'budget_pending':
+            item['status'] = 'not_needed'
+        if (item['purpose'] == 'verify_guest_gain' and item['status'] == 'observed_partial'
+                and item['run_ids'] and set(item['run_ids']) <= confirmed_runs):
+            item['status'] = 'answered'
     triggered = initial.get('triggered') is True
     remaining_runs = [s['run_id'] for s in result['runs'] if s['status'] == 'budget_exhausted']
-    allowed_runs = ('ready', 'fresh', 'unavailable', 'budget_exhausted') if triggered else ('ready', 'fresh', 'unavailable')
+    allowed_runs = ('ready', 'fresh', 'unavailable', 'not_needed', 'budget_exhausted') if triggered else ('ready', 'fresh', 'unavailable', 'not_needed')
     failed = (bool((after or {}).get('source_failed')) or result.get('invalid_references')
               or result.get('identity_conflicts') or result.get('runs_truncated')
               or any(q['status'] in ('source_failed', 'invalid_question') for q in outcomes)
               or any(s['status'] not in allowed_runs for s in result['runs']))
-    remaining = [q['id'] for q in outcomes if q['status'] != 'answered']
+    remaining = [q['id'] for q in outcomes if q['status'] not in ('answered', 'not_needed')]
     pending = any(q['status'] == 'budget_pending' for q in outcomes) or bool(remaining_runs)
     if result.get('followup_budget_reason') == 'rate_limited':
         stop = 'rate_limited'
@@ -597,23 +545,24 @@ def _finish_investigation(before, after, entries, characters, states, scores, at
 
 def _progressive_sources(primary, season, activity, digest, batch, result,
                          max_runs, max_characters, roster_budget, followup_budget):
-    # Restrict cache-first prioritization to the authoritative evidence sample;
-    # extra cached best runs must never displace an uncached recent reference.
-    from botend.services.player_observation import canonical_observation_runs
-    _, recent, runs, conflicts, invalid = canonical_observation_runs(activity, season.rio_season)
+    from botend.services.player_observation_questions import observed_runs, roster_questions
+    _, recent, runs, conflicts, invalid = observed_runs(activity, season.rio_season)
     refs = list(runs.values())
     result['invalid_references'] = invalid + len(conflicts)
-    result['runs_truncated'] = len(refs) > max_runs
     rows = {row.run_id: row for row in RaiderIORunRoster.objects.filter(
-        rio_season=season.rio_season, run_id__in=[run_reference(run, season.rio_season) for run in refs])}
-    visible = {run_reference(run, season.rio_season): _visible_facts(
-        rows.get(run_reference(run, season.rio_season)), run, season.rio_season) for run in refs}
-    recent_ids = set()
-    for run in recent:
-        try:
-            recent_ids.add(run_reference(run, season.rio_season))
-        except (ValueError, TypeError):
-            pass
+        rio_season=season.rio_season, run_id__in=runs)}
+    visible = {rid: _visible_facts(rows.get(rid), run, season.rio_season) for rid, run in runs.items()}
+    result['runs_truncated'] = False
+    recent_ids = {run_reference(run, season.rio_season) for run in recent}
+    questions = roster_questions(subject=digest, runs=runs, visible=visible, season=season.rio_season)
+    from botend.services.player_observation import build_evidence
+
+    def roster_question_resolved():
+        review = (build_evidence(primary) or {}).get('metrics', {}).get('behavior_review', {})
+        return bool(review.get('supported', {}).get('carrying') or review.get('questions'))
+
+    if questions and roster_question_resolved():
+        questions = {}
     def priority(run):
         rid = run_reference(run, season.rio_season)
         try:
@@ -621,9 +570,10 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
             order = -completed.timestamp() if completed and timezone.is_aware(completed) else 0
         except (ValueError, TypeError):
             order = 0
-        return (not bool(visible[rid]), rid not in recent_ids,
+        return (not bool(visible[rid]), rid not in questions,
+                -questions.get(rid, {}).get('prior_level_advantage', 0), rid not in recent_ids,
                 not (type(run.get('num_keystone_upgrades')) is int and run['num_keystone_upgrades'] > 0), order)
-    refs = sorted(refs, key=priority)[:max_runs]
+    refs = sorted(refs, key=priority)
     roster_start, entries = batch.requests, []
     for run in refs:
         rid = run_reference(run, season.rio_season)
@@ -636,14 +586,21 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
             state = {'run_id': rid, 'status': 'busy' if row.status == 'fetching' else 'backoff'}
         elif fact and not repair and row.status != 'error' and not row.last_error:
             state = {'run_id': rid, 'status': 'fresh'}
+        elif rid not in questions:
+            state = {'run_id': rid, 'status': 'not_needed', 'reason': '没有需要该阵容回答的具体问题。'}
         elif batch.stop_event.is_set():
             state = {'run_id': rid, 'status': 'batch_stopped'}
-        elif batch.requests - roster_start >= roster_budget:
+        elif batch.requests - roster_start >= min(roster_budget, max_runs):
             state = {'run_id': rid, 'status': 'budget_exhausted'}
         else:
             state = batch.roster(run, season.rio_season)
             row = RaiderIORunRoster.objects.filter(rio_season=season.rio_season, run_id=rid).first()
             fact = _visible_facts(row, run, season.rio_season)
+            state['question'] = questions[rid]
+            visible[rid] = fact
+            questions = roster_questions(subject=digest, runs=runs, visible=visible, season=season.rio_season)
+            if questions and roster_question_resolved():
+                questions = {}
         result['runs'].append(state)
         if fact and state['status'] != 'busy':
             entries.append((run, fact))
@@ -667,13 +624,22 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
     if not batch.stop_event.is_set():
         from botend.services.player_observation import build_evidence
         before = _merge_behavior_questions(build_evidence(primary), recent_ids)
+        result['source_failed'] = bool((before or {}).get('source_failed'))
         from botend.services.player_observation_history import history_cache, collect_history
+        completion_times = {run_reference(run, season.rio_season): parse_datetime(fact['completed_at'])
+                            for run, fact in entries}
+
+        def required_after(question):
+            ids = question.get('run_ids')
+            dates = [completion_times[rid] for rid in ids if type(rid) is int and rid in completion_times] if isinstance(ids, list) else []
+            return max(dates) if dates else None
+
         for q in ((before or {}).get('metrics', {}).get('investigation') or {}).get('questions', []):
             if not isinstance(q, dict):
                 continue
             key, did = q.get('identity_digest'), q.get('dungeon_id')
             if q.get('kind') == 'scored_history' and isinstance(key, str) and key in characters and type(did) is int and did > 0:
-                states[(key, did)] = history_cache(characters[key], season, did)
+                states[(key, did)] = history_cache(characters[key], season, did, required_after=required_after(q))
         investigation = (before or {}).get('metrics', {}).get('investigation')
         allowed_questions = {q['id'] for q in (investigation or {}).get('questions', [])}
         preferred = [qid for qid in _preferred_question_ids(activity, before) if qid in allowed_questions]
@@ -681,41 +647,50 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
                                         preferred_question_ids=preferred)
         result['followup_preferred_question_ids'] = preferred
         attempts = {}
+        current = before
         result.update(followup_triggered=bool(planned), followup_reason=reason,
                       followup_budget_reason='needed' if planned else 'not_needed')
         batch.budget = start + followup_budget
-        for key in planned:
-            if batch.stop_event.is_set() or batch.requests - start >= followup_budget:
-                result['followup_budget_reason'] = 'rate_limited' if batch.rate_limited else 'budget_exhausted'
+        while planned and not batch.stop_event.is_set():
+            if batch.requests - start >= followup_budget:
+                result['followup_budget_reason'] = 'budget_exhausted'
                 break
-            # Recheck under the collector lock; force NEVER defeats a needed-cache plan.
+            key = next((key for key in planned if key not in attempts), None)
+            if key is None:
+                break
+            current_plan = (current.get('metrics', {}).get('investigation') or {})
+            question = next((q for q in current_plan.get('questions', []) if _request_key(q) == key), None)
+            if not question or question.get('purpose') != 'verify_guest_gain':
+                break
             request_start = batch.requests
-            if isinstance(key, tuple):
-                states[key] = collect_history(batch, characters[key[0]], season, key[1])
-            else:
-                states[key] = batch.scored(characters[key], season, False)
-            attempts[key] = {**states[key], 'api_requests': batch.requests - request_start}
-            if not isinstance(key, tuple) and states[key]['status'] in ('ready', 'fresh'):
-                _, score = _score_cache(characters[key], season)
-                if score is not None:
-                    scores[key] = score
+            states[key] = collect_history(batch, characters[key[0]], season, key[1], required_after=required_after(question))
+            attempts[key] = {**states[key], 'api_requests': batch.requests - request_start,
+                             'question': question}
+            # 每次补证后重算，不执行已解决或已失效的旧问题。
+            current = _merge_behavior_questions(build_evidence(primary), recent_ids)
+            for q in ((current or {}).get('metrics', {}).get('investigation') or {}).get('questions', []):
+                target = _request_key(q)
+                if isinstance(target, tuple) and target[0] in characters:
+                    states[target] = history_cache(characters[target[0]], season, target[1], required_after=required_after(q))
+            planned, reason = _followup_plan(current, activity, entries, characters, states, scores,
+                season.rio_season, preferred_question_ids=())
         result['followup_api_requests'] = batch.requests - start
         if batch.rate_limited:
             result['followup_budget_reason'] = 'rate_limited'
-        elif planned and all(states[key]['status'] in ('ready', 'fresh') for key in planned):
+        elif not planned:
             result['followup_budget_reason'] = 'completed'
         if isinstance(investigation, dict) and investigation.get('version') == 1:
             # Rebuild from the just-published central snapshots, never infer the
             # answer from HTTP success or mutate the original evidence in place.
-            after = _merge_behavior_questions(build_evidence(primary), recent_ids)
-            _finish_investigation(before, after, entries, characters, states, scores,
+            _finish_investigation(before, current, entries, characters, states, scores,
                                   attempts, result, season.rio_season)
     result['characters'] = list(states.values())
     if batch.rate_limited:
         result['status'] = 'rate_limited'
     elif (not result['invalid_references'] and not result['identity_conflicts']
+          and not result.get('source_failed')
           and not result['runs_truncated'] and not result['characters_truncated']
-          and all(s['status'] in ('ready', 'fresh') for s in result['runs'])
+          and all(s['status'] in ('ready', 'fresh', 'not_needed') for s in result['runs'])
           and not result['followup_triggered']):
         result['status'] = 'ready'
     return result
@@ -723,19 +698,14 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
 
 def refresh_observation_sources(player, *, max_runs=MAX_RUNS, max_characters=MAX_CHARACTERS, force=False, refresh_recent=False,
                                 progressive=False, max_followup_requests=2, max_basic_roster_requests=5):
-    """Return JSON-safe statuses. Explicit call only; no automatic monitor.
+    """显式刷新来源并返回可审计结果；不会启动自动监控。
 
-Hard upper limits: one due activity request + max_runs unique roster requests +
-max_characters unique scored requests. force refreshes scored snapshots, NOT
-fresh ID-complete rosters, profile gear, privacy tombstones, or active backoffs.
-refresh_recent explicitly refreshes a successful activity snapshot even within
-TTL, so a progressive manual check sees the latest recent records. It never
-bypasses an activity error backoff or an active lease.
-With progressive=True, basic work reuses all verified cached rosters before up
- to five missing/legacy roster calls; it never scans scored endpoints. Canonical
-build_evidence then gates at most two additional actual scored HTTP requests.
-Unused basic budget cannot spill into followup; force cannot bypass needed cache.
-"""
+    渐进分析优先复用已有记录。阵容请求只核验重复成绩后的组队关系；
+    历史请求只回答已知四人跑前能力下，具体第五人的可见成绩是否提高。
+    每次补证后重算问题；资料不齐本身不是请求理由。
+    原有五次阵容、两次后续请求限制不变，额度不互借；force 不绕过缓存、
+    隐私、退避或租约。非渐进模式保留显式来源采集的既有行为。
+    """
     if type(max_runs) is not int or not 1 <= max_runs <= MAX_RUNS:
         raise ValueError('max_runs must be 1..18')
     if type(max_characters) is not int or not 1 <= max_characters <= MAX_CHARACTERS:

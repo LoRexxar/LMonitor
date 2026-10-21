@@ -13,6 +13,15 @@ class PublicationVersionTests(TestCase):
     setUp = fixtures.PlayerObservationTests.setUp
     evidence = fixtures.PlayerObservationTests.evidence
 
+    def current(self):
+        """生成当前版本的有效结果，审计兼容测试不混入跨版升级。"""
+        from django.utils import timezone
+        evidence = self.evidence()
+        result = fixtures.observation_response(service._generation_input(evidence))
+        return PlayerObservationAnalysis.objects.create(activity=self.activity, player=self.player,
+            prompt_version=service.PROMPT_VERSION, evidence_json=evidence, evidence_hash=evidence['evidence_hash'],
+            result_json=result, status='ready', revision=3, generated_at=timezone.now())
+
     def legacy(self):
         evidence = self.evidence()
         evidence['prompt_version'] = 7
@@ -24,14 +33,14 @@ class PublicationVersionTests(TestCase):
             prompt_version=7, evidence_json=evidence, evidence_hash=evidence['evidence_hash'],
             result_json=result, status='ready', revision=3, generated_at=timezone.now())
 
-    def test_valid_v7_reused_without_model_or_rewrite(self):
+    def test_valid_v7_frozen_read_without_silent_upgrade(self):
         row = self.legacy()
         before = PlayerObservationAnalysis.objects.values().get(pk=row.pk)
         engine = Mock()
-        self.assertEqual(service.generate_observation(self.player, engine=engine)['status'], 'fresh')
-        engine.send_message.assert_not_called()
+        self.assertEqual(service._validate_frozen_publication(row), row.result_json)
+        self.assertFalse(service._same_publication(row, self.evidence()))
         self.assertEqual(PlayerObservationAnalysis.objects.values().get(pk=row.pk), before)
-        self.assertEqual(service.project_player_observation(self.player)['status'], 'ready')
+        self.assertEqual(service.project_player_observation(self.player)['status'], 'pending')
         self.assertEqual(service._project_frozen_investigation(row)['summary'], row.result_json['investigation']['summary'])
 
     def test_invalid_v7_and_corrupt_hash_cannot_reuse(self):
@@ -50,8 +59,8 @@ class PublicationVersionTests(TestCase):
     def test_version_binding_and_narrow_cross_version_equivalence(self):
         row = self.legacy()
         current = self.evidence()
-        self.assertEqual(current['prompt_version'], 8)
-        self.assertTrue(service._same_publication(row, current))
+        self.assertEqual(current['prompt_version'], 9)
+        self.assertFalse(service._same_publication(row, current))
         for mutation in ({'version': 9}, {'prompt_version': 9}, {'unknown': True}):
             changed = copy.deepcopy(current)
             changed['metrics'].update(mutation)
@@ -68,7 +77,7 @@ class PublicationVersionTests(TestCase):
         row = self.legacy()
         current = self.evidence()
         expected = row.result_json['investigation']['next_question_ids']
-        self.assertTrue(expected)
+        self.assertEqual(expected, [])  # 固定五人的资料缺口不再构成补采问题。
         self.assertEqual(_preferred_question_ids(self.activity, current), expected)
         row.result_json['investigation']['summary'] = '确认收费带人'
         row.next_attempt_at = timezone.now() + timedelta(minutes=30)
@@ -109,14 +118,14 @@ class PublicationVersionTests(TestCase):
         with self.assertRaises(service.InvalidResult):
             service._validate_frozen_publication(row)
 
-    def test_v8_real_generator_transport_and_frozen_projection(self):
+    def test_v9_real_generator_transport_and_frozen_projection(self):
         def respond(prompt, **kwargs):
             data = json.loads(prompt)
             plan = data['metrics']['investigation']
             self.assertNotIn('response_templates', plan)
             menu = plan['response_contract']
             result = fixtures.observation_response(data)
-            result['investigation'] = {'schema_version': 8, 'confidence': '低',
+            result['investigation'] = {'schema_version': menu['schema_version'], 'confidence': menu['confidence'],
                 'hypotheses': [{'id': h['id'], 'assessment': h['assessment_options'][0],
                     'support_ids': h['support_ids'][:3], 'counter_ids': h['counter_ids'],
                     'unknown_ids': h['unknown_ids'][:3]} for h in menu['hypotheses']],
@@ -125,7 +134,7 @@ class PublicationVersionTests(TestCase):
         engine = Mock(send_message=Mock(side_effect=respond))
         self.assertEqual(service.generate_observation(self.player, engine=engine)['status'], 'ready')
         row = PlayerObservationAnalysis.objects.get()
-        self.assertEqual(row.prompt_version, 8)
+        self.assertEqual(row.prompt_version, 9)
         self.assertNotIn('response_contract', row.evidence_json['metrics']['investigation'])
         raw = copy.deepcopy(row.result_json)
         projected = service._project_frozen_investigation(row)
@@ -138,4 +147,4 @@ class PublicationVersionTests(TestCase):
             changed = {**raw, 'investigation': investigation}
             with self.assertRaises(service.InvalidResult):
                 service._validate_publication(json.dumps(changed), row.evidence_json,
-                    publication_version=8, require_investigation=True)
+                    publication_version=9, require_investigation=True)

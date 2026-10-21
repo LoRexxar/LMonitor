@@ -26,7 +26,8 @@ def compact_ai_input(evidence):
             {key: deepcopy(row[key]) for key in ('count', 'run_ids') if key in row}
             for row in structure.get('lineups', [])]
         metrics['behavior_review'] = {key: deepcopy(review[key]) for key in (
-            'version', 'triggered', 'supported', 'witnesses', 'questions', 'limitations') if key in review}
+            'version', 'triggered', 'supported', 'witnesses', 'questions', 'limitations',
+            'evidence_strengths', 'strength_rules', 'context_unknowns') if key in review}
         metrics['behavior_review']['structure'] = summary
         resilience = review.get('resilience')
         if isinstance(resilience, dict):
@@ -43,6 +44,8 @@ def compact_ai_input(evidence):
             metrics['behavior_review']['resilience'] = compact
         metrics['behavior_review']['proof_scope'] = (
             '整体阵容以structure为准，局部同队事实不代表整体固定五人。'
+            'carrying仅在四人均有跑前同本能力、且至少两名不同第五人有可见提升时成立，表示疑似4带1模式。'
+            '八本全L+1保护不是4带1的前置条件；保护未知不否定已核验的四人能力与受益事件。'
             '逐场坚韧状态见resilience.events[].members；subject_key仅在已知时标识本人，旧输入缺失时不得猜测。'
             '完整八本证明存于冻结证据；confirmed_before_start不得说成保护未知，缺可比受益成员不等于保护未知。'
             '只引用后端已计算事实，不允许从未观测记录作否定推断。')

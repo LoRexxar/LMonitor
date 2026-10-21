@@ -39,7 +39,7 @@ def observation_response(data):
 
 def structured_response(menu):
     """Controlled v8 engine choice from the actual transport contract."""
-    return {'schema_version': 8, 'confidence': '低',
+    return {'schema_version': menu['schema_version'], 'confidence': menu['confidence'],
         'hypotheses': [{'id': h['id'],
             'assessment': ('unknown' if not h['support_ids'] and not h['counter_ids']
                            and 'unknown' in h['assessment_options'] else h['assessment_options'][0]),

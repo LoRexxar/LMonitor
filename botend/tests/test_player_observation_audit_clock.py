@@ -103,7 +103,7 @@ class AuditClockTests(TestCase):
         # Explicit adversarial derivative of a real complete capture, not a
         # claimed captured current: isolate a clock-only positive for an AI row.
         current = copy.deepcopy(row.evidence_json)
-        current['prompt_version'] = service.PROMPT_VERSION
+        current['prompt_version'] = 8  # 保持原始 v7→v8 审计兼容场景。
         current['source_stamps']['source_updated_at'] = '2026-10-21T01:00:00+00:00'
         self.assertTrue(service._same_publication(row, current))
         mutations = {
@@ -153,7 +153,7 @@ class AuditClockTests(TestCase):
         capture = next(c for c in CAPTURES if c['player_id'] == 98190)
         row = self.persist(capture)
         current = copy.deepcopy(row.evidence_json)
-        current['prompt_version'] = service.PROMPT_VERSION
+        current['prompt_version'] = 8  # 保持原始 v7→v8 审计兼容场景。
         current['source_stamps']['source_updated_at'] = '2026-10-21T01:00:00+00:00'
         row.result_json['investigation']['summary'] = '确认收费带人'
         row.save(update_fields=['result_json'])
@@ -176,7 +176,7 @@ class AuditClockTests(TestCase):
         from botend.tests.test_player_observation_versions import PublicationVersionTests
         self.activity.source_updated_at = timezone.now() - timedelta(hours=2)
         self.activity.save()
-        row = PublicationVersionTests.legacy(self)
+        row = PublicationVersionTests.current(self)
 
         def advance_audit_clock(result):
             self.activity.source_updated_at += timedelta(hours=1)
@@ -198,7 +198,7 @@ class AuditClockTests(TestCase):
         from botend.tests.test_player_observation_versions import PublicationVersionTests
         self.activity.source_updated_at = timezone.now() - timedelta(hours=2)
         self.activity.save()
-        row = PublicationVersionTests.legacy(self)
+        row = PublicationVersionTests.current(self)
         before = self.raw_row(row)
         self.activity.source_updated_at += timedelta(hours=1)
         self.activity.save()

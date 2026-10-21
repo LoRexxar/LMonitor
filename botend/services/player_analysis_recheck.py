@@ -248,7 +248,7 @@ def _bounded_investigation_complete(sources):
         and type(requests) is int and type(budget) is int and 0 <= requests <= budget <= 2
         and trace.get('api_requests') == requests and trace.get('api_budget') == budget
         and isinstance(trace.get('outcomes'), list) and isinstance(trace.get('requests'), list)
-        and all(item.get('status') in ('answered', 'source_missing', 'identity_unresolved', 'budget_pending')
+        and all(item.get('status') in ('answered', 'not_needed', 'source_missing', 'identity_unresolved', 'budget_pending')
                 or (item.get('status') == 'observed_partial'
                     and item.get('kind') == 'scored_history'
                     and item.get('request_status') in ('ready', 'fresh'))
@@ -274,7 +274,7 @@ def require_sources(sources):
         raise Blocked('通关引用或队友身份冲突，不能生成新分析。')
     bounded = _bounded_investigation_complete(sources)
     runs = sources.get('runs', [])
-    allowed_runs = ('ready', 'fresh', 'unavailable', 'budget_exhausted') if bounded else ('ready', 'fresh', 'unavailable')
+    allowed_runs = ('ready', 'fresh', 'unavailable', 'not_needed', 'budget_exhausted') if bounded else ('ready', 'fresh', 'unavailable', 'not_needed')
     bad_runs = [item.get('status', 'unknown') for item in runs if item.get('status') not in allowed_runs]
     if sources.get('runs_truncated') or bad_runs:
         raise Blocked('阵容来源未完成（' + ', '.join(map(str, bad_runs[:3] or ['sample_truncated'])) + '）；本轮预算或退避结束后请重试。')
