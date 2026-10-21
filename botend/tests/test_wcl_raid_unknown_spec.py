@@ -20,6 +20,7 @@ from botend.models import (SeasonMeta, SpecRaidRanking, WclApiBudget,
                            WclCollectionCycle, WclCombatantSnapshot, WclCombatantFetchState)
 from botend.services.wcl_api_budget import account_key
 from botend.services.wcl_combatant_snapshot import collect_dungeon_combatants, _validated_events
+from botend.tests.aggregation_cache_helpers import isolate_work_cache
 from botend.tests.test_wcl_input_completeness import Response, page
 
 RANKING = 'botend.controller.plugins.portal.SpecDetailRankingMonitor'
@@ -28,6 +29,7 @@ RANKING = 'botend.controller.plugins.portal.SpecDetailRankingMonitor'
 @override_settings(WCL_V2_CONFIG={'client_id': 'raid-unknown-client', 'client_secret': 'not-real'})
 class RaidUnknownSpecTests(TransactionTestCase):
     def setUp(self):
+        isolate_work_cache(self)
         self.fixture = json.loads((Path(__file__).parent / 'fixtures' / 'wcl_raid_unknown_spec.json').read_text())
         self.ranking = self.fixture['ranking']
         self.events = self.fixture['events']
@@ -68,7 +70,7 @@ class RaidUnknownSpecTests(TransactionTestCase):
         original = deepcopy(self.events)
         with patch('requests.post', side_effect=self.http) as http:
             self.assertTrue(self.monitor.scan(''))
-        self.assertEqual(http.call_count, 4)  # one ranking + report per difficulty
+        self.assertEqual(http.call_count, 3)  # two rankings share one report fetch
         self.assertEqual(self.events, original)
         old.refresh_from_db()
         self.assertEqual(old.talents_json, [])
@@ -81,17 +83,26 @@ class RaidUnknownSpecTests(TransactionTestCase):
         self.assertEqual(cycle.phase, 'ready')
         self.assertEqual(set(cycle.completed_scopes), {'raid:5:3455', 'raid:4:3455'})
         self.assertIsNone(cycle.next_retry_at)
-        self.assertFalse(WclCombatantSnapshot.objects.exists())
-        self.assertFalse(WclCombatantFetchState.objects.exists())
+        facts = WclCombatantSnapshot.objects.filter(report_code=self.ranking['report']['code'])
+        self.assertEqual(facts.count(), 29)
+        self.assertFalse(facts.filter(actor_id=self.target['sourceID']).exists())
+        state = WclCombatantFetchState.objects.get()
+        self.assertEqual((state.report_code, state.fight_id, state.status),
+                         (self.ranking['report']['code'], self.ranking['report']['fightID'], 'missing'))
+        self.assertEqual(state.retry_after - state.checked_at, timedelta(hours=6))
 
     def test_valid_players_talents_survive_unknown_spec_bystander(self):
-        valid = next(e for e in self.events if e['specID'] > 0 and e['talentTree'])
+        valid = next(e for e in self.events if e['specID'] == 261 and e['talentTree'])
         self.ranking['name'] = valid['source']['name']
         self.ranking['server']['name'] = valid['source']['server']
-        with patch('requests.post', side_effect=self.http):
+        # Captured spec 261 is Rogue/Subtlety, not the unknown Warlock target.
+        with patch(RANKING + '.CLASS_SPEC_MAP', {'Rogue': ['Subtlety']}), \
+             patch('requests.post', side_effect=self.http):
             self.assertTrue(self.monitor.scan(''))
         expected = self.monitor.parse_wcl_talent_tree(valid['talentTree'])
         self.assertTrue(expected)
+        self.assertEqual(set(SpecRaidRanking.objects.values_list('class_name', 'spec_name')),
+                         {('Rogue', 'Subtlety')})
         self.assertEqual(list(SpecRaidRanking.objects.values_list('talents_json', flat=True)), [expected, expected])
 
     def test_raid_unknown_spec_no_longer_blocks_real_mplus_supplement(self):
@@ -128,14 +139,20 @@ class RaidUnknownSpecTests(TransactionTestCase):
         self.assertEqual((cycle.counts['selected'], cycle.counts['matched'], cycle.counts['missing'],
                           cycle.counts['failed'], cycle.counts['snapshots_written']), (2, 1, 1, 0, 29))
         self.assertIsNone(cycle.next_retry_at)
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 29)
-        fact = WclCombatantSnapshot.objects.get(actor_id=valid['sourceID'])
-        self.assertEqual(fact.report_code, 'DungeonReport')
-        self.assertEqual(fact.payload_json, valid)
-        state = WclCombatantFetchState.objects.get()
-        self.assertEqual((state.report_code, state.fight_id, state.status),
-                         ('DungeonReport', self.ranking['report']['fightID'], 'missing'))
-        self.assertEqual(state.retry_after - state.checked_at, timedelta(hours=6))
+        self.assertEqual(WclCombatantSnapshot.objects.count(), 58)
+        reports = {self.ranking['report']['code'], 'DungeonReport'}
+        self.assertEqual(set(WclCombatantSnapshot.objects.values_list('report_code', flat=True)), reports)
+        self.assertEqual(WclCombatantFetchState.objects.count(), 2)
+        for code in reports:
+            with self.subTest(report=code):
+                facts = WclCombatantSnapshot.objects.filter(report_code=code)
+                self.assertEqual(facts.count(), 29)
+                self.assertFalse(facts.filter(actor_id=self.target['sourceID']).exists())
+                self.assertEqual(facts.get(actor_id=valid['sourceID']).payload_json, valid)
+                state = WclCombatantFetchState.objects.get(report_code=code)
+                self.assertEqual((state.fight_id, state.status),
+                                 (self.ranking['report']['fightID'], 'missing'))
+                self.assertEqual(state.retry_after - state.checked_at, timedelta(hours=6))
         self.assertFalse(SpecRaidRanking.objects.exclude(talents_json=[]).exists())
 
     def test_unknown_spec_is_missing_without_discarding_valid_immutable_facts(self):
@@ -238,8 +255,20 @@ class RaidUnknownSpecTests(TransactionTestCase):
                                      'path': ['reportData', 'report']}]})
         def fetch(*args, **kwargs):
             return self.http(*args, **kwargs) if 'characterRankings' in kwargs['json']['query'] else denied
-        with patch('requests.post', side_effect=fetch):
+        with patch('requests.post', side_effect=fetch) as http:
             self.assertTrue(self.monitor.scan(''))
+        self.assertEqual(http.call_count, 3)  # second difficulty reuses report denial
         self.assertEqual(WclCollectionCycle.objects.get().phase, 'ready')
         self.assertFalse(SpecRaidRanking.objects.exclude(talents_json=[]).exists())
-        self.assertFalse(WclCombatantFetchState.objects.exists())
+        self.assertFalse(WclCombatantSnapshot.objects.exists())
+        state = WclCombatantFetchState.objects.get()
+        self.assertEqual((state.report_code, state.fight_id, state.status),
+                         (self.ranking['report']['code'], 0, 'permission_denied'))
+        self.assertEqual(state.retry_after - state.checked_at, timedelta(hours=1))
+        record = dict(report_code=state.report_code, fight_id=self.ranking['report']['fightID'],
+            character_name=self.ranking['name'], realm=self.ranking['server']['name'], region='EU',
+            class_name='Warlock', spec_name='Destruction')
+        with patch('requests.post', side_effect=fetch) as http:
+            counts = collect_dungeon_combatants([record], self.monitor, apply=True)
+        http.assert_not_called()
+        self.assertEqual((counts['permission_denied'], counts['negative_cached'], counts['failed']), (1, 1, 0))

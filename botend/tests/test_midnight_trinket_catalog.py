@@ -84,6 +84,7 @@ class MidnightTrinketCatalogTests(TestCase):
                 'template': type('R', (), {'pk': 2})(),
                 'backend': type('R', (), {'pk': 3})(),
                 'profile': type('R', (), {'pk': 4, 'name': 'Profile'})(),
+                'talent': type('R', (), {'pk': 5})(),
             }
             for spec_key in catalog.spec_keys
         }

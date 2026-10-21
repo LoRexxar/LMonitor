@@ -14,7 +14,9 @@ from botend.models import (
     SimcBenchmarkPanel,
     SimcContentTemplate,
     SimcProfile,
+    SimcTalentString,
 )
+from botend.services.midnight_trinket_catalog import parse_ptr_12_1_catalog
 from botend.services.simc_benchmark_config import resolve_default_benchmark_resources
 from botend.services.simc_player_config import SUPPORTED_SIMC_SPEC_IDENTITIES
 
@@ -24,6 +26,10 @@ FIXTURE = Path(__file__).parent / 'fixtures' / 'ptr_12_1_trinkets.json'
 
 class MidnightTrinketSyncTests(TestCase):
     owner_id = 901
+
+    def setUp(self):
+        self.catalog = parse_ptr_12_1_catalog(json.loads(FIXTURE.read_text()))
+        self.expected_variants = {(v.item_id, v.item_level) for v in self.catalog.variants}
 
     def seed_resources(self):
         SimcBackendBinary.objects.update_or_create(
@@ -41,8 +47,14 @@ class MidnightTrinketSyncTests(TestCase):
                 source=SimcContentTemplate.SOURCE_SIMC_UPSTREAM,
                 owner_user_id=None, is_active=True, is_selectable=True,
             )
+            SimcTalentString.objects.create(
+                name=key, spec=key, talent='fixture-talents',
+                system_key=f'simc_upstream:{key}', owner_user_id=None,
+                is_system=True, is_active=True, is_selectable=True,
+            )
             SimcProfile.objects.create(
                 name=key, class_name=class_name, spec=key,
+                system_key=f'simc_upstream:{key}',
                 source=SimcProfile.SOURCE_SIMC_UPSTREAM, user_id=None, is_active=True,
             )
 
@@ -64,9 +76,9 @@ class MidnightTrinketSyncTests(TestCase):
         plan = json.loads(stdout.getvalue().splitlines()[0])
         self.assertEqual(
             (plan['spec_count'], plan['scenario_count'], plan['candidate_count'], plan['case_count']),
-            (32, 3, 49, 96),
+            (32, 3, len(self.expected_variants), 96),
         )
-        self.assertEqual(plan['run_count'], 32 * 3 * 50)
+        self.assertEqual(plan['run_count'], 32 * 3 * (len(self.expected_variants) + 1))
         self.assertEqual(plan['unresolved_item_ids'], [
             267631, 270172, 274370, 274371, 277735, 279190,
         ])
@@ -81,28 +93,20 @@ class MidnightTrinketSyncTests(TestCase):
         panel = SimcBenchmarkPanel.objects.get(slug='ptr-12-1-mythic-trinkets')
         self.assertEqual(
             (panel.specs.count(), panel.scenarios.count(), panel.candidates.count()),
-            (32, 3, 49),
+            (32, 3, len(self.expected_variants)),
         )
-        fixture_items = {
-            row['item_id']: row['item_level']
-            for row in json.loads(FIXTURE.read_text())['items']
-        }
-        actual_items = {}
+        actual_variants = set()
         fixture_names = {
             row['item_id']: row['name_zhcn']
             for row in json.loads(FIXTURE.read_text())['items']
         }
         for candidate in panel.candidates.all():
             swap = candidate.params['gear_swap']
-            actual_items[swap['item_id']] = int(
-                swap['raw_value'].split('ilevel=', 1)[1].split(',', 1)[0]
-            )
-            self.assertEqual(
-                candidate.label,
-                f'{fixture_names[swap["item_id"]]} · {actual_items[swap["item_id"]]}',
-            )
+            level = int(swap['raw_value'].split('ilevel=', 1)[1].split(',', 1)[0])
+            actual_variants.add((swap['item_id'], level))
+            self.assertEqual(candidate.label, f'{fixture_names[swap["item_id"]]} · {level}')
             self.assertNotRegex(candidate.label, r' · (\d+) · \1$')
-        self.assertEqual(actual_items, fixture_items)
+        self.assertEqual(actual_variants, self.expected_variants)
         self.assertFalse(SimcBenchmarkExecution.objects.exists())
 
     def test_panel_id_updates_the_same_panel_even_when_requested_slug_differs(self):
@@ -119,7 +123,7 @@ class MidnightTrinketSyncTests(TestCase):
         panel.refresh_from_db()
         self.assertEqual(panel.slug, 'ptr-12-1-mythic-trinkets')
         self.assertEqual(SimcBenchmarkPanel.objects.count(), 1)
-        self.assertEqual(panel.candidates.count(), 49)
+        self.assertEqual(panel.candidates.count(), len(self.expected_variants))
         self.assertFalse(SimcBenchmarkExecution.objects.exists())
 
     def test_existing_slug_owned_by_another_user_is_rejected(self):

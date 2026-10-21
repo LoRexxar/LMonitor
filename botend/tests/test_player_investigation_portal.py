@@ -59,7 +59,7 @@ class InvestigationPortalTests(SimpleTestCase):
         # Source text, not model prose: exercise the real template's escaping.
         unknown_id = model['hypotheses'][0]['evidence_ids'][0]
         source = next(e for e in plan['evidence'] if e['id'] == unknown_id)
-        source['text'] += ' <script>unsafe()</script><img src=x onerror=alert(1)>'
+        source['text'] += ' A & B < C <script>unsafe()</script><img src=x onerror=alert(1)>'
         source['run_url'] = 'javascript:alert(1)'
         projected = _project_investigation(model, {
             'metrics': {'investigation': plan}, 'evidence': plan['evidence'],
@@ -67,7 +67,7 @@ class InvestigationPortalTests(SimpleTestCase):
         self.assertTrue(all(not h['evidence'] for h in projected['hypotheses']))
         self.assertTrue(all(h['unknown_evidence'] for h in projected['hypotheses']))
         html = self.render(investigation=projected)
-        self.assertEqual(html.count('<p>未知 / 缺口（不作为支持线索）</p>'), len(projected['hypotheses']))
+        self.assertEqual(html.count('<p>尚未核实的事项（不作为支持或反证）</p>'), len(projected['hypotheses']))
         self.assertNotIn('<p>支持线索</p>', html)
         for h in projected['hypotheses']:
             for evidence in h['unknown_evidence']:

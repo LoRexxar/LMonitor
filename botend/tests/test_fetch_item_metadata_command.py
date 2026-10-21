@@ -9,7 +9,6 @@ from botend.management.commands.fetch_item_metadata import (
     WOWHEAD_PTR_TOOLTIP_API,
     _choose_icon,
 )
-from botend.services.simc_benchmark_config import _best_benchmark_tooltip
 
 
 class FetchItemMetadataCommandTests(SimpleTestCase):
@@ -48,7 +47,7 @@ class FetchItemMetadataCommandTests(SimpleTestCase):
             'inv_gear_real',
         )
 
-    def test_benchmark_metadata_prefers_complete_tooltip_over_short_chinese_text(self):
+    def test_benchmark_metadata_preserves_available_chinese_tooltip(self):
         item = SimpleNamespace(
             name_zh='测试饰品', name='Test Trinket', icon='inv_trinket_01',
             description_zh='物品等级 219\n装备 Trinket',
@@ -58,11 +57,17 @@ class FetchItemMetadataCommandTests(SimpleTestCase):
         label, effect, icon_url = _display_metadata({270160: item}, {'gear_swap': {'item_id': 270160}})
 
         self.assertEqual(label, '测试饰品')
-        self.assertIn('+179 Agility', effect)
-        self.assertIn('Equip: Deal damage.', effect)
-        self.assertNotEqual(effect, item.description_zh)
+        self.assertEqual(effect, item.description_zh)
         self.assertEqual(icon_url, '/static/wow_icons/small/inv_trinket_01.jpg')
-        self.assertEqual(
-            _best_benchmark_tooltip(item.description_zh, item.description),
-            item.description,
+
+    def test_benchmark_metadata_falls_back_to_english_without_chinese_tooltip(self):
+        item = SimpleNamespace(
+            name_zh='', name='Test Trinket', icon='inv_trinket_01',
+            description_zh=' ', description='Equip: Deal damage.',
         )
+
+        label, effect, icon_url = _display_metadata({270160: item}, {'gear_swap': {'item_id': 270160}})
+
+        self.assertEqual(label, item.name)
+        self.assertEqual(effect, item.description)
+        self.assertEqual(icon_url, '/static/wow_icons/small/inv_trinket_01.jpg')

@@ -32,7 +32,8 @@ function render(variant) {
     assert.equal(JSON.stringify(payload), frozen, 'rendering must not change frozen conditions or damage');
     const cells = [...element('simc-skill-damage-body').innerHTML.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/g)].map(m => m[1]);
     assert.equal(cells.length, 5);
-    assert.match(cells[3], /基础伤害 100 × 1\.3 ≈ 130/);
+    // Formula arithmetic is covered by simc_skill_damage_renderer_test.js;
+    // this suite checks condition labels and preserves the frozen result.
     assert.equal(cells[4], '156.00');
     return cells[1].replace(/<[^>]+>/g, '');
 }

@@ -13,12 +13,13 @@ from botend.services.wcl_collection_cycle import begin_collection
 class WclCycleRolloutTests(TestCase):
     def setUp(self):
         MonitorTask.objects.update(is_active=False)
-        self.before = datetime(2026, 10, 12, 2, 45, tzinfo=ZoneInfo('Asia/Shanghai'))
+        self.slot = datetime(2026, 10, 12, 0, 0, tzinfo=ZoneInfo('Asia/Shanghai'))
+        self.before = self.slot - timedelta(seconds=1)
         self.season = SeasonMeta.objects.create(
             season_key='rollout', season_name='Rollout', mplus_zone_id=1, raid_zone_id=2)
         self.task = MonitorTask.objects.create(
             name='SpecDetailRankingMonitor', target='', type=881, is_active=True,
-            last_scan_time=(self.before - timedelta(days=1)).replace(hour=3, minute=37))
+            last_scan_time=(self.slot - timedelta(days=1)).replace(minute=37))
 
     def test_first_deployment_does_not_invent_a_yesterday_catchup(self):
         with patch('django.utils.timezone.now', return_value=self.before):
@@ -26,7 +27,7 @@ class WclCycleRolloutTests(TestCase):
         self.assertFalse(WclCollectionCycle.objects.exists())
 
     def test_first_due_claim_creates_checkpoint_before_worker_start(self):
-        now = self.before.replace(hour=3, minute=0)
+        now = self.slot
         # The supplied claim time, not wall time, defines the persisted slot.
         with patch('django.utils.timezone.now', return_value=self.before):
             first = claim_next_monitor_task(now=now, lease_owner='rollout-first', lease_seconds=60)
@@ -51,7 +52,7 @@ class WclCycleRolloutTests(TestCase):
         self.assertEqual(WclCollectionCycle.objects.count(), 1)
 
     def test_manual_first_claim_uses_explicit_claim_time(self):
-        now = self.before.replace(hour=3, minute=0)
+        now = self.slot
         with patch('django.utils.timezone.now', return_value=self.before):
             task = claim_monitor_task(self.task.pk, now=now)
         cycle = WclCollectionCycle.objects.get(season=self.season)
@@ -61,7 +62,7 @@ class WclCycleRolloutTests(TestCase):
         self.assertEqual(cycle.owner, task._wcl_cycle_owner)
 
     def test_manual_ranking_claim_cannot_reopen_publication_phases(self):
-        now = self.before.replace(hour=3, minute=0)
+        now = self.slot
         cycle = WclCollectionCycle.objects.create(
             season=self.season, slot=now, phase='ready', owner='publication-owner')
         for phase in ('ready', 'aggregating', 'published'):
@@ -78,7 +79,7 @@ class WclCycleRolloutTests(TestCase):
                 self.assertTrue(release_monitor_task_lease(task.pk, task._monitor_task_lease_owner))
 
     def test_published_history_uses_daily_slot_not_last_scan(self):
-        now = self.before.replace(hour=3, minute=0)
+        now = self.slot
         WclCollectionCycle.objects.create(
             season=self.season, slot=now - timedelta(days=1), phase='published', owner='old')
         self.task.last_scan_time = now
