@@ -25,6 +25,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     PLAYER_RANKING_LIMIT = 20
     PROFILE_ENRICH_LIMIT = 20
     RANKING_SAMPLE_BACKFILL_LIMIT = 100
+    # Ranking reconciliation never consumes profile content. Keep every field
+    # read by identity matching, differential updates and retry detection loaded
+    # together so deferred attributes cannot turn this index into N+1 queries.
+    PEAK_RANKING_INDEX_FIELDS = (
+        'id', 'region', 'realm', 'character_name', 'class_name',
+        'rank', 'score', 'last_updated',
+    )
     PROFILE_UPDATE_FIELDS = (
         'class_name', 'rank', 'score', 'faction', 'race', 'gender', 'guild_name',
         'realm_rank', 'avatar_url', 'profile_url', 'achievement_points', 'item_level',
@@ -233,7 +240,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         updated = 0
         departed = 0
         with transaction.atomic():
-            existing_rows = list(PlayerSpecTopPlayer.objects.select_for_update().filter(
+            existing_rows = list(PlayerSpecTopPlayer.objects.select_for_update().only(
+                *self.PEAK_RANKING_INDEX_FIELDS,
+            ).filter(
                 season_id=season.id,
                 class_name=class_name,
                 spec_name=spec_name,
@@ -261,7 +270,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         'score': player.get('score'),
                     }))
                 else:
-                    profile, created = PlayerSpecTopPlayer.objects.get_or_create(
+                    profile, created = PlayerSpecTopPlayer.objects.only(
+                        *self.PEAK_RANKING_INDEX_FIELDS,
+                    ).get_or_create(
                         season_id=season.id,
                         region=(player.get('region') or '').strip().lower(),
                         realm=(player.get('realm') or '').strip(),

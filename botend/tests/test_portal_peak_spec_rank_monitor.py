@@ -249,6 +249,112 @@ class PortalPeakSpecRankPreloadTests(TestCase):
         self.assertEqual(initialized.talent_build_code, 'NEW-TALENT')
 
 
+class PortalPeakLightweightPreloadTests(TestCase):
+    """Real ORM regression: ranking reconciliation must not hydrate profiles."""
+
+    def setUp(self):
+        self.season = SeasonMeta.objects.create(
+            season_key='lightweight', season_name='Lightweight', rio_season='season-lightweight',
+            mplus_zone_id=1, raid_zone_id=1, is_active=True,
+        )
+        self.monitor = SpecDetailPlayerMonitor(Mock(), Mock())
+        # Independent consumers have their own regression coverage; keep SQL here
+        # attributable to reconciliation and exact-ID initialization only.
+        self.enterContext(patch.object(self.monitor, 'backfill_missing_battlenet_stats'))
+        self.enterContext(patch.object(self.monitor, 'refresh_top20_activity'))
+        self.enterContext(patch(
+            'botend.controller.plugins.portal.SpecDetailAggregationMonitor.'
+            'SpecDetailAggregationMonitor.refresh_leaderboard_projection',
+        ))
+
+    def player(self, name, **overrides):
+        fields = dict(
+            season_id=self.season.pk, region='eu', realm='Hyjal', character_name=name,
+            class_name='Mage', spec_name='Arcane', rank=9, score=2900,
+            last_updated=timezone.now(), gear_json=[{'old': 'g' * 4096}],
+            talents_json=[{'old': 't' * 4096}], stats_json={'old': 's' * 4096},
+            talent_build_code='OLD', stats_crawl_status=1,
+        )
+        fields.update(overrides)
+        return PlayerSpecTopPlayer.objects.create(**fields)
+
+    def preload(self, names):
+        return self.monitor.preload_peak_rankings(
+            rio_season=self.season.rio_season, class_name='Mage', spec_name='Arcane',
+            rankings=[{'score': 4000 - index, 'character': {
+                'name': name, 'realm': {'name': ' HYJAL '}, 'region': {'slug': 'EU'},
+            }} for index, name in enumerate(names)],
+        )
+
+    @staticmethod
+    def profile_selects(queries):
+        return [q['sql'] for q in queries
+                if q['sql'].startswith('SELECT') and 'wow_spec_top_player' in q['sql']]
+
+    def test_matching_departure_and_class_repair_are_lightweight_without_deferred_reads(self):
+        matched = self.player('Mägé')
+        departed = self.player('Departed')
+        # Exact fallback lookup exercises the unique key (which excludes class).
+        repaired = self.player('Repair', class_name='Warrior', realm='HYJAL')
+        before = {row['id']: row for row in PlayerSpecTopPlayer.objects.values()}
+        with patch.object(PlayerSpecTopPlayer, 'refresh_from_db',
+                          side_effect=AssertionError('unexpected deferred-field hydration')), \
+                CaptureQueriesContext(connection) as queries:
+            result = self.preload(['mage', 'MAGE', 'Repair', ''])
+        self.assertEqual(result, {'new': 0, 'initialized': 0, 'updated': 2, 'departed': 1})
+        selects = self.profile_selects(queries)
+        self.assertEqual(len(selects), 2)  # scope index + unique-key fallback; no per-row reads
+        for sql in selects:
+            for field in ('gear_json', 'talents_json', 'stats_json', 'talent_build_code'):
+                self.assertNotIn(field, sql)
+        expected = {matched.pk: (1, 4000), departed.pk: (None, 2900), repaired.pk: (3, 3998)}
+        for row in PlayerSpecTopPlayer.objects.values():
+            self.assertEqual((row['rank'], row['score']), expected[row['id']])
+            self.assertEqual(row['class_name'], 'Mage')
+            for field, value in before[row['id']].items():
+                if field not in ('rank', 'score', 'class_name'):
+                    self.assertEqual(row[field], value)
+        with CaptureQueriesContext(connection) as unchanged:
+            self.assertEqual(self.preload(['mage', 'MAGE', 'Repair'])['updated'], 0)
+        self.assertFalse(any(q['sql'].startswith('UPDATE') for q in unchanged))
+
+    def test_only_pending_ids_hydrate_and_unknown_failure_remains_retryable(self):
+        healthy = self.player('Healthy')
+        pending = self.player('Pending', last_updated=None, realm='HYJAL')
+        departed = self.player('Departed', last_updated=None)
+        before = {row['id']: row for row in PlayerSpecTopPlayer.objects.values()}
+        fetch = self.enterContext(patch.object(
+            self.monitor, '_fetch_profile_with_activity',
+            side_effect=[RuntimeError('unknown transport outcome'), None, {'race': 'Human'}],
+        ))
+        stats = self.enterContext(patch.object(
+            self.monitor, '_crawl_battlenet_stats_for_profile', return_value=True,
+        ))
+        for attempt in range(3):
+            with patch.object(PlayerSpecTopPlayer, 'refresh_from_db',
+                              side_effect=AssertionError('unexpected deferred-field hydration')), \
+                    CaptureQueriesContext(connection) as queries:
+                result = self.preload(['Healthy', 'Pending'])
+            selects = self.profile_selects(queries)
+            self.assertEqual(len(selects), 2)
+            self.assertNotIn('gear_json', selects[0])
+            self.assertIn('gear_json', selects[1])
+            self.assertIn(f'"id" IN ({pending.pk})', selects[1])
+            self.assertEqual(result['initialized'], int(attempt == 2))
+            pending.refresh_from_db()
+            self.assertEqual(pending.last_updated is None, attempt != 2)
+            self.assertEqual(pending.gear_json, before[pending.pk]['gear_json'])
+            self.assertEqual(pending.talents_json, before[pending.pk]['talents_json'])
+            self.assertEqual(pending.stats_json, before[pending.pk]['stats_json'])
+        self.assertEqual(fetch.call_count, 3)
+        stats.assert_called_once()
+        for player in (healthy, departed):
+            row = PlayerSpecTopPlayer.objects.values().get(pk=player.pk)
+            for field, value in before[player.pk].items():
+                if field not in ('rank', 'score'):
+                    self.assertEqual(row[field], value)
+
+
 class PortalPeakStatsBackfillTests(TestCase):
     STATS_RESPONSE = {
         'melee_crit': {'rating_normalized': 1239, 'value': 32.93478},
