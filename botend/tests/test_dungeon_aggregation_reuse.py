@@ -12,6 +12,7 @@ from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
+from botend.constants.hero_talents import spec_hero_subtree_ids
 from botend.models import (SeasonMeta, SpecDungeonRanking, WclCombatantSnapshot,
                            WclCombatantFetchState, WowItemSnapshot, WowTalentNodeMetadata,
                            WowTalentVersion, WowItemVariantSnapshot, WowSpellSnapshot,
@@ -20,6 +21,7 @@ from botend.services import spec_stats_service as stats
 from botend.services import wcl_combatant_snapshot as facts
 from botend.services.spec_stats_snapshot import read_projection
 from botend.controller.plugins.portal.SpecDetailAggregationMonitor import publish_stats
+from botend.wow.branches import spell_branch
 
 
 class DungeonAggregationReuseTests(TestCase):
@@ -40,15 +42,40 @@ class DungeonAggregationReuseTests(TestCase):
         data.update(extra)
         return SpecDungeonRanking.objects.create(**data)
 
-    def fact(self, row, rating=100, when=None):
+    def fact(self, row, rating=100, when=None, *, talent_tree=None):
+        payload = {'sourceID': 1, 'source': {'id': 1, 'name': row.character_name,
+                   'server': row.realm}, 'specID': 71, 'critMelee': rating}
+        if talent_tree is not None:
+            payload['talentTree'] = talent_tree
         return WclCombatantSnapshot.objects.create(report_code=row.report_code,
             fight_id=row.fight_id, actor_id=1, fetched_at=when or timezone.now(),
-            payload_json={'sourceID': 1, 'source': {'id': 1, 'name': row.character_name,
-            'server': row.realm}, 'specID': 71, 'critMelee': rating})
+            payload_json=payload)
 
-    def aggregate(self, **kwargs):
+    def talent_metadata(self, version, **spec_fields):
+        """Minimal complete log cohort: authoritative class/spec/allowed hero nodes."""
+        nodes = []
+        hero_id = min(spec_hero_subtree_ids('Warrior', 'Arms'))
+        for entry, tree, subtree in ((77, 'spec', 0), (78, 'class', 0), (79, 'hero', hero_id)):
+            values = dict(class_name='Warrior', spec_name='Arms', talent_version=version,
+                          node_id=entry, talent_id=entry, spell_id=entry * 10,
+                          tree_type=tree, db2_subtree_id=subtree, source='db2_backfill',
+                          name=f'Test {tree}', row=1, column=1, max_points=1)
+            if tree == 'spec':
+                values.update(spec_fields)
+            nodes.append(WowTalentNodeMetadata.objects.create(**values))
+        return nodes[0], [{'id': node.node_id, 'rank': 1} for node in nodes]
+
+    def aggregate(self, *, refresh_talents=False, **kwargs):
         from botend.services.dungeon_aggregation import aggregate_dungeon
+        if refresh_talents:
+            self.refresh_talent_display()
         return aggregate_dungeon(self.season, 'Warrior', 'Arms', self.path, publish_stats, **kwargs)
+
+    def refresh_talent_display(self):
+        # Source updates are compiled offline before the read-only statistics
+        # consumer runs. Hot-read cost assertions deliberately omit this stage.
+        from botend.services.wow_spell_display import sync_spell_display
+        return sync_spell_display(branch='retail', apply=True, spell_ids=[770])
 
     def detail(self, key='all'):
         payload = read_projection(self.path, f'dungeon-{key}')
@@ -88,15 +115,13 @@ class DungeonAggregationReuseTests(TestCase):
     def test_content_edits_late_facts_and_missing_or_corrupt_detail_invalidate(self):
         version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={
             'is_active': True, 'status': 'active', 'is_default_stats': True})
-        row = self.row(talents_json=[{'tree_type': 'spec', 'node_id': 77, 'talent_id': 77,
-                                     'spell_id': 770, 'points': 1, 'name': 'Test'}])
+        row = self.row()
         item = WowItemSnapshot.objects.create(item_id=123, name='Head', name_zh='头盔')
-        node = WowTalentNodeMetadata.objects.create(class_name='Warrior', spec_name='Arms',
-            talent_version=version, node_id=77, talent_id=77, spell_id=770,
-            tree_type='spec', name='Test', name_zh='旧天赋', row=1, column=1)
+        node, talent_tree = self.talent_metadata(version, name_zh='旧天赋')
         previous = self.aggregate()['generation']
+        self.assertEqual(self.detail(1)['talent_sample_size'], 0)
         for change in (
-            lambda: self.fact(row, 321),
+            lambda: self.fact(row, 321, talent_tree=talent_tree),
             lambda: WowItemSnapshot.objects.filter(pk=item.pk).update(name_zh='新头盔'),
             lambda: WowItemSnapshot.objects.filter(pk=item.pk).update(metadata={'tooltip': 'changed'}),
             lambda: WowTalentNodeMetadata.objects.filter(pk=node.pk).update(description_zh='新说明', name_zh='新天赋'),
@@ -108,7 +133,9 @@ class DungeonAggregationReuseTests(TestCase):
             self.assertNotEqual(previous, result['generation'])
             previous = result['generation']
         self.assertEqual(next(iter(self.detail(1)['gear_popularity'].values()))[0]['name_zh'], '新头盔')
-        self.assertEqual(self.detail(1)['talent_usage'][0]['name_zh'], '新天赋')
+        self.assertEqual(self.detail(1)['talent_sample_size'], 1)
+        talent = next(node for node in self.detail(1)['talent_usage'] if node['spell_id'] == 770)
+        self.assertEqual(talent['name_zh'], '新天赋')
 
         for invalid in (None, '{', '{}'):
             shard = self.path.parent / 'stats-details' / previous / 'dungeon-all.json'
@@ -130,26 +157,26 @@ class DungeonAggregationReuseTests(TestCase):
         self.assertEqual(self.detail()['sample_size'], 1)
 
     def talent_text(self, text, field='description_zh'):
-        WowTalentVersion.objects.filter(is_default_stats=True).update(is_default_stats=False)
-        version, _ = WowTalentVersion.objects.update_or_create(key='ptr', defaults={
-            'branch': 'ptr', 'current_build': 'test-build', 'source_dir': self.tmp.name,
+        # Statistics resolve retail explicitly, not a PTR default-usage flag.
+        version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={
+            'branch': 'retail', 'current_build': 'test-build', 'source_dir': self.tmp.name,
             'is_active': True, 'status': 'active', 'is_default_stats': True})
-        self.row(talents_json=[{'tree_type': 'spec', 'node_id': 77, 'talent_id': 77,
-                               'spell_id': 770, 'points': 1, 'name': 'Test'}])
-        return WowTalentNodeMetadata.objects.create(class_name='Warrior', spec_name='Arms',
-            talent_version=version, node_id=77, talent_id=77, spell_id=770,
-            tree_type='spec', source='db2_backfill', name='Test', name_zh='测试天赋', row=1, column=1,
-            **{field: text})
+        node, talent_tree = self.talent_metadata(version, name_zh='测试天赋', **{field: text})
+        # Leave ranking talents empty so the real combatant parser supplies them.
+        self.fact(self.row(), talent_tree=talent_tree)
+        return node
 
     def spell(self, spell_id, **extra):
-        values = dict(branch='ptr', locale='zhCN', snapshot_build='test-build',
+        values = dict(branch=spell_branch('retail'), locale='zhCN', snapshot_build='test-build',
                       name='Old', name_zh='旧名称')
         values.update(extra)
         return WowSpellSnapshot.objects.create(spell_id=spell_id, **values)
 
     def assert_talent_text(self, text, field='description_zh'):
         for scope in (1, 'all'):
-            trees = self.detail(scope)['talent_popularity_tree']['render_model']['trees']
+            detail = self.detail(scope)
+            self.assertEqual(detail['talent_sample_size'], 1)
+            trees = detail['talent_popularity_tree']['render_model']['trees']
             node = next(node for tree in trees for node in tree['nodes'] if node['spell_id'] == 770)
             self.assertEqual(node[field], text)
 
@@ -162,11 +189,11 @@ class DungeonAggregationReuseTests(TestCase):
     def test_exact_build_dump_name_edit_invalidates_publication(self):
         self.talent_text('触发$@spellname5394。')
         self.dump('SpellName_zhCN.csv', [{'ID': 5394, 'Name_lang': '旧名称'}])
-        first = self.aggregate()
+        first = self.aggregate(refresh_talents=True)
         self.assert_talent_text('触发旧名称。')
         self.assertTrue(self.aggregate()['reused'])
         self.dump('SpellName_zhCN.csv', [{'ID': 5394, 'Name_lang': '新名称'}])
-        second = self.aggregate()
+        second = self.aggregate(refresh_talents=True)
         self.assertFalse(second['reused'])
         self.assertNotEqual(first['generation'], second['generation'])
         self.assert_talent_text('触发新名称。')
@@ -177,16 +204,16 @@ class DungeonAggregationReuseTests(TestCase):
         self.dump('Spell_zhCN.csv', [{'ID': 90001,
             'Description_lang': '$@spellname99999：${$99998s1/2}'}])
         leaf = self.spell(99999)
-        effect = WowSpellEffectSnapshot.objects.create(branch='ptr', locale='zhCN',
+        effect = WowSpellEffectSnapshot.objects.create(branch=spell_branch('retail'), locale='zhCN',
             snapshot_build='test-build', spell_id=99998, effect_index=0, base_points='12')
-        self.aggregate()
+        self.aggregate(refresh_talents=True)
         self.assert_talent_text('触发旧名称：6。')
         self.assertTrue(self.aggregate()['reused'])
         WowSpellSnapshot.objects.filter(pk=leaf.pk).update(name_zh='新名称')
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('触发新名称：6。')
         WowSpellEffectSnapshot.objects.filter(pk=effect.pk).update(base_points='24')
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('触发新名称：12。')
         self.assertTrue(self.aggregate()['reused'])
 
@@ -224,12 +251,12 @@ class DungeonAggregationReuseTests(TestCase):
                 # Route through the dump description, not just a DB token.
                 self.dump('Spell_zhCN.csv', [{'ID': 770, 'Description_lang': token}])
                 WowTalentNodeMetadata.objects.filter(pk=node.pk).update(description_zh='$@spelldesc770')
-                self.aggregate()
+                self.aggregate(refresh_talents=True)
                 self.assert_talent_text(before)
                 self.assertTrue(self.aggregate()['reused'])
                 rows[0][column] = new
                 self.dump(filename, rows)
-                self.assertFalse(self.aggregate()['reused'])
+                self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
                 self.assert_talent_text(after)
                 self.assertTrue(self.aggregate()['reused'])
 
@@ -257,9 +284,10 @@ class DungeonAggregationReuseTests(TestCase):
         mage = WowTalentNodeMetadata.objects.create(talent_version=node.talent_version,
             class_name='Mage', spec_name='Fire', node_id=89, spell_id=88889,
             description_zh='$@spellname88889', source='db2_backfill')
-        self.aggregate()
+        self.aggregate(refresh_talents=True)
         self.assert_talent_text('旧名称 12 12 12 3')
         WowTalentNodeMetadata.objects.filter(pk__in=[other.pk, mage.pk]).update(description_zh='无关')
+        self.refresh_talent_display()
         # Observe real I/O and SQL; do not replace the resolver or publication.
         with patch('io.open', wraps=io.open) as opened, CaptureQueriesContext(connection) as queries:
             self.assertTrue(self.aggregate()['reused'])
@@ -267,7 +295,6 @@ class DungeonAggregationReuseTests(TestCase):
                      if str(call.args[0]).endswith('.csv')]
         self.assertEqual(csv_reads, [])
         spell_queries = [q['sql'] for q in queries if 'FROM "wow_spell_snapshot"' in q['sql']]
-        self.assertLessEqual(len(spell_queries), 2)
         for query in spell_queries:
             self.assertNotIn('88888', query)
             self.assertNotIn('88889', query)
@@ -282,32 +309,34 @@ class DungeonAggregationReuseTests(TestCase):
         self.assertEqual([call.args[0] for call in opened.call_args_list
                           if str(call.args[0]).endswith('.csv')], [])
         WowSpellSnapshot.objects.filter(pk=leaf.pk).update(name_zh='新名称')
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('新名称 12 12 12 3')
+        # Keep the original hot-read budget; a failure must not hide freshness.
+        self.assertLessEqual(len(spell_queries), 2)
 
     def test_dump_missing_reference_insertion_and_unrelated_edit(self):
         self.talent_text('$@spelldesc90001', field='description')
         self.dump('Spell_enUS.csv', [{'ID': 90001, 'Description_lang': '$@spellname99999'}])
-        self.aggregate()
+        self.aggregate(refresh_talents=True)
         self.assert_talent_text('#99999', field='description')
         self.dump('SpellName_enUS.csv', [{'ID': 88888, 'Name_lang': 'Unrelated'}])
-        self.assertTrue(self.aggregate()['reused'])
+        self.assertTrue(self.aggregate(refresh_talents=True)['reused'])
         self.dump('SpellName_enUS.csv', [{'ID': 99999, 'Name_lang': 'New'},
                                        {'ID': 88888, 'Name_lang': 'Unrelated'}])
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('New', field='description')
         self.dump('SpellName_enUS.csv', [{'ID': 99999, 'Name_lang': 'New'},
                                        {'ID': 88888, 'Name_lang': 'Changed'}])
-        self.assertTrue(self.aggregate()['reused'])
+        self.assertTrue(self.aggregate(refresh_talents=True)['reused'])
 
     def test_indirect_spell_name_edit_invalidates_published_talent_text(self):
         self.talent_text('触发$@spellname99999。')
         spell = self.spell(99999)
-        first = self.aggregate()
+        first = self.aggregate(refresh_talents=True)
         self.assert_talent_text('触发旧名称。')
         self.assertTrue(self.aggregate()['reused'])
         WowSpellSnapshot.objects.filter(pk=spell.pk).update(name_zh='新名称')
-        second = self.aggregate()
+        second = self.aggregate(refresh_talents=True)
         self.assertFalse(second['reused'])
         self.assertNotEqual(first['generation'], second['generation'])
         self.assert_talent_text('触发新名称。')
@@ -319,38 +348,38 @@ class DungeonAggregationReuseTests(TestCase):
         self.spell(90002, description='中层$@spellaura90003')
         aura = self.spell(90003, aura_description='触发$@spellname99999。')
         leaf = self.spell(99999)
-        self.aggregate()
+        self.aggregate(refresh_talents=True)
         self.assert_talent_text('外层中层触发旧名称。')
         WowSpellSnapshot.objects.filter(pk=leaf.pk).update(name_zh='新名称')
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('外层中层触发新名称。')
         WowSpellSnapshot.objects.filter(pk=aura.pk).update(aura_description='获得$@spellname99999。')
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('外层中层获得新名称。')
         self.assertTrue(self.aggregate()['reused'])
 
     def test_missing_nested_reference_is_rechecked_and_expanded_when_added(self):
         self.talent_text('触发$@spelldesc90001。')
         self.spell(90001, description='$@spelldesc90002')
-        self.aggregate()
+        self.aggregate(refresh_talents=True)
         self.assert_talent_text('触发。')
         self.assertTrue(self.aggregate()['reused'])
         self.spell(90002, description='$@spellname99999')
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('触发#99999。')
         self.assertTrue(self.aggregate()['reused'])
         self.spell(99999)
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('触发旧名称。')
         self.assertTrue(self.aggregate()['reused'])
 
     def test_english_description_uses_indirect_snapshot(self):
         self.talent_text('Triggers $@spellname99999.', field='description')
         spell = self.spell(99999, locale='enUS')
-        self.aggregate()
+        self.aggregate(refresh_talents=True)
         self.assert_talent_text('Triggers Old.', field='description')
         WowSpellSnapshot.objects.filter(pk=spell.pk).update(name='New')
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('Triggers New.', field='description')
 
     def test_numeric_spell_tokens_track_effect_contents_including_nested_and_local(self):
@@ -366,13 +395,13 @@ class DungeonAggregationReuseTests(TestCase):
             with self.subTest(token=token):
                 WowTalentNodeMetadata.objects.filter(pk=node.pk).update(description_zh=token)
                 effect, _ = WowSpellEffectSnapshot.objects.update_or_create(
-                    branch='ptr', locale='zhCN', snapshot_build='test-build',
+                    branch=spell_branch('retail'), locale='zhCN', snapshot_build='test-build',
                     spell_id=spell_id, effect_index=0, defaults={'base_points': '12'})
-                self.aggregate()
+                self.aggregate(refresh_talents=True)
                 self.assert_talent_text(old)
                 self.assertTrue(self.aggregate()['reused'])
                 WowSpellEffectSnapshot.objects.filter(pk=effect.pk).update(base_points='24')
-                self.assertFalse(self.aggregate()['reused'])
+                self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
                 self.assert_talent_text(new)
 
     def test_cyclic_spell_dependencies_are_bounded_and_unrelated_rows_do_not_invalidate(self):
@@ -381,9 +410,10 @@ class DungeonAggregationReuseTests(TestCase):
         self.spell(90002, description='$@spelldesc90001')
         leaf = self.spell(99999)
         unrelated = self.spell(88888, description='$@spelldesc88888')
-        self.aggregate()
+        self.aggregate(refresh_talents=True)
         self.assert_talent_text('旧名称旧名称')
         WowSpellSnapshot.objects.filter(pk=unrelated.pk).update(name_zh='无关变化')
+        self.refresh_talent_display()
         with CaptureQueriesContext(connection) as queries:
             self.assertTrue(self.aggregate()['reused'])
         spell_queries = [q['sql'] for q in queries if 'FROM "wow_spell_snapshot"' in q['sql']]
@@ -393,7 +423,7 @@ class DungeonAggregationReuseTests(TestCase):
             self.assertTrue(' IN ' in query or '"spell_id" = ' in query)
             self.assertNotIn('88888', query)
         WowSpellSnapshot.objects.filter(pk=leaf.pk).update(name_zh='新名称')
-        self.assertFalse(self.aggregate()['reused'])
+        self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('新名称新名称')
 
     def test_frozen_cohort_drops_below_local_floor_without_reselecting_and_reuses(self):

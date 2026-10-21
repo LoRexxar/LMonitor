@@ -1,12 +1,13 @@
 """Actual HTTP priority/enablement contracts for the managed AI router."""
 import unittest
 from django.test import override_settings
-from botend.tests.test_glm_mimo_fallback import GLMMiMoHTTPContracts,answer,tool_answer
+from botend.tests import test_glm_mimo_fallback as _fixture_module
+from botend.tests.test_glm_mimo_fallback import answer, tool_answer
 
 
 class AIProviderRoutingContracts(unittest.TestCase):
-    setUp=GLMMiMoHTTPContracts.setUp
-    client=GLMMiMoHTTPContracts.client
+    setUp=_fixture_module.GLMMiMoHTTPContracts.setUp
+    client=_fixture_module.GLMMiMoHTTPContracts.client
 
     def test_codex_priority_is_translation_only_and_uses_legacy_endpoint(self):
         from django.conf import settings

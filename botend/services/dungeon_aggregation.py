@@ -143,9 +143,11 @@ def _resolved_talent_dependencies(nodes, version, supplements):
             setattr(resolver, attribute, _reference_table(
                 attribute, _file_cache_key(resolver._dump_file(filename))))
     resolved = []
-    for row in rows:
+    # Match the provider's other readers: batch central display data before
+    # serializing nodes, rather than issuing one lookup per talent.
+    for row in provider._prime_display(WowTalentNodeMetadata(**values) for values in rows):
         # Real model instances preserve localized-name supplementation semantics.
-        data = provider._as_dict(WowTalentNodeMetadata(**row))
+        data = provider._as_dict(row)
         resolved.append((data, provider._build_choice_option(data)))
     source = Path(version.source_dir or '')
     return {

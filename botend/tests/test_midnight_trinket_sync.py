@@ -15,6 +15,7 @@ from botend.models import (
     SimcContentTemplate,
     SimcProfile,
     SimcTalentString,
+    WowItemSnapshot,
 )
 from botend.services.midnight_trinket_catalog import parse_ptr_12_1_catalog
 from botend.services.simc_benchmark_config import resolve_default_benchmark_resources
@@ -124,6 +125,26 @@ class MidnightTrinketSyncTests(TestCase):
         self.assertEqual(panel.slug, 'ptr-12-1-mythic-trinkets')
         self.assertEqual(SimcBenchmarkPanel.objects.count(), 1)
         self.assertEqual(panel.candidates.count(), len(self.expected_variants))
+        self.assertFalse(SimcBenchmarkExecution.objects.exists())
+
+    def test_central_item_name_overrides_catalog_fallback_without_repeating_level(self):
+        self.seed_resources()
+        item = self.catalog.items[0]
+        WowItemSnapshot.objects.create(
+            item_id=item.item_id, name=item.name_enus, name_zh='中央资料名称',
+            inventory_type=item.inventory_type,
+        )
+        call_command(
+            'sync_midnight_trinket_benchmark', fixture=str(FIXTURE),
+            owner_id=self.owner_id, slug='central-name-test', stdout=StringIO(),
+        )
+        panel = SimcBenchmarkPanel.objects.get(slug='central-name-test')
+        variants = [candidate for candidate in panel.candidates.all()
+                    if candidate.params['gear_swap']['item_id'] == item.item_id]
+        expected = {level for item_id, level in self.expected_variants if item_id == item.item_id}
+        self.assertEqual({candidate.label for candidate in variants},
+                         {f'中央资料名称 · {level}' for level in expected})
+        self.assertEqual(len(variants), len(expected))
         self.assertFalse(SimcBenchmarkExecution.objects.exists())
 
     def test_existing_slug_owned_by_another_user_is_rejected(self):

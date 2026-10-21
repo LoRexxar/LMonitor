@@ -2,7 +2,7 @@
 import json
 from unittest.mock import Mock, patch
 from django.test import TestCase
-from botend.tests.test_player_observation import PlayerObservationTests as Fixtures
+from botend.tests import test_player_observation as _fixture_module
 from botend.models import PlayerObservationAnalysis, RaiderIOCharacterActivity, RaiderIORunRoster
 from django.utils import timezone
 from datetime import timedelta
@@ -11,7 +11,7 @@ from botend.services import player_observation as service
 
 
 class BehaviorIntegrationTests(TestCase):
-    setUp = Fixtures.setUp
+    setUp = _fixture_module.PlayerObservationTests.setUp
 
     def prepare_behavior(self):
         now = timezone.now()

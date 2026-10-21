@@ -2,14 +2,14 @@
 import copy
 from unittest.mock import Mock, patch
 from django.test import TestCase
-from botend.tests.test_triggered_observation_sources import TriggeredSourcesTests
+from botend.tests import test_triggered_observation_sources as _fixture_module
 
 
 class HistorySourcesTests(TestCase):
-    setUp = TriggeredSourcesTests.setUp
-    refresh = TriggeredSourcesTests.refresh
-    collect = TriggeredSourcesTests.collect
-    contract = TriggeredSourcesTests.contract
+    setUp = _fixture_module.TriggeredSourcesTests.setUp
+    refresh = _fixture_module.TriggeredSourcesTests.refresh
+    collect = _fixture_module.TriggeredSourcesTests.collect
+    contract = _fixture_module.TriggeredSourcesTests.contract
 
     def history_contract(self, count=1):
         data = self.contract(count=count)
@@ -25,7 +25,7 @@ class HistorySourcesTests(TestCase):
 
     def transport(self, url, **kwargs):
         if not url.endswith('/mythic-plus-runs'):
-            return TriggeredSourcesTests.transport(self, url, **kwargs)
+            return _fixture_module.TriggeredSourcesTests.transport(self, url, **kwargs)
         self.calls.append((url, kwargs))
         scope = dict(kwargs['params'])
         summary = {'season': scope['season'], 'dungeon': {'id': scope['dungeonId']},

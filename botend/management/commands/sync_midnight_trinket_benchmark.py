@@ -50,7 +50,7 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING('dry-run: no database writes'))
             return
         try:
-            panel, plan = replace_panel_config(snapshot, opts['owner_id'], panel=panel)
+            panel, plan = replace_panel_config(payload, opts['owner_id'], panel=panel)
         except ValidationError as exc:
             raise CommandError(f'PTR trinket Panel rejected: {exc}')
         self.stdout.write(self.style.SUCCESS(

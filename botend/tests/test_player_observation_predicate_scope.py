@@ -1,11 +1,11 @@
 """Complete negated predicates must not license neighboring assertions."""
 from django.test import SimpleTestCase
 from botend.services import player_observation as observation
-from botend.tests.test_player_observation_resilience_guard import ResilienceGuardTests
+from botend.tests import test_player_observation_resilience_guard as _fixture_module
 
 
 class PredicateScopeTests(SimpleTestCase):
-    validate = ResilienceGuardTests.validate
+    validate = _fixture_module.ResilienceGuardTests.validate
 
     def test_negated_predicate_pairs(self):
         for text in ('不能上升为交易或带人定论', '不能反推钥匙主人或交易',

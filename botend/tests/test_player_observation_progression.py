@@ -6,16 +6,16 @@ from django.test import TestCase
 from django.utils import timezone
 
 from botend.models import RaiderIOCharacterActivity, RaiderIORunRoster
-from botend.tests.test_player_observation import PlayerObservationTests
+from botend.tests import test_player_observation as _fixture_module
 from botend.tests.test_raiderio_run_roster import details
 
 
 class ObservationProgressionTests(TestCase):
-    evidence = PlayerObservationTests.evidence
-    engine = PlayerObservationTests.engine
+    evidence = _fixture_module.PlayerObservationTests.evidence
+    engine = _fixture_module.PlayerObservationTests.engine
 
     def setUp(self):
-        PlayerObservationTests.setUp(self)
+        _fixture_module.PlayerObservationTests.setUp(self)
         self.now = timezone.now()
         runs = []
         for index in range(8):
