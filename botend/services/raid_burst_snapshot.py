@@ -78,6 +78,8 @@ def read_manifest(directory, name='index.json', *, verify_blobs=True):
 
 def load_published(selection=None):
     """仅文件读取，缺失或损坏时不联网、不查询排名、不现场聚合。"""
+    if not selection:
+        return None, []
     options = []
     for path in private_root().glob('*/*/*/index.json'):
         manifest = (read_manifest(path.parent, verify_blobs=False)
@@ -87,11 +89,41 @@ def load_published(selection=None):
                 options.append((scope, path.parent))
     options.sort(key=lambda pair: (-pair[0]['season_id'], not pair[0].get('sample_count', 0),
                                    -pair[0].get('difficulty', 5), pair[0]['key']))
-    selected = next((pair for pair in options if pair[0]['key'] == selection),
-                    options[0] if options and not selection else None)
+    selected = next((pair for pair in options if pair[0]['key'] == selection), None)
     data = read_blob(selected[1], selected[0]['blob']) if selected else None
     if selected and data is None:
         previous = read_manifest(selected[1], 'previous.json', verify_blobs=False)
         old = next((s for s in previous['scopes'] if s['key'] == selected[0]['key']), None) if previous else None
         data = read_blob(selected[1], old['blob']) if old else None
+    if data and data.get('scope', {}).get('key') != selection:
+        data = None
     return data, [dict(key=item['key'], label=item['label']) for item, _ in options]
+
+
+def needs_raid_burst_refresh(cycle):
+    """已发布团本周期缺少本版战斗统计时，交给原聚合任务补建。
+
+    只查索引，不联网，不扫描原始事件；未完成的采集周期由调用者优先处理。
+    """
+    raid_scopes = [scope for scope in cycle.completed_scopes if scope.startswith('raid:')]
+    if not raid_scopes or not cycle.collected_at:
+        return False
+    from botend.services.raid_burst_aggregation import ANALYSIS_VERSION, RAW_VERSION, SUPPORTED
+    cutoff = cycle.collected_at.isoformat()
+    root = private_root() / str(cycle.season_id)
+    for (class_name, spec_name), config in SUPPORTED.items():
+        manifest = read_manifest(root / class_name / spec_name, verify_blobs=False)
+        revision = digest({'analysis': ANALYSIS_VERSION, 'raw': RAW_VERSION, 'config': config})
+        if not manifest or manifest.get('profile_digest') != revision or manifest.get('source_cutoff') != cutoff:
+            return True
+        keys = {scope['key'] for scope in manifest['scopes']}
+        expected = {f'{cycle.season_id}/{class_name}/{spec_name}/{scope.split(":")[1]}/{scope.split(":")[2]}'
+                    for scope in raid_scopes}
+        if not expected.issubset(keys):
+            return True
+        for scope in manifest['scopes']:
+            signature = scope.get('blob', '')
+            if (not re.fullmatch(r'[a-f0-9]{64}', signature)
+                    or not (root / class_name / spec_name / 'snapshots' / f'{signature}.json').is_file()):
+                return True
+    return False

@@ -153,7 +153,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
             self.build()
         self.assertEqual(len(self.client.calls), 4)
         with patch.object(agg, 'build_scope', side_effect=AssertionError('访问重算')):
-            self.assertEqual(load_published()[0]['samples'][0]['player']['name'], '测试玩家')
+            self.assertEqual(load_published(self.scope['key'])[0]['samples'][0]['player']['name'], '测试玩家')
 
     def test_failed_atomic_replace_keeps_old_file(self):
         self.publish(self.build())
@@ -169,13 +169,41 @@ class RaidBurstAggregationTests(SimpleTestCase):
         self.publish(self.build())
         write_json(self.directory / 'previous.json', read_json(self.directory / 'index.json'))
         (self.directory / 'index.json').write_text('{}', encoding='utf8')
-        self.assertIsNotNone(load_published()[0])
+        self.assertIsNotNone(load_published(self.scope['key'])[0])
         self.assertIsNone(load_published('../../events')[0])
 
     def test_public_directory_rejected(self):
         with override_settings(MEDIA_ROOT=self.root, RAID_BURST_SNAPSHOT_ROOT=self.root / 'private'):
             with self.assertRaises(ValueError):
                 private_root()
+
+    def test_cached_log_cannot_be_reused_for_another_boss_or_difficulty(self):
+        self.build()
+        self.client.calls.clear()
+        for mismatch in ({'boss_id': 3471}, {'difficulty': 4}):
+            with self.subTest(mismatch=mismatch):
+                raw = fetch_events(self.root, dict(self.row, **mismatch), self.client, nullcontext)
+                self.assertIn('invalid', raw)
+        self.assertEqual(self.client.calls, [])
+
+    def test_daily_aggregation_keeps_each_boss_and_difficulty_separate(self):
+        season = SimpleNamespace(id=1, raid_encounters=[
+            {'id': 3470, 'name': '首领甲'}, {'id': 3471, 'name': '首领乙'}], raid_zones=[])
+        def query(**filters):
+            return Mock(values=Mock(return_value=[dict(self.row, boss_id=filters['boss_id'],
+                                                       difficulty=filters['difficulty'])]))
+        def build(rows, scope, *args):
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['boss_id'], scope['boss_id'])
+            self.assertEqual(rows[0]['difficulty'], scope['difficulty'])
+            return dict(scope, blob='0' * 64)
+        with patch('botend.models.SpecRaidRanking.objects.filter', side_effect=query) as queries, \
+                patch.object(agg, 'build_scope', side_effect=build) as builder, \
+                patch('botend.controller.plugins.portal.SpecDetailBase.SpecDetailBase'):
+            agg.aggregate_raid_burst(season, 'Warrior', 'Arms', guard=nullcontext)
+        self.assertEqual(builder.call_count, 4)
+        self.assertEqual({(call.kwargs['boss_id'], call.kwargs['difficulty']) for call in queries.call_args_list},
+                         {(3470, 5), (3470, 4), (3471, 5), (3471, 4)})
 
     def test_lost_owner_cannot_write_events_or_publish(self):
         def lost():
@@ -202,7 +230,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
                 season, 'Warrior', 'Arms', str(self.root), publish=Mock(), burst_guard=nullcontext)
         build.assert_called_once_with(season, 'Warrior', 'Arms', guard=nullcontext, source_cutoff=None)
         with patch('botend.models.SpecRaidRanking.objects.filter', side_effect=AssertionError('不支持的职业查询')):
-            self.assertIsNone(agg.aggregate_raid_burst(season, 'Mage', 'Fire', guard=nullcontext))
+            self.assertIsNone(agg.aggregate_raid_burst(season, 'Unknown', 'Unknown', guard=nullcontext))
 
     def test_complete_raid_run_reuses_index_and_empty_cohort_removes_old_samples(self):
         season = SimpleNamespace(id=1, raid_encounters=[{'id': 3470, 'name': '测试首领'}], raid_zones=[])

@@ -1,19 +1,16 @@
 """每日团本聚合的战斗时间轴：原始事件缓存、后台分组、私有快照发布。"""
 
 from django.utils import timezone
+from utils.log import logger
 
 from botend.services.raid_burst_events import RAW_VERSION, fetch_events
+from botend.services.raid_burst_skills import SUPPORTED, CATALOG_BUILD
 from botend.services.raid_burst_snapshot import (
     SCHEMA, digest, private_root, read_blob, read_json, read_manifest, write_json,
 )
 
 
 ANALYSIS_VERSION = 1
-# 仅开放已经用真实日志验证过施法编号的专精；增加专精必须明确事件编号。
-SUPPORTED = {('Warrior', 'Arms'): {
-    'spec_id': 71, 'label': '武器战',
-    'spells': {'107574': '天神下凡', '167105': '巨人打击', '446035': '剑刃风暴'},
-}}
 LUST = {2825, 32182, 80353, 390386, 264667, 272678}
 FIELDS = ('report_code', 'fight_id', 'character_name', 'realm', 'region', 'class_name',
           'spec_name', 'boss_id', 'difficulty', 'dps')
@@ -72,8 +69,10 @@ def normalize(raw, row, rank, config):
     casts = [e for e in streams['casts']['data'] if e.get('type') == 'cast' and not e.get('fake')
              and e.get('sourceID') == actor['id'] and e.get('fight') == fight['id']
              and start <= e.get('timestamp', -1) <= end]
+    aliases = config.get('cast_aliases', {})
     times = {spell: sorted({round((e['timestamp'] - start) / 1000, 3) for e in casts
-                            if str(e.get('abilityGameID')) == spell}) for spell in config['spells']}
+                            if aliases.get(str(e.get('abilityGameID')), str(e.get('abilityGameID'))) == spell})
+             for spell in config['spells']}
     return {
         'rank': rank, 'player': {'name': actor['name'], 'realm': actor.get('server') or row['realm'],
                                  'region': row.get('region') or ''},
@@ -132,13 +131,16 @@ def build_scope(rows, scope, config, root, guard, client):
     if isinstance(prepared, dict) and prepared.get('key') == scope['key']:
         published = read_blob(directory, prepared.get('blob'))
         if published and published.get('input_fingerprint') == fingerprint:
+            logger.info('[RaidBurst] 复用已完成快照 %s', scope['key'])
             return prepared
     old = read_manifest(directory) or read_manifest(directory, 'previous.json')
     previous = next((s for s in old['scopes'] if s['key'] == scope['key']), None) if old else None
     if previous:
         published = read_blob(directory, previous['blob'])
         if published and published['input_fingerprint'] == fingerprint:
+            logger.info('[RaidBurst] 复用已发布快照 %s', scope['key'])
             return previous
+    logger.info('[RaidBurst] 开始生成 %s，日志数=%s', scope['key'], len(rows))
     samples, counts = [], dict(pi=0, no_lust=0, invalid=0)
     for rank, row in enumerate(rows, 1):
         raw = fetch_events(root, row, client, guard)
@@ -150,6 +152,7 @@ def build_scope(rows, scope, config, root, guard, client):
     payload = {
         'schema': SCHEMA, 'input_fingerprint': fingerprint, 'scope': scope,
         'generated_at': timezone.now().isoformat(), 'skill_names': config['spells'],
+        'skill_role': config.get('role', '输出'), 'catalog_build': CATALOG_BUILD,
         'attempted': len(rows), 'successful': len(rows) - counts['invalid'],
         'excluded_pi': counts['pi'], 'excluded_no_lust': counts['no_lust'],
         'excluded_invalid': counts['invalid'], 'samples': samples,
@@ -160,6 +163,8 @@ def build_scope(rows, scope, config, root, guard, client):
         write_json(directory / 'snapshots' / f'{signature}.json', payload)
         descriptor = dict(scope, blob=signature, sample_count=len(samples))
         write_json(prepared_path, descriptor)
+    logger.info('[RaidBurst] 完成 %s，有效=%s，灌注=%s，无嗜血=%s，无效=%s',
+                scope['key'], len(samples), counts['pi'], counts['no_lust'], counts['invalid'])
     return descriptor
 
 
@@ -193,7 +198,9 @@ def aggregate_raid_burst(season, class_name, spec_name, *, guard, source_cutoff=
                 rows = list(rows.values(*FIELDS))
             scopes.append(build_scope(rows, scope, config, root, guard, client))
     directory = root / str(season.id) / class_name / spec_name
-    manifest = {'schema': SCHEMA, 'scopes': scopes}
+    manifest = {'schema': SCHEMA, 'scopes': scopes,
+                'source_cutoff': source_cutoff.isoformat() if hasattr(source_cutoff, 'isoformat') else source_cutoff,
+                'profile_digest': digest({'analysis': ANALYSIS_VERSION, 'raw': RAW_VERSION, 'config': config})}
     with guard():
         previous = read_manifest(directory)
         if previous != manifest:

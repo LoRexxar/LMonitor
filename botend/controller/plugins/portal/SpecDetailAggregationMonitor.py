@@ -103,8 +103,14 @@ class SpecDetailAggregationMonitor(BaseScan):
                     spec_dir = os.path.join(base_dir, class_name, spec_name)
                     self._aggregate_leaderboard(season.id, class_name, spec_name, spec_dir)
             if cycle is None:
-                logger.info('[SpecDetailAggregation] leaderboard refreshed; WCL not ready')
+                from botend.services.wcl_collection_cycle import active_cycle
+                pending = active_cycle(season.pk)
+                logger.info('[SpecDetailAggregation] 团本战斗统计未启动：%s；仅刷新人物榜',
+                            f'周期={pending.pk}，阶段={pending.phase}，重试时间={pending.next_retry_at}'
+                            if pending else '无待发布周期且无需要补建的已完成周期')
                 return True
+            logger.info('[SpecDetailAggregation] 启动团本统计及战斗时间轴：周期=%s，数据截止=%s',
+                        getattr(cycle, 'pk', '未知'), cycle.collected_at)
             season = frozen_season(cycle, season)
             for class_name, specs in CLASS_SPEC_MAP.items():
                 for spec_name in specs:
@@ -149,7 +155,7 @@ class SpecDetailAggregationMonitor(BaseScan):
     @staticmethod
     def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None,
                         burst_guard=None, source_cutoff=None):
-        if not season.raid_encounters:
+        if not season.raid_encounters and not season.raid_zones:
             return
 
         def aggregate_difficulty(difficulty):

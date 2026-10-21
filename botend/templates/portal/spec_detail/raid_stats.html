@@ -22,7 +22,15 @@
     <!-- Boss 详情 -->
     <div class="detail-section">
         <a href="/portal/spec/{{ class_name }}/{{ spec_name }}/raid/?difficulty={{ selected_raid_difficulty }}" class="back-link">← 返回 Boss 列表</a>
-        <h2>{{ boss_detail.boss_name }}</h2>
+        <div class="raid-boss-heading">
+            <h2>{{ boss_detail.boss_name }}</h2>
+            {% if request.user.is_authenticated and season %}
+            <a href="{% url 'portal_raid_burst' %}?scope={{ season.id }}/{{ class_name|urlencode }}/{{ spec_name|urlencode }}/{{ selected_raid_difficulty }}/{{ boss_detail.boss_id }}" class="raid-burst-entry" id="portal-raid-burst-entry">
+                <svg width="16" height="16" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chart"></use></svg>
+                本首领战斗统计
+            </a>
+            {% endif %}
+        </div>
         {% if boss_detail.raid_instance_name %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_instance_name }}</p>{% elif boss_detail.raid_zone_cn %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_zone_cn }} ({{ boss_detail.raid_zone_name }})</p>{% endif %}
         <p class="text-muted">样本量: {{ boss_detail.sample_size }} · {% if selected_raid_difficulty == 5 %}史诗难度{% else %}英雄难度{% endif %}</p>
 
@@ -525,6 +533,11 @@
 .spec-nav a.active { color: #2563eb; border-bottom: 2px solid #2563eb; padding-bottom: 12px; margin-bottom: -12px; }
 .back-link { color: #2563eb; text-decoration: none; font-size: 0.9em; display: inline-block; margin-bottom: 12px; }
 .back-link:hover { text-decoration: underline; }
+.raid-boss-heading { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; margin-bottom: 8px; }
+.detail-section .raid-boss-heading h2 { margin: 0; }
+.raid-burst-entry { display: inline-flex; align-items: center; gap: 6px; padding: 7px 12px; border: 1px solid #2563eb; border-radius: 8px; background: #2563eb; color: #fff; font-size: 14px; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.raid-burst-entry:hover { background: #1d4ed8; border-color: #1d4ed8; }
+.raid-burst-entry:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
 .raid-difficulty-tabs { display: flex; gap: 8px; margin: 0 0 18px; }
 .raid-difficulty-tabs a { border: 1px solid #cbd5e1; border-radius: 999px; color: #475569; padding: 8px 14px; text-decoration: none; font-weight: 700; }
 .raid-difficulty-tabs a[aria-current="page"] { background: #2563eb; border-color: #2563eb; color: #fff; }

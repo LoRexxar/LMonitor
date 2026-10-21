@@ -211,10 +211,16 @@ def begin_aggregation(season, task=None, *, now=None, replay_published=False):
         cycle = active_cycle(season.pk, lock=True)
         if cycle is not None and replay_published:
             return None
-        if cycle is None and replay_published:
-            cycle = WclCollectionCycle.objects.select_for_update().filter(
+        catch_up_burst = False
+        if cycle is None:
+            published = WclCollectionCycle.objects.select_for_update().filter(
                 season=season, phase='published').order_by('-slot').first()
-        allowed = PUBLISHING + (('published',) if replay_published else ())
+            if published and not replay_published:
+                from botend.services.raid_burst_snapshot import needs_raid_burst_refresh
+                catch_up_burst = needs_raid_burst_refresh(published)
+            if replay_published or catch_up_burst:
+                cycle = published
+        allowed = PUBLISHING + (('published',) if replay_published or catch_up_burst else ())
         if cycle is None or cycle.phase not in allowed or not cycle.collected_at:
             return None
         due = max(cycle.slot.astimezone(LOCAL_TZ).replace(hour=6), cycle.collected_at)
@@ -271,6 +277,14 @@ def scheduled_cycle_due_at(task, now):
                   cycle.next_retry_at or cycle.slot)
         if due <= now:
             return due
+    if cycle is None:
+        published = WclCollectionCycle.objects.filter(season=season, phase='published').order_by('-slot').first()
+        if published:
+            from botend.services.raid_burst_snapshot import needs_raid_burst_refresh
+            if needs_raid_burst_refresh(published):
+                # 新功能在当天发布完成后部署，也会补建；不受 last_scan_time 的已领取标记抑制。
+                due = max(published.slot.astimezone(LOCAL_TZ).replace(hour=6), published.collected_at)
+                return due if due <= now else None
     # At 06:00 the independent leaderboard may still run while WCL waits.
     return NO_OVERRIDE
 

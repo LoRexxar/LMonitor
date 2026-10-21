@@ -3,6 +3,7 @@
 import json
 import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import AnonymousUser, User
@@ -36,8 +37,8 @@ class RaidBurstAccessTests(SimpleTestCase):
         manifest = {'schema': 1, 'scopes': [{'key': payload['scope']['key'], 'label': '测试首领', 'season_id': 1, 'blob': blob}]}
         write_json(directory / 'index.json', {'data': manifest, 'digest': digest(manifest)})
 
-    def request(self, authenticated=False, method='get'):
-        request = getattr(self.factory, method)(self.url)
+    def request(self, authenticated=False, method='get', scope='1/Warrior/Arms/5/3470'):
+        request = getattr(self.factory, method)(self.url, {'scope': scope} if authenticated else {})
         request.user = User(username='普通测试用户', is_staff=False) if authenticated else AnonymousUser()
         return request
 
@@ -57,19 +58,36 @@ class RaidBurstAccessTests(SimpleTestCase):
         response = PortalRaidBurstView.as_view()(self.request(authenticated=True))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, 'id="raid-burst-data"')
-        self.assertContains(response, 'id="portal-raid-burst-entry"')
+        self.assertNotContains(response, 'id="portal-raid-burst-entry"')
+        self.assertContains(response, '测试首领 · 战斗统计')
+        self.assertNotContains(response, 'id="scope"')
+        self.assertContains(response, '/portal/spec/Warrior/Arms/raid/?boss_id=3470&amp;difficulty=5')
         self.assertIn('private', response['Cache-Control'])
         self.assertIn('no-store', response['Cache-Control'])
         self.assertIn('Cookie', response['Vary'])
         self.assertEqual(response['X-Robots-Tag'], 'noindex, nofollow')
 
-    def test_header_only_renders_button_for_authenticated_user(self):
-        anonymous = render_to_string('portal/_header.html', request=self.request())
-        authenticated = render_to_string('portal/_header.html', request=self.request(authenticated=True))
-        self.assertNotIn(self.url, anonymous)
-        self.assertNotIn('战斗统计', anonymous)
-        self.assertIn('id="portal-raid-burst-entry"', authenticated)
-        self.assertIn(self.url, authenticated)
+    def test_global_header_never_renders_battle_entry(self):
+        for authenticated in (False, True):
+            header = render_to_string('portal/_header.html', request=self.request(authenticated))
+            self.assertNotIn(self.url, header)
+            self.assertNotIn('战斗统计', header)
+
+    def test_only_logged_in_boss_detail_has_entry_with_matching_scope(self):
+        for authenticated in (False, True):
+            for boss_detail in (None, {'boss_id': 3470, 'boss_name': '测试首领'}):
+                for difficulty in (4, 5):
+                    context = {'season': SimpleNamespace(id=7), 'class_name': 'Warrior',
+                               'spec_name': 'Arms', 'selected_raid_difficulty': difficulty,
+                               'boss_detail': boss_detail}
+                    html = render_to_string('portal/spec_detail/raid_stats.html', context,
+                                            request=self.request(authenticated))
+                    with self.subTest(authenticated=authenticated, boss=bool(boss_detail), difficulty=difficulty):
+                        if authenticated and boss_detail:
+                            self.assertEqual(html.count('id="portal-raid-burst-entry"'), 1)
+                            self.assertIn(f'{self.url}?scope=7/Warrior/Arms/{difficulty}/3470', html)
+                        else:
+                            self.assertNotIn('id="portal-raid-burst-entry"', html)
 
     def test_public_home_does_not_embed_battle_data(self):
         for authenticated in (False, True):
@@ -77,6 +95,7 @@ class RaidBurstAccessTests(SimpleTestCase):
             self.assertEqual(response.status_code, 200)
             self.assertNotIn(b'raid-burst-data', response.content)
             self.assertNotIn(b'lust_windows', response.content)
+            self.assertNotIn(b'portal-raid-burst-entry', response.content)
 
     def test_logout_state_does_not_reuse_authenticated_response(self):
         authenticated = PortalRaidBurstView.as_view()(self.request(authenticated=True))
@@ -86,7 +105,7 @@ class RaidBurstAccessTests(SimpleTestCase):
         self.assertNotIn(b'raid-burst-data', anonymous.content)
 
     def test_snapshot_has_no_unqualified_or_raw_records(self):
-        payload, _ = load_published()
+        payload, _ = load_published('1/Warrior/Arms/5/3470')
         self.assertEqual(len(payload['samples']), 8)
         self.assertEqual({s['lust_group'] for s in payload['samples']}, {'opener', 'phase3'})
         for sample in payload['samples']:
@@ -112,3 +131,21 @@ class RaidBurstAccessTests(SimpleTestCase):
             response = PortalRaidBurstView.as_view()(self.request(authenticated=True))
         self.assertContains(response, '暂无已生成的战斗统计')
         self.assertNotIn(b'lust_windows', response.content)
+
+    def test_missing_scope_never_defaults_to_another_boss(self):
+        with patch('botend.portal.raid_burst.load_published') as loader:
+            for scope in ('', 'invalid', '1/Warrior/Arms/3/3470'):
+                response = PortalRaidBurstView.as_view()(self.request(True, scope=scope))
+                self.assertContains(response, '请从职业团本聚合的具体首领详情页进入', status_code=400)
+                self.assertNotIn(b'lust_windows', response.content)
+            loader.assert_not_called()
+        self.assertIsNone(load_published()[0])
+
+    def test_other_boss_difficulty_spec_or_season_never_uses_available_snapshot(self):
+        for scope in ('1/Warrior/Arms/5/3471', '1/Warrior/Arms/4/3470',
+                      '1/Warrior/Fury/5/3470', '2/Warrior/Arms/5/3470'):
+            with self.subTest(scope=scope):
+                response = PortalRaidBurstView.as_view()(self.request(True, scope=scope))
+                self.assertContains(response, '本首领当前专精与难度暂无已生成的战斗统计')
+                self.assertNotIn(b'lust_windows', response.content)
+                self.assertNotContains(response, '测试首领')
