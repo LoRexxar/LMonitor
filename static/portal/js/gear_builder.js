@@ -2416,10 +2416,12 @@
     els.simc_submit.addEventListener("click", importSimc);
     els.copy_share.addEventListener("click", () => copyShare().catch((error) => toast(error.message, true)));
     els.clear.addEventListener("click", () => {
-      if (!window.confirm(state.lockedSlots.length ? "清空未锁定部位的配装？已锁定部位将保留。" : "清空当前职业专精的全部配装？")) return;
-      state.equipment = Object.fromEntries(Object.entries(state.equipment).filter(([slot]) => isSlotLocked(slot)));
+      if (!window.confirm("清空当前职业专精的全部配装（包括锁定部位），并解除所有部位锁定？已保存方案和备选装备不受影响。")) return;
+      state.equipment = {};
+      state.lockedSlots = [];
+      state.snapshotSlots = [];
       persist(); renderAll(); loadCandidates(true);
-      toast(state.lockedSlots.length ? "未锁定部位已清空，锁定部位保持不变。" : "当前配装已清空。");
+      toast("当前配装已全部清空。");
     });
   }
 
