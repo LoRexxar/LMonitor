@@ -2085,8 +2085,13 @@
   }
 
   async function importSimc() {
-    const profile = els.simc_input.value.trim();
+    // Use the same authoritative slot metadata as export, including commented bag rows.
+    const profile = els.simc_input.value.trim().replace(/^([ \t]*(?:#[ \t]*)?)(\w+)([ \t]*=)/gm, (line, prefix, key, assignment) => {
+      const slot = equipmentSlots().find((row) => row.key === canonicalSlot(key));
+      return slot ? `${prefix}${slot.simc_key || slot.key}${assignment}` : line;
+    });
     if (!profile) { els.simc_message.textContent = "请先粘贴 SimC Profile。"; return; }
+    if (!window.confirm("导入 SimC 将整套替换当前配装（包括锁定部位），并解除所有部位锁定。未保存的修改将丢失，已保存方案不受影响；身上和背包装备仍会按原规则加入备选装备。是否继续？")) return;
     els.simc_submit.disabled = true;
     els.simc_message.textContent = "正在解析…";
     try {
@@ -2095,28 +2100,19 @@
         headers: {"Content-Type": "application/json"},
         body: JSON.stringify({profile}),
       });
+      // Prepare the replacement without mutating the draft if parsing or inventory saving fails.
+      const next = normalizeState({...state, equipment: {}, lockedSlots: [], snapshotSlots: [],
+        batchKey: payload.catalog?.batch_key || bootstrap?.catalog?.batch_key || ""});
       if (payload.identity?.class_name && payload.identity?.spec_name) {
-        if (state.lockedSlots.length && (payload.identity.class_name !== state.className || payload.identity.spec_name !== state.specName)) {
-          throw new Error("当前有已锁定部位，请先解锁后再导入其他职业专精的配装。");
-        }
-        const viewMode = state.viewMode;
-        if (payload.identity.class_name !== state.className || payload.identity.spec_name !== state.specName) {
-          state = loadStored(payload.identity.class_name, payload.identity.spec_name);
-        }
-        state.className = payload.identity.class_name;
-        state.specName = payload.identity.spec_name;
-        state.viewMode = viewMode;
-        syncSelectors();
+        next.className = payload.identity.class_name;
+        next.specName = payload.identity.spec_name;
       }
       let importedCount = 0;
-      let skippedCount = 0;
-      state = normalizeState(state);
       (payload.equipment || []).forEach((row) => {
         if (!row.slot) return;
         const slot = canonicalSlot(row.slot);
-        if (isSlotLocked(slot) || (row.variant && lockedWeaponConflict(row.variant, slot))) { skippedCount++; return; }
         const item = row.item || {item_id: row.item_id, name: row.name || `物品 #${row.item_id}`};
-        state.equipment[slot] = {
+        next.equipment[slot] = {
           item: compactItem(item),
           variant: row.variant || {id: null, item_level: row.item_level, stats: {}, effects: [], type: "external", bonus_ids: row.bonus_ids || [], crafting_quality: row.crafting_quality || 0},
           itemLevel: row.item_level || 0,
@@ -2143,12 +2139,14 @@
           method: "POST", headers: {"Content-Type": "application/json", ...csrfHeaders()}, body: JSON.stringify({items}),
         });
       }
+      replaceLoadout(next);
+      syncSelectors();
       persist();
       renderAll();
       await loadCandidates(true);
       els.simc_dialog.close();
       els.simc_message.textContent = "";
-      toast(`已导入 ${importedCount} 个装备槽位${skippedCount ? `，跳过 ${skippedCount} 个受锁定限制的部位` : ""}${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件备选装备` : ""}。`);
+      toast(`已导入 ${importedCount} 个装备槽位${endpoints.ownedItems ? `，并记录 ${payload.owned_equipment?.length || 0} 件备选装备` : ""}。`);
       (payload.warnings || []).slice(0, 3).forEach((warning) => toast(warning, true));
     } catch (error) {
       els.simc_message.textContent = error.message;
@@ -2416,10 +2414,12 @@
     els.simc_submit.addEventListener("click", importSimc);
     els.copy_share.addEventListener("click", () => copyShare().catch((error) => toast(error.message, true)));
     els.clear.addEventListener("click", () => {
-      if (!window.confirm(state.lockedSlots.length ? "清空未锁定部位的配装？已锁定部位将保留。" : "清空当前职业专精的全部配装？")) return;
-      state.equipment = Object.fromEntries(Object.entries(state.equipment).filter(([slot]) => isSlotLocked(slot)));
+      if (!window.confirm("清空当前职业专精的全部配装（包括锁定部位），并解除所有部位锁定？已保存方案和备选装备不受影响。")) return;
+      state.equipment = {};
+      state.lockedSlots = [];
+      state.snapshotSlots = [];
       persist(); renderAll(); loadCandidates(true);
-      toast(state.lockedSlots.length ? "未锁定部位已清空，锁定部位保持不变。" : "当前配装已清空。");
+      toast("当前配装已全部清空。");
     });
   }
 

@@ -283,3 +283,58 @@ assert.equal(entry.gems.length, 2, '特殊项链的双孔不变');
 console.log('项链缓存孔数修正、自选绿字保留、超额宝石清理与特殊双孔保持：通过');
 
 })();
+
+// The actual clear-button binding must override locks only after confirmation.
+{
+    const elements = new Map(), storage = new Map([['wowdaily:gear-builder:loadouts:v1', 'keep']]);
+    const effects = [], prompts = [];
+    let confirmed = false;
+    const getElement = id => {
+        if (!elements.has(id)) elements.set(id, {listeners: {},
+            addEventListener(name, callback) { this.listeners[name] = callback; }});
+        return elements.get(id);
+    };
+    const clearContext = gearRenderer(`
+        bootstrap = {slots: slotKeys.map(key => ({key})), catalog: {batch_key: 'test'}};
+        renderAll = () => effects.push('render');
+        loadCandidates = reset => effects.push(['catalog', reset]);
+        toast = message => effects.push(['toast', message]);
+        requestJson = () => { throw new Error('clear must not write remote collections'); };
+        savedLoadouts = [{id: 'saved-local'}];
+        onlineLoadouts = [{id: 10}];
+        ownedItems = [{id: 20}];
+        bindEvents();
+        globalThis.qa = {
+            setState(value) { state = normalizeState(value); },
+            get state() { return state; },
+            collections() { return {savedLoadouts, onlineLoadouts, ownedItems}; },
+            loadStored, storageKey,
+        };
+    `, {slotKeys, effects, structuredClone,
+        window: {confirm(message) { prompts.push(message); return confirmed; }},
+        document: {querySelector: () => ({dataset: {}}), getElementById: getElement,
+            querySelectorAll: () => [], addEventListener() {}},
+        localStorage: {getItem: key => storage.get(key) ?? null, setItem: (key, value) => storage.set(key, value)},
+    });
+    const qa = clearContext.qa;
+    qa.setState({className: 'Warrior', specName: 'Fury', lockedSlots: ['head', 'off_hand'],
+        snapshotSlots: ['head'], equipment: {head: entry(), neck: entry()}});
+    const before = plain(qa.state), collections = plain(qa.collections());
+    const click = getElement('gear-clear').listeners.click;
+    assert.equal(typeof click, 'function', 'real clear button is wired');
+    click();
+    assert.deepEqual(plain(qa.state), before, 'cancel preserves equipment, enhancements and locks');
+    assert.deepEqual([...storage], [['wowdaily:gear-builder:loadouts:v1', 'keep']], 'cancel performs no persistence');
+    assert.deepEqual(effects, [], 'cancel does not render or reload');
+    confirmed = true;
+    click();
+    assert.deepEqual(plain(qa.state.equipment), {}, 'confirmed clear removes locked and unlocked equipment');
+    assert.deepEqual(plain(qa.state.lockedSlots), [], 'full clear also removes occupied and empty slot locks');
+    assert.deepEqual(plain(qa.state.snapshotSlots), [], 'removed equipment has no retained snapshot slots');
+    assert.match(prompts.at(-1), /全部配装.*锁定/);
+    assert.match(prompts.at(-1), /已保存方案.*备选装备.*不受影响/);
+    assert.deepEqual(plain(qa.collections()), collections, 'saved plans and owned equipment are untouched');
+    assert.equal(storage.get('wowdaily:gear-builder:loadouts:v1'), 'keep');
+    assert.deepEqual(plain(qa.loadStored('Warrior', 'Fury')), plain(qa.state), 'empty draft survives reload');
+    assert.deepEqual(plain(effects), ['render', ['catalog', true], ['toast', '当前配装已全部清空。']]);
+}

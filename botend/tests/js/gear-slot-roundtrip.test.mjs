@@ -19,10 +19,10 @@ const entry = id => ({item: {item_id: id, name: `物品${id}`},
   enchant: {item: {item_id: 502, enchantment_id: 777}, variant: {id: 502, key: 'enchant'}},
   embellishment: {item: {item_id: 503}, variant: {id: 503, key: 'embellishment', bonus_ids: [456]}},
   addedSocket: true, resolvedStats: {crit: 200}, resolvedEffects: [{description: '制造效果'}]});
-function fixture() {
+function fixture(dataset = {}) {
   const nodes = new Map();
   const store = new Map();
-  const page = {dataset: {bootstrapUrl: '/bootstrap', simcUrl: '/import', shareUrl: '/share'}, setAttribute() {}};
+  const page = {dataset: {bootstrapUrl: '/bootstrap', simcUrl: '/import', shareUrl: '/share', ...dataset}, setAttribute() {}};
   const node = id => {
     if (!nodes.has(id)) nodes.set(id, {value: '', style: {}, classList: {add() {}, toggle() {}},
       querySelector: () => null, querySelectorAll: () => [], setAttribute() {}, removeAttribute() {}, close() {}, focus() {}});
@@ -94,6 +94,35 @@ test('export → parser alias payload → import updates visible slots without 1
   assert.equal(node('gear-equipped-count').textContent, `${slots.length}/${slots.length}`);
 });
 
+test('legacy SimC shoulder and wrist tokens normalize at the input boundary without changing item parameters', async () => {
+  const {api, node} = fixture();
+  const legacy = [
+    'warrior="wrists shoulders stay in names"', 'spec=fury',
+    '# shoulders and wrists are old slot spellings',
+    ' shoulders =old_shoulders,id=239049,ilevel=334,enchant_id=8031',
+    '\twrists=old_wrists,id=123,ilevel=340,gem_id=240910/240910,bonus_id=1/2,crafted_stats=32/49',
+    'wrist=single_form,id=123,ilevel=340', 'shoulder=single_form,id=239049,ilevel=334',
+    '### Gear from Bags', '# wrists =bag_wrists,id=456,ilevel=334,enchant_id=789',
+    '# shoulders=bag_shoulders,id=457,ilevel=334', 'unknown_wrists=unchanged,id=999',
+  ].join('\r\n');
+  const expected = legacy.replace(' shoulders =', ' shoulder =').replace('\twrists=', '\twrist=')
+    .replace('# wrists =', '# wrist =').replace('# shoulders=', '# shoulder=');
+  let requests = 0;
+  api.request(async (_url, options) => {
+    requests++;
+    assert.equal(JSON.parse(options.body).profile, expected);
+    return {equipment: [{slot: 'shoulders', item: entry(239049).item}, {slot: 'wrists', item: entry(123).item}]};
+  });
+  node('gear-simc-input').value = legacy;
+  await api.importSimc();
+  assert.equal(requests, 1);
+  assert.equal(node('gear-simc-message').textContent, '');
+  assert.equal(node('gear-simc-input').value, legacy, 'original pasted text stays recoverable');
+  assert.deepEqual(Object.keys(api.state.equipment).sort(), ['shoulders', 'wrists']);
+  assert.equal(api.state.equipment.shoulders.item.item_id, 239049);
+  assert.equal(api.state.equipment.wrists.item.item_id, 123);
+});
+
 test('startup restores local and shared aliases, selection and locks without dropping pre-metadata state', async () => {
   for (const shared of [false, true]) {
     const {api, store, node} = fixture();
@@ -121,23 +150,63 @@ test('startup restores local and shared aliases, selection and locks without dro
   }
 });
 
-test('identical duplicate keys dedupe; imports obey migrated locks including empty slots', async () => {
-  const {api, node} = fixture();
-  api.setState({selectedSlot: 'shoulder', lockedSlots: ['shoulder', 'wrist'], equipment: {
-    shoulder: entry(2), shoulders: entry(2), wrist: null, wrists: null,
-  }});
-  assert.deepEqual(plain(api.state.equipment), {shoulders: entry(2), wrists: null});
-  api.persist();
-  api.request(async () => ({identity: {class_name: 'Warrior', spec_name: 'Fury'}, equipment: [
-    {slot: 'shoulder', item: entry(99).item}, {slot: 'wrist', item: entry(100).item},
-  ]}));
-  node('gear-simc-input').value = 'warrior=test';
-  await api.importSimc();
-  assert.deepEqual(plain(api.state.equipment), {shoulders: entry(2), wrists: null}, 'alias imports may not bypass filled or empty locks');
-  api.toggleSlotLock('wrists');
-  await api.importSimc();
-  assert.equal(api.state.equipment.wrists.item.item_id, 100, 'unlocked import replaces explicit canonical empty slot');
-  assert.equal(api.state.equipment.shoulders.item.item_id, 2);
+test('identical aliases dedupe; confirmed SimC replaces all slots and old locks, even across specs', async () => {
+  for (const spec of ['Fury', 'Arms']) {
+    const {api, node, store, context} = fixture();
+    api.setState({selectedSlot: 'shoulder', lockedSlots: ['shoulder', 'wrist', 'head'], snapshotSlots: ['head'], equipment: {
+      shoulder: entry(2), shoulders: entry(2), wrist: null, wrists: null, head: entry(3), neck: entry(4),
+    }});
+    assert.deepEqual(plain(api.state.equipment), {shoulders: entry(2), wrists: null, head: entry(3), neck: entry(4)});
+    api.persist();
+    store.set('wowdaily:gear-builder:loadouts:v1', 'saved-plans-preserved');
+    if (spec === 'Arms') store.set('wowdaily:gear-builder:v1:Warrior:Arms', JSON.stringify({className: 'Warrior', specName: 'Arms', equipment: {feet: entry(5)}, lockedSlots: ['feet']}));
+    const before = plain(api.state), storedBefore = [...store];
+    let requests = 0;
+    api.request(async () => { requests++; return {identity: {class_name: 'Warrior', spec_name: spec}, equipment: [
+      {slot: 'shoulder', item: entry(99).item}, {slot: 'wrist', item: entry(100).item},
+    ]}; });
+    node('gear-simc-input').value = 'warrior=test';
+    context.window.confirm = message => { assert.match(message, /替换.*锁定/); return false; };
+    await api.importSimc();
+    assert.equal(requests, 0, 'cancel must precede parsing and owned inventory requests');
+    assert.deepEqual(plain(api.state), before);
+    assert.deepEqual([...store], storedBefore);
+    context.window.confirm = () => true;
+    await api.importSimc();
+    assert.equal(requests, 1);
+    assert.equal(node('gear-simc-message').textContent, '');
+    assert.deepEqual(Object.keys(api.state.equipment).sort(), ['shoulders', 'wrists']);
+    assert.equal(api.state.equipment.shoulders.item.item_id, 99);
+    assert.equal(api.state.equipment.wrists.item.item_id, 100);
+    assert.deepEqual(plain(api.state.lockedSlots), []);
+    assert.deepEqual(plain(api.state.snapshotSlots), []);
+    assert.equal(api.state.specName, spec);
+    assert.deepEqual(plain(api.loadStored('Warrior', spec)), plain(api.state));
+    assert.equal(store.get('wowdaily:gear-builder:loadouts:v1'), 'saved-plans-preserved');
+    if (spec === 'Arms') assert.deepEqual(JSON.parse(store.get(storageKey)), before, 'other spec draft is not overwritten');
+  }
+});
+
+test('SimC parsing or owned-inventory failure never partially replaces the current draft', async () => {
+  for (const failAt of ['/import', '/owned']) {
+    const {api, node, store} = fixture({ownedItemsUrl: '/owned'});
+    api.setState({lockedSlots: ['head'], equipment: {head: entry(2)}});
+    api.persist();
+    const before = plain(api.state), storedBefore = [...store], requests = [];
+    api.request(async url => {
+      requests.push(url);
+      if (url === failAt) throw new Error('import failure');
+      return {identity: {class_name: 'Warrior', spec_name: 'Arms'}, equipment: [{slot: 'head', item: entry(99).item}],
+        owned_equipment: [{slot: 'head', item_id: 99}]};
+    });
+    node('gear-simc-input').value = 'warrior=test';
+    await api.importSimc();
+    assert.deepEqual(requests, failAt === '/import' ? ['/import'] : ['/import', '/owned']);
+    assert.equal(node('gear-simc-message').textContent, 'import failure');
+    assert.deepEqual(plain(api.state), before);
+    assert.deepEqual([...store], storedBefore);
+    assert.equal(node('gear-simc-submit').disabled, false);
+  }
 });
 
 test('compact historical shares normalize request, hydrated keys and snapshot fallbacks', async () => {

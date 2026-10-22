@@ -256,5 +256,6 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
                 'name': display['name'] or f'天赋 {row.node_id}', 'name_zh': display['name_zh'],
                 'name_en': row.name, 'description': display['description_zh'] or display['description'],
                 'description_zh': display['description_zh'], 'tree': TREES.get(row.tree_type, row.tree_type),
+                'tree_type': row.tree_type,
                 'class_name': CLASS_CN.get(row.class_name, row.class_name), 'spec_name': SPEC_CN.get(row.spec_name, row.spec_name),
                 'source': row.source, 'updated_at': row.last_updated.isoformat(), **icon_payload(display['icon'])}
