@@ -57,6 +57,7 @@ from botend.dashboard.auth_views import LoginView, RegisterView, LogoutView, Cha
 from botend.dashboard.bilibili_binding import (
     BilibiliBindingPage, BilibiliBindingAPI, BilibiliBindingAdminPage, BilibiliBindingAdminAPI,
 )
+from botend.dashboard.character_bindings import my_characters, binding_admin
 from botend.dashboard.user_management import (
     DashboardUserDetailAPIView,
     DashboardUserGroupDetailAPIView,
@@ -159,6 +160,8 @@ urlpatterns = [
     path('api/dashboard/ai-providers/<str:provider_key>/', AIProviderManagementAPIView.as_view(), name='dashboard_ai_provider_detail'),
     path('api/site-analytics/collect/', CollectView.as_view(), name='site_analytics_collect'),
     path('api/dashboard/site-analytics/', AnalyticsAPIView.as_view(), name='dashboard_site_analytics'),
+    path('auth/characters/', my_characters, name='my_character_bindings'),
+    path('dashboard/character-bindings/', binding_admin, name='character_binding_admin'),
     path('auth/bilibili/', BilibiliBindingPage.as_view(), name='bilibili_binding'),
     path('auth/bilibili/api/', BilibiliBindingAPI.as_view(), name='bilibili_binding_api'),
     path('dashboard/bilibili-binding/', BilibiliBindingAdminPage.as_view(), name='bilibili_binding_admin'),

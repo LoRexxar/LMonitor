@@ -1,0 +1,51 @@
+{% extends 'dashboard/character_bindings_base.html' %}
+{% block content %}
+<header class="cb-page-heading"><div><h1>我的角色</h1><p class="bb-muted">{{ request.user.username }} · 在这里查看角色资料，管理每日更新。</p></div><div class="cb-account-summary"><span>已绑定 <strong>{{ bindings|length }} / {{ limit }}</strong></span><span>已激活 <strong>{{ active_count }}</strong></span></div></header>
+{% if error %}<p class="cb-feedback cb-error" role="alert">{{ error }}</p>{% endif %}
+<section class="bb-card cb-roster" aria-labelledby="list-title">
+    <div class="cb-roster-heading"><h2 id="list-title">已绑定角色</h2><span class="bb-muted">{{ bindings|length }} 个角色</span></div>
+    <p class="bb-muted cb-roster-note">激活的角色每天更新。关闭保留名额，解绑释放名额；点击角色可查看完整资料。</p>
+    <div class="cb-characters">
+    {% for binding in bindings %}
+    <article class="cb-character" aria-labelledby="character-{{ binding.pk }}">
+        <div class="cb-character-identity">
+            <span class="cb-character-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="8" r="4"/><path d="M4 21v-2a8 8 0 0 1 16 0v2"/></svg>
+                {% if binding.icon_url %}<img src="{{ binding.icon_url }}" data-character-icon data-fallback="{{ binding.icon_fallback }}" alt="" width="56" height="56" loading="lazy" decoding="async" referrerpolicy="no-referrer">{% endif %}
+            </span>
+            <div class="cb-character-info"><h3 id="character-{{ binding.pk }}">{% if binding.detail_url %}<a href="{{ binding.detail_url }}">{{ binding.character_name }}</a>{% else %}{{ binding.character_name }}{% endif %}</h3>
+                <p class="cb-spec-label">{{ binding.spec_label }}</p>
+                <p class="bb-muted cb-realm">{{ binding.player.realm|default:binding.realm_slug }} · {{ binding.region|upper }}</p>
+            </div>
+        </div>
+        <dl class="cb-character-metrics">
+            <div><dt>装备等级</dt><dd>{% if binding.player.item_level != None %}{{ binding.player.item_level|floatformat:1 }}{% else %}<span class="cb-metric-pending">待更新</span>{% endif %}</dd></div>
+            <div><dt>大秘境分数</dt><dd>{% if binding.player.score != None %}{{ binding.player.score|floatformat:1 }}{% else %}<span class="cb-metric-pending">待更新</span>{% endif %}</dd></div>
+        </dl>
+        <div class="cb-character-status"><span class="cb-state {% if binding.is_active %}cb-active{% endif %}"><span class="cb-status-dot" aria-hidden="true"></span>{% if binding.is_active %}每日更新已开启{% else %}更新已关闭{% endif %}</span><p class="bb-muted">{% if binding.player.last_updated %}更新于 {{ binding.player.last_updated|date:'m-d H:i' }}{% elif binding.is_active %}等待每日任务更新{% else %}激活后参与每日更新{% endif %}</p></div>
+        <div class="cb-character-footer">
+            {% if binding.detail_url %}<a class="cb-detail" href="{{ binding.detail_url }}" aria-label="查看 {{ binding.character_name }} 的详情">查看角色详情 <span aria-hidden="true">→</span></a>{% else %}<span class="bb-muted">角色资料暂不可用</span>{% endif %}
+            <div class="cb-actions">
+                <form method="post">{% csrf_token %}<input type="hidden" name="binding_id" value="{{ binding.pk }}"><button class="bb-secondary" name="action" value="{% if binding.is_active %}deactivate{% else %}activate{% endif %}" aria-label="{% if binding.is_active %}关闭{% else %}激活{% endif %} {{ binding.character_name }} 的更新">{% if binding.is_active %}关闭更新{% else %}激活更新{% endif %}</button></form>
+                <form method="post" data-confirm="确定解绑 {{ binding.character_name }}？解绑后可重新添加。">{% csrf_token %}<input type="hidden" name="binding_id" value="{{ binding.pk }}"><button class="bb-secondary cb-unbind" name="action" value="unbind" aria-label="解绑 {{ binding.character_name }}">解绑</button></form>
+            </div>
+        </div>
+    </article>
+    {% empty %}<p class="cb-empty">还没有绑定角色。添加你的第一个角色，即可在这里查看详情和管理每日更新。</p>{% endfor %}
+    </div>
+</section>
+<section class="bb-card" aria-labelledby="bind-title">
+    <h2 id="bind-title">绑定角色</h2>
+    <p class="bb-muted">填写角色名与服务器名，验证存在后自动绑定并激活。未收录的角色可选择区服后验证。</p>
+    <form method="post" class="cb-bind-form">
+        {% csrf_token %}<input type="hidden" name="action" value="bind">
+        <div><label for="character-name">角色名</label><input id="character-name" name="character_name" value="{{ form.character_name }}" maxlength="50" required autocomplete="off" placeholder="游戏内的完整角色名"></div>
+        <div><label for="character-realm">服务器名</label><input id="character-realm" name="realm" value="{{ form.realm }}" maxlength="100" required autocomplete="off" placeholder="服务器中文名或英文标识"></div>
+        <div><label for="character-region">区服（可选）</label><select id="character-region" name="region">
+            <option value="">自动识别</option><option value="cn" {% if form.region == 'cn' %}selected{% endif %}>国服</option><option value="tw" {% if form.region == 'tw' %}selected{% endif %}>台服</option><option value="us" {% if form.region == 'us' %}selected{% endif %}>美服</option><option value="eu" {% if form.region == 'eu' %}selected{% endif %}>欧服</option><option value="kr" {% if form.region == 'kr' %}selected{% endif %}>韩服</option>
+        </select></div>
+        <button type="submit" {% if bindings|length >= limit %}disabled{% endif %}>验证并绑定</button>
+    </form>
+    {% if bindings|length >= limit %}<p class="cb-feedback">已达到绑定上限。解绑可释放名额，也可联系管理员调整上限。</p>{% endif %}
+</section>
+{% endblock %}

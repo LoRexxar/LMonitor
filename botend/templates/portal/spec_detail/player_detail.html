@@ -21,7 +21,7 @@
         <div class="player-hero-main">
             <img src="{% wow_icon nav.spec_icon "small" %}" alt="{{ nav.spec_name }}" class="spec-icon" width="56" height="56">
             <div>
-                <div class="player-eyebrow">Top {{ player_detail.rank }} · {{ nav.class_cn }} {{ nav.spec_cn }}</div>
+                <div class="player-eyebrow">{% if player_detail.rank %}Top {{ player_detail.rank }} · {% endif %}{{ nav.class_cn }} {{ nav.spec_cn }}</div>
                 <h1>{{ player_detail.character_name }}</h1>
                 <p>
                     {{ player_detail.realm }} · {{ player_detail.region|upper }}
@@ -31,7 +31,7 @@
             </div>
         </div>
         <div class="player-hero-aside">
-            <div class="hero-badge hero-badge--rank">#{{ player_detail.rank }}</div>
+            {% if player_detail.rank %}<div class="hero-badge hero-badge--rank">#{{ player_detail.rank }}</div>{% endif %}
             <div class="hero-badge hero-badge--score">{{ player_detail.score|floatformat:2 }}</div>
             {% include "portal/spec_detail/_player_external_links.html" with external_links=player_detail.external_links %}
         </div>

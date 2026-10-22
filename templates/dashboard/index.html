@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="icon" href="https://wow.lorexxar.cn/favicon.ico">
     <title>{{ title }}</title>
-    {% load static %}
+    {% load static character_binding_tags %}
     <meta name="csrf-token" content="{{ csrf_token }}">
     <script>
         // Restore before first paint so returning dark-mode users do not see a white flash.
@@ -543,7 +543,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261018_player_analysis_group"></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261022_character_bindings"></script>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -553,7 +553,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20261018_section_history"></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20261022_character_bindings"></script>
     {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_shared_localization">
     <script src="{% static 'dashboard/js/guide_management.js' %}?v=20260909_tag_disclaimers" defer></script>
@@ -580,6 +580,8 @@
     {% endif %}
     {% if user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}">
+    <link rel="stylesheet" href="{% static 'dashboard/css/character_bindings.css' %}?v=20261022_dashboard">
+    <script src="{% static 'dashboard/js/character_bindings.js' %}" defer></script>
     <script src="{% static 'dashboard/js/bilibili_binding_admin.js' %}?v=20260929_workspace" defer></script>
     <link rel="stylesheet" href="{% static 'dashboard/css/player-analysis-management.css' %}?v=20261018_triggered_investigation">
     <script src="{% static 'dashboard/js/player-analysis-management.js' %}?v=20261019_frozen_behavior_refs" defer></script>
@@ -665,6 +667,9 @@
                                 <p class="text-sm font-medium text-gray-900">{{ user.username }}</p>
                                 <p class="text-xs text-gray-500">{{ user.email }}</p>
                             </div>
+                            {% character_shortcuts %}
+                            <a href="{% url 'my_character_bindings' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">我的角色</a>
+                            {% if request.user.is_superuser %}<a href="{% url 'dashboard' %}?section=character-bindings" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">角色绑定管理</a>{% endif %}
                             <a href="/auth/bilibili/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">绑定 B 站账号</a>
                             <a href="/auth/change-password/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-200">
                                 <i class="fas fa-key mr-2"></i>
@@ -698,6 +703,7 @@
                     </li>
                     {% if user.is_superuser %}
                     <li class="nav-item" data-section="bilibili-binding"><a href="?section=bilibili-binding" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fab fa-bilibili mr-3" aria-hidden="true"></i>B 站绑定设置</a></li>
+                    <li class="nav-item" data-section="character-bindings"><a href="{% url 'dashboard' %}?section=character-bindings" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-user-tag mr-3" aria-hidden="true"></i>角色绑定管理</a></li>
                     {% endif %}
                     <li class="nav-item" data-section="site-analytics">
                         <a href="?section=site-analytics" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600"><i class="fas fa-chart-line mr-3"></i>站内统计</a>
@@ -2380,6 +2386,7 @@
             {% if user.is_superuser %}
             {% include 'dashboard/player_analysis_management.html' %}
             {% include 'dashboard/bilibili_binding_admin.html' %}
+            {% include 'dashboard/character_bindings_admin.html' %}
             {% endif %}
             <!-- 独立用户管理，不接入通用数据库 CRUD -->
             <div class="content-section" id="user-management" style="display: none;">
@@ -2396,6 +2403,7 @@
                             </select>
                         </div>
                         <div class="flex flex-wrap items-center gap-2">
+                            {% if request.user.is_superuser %}<a href="{% url 'dashboard' %}?section=character-bindings" class="px-4 py-2 border rounded-lg">角色绑定管理</a>{% endif %}
                             <button id="user-management-quick-add" type="button" class="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"><i class="fas fa-key mr-2"></i>快速创建普通会员</button>
                             <button id="user-management-add" type="button" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i class="fas fa-user-plus mr-2"></i>新增用户</button>
                         </div>

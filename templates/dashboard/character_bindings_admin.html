@@ -1,0 +1,26 @@
+<section id="character-bindings" class="content-section bb-page cb-page" {% if character_bindings_loaded %}data-loaded="1" data-page-url="{{ binding_action_url }}"{% else %}style="display: none;"{% endif %}>
+{% if character_bindings_loaded %}
+<header><h1>角色绑定管理</h1><p class="bb-muted">每个账号默认可绑定 5 个角色。可以单独调整上限、查询绑定关系和管理激活状态。</p></header>
+{% if error %}<p class="cb-feedback cb-error" role="alert">{{ error }}</p>{% elif saved %}<p class="cb-feedback" role="status">已保存。</p>{% endif %}
+<form method="get" action="{% url 'dashboard' %}" class="bb-card cb-search">
+    <input type="hidden" name="section" value="character-bindings">
+    <div><label for="binding-search">搜索</label><input id="binding-search" type="search" name="q" value="{{ q }}" placeholder="账号、角色名或服务器"></div>
+    <div><label for="binding-state">角色状态</label><select id="binding-state" name="status"><option value="">全部状态</option><option value="active" {% if state == 'active' %}selected{% endif %}>已激活</option><option value="inactive" {% if state == 'inactive' %}selected{% endif %}>已关闭</option></select></div>
+    <button type="submit">搜索</button><a href="{% url 'dashboard' %}?section=character-bindings">清除筛选</a>
+</form>
+<section class="bb-card"><h2>账号绑定上限</h2><p class="bb-muted">支持按用户名或邮箱搜索；0 表示不允许绑定。降低上限前需先解绑多余角色。</p>
+<div class="bb-table-wrap"><table class="bb-table"><thead><tr><th scope="col">网站账号</th><th scope="col">已绑定 / 已激活</th><th scope="col">绑定与激活上限</th></tr></thead><tbody>
+{% for account in users %}<tr><td>{{ account.username }}{% if not account.is_active %}（账号已停用）{% endif %}</td><td>{{ account.binding_count }} / {{ account.active_count }}</td><td><form method="post" action="{{ binding_action_url }}" class="cb-quota-form">{% csrf_token %}<input type="hidden" name="action" value="quota"><input type="hidden" name="user_id" value="{{ account.pk }}"><input type="number" name="limit" min="0" max="32767" value="{{ account.binding_limit }}" required aria-label="{{ account.username }} 的角色绑定上限"><button type="submit">保存</button></form></td></tr>
+{% empty %}<tr><td colspan="3">没有匹配的账号。</td></tr>{% endfor %}
+</tbody></table></div>
+<nav class="cb-pagination" aria-label="账号分页">{% if users.has_previous %}<a href="?{{ search_params }}&users_page={{ users.previous_page_number }}&page={{ bindings.number }}">上一页</a>{% endif %}<span>第 {{ users.number }} / {{ users.paginator.num_pages }} 页 · {{ users.paginator.count }} 个账号</span>{% if users.has_next %}<a href="?{{ search_params }}&users_page={{ users.next_page_number }}&page={{ bindings.number }}">下一页</a>{% endif %}</nav>
+</section>
+<section class="bb-card"><h2>账号与角色绑定关系</h2>
+<div class="bb-table-wrap"><table class="bb-table"><thead><tr><th scope="col">网站账号</th><th scope="col">角色 / 服务器</th><th scope="col">状态</th><th scope="col">操作</th></tr></thead><tbody>
+{% for binding in bindings %}<tr><td>{{ binding.user.username }}</td><td>{% if binding.detail_url %}<a href="{{ binding.detail_url }}">{{ binding.character_name }}</a>{% else %}{{ binding.character_name }}{% endif %}<br><span class="bb-muted">{{ binding.player.realm|default:binding.realm_slug }} · {{ binding.region|upper }}</span></td><td>{% if binding.is_active %}已激活{% else %}已关闭{% endif %}</td><td><div class="cb-actions"><form method="post" action="{{ binding_action_url }}">{% csrf_token %}<input type="hidden" name="user_id" value="{{ binding.user_id }}"><input type="hidden" name="binding_id" value="{{ binding.pk }}"><button class="bb-secondary" name="action" value="{% if binding.is_active %}deactivate{% else %}activate{% endif %}">{% if binding.is_active %}关闭{% else %}激活{% endif %}</button></form><form method="post" action="{{ binding_action_url }}" data-confirm="确定解除 {{ binding.user.username }} 与 {{ binding.character_name }} 的绑定？">{% csrf_token %}<input type="hidden" name="user_id" value="{{ binding.user_id }}"><input type="hidden" name="binding_id" value="{{ binding.pk }}"><button class="bb-secondary" name="action" value="unbind">解绑</button></form></div></td></tr>
+{% empty %}<tr><td colspan="4">没有匹配的绑定关系。</td></tr>{% endfor %}
+</tbody></table></div>
+<nav class="cb-pagination" aria-label="绑定关系分页">{% if bindings.has_previous %}<a href="?{{ search_params }}&page={{ bindings.previous_page_number }}&users_page={{ users.number }}">上一页</a>{% endif %}<span>第 {{ bindings.number }} / {{ bindings.paginator.num_pages }} 页 · {{ bindings.paginator.count }} 条绑定</span>{% if bindings.has_next %}<a href="?{{ search_params }}&page={{ bindings.next_page_number }}&users_page={{ users.number }}">下一页</a>{% endif %}</nav>
+</section>
+{% endif %}
+</section>

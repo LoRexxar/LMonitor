@@ -1,0 +1,23 @@
+.portal-user-menu-panel,
+#user-menu { width: min(320px, calc(100vw - 32px)); max-height: calc(100dvh - 90px); overflow-y: auto; }
+.character-shortcuts {
+    --shortcut-text: var(--portal-text, var(--dashboard-text, #1e293b));
+    --shortcut-muted: var(--portal-text-secondary, var(--dashboard-muted, #64748b));
+    --shortcut-surface: var(--portal-surface-muted, var(--dashboard-surface-muted, #f1f5f9));
+    --shortcut-border: var(--portal-border, var(--dashboard-border, #e2e8f0));
+    color: var(--shortcut-text); padding: 6px 4px 8px; border-bottom: 1px solid var(--shortcut-border); margin-bottom: 4px;
+}
+.character-shortcuts-title { margin: 0; padding: 4px 10px 8px; color: var(--shortcut-muted); font-size: 12px; font-weight: 600; }
+.character-shortcuts-list { list-style: none; margin: 0; padding: 0; max-height: 320px; overflow-y: auto; overscroll-behavior: contain; }
+.character-shortcuts-list li { margin: 0; padding: 0; }
+.character-shortcut { display: flex; align-items: center; gap: 10px; min-height: 58px; padding: 8px 10px; border-radius: 8px; color: var(--shortcut-text); text-decoration: none; box-sizing: border-box; }
+a.character-shortcut:hover, a.character-shortcut:focus-visible { background: var(--shortcut-surface); color: var(--shortcut-text); }
+a.character-shortcut:focus-visible { outline: 2px solid #6366f1; outline-offset: -2px; }
+.character-shortcut-icon { flex: 0 0 34px; height: 34px; position: relative; overflow: hidden; display: grid; place-items: center; border-radius: 7px; background: var(--shortcut-surface); color: var(--shortcut-muted); font-size: 14px; }
+.character-shortcut-icon img { position: absolute; inset: 0; width: 34px; height: 34px; object-fit: cover; }
+.character-shortcut-info { flex: 1; min-width: 0; }
+.character-shortcut-info strong { display: block; font-size: 14px; font-weight: 600; line-height: 1.4; overflow-wrap: anywhere; }
+.character-shortcut-info small { display: block; margin-top: 3px; color: var(--shortcut-muted); font-size: 12px; line-height: 1.4; overflow-wrap: anywhere; }
+.character-shortcut-state { flex: 0 0 auto; font-size: 11px; color: var(--shortcut-muted); }
+.character-shortcut-unavailable { color: var(--shortcut-muted); }
+.character-shortcuts-note { padding: 4px 10px 8px; margin: 0; font-size: 12px; line-height: 1.6; color: var(--shortcut-muted); }

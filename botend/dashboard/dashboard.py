@@ -325,7 +325,7 @@ class DashboardView(View):
                 or model_name not in MODEL_DESCRIPTIONS
             ):
                 continue
-            read_only = model_name in self.SIMC_DEDICATED_API_MODELS or model_name in {'ClassGuideSyncRun', 'MythicDungeonSyncRun'}
+            read_only = model_name in self.SIMC_DEDICATED_API_MODELS or model_name in {'ClassGuideSyncRun', 'MythicDungeonSyncRun', 'CharacterBindingQuota', 'UserCharacterBinding'}
             lifecycle_managed = model_name == 'SeasonMeta'
             has_required_sensitive_field = any(
                 self._is_sensitive_field(field, model_name)
@@ -402,6 +402,9 @@ class DashboardView(View):
         try:
             permissions = effective_dashboard_permissions(request.user)
             section = request.GET.get('section', '').strip()
+            if section == 'character-bindings':
+                from botend.dashboard.character_bindings import binding_admin
+                return binding_admin(request)
             # Binding administration retains its dedicated superuser boundary;
             # embedding it must not make it assignable through ordinary groups.
             binding_admin_section = section == 'bilibili-binding'
@@ -433,6 +436,9 @@ class DashboardView(View):
         """
         处理POST请求，用于接收Dashboard的数据提交和AJAX请求
         """
+        if request.GET.get('section') == 'character-bindings':
+            from botend.dashboard.character_bindings import binding_admin
+            return binding_admin(request)
         try:
             # 存储 request 以便子方法访问
             self.request = request

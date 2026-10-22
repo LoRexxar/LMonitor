@@ -322,10 +322,15 @@ function initDashboardSectionLinks() {
 }
 
 function syncDashboardLocation({ section = '', tool = '', table = '' } = {}) {
-    const url = new URL(window.location.href);
+    const bindingPageUrl = section === 'character-bindings'
+        ? document.getElementById(section)?.dataset.pageUrl : '';
+    const url = new URL(bindingPageUrl || window.location.href, window.location.origin);
     url.searchParams.delete('section');
     url.searchParams.delete('tool');
     url.searchParams.delete('table');
+    if (section !== 'character-bindings') {
+        ['q', 'status', 'page', 'users_page', 'saved'].forEach(key => url.searchParams.delete(key));
+    }
 
     if (section && section !== 'dashboard-home') {
         url.searchParams.set('section', section);
@@ -513,6 +518,10 @@ function initNavigation() {
 
             // 获取对应的内容区域ID
             const sectionId = this.getAttribute('data-section');
+            if (sectionId === 'character-bindings' && !document.getElementById(sectionId)?.dataset.loaded) {
+                window.location.assign('/dashboard/?section=character-bindings');
+                return;
+            }
             if (!isSimcDashboardSection(sectionId)) deactivateSimcWorkbench();
 
             // 隐藏所有内容区域

@@ -112,6 +112,32 @@ class DashboardUserGroupMembership(models.Model):
         ]
 
 
+class CharacterBindingQuota(models.Model):
+    user = models.OneToOneField(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                               related_name='character_binding_quota')
+    limit = models.PositiveSmallIntegerField(default=5)
+
+
+class UserCharacterBinding(models.Model):
+    """An account follows a character identity, independently of rank and season."""
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name='character_bindings')
+    identity_digest = models.CharField(max_length=64, db_index=True)
+    region = models.CharField(max_length=10)
+    realm_slug = models.CharField(max_length=100)
+    character_name = models.CharField(max_length=50)
+    player = models.ForeignKey('PlayerSpecTopPlayer', on_delete=models.SET_NULL,
+                               null=True, related_name='account_bindings')
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ('created_at', 'pk')
+        constraints = [models.UniqueConstraint(fields=['user', 'identity_digest'],
+                                               name='unique_user_character_binding')]
+
+
 class MonitorTaskLeaseLost(RuntimeError):
     """Raised when a claimed task instance attempts to save without its lease."""
 
@@ -2738,6 +2764,7 @@ class PlayerSpecTopPlayer(models.Model):
             models.Index(fields=['season_id']),
             models.Index(fields=['class_name', 'spec_name']),
             models.Index(fields=['season_id', 'class_name', '-score', 'rank', 'id'], name='idx_season_class_top'),
+            models.Index(fields=['season_id', 'character_name', 'region'], name='idx_player_binding_lookup'),
         ]
 
     def __str__(self):

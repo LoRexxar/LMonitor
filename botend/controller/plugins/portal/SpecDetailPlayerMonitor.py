@@ -72,6 +72,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             return False
 
         total_inserted = 0
+        refreshed_identities = set()
 
         # 遍历所有专精
         for class_name, specs in CLASS_SPEC_MAP.items():
@@ -151,6 +152,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                     setattr(profile, field, value)
                                 self._save_profile_safely(profile)
                             total_inserted += 1
+                            if not player.get('_profile_refresh_failed'):
+                                from botend.services.player_raiderio_activity import player_identity
+                                from botend.raiderio_identity import activity_identity_digest
+                                identity = player_identity(SimpleNamespace(region=region, realm=realm,
+                                    character_name=character_name, profile_url=player.get('profile_url')))
+                                if identity:
+                                    refreshed_identities.add(activity_identity_digest(**identity))
                         except Exception as e:
                             logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
 
@@ -172,10 +180,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         # 补充 Battle.net 属性（排除国服）
         self._crawl_battlenet_stats(season.id, ranked_only=True)
 
+        from botend.services.character_bindings import refresh_bound_characters
+        bound_count = refresh_bound_characters(self, season, refreshed_identities)
+
         logger.info(f"[SpecDetailPlayer] 人物采集耗时 {time.monotonic() - started:.1f}s，"
                     f"详情缓存统计 {dict(self._get_profile_cache().counts)}")
 
-        self.task.flag = f"{season.season_key}@players={total_inserted}@{int(time.time())}"
+        self.task.flag = f"{season.season_key}@players={total_inserted}@bound={bound_count}@{int(time.time())}"
         self.task.save()
         return True
 
@@ -677,6 +688,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         if not char_data:
             return False
 
+        return self._apply_raiderio_profile(profile, char_data)
+
+    def _apply_raiderio_profile(self, profile, char_data):
+        """Apply verified profile content for both ranking and account targets."""
         gear_items = self._parse_rio_gear(char_data.get('gear'))
         if gear_items:
             profile.gear_json = self._normalize_gear_list(gear_items)

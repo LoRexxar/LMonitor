@@ -1,4 +1,4 @@
-{% load static %}
+{% load static character_binding_tags %}
 <header class="portal-header">
     <div class="portal-header-inner">
         <div class="portal-header-left">
@@ -85,6 +85,8 @@
                     <svg class="portal-user-menu-chevron w-3.5 h-3.5" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-chevron-down"></use></svg>
                 </summary>
                 <div class="portal-user-menu-panel">
+                    {% character_shortcuts %}
+                    <a href="{% url 'my_character_bindings' %}" class="portal-user-menu-item"><span>我的角色</span></a>
                     <a href="/auth/bilibili/" class="portal-user-menu-item"><span>绑定 B 站账号</span></a>
                     <a href="/dashboard/" class="portal-user-menu-item">
                         <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>

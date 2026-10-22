@@ -1,0 +1,39 @@
+{
+  "说明": "仅备份本次要修改的字段；旧手册发布完整保留，可恢复 active_release_id。",
+  "previous_release_id": 3,
+  "season_id": 1,
+  "batch_key": "active-live-batch",
+  "items": [
+    {
+      "pk": null,
+      "item_id": 281213,
+      "created": true,
+      "fields": {
+        "name_zh": "",
+        "description_zh": "",
+        "metadata": {}
+      }
+    },
+    {
+      "pk": null,
+      "item_id": 281615,
+      "created": true,
+      "fields": {
+        "name_zh": "",
+        "description_zh": "",
+        "metadata": {}
+      }
+    },
+    {
+      "pk": null,
+      "item_id": 284159,
+      "created": true,
+      "fields": {
+        "name_zh": "",
+        "description_zh": "",
+        "metadata": {}
+      }
+    }
+  ],
+  "variants": []
+}
