@@ -362,6 +362,56 @@ def _source_values(row, version, registry, using):
     return row
 
 
+def write_names(data_rows, *, progress=None):
+    """Import exact-deduplicated names and publish each affected branch once.
+
+    Keep the single-name conflict/source rules. Names and their final display
+    commit together, so a failed batch can be retried without stale projections.
+    """
+    unique = {}
+    for data in data_rows:
+        row = validate_name(data)
+        unique.setdefault(tuple(row[field] for field in FIELDS), row)
+    rows = list(unique.values())
+    notify = progress or (lambda message: None)
+    with transaction.atomic():
+        results = []
+        display_rows = []
+        for index, row in enumerate(rows, 1):
+            result = _write_name(row)
+            results.append((row, *result))
+            if row['kind'] in ('spell', 'talent'):
+                display_rows.append((row, result[0]['pk']))
+            if index % 100 == 0 or index == len(rows):
+                notify(f'术语准备 {index}/{len(rows)}（展示同步后统一提交）')
+        # Read edited versions together instead of reloading them per term.
+        model = apps.get_model('botend', 'WowTalentNodeMetadata')
+        edited = {obj.pk: obj for obj in model.all_objects.filter(
+            pk__in={pk for _, pk in display_rows}).select_related('talent_version')
+            .only('id', 'talent_version__id', 'talent_version__branch', 'talent_version__is_active')}
+        versions, branches = {}, {}
+        for row, pk in display_rows:
+            version = edited[pk].talent_version
+            if not version or not version.is_active:
+                continue
+            ids = branches.setdefault(version.branch, set())
+            if row['kind'] == 'spell':
+                ids.add(row['object_id'])
+            versions.setdefault((version.pk, version.branch), set()).add(row['object_id'])
+        for (version_id, branch), identities in versions.items():
+            nodes = model.objects.filter(talent_version_id=version_id).filter(
+                Q(node_id__in=identities) | Q(talent_id__in=identities))
+            branches[branch].update(display_id or spell_id for display_id, spell_id in
+                nodes.values_list('display_spell_id', 'spell_id') if display_id or spell_id)
+        from botend.services.wow_spell_display import sync_spell_display
+        for branch, ids in sorted(branches.items()):
+            if ids:
+                notify(f'展示同步：{branch}，{len(ids)} 个技能')
+                sync_spell_display(branch=branch, spell_ids=ids, apply=True)
+    notify(f'术语提交完成：{len(results)} 条')
+    return results
+
+
 def write_name(data, *, overwrite=False, preserve_blank=False, registry=apps, using='default', target_pk=None, target_state=None):
     """名称编辑与相关技能展示同事务更新，历史迁移注册表不调用当前服务。"""
     with transaction.atomic(using=using):

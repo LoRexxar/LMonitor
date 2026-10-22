@@ -12,7 +12,7 @@ from django.db import transaction
 from django.core.exceptions import ValidationError
 
 from botend.guide_models import ClassGuide
-from botend.services.wow_localization import validate_name, write_name
+from botend.services.wow_localization import validate_name, write_names
 from botend.services.class_guide_markdown import compile_markdown, normalize_tab_markdown
 from botend.services.class_guide_service import save_article, has_manual_content
 from botend.services.class_guide_tags import ensure_source_tag, normalize_tags, set_guide_tags, source_labels
@@ -86,6 +86,8 @@ class Command(BaseCommand):
                 raise CommandError('专精编号与清单不一致：' + slug)
             draft.update(spec_id=guide.spec_id, class_name=guide.class_name, spec_name=guide.spec_name)
             drafts.append(draft)
+            if len(drafts) % 10 == 0 or len(drafts) == len(manifest['records']):
+                self.stdout.write(f"正文校验 {len(drafts)}/{len(manifest['records'])}")
         for row in terms:
             if row['kind'] not in ('spell', 'talent', 'item', 'phrase', 'macro') or not re.search(r'[\u3400-\u9fff]', row['name_zh']):
                 raise CommandError('术语内容无效')
@@ -94,8 +96,7 @@ class Command(BaseCommand):
             self.stdout.write('校验通过：{} 篇草稿，{} 条术语'.format(len(drafts), len(terms)))
             return
         term_conflicts, imported, skipped = 0, 0, 0
-        for row in terms:
-            record, _ = write_name(row)
+        for row, record, _ in write_names(terms, progress=self.stdout.write):
             term_conflicts += record['name_zh'] != row['name_zh']
         for draft in drafts:
             with transaction.atomic():
@@ -118,4 +119,5 @@ class Command(BaseCommand):
                     source_payload=draft['source_payload'], source_hash=draft['source_hash'], source_modified=draft['source_modified'],
                     check_data=draft.get('check_data', draft.get('audit', {})))
                 imported += 1
+            self.stdout.write(f'文章进度 {imported + skipped}/{len(drafts)}：{draft["slug"]}')
         self.stdout.write('导入 {} 篇，跳过 {} 篇；保留目标环境 {} 项术语冲突'.format(imported, skipped, term_conflicts))
