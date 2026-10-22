@@ -95,16 +95,15 @@ class Migration0109TestCase(TransactionTestCase):
         self.assertTrue(user1_apls.filter(name='Personal APL 1', spec='unknown', content='actions=/auto_attack').exists())
         self.assertTrue(user1_apls.filter(name='Custom Fury', spec='warrior_fury', content='actions=/execute').exists())
 
-        user2_apls = personal_apls.filter(owner_user_id=2)
-        self.assertEqual(user2_apls.count(), 1)
-        self.assertEqual(user2_apls.first().name, 'Personal APL 2')
-        self.assertEqual(user2_apls.first().spec, 'unknown')
-        self.assertFalse(user2_apls.first().is_active)
+        # get() checks exactly one row as well as avoiding repeated first()
+        # queries for independent fields of the same migrated output.
+        user2_apl = personal_apls.get(owner_user_id=2)
+        self.assertEqual(user2_apl.name, 'Personal APL 2')
+        self.assertEqual(user2_apl.spec, 'unknown')
+        self.assertFalse(user2_apl.is_active)
 
-        # Check default_apl migrated as system APL
-        system_apls = SimcApl.objects.filter(is_system=True)
-        self.assertEqual(system_apls.count(), 1)
-        fury_default = system_apls.first()
+        # Check default_apl migrated as the only system APL.
+        fury_default = SimcApl.objects.get(is_system=True)
         self.assertEqual(fury_default.name, 'Fury Default')
         self.assertEqual(fury_default.spec, 'warrior_fury')
         self.assertEqual(fury_default.content, 'actions=/rampage')
