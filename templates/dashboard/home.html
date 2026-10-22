@@ -1,0 +1,5 @@
+<section id="dashboard-home" class="content-section dh-home" {% if home %}data-loaded="1"{% endif %} style="display: none;" aria-labelledby="dh-title">
+{% if home %}
+    {% if home.kind == 'admin' %}{% include 'dashboard/home_admin.html' %}{% else %}{% include 'dashboard/home_player.html' %}{% endif %}
+{% endif %}
+</section>

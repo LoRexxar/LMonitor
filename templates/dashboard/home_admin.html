@@ -1,0 +1,37 @@
+<header class="dh-heading"><div><h1 id="dh-title">站点概览</h1><p>看看今天的访问情况，以及站点任务的运行状态。</p></div><div class="dh-refresh"><span class="dh-muted">快照 {{ home.as_of|date:'m-d H:i:s' }}</span><a class="dh-button" href="{% url 'dashboard' %}"><i class="fas fa-rotate-right" aria-hidden="true"></i>刷新概览</a></div></header>
+<section class="dh-panel dh-traffic" aria-labelledby="dh-traffic-title">
+    <div class="dh-section-heading"><div><h2 id="dh-traffic-title">站内访问</h2><p>全站已采集的访问{% if not home.traffic.unavailable %} · {{ home.traffic.timezone }}{% endif %}</p></div><a href="{% url 'dashboard' %}?section=site-analytics">详细统计 <i class="fas fa-arrow-right" aria-hidden="true"></i></a></div>
+    {% if home.traffic.unavailable %}<div class="dh-empty"><h3>访问统计暂不可用</h3><p>请稍后刷新，监控任务仍可在下方查看。</p></div>{% else %}
+    {% if not home.traffic.enabled %}<p class="dh-collection-note"><i class="fas fa-pause-circle" aria-hidden="true"></i> 访问采集已暂停，以下仅展示已记录的数据。可在详细统计中重新开启。</p>{% endif %}
+    <dl class="dh-traffic-metrics">
+        <div><dt>今日浏览量 <span>PV</span></dt><dd>{{ home.traffic.pv }}</dd></div>
+        <div><dt>今日访客 <span>UV</span></dt><dd>{{ home.traffic.uv }}</dd></div>
+        <div><dt>今日会话</dt><dd>{{ home.traffic.sessions }}</dd></div>
+        <div><dt>近 15 分钟访客</dt><dd>{{ home.traffic.active }}</dd></div>
+    </dl>
+    <div class="dh-traffic-details">
+        <section aria-labelledby="dh-trend-title"><div class="dh-section-heading"><h3 id="dh-trend-title">近 7 天访问趋势</h3><span class="dh-muted">累计 {{ home.traffic.week_pv }} PV · 今日截至当前</span></div>
+            {% if home.traffic.week_pv %}<div class="dh-trend" role="list" aria-label="每日浏览量与访客数">
+                {% for day in home.traffic.daily %}<div class="dh-trend-day{% if day.today %} dh-trend-today{% endif %}" role="listitem" aria-label="{{ day.date|date:'m月d日' }}，{{ day.pv }} 次浏览，{{ day.uv }} 位访客">
+                    <span class="dh-trend-value">{{ day.pv }}</span><div class="dh-trend-track" aria-hidden="true"><span style="height: {{ day.height }}%"></span></div><span class="dh-trend-label">{% if day.today %}今天{% else %}{{ day.date|date:'m/d' }}{% endif %}</span><span class="dh-trend-uv">{{ day.uv }} UV</span>
+                </div>{% endfor %}
+            </div>{% else %}<div class="dh-empty"><h3>近 7 天暂无访问记录</h3><p>采集到页面访问后，这里会显示每日趋势。</p></div>{% endif %}
+        </section>
+        <section class="dh-popular" aria-labelledby="dh-popular-title"><div class="dh-section-heading"><h3 id="dh-popular-title">热门页面</h3><span class="dh-muted">近 7 天 · 前 5 名</span></div>
+            {% if home.traffic.pages %}<ol class="dh-page-list">{% for page in home.traffic.pages %}<li><span class="dh-page-rank" aria-hidden="true">{{ forloop.counter }}</span><span class="dh-page-path">{{ page.path }}</span><span class="dh-page-count"><strong>{{ page.pv }} <small>PV</small></strong><span>{{ page.uv }} UV</span></span></li>{% endfor %}</ol>{% else %}<p class="dh-empty">暂无页面访问记录</p>{% endif %}
+        </section>
+    </div>
+    {% endif %}
+</section>
+<div class="dh-ops-summary" aria-label="监控概览"><span>启用任务 <strong>{{ home.monitor.enabled }} / {{ home.monitor.total }}</strong></span><span>正在执行 <strong>{{ home.monitor.running }}</strong></span><span>待调度 <strong>{{ home.monitor.due }}</strong></span><span>已停用 <strong>{{ home.monitor.disabled }}</strong></span></div>
+<div class="dh-admin-layout">
+    <section class="dh-panel dh-monitor" aria-labelledby="dh-monitor-title">
+        <div class="dh-section-heading"><div><h2 id="dh-monitor-title">监控任务</h2><p>待调度与执行中的任务优先展示。</p></div><a href="{% url 'dashboard' %}?table=MonitorTask">管理任务 <i class="fas fa-arrow-right" aria-hidden="true"></i></a></div>
+        <div class="dh-table-wrap"><table class="dh-table"><caption class="sr-only">监控任务状态与最近调度时间</caption><thead><tr><th scope="col">任务</th><th scope="col">状态</th><th scope="col">最近调度</th><th scope="col">间隔</th></tr></thead><tbody>
+        {% for task in home.tasks %}<tr><th scope="row">{{ task.name }}</th><td><span class="dh-state {% if task.state == 'due' %}dh-warn{% elif task.state == 'running' %}dh-good{% endif %}">{{ task.label }}</span></td><td><time datetime="{{ task.last_scan_time|date:'c' }}">{{ task.last_scan_time|date:'m-d H:i' }}</time></td><td>{{ task.interval }}</td></tr>
+        {% empty %}<tr><td colspan="4" class="dh-empty">尚未配置监控任务。可从“管理任务”添加。</td></tr>{% endfor %}
+        </tbody></table></div>
+        <p class="dh-note">“待调度”表示已到配置的运行时间，不代表任务失败。最近调度时间不代表成功完成。{% if home.more_tasks %}此处展示前 12 个任务，完整列表见任务管理。{% endif %}</p>
+    </section>
+    <section class="dh-panel dh-simc"><div class="dh-section-heading"><h2>模拟队列</h2><a href="{% url 'dashboard' %}?section=simc-history">任务记录</a></div><dl class="dh-facts"><div><dt>等待执行</dt><dd>{{ home.simc.pending }}</dd></div><div><dt>正在执行</dt><dd>{{ home.simc.running }}</dd></div><div><dt>近 24 小时更新为失败</dt><dd{% if home.simc.failed %} class="dh-error-text"{% endif %}>{{ home.simc.failed }}</dd></div></dl><nav class="dh-admin-links" aria-label="管理快捷入口"><a href="{% url 'dashboard' %}?section=character-bindings">角色绑定管理 <i class="fas fa-arrow-right" aria-hidden="true"></i></a><a href="{% url 'dashboard' %}?section=user-management">用户管理 <i class="fas fa-arrow-right" aria-hidden="true"></i></a><a href="{% url 'dashboard' %}?section=log-files">运行日志 <i class="fas fa-arrow-right" aria-hidden="true"></i></a></nav></section>
+</div>

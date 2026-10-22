@@ -392,7 +392,7 @@ class DashboardView(View):
             'tables_info': tables_info,
             'total_tables': len(visible_entries),
             'total_records': total_records,
-            'stats': self.calculate_dashboard_stats() if include_stats else {},
+            'stats': {},
         }
 
     def get(self, request):
@@ -402,6 +402,9 @@ class DashboardView(View):
         try:
             permissions = effective_dashboard_permissions(request.user)
             section = request.GET.get('section', '').strip()
+            if section == 'my-characters':
+                from botend.dashboard.character_bindings import my_characters
+                return my_characters(request)
             if section == 'character-bindings':
                 from botend.dashboard.character_bindings import binding_admin
                 return binding_admin(request)
@@ -413,18 +416,18 @@ class DashboardView(View):
             permission_code = SECTION_PERMISSION_CODES.get(section)
             if section and not permission_code and not binding_admin_section:
                 return JsonResponse({'status': 'error', 'message': '未知 Dashboard 页面'}, status=404)
-            if permission_code and permission_code not in permissions:
+            if permission_code and section != 'dashboard-home' and permission_code not in permissions:
                 return JsonResponse({'status': 'error', 'message': '无权访问该 Dashboard 页面'}, status=403)
             catalog = permission_catalog()
-            context = self.get_context_data()
+            context = self.get_context_data(include_stats=False)
+            if not section or section == 'dashboard-home':
+                from botend.dashboard.home import home_context
+                context['home'] = home_context(request.user)
             context['dashboard_permissions'] = sorted(permissions)
             context['dashboard_permission_catalog'] = catalog
-            context['dashboard_default_section'] = section or next(
-                (item['section'] for item in catalog if item['code'] in permissions),
-                '',
-            )
+            context['dashboard_default_section'] = section or 'dashboard-home'
             response = render(request, 'dashboard/index.html', context)
-            if binding_admin_section or permission_code in ('content.class-guides', 'tools.wow-localization', 'database.central-data', 'system.player-analyses'):
+            if not section or section == 'dashboard-home' or binding_admin_section or permission_code in ('content.class-guides', 'tools.wow-localization', 'database.central-data', 'system.player-analyses'):
                 response['Cache-Control'] = 'private, no-store'
                 response['X-Robots-Tag'] = 'noindex, nofollow'
             return response
@@ -436,6 +439,9 @@ class DashboardView(View):
         """
         处理POST请求，用于接收Dashboard的数据提交和AJAX请求
         """
+        if request.GET.get('section') == 'my-characters':
+            from botend.dashboard.character_bindings import my_characters
+            return my_characters(request)
         if request.GET.get('section') == 'character-bindings':
             from botend.dashboard.character_bindings import binding_admin
             return binding_admin(request)

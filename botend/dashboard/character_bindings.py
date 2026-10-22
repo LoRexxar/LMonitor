@@ -30,10 +30,31 @@ def _rows(queryset):
     return rows
 
 
+def _render_dashboard(request, section, title, payload, status=200):
+    from botend.dashboard.dashboard import DashboardView
+    from botend.dashboard.permissions import effective_dashboard_permissions, permission_catalog
+
+    dashboard = DashboardView()
+    dashboard.setup(request)
+    context = dashboard.get_context_data(title=title, include_stats=False)
+    context.update({
+        'dashboard_permissions': sorted(effective_dashboard_permissions(request.user)),
+        'dashboard_permission_catalog': permission_catalog(),
+        'dashboard_default_section': section,
+        **payload,
+    })
+    response = render(request, 'dashboard/index.html', context, status=status)
+    response['X-Robots-Tag'] = 'noindex, nofollow'
+    return response
+
+
 @login_required
 @never_cache
 @require_http_methods(['GET', 'POST'])
 def my_characters(request):
+    dashboard_url = reverse('dashboard') + '?section=my-characters'
+    if request.method == 'GET' and request.path != reverse('dashboard'):
+        return redirect(dashboard_url)
     error = ''
     if request.method == 'POST':
         try:
@@ -43,7 +64,7 @@ def my_characters(request):
                     request.POST.get('realm'), request.POST.get('region', ''))
             else:
                 service.update_binding(request.user, int(request.POST.get('binding_id', '')), action)
-            return redirect('my_character_bindings')
+            return redirect(dashboard_url)
         except UserCharacterBinding.DoesNotExist:
             raise Http404 from None
         except (ValueError, TypeError):
@@ -51,7 +72,8 @@ def my_characters(request):
         except ValidationError as exc:
             error = '；'.join(exc.messages)
     rows = _rows(request.user.character_bindings.all())
-    return render(request, 'dashboard/character_bindings.html', {
+    return _render_dashboard(request, 'my-characters', '我的角色', {
+        'my_characters_loaded': True, 'character_action_url': dashboard_url,
         'bindings': rows, 'limit': service.quota(request.user),
         'active_count': sum(row.is_active for row in rows), 'error': error,
         'form': request.POST if error else {},
@@ -106,23 +128,11 @@ def binding_admin(request):
             user.binding_limit = service.DEFAULT_LIMIT
     binding_page = Paginator(bindings, 30).get_page(request.GET.get('page'))
     binding_page.object_list = _rows(binding_page.object_list)
-    from botend.dashboard.dashboard import DashboardView
-    from botend.dashboard.permissions import effective_dashboard_permissions, permission_catalog
-
-    dashboard = DashboardView()
-    dashboard.setup(request)
-    context = dashboard.get_context_data(title='角色绑定管理', include_stats=False)
-    context.update({
-        'dashboard_permissions': sorted(effective_dashboard_permissions(request.user)),
-        'dashboard_permission_catalog': permission_catalog(),
-        'dashboard_default_section': 'character-bindings',
+    return _render_dashboard(request, 'character-bindings', '角色绑定管理', {
         'character_bindings_loaded': True,
         'users': user_page, 'bindings': binding_page, 'q': query, 'state': state,
         'search_params': urlencode({'section': 'character-bindings', 'q': query, 'status': state}),
         'binding_action_url': dashboard_url,
         'error': error,
         'saved': request.GET.get('saved') == '1',
-    })
-    response = render(request, 'dashboard/index.html', context, status=400 if error else 200)
-    response['X-Robots-Tag'] = 'noindex, nofollow'
-    return response
+    }, status=400 if error else 200)

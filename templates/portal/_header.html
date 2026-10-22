@@ -86,7 +86,7 @@
                 </summary>
                 <div class="portal-user-menu-panel">
                     {% character_shortcuts %}
-                    <a href="{% url 'my_character_bindings' %}" class="portal-user-menu-item"><span>我的角色</span></a>
+                    <a href="{% url 'dashboard' %}?section=my-characters" class="portal-user-menu-item"><span>我的角色</span></a>
                     <a href="/auth/bilibili/" class="portal-user-menu-item"><span>绑定 B 站账号</span></a>
                     <a href="/dashboard/" class="portal-user-menu-item">
                         <svg class="w-4 h-4" aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-tools"></use></svg>

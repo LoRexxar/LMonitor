@@ -28,6 +28,7 @@ function applyDashboardPagePermissions() {
     const bySection = new Map(catalog.flatMap(item => [item.section, ...(item.sections || [])].map(section => [section, item.code])));
     document.querySelectorAll('[data-section], [data-dashboard-section]').forEach(item => {
         const section = item.getAttribute('data-section') || item.getAttribute('data-dashboard-section');
+        if (section === 'dashboard-home') return;
         const code = bySection.get(section);
         if (code && !permissionCodes.has(code)) item.remove();
     });
@@ -36,7 +37,7 @@ function applyDashboardPagePermissions() {
     });
     document.querySelectorAll('.content-section').forEach(section => {
         const code = bySection.get(section.id);
-        if (code && !permissionCodes.has(code)) section.remove();
+        if (section.id !== 'dashboard-home' && code && !permissionCodes.has(code)) section.remove();
     });
 }
 
@@ -49,15 +50,8 @@ document.addEventListener('DOMContentLoaded', function() {
     initDashboardTheme();
     applyDashboardPagePermissions();
     initSidebarGroups();
-    // 初始化页面数据
-    initDashboard();
-
-    // 设置定时刷新
-    setInterval(refreshData, 30000); // 每30秒刷新一次数据
-
     // 初始化导航菜单点击事件
     initNavigation();
-    initDashboardQuickEntries();
     initDashboardSectionLinks();
 
     // 初始化子菜单切换
@@ -246,13 +240,6 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
-function initDashboard() {
-    // 这里可以添加AJAX请求获取初始数据
-    updateSystemStatus();
-    updateRecentActivities();
-    updateStatistics();
-}
-
 /** 侧栏分组与折叠逻辑供后台首页和独立页面共用。 */
 function initSidebarGroups() {
     window.DashboardSidebar.initGroups();
@@ -283,19 +270,6 @@ function calculateTotalRecords() {
 }
 
 /**
- * 刷新仪表盘数据
- */
-function refreshData() {
-    // 更新系统状态
-    updateSystemStatus();
-    // 更新最近活动
-    updateRecentActivities();
-    // 更新统计数据
-    updateStatistics();
-    fetchUnreadSystemAlerts();
-}
-
-/**
  * 显示指定 Dashboard 内容区
  */
 function showDashboardSection(sectionId) {
@@ -322,7 +296,7 @@ function initDashboardSectionLinks() {
 }
 
 function syncDashboardLocation({ section = '', tool = '', table = '' } = {}) {
-    const bindingPageUrl = section === 'character-bindings'
+    const bindingPageUrl = ['my-characters', 'character-bindings'].includes(section)
         ? document.getElementById(section)?.dataset.pageUrl : '';
     const url = new URL(bindingPageUrl || window.location.href, window.location.origin);
     url.searchParams.delete('section');
@@ -416,23 +390,6 @@ function activateDashboardLocation() {
     });
 }
 
-/**
- * 初始化首页快捷入口
- */
-function initDashboardQuickEntries() {
-    const entries = [
-        ['dashboard-hotfix-entry', 'wago-hotfix-reports'],
-        ['dashboard-wow-daily-entry', 'wow-daily-reports'],
-        ['dashboard-news-entry', 'news'],
-    ];
-    entries.forEach(([buttonId, sectionId]) => {
-        const btn = document.getElementById(buttonId);
-        if (btn) {
-            btn.onclick = () => showDashboardSection(sectionId);
-        }
-    });
-}
-
 const SIMC_DASHBOARD_SECTIONS = Object.freeze({
     workflow: 'simc-workflow',
     history: 'simc-history',
@@ -518,8 +475,8 @@ function initNavigation() {
 
             // 获取对应的内容区域ID
             const sectionId = this.getAttribute('data-section');
-            if (sectionId === 'character-bindings' && !document.getElementById(sectionId)?.dataset.loaded) {
-                window.location.assign('/dashboard/?section=character-bindings');
+            if (['dashboard-home', 'my-characters', 'character-bindings'].includes(sectionId) && !document.getElementById(sectionId)?.dataset.loaded) {
+                window.location.assign(`/dashboard/?section=${sectionId}`);
                 return;
             }
             if (!isSimcDashboardSection(sectionId)) deactivateSimcWorkbench();
@@ -6919,6 +6876,8 @@ function initSimcBackendUploadTool() {
 }
 
 async function fetchUnreadSystemAlerts(silent = true) {
+    const permissions = JSON.parse(document.getElementById('dashboard-permissions-data')?.textContent || '[]');
+    if (!permissions.includes('system.alerts')) return;
     try {
         const resp = await fetch(`/api/system-alert/?limit=${systemAlertFetchLimit}`, { method: 'GET' });
         const data = await resp.json();
@@ -7032,75 +6991,6 @@ function renderSystemAlertHome() {
     });
 }
 
-/**
- * 更新系统状态信息
- */
-function updateSystemStatus() {
-    // 模拟数据，实际应用中应该从服务器获取
-    const uptime = Math.floor(Math.random() * 30) + 1;
-    const cpuUsage = Math.floor(Math.random() * 100) + '%';
-    const memoryUsage = (Math.random() * 7 + 1).toFixed(1) + 'GB/8GB';
-
-    // 更新DOM元素
-    const uptimeEl = document.querySelector('#system-uptime');
-    const uptimeHomeEl = document.querySelector('#system-uptime-home');
-    const cpuEl = document.querySelector('#system-cpu');
-    const memoryEl = document.querySelector('#system-memory');
-
-    const uptimeText = `${uptime}天`;
-    if (uptimeEl) uptimeEl.textContent = `服务运行时间: ${uptimeText}`;
-    if (uptimeHomeEl) uptimeHomeEl.textContent = uptimeText;
-    if (cpuEl) cpuEl.textContent = `CPU使用率: ${cpuUsage}`;
-    if (memoryEl) memoryEl.textContent = `内存使用: ${memoryUsage}`;
-}
-
-/**
- * 更新最近活动信息
- */
-function updateRecentActivities() {
-    // 实际应用中应该从服务器获取数据
-    // 这里只是模拟数据
-    const activities = [
-        { time: formatDateTime(new Date()), action: '收到新的webhook请求' },
-        { time: formatDateTime(new Date(Date.now() - 1000 * 60 * 30)), action: '系统自动更新完成' },
-        { time: formatDateTime(new Date(Date.now() - 1000 * 60 * 60)), action: '用户登录' }
-    ];
-
-    // 更新DOM元素
-    const activitiesEl = document.querySelector('#recent-activities-list');
-    if (activitiesEl) {
-        activitiesEl.innerHTML = '';
-        activities.forEach(activity => {
-            const li = document.createElement('li');
-            li.textContent = `${activity.time} - ${activity.action}`;
-            activitiesEl.appendChild(li);
-        });
-    }
-}
-
-/**
- * 更新统计数据
- */
-function updateStatistics() {
-    // 实际应用中应该从服务器获取数据
-    // 这里只是模拟数据
-    const totalRequests = Math.floor(Math.random() * 10000) + 1000;
-    const todayRequests = Math.floor(Math.random() * 200);
-    const avgResponseTime = (Math.random() * 2).toFixed(1);
-
-    // 更新DOM元素
-    const totalEl = document.querySelector('#stat-total');
-    const todayEl = document.querySelector('#stat-today');
-    const avgTimeEl = document.querySelector('#stat-avg-time');
-
-    if (totalEl) totalEl.textContent = `总请求数: ${totalRequests.toLocaleString()}`;
-    if (todayEl) todayEl.textContent = `今日请求: ${todayRequests}`;
-    if (avgTimeEl) avgTimeEl.textContent = `平均响应时间: ${avgResponseTime}秒`;
-}
-
-/**
- * 判断是否为URL字段
- */
 function isUrlField(field) {
     const urlFields = ['url', 'link', 'target', 'source_url'];
     return urlFields.includes(field.toLowerCase());

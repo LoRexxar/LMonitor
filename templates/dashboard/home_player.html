@@ -1,0 +1,31 @@
+<header class="dh-heading">
+    <div><h1 id="dh-title">{{ request.user.username }}，欢迎回来</h1><p>{% if home.season %}{{ home.season }} · {% endif %}你的角色资料与每日更新，都在这里。</p></div>
+    <a class="dh-button dh-primary" href="{% url 'dashboard' %}?section=my-characters">管理与绑定角色 <i class="fas fa-arrow-right" aria-hidden="true"></i></a>
+</header>
+<div class="dh-player-layout">
+    <section class="dh-panel dh-roster" aria-labelledby="dh-roster-title">
+        <div class="dh-section-heading"><h2 id="dh-roster-title">我的角色</h2><span class="dh-muted">{{ home.counts.total }} / {{ home.limit }} 个名额</span></div>
+        {% if home.characters %}
+        <div class="dh-roster-labels" aria-hidden="true"><span>角色 / 服务器</span><span>装等</span><span>大秘境分数</span><span>资料</span></div>
+        {% for binding in home.characters %}
+        <article class="dh-character">
+            <div class="dh-identity">
+                <span class="dh-avatar" aria-hidden="true"><i class="fas fa-user"></i>{% if binding.icon_url %}<img src="{{ binding.icon_url }}" data-character-icon data-fallback="{{ binding.icon_fallback }}" alt="" width="48" height="48" loading="lazy" referrerpolicy="no-referrer">{% endif %}</span>
+                <div class="dh-name"><h3>{% if binding.detail_url %}<a href="{{ binding.detail_url }}">{{ binding.character_name }}</a>{% else %}{{ binding.character_name }}{% endif %}</h3><p>{{ binding.spec_label }}</p><p>{{ binding.player.realm|default:binding.realm_slug }} · {{ binding.region|upper }}</p></div>
+            </div>
+            <dl class="dh-number"><dt>装等</dt><dd>{% if binding.player.item_level != None %}{{ binding.player.item_level|floatformat:1 }}{% else %}<span class="dh-muted">待更新</span>{% endif %}</dd></dl>
+            <dl class="dh-number dh-score"><dt>大秘境分数</dt><dd>{% if binding.player.score != None %}{{ binding.player.score|floatformat:1 }}{% else %}<span class="dh-muted">待更新</span>{% endif %}</dd></dl>
+            <div class="dh-character-link">{% if binding.detail_url %}<a href="{{ binding.detail_url }}" aria-label="查看 {{ binding.character_name }} 的角色详情">查看详情 <i class="fas fa-arrow-right" aria-hidden="true"></i></a>{% else %}<span class="dh-muted">资料待更新</span>{% endif %}</div>
+            <div class="dh-character-meta"><span class="dh-state {% if binding.is_active %}dh-good{% endif %}">{% if binding.is_active %}每日更新已开启{% else %}更新已关闭{% endif %}</span><span>{% if binding.player.last_updated %}资料更新于 {{ binding.player.last_updated|date:'m-d H:i' }}{% else %}尚无更新记录{% endif %}</span></div>
+        </article>
+        {% endfor %}
+        {% if home.has_more %}<a class="dh-more" href="{% url 'dashboard' %}?section=my-characters">查看全部 {{ home.counts.total }} 个角色</a>{% endif %}
+        {% else %}
+        <div class="dh-empty dh-welcome"><i class="fas fa-user-plus" aria-hidden="true"></i><h3>把你的第一个角色带到这里</h3><p>输入角色名和服务器名，验证后即可查看装等、分数与完整资料。</p><a class="dh-button dh-primary" href="{% url 'dashboard' %}?section=my-characters">绑定第一个角色</a></div>
+        {% endif %}
+    </section>
+    <aside class="dh-player-aside">
+        <section class="dh-panel dh-update-summary"><h2>角色更新</h2><p class="dh-update-lead"><strong>{{ home.counts.active }}</strong> 个角色参与每日更新</p><p class="dh-muted">与排行榜角色使用同一更新任务。关闭更新会保留绑定名额。</p><dl class="dh-facts"><div><dt>已关闭更新</dt><dd>{{ home.closed }} 个</dd></div><div><dt>账号绑定上限</dt><dd>{{ home.limit }} 个</dd></div></dl><a href="{% url 'dashboard' %}?section=my-characters">调整更新状态 <i class="fas fa-arrow-right" aria-hidden="true"></i></a></section>
+        <section class="dh-guide"><h2>从角色出发</h2><p>点击角色进入详情，查看装备、天赋及排行榜同款玩家资料。</p><p>右上角账号菜单也保留了角色快捷入口。</p><a href="/">返回站点首页 <i class="fas fa-arrow-right" aria-hidden="true"></i></a></section>
+    </aside>
+</div>

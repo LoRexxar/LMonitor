@@ -1,4 +1,4 @@
-<section id="character-bindings" class="content-section bb-page cb-page" {% if character_bindings_loaded %}data-loaded="1" data-page-url="{{ binding_action_url }}"{% else %}style="display: none;"{% endif %}>
+<section id="character-bindings" class="content-section bb-page cb-page cb-dashboard" {% if character_bindings_loaded %}data-loaded="1" data-page-url="{{ binding_action_url }}"{% else %}style="display: none;"{% endif %}>
 {% if character_bindings_loaded %}
 <header><h1>角色绑定管理</h1><p class="bb-muted">每个账号默认可绑定 5 个角色。可以单独调整上限、查询绑定关系和管理激活状态。</p></header>
 {% if error %}<p class="cb-feedback cb-error" role="alert">{{ error }}</p>{% elif saved %}<p class="cb-feedback" role="status">已保存。</p>{% endif %}

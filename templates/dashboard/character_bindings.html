@@ -1,5 +1,5 @@
-{% extends 'dashboard/character_bindings_base.html' %}
-{% block content %}
+<section id="my-characters" class="content-section bb-page cb-page cb-dashboard" {% if my_characters_loaded %}data-loaded="1" data-page-url="{{ character_action_url }}"{% else %}style="display: none;"{% endif %}>
+{% if my_characters_loaded %}
 <header class="cb-page-heading"><div><h1>我的角色</h1><p class="bb-muted">{{ request.user.username }} · 在这里查看角色资料，管理每日更新。</p></div><div class="cb-account-summary"><span>已绑定 <strong>{{ bindings|length }} / {{ limit }}</strong></span><span>已激活 <strong>{{ active_count }}</strong></span></div></header>
 {% if error %}<p class="cb-feedback cb-error" role="alert">{{ error }}</p>{% endif %}
 <section class="bb-card cb-roster" aria-labelledby="list-title">
@@ -26,8 +26,8 @@
         <div class="cb-character-footer">
             {% if binding.detail_url %}<a class="cb-detail" href="{{ binding.detail_url }}" aria-label="查看 {{ binding.character_name }} 的详情">查看角色详情 <span aria-hidden="true">→</span></a>{% else %}<span class="bb-muted">角色资料暂不可用</span>{% endif %}
             <div class="cb-actions">
-                <form method="post">{% csrf_token %}<input type="hidden" name="binding_id" value="{{ binding.pk }}"><button class="bb-secondary" name="action" value="{% if binding.is_active %}deactivate{% else %}activate{% endif %}" aria-label="{% if binding.is_active %}关闭{% else %}激活{% endif %} {{ binding.character_name }} 的更新">{% if binding.is_active %}关闭更新{% else %}激活更新{% endif %}</button></form>
-                <form method="post" data-confirm="确定解绑 {{ binding.character_name }}？解绑后可重新添加。">{% csrf_token %}<input type="hidden" name="binding_id" value="{{ binding.pk }}"><button class="bb-secondary cb-unbind" name="action" value="unbind" aria-label="解绑 {{ binding.character_name }}">解绑</button></form>
+                <form method="post" action="{{ character_action_url }}">{% csrf_token %}<input type="hidden" name="binding_id" value="{{ binding.pk }}"><button class="bb-secondary" name="action" value="{% if binding.is_active %}deactivate{% else %}activate{% endif %}" aria-label="{% if binding.is_active %}关闭{% else %}激活{% endif %} {{ binding.character_name }} 的更新">{% if binding.is_active %}关闭更新{% else %}激活更新{% endif %}</button></form>
+                <form method="post" action="{{ character_action_url }}" data-confirm="确定解绑 {{ binding.character_name }}？解绑后可重新添加。">{% csrf_token %}<input type="hidden" name="binding_id" value="{{ binding.pk }}"><button class="bb-secondary cb-unbind" name="action" value="unbind" aria-label="解绑 {{ binding.character_name }}">解绑</button></form>
             </div>
         </div>
     </article>
@@ -37,7 +37,7 @@
 <section class="bb-card" aria-labelledby="bind-title">
     <h2 id="bind-title">绑定角色</h2>
     <p class="bb-muted">填写角色名与服务器名，验证存在后自动绑定并激活。未收录的角色可选择区服后验证。</p>
-    <form method="post" class="cb-bind-form">
+    <form method="post" action="{{ character_action_url }}" class="cb-bind-form">
         {% csrf_token %}<input type="hidden" name="action" value="bind">
         <div><label for="character-name">角色名</label><input id="character-name" name="character_name" value="{{ form.character_name }}" maxlength="50" required autocomplete="off" placeholder="游戏内的完整角色名"></div>
         <div><label for="character-realm">服务器名</label><input id="character-realm" name="realm" value="{{ form.realm }}" maxlength="100" required autocomplete="off" placeholder="服务器中文名或英文标识"></div>
@@ -48,4 +48,5 @@
     </form>
     {% if bindings|length >= limit %}<p class="cb-feedback">已达到绑定上限。解绑可释放名额，也可联系管理员调整上限。</p>{% endif %}
 </section>
-{% endblock %}
+{% endif %}
+</section>

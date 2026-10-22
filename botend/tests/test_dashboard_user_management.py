@@ -26,7 +26,7 @@ class DashboardPageAccessTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get('/dashboard/')
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'window.DASHBOARD_DEFAULT_SECTION = "";')
+        self.assertEqual(response.context['dashboard_default_section'], 'dashboard-home')
         self.assertContains(response, 'dashboard-permissions-data')
 
     def test_staff_without_group_has_no_implicit_dashboard_page_access(self):
@@ -42,7 +42,7 @@ class DashboardPageAccessTests(TestCase):
         self.client.force_login(self.user)
         response = self.client.get('/dashboard/')
         self.assertEqual(response.status_code, 200)
-        self.assertContains(response, 'window.DASHBOARD_DEFAULT_SECTION = "news";')
+        self.assertEqual(response.context['dashboard_default_section'], 'dashboard-home')
         self.assertEqual(self.client.get('/dashboard/?section=news').status_code, 200)
         self.assertEqual(self.client.get('/dashboard/?section=database-tables').status_code, 403)
 

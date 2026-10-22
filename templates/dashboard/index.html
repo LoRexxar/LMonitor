@@ -543,7 +543,7 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261022_character_bindings"></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261022_my_characters"></script>
     {% block dashboard_extra_head %}{% endblock %}
     {% if page_name == 'dashboard' %}
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
@@ -553,7 +553,7 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20261022_character_bindings"></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20261022_traffic_home"></script>
     {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_shared_localization">
     <script src="{% static 'dashboard/js/guide_management.js' %}?v=20260909_tag_disclaimers" defer></script>
@@ -578,10 +578,11 @@
     <link rel="stylesheet" href="{% static 'dashboard/css/ai-management.css' %}?v=1">
     <script src="{% static 'dashboard/js/ai-management.js' %}?v=1" defer></script>
     {% endif %}
-    {% if user.is_superuser %}
     <link rel="stylesheet" href="{% static 'dashboard/css/bilibili_binding.css' %}">
-    <link rel="stylesheet" href="{% static 'dashboard/css/character_bindings.css' %}?v=20261022_dashboard">
+    <link rel="stylesheet" href="{% static 'dashboard/css/character_bindings.css' %}?v=20261022_my_characters">
+    <link rel="stylesheet" href="{% static 'dashboard/css/home.css' %}?v=20261022_traffic_home">
     <script src="{% static 'dashboard/js/character_bindings.js' %}" defer></script>
+    {% if user.is_superuser %}
     <script src="{% static 'dashboard/js/bilibili_binding_admin.js' %}?v=20260929_workspace" defer></script>
     <link rel="stylesheet" href="{% static 'dashboard/css/player-analysis-management.css' %}?v=20261018_triggered_investigation">
     <script src="{% static 'dashboard/js/player-analysis-management.js' %}?v=20261019_frozen_behavior_refs" defer></script>
@@ -668,7 +669,7 @@
                                 <p class="text-xs text-gray-500">{{ user.email }}</p>
                             </div>
                             {% character_shortcuts %}
-                            <a href="{% url 'my_character_bindings' %}" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">我的角色</a>
+                            <a href="{% url 'dashboard' %}?section=my-characters" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">我的角色</a>
                             {% if request.user.is_superuser %}<a href="{% url 'dashboard' %}?section=character-bindings" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">角色绑定管理</a>{% endif %}
                             <a href="/auth/bilibili/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">绑定 B 站账号</a>
                             <a href="/auth/change-password/" class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 transition-colors duration-200">
@@ -708,6 +709,7 @@
                     <li class="nav-item" data-section="site-analytics">
                         <a href="?section=site-analytics" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600"><i class="fas fa-chart-line mr-3"></i>站内统计</a>
                     </li>
+                    <li class="nav-item" data-section="my-characters"><a href="{% url 'dashboard' %}?section=my-characters" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50"><i class="fas fa-user-circle mr-3" aria-hidden="true"></i>我的角色</a></li>
                     <li class="nav-item" data-section="user-management">
                         <a href="#" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">
                             <i class="fas fa-users-cog mr-3"></i>
@@ -1025,166 +1027,7 @@
                     </div>
                 </div>
             </div>
-            <!-- 首页内容区域 -->
-            <div class="content-section" id="dashboard-home" style="display: none;">
-                <div class="mb-8">
-                    <h2 class="text-3xl font-bold text-gray-800 mb-2">数据统计概览</h2>
-                    <p class="text-gray-600">实时监控系统运行状态和数据统计</p>
-                </div>
-                
-                <!-- 统计卡片 -->
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-                    <!-- 监控任务统计 -->
-                    <div class="bg-white rounded-xl shadow-lg p-6 card-hover transition-all duration-300 border-l-4 border-blue-500">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide">活跃监控任务</h3>
-                                <div class="text-3xl font-bold text-gray-900 mt-2">{{ stats.monitor_tasks.active }}</div>
-                                <div class="text-sm text-gray-600 mt-1">共 {{ stats.monitor_tasks.total }} 个任务</div>
-                                <div class="text-xs text-green-600 mt-1">{{ stats.monitor_tasks.percentage }}% 活跃</div>
-                            </div>
-                            <div class="bg-blue-100 p-3 rounded-full">
-                                <i class="fas fa-tasks text-blue-600 text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 漏洞数据统计 -->
-                    <div class="bg-white rounded-xl shadow-lg p-6 card-hover transition-all duration-300 border-l-4 border-red-500">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide">漏洞数据</h3>
-                                <div class="text-3xl font-bold text-gray-900 mt-2">{{ stats.vulnerabilities.total }}</div>
-                                <div class="text-sm text-gray-600 mt-1">高危: {{ stats.vulnerabilities.high_severity }}</div>
-                                <div class="text-xs text-orange-600 mt-1">近7天: {{ stats.vulnerabilities.recent }}</div>
-                            </div>
-                            <div class="bg-red-100 p-3 rounded-full">
-                                <i class="fas fa-shield-alt text-red-600 text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 微信文章统计 -->
-                    <div class="bg-white rounded-xl shadow-lg p-6 card-hover transition-all duration-300 border-l-4 border-green-500">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide">微信文章</h3>
-                                <div class="text-3xl font-bold text-gray-900 mt-2">{{ stats.wechat.total_articles }}</div>
-                                <div class="text-sm text-gray-600 mt-1">活跃账号: {{ stats.wechat.active_accounts }}</div>
-                                <div class="text-xs text-green-600 mt-1">近7天: {{ stats.wechat.recent_articles }}</div>
-                            </div>
-                            <div class="bg-green-100 p-3 rounded-full">
-                                <i class="fab fa-weixin text-green-600 text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <!-- 系统活跃度 -->
-                    <div class="bg-white rounded-xl shadow-lg p-6 card-hover transition-all duration-300 border-l-4 border-purple-500">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-sm font-medium text-gray-500 uppercase tracking-wide">系统活跃度</h3>
-                                <div class="text-3xl font-bold text-gray-900 mt-2">{{ stats.activity.score }}</div>
-                                <div class="text-sm text-gray-600 mt-1">RSS: {{ stats.rss.total_articles }}</div>
-                                <div class="text-xs {% if stats.activity.level == 'high' %}text-green-600{% elif stats.activity.level == 'medium' %}text-yellow-600{% else %}text-red-600{% endif %} mt-1">
-                                    {% if stats.activity.level == 'high' %}高活跃{% elif stats.activity.level == 'medium' %}中活跃{% else %}低活跃{% endif %}
-                                </div>
-                            </div>
-                            <div class="bg-purple-100 p-3 rounded-full">
-                                <i class="fas fa-chart-line text-purple-600 text-xl"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
-                    <button type="button" id="dashboard-hotfix-entry" class="text-left bg-gradient-to-br from-orange-500 to-amber-500 rounded-xl shadow-lg p-6 text-white hover:from-orange-600 hover:to-amber-600 transition-all duration-200 card-hover">
-                        <div class="flex items-start justify-between gap-4">
-                            <div>
-                                <h3 class="text-lg font-semibold mb-2">Hotfix 报告</h3>
-                                <p class="text-sm text-orange-50 leading-6">查看 Wago Hotfix 监控状态、最近事件和已生成报告。</p>
-                                <div class="mt-4 inline-flex items-center text-sm font-medium">
-                                    进入报告页 <i class="fas fa-arrow-right ml-2"></i>
-                                </div>
-                            </div>
-                            <div class="bg-white/20 p-3 rounded-full shrink-0">
-                                <i class="fas fa-fire text-2xl"></i>
-                            </div>
-                        </div>
-                    </button>
-                    <button type="button" id="dashboard-wow-daily-entry" class="text-left bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:bg-blue-50 transition-all duration-200 card-hover">
-                        <div class="flex items-start justify-between gap-4">
-                            <div>
-                                <h3 class="text-lg font-semibold text-gray-800 mb-2">WoW 日报</h3>
-                                <p class="text-sm text-gray-600 leading-6">查看或生成每天的魔兽资讯日报。</p>
-                                <div class="mt-4 inline-flex items-center text-sm font-medium text-blue-600">
-                                    打开日报 <i class="fas fa-arrow-right ml-2"></i>
-                                </div>
-                            </div>
-                            <div class="bg-blue-100 p-3 rounded-full shrink-0">
-                                <i class="fas fa-book text-blue-600 text-2xl"></i>
-                            </div>
-                        </div>
-                    </button>
-                    <button type="button" id="dashboard-news-entry" class="text-left bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:bg-sky-50 transition-all duration-200 card-hover">
-                        <div class="flex items-start justify-between gap-4">
-                            <div>
-                                <h3 class="text-lg font-semibold text-gray-800 mb-2">新闻资讯</h3>
-                                <p class="text-sm text-gray-600 leading-6">查看 Blizzard Tracker、Wowhead 等新闻采集。</p>
-                                <div class="mt-4 inline-flex items-center text-sm font-medium text-sky-600">
-                                    打开新闻 <i class="fas fa-arrow-right ml-2"></i>
-                                </div>
-                            </div>
-                            <div class="bg-sky-100 p-3 rounded-full shrink-0">
-                                <i class="fas fa-newspaper text-sky-600 text-2xl"></i>
-                            </div>
-                        </div>
-                    </button>
-                </div>
-
-                <!-- 详细统计信息 -->
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    <!-- RSS统计 -->
-                    <div class="bg-white rounded-xl shadow-lg p-6">
-                        <h3 class="text-lg font-semibold text-gray-800 mb-4">内容监控统计</h3>
-                        <div class="space-y-4">
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-600">RSS文章总数</span>
-                                <span class="font-semibold text-gray-900">{{ stats.rss.total_articles }}</span>
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-600">活跃RSS任务</span>
-                                <span class="font-semibold text-gray-900">{{ stats.rss.active_tasks }}</span>
-                            </div>
-                            <div class="flex justify-between items-center">
-                                <span class="text-gray-600">近7天RSS文章</span>
-                                <span class="font-semibold text-green-600">{{ stats.rss.recent_articles }}</span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div class="bg-white rounded-xl shadow-lg p-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-lg font-semibold text-gray-800">未读报警</h3>
-                            <div class="flex items-center gap-2">
-                                <button id="system-alert-home-refresh" class="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors duration-200 text-sm">
-                                    <i class="fas fa-rotate-right mr-1"></i>刷新
-                                </button>
-                                <button id="system-alert-home-mark-all" class="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors duration-200 text-sm">
-                                    全部已读
-                                </button>
-                            </div>
-                        </div>
-                        <div id="system-alert-home-hint" class="text-xs text-gray-500 mb-3"></div>
-                        <div id="system-alert-home-list" class="space-y-3"></div>
-                        <div id="system-alert-home-empty" class="text-center text-gray-500 py-8 hidden">暂无未读报警</div>
-                    </div>
-
-
-                </div>
-                
-
-            </div>
+            {% include 'dashboard/home.html' %}
 
             <!-- News 内容区域 -->
             <div class="content-section" id="news" style="display: none;">
@@ -2382,6 +2225,7 @@
 
             </div>
             
+            {% include 'dashboard/character_bindings.html' %}
             {% include 'dashboard/site_analytics.html' %}
             {% if user.is_superuser %}
             {% include 'dashboard/player_analysis_management.html' %}
