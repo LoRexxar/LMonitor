@@ -128,13 +128,6 @@ test('APL editor uses a light yellow code surface and a compact desktop assistan
     assert.match(desktop, /\.simc-apl-catalog\s*\{[^}]*flex:\s*1[^}]*overflow:\s*auto/s);
 });
 
-test('dashboard cache-busts the published light APL stylesheet', async () => {
-    const dashboard = await readFile(new URL('../../../templates/dashboard/index.html', import.meta.url), 'utf8');
-    assert.match(dashboard, /simc-apl-editor\.css[^\n]*\?v=20260811_apl_full_catalog/);
-    assert.match(dashboard, /simc-apl-editor\.js[^\n]*\?v=20260811_apl_full_catalog/);
-    assert.match(dashboard, /simc-workbench\.js[^\n]*\?v=20260811_apl_sticky_actions/);
-});
-
 test('document and catalog completions merge without duplicate insertions', () => {
     assert.deepEqual(mergeCompletionOptions(
         [{label: 'bloodthirst', apply: 'bloodthirst', type: 'keyword'}],

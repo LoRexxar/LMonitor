@@ -1,23 +1,21 @@
+const {test, createDOM, mount, initDashboard, closeDOM, response, tick} = require('./player_analysis_dom_harness');
 // Real mount/DOM and the existing detail response envelope; no rendering mocks.
 // NODE_PATH=/tmp/lmonitor-analysis-ui-test/node_modules node --test botend/tests/player_analysis_investigation_test.js
-const {test}=require('node:test');
 const assert=require('node:assert/strict');
-const {JSDOM}=require('jsdom');
 const fixture=require('./player_analysis_investigation_fixture.json');
-const {mount}=require('../../static/dashboard/js/player-analysis-management.js');
 async function setup(change=()=>{}) {
     const row=structuredClone(fixture);change(row);
-    const dom=new JSDOM('<section id="player-analyses"><div id="app"></div></section>',{url:'https://example.com/dashboard/',pretendToBeVisual:true});
+    const dom=createDOM('<section id="player-analyses"><div id="app"></div></section>',{url:'https://example.com/dashboard/',pretendToBeVisual:true});
     const doc=dom.window.document,calls=[];
     const app=mount(doc.querySelector('#app'),{confirm:()=>true,fetch:async(url,options)=>{
         calls.push([url,options]);
         const data=url.endsWith('/recheck/')?{state:'idle'}:url.includes('?')?{items:[row],page:1,total:1,total_pages:1}:row;
-        return {ok:true,status:200,json:async()=>({status:'success',data:structuredClone(data)})};
+        return response(data);
     }});
     await app.ready;
     const click=async(selector)=>{doc.querySelector(selector).click();await app.settled();};
     await click('[data-action="open"]');
-    return {row,doc,app,calls,click,close:()=>{app.destroy();dom.window.close();}};
+    return {row,doc,app,calls,click,close:()=>{closeDOM(dom,app);}};
 }
 // Server fixtures come through the actual validator and projection, not a fake API success.
 const {execFileSync}=require('node:child_process');
@@ -28,7 +26,7 @@ import os,json
 os.environ['DJANGO_SETTINGS_MODULE']='LMonitor.settings_test_sqlite'
 import django
 django.setup()
-from botend.tests.test_player_analysis_projection import publication,portal
+from botend.tests.test_player_analysis_presentation import publication,portal
 from botend.services.player_analysis_management import frozen_ai
 ai=frozen_ai(publication(${version}))
 print(json.dumps({'ai': ai, 'html': portal(ai['rendered_investigation'])},ensure_ascii=False))
@@ -56,7 +54,7 @@ for(const version of [7,8])test(`v${version} real frozen projection → manageme
         assert.ok(f.doc.querySelector('[data-action="recheck"]'));
         assert.equal(f.doc.querySelector('.pa-results [data-investigation]'),null);
         if(version===7)assert.match(f.doc.querySelector('[data-publication-validation]').textContent,/无需.*重新生成/);
-        const dom=new JSDOM(html);try {
+        const dom=createDOM(html);try {
             const portal=dom.window.document.querySelector('[data-player-investigation]');assert.ok(portal);
             assert.match(portal.textContent,/A & B < C <img src=x onerror=alert\(1\)> 中文三场/);
             assert.equal(portal.querySelectorAll('img,script,[onerror]').length,0);
@@ -78,7 +76,7 @@ for(const surface of ['Portal','management'])test(`v8 limitations remain complet
     try {
         let paragraphs;
         if(surface==='Portal') {
-            dom=new JSDOM(html);
+            dom=createDOM(html);
             paragraphs=[...dom.window.document.querySelectorAll('[data-player-investigation] p.player-observation__note')];
         } else {
             f=await setup(row=>{row.ai=ai;row.prompt_version=8;});

@@ -851,8 +851,25 @@ class SimcAgentJobAPITests(TestCase):
         _finalize_task(task, timezone.now())
 
         task.refresh_from_db()
+        self.assertEqual(task.current_status, 1)
+        recommendation = task.analysis_result['attribute_search']
+        self.assertTrue(recommendation['converged'])
+        self.assertEqual(recommendation['marginal_gain_status'], 'pending')
+        marginal_runs = list(task.simulation_runs.filter(status='pending'))
+        self.assertTrue(marginal_runs)
+        for run in marginal_runs:
+            marginal = run.candidate_params['search']['marginal_gain']
+            run.status = 'completed'
+            run.result_summary = {'dps': 100000 + marginal['amount'], 'dps_error': 100}
+            run.completed_at = timezone.now()
+            run.save(update_fields=['status', 'result_summary', 'completed_at'])
+        _finalize_task(task, timezone.now())
+
+        task.refresh_from_db()
         self.assertEqual(task.current_status, 2)
         self.assertTrue(task.analysis_result['attribute_search']['converged'])
+        self.assertEqual(task.analysis_result['attribute_search']['ratings'], ratings)
+        self.assertEqual(task.analysis_result['attribute_search']['marginal_gain_status'], 'completed')
         self.assertEqual(
             task.analysis_result['attribute_search']['stop_reason'],
             'local_optimum_20_pairwise',

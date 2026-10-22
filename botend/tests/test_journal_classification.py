@@ -91,9 +91,12 @@ class JournalClassificationViewTests(TestCase):
             {'ID': '1', 'JournalInstanceID': '1307', 'JournalTierID': '516'},
             {'ID': '2', 'JournalInstanceID': '1307', 'JournalTierID': '505', 'AvailabilityCondition': '149388'},
         ]
-        self.release = journal_tests.JournalPublicationTests.publish(self, tables)
+        # Publication seeds central gear facts for the active business season.
+        # Create it first so a synthetic snapshot-unit catalog cannot win selection.
         self.season = SeasonMeta.objects.create(season_key='mn-s2', season_name='至暗之夜第 2 赛季',
-                                               is_active=True, mplus_zone_id=1, raid_zone_id=2)
+                                               is_active=True, mplus_zone_id=1, raid_zone_id=2,
+                                               gear_batch_key='classification-unit')
+        self.release = journal_tests.JournalPublicationTests.publish(self, tables)
 
     def test_old_release_is_corrected_in_list_filter_detail_without_reimport(self):
         instance = JournalInstance.objects.get(release=self.release)

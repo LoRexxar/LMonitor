@@ -3,11 +3,15 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class SimcAgentLeaseMigrationTests(TransactionTestCase):
     migrate_from = [('botend', '0136_simc_agent_identity')]
     migrate_to = [('botend', '0137_simulationrun_agent_lease')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_from)
         apps = executor.loader.project_state(self.migrate_from).apps
@@ -32,9 +36,6 @@ class SimcAgentLeaseMigrationTests(TransactionTestCase):
         self.run_id = run.pk
         self.newest_id = newest.pk
 
-    def tearDown(self):
-        MigrationExecutor(connection).migrate(self.migrate_to)
-        super().tearDown()
 
     def test_forward_migration_keeps_newest_duplicate_before_unique_constraint(self):
         executor = MigrationExecutor(connection)

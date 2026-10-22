@@ -36,7 +36,7 @@ NODE_PRESENTATION = r'''
 const fs = require('node:fs'), vm = require('node:vm');
 const nodes = new Map();
 const node = () => ({replaceChildren(...children) {this.children = children;}});
-const context = {document: {
+const context = {structuredClone, document: {
   querySelector: () => ({dataset: {}}),
   getElementById: id => {if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id);},
   createElement: tag => tag === 'template' ? {content: {firstElementChild: {isConnected: true}}} : node(),
@@ -45,6 +45,7 @@ const context = {document: {
 vm.runInNewContext(fs.readFileSync('static/shared/js/wow-gear-sources.js', 'utf8'), context);
 vm.runInNewContext(fs.readFileSync('static/shared/js/wow-item-tooltip.js', 'utf8'), context);
 const source = fs.readFileSync('static/portal/js/gear_builder.js', 'utf8');
+if (source.split('  initialize();').length !== 2) throw new Error('initialize marker must be unique');
 vm.runInNewContext(source.replace('  initialize();', `globalThis.qa = {
   tooltipText, variantLabel, sourceText, shortSourceText, socketCapacity,
   simcEquipmentLine, compactShareState, previewSlotMarkup, craftingFields,
@@ -67,16 +68,22 @@ const result = input.items.flatMap(item => (item.variants || []).map(variant => 
     shortSource: context.qa.shortSourceText(variant), sockets: context.qa.socketCapacity(entry),
     preview: context.qa.previewSlotMarkup(slot), crafting: context.qa.craftingFields(entry),
     simc: context.qa.simcEquipmentLine(slot, entry),
-    share: context.qa.compactShareState({className: 'Warrior', specName: 'Fury', batchKey: 'oracle', equipment: {[slot]: entry}})};
+    share: context.qa.compactShareState({className: 'Warrior', specName: 'Fury', batchKey: variant.batch_key || 'oracle', equipment: {[slot]: entry}})};
 }));
 process.stdout.write(JSON.stringify(result));
 '''
 
 
 def presentation(items, bootstrap=None):
+    # A current catalog consumer has every canonical slot and the actual batch;
+    # an invented batch/unknown slot deliberately triggers lossless legacy backup.
+    if bootstrap is None:
+        bootstrap = {'slots': [{'key': key, 'label': label} for key, label in gb.EQUIPMENT_SLOTS]}
     proc = subprocess.run(['node', '-e', NODE_PRESENTATION], cwd=ROOT,
                           input=json.dumps({'items': items, 'bootstrap': bootstrap}),
-                          text=True, capture_output=True, check=True)
+                          text=True, capture_output=True, check=False)
+    if proc.returncode:
+        raise AssertionError(f'Node oracle failed ({proc.returncode}):\n{proc.stderr}')
     return json.loads(proc.stdout)
 
 
@@ -93,7 +100,9 @@ def without_private_facts(value):
 def filtered(payload, options):
     proc = subprocess.run(['node', 'botend/tests/js/gear-catalog-filter-oracle.mjs'],
                           cwd=ROOT, input=json.dumps([{'payload': payload, 'options': o} for o in options]),
-                          text=True, capture_output=True, check=True)
+                          text=True, capture_output=True, check=False)
+    if proc.returncode:
+        raise AssertionError(f'Node oracle failed ({proc.returncode}):\n{proc.stderr}')
     return json.loads(proc.stdout)
 
 

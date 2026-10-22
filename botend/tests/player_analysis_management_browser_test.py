@@ -47,9 +47,11 @@ def main():
                'ai': {'tags': [{'label': '固定队', 'value': '已核验', 'reason': '<script>不能执行</script>', 'evidence': []}],
                       'conclusion': '冻结结论', 'evidence': [{'text': '冻结证据', 'url': 'https://example.com/proof'}],
                       'result_json': {'fixture': True}, 'evidence_json': {}}, 'effective': {}}
-    investigation_fixture = json.loads((ROOT / 'botend/tests/player_analysis_investigation_fixture.json').read_text())
-    fixture['ai']['result_json'] = investigation_fixture['ai']['result_json']
-    fixture['ai']['evidence_json'] = investigation_fixture['ai']['evidence_json']
+    from botend.tests.test_player_analysis_presentation import publication, TEXT
+    from botend.services.player_analysis_management import frozen_ai
+    fixture['ai'] = frozen_ai(publication())
+    assert fixture['ai']['validation_status'] == 'valid'
+    projection = fixture['ai']['rendered_investigation']
     calls = []
     list_queries = []
 
@@ -128,22 +130,22 @@ def main():
                 assert listing.locator('.pa-list-tag').first.is_visible()
         page.locator('[data-action="open"]').click()
         page.locator('.pa-detail h2').wait_for()
-        assert page.locator('.pa-detail').inner_text().find('冻结证据') >= 0
+        assert TEXT in page.locator('.pa-detail').inner_text()
         assert page.locator('.pa-detail script').count() == 0
         investigation = page.locator('.pa-investigation')
-        assert investigation.locator('[data-investigation-hypothesis]').count() == 2
-        assert investigation.locator('[data-model-hypothesis]').count() == 2
-        assert investigation.locator('[data-investigation-question]').count() == 1
-        assert '已有线索、尚未证实' in investigation.inner_text()
-        assert '当前成绩仅作采集时点的代理，不代表完成当场加分' in investigation.inner_text()
-        assert '付款与钥匙归属仍属未知' in investigation.inner_text()
-        assert 'AI 模型解释（不是已验证事实）' in investigation.inner_text()
-        assert '预算耗尽，保留待核查问题' in investigation.inner_text()
-        assert 'missing-evidence · 冻结引用未提供' in investigation.inner_text()
-        assert '<script>不执行</script>' in investigation.inner_text()
-        assert investigation.locator('script,img,iframe,a[href^="javascript:"]').count() == 0
-        assert investigation.locator('a[href="https://raider.io/mythic-plus-runs/season-test/101"]').count() > 0
-        assert '已有本人低于当前同本' not in listing.inner_text()
+        assert investigation.locator('[data-investigation-hypothesis]').count() == len(projection['hypotheses'])
+        assert TEXT in investigation.inner_text()
+        for hypothesis in projection['hypotheses']:
+            card = investigation.locator('[data-investigation-hypothesis="' + hypothesis['id'] + '"]')
+            for kind in ('evidence', 'counter_evidence', 'unknown_evidence'):
+                group = card.locator('[data-evidence-kind="' + kind + '"]')
+                assert group.locator('li').count() == len(hypothesis[kind])
+                for evidence in hypothesis[kind]:
+                    assert evidence['text'] in group.inner_text()
+        for limitation in projection['limitations']:
+            assert limitation in investigation.inner_text()
+        assert investigation.locator('script,img,iframe,[onerror],a[href^="javascript:"]').count() == 0
+        assert TEXT not in listing.inner_text()
         assert not any(method != 'GET' for _, method in calls), calls
         for width in (1440, 390):
             page.set_viewport_size({'width': width, 'height': 1000})
@@ -193,21 +195,17 @@ def main():
         page.keyboard.press('Escape')
         page.locator('.pa-detail').wait_for(state='hidden')
         assert page.locator('[data-action="open"]').evaluate('(n) => n === document.activeElement')
-        # Legacy and partial frozen responses must keep the same real editor.
-        fixture['ai']['result_json'] = {}
-        fixture['ai']['evidence_json'] = {}
+        # A real invalid frozen publication remains audit-only, never raw prose.
+        invalid = publication()
+        invalid.evidence_json['evidence'][0]['text'] = 'tampered'
+        fixture['ai'] = frozen_ai(invalid)
+        assert fixture['ai']['validation_status'] == 'invalid'
         page.locator('[data-action="open"]').click()
         page.locator('.pa-detail h2').wait_for()
         assert page.locator('.pa-investigation').count() == 0
-        assert '冻结结论' in page.locator('.pa-projections').inner_text()
+        assert page.locator('[data-publication-validation]').count() == 1
+        assert page.locator('[data-action="copy-ai"]').count() == 0
         assert page.locator('[data-field="conclusion"]').count() == 1
-        page.locator('[data-action="close"]').click()
-        fixture['ai']['evidence_json'] = {'metrics': {'investigation': {'version': 1, 'triggered': True}}}
-        page.locator('[data-action="open"]').click()
-        page.locator('.pa-investigation').wait_for()
-        assert '触发原因未提供' in investigation.inner_text()
-        assert '停止原因未提供' in investigation.inner_text()
-        assert '未提供待核查问题，不代表所有解释已解决' in investigation.inner_text()
         assert errors == [], errors
         browser.close()
     print(json.dumps({'browser': 'Chromium', 'viewports': [1440, 390], 'themes': ['light', 'dark'],

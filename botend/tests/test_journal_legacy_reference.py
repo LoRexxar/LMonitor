@@ -52,7 +52,8 @@ class JournalLegacyReferenceTests(TestCase):
         self.assertNotContains(response, '品质、装等、属性与特效使用同一已验证难度变体')
         snapshots._write(snapshots._directory(key) / 'data.json', native)
         response = self.client.get(url)
-        self.assertContains(response, '品质、装等、属性与特效使用同一已验证难度变体')
+        self.assertEqual(response.context['loot_snapshot'], native['snapshot'])
+        self.assertNotEqual(response.context['loot_snapshot'].get('representation'), 'legacy_reference')
         self.assertContains(response, '难度装等 / 属性')
         self.assertNotContains(response, '沿用此坐标原有参考快照')
 

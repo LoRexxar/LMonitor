@@ -6,6 +6,9 @@ from django.db import connection
 from django.db.migrations.executor import MigrationExecutor
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class Migration0109TestCase(TransactionTestCase):
     """Test forward and backward migration for 0109."""
 
@@ -13,6 +16,7 @@ class Migration0109TestCase(TransactionTestCase):
     migrate_to = [('botend', '0109_create_simc_apl_and_migrate_data')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         self.executor = MigrationExecutor(connection)
         self.executor.migrate(self.migrate_from)
         self.old_apps = self.executor.loader.project_state(self.migrate_from).apps

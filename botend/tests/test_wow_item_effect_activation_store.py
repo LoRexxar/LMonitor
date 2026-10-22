@@ -35,7 +35,15 @@ class ActivationStoreTests(TestCase):
     def test_freeze_preserves_options_and_original_and_is_branch_bound(self):
         merge_item_effect_activation([self.fact], is_ptr=True)
         facts = item_activation_facts([9901]);before=deepcopy(self.params)
-        resolved=freeze_equipment_activation(self.params,facts)
+        self.item.refresh_from_db()
+        metadata_before = deepcopy(self.item.metadata)
+        with self.assertNumQueries(0):
+            cached = item_activation_facts([9901, 999999], loaded_items={9901: self.item})
+            self.assertEqual(item_activation_facts([], loaded_items={9901: self.item}), {})
+            self.assertEqual(item_activation_facts([9901], loaded_items={}), {})
+        self.assertEqual(cached, facts)
+        resolved=freeze_equipment_activation(self.params,cached)
+        self.assertEqual(self.item.metadata, metadata_before)
         self.assertEqual(self.params,before)
         self.assertEqual(resolved['gear_swap']['raw_value'],',id=9901,ilevel=321,bonus_id=7/12,gem_id=4')
         target=resolved['equipment_effect_expectation']['targets'][0]

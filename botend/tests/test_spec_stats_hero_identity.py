@@ -3,7 +3,8 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.core.management import call_command
-from django.test import RequestFactory, SimpleTestCase
+from django.test import RequestFactory, TestCase
+from botend.models import SeasonMeta
 
 from botend.constants.hero_talents import spec_hero_subtree_ids
 from botend.constants.wow import CLASS_SPEC_MAP
@@ -14,7 +15,7 @@ from botend.services.spec_stats_service import (
 from botend.wow.talents.build_code import TalentBuildCodeDecoder
 
 
-class DungeonHeroIdentityTests(SimpleTestCase):
+class DungeonHeroIdentityTests(TestCase):
     PROTECTION_CODE = ('CkEAAAAAAAAAAAAAAAAAAAAAAkBAAGzwMzMzMmNzMLzYMGNzMGWMmZGzwMDAAAAWmZAmxAMwGssY0YGAzSMzGMmZGGbDAmZAAYGwA')
     ARMS_CODE = ('CcEAjLzRlq54bI5v+r8Sr9Xw4jZmZmFzYmZGAAAghphZGmZzMzMzYmxMDAAAAgxyMDsFGLLDsAGwMMBmBbgZGGGMbzsNAzMAYM8AA')
 
@@ -147,7 +148,12 @@ class DungeonHeroIdentityTests(SimpleTestCase):
         request = RequestFactory().get('/portal/spec/Warrior/Protection/dungeons/?dungeon_id=61762')
         SpecDetailDungeonView().get(request, 'Warrior', 'Protection')
         get_detail.assert_not_called()
-        self.assertIs(render.call_args.args[2]['dungeon_detail'], detail)
+        projected = render.call_args.args[2]['dungeon_detail']
+        self.assertEqual(projected['talent_popularity_tree'], detail['talent_popularity_tree'])
+        self.assertEqual(projected['dungeon_id'], detail['dungeon_id'])
+        self.assertTrue(projected['wcl_refresh_pending'])
+        self.assertNotIn('talent_build_popularity', projected)
+        self.assertIn('talent_build_popularity', detail)  # projection is non-mutating
 
     @patch('botend.management.commands.aggregate_spec_stats.os.makedirs')
     @patch('botend.management.commands.aggregate_spec_stats.Command._aggregate_leaderboard')
@@ -156,8 +162,10 @@ class DungeonHeroIdentityTests(SimpleTestCase):
     @patch('botend.management.commands.aggregate_spec_stats.SeasonMeta.objects.filter')
     def test_dungeon_only_refresh_touches_all_specs_without_raid_or_players(
             self, season_filter, dungeon, raid, players, mkdir):
-        season_filter.return_value.first.return_value = SimpleNamespace(id=3, season_key='season-3')
-        call_command('aggregate_spec_stats', season=3, dungeon_only=True)
+        season = SeasonMeta.objects.create(id=3, season_key='season-3', season_name='Test',
+                                          mplus_zone_id=1, raid_zone_id=2)
+        season_filter.return_value.first.return_value = season
+        call_command('aggregate_spec_stats', season=3, dungeon_only=True, allow_legacy=True)
         self.assertEqual(dungeon.call_count, sum(len(specs) for specs in CLASS_SPEC_MAP.values()))
         self.assertTrue(all(args.args[0].id == 3 for args in dungeon.call_args_list))
         raid.assert_not_called()

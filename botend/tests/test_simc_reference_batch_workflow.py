@@ -3,6 +3,7 @@
 One request is one reference Task; candidate executions are immutable Runs.
 Task rows never store a composed/frozen SimC body.
 """
+from botend.tests.simc_api_worker_fixtures import plate_head
 import hashlib
 import json
 
@@ -98,6 +99,7 @@ class ReferenceBatchTaskCreationServiceTests(TestCase):
             is_selectable=True,
         )
         mark_apl_valid(self.apl)
+        plate_head(299001)
 
     def test_comparison_task_freezes_candidates_without_creating_runs(self):
         task = create_task(
@@ -234,6 +236,7 @@ class ReferenceBatchAPIViewTests(TestCase):
             is_selectable=True,
         )
         mark_apl_valid(self.apl)
+        plate_head(299001)
 
     def test_gear_batch_api_creates_one_shared_reference_task_with_runs(self):
         response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
@@ -637,8 +640,18 @@ class ReferenceBatchAPIViewTests(TestCase):
         task.current_status = 2
         task.save(update_fields=['current_status'])
 
+        # Reset is an explicit forbidden state transition, not an ignored field.
+        rejected = self.client.put('/api/simc-task/', data=json.dumps({
+            'id': task.id, 'name': 'Must not rename', 'current_status': 0,
+        }), content_type='application/json')
+        self.assertEqual(rejected.status_code, 400)
+        task.refresh_from_db()
+        self.assertEqual(task.name, 'Immutable run')
+        self.assertEqual(task.current_status, 2)
+
+        # A legitimate rename still succeeds; frozen inputs remain immutable.
         response = self.client.put('/api/simc-task/', data=json.dumps({
-            'id': task.id, 'name': 'Renamed only', 'current_status': 0,
+            'id': task.id, 'name': 'Renamed only',
             'simc_profile_id': 0, 'task_type': 2, 'ext': 'tampered',
         }), content_type='application/json')
 

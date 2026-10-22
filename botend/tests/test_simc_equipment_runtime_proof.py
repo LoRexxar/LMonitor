@@ -5,14 +5,14 @@ from unittest.mock import patch
 from django.test import SimpleTestCase
 
 import simc_equipment_control as native
-from botend.tests.test_simc_equipment_native_gate import NativeEquipmentEffectGateTests
+from botend.tests import test_simc_equipment_native_gate as gate_fixtures
 from botend.tests.test_simc_equipment_result_evidence import native_html
 from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
 
 
 class NativeRuntimeProofTests(SimpleTestCase):
     def prepared(self, control=False):
-        fixture = NativeEquipmentEffectGateTests()
+        fixture = gate_fixtures.NativeEquipmentEffectGateTests()
         fixture.setUp()
         return fixture.prepare('neck=,id=100001,ilevel=321', ['neck'], control)
 

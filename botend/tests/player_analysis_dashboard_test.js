@@ -1,16 +1,12 @@
+const {test, createDOM, mount, initDashboard, closeDOM, response, tick} = require('./player_analysis_dom_harness');
 // NODE_PATH=/tmp/lmonitor-analysis-ui-test/node_modules node --test botend/tests/player_analysis_dashboard_test.js
-const {test} = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const {JSDOM} = require('jsdom');
-const {mount, initDashboard} = require('../../static/dashboard/js/player-analysis-management.js');
-const tick = () => new Promise(resolve => setImmediate(resolve));
-const response = data => ({ok:true,status:200,json:async()=>({status:'success',data})});
 const empty = {items:[],page:1,total:0,total_pages:1};
 
 async function dashboard(search='') {
-    const dom = new JSDOM(`<meta name="csrf-token" content="test-token"><ul>
+    const dom = createDOM(`<meta name="csrf-token" content="test-token"><ul>
       <li class="nav-item" data-section="dashboard-home"><a href="?">首页</a></li>
       <li class="nav-item" data-section="player-analyses"><a href="?section=player-analyses">角色分析</a></li></ul>
       <section id="dashboard-home" class="content-section active"></section>
@@ -55,7 +51,7 @@ test('real sidebar/router lazy mounts once, keeps drafts on return, restores que
         root.querySelector('.pa-filters').dispatchEvent(new win.Event('submit',{bubbles:true,cancelable:true}));await tick();
         assert.equal(calls.length,2,'one submit must cause only one request');
         assert.equal(new URL(calls[1][0],win.location).searchParams.get('q'),'保留筛选');
-    } finally {panel.destroy();dom.window.close();}
+    } finally {closeDOM(dom,panel);}
 });
 
 test('direct query entry activates the existing router without eager requests',async()=>{
@@ -65,11 +61,11 @@ test('direct query entry activates the existing router without eager requests',a
         win.activateDashboardLocation();await tick();
         assert.equal(calls.length,1);
         assert.equal(win.document.querySelectorAll('.pa-filters').length,1);
-    } finally {panel.destroy();dom.window.close();}
+    } finally {closeDOM(dom,panel);}
 });
 
 test('mount is idempotent; destroy aborts reads, removes listeners and ignores late responses',async()=>{
-    const dom=new JSDOM('<div id="root"></div>',{url:'https://example.com/dashboard/'});
+    const dom=createDOM('<div id="root"></div>',{url:'https://example.com/dashboard/'});
     const root=dom.window.document.getElementById('root');
     let release, signal, calls=0;
     const app=mount(root,{fetch:async(_url,options)=>{calls++;signal=options.signal;return new Promise(resolve=>release=resolve);}});
@@ -82,12 +78,12 @@ test('mount is idempotent; destroy aborts reads, removes listeners and ignores l
     assert.equal(calls,1);assert.equal(root.children.length,0);
     const fresh=mount(root,{fetch:async()=>{calls++;return response(empty);}});
     await fresh.ready;assert.equal(calls,2);assert.equal(root.querySelectorAll('.pa-filters').length,1);
-    fresh.destroy();dom.window.close();
+    closeDOM(dom,fresh);
 });
 
 test('panel stylesheet cannot restyle the Dashboard shell or sibling panels',()=>{
     const css=fs.readFileSync(path.join(__dirname,'../../static/dashboard/css/player-analysis-management.css'),'utf8');
-    const dom=new JSDOM(`<style>${css}</style>`);
+    const dom=createDOM(`<style>${css}</style>`);
     function inspect(rules) {
         for(const rule of rules) {
             if(rule.cssRules)inspect(rule.cssRules);
@@ -118,6 +114,10 @@ test('history restores home after direct panel entry without replacing the forwa
     const {dom,win,doc,calls,panel,nav}=await dashboard('?section=player-analyses');
     try {
         win.DASHBOARD_DEFAULT_SECTION='player-analyses';
+        // This fixture excludes unrelated page bootstrap; preserve its actual
+        // listener registration contract before driving the real popstate handler.
+        assert.match(fs.readFileSync(path.join(__dirname,'../../static/dashboard/js/main.js'),'utf8'),
+            /window\.addEventListener\(\s*['"]popstate['"]\s*,\s*activateDashboardLocation\s*\)/);
         win.addEventListener('popstate',win.activateDashboardLocation);
         win.activateDashboardLocation();await tick();
         nav('dashboard-home');nav('player-analyses');await tick();
@@ -131,11 +131,54 @@ test('history restores home after direct panel entry without replacing the forwa
         await tick();
         assert.ok(doc.getElementById('player-analyses').classList.contains('active'));
         assert.equal(calls.length,1);
-    } finally {panel.destroy();dom.window.close();}
+    } finally {closeDOM(dom,panel);}
+});
+
+test('router replaces stale section/tool/table selectors and preserves restorable state',async()=>{
+    const {win}=await dashboard('?section=old&tool=old&table=old');
+    // The small DOM fixture covers section clicks; keep the distinct submenu
+    // caller guards so testing the URL helper alone cannot hide broken wiring.
+    assert.match(win.initNavigation.toString(), /syncDashboardLocation\(\s*\{\s*section:\s*dashboardSection\s*\}\s*\)/);
+    assert.match(win.initNavigation.toString(), /syncDashboardLocation\(\s*\{\s*tool:\s*toolName\s*\}\s*\)/);
+    assert.match(win.openDashboardTable.toString(), /syncDashboardLocation\(\s*\{\s*table:\s*tableName\s*\}\s*\)/);
+    for (const target of [{section:'player-analyses'}, {tool:'simc'}, {table:'MonitorTask'}, {section:'dashboard-home'}]) {
+        const before=win.history.length;
+        win.syncDashboardLocation(target);
+        const expected=target.section==='dashboard-home' ? {} : target;
+        assert.deepEqual(Object.fromEntries(new URLSearchParams(win.location.search)),expected);
+        assert.equal(win.history.length,before+1);
+        const length=win.history.length;
+        win.syncDashboardLocation(target);
+        assert.equal(win.history.length,length,'same location must not duplicate browser history');
+    }
+});
+
+test('real Dashboard theme button restores persisted dark mode and toggles accessible state',async()=>{
+    const template=fs.readFileSync(path.join(__dirname,'../../templates/dashboard/index.html'),'utf8');
+    const dom=createDOM(template.replace(/{%[\s\S]*?%}/g,''),{url:'https://example.com/dashboard/',runScripts:'outside-only'});
+    await new Promise(resolve=>dom.window.addEventListener('load',resolve,{once:true}));
+    const win=dom.window, doc=win.document, key='lmonitor-dashboard-theme';
+    const restorers=[...doc.scripts].filter(script=>script.textContent.includes(`localStorage.getItem('${key}')`));
+    assert.equal(restorers.length,1);
+    win.localStorage.setItem(key,'dark');
+    win.eval(restorers[0].textContent);
+    const mainJS=fs.readFileSync(path.join(__dirname,'../../static/dashboard/js/main.js'),'utf8');
+    assert.match(mainJS,/^\s*initDashboardTheme\(\);/m);
+    win.eval(mainJS);
+    win.initDashboardTheme();
+    const toggle=doc.getElementById('dashboard-theme-toggle');
+    assert.equal(toggle.type,'button');
+    for (const mode of ['dark','light','dark']) {
+        assert.equal(doc.documentElement.dataset.dashboardTheme==='dark',mode==='dark');
+        assert.equal(toggle.getAttribute('aria-pressed'),String(mode==='dark'));
+        assert.equal(win.localStorage.getItem(key),mode);
+        assert.ok(toggle.getAttribute('aria-label'));
+        toggle.click();
+    }
 });
 
 test('absent superuser panel never mounts or fetches',()=>{
-    const dom=new JSDOM('<section id="dashboard-home"></section>');
+    const dom=createDOM('<section id="dashboard-home"></section>');
     assert.equal(initDashboard(dom.window.document),null);
     dom.window.close();
 });

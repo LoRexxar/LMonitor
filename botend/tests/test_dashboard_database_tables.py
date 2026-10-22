@@ -182,6 +182,7 @@ class DashboardDatabaseTableContractTests(TestCase):
         response = self.post_action({
             "action": "get_table_data",
             "table_name": "MonitorTask",
+            "search": "分页任务",
             "page": 2,
             "page_size": 10,
         })
@@ -375,6 +376,7 @@ class DashboardDatabaseTableContractTests(TestCase):
         response = self.post_action({
             'action': 'get_table_data',
             'table_name': 'MonitorTask',
+            'search': '越界任务',
             'page': 999,
             'page_size': 10,
         })

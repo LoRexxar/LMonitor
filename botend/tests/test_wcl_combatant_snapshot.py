@@ -5,6 +5,7 @@ from django.utils import timezone
 
 from botend.models import WclCombatantSnapshot
 from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
+from botend.tests.aggregation_cache_helpers import isolate_work_cache
 
 
 class SnapshotReadTests(TestCase):
@@ -81,6 +82,9 @@ def event(fight=11, actor=232):
 
 
 class SnapshotCollectionTests(TestCase):
+    def setUp(self):
+        isolate_work_cache(self)
+
     def test_batch_by_report_persist_once_and_resume_without_network(self):
         from unittest.mock import Mock
         from botend.services.wcl_combatant_snapshot import collect_dungeon_combatants

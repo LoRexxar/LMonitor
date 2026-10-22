@@ -119,24 +119,23 @@ class DashboardPageAccessTests(TestCase):
         DashboardUserGroupMembership.objects.create(user=self.user, group=group)
         self.assertEqual(self.client.get('/api/wago-hotfix-reports/').status_code, 200)
 
-    def test_legacy_simc_pages_require_simc_history_permission(self):
+    def test_readonly_simc_pages_are_separate_from_history_permission(self):
         self.client.force_login(self.user)
-        for url in (
-            '/simc-result/',
-            '/simc-attribute-analysis/',
-            '/simc-attribute-analysis-ssr/',
-            '/simc-compare/',
+        for url, status in (
+            ('/simc-result/', 200),
+            ('/simc-attribute-analysis/', 200),
+            ('/simc-attribute-analysis-ssr/', 400),  # Missing task ID, not an access denial.
+            ('/simc-compare/', 200),
         ):
             with self.subTest(url=url):
-                self.assertEqual(self.client.get(url).status_code, 403)
+                self.assertEqual(self.client.get(url).status_code, status)
+        self.assertEqual(self.client.get('/dashboard/?section=simc-history').status_code, 403)
 
         group = DashboardUserGroup.objects.create(
             name='SimC 历史组', permission_codes=['simc.history'], is_active=True,
         )
         DashboardUserGroupMembership.objects.create(user=self.user, group=group)
-        self.assertEqual(self.client.get('/simc-result/').status_code, 200)
-        self.assertEqual(self.client.get('/simc-attribute-analysis/').status_code, 200)
-        self.assertEqual(self.client.get('/simc-compare/').status_code, 200)
+        self.assertEqual(self.client.get('/dashboard/?section=simc-history').status_code, 200)
 
     def test_user_management_script_is_available_for_business_group_users(self):
         template = (ROOT / 'templates/dashboard/index.html').read_text(encoding='utf-8')

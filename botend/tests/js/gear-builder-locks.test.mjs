@@ -1,3 +1,5 @@
+import harness from '../vm_harness.js';
+const {gearRenderer} = harness;
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import vm from 'node:vm';
@@ -257,3 +259,27 @@ for (const capacity of [0, 1, 3]) {
   assert.doesNotMatch(api.optionRow({...otherGem, variants: [otherVariant]}, 'gem'), /gear-gem-count|gear-option-row--quantity/, '非双槽装备即使已选宝石也保持原样式');
 }
 console.log('重复宝石数量、插槽上限、单颗移除、锁定、属性及分享导出验证通过。');
+
+// Cache correction is independent of lock mutation scenarios above.
+
+await (async function neckSocketCacheCorrection() {
+const context = gearRenderer('globalThis.qa = {refreshCachedEquipmentStats, setState: (value) => {state = value;}};');
+const variant = {id: 1, item_level: 340, socket_count: 2, socket_types: ['prismatic', 'prismatic'], text_schema_version: 2, stats: {haste: 100}, effects: [], tooltip: ''};
+const entry = {item: {item_id: 240950, text_schema_version: 2, description: ''}, variant, gems: [{id: 11}, {id: 12}], selectedStats: ['mastery', 'versatility'], resolvedStats: {mastery: 50, versatility: 50}};
+context.qa.setState({className: 'Warrior', specName: 'Fury', equipment: {neck: entry}, lockedSlots: ['neck']});
+const fresh = {...variant, socket_count: 1, socket_types: ['prismatic']};
+assert.equal(context.qa.refreshCachedEquipmentStats([{...entry.item, variants: [fresh]}]), true);
+assert.equal(entry.variant.socket_count, 1);
+assert.deepEqual(entry.variant.socket_types, ['prismatic']);
+assert.deepEqual(entry.gems, [{id: 11}], '移除超过真实孔数的宝石');
+assert.deepEqual(entry.selectedStats, ['mastery', 'versatility']);
+assert.deepEqual(entry.resolvedStats, {mastery: 50, versatility: 50});
+assert.equal(context.qa.refreshCachedEquipmentStats([{...entry.item, variants: [fresh]}]), false, '再次刷新幂等');
+entry.item.item_id = 268265;
+entry.variant = {...variant};
+entry.gems = [{id: 11}, {id: 12}];
+assert.equal(context.qa.refreshCachedEquipmentStats([{...entry.item, variants: [{...variant}]}]), false);
+assert.equal(entry.gems.length, 2, '特殊项链的双孔不变');
+console.log('项链缓存孔数修正、自选绿字保留、超额宝石清理与特殊双孔保持：通过');
+
+})();

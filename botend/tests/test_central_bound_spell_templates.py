@@ -1,18 +1,76 @@
-"""Real ORM regression: compile bound raw DB2, not legacy rendered node text."""
+"""Central spell display compilation: native effects and bound source contracts."""
 import csv
 import json
 from pathlib import Path
-import tarfile
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
-
 from django.test import TestCase
-
 from botend.models import WowSpellSnapshot, WowTalentNodeMetadata, WowTalentVersion
 from botend.services.wow_spell_display import SpellDisplayReader, sync_spell_display
+import tarfile
+from unittest.mock import patch
 
 
-class CentralBoundSpellTemplateTests(TestCase):
+class CentralSpellCSVFixtureMixin:
+    def write_csv(self, name, rows):
+        with (self.source / name).open('w', encoding='utf-8', newline='') as handle:
+            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
+            writer.writeheader()
+            writer.writerows(rows)
+
+
+class CentralNativeSpellEffectTests(CentralSpellCSVFixtureMixin, TestCase):
+    def setUp(self):
+        self.sample = json.loads((Path(__file__).parent / 'fixtures' /
+                                  'ptr_spell_effect_sample.json').read_text())
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.source = Path(directory.name)
+        self.version, _ = WowTalentVersion.objects.update_or_create(key='ptr', defaults={
+            'branch': 'ptr', 'is_active': True, 'status': 'active',
+            'current_build': self.sample['build'], 'source_dir': str(self.source)})
+        for sid, raw in self.sample['spells'].items():
+            WowTalentNodeMetadata.objects.create(
+                talent_version=self.version, class_name='Shaman', spec_name='Restoration',
+                tree_type='spec', node_id=int(sid), spell_id=int(sid),
+                name_zh='机制测试', description_zh=raw['Description_lang'], source='db2_backfill')
+
+
+    def assert_compiled_mechanics(self):
+        report = sync_spell_display(branch='ptr', apply=True, spell_ids=[633, 1064])
+        self.assertEqual(report['scanned'], 2)
+        reader = SpellDisplayReader('ptr')
+        lay = reader.get(633)['description_zh']
+        chain = reader.get(1064)['description_zh']
+        self.assertIn('最大生命值的100%', lay)
+        self.assertIn('20码范围内', chain)
+        self.assertIn('每跳一次就会降低30%', chain)
+        self.assertNotIn('$', lay + chain)
+        self.assertEqual(WowSpellSnapshot.objects.filter(locale='zhCN').count(), 2)
+        for sid, raw in self.sample['spells'].items():
+            self.assertEqual(WowTalentNodeMetadata.objects.get(spell_id=int(sid)).description_zh,
+                             raw['Description_lang'])
+
+    def test_native_only_preserves_sampled_chinese_mechanics(self):
+        self.write_csv('SpellEffect.csv', self.sample['effects'])
+        self.assert_compiled_mechanics()
+
+    def test_legacy_index_remains_supported(self):
+        rows = [{k: v for k, v in row.items() if k != 'DifficultyID'}
+                for row in self.sample['effects']]
+        self.write_csv('spell_effect_index.csv', rows)
+        self.assert_compiled_mechanics()
+
+    def test_native_wins_over_stale_index_and_ignores_difficulty_rows(self):
+        stale = [dict(row, EffectBasePointsF='777') for row in self.sample['effects']]
+        difficult = [dict(row, DifficultyID='16', EffectBasePointsF='999')
+                     for row in self.sample['effects']]
+        self.write_csv('spell_effect_index.csv', stale)
+        # Later duplicate keys must not overwrite the default-difficulty facts.
+        self.write_csv('SpellEffect.csv', self.sample['effects'] + difficult)
+        self.assert_compiled_mechanics()
+
+
+class CentralBoundSpellTemplateTests(CentralSpellCSVFixtureMixin, TestCase):
     def setUp(self):
         directory = TemporaryDirectory()
         self.addCleanup(directory.cleanup)
@@ -24,11 +82,6 @@ class CentralBoundSpellTemplateTests(TestCase):
         network.start()
         self.addCleanup(network.stop)
 
-    def write_csv(self, name, rows):
-        with (self.source / name).open('w', encoding='utf-8', newline='') as handle:
-            writer = csv.DictWriter(handle, fieldnames=list(rows[0]))
-            writer.writeheader()
-            writer.writerows(rows)
 
     def node(self, sid, entry, **extra):
         values = dict(talent_version=self.version, class_name='Shaman', spec_name='Restoration',

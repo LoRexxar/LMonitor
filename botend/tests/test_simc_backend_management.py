@@ -1,402 +1,192 @@
-#!/usr/bin/env python
-# encoding: utf-8
-"""
-Test SimC backend binary management security contract.
-Ensures regular users cannot modify backend, staff can trigger safe local compilation,
-and responses never leak sensitive paths or raw errors.
-"""
+"""Backend management security and persistence, using real isolated ORM rows."""
 import json
-import unittest
-from unittest.mock import patch, Mock
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from django.conf import settings
+from django.http import HttpResponse
+from django.middleware.csrf import CsrfViewMiddleware, get_token
+from django.test import RequestFactory, TestCase, override_settings
+from django.urls import resolve, reverse
+
+from botend.dashboard.api import SimcBackendBinaryAPIView
+from botend.models import SimcBackendBinary
 
 
-class SimcBackendManagementSecurityTests(unittest.TestCase):
-    """Test backend management without database by mocking model layer."""
+class SimcBackendManagementSecurityTests(TestCase):
     def setUp(self):
-        from django.test import RequestFactory
-        from botend.dashboard.api import SimcBackendBinaryAPIView
         self.factory = RequestFactory()
         self.view_class = SimcBackendBinaryAPIView
-        self.regular_user = Mock(spec=['is_staff', 'username'])
-        self.regular_user.is_staff = False
-        self.regular_user.username = 'regular'
-        self.staff_user = Mock(spec=['is_staff', 'username'])
-        self.staff_user.is_staff = True
-        self.staff_user.username = 'staff'
+        self.url = reverse('simc_backend_binary')
+        self.regular_user = SimpleNamespace(is_staff=False, username='regular')
+        self.staff_user = SimpleNamespace(is_staff=True, username='staff')
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        config = override_settings(SIMC_CONFIG={
+            'simc_source_dir': str(root / 'source'),
+            'simc_build_dir': str(root / 'build'),
+            'simc_path': str(root / 'build' / 'simc'),
+        })
+        config.enable()
+        self.addCleanup(config.disable)
+        # Binary/catalog identity is an external resource boundary. ORM queries,
+        # response serialization and persisted settings remain real.
+        identity = patch('botend.dashboard.api.current_validation_identity', return_value=None)
+        identity.start()
+        self.addCleanup(identity.stop)
+        self.backend, _ = SimcBackendBinary.objects.update_or_create(
+            identifier='production', defaults=dict(
+                name='正式服', platform='linux64',
+                simc_path=str(root / 'build' / 'simc'),
+                current_version='a' * 40, latest_version='b' * 40,
+                local_worker_enabled=True, auto_update=True, is_active=True,
+                is_updating=False, update_progress=0, update_status='idle', last_error='',
+                maintenance_enabled=True, maintenance_daily_time='03:00',
+                maintenance_window_minutes=60, maintenance_policy_revision=1,
+            ),
+        )
 
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_get_returns_can_write_false_for_regular_user(self, mock_objects):
-        """Regular users GET can_write=false."""
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.current_version = '11.0.1'
-        mock_row.latest_version = '11.0.2'
-        mock_row.auto_update = True
-        mock_row.is_updating = False
-        mock_row.update_progress = 0
-        mock_row.update_status = 'idle'
-        mock_row.last_error = ''
-        mock_row.last_checked_at = None
-        mock_row.last_updated_at = None
-        mock_objects.filter.return_value.first.return_value = mock_row
-
-        request = self.factory.get('/api/simc-backend-binary/')
-        request.user = self.regular_user
-        view = self.view_class()
-        response = view.get(request)
+    def _get(self, user=None):
+        request = self.factory.get(self.url)
+        request.user = user or self.staff_user
+        response = self.view_class().get(request)
         self.assertEqual(response.status_code, 200)
         data = json.loads(response.content)
         self.assertTrue(data['success'])
-        self.assertIn('data', data)
-        self.assertIn('can_write', data['data'])
-        self.assertFalse(data['data']['can_write'])
+        return data['data']
 
-    @patch('botend.dashboard.api.SimcBackendBinaryAPIView._get_game_version', return_value='12.0.1.70000')
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_get_returns_supported_wow_version(self, mock_objects, _mock_game_version):
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.current_version = 'simc-revision'
-        mock_row.latest_version = 'simc-revision'
-        mock_row.auto_update = True
-        mock_row.is_updating = False
-        mock_row.update_progress = 100
-        mock_row.update_status = 'idle'
-        mock_row.last_error = ''
-        mock_row.last_checked_at = None
-        mock_row.last_updated_at = None
-        mock_objects.filter.return_value.first.return_value = mock_row
+    def _post(self, payload, user=None, status=200):
+        request = self.factory.post(self.url, data=json.dumps(payload), content_type='application/json')
+        request.user = user or self.staff_user
+        response = self.view_class().post(request)
+        self.assertEqual(response.status_code, status)
+        data = json.loads(response.content)
+        self.assertEqual(data['success'], status == 200)
+        return data
 
-        request = self.factory.get('/api/simc-backend-binary/')
-        request.user = self.regular_user
-        response = self.view_class().get(request)
-
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(json.loads(response.content)['data']['game_version'], '12.0.1.70000')
+    def test_get_returns_can_write_false_for_regular_user(self):
+        self.assertFalse(self._get(self.regular_user)['can_write'])
 
     @patch('botend.dashboard.api.current_validation_identity', return_value=('a' * 40, '12.0.1.70000'))
-    def test_supported_wow_version_uses_backend_catalog_identity(self, mock_identity):
-        backend = Mock()
-        version = self.view_class()._get_game_version(backend)
+    def test_get_returns_supported_wow_version(self, _identity):
+        self.assertEqual(self._get()['game_version'], '12.0.1.70000')
 
-        self.assertEqual(version, '12.0.1.70000')
-        mock_identity.assert_called_once_with(backend=backend)
+    @patch('botend.dashboard.api.current_validation_identity', return_value=('a' * 40, '12.0.1.70000'))
+    def test_supported_wow_version_uses_backend_catalog_identity(self, identity):
+        self.assertEqual(self.view_class()._get_game_version(self.backend), '12.0.1.70000')
+        identity.assert_called_once_with(backend=self.backend)
 
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_get_returns_can_write_true_for_staff(self, mock_objects):
-        """Staff users GET can_write=true."""
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.current_version = '11.0.1'
-        mock_row.latest_version = '11.0.2'
-        mock_row.auto_update = True
-        mock_row.is_updating = False
-        mock_row.update_progress = 0
-        mock_row.update_status = 'idle'
-        mock_row.last_error = ''
-        mock_row.last_checked_at = None
-        mock_row.last_updated_at = None
-        mock_objects.filter.return_value.first.return_value = mock_row
+    def test_get_returns_can_write_true_for_staff(self):
+        self.assertTrue(self._get()['can_write'])
 
-        request = self.factory.get('/api/simc-backend-binary/')
-        request.user = self.staff_user
-        view = self.view_class()
-        response = view.get(request)
-        self.assertEqual(response.status_code, 200)
-        data = json.loads(response.content)
-        self.assertTrue(data['success'])
-        self.assertIn('data', data)
-        self.assertIn('can_write', data['data'])
-        self.assertTrue(data['data']['can_write'])
+    def test_get_never_returns_simc_path(self):
+        payload = json.dumps(self._get(self.regular_user))
+        self.assertNotIn('simc_path', payload)
+        self.assertNotIn(self.backend.simc_path, payload)
 
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_get_never_returns_simc_path(self, mock_objects):
-        """GET response must not contain simc_path field."""
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.current_version = '11.0.1'
-        mock_row.latest_version = '11.0.2'
-        mock_row.auto_update = True
-        mock_row.is_updating = False
-        mock_row.update_progress = 0
-        mock_row.update_status = 'idle'
-        mock_row.last_error = ''
-        mock_row.last_checked_at = None
-        mock_row.last_updated_at = None
-        mock_objects.filter.return_value.first.return_value = mock_row
+    def test_get_never_returns_last_error_raw(self):
+        self.backend.last_error = 'Sensitive error with /private/path'
+        self.backend.save(update_fields=['last_error'])
+        payload = json.dumps(self._get())
+        self.assertNotIn('last_error', payload)
+        self.assertNotIn(self.backend.last_error, payload)
 
-        request = self.factory.get('/api/simc-backend-binary/')
-        request.user = self.regular_user
-        view = self.view_class()
-        response = view.get(request)
-        data = json.loads(response.content)
-        self.assertNotIn('simc_path', data.get('data', {}))
-
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_get_never_returns_last_error_raw(self, mock_objects):
-        """GET response must not contain last_error field."""
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.current_version = '11.0.1'
-        mock_row.latest_version = '11.0.2'
-        mock_row.auto_update = True
-        mock_row.is_updating = False
-        mock_row.update_progress = 0
-        mock_row.update_status = 'idle'
-        mock_row.last_error = 'Sensitive error message with /home/paths'
-        mock_row.last_checked_at = None
-        mock_row.last_updated_at = None
-        mock_objects.filter.return_value.first.return_value = mock_row
-
-        request = self.factory.get('/api/simc-backend-binary/')
-        request.user = self.staff_user
-        view = self.view_class()
-        response = view.get(request)
-        data = json.loads(response.content)
-        self.assertNotIn('last_error', data.get('data', {}))
-
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_get_returns_has_error_boolean_only(self, mock_objects):
-        """GET returns has_error boolean instead of raw error text."""
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.current_version = '11.0.1'
-        mock_row.latest_version = '11.0.2'
-        mock_row.auto_update = True
-        mock_row.is_updating = False
-        mock_row.update_progress = 0
-        mock_row.update_status = 'idle'
-        mock_row.last_error = 'Some error'
-        mock_row.last_checked_at = None
-        mock_row.last_updated_at = None
-        mock_objects.filter.return_value.first.return_value = mock_row
-
-        request = self.factory.get('/api/simc-backend-binary/')
-        request.user = self.staff_user
-        view = self.view_class()
-        response = view.get(request)
-        data = json.loads(response.content)
-        self.assertIn('has_error', data['data'])
-        self.assertTrue(data['data']['has_error'])
-        self.assertNotIn('last_error', data['data'])
+    def test_get_returns_has_error_boolean_only(self):
+        self.assertIs(self._get()['has_error'], False)
+        self.backend.last_error = 'Some error'
+        self.backend.save(update_fields=['last_error'])
+        data = self._get()
+        self.assertIs(data['has_error'], True)
+        self.assertNotIn('last_error', data)
 
     def test_regular_user_post_returns_403(self):
-        """Regular users cannot POST to backend endpoint."""
-        request = self.factory.post(
-            '/api/simc-backend-binary/',
-            data=json.dumps({'action': 'check'}),
-            content_type='application/json',
-        )
-        request.user = self.regular_user
-        view = self.view_class()
-        response = view.post(request)
-        self.assertEqual(response.status_code, 403)
-        data = json.loads(response.content)
-        self.assertFalse(data['success'])
-        self.assertIn('仅管理员', data['error'])
+        for action in ('check', 'update', 'set_auto_update', 'set_maintenance_schedule',
+                       'set_local_worker_enabled', 'dispatch_agent_maintenance'):
+            with self.subTest(action=action):
+                data = self._post({'action': action}, self.regular_user, status=403)
+                self.assertIn('仅管理员', data['error'])
+        self.backend.refresh_from_db()
+        self.assertFalse(self.backend.is_updating)
+        self.assertTrue(self.backend.auto_update)
 
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    @patch('botend.dashboard.api.threading.Thread')
-    def test_staff_post_check_action_calls_update_simc_binary_check_only(self, mock_thread, mock_objects):
-        """Staff POST action=check spawns thread calling update_simc_binary --check."""
-        mock_row = Mock()
-        mock_row.pk = 1
-        mock_row.platform = 'linux64'
-        mock_row.is_updating = False
-        mock_objects.filter.return_value.first.return_value = mock_row
-        mock_objects.filter.return_value.update.return_value = 1
+    def _assert_compilation_dispatch(self, action, check_only):
+        # Never start a compiler/thread; exercise its real captured callback.
+        with patch('botend.dashboard.api.threading.Thread') as thread, \
+                patch('django.core.management.call_command') as command:
+            data = self._post({'action': action, 'threads': 1})
+            self.assertIn('检查' if check_only else '本地编译', data['message'])
+            self.backend.refresh_from_db()
+            self.assertTrue(self.backend.is_updating)
+            thread.assert_called_once()
+            self.assertTrue(thread.call_args.kwargs['daemon'])
+            thread.return_value.start.assert_called_once_with()
+            thread.call_args.kwargs['target']()
+            command.assert_called_once_with('update_simc_binary', threads=1, no_pull=False, check=check_only)
 
-        with patch('django.core.management.call_command') as mock_call:
-            request = self.factory.post(
-                '/api/simc-backend-binary/',
-                data=json.dumps({'action': 'check'}),
-                content_type='application/json',
-            )
-            request.user = self.staff_user
-            view = self.view_class()
-            response = view.post(request)
-            self.assertEqual(response.status_code, 200)
-            data = json.loads(response.content)
-            self.assertTrue(data['success'])
-            self.assertIn('检查', data['message'])
-            mock_thread.assert_called_once()
-            thread_args = mock_thread.call_args
-            self.assertTrue(thread_args[1].get('daemon'))
-            target_func = thread_args[1]['target']
-            target_func()
-            mock_call.assert_called_once_with('update_simc_binary', threads=1, no_pull=False, check=True)
+    def test_staff_post_check_action_calls_update_simc_binary_check_only(self):
+        self._assert_compilation_dispatch('check', True)
 
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    @patch('botend.dashboard.api.threading.Thread')
-    def test_staff_post_update_action_calls_update_simc_binary_with_pull(self, mock_thread, mock_objects):
-        """Staff POST action=update spawns thread calling update_simc_binary without --check."""
-        mock_row = Mock()
-        mock_row.pk = 1
-        mock_row.platform = 'linux64'
-        mock_row.is_updating = False
-        mock_objects.filter.return_value.first.return_value = mock_row
-        mock_objects.filter.return_value.update.return_value = 1
+    def test_staff_post_update_action_calls_update_simc_binary_with_pull(self):
+        self._assert_compilation_dispatch('update', False)
 
-        with patch('django.core.management.call_command') as mock_call:
-            request = self.factory.post(
-                '/api/simc-backend-binary/',
-                data=json.dumps({'action': 'update', 'threads': 1}),
-                content_type='application/json',
-            )
-            request.user = self.staff_user
-            view = self.view_class()
-            response = view.post(request)
-            self.assertEqual(response.status_code, 200)
-            data = json.loads(response.content)
-            self.assertTrue(data['success'])
-            self.assertIn('本地编译', data['message'])
-            mock_thread.assert_called_once()
-            target_func = mock_thread.call_args[1]['target']
-            target_func()
-            mock_call.assert_called_once_with('update_simc_binary', threads=1, no_pull=False, check=False)
-
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_staff_post_set_auto_update_action_toggles_flag(self, mock_objects):
-        """Staff POST action=set_auto_update updates auto_update field."""
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.auto_update = True
-        mock_row.current_version = '11.0.1'
-        mock_row.latest_version = '11.0.2'
-        mock_row.is_updating = False
-        mock_row.update_progress = 0
-        mock_row.update_status = 'idle'
-        mock_row.last_error = ''
-        mock_row.last_checked_at = None
-        mock_row.last_updated_at = None
-        mock_objects.filter.return_value.first.return_value = mock_row
-
-        request = self.factory.post(
-            '/api/simc-backend-binary/',
-            data=json.dumps({'action': 'set_auto_update', 'auto_update': False}),
-            content_type='application/json',
-        )
-        request.user = self.staff_user
-        view = self.view_class()
-        response = view.post(request)
-        self.assertEqual(response.status_code, 200)
-        data = json.loads(response.content)
-        self.assertTrue(data['success'])
+    def test_staff_post_set_auto_update_action_toggles_flag(self):
+        data = self._post({'action': 'set_auto_update', 'auto_update': False})
         self.assertIn('关闭', data['message'])
-        self.assertFalse(mock_row.auto_update)
+        self.backend.refresh_from_db()
+        self.assertFalse(self.backend.auto_update)
+        self.assertIs(data['data']['auto_update'], False)
 
     def test_post_missing_csrf_should_be_rejected_by_middleware(self):
-        """Write requests without CSRF token should be rejected by Django middleware."""
-        # This test documents the requirement; actual CSRF validation is done by middleware
-        # in production. The view itself checks is_staff but does not directly validate CSRF.
-        pass
+        self.assertIn('django.middleware.csrf.CsrfViewMiddleware', settings.MIDDLEWARE)
+        callback = resolve(self.url).func
+        self.assertIs(callback.view_class, self.view_class)
+        middleware = CsrfViewMiddleware(lambda request: HttpResponse())
+        for has_token in (False, True):
+            with self.subTest(has_token=has_token):
+                request = self.factory.post(self.url, {'action': 'check'})
+                request.user = self.staff_user
+                if has_token:
+                    request.META[settings.CSRF_HEADER_NAME] = get_token(request)
+                    request.COOKIES[settings.CSRF_COOKIE_NAME] = request.META['CSRF_COOKIE']
+                middleware.process_request(request)
+                response = middleware.process_view(request, callback, (), {})
+                if has_token:
+                    self.assertIsNone(response)
+                else:
+                    self.assertIsInstance(response, HttpResponse)
+                    self.assertEqual(response.status_code, 403)
 
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_post_response_never_contains_simc_path_or_last_error(self, mock_objects):
-        """POST action=set_auto_update response must not leak simc_path or last_error."""
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.auto_update = True
-        mock_row.current_version = '11.0.1'
-        mock_row.latest_version = '11.0.2'
-        mock_row.is_updating = False
-        mock_row.update_progress = 0
-        mock_row.update_status = 'idle'
-        mock_row.last_error = 'Sensitive error'
-        mock_row.last_checked_at = None
-        mock_row.last_updated_at = None
-        mock_objects.filter.return_value.first.return_value = mock_row
-
-        request = self.factory.post(
-            '/api/simc-backend-binary/',
-            data=json.dumps({'action': 'set_auto_update', 'auto_update': False}),
-            content_type='application/json',
-        )
-        request.user = self.staff_user
-        view = self.view_class()
-        response = view.post(request)
-        data = json.loads(response.content)
-        self.assertNotIn('simc_path', json.dumps(data))
-        self.assertNotIn('last_error', json.dumps(data))
+    def test_post_response_never_contains_simc_path_or_last_error(self):
+        self.backend.last_error = 'Sensitive error'
+        self.backend.save(update_fields=['last_error'])
+        payload = json.dumps(self._post({'action': 'set_auto_update', 'auto_update': False}))
+        for secret in ('simc_path', 'last_error', self.backend.simc_path, self.backend.last_error):
+            self.assertNotIn(secret, payload)
 
     def test_post_unsupported_action_returns_400(self):
-        """POST with unsupported action returns 400."""
-        request = self.factory.post(
-            '/api/simc-backend-binary/',
-            data=json.dumps({'action': 'delete'}),
-            content_type='application/json',
-        )
-        request.user = self.staff_user
-        view = self.view_class()
-        response = view.post(request)
-        self.assertEqual(response.status_code, 400)
-        data = json.loads(response.content)
-        self.assertFalse(data['success'])
-        self.assertIn('不支持', data['error'])
+        self.assertIn('不支持', self._post({'action': 'delete'}, status=400)['error'])
 
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_staff_can_configure_daily_maintenance_window(self, mock_objects):
-        """The dashboard persists a Shanghai daily maintenance slot, not an interval."""
-        mock_row = Mock()
-        mock_row.simc_path = ''
-        mock_row.platform = 'linux64'
-        mock_row.auto_update = True
-        mock_row.current_version = mock_row.latest_version = ''
-        mock_row.is_updating = False
-        mock_row.update_progress = 0
-        mock_row.update_status = 'idle'
-        mock_row.last_error = ''
-        mock_row.last_checked_at = mock_row.last_updated_at = None
-        mock_row.maintenance_enabled = True
-        mock_row.maintenance_daily_time = '03:00'
-        mock_row.maintenance_window_minutes = 60
-        mock_row.maintenance_policy_revision = 1
-        mock_objects.filter.return_value.first.return_value = mock_row
-        request = self.factory.post(
-            '/api/simc-backend-binary/',
-            data=json.dumps({'action': 'set_maintenance_schedule', 'enabled': True,
-                             'daily_time': '03:30', 'window_minutes': 45}),
-            content_type='application/json',
-        )
-        request.user = self.staff_user
-        response = self.view_class().post(request)
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(mock_row.maintenance_daily_time, '03:30')
-        self.assertEqual(mock_row.maintenance_window_minutes, 45)
-        self.assertEqual(mock_row.maintenance_policy_revision, 2)
-        self.assertIn('maintenance_policy', json.loads(response.content)['data'])
+    def test_staff_can_configure_daily_maintenance_window(self):
+        data = self._post({'action': 'set_maintenance_schedule', 'enabled': True,
+                           'daily_time': '03:30', 'window_minutes': 45})
+        self.backend.refresh_from_db()
+        self.assertEqual(self.backend.maintenance_daily_time, '03:30')
+        self.assertEqual(self.backend.maintenance_window_minutes, 45)
+        self.assertEqual(self.backend.maintenance_policy_revision, 2)
+        self.assertEqual(data['data']['maintenance_policy']['daily_time'], '03:30')
 
-    @patch('botend.dashboard.api.SimcBackendBinary.objects')
-    def test_maintenance_schedule_rejects_invalid_clock_or_window(self, mock_objects):
-        mock_row = Mock(pk=1, platform='linux64')
-        mock_objects.filter.return_value.first.return_value = mock_row
-        request = self.factory.post(
-            '/api/simc-backend-binary/',
-            data=json.dumps({'action': 'set_maintenance_schedule', 'enabled': True,
-                             'daily_time': '25:00', 'window_minutes': 0}),
-            content_type='application/json',
-        )
-        request.user = self.staff_user
-        response = self.view_class().post(request)
-        self.assertEqual(response.status_code, 400)
+    def test_maintenance_schedule_rejects_invalid_clock_or_window(self):
+        for clock, window in (('25:00', 45), ('03:00', 0)):
+            with self.subTest(clock=clock, window=window):
+                self._post({'action': 'set_maintenance_schedule', 'enabled': True,
+                            'daily_time': clock, 'window_minutes': window}, status=400)
+        self.backend.refresh_from_db()
+        self.assertEqual(self.backend.maintenance_policy_revision, 1)
 
     def test_dispatch_agent_maintenance_rejects_empty_agent_selection(self):
-        request = self.factory.post(
-            '/api/simc-backend-binary/',
-            data=json.dumps({'action': 'dispatch_agent_maintenance', 'backend_id': 999999}),
-            content_type='application/json',
-        )
-        request.user = self.staff_user
-
-        response = self.view_class().post(request)
-
-        self.assertEqual(response.status_code, 404)
-        self.assertFalse(json.loads(response.content)['success'])
+        data = self._post({'action': 'dispatch_agent_maintenance',
+                           'backend_id': self.backend.pk}, status=404)
+        self.assertIn('没有可下发', data['error'])

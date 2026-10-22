@@ -1,18 +1,26 @@
-"""Equipment-effect result evidence: synthetic contracts and captured native HTML.
-
-Set LMONITOR_EFFECT_REPORT_DIR and LMONITOR_EFFECT_PROVENANCE to additionally
-exercise all original SHA-verified reports, without creating tasks or DB rows.
-"""
 import copy
 import gzip
 import hashlib
 import json
 import os
 from pathlib import Path
-
 from django.test import SimpleTestCase
-
 from botend.services.simc_equipment_result_evidence import extract_equipment_effect_evidence
+from copy import deepcopy
+from unittest.mock import patch
+from botend.services import simc_equipment_result_evidence as native
+from botend.services.simc_equipment_effect_validation import validate_equipment_effect_report
+from bs4 import BeautifulSoup
+from botend.services.simc_equipment_result_evidence import _native_document
+
+
+"""Equipment-effect result evidence: synthetic contracts and captured native HTML.
+
+Set LMONITOR_EFFECT_REPORT_DIR and LMONITOR_EFFECT_PROVENANCE to additionally
+exercise all original SHA-verified reports, without creating tasks or DB rows.
+"""
+
+
 
 
 def native_html(profile='neck=test,id=987,bonus_id=123/456', damage=4, triggers=2,
@@ -341,3 +349,65 @@ class EquipmentEffectEvidenceTests(SimpleTestCase):
         if output:
             Path(output).write_text(json.dumps(results, ensure_ascii=False, indent=2))
         self.assertEqual(len(results), 30 if report_dir else 8)
+
+
+"""One-call parsing on untouched captured native HTML and full frozen outputs.
+
+The expectation variants reuse the independent activation probe's frozen neck
+identities; they are explicit contract inputs, not claimed Exec191 parameters.
+No source/parser result is mocked: the spy always executes the real parser.
+"""
+
+
+
+
+class EquipmentReportParsingTests(SimpleTestCase):
+    def test_real_native_html_parses_once_and_preserves_entire_output(self):
+        fixture = Path(__file__).parent / 'fixtures' / 'simc_equipment_native_parsing.json.gz'
+        cases = json.loads(gzip.decompress(fixture.read_bytes()))
+        self.assertEqual(len(cases), 4)
+        for case in cases:
+            with self.subTest(case=case['name']):
+                self.assertEqual(hashlib.sha256(case['html'].encode()).hexdigest(), case['input_sha256'])
+                params, proof = deepcopy(case['params']), deepcopy(case['proof'])
+                # Two independent validations must each parse once, not share a
+                # global cache or an output subsequently mutated by a caller.
+                for _ in range(2):
+                    with patch.object(native, '_native_document', wraps=native._native_document) as parser:
+                        result = validate_equipment_effect_report(case['html'], params, native_proof=proof)
+                    self.assertEqual(result, case['expected_output'])
+                    self.assertEqual(json.loads(json.dumps(result, allow_nan=False)), result)
+                    self.assertEqual(parser.call_count, 1)
+                    result['targets'].clear()
+                self.assertEqual(params, case['params'])
+                self.assertEqual(proof, case['proof'])
+
+
+"""Native evidence must not construct a second DOM for its selected sections."""
+
+
+
+
+class NativeDOMReuseTests(SimpleTestCase):
+    def test_one_dom_preserves_child_action_details_and_full_profile(self):
+        html = native_html(profile='neck=test,id=987,bonus_id=123/456\nhead=other,id=321')
+        html = html.replace('toprow right', 'toprow right childrow')
+        constructors = []
+        original = BeautifulSoup.__init__
+
+        def counted(soup, markup='', *args, **kwargs):
+            constructors.append(markup)
+            original(soup, markup, *args, **kwargs)
+
+        # Instrument, rather than replace, the real parser and its dependencies.
+        with patch.object(BeautifulSoup, '__init__', counted):
+            parsed = _native_document(html)
+            result = extract_equipment_effect_evidence(html, PARAMS, EXPECTED, _parsed_native=parsed)
+        profile = '\n'.join(block for section in parsed[0]['sections']
+                            if section['key'] == 'profile' for block in section['text_blocks'])
+        self.assertIn('neck=test,id=987,bonus_id=123/456\nhead=other,id=321', profile)
+        self.assertEqual(result['status'], 'valid')
+        self.assertEqual(result['actions'][0]['actual_amount'], 400)
+        self.assertEqual(result['actions'][0]['executes'], 4)
+        self.assertEqual(result['actions'][0]['successful_results'], 4)
+        self.assertEqual(len(constructors), 1, 'native evidence serialized and reparsed a second DOM')

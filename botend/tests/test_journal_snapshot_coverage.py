@@ -53,15 +53,33 @@ class JournalSnapshotCoverageTests(TestCase):
 
     def test_conflicting_real_variants_cannot_replace_last_good(self):
         from botend.models import WowItemVariantSnapshot
+        # This gate concerns conflicting numeric facts, not independently valid
+        # public effects (which may now be published with unknown stats).
+        WowItemVariantSnapshot.objects.filter(item__item_id=60).update(effects_json=[])
         key = self.target()
         snapshots.refresh_journal_loot_snapshots(strict=True, targets=[key])
         path = snapshots._directory(key) / 'data.json'
         previous = path.read_bytes()
-        variant = WowItemVariantSnapshot.objects.get(item__item_id=60)
+        variant = WowItemVariantSnapshot.objects.select_related('item').get(item__item_id=60)
+        original = variant
+        from copy import deepcopy
+        variant = deepcopy(original)
         variant.pk = None
         variant.variant_key = 'conflicting-unit-fact'
         variant.item_level += 1
         variant.save()
+        # Prove both rows belong to the exact central difficulty coordinate;
+        # an ignored branch/build fixture would not test conflict rejection.
+        from botend.services.wow_item_display import _difficulty_variant, load_item_tooltip_metadata
+        from botend.portal.adventure_journal import difficulty_item_context
+        context = dict(difficulty_id=key['difficulty'],
+            item_context=difficulty_item_context(self.release.manifest['catalog']['difficulties'], key['difficulty']),
+            instance_id=key['instance_id'], difficulty_rule_build=key['source']['build'])
+        self.assertIs(_difficulty_variant([original], context, 60), original)
+        self.assertIs(_difficulty_variant([variant], context, 60), variant)
+        self.assertIsNone(_difficulty_variant([original, variant], context, 60))
+        self.assertEqual(load_item_tooltip_metadata([dict(context, item_id=60,
+            data_branch=original.data_branch)])[0]['difficulty_status'], 'unresolved')
         with self.assertLogs(snapshots.logger, level='ERROR'), self.assertRaises(RuntimeError):
             snapshots.refresh_journal_loot_snapshots(strict=True, force=True, targets=[key])
         self.assertEqual(path.read_bytes(), previous)

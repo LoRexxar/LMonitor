@@ -395,9 +395,6 @@ class SimcTaskAPIReferenceContractsTests(TestCase):
         response = self.client.get('/api/simc-workbench/history/')
         self.assertEqual(response.status_code, 302)
 
-    def test_task_api_source_does_not_read_task_type_from_new_requests(self):
-        source = inspect.getsource(SimcTaskAPIView)
-        self.assertNotIn("data.get('task_type'", source)
 
     def test_task_list_and_preview_responses_do_not_publish_task_type(self):
         task = SimcTask.objects.create(

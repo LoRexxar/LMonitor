@@ -324,9 +324,10 @@ class EquipmentControlBenchmarkTests(TestCase):
     def setUp(self):
         fixtures.SimcBenchmarkExecutionTests.setUp(self)
         for item_id, inventory, subclass in ((123, 12, 0), (456, 11, 0), (239660, 9, 4), (239661, 16, 1)):
-            WowItemSnapshot.objects.create(item_id=item_id, item_class_id=4,
-                inventory_type=inventory, item_subclass_id=subclass,
-                metadata={'primary_stat_options': ['strength', 'agility', 'intellect']})
+            WowItemSnapshot.objects.update_or_create(
+                item_id=item_id,
+                defaults={'item_class_id': 4, 'inventory_type': inventory, 'item_subclass_id': subclass, 'metadata': {'primary_stat_options': ['strength', 'agility', 'intellect']}},
+            )
         self.ring = SimcBenchmarkCandidate.objects.create(
             panel=self.panel, key='ring', label='测试戒指', candidate_type='gear_swap',
             params={'candidate_type': 'gear_swap', 'is_base': False,

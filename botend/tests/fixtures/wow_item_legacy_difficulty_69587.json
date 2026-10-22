@@ -2635,6 +2635,28 @@
             }
           ]
         }
+      },
+      "import": {
+        "binding": {
+          "instance_id": 71,
+          "difficulty_id": 23,
+          "data_branch": "retail"
+        },
+        "payload": {
+          "name": "Skardyn's Grace",
+          "quality": 3,
+          "icon": "inv_misc_coin_08",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q3\">Skardyn's Grace</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->15</span><!--bo--><br>Binds when picked up<br>Unique-Equipped<!--ue--><!--ue--><table width=\"100%\"><tr><td>Trinket</td><th><!--scstart4:-4--><span class=\"q1\"></span><!--scend--></th></tr></table><!--rf--><span><!--stat3-->+4 Agility</span><!--ebstats--><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Use: <!--useEffect:0:1--><a href=\"/spell=92099/speed-of-thought\" class=\"q2\">Increases your Mastery by <!--pts1:0:0:92099:2.40061-->51<!----> for 20 sec.</a> (2 Min Cooldown)<!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->32<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">8</span> <span class=\"moneysilver\">5</span> <span class=\"moneycopper\">7</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: General Umbriss</div><div class=\"whtt-extra whtt-dropchance\">Drop Chance: 1.30%</div></td></tr></table>",
+          "spells": []
+        },
+        "tooltip_evidence": {
+          "identity_validated": true,
+          "item_id": 133282,
+          "url": "https://nether.wowhead.com/tooltip/item/133282?dataEnv=1&locale=0",
+          "data_branch": "retail",
+          "game_build": "",
+          "payload_sha256": "f523806d75b6cf4e2437dcaf1b8137ec0f58b50b272d8856049dda2632579be6"
+        }
       }
     },
     {
@@ -5230,6 +5252,28 @@
             }
           ]
         }
+      },
+      "import": {
+        "binding": {
+          "instance_id": 228,
+          "difficulty_id": 19,
+          "data_branch": "retail"
+        },
+        "payload": {
+          "name": "Spritecaster Cape",
+          "quality": 3,
+          "icon": "inv_misc_cape_20",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q3\">Spritecaster Cape</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->13</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Back</td></tr></table><!--rf--><span><!--amr-->3 Armor</span><br><span><!--stat71-->+2 [Agility or Strength or Intellect]</span><br><span><!--stat7-->+3 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg36-->2 Haste</span><br><span class=\"q2\">+<!--rtg40-->2 Versatility</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--></td></tr></table><table><tr><td><!--rr--><!--itemEffects:0-->Requires Level <!--rlvl-->20<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneysilver\">27</span> <span class=\"moneycopper\">47</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Houndmaster Grebmar</div><div class=\"whtt-extra whtt-dropchance\">Drop Chance: 33.83%</div></td></tr></table>",
+          "spells": []
+        },
+        "tooltip_evidence": {
+          "identity_validated": true,
+          "item_id": 11623,
+          "url": "https://nether.wowhead.com/tooltip/item/11623?dataEnv=1&locale=0&bonus=6652",
+          "data_branch": "retail",
+          "game_build": "",
+          "payload_sha256": "10000c1c2fdf1e92144bfe63d0aec333f3f9ca2701e3867560bf2cd155d38324"
+        }
       }
     },
     {
@@ -6342,6 +6386,28 @@
               "result": 77
             }
           ]
+        }
+      },
+      "import": {
+        "binding": {
+          "instance_id": 1207,
+          "difficulty_id": 14,
+          "data_branch": "retail"
+        },
+        "payload": {
+          "name": "Fyr'alath the Dreamrender",
+          "quality": 5,
+          "icon": "inv_axe_2h_fyrakk_d_01_shadowflame",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q5\">Fyr'alath the Dreamrender</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->77</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Two-Hand</td><th><!--scstart2:1--><span class=\"q1\">Axe</span><!--scend--></th></tr></table><!--rf--><table width=\"100%\"><tr>\n    <td><span><!--dmg-->30 - 63 Damage</span></td>\n    <th>Speed <!--spd-->3.60</th>\n</tr></table><!--dps-->(12.9 damage per second)<br><span><!--stat4-->+17 Strength</span><br><span><!--stat7-->+26 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->13 Critical Strike</span><br><span class=\"q2\">+<!--rtg36-->22 Haste</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--><br>Durability 145 / 145<div class=\"wowhead-tooltip-item-classes\">Classes: <a href=\"/class=1/warrior\" class=\"c1\">Warrior</a>, <a href=\"/class=2/paladin\" class=\"c2\">Paladin</a>, <a href=\"/class=6/death-knight\" class=\"c6\">Death Knight</a></div></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/spell=417000/fyralath-the-dreamrender\" class=\"q2\">Wield the might of The Blazing, becoming enveloped in its Shadowflame.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->70<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">176</span> <span class=\"moneysilver\">59</span> <span class=\"moneycopper\">17</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Fyrakk</div><div class=\"whtt-extra whtt-dropchance\">Drop Chance: 1.21%</div></td></tr></table>",
+          "spells": []
+        },
+        "tooltip_evidence": {
+          "identity_validated": true,
+          "item_id": 207728,
+          "url": "https://nether.wowhead.com/tooltip/item/207728?dataEnv=1&locale=0&bonus=10351",
+          "data_branch": "retail",
+          "game_build": "",
+          "payload_sha256": "7448b738b35ad9aac5396e8c56835085054a5c67d55114410a454ff1d942fae5"
         }
       }
     },
@@ -7456,6 +7522,28 @@
             }
           ]
         }
+      },
+      "import": {
+        "binding": {
+          "instance_id": 1207,
+          "difficulty_id": 15,
+          "data_branch": "retail"
+        },
+        "payload": {
+          "name": "Fyr'alath the Dreamrender",
+          "quality": 5,
+          "icon": "inv_axe_2h_fyrakk_d_01_shadowflame",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q5\">Fyr'alath the Dreamrender</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->77</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Two-Hand</td><th><!--scstart2:1--><span class=\"q1\">Axe</span><!--scend--></th></tr></table><!--rf--><table width=\"100%\"><tr>\n    <td><span><!--dmg-->30 - 63 Damage</span></td>\n    <th>Speed <!--spd-->3.60</th>\n</tr></table><!--dps-->(12.9 damage per second)<br><span><!--stat4-->+17 Strength</span><br><span><!--stat7-->+26 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->13 Critical Strike</span><br><span class=\"q2\">+<!--rtg36-->22 Haste</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--><br>Durability 145 / 145<div class=\"wowhead-tooltip-item-classes\">Classes: <a href=\"/class=1/warrior\" class=\"c1\">Warrior</a>, <a href=\"/class=2/paladin\" class=\"c2\">Paladin</a>, <a href=\"/class=6/death-knight\" class=\"c6\">Death Knight</a></div></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/spell=417000/fyralath-the-dreamrender\" class=\"q2\">Wield the might of The Blazing, becoming enveloped in its Shadowflame.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->70<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">176</span> <span class=\"moneysilver\">59</span> <span class=\"moneycopper\">17</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Fyrakk</div><div class=\"whtt-extra whtt-dropchance\">Drop Chance: 1.21%</div></td></tr></table>",
+          "spells": []
+        },
+        "tooltip_evidence": {
+          "identity_validated": true,
+          "item_id": 207728,
+          "url": "https://nether.wowhead.com/tooltip/item/207728?dataEnv=1&locale=0&bonus=10351",
+          "data_branch": "retail",
+          "game_build": "",
+          "payload_sha256": "7448b738b35ad9aac5396e8c56835085054a5c67d55114410a454ff1d942fae5"
+        }
       }
     },
     {
@@ -8568,6 +8656,28 @@
               "result": 77
             }
           ]
+        }
+      },
+      "import": {
+        "binding": {
+          "instance_id": 1207,
+          "difficulty_id": 17,
+          "data_branch": "retail"
+        },
+        "payload": {
+          "name": "Fyr'alath the Dreamrender",
+          "quality": 5,
+          "icon": "inv_axe_2h_fyrakk_d_01_shadowflame",
+          "tooltip": "<table><tr><td><!--nstart--><b class=\"q5\">Fyr'alath the Dreamrender</b><!--nend--><!--ndstart--><!--ndend--><span class=\"q\"><br>Item Level <!--ilvl-->77</span><!--bo--><br>Binds when picked up<!--ue--><!--ue--><table width=\"100%\"><tr><td>Two-Hand</td><th><!--scstart2:1--><span class=\"q1\">Axe</span><!--scend--></th></tr></table><!--rf--><table width=\"100%\"><tr>\n    <td><span><!--dmg-->30 - 63 Damage</span></td>\n    <th>Speed <!--spd-->3.60</th>\n</tr></table><!--dps-->(12.9 damage per second)<br><span><!--stat4-->+17 Strength</span><br><span><!--stat7-->+26 Stamina</span><!--ebstats--><br><span class=\"q2\">+<!--rtg32-->13 Critical Strike</span><br><span class=\"q2\">+<!--rtg36-->22 Haste</span><!--egstats--><!--eistats--><!--nameDescStats--><!--rs--><!--e--><!--ps--><br>Durability 145 / 145<div class=\"wowhead-tooltip-item-classes\">Classes: <a href=\"/class=1/warrior\" class=\"c1\">Warrior</a>, <a href=\"/class=2/paladin\" class=\"c2\">Paladin</a>, <a href=\"/class=6/death-knight\" class=\"c6\">Death Knight</a></div></td></tr></table><table><tr><td><!--rr--><!--useText:0:1--><span id=\"useText1\" class=\"q2\">Equip: <!--useEffect:0:1--><a href=\"/spell=417000/fyralath-the-dreamrender\" class=\"q2\">Wield the might of The Blazing, becoming enveloped in its Shadowflame.</a><!--useEffect:1--></span><!--useText:1--><!--itemEffects:1--><br>Requires Level <!--rlvl-->70<br><!--pvpEquip--><!--pvpEquip--><div class=\"whtt-sellprice\">Sell Price: <span class=\"moneygold\">176</span> <span class=\"moneysilver\">59</span> <span class=\"moneycopper\">17</span></div><div class=\"whtt-extra whtt-droppedby\">Dropped by: Fyrakk</div><div class=\"whtt-extra whtt-dropchance\">Drop Chance: 1.21%</div></td></tr></table>",
+          "spells": []
+        },
+        "tooltip_evidence": {
+          "identity_validated": true,
+          "item_id": 207728,
+          "url": "https://nether.wowhead.com/tooltip/item/207728?dataEnv=1&locale=0&bonus=10351",
+          "data_branch": "retail",
+          "game_build": "",
+          "payload_sha256": "7448b738b35ad9aac5396e8c56835085054a5c67d55114410a454ff1d942fae5"
         }
       }
     }

@@ -3,11 +3,15 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class CompleteSimcSecondaryStatRulesMigrationTests(TransactionTestCase):
     migrate_from = [('botend', '0123_collapse_simc_batches_into_tasks')]
     migrate_to = [('botend', '0124_complete_simc_secondary_stat_rules')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_from)
         old_apps = executor.loader.project_state(self.migrate_from).apps
@@ -22,9 +26,6 @@ class CompleteSimcSecondaryStatRulesMigrationTests(TransactionTestCase):
         executor.migrate(self.migrate_to)
         self.apps = executor.loader.project_state(self.migrate_to).apps
 
-    def tearDown(self):
-        MigrationExecutor(connection).migrate(self.migrate_to)
-        super().tearDown()
 
     def test_adds_missing_rules_without_overwriting_existing_values(self):
         SecondaryRule = self.apps.get_model('botend', 'SimcSecondaryStatRule')

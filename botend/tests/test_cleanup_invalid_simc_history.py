@@ -1,4 +1,5 @@
 from io import StringIO
+from botend.tests.simc_api_worker_fixtures import execution_backend
 
 from django.contrib.auth.models import User
 from django.core.management import call_command
@@ -31,6 +32,7 @@ class CleanupInvalidSimcHistoryCommandTests(TestCase):
 
     def _task(self, profile, name, **kwargs):
         return SimcTask.objects.create(
+            backend=execution_backend(),
             user_id=self.user.id,
             simc_profile_id=profile.id,
             name=name,

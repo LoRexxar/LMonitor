@@ -4,18 +4,19 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class LocalizationMigrationTests(TransactionTestCase):
     before = [('botend', '0219_simplify_class_guide_articles')]
     after = [('botend', '0220_consolidate_wow_localization')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.before)
         self.apps = executor.loader.project_state(self.before).apps
 
-    def tearDown(self):
-        executor = MigrationExecutor(connection)
-        executor.migrate(executor.loader.graph.leaf_nodes())
 
     def test_moves_all_kinds_to_the_existing_talent_table_and_can_reverse(self):
         old = self.apps.get_model('botend', 'ClassGuideTerm')

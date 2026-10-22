@@ -3335,10 +3335,18 @@ class MythicPlannerDashboardTests(TestCase):
         page = self.client.get('/dashboard/')
 
         self.assertEqual(page.status_code, 200)
-        self.assertContains(
-            page,
-            'class="nav-item has-submenu" data-section="mythic-planner"',
-        )
+        from bs4 import BeautifulSoup
+        document = BeautifulSoup(page.content, 'html.parser')
+        navigation = document.select_one('#sidebar li.nav-item.has-submenu[data-section="mythic-planner"]')
+        self.assertIsNotNone(navigation)
+        self.assertIsNotNone(navigation.select_one('a[aria-controls="mythic-planner-sidebar-submenu"]'))
+        self.assertIsNotNone(navigation.select_one('ul#mythic-planner-sidebar-submenu'))
+        for section in ('config', 'positions', 'routes'):
+            self.assertIsNotNone(navigation.select_one(
+                f'li.submenu-item[data-dashboard-section="mythic-planner-{section}"] > a[href="#"]'))
+            content = document.select_one(f'#mythic-planner-{section}.content-section')
+            self.assertIsNotNone(content)
+            self.assertIsNone(content.find('iframe'))
         self.assertContains(
             page,
             'class="submenu-item" data-dashboard-section="mythic-planner-config"',
@@ -4339,8 +4347,22 @@ class MythicPlannerPageContractTests(SimpleTestCase):
 
         portal = self.client.get('/')
         self.assertEqual(portal.status_code, 200)
-        self.assertContains(portal, 'href="/portal/mythic-planner/"')
-        self.assertContains(portal, '<span>MDT</span>', html=True)
+        from bs4 import BeautifulSoup
+        document = BeautifulSoup(portal.content, 'html.parser')
+        tools = document.select_one(
+            '#portal-primary-nav details[data-nav-category="tools"]',
+        )
+        self.assertIsNotNone(tools)
+        self.assertEqual(tools.find('summary').get_text(' ', strip=True), '玩家工具')
+        entry = tools.select_one('a[href="/portal/mythic-planner/"]')
+        self.assertIsNotNone(entry)
+        self.assertEqual(entry.get_text(' ', strip=True), 'MDT 路线')
+        self.assertIsNone(entry.find_parent(attrs={'hidden': True}))
+        self.assertIsNone(entry.find_parent(attrs={'aria-hidden': 'true'}))
+        # Follow the actual same-site navigation target, not a detached label.
+        linked_planner = self.client.get(entry['href'])
+        self.assertEqual(linked_planner.status_code, 200)
+        self.assertContains(linked_planner, 'id="planner-app"')
 
         dashboard_template = (
             Path(settings.BASE_DIR)

@@ -3,11 +3,15 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class DisableAdventureJournalMonitorMigrationTests(TransactionTestCase):
     migrate_from = [('botend', '0225_merge_journal_talent_versions')]
     migrate_to = [('botend', '0226_disable_adventure_journal_monitor')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_from)
         old_apps = executor.loader.project_state(self.migrate_from).apps
@@ -25,9 +29,6 @@ class DisableAdventureJournalMonitorMigrationTests(TransactionTestCase):
             is_active=True,
         ).pk
 
-    def tearDown(self):
-        MigrationExecutor(connection).migrate(self.migrate_to)
-        super().tearDown()
 
     def test_existing_journal_monitor_is_disabled_without_touching_other_tasks(self):
         executor = MigrationExecutor(connection)

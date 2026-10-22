@@ -86,7 +86,8 @@ class PortalSiteUpdatesTests(TestCase):
         self.assertEqual(self.items()['mdt']['status'], 'today')
 
     def test_talents_ignore_configuration_edits_and_localization_only(self):
-        version = WowTalentVersion.objects.create(key='test-version', is_active=True, is_default_simulator=True)
+        version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={
+            'branch': 'retail', 'status': 'active', 'is_active': True, 'is_default_simulator': True})
         WowTalentNodeMetadata.all_objects.create(talent_version=version, node_id=1, last_updated=self.now - timedelta(days=1))
         WowTalentNodeMetadata.all_objects.create(talent_version=version, localization_only=True, name_kind='item', reference_id=999, last_updated=self.now)
         self.assertEqual(self.items()['talents']['status'], 'older')

@@ -259,7 +259,7 @@ def build_ptr_12_1_panel_payload(
     for order, variant in enumerate(catalog.variants):
         candidates.append({
             'key': variant.candidate_key,
-            'label': f'{variant.name} ({variant.item_level})',
+            'label': f'{variant.name} · {variant.item_level}',
             'candidate_type': 'gear_swap',
             'params': {
                 'slot': 'trinket1',

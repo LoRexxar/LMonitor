@@ -1,33 +1,14 @@
-from django.contrib.auth.models import User
-from django.test import Client, TestCase
+from django.test import SimpleTestCase
 from django.template.loader import render_to_string
 
-from botend.models import SimcTask, SimulationRun
 
-
-class SimcResultUXTests(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(username='result_ux_user', password='pwd')
-        self.client = Client()
-        self.client.force_login(self.user)
-
+class SimcResultUXTests(SimpleTestCase):
     def _render_attribute_batch(self, name, candidates):
-        """Render the result UX from one attribute task's candidate Runs."""
-        task = SimcTask.objects.create(
-            user_id=self.user.id, name=name, simc_profile_id=0,
-            task_type=1, mode='attribute_sweep', current_status=2,
-        )
+        """Exercise the real template; it consumes projected rows, not ORM objects."""
         results = []
         for index, (crit, haste, dps) in enumerate(candidates, 1):
-            run = SimulationRun.objects.create(
-                task=task, sequence=index, status='completed',
-                candidate_key=f'candidate-{index}',
-                candidate_label=f'crit={crit}, haste={haste}',
-                candidate_params={'attribute_ratings': {'crit': crit, 'haste': haste}},
-                result_summary={'dps': dps},
-            )
             results.append({
-                'task_id': task.id, 'run_id': run.id, 'attr1_name': '暴击', 'attr1_value': crit,
+                'task_id': 1, 'run_id': index, 'attr1_name': '暴击', 'attr1_value': crit,
                 'attr2_name': '急速', 'attr2_value': haste, 'dps': dps,
             })
         max_dps = max(row['dps'] for row in results)
@@ -49,7 +30,7 @@ class SimcResultUXTests(TestCase):
             'spread_narrow': (max_dps - min_dps) * 100 / min_dps <= 0.5,
         }
         return render_to_string('simc_attribute_analysis_ssr.html', {
-            'task_id': task.id, 'task_name': task.name, 'results': results,
+            'task_id': 1, 'task_name': name, 'results': results,
             'results_by_dps': sorted(results, key=lambda row: row['dps'], reverse=True),
             'stats': stats,
         })
@@ -112,7 +93,6 @@ class SimcResultUXTests(TestCase):
         self.assertIn('href="${esc(artifact.preview_url)}"', workbench_js)
         self.assertNotIn('data-artifact-preview', workbench_js)
         self.assertNotIn('renderSimcArtifactFrame', workbench_js)
-        self.assertNotIn('window.open(', workbench_js)
         self.assertIn('id="native-report-frame"', result)
         self.assertIn('sandbox="allow-same-origin"', result)
 

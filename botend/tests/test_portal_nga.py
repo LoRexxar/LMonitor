@@ -227,12 +227,19 @@ class PortalNgaTests(TestCase):
 
     def test_home_api_stays_bounded_and_legacy_hover_stays_plain_text(self):
         item = self.article(category='hot', reply_count=50, content='<p>完整主楼</p>' + '<p>长正文</p>' * 1000)
+        import tempfile
+        from botend.services.news_snapshot import refresh_news_snapshot
+        directory = tempfile.TemporaryDirectory(prefix='nga-news-')
+        self.addCleanup(directory.cleanup)
+        settings = self.settings(NEWS_SNAPSHOT_ROOT=directory.name)
+        settings.enable()
+        self.addCleanup(settings.disable)
+        refresh_news_snapshot()
         with CaptureQueriesContext(connection) as queries:
             response = self.client.get('/portal/api/nga-hot/')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['data'][0]['content_preview'][:4], '完整主楼')
-        self.assertLessEqual(len(queries), 2)
-        self.assertNotIn('"content"', queries[-1]['sql'].split('SUBSTR', 1)[0])
+        self.assertEqual(len(queries), 0)  # published snapshot, no request-time hydration
         hover = self.client.get(f'/portal/api/article/{item.id}/').json()['data']['content']
         self.assertTrue(hover.startswith('完整主楼'))
         self.assertNotIn('<p>', hover)

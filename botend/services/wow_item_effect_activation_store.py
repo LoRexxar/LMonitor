@@ -82,11 +82,21 @@ def merge_item_effect_activation(facts, *, is_ptr):
     return {'changed_item_ids': sorted(changed), 'references': refs}
 
 
-def item_activation_facts(item_ids):
-    # Fetch only the dedicated JSON fragment, not all catalog/tooltip metadata.
-    from django.db.models.fields.json import KeyTransform
-    rows = WowItemSnapshot.objects.filter(item_id__in=set(item_ids)).values_list(
-        'item_id', KeyTransform(META_KEY, 'metadata'))
+def item_activation_facts(item_ids, *, loaded_items=None):
+    if loaded_items is not None:
+        # Planning already loaded these authoritative rows for eligibility.
+        # Reuse that same snapshot instead of querying each spec's candidates.
+        field = WowItemSnapshot._meta.get_field('item_id')
+        ids = {field.get_prep_value(item_id) for item_id in item_ids}
+        rows = (
+            (item_id, item.metadata.get(META_KEY) if isinstance(item.metadata, dict) else None)
+            for item_id, item in loaded_items.items() if item_id in ids
+        )
+    else:
+        # Other callers still load only the dedicated JSON fragment.
+        from django.db.models.fields.json import KeyTransform
+        rows = WowItemSnapshot.objects.filter(item_id__in=set(item_ids)).values_list(
+            'item_id', KeyTransform(META_KEY, 'metadata'))
     return {item_id: facts if isinstance(facts, dict) else {} for item_id, facts in rows}
 
 

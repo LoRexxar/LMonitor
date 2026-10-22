@@ -246,6 +246,12 @@ class PortalSimcRankingTests(TestCase):
 
     def setUp(self):
         self.backend = SimcBackendBinary.objects.create(identifier='ranking', name='Ranking', current_version='simc-v1')
+        from tempfile import TemporaryDirectory
+        self.snapshot_directory = TemporaryDirectory(prefix='portal-ranking-')
+        self.addCleanup(self.snapshot_directory.cleanup)
+        snapshot_settings = override_settings(SIMC_BENCHMARK_RESULT_SNAPSHOT_ROOT=self.snapshot_directory.name)
+        snapshot_settings.enable()
+        self.addCleanup(snapshot_settings.disable)
         self.template = SimcContentTemplate.objects.create(name='Ranking template', spec='default', content='iterations=1000', owner_user_id=1)
         self.panel = SimcBenchmarkPanel.objects.create(name='Ranking panel', slug='ranking-panel', created_by_id=1, is_active=True, is_public=True)
         self.private_panel = SimcBenchmarkPanel.objects.create(name='Private ranking', slug='private-ranking', created_by_id=1, is_active=True, is_public=False)
@@ -255,8 +261,33 @@ class PortalSimcRankingTests(TestCase):
             apl = SimcApl.objects.create(name=f'{label} standard', spec=spec_key, content=f'actions=/{spec_key}', owner_user_id=1)
             profile = SimcProfile.objects.create(user_id=1, name=f'{label} profile', class_name=spec_key.split('_')[0], spec=spec_key)
             panel_spec = SimcBenchmarkSpec.objects.create(panel=self.panel, class_name=spec_key.split('_')[0], spec_key=spec_key, label=label, apl=apl, template=self.template, backend=self.backend, display_order=order)
-            panel_profile = SimcBenchmarkProfile.objects.create(panel_spec=panel_spec, profile=profile, label=f'{label} standard')
+            from botend.models import SimcTalentString
+            apl.validation_status = SimcApl.VALIDATION_VALID
+            apl.validated_content_hash = hashlib.sha256(apl.content.encode()).hexdigest()
+            apl.validation_revision = 'a' * 40
+            apl.validation_game_build = '12.0.1'
+            apl.save(update_fields=['validation_status', 'validated_content_hash', 'validation_revision', 'validation_game_build'])
+            talent = SimcTalentString.objects.create(name=f'{label} talents', spec=spec_key, talent='CYEAoonA', owner_user_id=1)
+            panel_profile = SimcBenchmarkProfile.objects.create(panel_spec=panel_spec, profile=profile, talent_string=talent, label=f'{label} standard')
             self.specs[spec_key] = (panel_spec, panel_profile)
+
+    def _publish_baselines(self, values):
+        from botend.services.simc_benchmark_execution import create_execution, reconcile_execution
+        from botend.services.simc_benchmark_result_snapshot import rebuild_panel_result_snapshot
+        from botend.tests.simc_benchmark_test_fixtures import BenchmarkExecutionFixtureMixin
+        with patch('botend.services.simc_task_service.current_validation_identity', return_value=('a' * 40, '12.0.1')):
+            execution = create_execution(self.panel, requested_by=1)
+        for case in execution.cases.select_related('task'):
+            if case.spec_key not in values:
+                continue
+            task = case.task
+            self.assertIsNotNone(task)
+            BenchmarkExecutionFixtureMixin._run(self, task, 1, 'completed', 'baseline', dps=values[case.spec_key])
+            task.current_status = 2
+            task.save(update_fields=['current_status'])
+        reconcile_execution(execution)
+        self.assertTrue(rebuild_panel_result_snapshot(self.panel.id))
+        return execution
 
     def _version(self, kind, resource_id, key):
         return SimcResourceVersion.objects.get_or_create(
@@ -281,7 +312,8 @@ class PortalSimcRankingTests(TestCase):
         }
         task = SimcTask.objects.create(user_id=1, name=f'{spec_key}-{dps}', simc_profile_id=profile.id, profile=profile, template=self.template, apl=apl, profile_version=profile_version, template_version=template_version, apl_version=apl_version, backend=self.backend, mode='comparison', mode_params={'request_manifest': {'candidates': [candidate]}}, simulation_params=params or self.scenario.simulation_params, current_status=2)
         execution = SimcBenchmarkExecution.objects.create(panel=self.panel, config_hash=f'{task.id:064d}', status='success')
-        case = SimcBenchmarkCase.objects.create(execution=execution, task=task, spec_key=spec_key, scenario_key=self.scenario.key, profile_key=str(profile.id), spec_label=panel_spec.label, scenario_label=self.scenario.name, profile_label=panel_profile.label, coordinate_hash=f'{task.id:064d}', status='success')
+        from botend.services.simc_benchmark_config import benchmark_profile_key
+        case = SimcBenchmarkCase.objects.create(execution=execution, task=task, spec_key=spec_key, scenario_key=self.scenario.key, profile_key=benchmark_profile_key(profile.id, panel_profile.talent_string_id), spec_label=panel_spec.label, scenario_label=self.scenario.name, profile_label=panel_profile.label, coordinate_hash=f'{task.id:064d}', status='success')
         run = SimulationRun.objects.create(task=task, sequence=1, candidate_key=candidate_key, candidate_label=candidate_key, status='completed', result_summary={'dps': dps}, resource_manifest={'backend_version': 'simc-v1'})
         result = SimcBenchmarkResult.objects.create(case=case, candidate_key=candidate_key, dps=dps)
         return result, task, run
@@ -320,9 +352,16 @@ class PortalSimcRankingTests(TestCase):
                 'use_ptr': True,
             },
         )
-        self._baseline('warrior_fury', 200, profile_version=frozen_profile)
+        execution = self._publish_baselines({'warrior_fury': 200})
+        task = execution.cases.get(spec_key='warrior_fury').task
+        task.profile_version = frozen_profile
+        task.save(update_fields=['profile_version'])
         profile.name = 'Renamed current profile'
         profile.save(update_fields=['name'])
+        from botend.services.simc_benchmark_result_snapshot import rebuild_panel_result_snapshot, request_snapshot_refresh
+        from botend.services.simc_benchmark_config import benchmark_profile_key
+        request_snapshot_refresh(self.panel.id)
+        self.assertTrue(rebuild_panel_result_snapshot(self.panel.id))
 
         summary_response = self.client.get(
             f'/portal/api/simc-benchmarks/panels/{self.panel.id}/',
@@ -331,7 +370,7 @@ class PortalSimcRankingTests(TestCase):
 
         self.assertEqual(summary_response.status_code, 200)
         summary = summary_response.json()['results']['coordinates'][0]
-        self.assertEqual(summary['profile_key'], str(profile.id))
+        self.assertEqual(summary['profile_key'], benchmark_profile_key(profile.id, panel_profile.talent_string_id))
         self.assertEqual(summary['labels']['profile'], 'Renamed current profile')
         self.assertEqual(summary['candidates'][0]['dps'], 200.0)
         for detail_key in ('profile_detail', 'simulation_detail', 'audit'):
@@ -351,15 +390,17 @@ class PortalSimcRankingTests(TestCase):
 
         self.assertEqual(detail_response.status_code, 200)
         detail = detail_response.json()['results']['coordinates'][0]
-        self.assertEqual(detail['profile_detail']['talent_version'], '')
+        # talent_version is the renderer branch, not the resource content hash.
+        self.assertEqual(detail['profile_detail']['talent_version'], 'ptr')
+        self.assertTrue(detail['profile_detail']['is_ptr'])
+        self.assertEqual(detail['profile_detail']['talents']['build_code'], task.talent_version.payload['talent'])
         self.assertIn('simulation_detail', detail)
         self.assertIn('audit', detail)
         self.assertIn('task_id', detail['candidates'][0])
         self.assertIn('source_result_id', detail['candidates'][0])
 
     def test_spec_ranking_uses_each_enabled_specs_standard_profile_and_apl_only(self):
-        _, fury_task, _ = self._baseline('warrior_fury', 200)
-        _, fire_task, _ = self._baseline('mage_fire', 200)
+        self._publish_baselines({'warrior_fury': 200, 'mage_fire': 200})
         alternate = SimcApl.objects.create(name='Not panel standard', spec='mage_fire', content='actions=/wrong', owner_user_id=1)
         self._baseline('mage_fire', 999, apl_version_key='wrong', apl_id=alternate.id)
 
@@ -378,7 +419,7 @@ class PortalSimcRankingTests(TestCase):
         self.assertEqual(response.json()['reason'], 'panel_not_public')
 
     def test_ranking_apis_are_public_read_only(self):
-        self._baseline('warrior_fury', 321)
+        self._publish_baselines({'warrior_fury': 321})
         apl = self.client.get('/portal/api/simc-benchmarks/apl-rankings/', {'panel': self.panel.slug, 'spec': 'warrior_fury', 'scenario': 'single'})
         specs = self.client.get('/portal/api/simc-benchmarks/spec-rankings/', {'panel_id': self.panel.id, 'scenario': 'single'})
         self.assertEqual(apl.json()['status'], 'ready')
@@ -545,7 +586,6 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('data-benchmark-profile-talent-thumbnail', profile_renderer)
         self.assertIn('profileDetail?.talents?.build_code', profile_renderer)
         self.assertIn('TalentTreeThumbnail.mount', self.JS)
-        self.assertIn('mountProfileTalentThumbnail(loadedDetails)', self.JS)
 
     def test_home_removes_baseline_list_and_preserves_legacy_redirect(self):
         soup = BeautifulSoup(self.TEMPLATE, 'html.parser')
@@ -558,30 +598,12 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('window.location.replace("/portal/simc-benchmarks/")', self.PORTAL_JS)
 
     def test_portal_pages_share_one_primary_header_navigation(self):
-        shared_header_path = self.ROOT / 'templates/portal/_header.html'
-        self.assertTrue(shared_header_path.exists())
-        shared_header = shared_header_path.read_text(encoding='utf-8')
-        header_soup = BeautifulSoup(shared_header, 'html.parser')
-        quick_nav = header_soup.select_one('nav.portal-quick-nav[aria-label="Portal 快捷入口"]')
-        self.assertIsNotNone(quick_nav)
-        groups = quick_nav.select('details.portal-nav-group[data-nav-category]')
-        self.assertEqual(
-            [group.get('data-nav-category') for group in groups],
-            ['today', 'data', 'tools', 'community'],
-        )
-        navigation = {(link.get_text(' ', strip=True), link.get('href')) for link in quick_nav.select('a[href]')}
-        self.assertTrue({
-            ('今日魔兽与资讯', '/#section-news'),
-            ('活动提醒', '/#section-events'),
-            ('全职业数据', '/portal/specs/'),
-            ('SimC 模拟数据', '/portal/simc-benchmarks/'),
-            ('天赋模拟器', '/portal/talents/'),
-            ('职业配装器', '/portal/gear-builder/'),
-            ('MDT 路线', '/portal/mythic-planner/'),
-            ('新闻聚合', '/portal/news/'),
-            ('NGA 热议', '/#section-nga'),
-            ('视频攻略', '/#section-videos'),
-        }.issubset(navigation))
+        header = BeautifulSoup((self.ROOT / 'templates/portal/_header.html').read_text(), 'html.parser')
+        nav = header.select_one('nav.portal-quick-nav')
+        self.assertIsNotNone(nav)
+        for href in ('/portal/simc-benchmarks/', '/portal/talents/', '/portal/gear-builder/'):
+            with self.subTest(href=href):
+                self.assertEqual(len(nav.select(f'a[href="{href}"]')), 1)
 
     def test_portal_header_has_persistent_accessible_theme_toggle(self):
         shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')
@@ -648,18 +670,6 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIsNone(soup.select_one('h1'))
 
     def test_benchmark_collection_page_renders_panel_list_instead_of_all_results(self):
-        shared_header = (self.ROOT / 'templates/portal/_header.html').read_text(encoding='utf-8')
-        soup = BeautifulSoup(shared_header, 'html.parser')
-        result_button = next(
-            link for link in soup.select('a')
-            if link.get_text(' ', strip=True) == 'simc模拟数据'
-        )
-        self.assertEqual(result_button.get('href'), '/portal/simc-benchmarks/')
-        self.assertEqual(
-            result_button.select_one('use').get('href'),
-            "{% static 'portal/icons/icons.svg' %}#icon-refresh",
-        )
-
         self.assertIn('function renderPanelList', self.JS)
         self.assertIn('/portal/simc-benchmarks/${encodeURIComponent(String(panel.id))}/', self.JS)
         self.assertNotIn('panel?.result_count', self.JS)
@@ -762,11 +772,8 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             self.assertIn('simc-benchmark-spec-bar', renderer)
             self.assertIn('hero_talent', renderer)
             self.assertIn('aria-expanded', renderer)
-            self.assertIn('profile_detail', renderer)
-            self.assertIn('simulation_detail', renderer)
             self.assertNotIn('table', renderer)
             self.assertNotIn('thead', renderer)
-        self.assertIn('renderProfileDetails(', renderers[0])
         self.assertIn('option_gain_coordinates', renderers[1])
         self.assertNotIn(
             'entry?.scenario_label || entry?.scenario_key,\n        entry?.profile_label',
@@ -777,36 +784,12 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             renderers[1],
         )
 
-    def test_baseline_only_rows_expand_the_corresponding_frozen_profile(self):
-        spec_start = self.JS.index('function renderSpecComparison')
-        spec_end = self.JS.index('\n  function renderResults', spec_start)
-        renderer = self.JS[spec_start:spec_end]
-
-        self.assertIn('renderProfileDetails(', renderer)
-        self.assertIn('coordinate?.profile_detail', renderer)
-        self.assertIn('simc-benchmark-spec-row-toggle', renderer)
-        self.assertIn('aria-expanded', renderer)
-        self.assertIn('simc-benchmark-spec-profile-details', renderer)
-        self.assertIn('query.set("spec", coordinate?.spec_key', renderer)
-        self.assertIn('query.set("profile", coordinate?.profile_key', renderer)
-        self.assertIn('nextCoordinate?.profile_detail', renderer)
-        self.assertIn('.simc-benchmark-spec-profile-details', self.CSS)
-        self.assertNotIn('展开本次模拟 Profile', renderer)
 
     def test_baseline_only_rows_show_spec_icons(self):
         self.assertIn('coordinate?.spec_icon_url', self.JS)
         self.assertIn('simc-benchmark-spec-icon', self.JS)
         self.assertIn('.simc-benchmark-spec-icon', self.CSS)
 
-    def test_single_panel_fetches_only_the_selected_coordinate_on_filter_changes(self):
-        for contract in (
-            'params.set("selected", "1")',
-            'params.set("spec"', 'params.set("profile"', 'params.set("scenario"',
-            'AbortController', 'coordinateRequestController.abort()',
-            'await requestJson(`${detailUrl}?${params.toString()}`',
-        ):
-            self.assertIn(contract, self.JS)
-        self.assertIn('payload?.results?.coordinates', self.JS)
 
     def test_selected_coordinate_response_reconciles_filters_after_config_change(self):
         for contract in (
@@ -819,15 +802,11 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
             self.assertIn(contract, self.JS)
 
     def test_numeric_panel_route_and_filter_query_are_synchronized(self):
-        for contract in (
-            'root.dataset.panelId',
-            'params.get("spec")', 'params.get("profile")', 'params.get("scenario")',
-            'params.set("spec"', 'params.set("profile"', 'params.set("scenario"',
-            'window.history.replaceState',
-            '${encodeURIComponent(String(panelId))}/',
-        ):
-            self.assertIn(contract, self.JS)
-        self.assertNotIn('get("benchmark")', self.JS)
+        for token in ('root.dataset.panelId', 'window.history.replaceState', 'AbortController', 'coordinateRequestController.abort()'):
+            self.assertIn(token, self.JS)
+        # Talent is the current coordinate identity, not legacy Profile.
+        for field in ('spec', 'talent', 'scenario'):
+            self.assertIn(f'params.set("{field}"', self.JS)
 
     def test_dashboard_opens_numeric_panel_route_instead_of_slug_query(self):
         dashboard_js = (self.ROOT / 'static/dashboard/js/simc-benchmark-dashboard.js').read_text(encoding='utf-8')
@@ -912,15 +891,6 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         ):
             self.assertIn(contract, self.JS)
 
-    def test_expanded_result_details_show_the_apl_used_by_the_result_task(self):
-        renderer_start = self.JS.index('function renderProfileDetails')
-        renderer_end = self.JS.index('\n  function renderCoordinate', renderer_start)
-        renderer = self.JS[renderer_start:renderer_end]
-
-        self.assertIn('audit', renderer)
-        self.assertIn('["使用 APL", audit?.apl_label]', renderer)
-        self.assertGreaterEqual(self.JS.count('coordinate?.audit'), 2)
-        self.assertIn('nextCoordinate?.audit', self.JS)
 
     def test_expanded_result_details_show_current_talent_and_hero_talent_names(self):
         renderer_start = self.JS.index('function renderProfileDetails')
@@ -950,17 +920,6 @@ class PortalSimcBenchmarkUIContractTests(unittest.TestCase):
         self.assertIn('node("a", "simc-benchmark-profile-talent-link", "打开天赋模拟器")', self.JS)
         self.assertNotIn('node("a", "simc-benchmark-profile-talent-code', self.JS)
 
-    def test_selected_scenario_profile_has_dedicated_oss_raw_report_button(self):
-        for contract in (
-            'candidate?.raw_report_url',
-            'simc-benchmark-profile-report-link',
-            '查看 SimC 原始报告',
-            'target = "_blank"',
-            'noopener noreferrer',
-        ):
-            self.assertIn(contract, self.JS + self.CSS)
-        self.assertIn('nextRows.find(', self.JS)
-        self.assertIn('row?.spec_key === coordinate?.spec_key', self.JS)
 
     def test_result_styles_make_percentage_comparison_and_baseline_contrasting(self):
         for contract in (

@@ -5,8 +5,12 @@ from html import unescape
 from html.parser import HTMLParser
 
 from django.template.loader import render_to_string
-from django.test import SimpleTestCase, override_settings
+from django.test import TestCase, override_settings
 from django.utils.html import strip_tags
+
+from botend.journal_models import JournalEncounter, JournalInstance, JournalRelease, JournalState
+from botend.models import SeasonMeta
+from botend.services.player_raid_progression import REFERENCE, physical_scope, project_progress
 
 
 class Links(HTMLParser):
@@ -52,7 +56,32 @@ class RosterMembers(HTMLParser):
 
 
 @override_settings(TIME_ZONE="UTC")
-class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
+class PlayerRaiderIOActivityTemplateTests(TestCase):
+    def setUp(self):
+        # Render the actual physical-raid projection: missing character progress
+        # retains the known raid and denominator, unlike a missing M+ module.
+        encounters = [{'id': bid} for bid in range(1, 10)]
+        self.season = SeasonMeta.objects.create(
+            season_key='template-test', season_name='测试赛季', rio_season='test-season',
+            mplus_zone_id=1, raid_zone_id=2, raid_encounters=encounters,
+            raid_zones=[{'id': 2, 'encounters': encounters}])
+        release = JournalRelease.objects.create(build='template-test', status='ready')
+        JournalState.objects.create(active_release=release)
+        instance = JournalInstance.objects.create(
+            release=release, journal_id=10, name='测试团本', kind='raid')
+        for encounter in encounters:
+            JournalEncounter.objects.create(instance=instance, journal_id=encounter['id'],
+                name=str(encounter['id']), payload={'dungeon_encounter_id': encounter['id']})
+        self.season.raid_zones[0][REFERENCE] = {
+            'scope_fingerprint': physical_scope(self.season)['fingerprint'],
+            'bindings': [{'journal_id': 10, 'slug': 'test-raid'}]}
+        self.season.save(update_fields=['raid_zones'])
+
+    def raid_progression(self, **counts):
+        return project_progress(self.season, {'test-raid': {
+            'total_bosses': 9, 'normal_bosses_killed': 9,
+            'heroic_bosses_killed': 8, 'mythic_bosses_killed': 3, **counts}})
+
     def activity(self):
         run = {
             "dungeon_name": "测试副本", "level": 12, "score": 321.5,
@@ -69,9 +98,7 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
             "dungeon_counts": {"status": "ready", "rows": [
                 {"dungeon_name": "测试副本", "total": 20, "timed": 15, "timed_percent": 75.0},
             ], "total": 20, "timed": 15, "timed_percent": 75.0},
-            "raid_progression": {"status": "ready", "rows": [
-                {"name": "测试团本", "total_bosses": 9, "normal": 9, "heroic": 8, "mythic": 3},
-            ]},
+            "raid_progression": self.raid_progression(),
         }
 
     def render(self, activity):
@@ -186,22 +213,61 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
 
     def test_missing_empty_and_stale_remain_distinct_without_losing_last_good(self):
         activity = self.activity()
-        for key in ("best_runs", "recent_runs", "dungeon_counts", "raid_progression"):
+        messages = {
+            'best_runs': ('来源未提供最佳记录', '暂无最佳记录'),
+            'recent_runs': ('来源未提供近期记录', '暂无收录记录'),
+            'dungeon_counts': ('来源未提供赛季副本次数', '暂无副本次数记录'),
+        }
+        for key in messages:
             activity[key]["rows"] = []
             activity[key]["status"] = "missing"
+        activity['dungeon_counts'].update(total=None, timed=None, timed_percent=None)
+        activity['raid_progression'] = project_progress(self.season, {})
+        self.assertEqual(activity['raid_progression']['status'], 'missing')
+        self.assertEqual(activity['raid_progression']['rows'], [
+            {'name': '测试团本', 'total_bosses': 9, 'normal': None, 'heroic': None, 'mythic': None}])
         activity["source_updated_at"] = activity["fetched_at"] = None
         activity["status"] = "partial"
         missing = self.text(self.render(activity))
         self.assertIn("部分数据缺失", missing)
-        self.assertEqual(missing.count("来源未提供"), 4)
+        for key, (missing_message, empty_message) in messages.items():
+            with self.subTest(module=key, state='missing'):
+                self.assertIn(missing_message, missing)
+                self.assertNotIn(empty_message, missing)
+        self.assertIn('测试团本', missing)
+        for difficulty in ('普通', '英雄', '史诗'):
+            self.assertIn(f'{difficulty} —/9', missing)
+        self.assertNotIn('0/9', missing)
+        self.assertNotIn('暂无当前团本进度', missing)
         self.assertIn("源更新时间 —", missing)
         self.assertIn("本站采集时间 —", missing)
-        for key in ("best_runs", "recent_runs", "dungeon_counts", "raid_progression"):
+        for key in messages:
             activity[key]["status"] = "ready"
+        activity['dungeon_counts'].update(total=0, timed=0, timed_percent=None)
         empty = self.text(self.render(activity))
         self.assertNotIn("来源未提供", empty)
-        for label in ("暂无最佳记录", "暂无收录记录", "暂无副本次数记录", "暂无当前团本进度"):
-            self.assertIn(label, empty)
+        for key, (_, empty_message) in messages.items():
+            with self.subTest(module=key, state='empty'):
+                self.assertIn(empty_message, empty)
+        # A configured raid with no character data is unknown, not an empty
+        # ready module. An explicit successful zero response is distinct.
+        self.assertIn('普通 —/9', empty)
+        activity['raid_progression'] = self.raid_progression(
+            normal_bosses_killed=0, heroic_bosses_killed=0, mythic_bosses_killed=0)
+        self.assertEqual(activity['raid_progression']['status'], 'ready')
+        zero = self.text(self.render(activity))
+        for difficulty in ('普通', '英雄', '史诗'):
+            self.assertIn(f'{difficulty} 0/9', zero)
+        # An unresolved physical scope really produces no rows. It must show
+        # both the mapping warning and empty placeholder, not invent progress.
+        self.season.raid_encounters.append({'id': 999})
+        activity['raid_progression'] = project_progress(self.season, {})
+        self.assertEqual(activity['raid_progression'], {'status': 'unresolved', 'rows': []})
+        unresolved = self.text(self.render(activity))
+        self.assertIn('当前团本来源映射待校验', unresolved)
+        self.assertIn('暂无当前团本进度', unresolved)
+        self.assertNotIn('0/9', unresolved)
+        self.season.refresh_from_db()
         for status, label in (("pending", "等待采集"), ("unavailable", "暂不可用"), ("stale", "数据已过期")):
             with self.subTest(status=status):
                 activity = self.activity()
@@ -209,6 +275,8 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
                 text = self.text(self.render(activity))
                 self.assertIn(label, text)
                 self.assertIn("测试副本", text)
+                self.assertIn('测试团本', text)
+                self.assertIn('史诗 3/9', text)
 
     def test_zero_unknown_tristate_and_untrusted_text_are_rendered_faithfully(self):
         activity = self.activity()
@@ -224,12 +292,14 @@ class PlayerRaiderIOActivityTemplateTests(SimpleTestCase):
             {"dungeon_name": "零次数副本", "total": 0, "timed": 0, "timed_percent": 0.0},
             {"dungeon_name": "未知次数副本", "total": None, "timed": None, "timed_percent": None},
         ]
-        activity["raid_progression"]["rows"][0].update(normal=0, heroic=None, mythic=0, total_bosses=None)
+        activity['raid_progression'] = self.raid_progression(
+            normal_bosses_killed=0, heroic_bosses_killed=None, mythic_bosses_killed=0)
+        self.assertEqual(activity['raid_progression']['status'], 'partial')
         html = self.render(activity)
         text = self.text(html)
         for label in ("得分 0.0", "得分 —", "升级 0", "升级 —", "未限时", "限时未知",
                       "当场专精 —", "职责 —", "完成时间 —", "已完成 0", "限时 0", "限时比例 0.0%",
-                      "已完成 —", "限时 —", "限时比例 —", "普通 0/—", "英雄 —/—", "史诗 0/—"):
+                      "已完成 —", "限时 —", "限时比例 —", "普通 0/9", "英雄 —/9", "史诗 0/9"):
             self.assertIn(label, text)
         self.assertNotIn("<script>", html)
         self.assertNotIn("<img src=x", html)

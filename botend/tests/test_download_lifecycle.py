@@ -269,7 +269,9 @@ class DownloadLifecycleTests(SimpleTestCase):
         filenames = {f'{table}.csv' for table in TALENT_TABLES}
         filenames.update(f'{table}_{locale}.csv' for table in ('SpellName', 'Spell', 'TraitDefinition')
                          for locale in ('enUS', 'zhCN'))
-        self.assertEqual({path.name for path in output.iterdir()}, filenames | {'manifest.json'})
+        self.assertEqual({path.name for path in output.iterdir()}, filenames | {'manifest.json', 'retention_owner.json'})
+        self.assertEqual(json.loads((output / 'retention_owner.json').read_text()),
+                         {'branch': 'retail', 'purpose': 'talent-source-staging'})
         manifest = json.loads((output / 'manifest.json').read_bytes())
         self.assertEqual(len(manifest), len(expected))
         self.assertEqual((self.root / 'source_build.txt').read_text(), BUILD)
@@ -354,7 +356,7 @@ class DownloadLifecycleTests(SimpleTestCase):
         self.assertNotEqual(output, current)
         expected = {'TraitDefinition.csv', 'TraitDefinition_zhCN.csv', 'TraitDefinition_enUS.csv',
                     'SpellName_enUS.csv', 'SpellName_zhCN.csv', 'Spell_enUS.csv', 'Spell_zhCN.csv',
-                    'manifest.json'}
+                    'manifest.json', 'retention_owner.json'}
         self.assertEqual({path.name for path in output.iterdir()}, expected)
         manifest = json.loads((output / 'manifest.json').read_bytes())
         self.assertEqual(len(manifest), 6)

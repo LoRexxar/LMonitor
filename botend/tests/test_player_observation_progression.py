@@ -6,16 +6,16 @@ from django.test import TestCase
 from django.utils import timezone
 
 from botend.models import RaiderIOCharacterActivity, RaiderIORunRoster
-from botend.tests.test_player_observation import PlayerObservationTests
+from botend.tests import test_player_observation as _fixture_module
 from botend.tests.test_raiderio_run_roster import details
 
 
 class ObservationProgressionTests(TestCase):
-    evidence = PlayerObservationTests.evidence
-    engine = PlayerObservationTests.engine
+    evidence = _fixture_module.PlayerObservationTests.evidence
+    engine = _fixture_module.PlayerObservationTests.engine
 
     def setUp(self):
-        PlayerObservationTests.setUp(self)
+        _fixture_module.PlayerObservationTests.setUp(self)
         self.now = timezone.now()
         runs = []
         for index in range(8):
@@ -129,12 +129,21 @@ class ObservationProgressionTests(TestCase):
         self.assertEqual(assistance['support_ids'], [])
         self.assertEqual(assistance['counter_ids'], [])
         self.assertTrue(missing <= set(assistance['unknown_ids']))
-        expected = {row.identity_digest: list(range(200, 205)) if row.character_name == 'member4'
-                    else [205, 206] if row.character_name == 'member5' else [207]
+        # Each guest is queried for its earliest qualifying event, not all of
+        # its appearances. Runs are stored newest-first in this fixture.
+        expected = {row.identity_digest: [204] if row.character_name == 'member4'
+                    else [206] if row.character_name == 'member5' else [207]
                     for row in RaiderIOCharacterActivity.objects.filter(
                         character_name__in=['member4', 'member5', 'member6'])}
         self.assertEqual({q['identity_digest']: q['run_ids'] for q in plan['questions']}, expected)
-        self.assertTrue(all(q['kind'] == 'scored_runs' for q in plan['questions']))
+        for question in plan['questions']:
+            self.assertEqual(question['kind'], 'scored_history')
+            self.assertEqual(question['purpose'], 'verify_guest_gain')
+            self.assertEqual(question['dungeon_id'], 1)
+            self.assertEqual(set(question['core_members']), set(plan['core_members']))
+            self.assertEqual(set(question['prior_run_ids']), set(question['core_members']))
+            self.assertEqual(set(question['prior_run_ids'].values()), {999, 1000, 1001, 1002})
+            self.assertNotIn(question['identity_digest'], question['core_members'])
 
     def test_best_records_never_inflate_recent_frequency_and_alternate_contributes(self):
         self.activity.payload_json['mythic_plus_recent_runs'] = self.runs[:2]

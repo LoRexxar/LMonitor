@@ -1,6 +1,8 @@
 """Reproducible local DB2/independent-tooltip proof; no ORM writes."""
 import argparse
 import json
+import os
+import tempfile
 import re
 import sys
 from pathlib import Path
@@ -15,6 +17,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--audit-dir', type=Path, default=Path('/home/ubuntu/journal-difficulty-audit'))
     parser.add_argument('--instance-id', type=int, help='authoritative JournalInstance.ID for central metadata')
+    parser.add_argument('--fixture-output', type=Path,
+                        help='write verified envelopes here only after every independent check passes')
     args = parser.parse_args()
     records = {}
     for path in sorted(args.audit_dir.glob('*.json')):
@@ -30,8 +34,6 @@ def main():
         if identity in records:
             assert records[identity]['rows'] == data['rows']
         records[identity] = data
-    fixture = ROOT / 'botend/tests/fixtures/wow_item_difficulty_item250243_69587.json'
-    fixture.write_text(json.dumps(list(records.values()), indent=2))
     def source(table, field, key):
         return records.get((table, field, key))
     results = []
@@ -59,6 +61,22 @@ def main():
         print(json.dumps({k: result[k] for k in ('item_context', 'status', 'bonus_ids', 'item_level', 'quality', 'level_evaluation', 'independent_check')}, ensure_ascii=False))
     report = args.audit_dir / 'strict-difficulty-item250243-by-context.json'
     report.write_text(json.dumps(results, indent=2))
+    if args.fixture_output is not None:
+        with tempfile.NamedTemporaryFile(mode='w', encoding='utf-8',
+                dir=args.fixture_output.parent, prefix=f'.{args.fixture_output.name}.',
+                delete=False) as handle:
+            staged = Path(handle.name)
+            try:
+                json.dump(list(records.values()), handle, indent=2)
+                handle.flush()
+                os.fsync(handle.fileno())
+            except BaseException:
+                staged.unlink(missing_ok=True)
+                raise
+        try:
+            os.replace(staged, args.fixture_output)
+        finally:
+            staged.unlink(missing_ok=True)
     print('verified_envelopes', len(records), 'report', report)
 
 if __name__ == '__main__':

@@ -11,6 +11,7 @@ F) Retry sequence increments
 
 Run with: DJANGO_SETTINGS_MODULE=LMonitor.settings_test_sqlite python manage.py test botend.tests.test_simc_reference_worker
 """
+from botend.tests.simc_api_worker_fixtures import execution_backend
 import json
 import hashlib
 import os
@@ -101,6 +102,7 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
     def test_A_composer_called_exactly_once_apply_template_forbidden(self):
         """RED A: Must call SimcComposer.compose() exactly once, apply_template must NOT be called."""
         task = SimcTask.objects.create(
+            backend=execution_backend(),
             user_id=self.user_id,
             name="Reference Task",
             simc_profile_id=0,
@@ -152,6 +154,7 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
     def test_B_compose_failure_creates_independent_failed_run(self):
         """RED B: When compose() returns (None, None, error), must create failed Run with error_detail."""
         task = SimcTask.objects.create(
+            backend=execution_backend(),
             user_id=self.user_id,
             name="Compose Failure Task",
             simc_profile_id=0,
@@ -198,6 +201,7 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
     def test_C_exception_after_completed_run_must_not_modify_old_run(self):
         """RED C: If a completed Run exists, resolver/compose exception must NOT modify it."""
         task = SimcTask.objects.create(
+            backend=execution_backend(),
             user_id=self.user_id,
             name="Completed Then Exception",
             simc_profile_id=0,
@@ -270,6 +274,7 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
         self.apl.save()
 
         task = SimcTask.objects.create(
+            backend=execution_backend(),
             user_id=self.user_id,
             name="Version Payload Task",
             simc_profile_id=0,
@@ -325,6 +330,7 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
         """RED E: Incomplete reference tasks must fail without calling resolve/compose/execute."""
         # Missing apl and apl_version
         task = SimcTask.objects.create(
+            backend=execution_backend(),
             user_id=self.user_id,
             name="Incomplete Reference",
             simc_profile_id=0,
@@ -365,6 +371,7 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
     def test_F_reprocessing_same_task_does_not_append_retry_run(self):
         """Retry creates a new Task; reprocessing a terminal Task is idempotent."""
         task = SimcTask.objects.create(
+            backend=execution_backend(),
             user_id=self.user_id,
             name="Retry Task",
             simc_profile_id=0,
@@ -429,6 +436,7 @@ class SimcReferenceWorkerStrictContractTests(TestCase):
             'candidate_params': mode_params or {'candidate_type': 'base'},
         }
         return SimcTask.objects.create(
+            backend=execution_backend(),
             user_id=self.user_id,
             name=name,
             simc_profile_id=0,

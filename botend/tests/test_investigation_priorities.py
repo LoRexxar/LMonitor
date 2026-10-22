@@ -19,12 +19,9 @@ class InvestigationPriorityTests(TestCase):
         plan = evidence['metrics']['investigation']
         self.assertGreaterEqual(len(plan['questions']), 2)
         selected = plan['questions'][-1]['id']
-        result = {'observations': [], 'conclusion_id': 'public_sample', 'investigation': {
-            'summary': '已有协作线索，但仍需要区分不同解释。', 'confidence': '低',
-            'hypotheses': [{'id': h['id'], 'assessment': h['status'],
-                'evidence_ids': h['support_ids'], 'counter_evidence_ids': h['counter_ids'],
-                'explanation': '仅为候选解释，缺失资料不能当作反证。'} for h in plan['hypotheses']],
-            'next_question_ids': [selected]}}
+        from botend.tests.test_player_observation import observation_response
+        result = observation_response(observation._generation_input(evidence))
+        result['investigation']['next_question_ids'] = [selected]
         row = PlayerObservationAnalysis.objects.create(activity=self.activity, player=self.player,
             status='ready', prompt_version=observation.PROMPT_VERSION, evidence_json=evidence,
             evidence_hash=evidence['evidence_hash'], result_json=result)

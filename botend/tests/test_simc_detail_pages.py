@@ -212,7 +212,7 @@ class SimcDetailPageFrontendContractTests(TestCase):
                       'simc-report-nav', 'Profile / 可复现配置'):
             self.assertIn(token, component)
         for entry in (detail, workbench):
-            self.assertIn('window.SimcResultReport.renderSummary(report)', entry)
+            self.assertRegex(entry, r'window\.SimcResultReport\.renderSummary\(report(?:,|\))')
             self.assertIn('window.SimcResultReport.renderDetails(report)', entry)
 
     def test_result_page_prioritizes_conclusion_and_defers_non_repeating_evidence(self):

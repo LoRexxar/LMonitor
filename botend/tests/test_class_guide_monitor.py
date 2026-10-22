@@ -97,6 +97,8 @@ class GuideMonitorTests(TestCase):
         self.task.notes = '测试授权'; self.task.save(update_fields=['notes'])
         now = timezone.now()
         MonitorTask.objects.filter(pk=self.task.pk).update(is_active=True, last_scan_time=now - timedelta(days=2))
+        # The scheduler also contains migration-seeded production tasks.
+        MonitorTask.objects.exclude(pk=self.task.pk).update(is_active=False)
         task = claim_next_monitor_task(now=now, lease_owner='guide-test')
         self.assertEqual(task.pk, self.task.pk)
         req = Mock()

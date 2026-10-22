@@ -11,10 +11,11 @@ from botend.models import (
     SimcBenchmarkExecution, SimcBenchmarkResult, SimcBenchmarkCandidate, SimulationRun,
     WowItemSnapshot,
 )
-from botend.tests.test_simc_benchmark_execution import SimcBenchmarkExecutionTests
+from django.test import TestCase
+from botend.tests.simc_benchmark_test_fixtures import BenchmarkExecutionFixtureMixin, benchmark_trinket
 
 
-class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
+class BackfillSimcBenchmarkResultsCommandTests(BenchmarkExecutionFixtureMixin, TestCase):
     def test_requires_existing_execution(self):
         with self.assertRaises(CommandError):
             call_command('backfill_simc_benchmark_results', execution_id=99999)
@@ -114,7 +115,7 @@ class BackfillSimcBenchmarkResultsCommandTests(SimcBenchmarkExecutionTests):
             candidate_params=candidate.params,
             display_metadata={'effect': 'Equip: stale run English effect with more verbose frozen content.'},
         )
-        WowItemSnapshot.objects.create(
+        benchmark_trinket(
             item_id=123, name='Test Trinket', name_zh='测试饰品',
             description='Equip: A much longer English static effect description with extra details.',
             description_zh='装备：中文特效。',

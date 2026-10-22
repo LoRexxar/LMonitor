@@ -14,10 +14,12 @@ from botend.models import (
     SimcBenchmarkResult, SimcTask, SimulationRun, WowItemSnapshot,
 )
 from botend.services import simc_benchmark_result_snapshot as snapshots
+from botend.tests.simc_benchmark_test_fixtures import BenchmarkExecutionFixtureMixin
 
 
-class BackfillDisplayMetadataSnapshotTests(TransactionTestCase):
+class BackfillDisplayMetadataSnapshotTests(BenchmarkExecutionFixtureMixin, TransactionTestCase):
     def setUp(self):
+        super().setUp()
         temporary = TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
@@ -26,19 +28,18 @@ class BackfillDisplayMetadataSnapshotTests(TransactionTestCase):
         self.addCleanup(settings.disable)
         # Only APL validation at the binary boundary is stubbed by this fixture.
         # ORM, bulk_update, commit hooks, projection and file IO remain real.
-        from botend.tests.test_simc_benchmark_execution import SimcBenchmarkExecutionTests
-        fixture = SimcBenchmarkExecutionTests()
-        fixture.setUp()
-        self.panel = fixture.panel
-        self.item = WowItemSnapshot.objects.create(
-            item_id=123, name='Trinket', catalog_type='equipment',
-            slot_key='trinket', inventory_type=12, item_class_id=4,
-            metadata={'primary_stat_options': ['strength']},
+        self.item, _ = WowItemSnapshot.objects.update_or_create(
+            item_id=123, defaults={
+                'name': 'Trinket', 'name_zh': '', 'description': '', 'description_zh': '',
+                'icon': '', 'catalog_type': 'equipment', 'slot_key': 'trinket',
+                'inventory_type': 12, 'item_class_id': 4,
+                'metadata': {'primary_stat_options': ['strength']},
+            },
         )
-        self.execution = fixture._create()
+        self.execution = self._create()
         case = self.execution.cases.get()
-        fixture._run(case.task, 1, 'completed', 'baseline', dps=1234)
-        fixture._run(case.task, 2, 'completed', 'trinket', dps=1300)
+        self._run(case.task, 1, 'completed', 'baseline', dps=1234)
+        self._run(case.task, 2, 'completed', 'trinket', dps=1300)
         # Seed existing durable results; this test does not execute SimC.
         SimcBenchmarkResult.objects.bulk_create([
             SimcBenchmarkResult(case=case, candidate_key='baseline', dps=1234),
@@ -54,7 +55,7 @@ class BackfillDisplayMetadataSnapshotTests(TransactionTestCase):
             candidate_type='gear_swap', params=self.candidate.params, is_enabled=False,
         )
         self.unchanged_panel = SimcBenchmarkPanel.objects.create(
-            name='Unchanged', slug='unchanged-display', created_by_id=fixture.user_id,
+            name='Unchanged', slug='unchanged-display', created_by_id=self.user_id,
             is_active=True,
         )
         SimcBenchmarkCandidate.objects.create(

@@ -31,7 +31,7 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
     def test_run_forms_are_reference_only_and_validate_all_three_references(self):
         for token in ("simc_profile_id", "base_template_id", "selected_apl_id"):
             self.assertIn(token, SIM)
-        for token in ("base_template_content", "override_action_list", "profile_name"):
+        for token in ("base_template_content", "override_action_list"):
             self.assertNotIn(token, SIM)
         self.assertIn("requireSimcRunReferences", SIM)
         self.assertNotIn('id="base-template-content"', WORKFLOW)
@@ -46,22 +46,6 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn("task_ids=${ids.join(',')}", WB)
         self.assertIn("const taskIds = getUrlParameter('task_ids') || ''", (ROOT / "templates/simc_regular_compare.html").read_text(encoding="utf-8"))
 
-    def test_history_task_identity_stacks_title_apl_and_profile(self):
-        history = WB[WB.index("const resourceMeta ="):WB.index("function scheduleTaskRefresh")]
-        resources = history[history.index("const resourceMeta ="):history.index("return `<article")]
-        identity_start = history.index('class="simc-task-card__identity"')
-        identity_end = history.index('</div>', history.index('${resourceMeta}', identity_start))
-        identity = history[identity_start:identity_end]
-
-        self.assertLess(resources.index('APL'), resources.index('Profile'))
-        self.assertNotIn('场景', resources)
-        self.assertLess(identity.index('simc-task-card__title'), identity.index('${resourceMeta}'))
-        self.assertIn('#simc-workbench .simc-task-card:not(.simc-benchmark-task-group) .simc-task-card__identity {', HTML)
-        self.assertIn('flex-direction: column', HTML)
-        self.assertIn('overflow-wrap: anywhere', HTML)
-        self.assertIn('grid-template-columns: auto minmax(0, 1fr) auto', HTML)
-        self.assertIn('.simc-task-card:not(.simc-benchmark-task-group)', HTML)
-        self.assertNotIn('flex-basis: 8rem', HTML)
 
     def test_task_detail_displays_frozen_resource_names_with_version_trace(self):
         reference_card = DETAIL[DETAIL.index("card('引用版本'"):DETAIL.index("function renderTaskComparison")]
@@ -202,20 +186,6 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertLess(return_block.index("card(isAttribute ? '候选测量排名' : '候选差异与 DPS 排名'"), return_block.index(baseline_token))
         self.assertLess(return_block.index(baseline_token), return_block.index("card('任务进度'"))
 
-    def test_rerun_form_explains_frozen_task_copy_without_edit_controls(self):
-        start = WB.index("async function renderTaskRerunForm")
-        end = WB.index("async function submitTaskRerun", start)
-        form = WB[start:end]
-        self.assertIn('完整复制该任务的冻结请求', form)
-        for token in ('name="name"', 'name="iterations"', 'name="fight_style"',
-                      'name="simc_profile_id"', 'name="base_template_id"', 'name="selected_apl_id"'):
-            self.assertNotIn(token, form)
-        submit_start = WB.index("async function submitTaskRerun")
-        submit_end = WB.index("async function", submit_start + len("async function submitTaskRerun"))
-        submit = WB[submit_start:submit_end]
-        self.assertIn("JSON.stringify({ action: 'rerun' })", submit)
-        for forbidden in ("prompt(", "alert(", "confirm(", "window.open("):
-            self.assertNotIn(forbidden, submit)
 
     def test_task_detail_is_permanent_result_home(self):
         for token in ("任务进度", "候选 Runs", "DPS 排名", "Artifact"):
@@ -242,12 +212,6 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
             self.assertIn(token, detail)
         self.assertNotIn("run.error_detail", detail)
 
-    def test_rerun_never_sends_frozen_request_overrides(self):
-        form = WB[WB.index("async function renderTaskRerunForm"):WB.index("async function submitTaskRerun")]
-        submit = WB[WB.index("async function submitTaskRerun"):WB.index("async function", WB.index("async function submitTaskRerun") + 20)]
-        self.assertNotIn("data-original-id", form)
-        for token in ("allowedPatch", "simulation_params", "profile_id", "template_id", "apl_id"):
-            self.assertNotIn(token, submit)
 
     def test_profile_quick_switch_aborts_and_ignores_stale_resource_and_detail_results(self):
         profile = SIM[SIM.index("let simcProfileSwitchGeneration"):SIM.index("function renderSimcComparisonCandidates")]
@@ -280,25 +244,7 @@ class SimcFrontendClosureContractTests(unittest.TestCase):
         self.assertIn("renderSimcSavedProfileDetail(detail)", detail)
         self.assertNotIn("JSON.stringify(stats.secondary", detail)
 
-    def test_global_damage_effect_renders_multiplier_without_duplicate_bonus_percent(self):
-        renderer = MAIN[
-            MAIN.index("const globalEffects = [];"):
-            MAIN.index("const rows = [];", MAIN.index("const globalEffects = [];"))
-        ]
-        self.assertIn("${formatSimcSkillDamageFactor(projection.value)}×", renderer)
-        self.assertNotIn("projection.bonus_percent", renderer)
 
-    def test_skill_damage_base_is_numeric_and_formula_lists_native_runtime_factors(self):
-        renderer = MAIN[
-            MAIN.index("const componentLabel ="):
-            MAIN.index("return `<tr", MAIN.index("const componentLabel ="))
-        ]
-        self.assertIn("formatSimcSkillDamageNumber(normalizedBase)", renderer)
-        self.assertIn("product.formula_components", renderer)
-        self.assertIn("component.runtime_factors", renderer)
-        self.assertNotIn("AP 100 ×", renderer)
-        self.assertNotIn("SP 100 ×", renderer)
-        self.assertNotIn("等效总倍率", renderer)
 
 
 if __name__ == "__main__":

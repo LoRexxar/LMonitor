@@ -1,3 +1,9 @@
+import copy
+from django.test import SimpleTestCase
+from botend.services.simc_skill_damage import classify_global_skill_effects
+from botend.services.simc_skill_damage import flatten_single_talent_damage_variants
+
+
 """Partial-state evidence gates, using an unmodified real exporter action slice.
 
 Fixture: reckless_cruelty high/low, schema 22, build 12.1.0.69814,
@@ -5,14 +11,8 @@ revision 1d3897ef4adefc8e47a43989eed81b6618ce7bef. The selected slice is
 identical in both health probes. All amount fields are copied, not calculated.
 Full JSON replay lives in the external probe evidence, not in this unit fixture.
 """
-import copy
 
-from django.test import SimpleTestCase
 
-from botend.services.simc_skill_damage import (
-    classify_global_skill_effects,
-    flatten_single_talent_damage_variants,
-)
 
 
 REAL_ACTOR = {'class': 'warrior',
@@ -372,3 +372,29 @@ class PartialStateLocalDamageTests(SimpleTestCase):
             action['scenarios'][0]['buffs'].extend(enrage['buffs'])
         # Whirlwind's actual AoE delta is not singleton Enrage evidence.
         self.assertEqual(self.enrage_rows(self.rows()), [])
+
+
+class ActivationContextProjectionTests(SimpleTestCase):
+    def test_fixed_context_is_kept_separate_from_measured_talent(self):
+        reference = copy.deepcopy(REAL_ACTOR)
+        reference['actions'][0]['scenarios'] = []
+        selected = copy.deepcopy(REAL_ACTOR)
+        context = {'trait_entry_ids': [119139], 'action_spell_ids': [335096],
+                   'traits': [{'trait_entry_id': 119139, 'name': 'Reckless Abandon', 'name_zh': '肆意放纵'}],
+                   'evidence': [{'trait_entry_id': 119139, 'replacement_spell_id': 335096}]}
+        item = {'talent': {'id': 123, 'node_id': 112299, 'name': 'Cruelty', 'name_zh': '残忍', 'tree_type': 'spec'},
+                'reference_high': reference, 'reference_low': reference,
+                'high': selected, 'low': selected, 'activation_context': context}
+        base = {'class': 'warrior', 'spec': 'fury', 'actions': []}
+        effects = classify_global_skill_effects(selected, selected, [])
+        rows = flatten_single_talent_damage_variants(base, base, [item], global_effects=effects)
+        enrage_rows = [row for row in rows if row['variant']['scenario_tokens'] == ['buff.enrage']]
+        self.assertEqual(len(enrage_rows), 1)
+        variant = enrage_rows[0]['variant']
+        self.assertEqual(variant['trait_entry_id'], 112299)
+        self.assertEqual(variant['activation_context']['trait_entry_ids'], [119139])
+        self.assertIn('肆意放纵', variant['activation_context']['display_label'])
+        self.assertNotIn('残忍', variant['activation_context']['display_label'])
+        self.assertEqual(enrage_rows[0]['baseline']['direct']['hit'], 615.67657338)
+        self.assertEqual(context, item['activation_context'])
+        self.assertNotIn('display_label', context)

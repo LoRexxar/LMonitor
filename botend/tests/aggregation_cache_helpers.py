@@ -6,6 +6,8 @@ from pathlib import Path
 def isolate_work_cache(test):
     base = Path(__file__).resolve().parents[2] / 'tmp'
     base.mkdir(exist_ok=True)
-    root = Path(tempfile.mkdtemp(prefix='聚合文件测试-', dir=base))
+    directory = tempfile.TemporaryDirectory(prefix='聚合文件测试-', dir=base)
+    test.addCleanup(directory.cleanup)
+    root = Path(directory.name)
     test.enterContext(test.settings(SPEC_AGGREGATION_WORK_ROOT=root))
     return root

@@ -5,18 +5,23 @@ from django.db.migrations.executor import MigrationExecutor
 from django.test import TransactionTestCase
 
 
+from botend.tests.migration_test_helpers import restore_migration_schema
+
+
 class SimcMultipleBackendsMigrationTests(TransactionTestCase):
     migrate_from = [('botend', '0124_complete_simc_secondary_stat_rules')]
     migrate_to = [('botend', '0125_simc_multiple_backends')]
 
     def setUp(self):
+        self.addCleanup(restore_migration_schema)
         executor = MigrationExecutor(connection)
         executor.migrate(self.migrate_from)
         old_apps = executor.loader.project_state(self.migrate_from).apps
 
         Backend = old_apps.get_model('botend', 'SimcBackendBinary')
         Task = old_apps.get_model('botend', 'SimcTask')
-        existing = Backend.objects.order_by('id').first()
+        # TransactionTestCase flushes migration-seeded rows between tests.
+        existing = Backend.objects.order_by('id').first() or Backend()
         existing.platform = 'linux64'
         existing.simc_path = '/opt/simc/production'
         existing.current_version = 'a' * 40
@@ -37,9 +42,6 @@ class SimcMultipleBackendsMigrationTests(TransactionTestCase):
             for index in range(2)
         ]
 
-    def tearDown(self):
-        MigrationExecutor(connection).migrate(self.migrate_to)
-        super().tearDown()
 
     def test_forward_migration_normalizes_production_and_backfills_all_tasks(self):
         executor = MigrationExecutor(connection)
