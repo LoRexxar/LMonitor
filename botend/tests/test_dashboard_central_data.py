@@ -165,6 +165,13 @@ class CentralDataTests(TestCase):
         detail = self.query(resource='talents', id=990020, identity_kind='node')
         self.assertEqual(detail['record']['central'], {})
         self.assertIsNone(detail['record']['spell_id'])
+        # The UI labels structural entrances without inventing spell prose.
+        for row in [result['records'][0], detail['record'], *detail['entries']]:
+            self.assertEqual(row['tree_type'], 'hero_anchor')
+            self.assertEqual(row['description'], '')
+        ordinary = self.query(resource='talents', id=990020, identity_kind='spell')
+        self.assertEqual(ordinary['record']['tree_type'], 'spec')
+        self.assertEqual(ordinary['record']['description'], '正式服造成100点伤害')
         WowTalentVersion.objects.filter(branch='ptr').update(is_active=False)
         self.assertEqual(self.query(resource='talents', branch='ptr')['pagination']['total'], 0)
 

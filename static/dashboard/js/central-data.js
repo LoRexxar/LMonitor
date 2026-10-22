@@ -71,6 +71,10 @@
         function artwork(row) {
             return row.icon_url ? `<img class="cd-icon" src="${escape(row.icon_url)}" alt="" loading="lazy" referrerpolicy="no-referrer">` : '<span class="cd-icon" aria-hidden="true"></span>';
         }
+        function talentDescription(row, central = {}) {
+            if (row.tree_type === 'hero_anchor') return '英雄天赋';
+            return central.description_zh || central.description || row.description || '描述待补齐';
+        }
         function renderRows(records) {
             const equipment = resource === 'items';
             const labels = equipment ? ['装备','品质 / 部位','装等范围','匹配变体','操作'] : ['天赋 / 技能','所属职业 / 专精','最终描述','关联节点','操作'];
@@ -78,7 +82,7 @@
             $('#cd-table-body').innerHTML = records.length ? records.map((row, index) => `<tr>
                 <td><div class="cd-name">${artwork(row)}<div><strong>${escape(row.name)}</strong><span class="cd-secondary">${equipment ? '物品' : row.identity_kind === 'node' ? '节点' : '技能'} #${escape(row.id)}</span>${row.name_en && row.name_en !== row.name ? `<span class="cd-secondary">${escape(row.name_en)}</span>` : ''}${equipment && !row.translated ? '<span class="cd-warning">名称待补中文</span>' : ''}</div></div></td>
                 <td>${escape(equipment ? row.quality : row.class_name)}<span class="cd-secondary">${escape(equipment ? row.slot || '未指定部位' : row.spec_name + ' · ' + row.tree)}</span></td>
-                <td>${equipment ? `${escape(row.minimum)}${row.maximum !== row.minimum ? ' – ' + escape(row.maximum) : ''}` : `<span class="cd-description">${escape(row.description || '描述待补齐')}</span>`}</td>
+                <td>${equipment ? `${escape(row.minimum)}${row.maximum !== row.minimum ? ' – ' + escape(row.maximum) : ''}` : `<span class="cd-description">${escape(talentDescription(row))}</span>`}</td>
                 <td>${escape(row.count)}</td><td><button type="button" class="cd-detail-button" data-cd-detail="${index}">查看详情</button></td></tr>`).join('') : '<tr><td colspan="5"><div class="cd-empty">没有符合条件的资料<br>可尝试清空关键词或调整筛选条件。</div></td></tr>';
             $('#cd-table-body').querySelectorAll('[data-cd-detail]').forEach(button => button.addEventListener('click', () => {
                 detailRow = records[Number(button.dataset.cdDetail)]; detailPage = 1;
@@ -137,8 +141,8 @@
                     html += `<section class="cd-detail-section"><h3>装备说明</h3><p class="cd-copy">${escape(row.description || '无额外说明')}</p></section><section class="cd-detail-section"><h3>公共特效</h3>${effects(row.effects, row.effects_status)}</section><section class="cd-detail-section"><h3>装等与掉落变体 · ${data.pagination.total} 条</h3>`;
                     html += data.entries.map(entry => `<article class="cd-entry"><h4>装等 ${escape(entry.item_level)} · ${escape(entry.kind)} · ${escape(entry.quality)}${entry.track ? ' · ' + escape(entry.track) + (entry.rank ? ' ' + escape(entry.rank) : '') : ''}</h4><span class="cd-secondary">${escape(entry.season)} · 来源构建 ${escape(entry.source_build || '未记录')}</span><div class="cd-stats">${Object.entries(entry.stats || {}).map(([key, value]) => `<span>${escape(statNames[key] || key)} ${escape(typeof value === 'object' ? JSON.stringify(value) : value)}</span>`).join('') || '<span>属性待补齐</span>'}</div>${effects(entry.effects, entry.effects_status)}<details><summary>查看掉落来源</summary><pre>${escape(JSON.stringify(entry.sources, null, 2))}</pre></details></article>`).join('') + '</section>';
                 } else {
-                    html += `<section class="cd-detail-section"><h3>最终技能描述</h3><p class="cd-copy">${escape(row.central?.description_zh || row.central?.description || row.description || '描述待补齐')}</p><span class="cd-secondary">来源构建 ${escape(row.source_build || '未记录')} · 同一分支共用</span></section><section class="cd-detail-section"><h3>当前筛选下的关联节点 · ${data.pagination.total} 条</h3>`;
-                    html += data.entries.map(entry => `<article class="cd-entry"><h4>${escape(entry.class_name)} / ${escape(entry.spec_name)} · ${escape(entry.tree)}</h4><span class="cd-secondary">节点 #${escape(entry.node_id)} · 天赋 #${escape(entry.talent_id || '—')} · 技能 #${escape(entry.spell_id || '—')}</span><p class="cd-copy">${escape(entry.description || '描述待补齐')}</p><span class="cd-secondary">来源：${escape(source(entry.source) || '未记录')}</span></article>`).join('') + '</section>';
+                    html += `<section class="cd-detail-section"><h3>最终技能描述</h3><p class="cd-copy">${escape(talentDescription(row, row.central))}</p><span class="cd-secondary">来源构建 ${escape(row.source_build || '未记录')} · 同一分支共用</span></section><section class="cd-detail-section"><h3>当前筛选下的关联节点 · ${data.pagination.total} 条</h3>`;
+                    html += data.entries.map(entry => `<article class="cd-entry"><h4>${escape(entry.class_name)} / ${escape(entry.spec_name)} · ${escape(entry.tree)}</h4><span class="cd-secondary">节点 #${escape(entry.node_id)} · 天赋 #${escape(entry.talent_id || '—')} · 技能 #${escape(entry.spell_id || '—')}</span><p class="cd-copy">${escape(talentDescription(entry))}</p><span class="cd-secondary">来源：${escape(source(entry.source) || '未记录')}</span></article>`).join('') + '</section>';
                 }
                 $('#cd-detail-body').innerHTML = html;
                 detailPage = data.pagination.page; detailPages = data.pagination.pages;
