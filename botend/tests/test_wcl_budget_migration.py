@@ -13,6 +13,7 @@ from django.test import TransactionTestCase
 from django.utils import timezone
 
 from botend.models import WclApiBudget, WclApiReservation
+from botend.tests.migration_test_helpers import restore_migration_schema
 
 
 class ParallelBudgetMigrationTests(TransactionTestCase):
@@ -21,6 +22,16 @@ class ParallelBudgetMigrationTests(TransactionTestCase):
         target = ('botend', '0240_wcl_parallel_budget')
         migration = executor.loader.get_migration(*target)
         before = executor.loader.project_state([('botend', '0239_wcl_budget_collection_cycle')])
+        def restore_budget_migration():
+            # Direct unapply leaves descendants recorded as applied, so a
+            # migrate(all_leaves) plan alone cannot see this intermediate gap.
+            if target not in MigrationRecorder(connection).applied_migrations():
+                executor.apply_migration(before.clone(), migration, fake=False)
+
+        # LIFO: repair the bounded DDL gap first, then flush and restore all
+        # repository leaves, even when legacy fixture creation fails.
+        self.addCleanup(restore_migration_schema)
+        self.addCleanup(restore_budget_migration)
         executor.unapply_migration(before.clone(), migration, fake=False)
         OldBudget = before.apps.get_model('botend', 'WclApiBudget')
         now = timezone.now()
@@ -49,6 +60,5 @@ class ParallelBudgetMigrationTests(TransactionTestCase):
             self.assertEqual(OldBudget.objects.values().get(pk=original.pk), original_fields)
             self.assertNotIn('wow_wcl_api_reservation', connection.introspection.table_names())
         finally:
-            if target not in MigrationRecorder(connection).applied_migrations():
-                executor.apply_migration(before.clone(), migration, fake=False)
+            restore_budget_migration()
         print('MIGRATION_PROOF engine=%s 0239->0240->0239->0240 real_DDL default_workers=10 facts_preserved=True' % connection.vendor)
