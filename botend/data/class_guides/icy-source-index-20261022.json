@@ -1,0 +1,2046 @@
+{
+  "entry_url": "https://www.icy-veins.com/wow/death-knight-guide",
+  "collected_at": "2026-10-22T07:12:23.455283+00:00",
+  "records": [
+    {
+      "spec_id": 62,
+      "class_name": "Mage",
+      "spec_name": "Arcane",
+      "source_url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Dutchmagoz",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/arcane-mage-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 63,
+      "class_name": "Mage",
+      "spec_name": "Fire",
+      "source_url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Dutchmagoz",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/fire-mage-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/fire-mage-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 64,
+      "class_name": "Mage",
+      "spec_name": "Frost",
+      "source_url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Kuni",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/frost-mage-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/frost-mage-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 65,
+      "class_name": "Paladin",
+      "spec_name": "Holy",
+      "source_url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-guide",
+      "game_version": "12.1.5",
+      "author": "Mytholxgy",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/holy-paladin-pve-healing-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 66,
+      "class_name": "Paladin",
+      "spec_name": "Protection",
+      "source_url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-guide",
+      "game_version": "12.1.5",
+      "author": "Panthea",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/protection-paladin-pve-tank-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 70,
+      "class_name": "Paladin",
+      "spec_name": "Retribution",
+      "source_url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Bolas",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/retribution-paladin-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 71,
+      "class_name": "Warrior",
+      "spec_name": "Arms",
+      "source_url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Archimtiros",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/arms-warrior-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 72,
+      "class_name": "Warrior",
+      "spec_name": "Fury",
+      "source_url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Archimtiros",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/fury-warrior-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 73,
+      "class_name": "Warrior",
+      "spec_name": "Protection",
+      "source_url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-guide",
+      "game_version": "12.1.5",
+      "author": "Mwahi",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/protection-warrior-pve-tank-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 102,
+      "class_name": "Druid",
+      "spec_name": "Balance",
+      "source_url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Bora",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/balance-druid-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/balance-druid-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 103,
+      "class_name": "Druid",
+      "spec_name": "Feral",
+      "source_url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Wordup",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/feral-druid-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/feral-druid-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 104,
+      "class_name": "Druid",
+      "spec_name": "Guardian",
+      "source_url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-guide",
+      "game_version": "12.1.5",
+      "author": "Pumps",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/guardian-druid-pve-tank-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 105,
+      "class_name": "Druid",
+      "spec_name": "Restoration",
+      "source_url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-guide",
+      "game_version": "12.1.5",
+      "author": "Voulk",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/restoration-druid-pve-healing-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 250,
+      "class_name": "DeathKnight",
+      "spec_name": "Blood",
+      "source_url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-guide",
+      "game_version": "12.1.5",
+      "author": "Mandl,Panthea",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 251,
+      "class_name": "DeathKnight",
+      "spec_name": "Frost",
+      "source_url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Taeznak",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/frost-death-knight-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 252,
+      "class_name": "DeathKnight",
+      "spec_name": "Unholy",
+      "source_url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Taeznak",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/unholy-death-knight-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 253,
+      "class_name": "Hunter",
+      "spec_name": "BeastMastery",
+      "source_url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Azortharion",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/beast-mastery-hunter-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 254,
+      "class_name": "Hunter",
+      "spec_name": "Marksmanship",
+      "source_url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Azortharion",
+      "source_modified": "2026-10-14T14:11:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/marksmanship-hunter-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 255,
+      "class_name": "Hunter",
+      "spec_name": "Survival",
+      "source_url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Azortharion",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/survival-hunter-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 256,
+      "class_name": "Priest",
+      "spec_name": "Discipline",
+      "source_url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-guide",
+      "game_version": "12.1.5",
+      "author": "Clandon",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/discipline-priest-pve-healing-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 257,
+      "class_name": "Priest",
+      "spec_name": "Holy",
+      "source_url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-guide",
+      "game_version": "12.1.5",
+      "author": "Niphyr",
+      "source_modified": "2026-10-17T06:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/holy-priest-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/holy-priest-pve-healing-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 258,
+      "class_name": "Priest",
+      "spec_name": "Shadow",
+      "source_url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Publik",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/shadow-priest-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 259,
+      "class_name": "Rogue",
+      "spec_name": "Assassination",
+      "source_url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Seliathan",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/assassination-rogue-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 260,
+      "class_name": "Rogue",
+      "spec_name": "Outlaw",
+      "source_url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Seliathan",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/outlaw-rogue-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 261,
+      "class_name": "Rogue",
+      "spec_name": "Subtlety",
+      "source_url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Eleem",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/subtlety-rogue-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 262,
+      "class_name": "Shaman",
+      "spec_name": "Elemental",
+      "source_url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Stormy",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/elemental-shaman-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 263,
+      "class_name": "Shaman",
+      "spec_name": "Enhancement",
+      "source_url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Wordup",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/enhancement-shaman-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 264,
+      "class_name": "Shaman",
+      "spec_name": "Restoration",
+      "source_url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-guide",
+      "game_version": "12.1.5",
+      "author": "Seksixeny",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/restoration-shaman-pve-healing-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 265,
+      "class_name": "Warlock",
+      "spec_name": "Affliction",
+      "source_url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Motoko",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/affliction-warlock-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 266,
+      "class_name": "Warlock",
+      "spec_name": "Demonology",
+      "source_url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Motoko",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/demonology-warlock-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 267,
+      "class_name": "Warlock",
+      "spec_name": "Destruction",
+      "source_url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Motoko",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/destruction-warlock-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 268,
+      "class_name": "Monk",
+      "spec_name": "Brewmaster",
+      "source_url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-guide",
+      "game_version": "12.1.5",
+      "author": "Sinzhu",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/brewmaster-monk-pve-tank-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 269,
+      "class_name": "Monk",
+      "spec_name": "Windwalker",
+      "source_url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Babylonius",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/windwalker-monk-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 270,
+      "class_name": "Monk",
+      "spec_name": "Mistweaver",
+      "source_url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-guide",
+      "game_version": "12.1.5",
+      "author": "Dhaubbs",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/mistweaver-monk-pve-healing-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 577,
+      "class_name": "DemonHunter",
+      "spec_name": "Havoc",
+      "source_url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Wordup",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/havoc-demon-hunter-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 581,
+      "class_name": "DemonHunter",
+      "spec_name": "Vengeance",
+      "source_url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-guide",
+      "game_version": "12.1.5",
+      "author": "Meyra",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/vengeance-demon-hunter-pve-tank-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 1467,
+      "class_name": "Evoker",
+      "spec_name": "Devastation",
+      "source_url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Blueprint",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/devastation-evoker-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 1468,
+      "class_name": "Evoker",
+      "spec_name": "Preservation",
+      "source_url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-guide",
+      "game_version": "12.1.5",
+      "author": "Mytholxgy",
+      "source_modified": "2026-10-19T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/preservation-evoker-pve-healing-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 1473,
+      "class_name": "Evoker",
+      "spec_name": "Augmentation",
+      "source_url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Saeldur",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/augmentation-evoker-pve-dps-macros-addons"
+        }
+      ]
+    },
+    {
+      "spec_id": 1480,
+      "class_name": "DemonHunter",
+      "spec_name": "Devourer",
+      "source_url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-guide",
+      "game_version": "12.1.5",
+      "author": "Wordup,Voodoo",
+      "source_modified": "2026-10-12T16:30:00+00:00",
+      "chapters": [
+        {
+          "title": "专精概览",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-guide"
+        },
+        {
+          "title": "练级",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-leveling-guide"
+        },
+        {
+          "title": "快速入门",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-easy-mode"
+        },
+        {
+          "title": "天赋与构筑",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-spec-builds-talents"
+        },
+        {
+          "title": "技能循环与冷却",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-rotation-cooldowns-abilities"
+        },
+        {
+          "title": "装备选择",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-gear-best-in-slot"
+        },
+        {
+          "title": "属性优先级",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-stat-priority"
+        },
+        {
+          "title": "附魔与消耗品",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-gems-enchants-consumables"
+        },
+        {
+          "title": "大秘境",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-mythic-plus-tips"
+        },
+        {
+          "title": "宏与插件",
+          "url": "https://www.icy-veins.com/wow/devourer-demon-hunter-pve-dps-macros-addons"
+        }
+      ]
+    }
+  ]
+}

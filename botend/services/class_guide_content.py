@@ -237,7 +237,10 @@ def resolve_references(blocks, game_version, class_name='', spec_name='', source
             name = ''
         icon = getattr(row, 'icon', '') if row else ''
         icon = wow_icon_oss_url(icon, size='small') if icon else ''
-        ref.update(name=name or '待校订的{} {}'.format({'spell': '技能', 'item': '物品', 'talent': '天赋'}[ref['kind']], ref['id']),
+        source_name_zh = (source_refs.get(token) or {}).get('source_name_zh', '')
+        if not isinstance(source_name_zh, str) or not re.search(r'[\u3400-\u9fff]', source_name_zh):
+            source_name_zh = ''
+        ref.update(name=name or source_name_zh or '待校订的{} {}'.format({'spell': '技能', 'item': '物品', 'talent': '天赋'}[ref['kind']], ref['id']),
                    resolved=bool(name), icon=safe_url(icon, image=True), evidence=evidence or ('站内元数据' if name else ''),
                    name_en=(getattr(row, 'name_en', '') or getattr(row, 'name', '')) if row else '',
                    source_name=(source_refs.get(token) or {}).get('source_name', ''),

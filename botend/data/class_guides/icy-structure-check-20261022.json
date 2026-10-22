@@ -1,0 +1,57 @@
+{
+  "验证方式": "保留真实 DOM，将攻略叙述替换为原创占位文本，仅保存结构统计和问题。",
+  "结果": [
+    {
+      "页面类型": "spec-builds-talents",
+      "页面": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-spec-builds-talents",
+      "内容块": {
+        "html": 29,
+        "heading": 26,
+        "talents": 5,
+        "details": 5
+      },
+      "引用数": 37,
+      "条件数": 0,
+      "结构问题": []
+    },
+    {
+      "页面类型": "rotation-cooldowns-abilities",
+      "页面": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-rotation-cooldowns-abilities",
+      "内容块": {
+        "html": 41,
+        "heading": 37,
+        "details": 2
+      },
+      "引用数": 49,
+      "条件数": 66,
+      "结构问题": []
+    },
+    {
+      "页面类型": "gear-best-in-slot",
+      "页面": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-gear-best-in-slot",
+      "内容块": {
+        "html": 33,
+        "heading": 14,
+        "details": 11
+      },
+      "引用数": 79,
+      "条件数": 0,
+      "结构问题": [
+        {
+          "type": "物品变体无法解析",
+          "value": "wow/item/240949?bonus=1221413836:13751:9627:13768:8960",
+          "reason": "物品奖励编号超过现有引用协议范围"
+        },
+        {
+          "type": "引用格式未知",
+          "value": "wow/currency/3418"
+        },
+        {
+          "type": "物品变体无法解析",
+          "value": "wow/item/240949?bonus=1221413836:13751:9627:13768:8960",
+          "reason": "物品奖励编号超过现有引用协议范围"
+        }
+      ]
+    }
+  ]
+}

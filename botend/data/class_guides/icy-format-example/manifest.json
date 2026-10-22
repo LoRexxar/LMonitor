@@ -1,0 +1,10 @@
+{
+  "spec_id": 250,
+  "game_version": "12.1.5",
+  "author": "原创格式测试样例",
+  "chapters": [
+    {"title": "天赋与构筑", "source_url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-spec-builds-talents", "file": "talents.html"},
+    {"title": "技能循环", "source_url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-rotation-cooldowns-abilities", "file": "rotation.html"},
+    {"title": "装备选择", "source_url": "https://www.icy-veins.com/wow/blood-death-knight-pve-tank-gear-best-in-slot", "file": "gear.html"}
+  ]
+}
