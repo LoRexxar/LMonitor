@@ -94,6 +94,35 @@ test('export → parser alias payload → import updates visible slots without 1
   assert.equal(node('gear-equipped-count').textContent, `${slots.length}/${slots.length}`);
 });
 
+test('legacy SimC shoulder and wrist tokens normalize at the input boundary without changing item parameters', async () => {
+  const {api, node} = fixture();
+  const legacy = [
+    'warrior="wrists shoulders stay in names"', 'spec=fury',
+    '# shoulders and wrists are old slot spellings',
+    ' shoulders =old_shoulders,id=239049,ilevel=334,enchant_id=8031',
+    '\twrists=old_wrists,id=123,ilevel=340,gem_id=240910/240910,bonus_id=1/2,crafted_stats=32/49',
+    'wrist=single_form,id=123,ilevel=340', 'shoulder=single_form,id=239049,ilevel=334',
+    '### Gear from Bags', '# wrists =bag_wrists,id=456,ilevel=334,enchant_id=789',
+    '# shoulders=bag_shoulders,id=457,ilevel=334', 'unknown_wrists=unchanged,id=999',
+  ].join('\r\n');
+  const expected = legacy.replace(' shoulders =', ' shoulder =').replace('\twrists=', '\twrist=')
+    .replace('# wrists =', '# wrist =').replace('# shoulders=', '# shoulder=');
+  let requests = 0;
+  api.request(async (_url, options) => {
+    requests++;
+    assert.equal(JSON.parse(options.body).profile, expected);
+    return {equipment: [{slot: 'shoulders', item: entry(239049).item}, {slot: 'wrists', item: entry(123).item}]};
+  });
+  node('gear-simc-input').value = legacy;
+  await api.importSimc();
+  assert.equal(requests, 1);
+  assert.equal(node('gear-simc-message').textContent, '');
+  assert.equal(node('gear-simc-input').value, legacy, 'original pasted text stays recoverable');
+  assert.deepEqual(Object.keys(api.state.equipment).sort(), ['shoulders', 'wrists']);
+  assert.equal(api.state.equipment.shoulders.item.item_id, 239049);
+  assert.equal(api.state.equipment.wrists.item.item_id, 123);
+});
+
 test('startup restores local and shared aliases, selection and locks without dropping pre-metadata state', async () => {
   for (const shared of [false, true]) {
     const {api, store, node} = fixture();

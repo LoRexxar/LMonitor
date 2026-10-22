@@ -2085,7 +2085,11 @@
   }
 
   async function importSimc() {
-    const profile = els.simc_input.value.trim();
+    // Use the same authoritative slot metadata as export, including commented bag rows.
+    const profile = els.simc_input.value.trim().replace(/^([ \t]*(?:#[ \t]*)?)(\w+)([ \t]*=)/gm, (line, prefix, key, assignment) => {
+      const slot = equipmentSlots().find((row) => row.key === canonicalSlot(key));
+      return slot ? `${prefix}${slot.simc_key || slot.key}${assignment}` : line;
+    });
     if (!profile) { els.simc_message.textContent = "请先粘贴 SimC Profile。"; return; }
     if (!window.confirm("导入 SimC 将整套替换当前配装（包括锁定部位），并解除所有部位锁定。未保存的修改将丢失，已保存方案不受影响；身上和背包装备仍会按原规则加入备选装备。是否继续？")) return;
     els.simc_submit.disabled = true;
