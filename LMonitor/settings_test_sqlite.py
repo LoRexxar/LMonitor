@@ -16,3 +16,7 @@ EMAIL_BACKEND = 'django.core.mail.backends.locmem.EmailBackend'
 WAGO_HOTFIX_READER_NAME_LOOKUPS = 0
 WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS = 0
 WAGO_HOTFIX_READER_CONTEXT_LOOKUPS = 0
+
+# Small isolated fixtures should not require production-sized disk headroom.
+# Dedicated admission tests use the real filesystem with explicit high/low limits.
+WCL_MIN_FREE_DISK_BYTES = 1

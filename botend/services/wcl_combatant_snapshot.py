@@ -343,7 +343,8 @@ def _persist_combatant_batch(code, batch, batch_rows, events):
     return written, matched, missing
 
 
-def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size=20, log=None, progress=None):
+def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size=20, log=None, progress=None,
+                              admission_check=None):
     """Explicit offline collection. At most 20 fights/report/request.
 
     Counts partition observations, not API responses; negative_cached is only a
@@ -386,6 +387,8 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
         return counts
     if not pending:
         return counts
+    if admission_check:
+        admission_check()
     if fetcher is None:
         from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
         fetcher = SpecDetailBase(None, None)
@@ -459,6 +462,8 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
             if not counts['batches_dispatched']:
                 emit_progress(force=True)
             while ready and not stopped and not admission_parked and len(inflight) < workers:
+                if admission_check:
+                    admission_check()
                 # Observe completed failures before filling another slot.
                 if any(future.done() for future in inflight):
                     break
@@ -482,6 +487,11 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
             # Drain ALL already completed responses before any new dispatch.
             done.update(future for future in inflight if future.done())
             for future in done:
+                # Admission failures propagate to the cycle owner, not into
+                # failed/negative source facts. In-flight requests are drained
+                # by the executor without dispatching or publishing more work.
+                if admission_check:
+                    admission_check()
                 code, batch, batch_rows = inflight.pop(future)
                 try:
                     events, error, retry_at, fetch_seconds = future.result()

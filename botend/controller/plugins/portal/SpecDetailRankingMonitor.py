@@ -13,6 +13,8 @@ from django.db import transaction
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, SpecDungeonRanking, SpecRaidRanking, MonitorTaskLeaseLost
 from botend.constants.wow import CLASS_SPEC_MAP
+from botend.services.wcl_storage_guard import WCLStorageError, check_wcl_storage
+from botend.services.wcl_ranking_payload import compact_ranking_talents
 from botend.services.wcl_collection_cycle import (
     CycleOwnershipLost, begin_collection, checkpoint_scope, defer_cycle,
     fenced_cycle, finish_collection, freeze_samples, frozen_combatant_records,
@@ -48,6 +50,11 @@ class SpecDetailRankingMonitor(SpecDetailBase):
 
         season = SeasonMeta.objects.filter(is_active=True).first()
         if not season:
+            try:
+                check_wcl_storage()
+            except WCLStorageError as exc:
+                logger.warning('%s', exc)
+                return False
             logger.warning("[SpecDetailRanking] 无活跃赛季，先触发 SeasonMonitor")
             from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailSeasonMonitor
             sm = SpecDetailSeasonMonitor(self.req, self.task)
@@ -65,6 +72,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             return False
         self._wcl_retry_at = None
         try:
+            check_wcl_storage()
             if self._cycle.phase == 'rankings':
                 if season.mplus_encounters and not self._collect_dungeon_rankings(season):
                     defer_cycle(self._cycle, 'dungeon rankings incomplete', self._wcl_retry_at)
@@ -90,7 +98,8 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     self._cycle.counts = counts
 
             counts = collect_dungeon_combatants(
-                records, self, apply=True, batch_size=20, log=logger.info, progress=save_progress)
+                records, self, apply=True, batch_size=20, log=logger.info, progress=save_progress,
+                admission_check=check_wcl_storage)
             ok = finish_collection(self._cycle, counts)
             if ok and self.task is not None:
                 self.task.flag = f"{season.season_key}@rankings@{self._cycle.pk}"
@@ -98,6 +107,13 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             return ok
         except (CycleOwnershipLost, MonitorTaskLeaseLost):
             logger.warning('[SpecDetailRanking] cycle ownership lost; no stale completion')
+            return False
+        except WCLStorageError as exc:
+            try:
+                defer_cycle(self._cycle, str(exc))
+            except CycleOwnershipLost:
+                pass
+            logger.warning('[SpecDetailRanking] capacity deferred: %s', exc)
             return False
         except Exception as exc:
             try:
@@ -117,11 +133,13 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             checkpoint_scope(cycle, scope)
 
     def _scope_transaction(self):
+        check_wcl_storage()
         cycle = getattr(self, '_cycle', None)
         return fenced_cycle(cycle, phases=('rankings',)) if cycle else transaction.atomic()
 
     def _fetch_rankings_with_retry(self, enc_id, class_name, spec_name, metric='dps', difficulty=None, page=1, max_retries=3):
         """带加强重试的排名获取，处理限流和临时错误"""
+        check_wcl_storage()
         from botend.services.spec_aggregation_cache import load_work, save_work
         from botend.services.spec_stats_snapshot import content_digest
         cycle = getattr(self, '_cycle', None)
@@ -133,10 +151,12 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             if cached is not None:
                 return cached
         for attempt in range(max_retries):
+            check_wcl_storage()
             rankings = self.fetch_wcl_rankings(enc_id, class_name, spec_name, metric, difficulty=difficulty, page=page)
             if rankings is not None:
                 if cycle and self._valid_ranking_page(rankings):
                     with fenced_cycle(cycle, phases=('rankings',)):
+                        check_wcl_storage()
                         save_work(cycle.season_id, scope, fingerprint, rankings)
                 return rankings
             if getattr(self, '_wcl_retry_at', None):
@@ -337,7 +357,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                     f"新增 {result['created']} / 更新 {result['updated']} / "
                     f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
                 )
-            except CycleOwnershipLost:
+            except (CycleOwnershipLost, WCLStorageError):
                 raise
             except Exception as e:
                 ok = False
@@ -360,7 +380,8 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                    'character_name': ranking.get('name'), 'realm': server.get('name'),
                    'region': server.get('region'), 'class_name': class_name, 'spec_name': spec_name}
             # 团本补天赋也复用中央日志事实和负缓存，避免每个难度重抓同一战斗。
-            counts = collect_dungeon_combatants([row], self, apply=True)
+            counts = collect_dungeon_combatants(
+                [row], self, apply=True, admission_check=check_wcl_storage)
             if counts.get('failed') or counts.get('pending'):
                 raise ValueError('raid talent fallback incomplete')
             facts = _load_facts([row])
@@ -489,6 +510,8 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                 fight_id=report.get('fightID') or r.get('fightID'),
                                 last_updated=now,
                             ))
+                        except WCLStorageError:
+                            raise
                         except Exception as e:
                             encounter_failed = True
                             logger.warning(f"[SpecDetailRanking] 构建记录失败: {enc_id}/{class_name}/{spec_name}: {e}")
@@ -520,7 +543,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                         f"新增 {result['created']} / 更新 {result['updated']} / "
                         f"删除 {result['deleted']} / 未变化 {result['unchanged']}"
                     )
-                except CycleOwnershipLost:
+                except (CycleOwnershipLost, WCLStorageError):
                     raise
                 except Exception as e:
                     ok = False
@@ -563,42 +586,75 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                 continue
             incoming_map[key] = row
 
+        from django.db.models import FloatField, IntegerField
+        from copy import copy
+
+        # Only normalize numeric update values at the model's persistence boundary.
+        # Business keys (including anonymous DPS), JSON and input objects stay intact.
+        numeric_fields = {
+            name: model._meta.get_field(name) for name in update_fields
+            if name not in key_fields
+            and isinstance(model._meta.get_field(name), (IntegerField, FloatField))
+        }
         to_create = []
-        to_update = []
+        update_groups = {}
         unchanged = 0
         for key, incoming in incoming_map.items():
+            values = {name: getattr(incoming, name) for name in update_fields}
+            if 'talents_json' in values:
+                values['talents_json'] = compact_ranking_talents(values['talents_json'])
+            for name, field in numeric_fields.items():
+                raw = values[name]
+                if isinstance(raw, bool):
+                    raise ValueError(f'Invalid numeric ranking field: {name}')
+                value = field.to_python(raw)
+                # Reject non-finite or lossy values, rather than silently repairing
+                # invalid facts. All conversions finish before any snapshot DML.
+                if value is not None and (
+                    isinstance(field, FloatField) and not math.isfinite(value)
+                    or isinstance(field, IntegerField) and not isinstance(raw, str) and raw != value
+                ):
+                    raise ValueError(f'Invalid numeric ranking field: {name}')
+                values[name] = value
             existing = existing_map.get(key)
             if existing is None:
-                to_create.append(incoming)
+                created = copy(incoming)
+                for name, value in values.items():
+                    setattr(created, name, value)
+                to_create.append(created)
                 continue
-            if not any(
-                getattr(existing, field) != getattr(incoming, field)
-                for field in update_fields
-            ):
+            changed_fields = tuple(
+                name for name in update_fields
+                if (compact_ranking_talents(getattr(existing, name))
+                    if name == 'talents_json' else getattr(existing, name)) != values[name]
+            )
+            if not changed_fields:
                 unchanged += 1
                 continue
-            for field in update_fields:
-                setattr(existing, field, getattr(incoming, field))
+            for name in changed_fields:
+                setattr(existing, name, values[name])
             existing.last_updated = incoming.last_updated
-            to_update.append(existing)
+            update_groups.setdefault(changed_fields, []).append(existing)
 
         stale_ids = duplicate_existing_ids + [
             row.id for key, row in existing_map.items()
             if key not in incoming_map
         ]
+        if stale_ids or to_create or update_groups:
+            check_wcl_storage()
         if stale_ids:
             model.objects.filter(id__in=stale_ids).delete()
         if to_create:
             model.objects.bulk_create(to_create, batch_size=500)
-        if to_update:
+        for changed_fields, rows in update_groups.items():
             model.objects.bulk_update(
-                to_update,
-                fields=[*update_fields, 'last_updated'],
+                rows,
+                fields=[*changed_fields, 'last_updated'],
                 batch_size=500,
             )
         return {
             'created': len(to_create),
-            'updated': len(to_update),
+            'updated': sum(len(rows) for rows in update_groups.values()),
             'deleted': len(stale_ids),
             'unchanged': unchanged,
         }
