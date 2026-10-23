@@ -95,6 +95,11 @@ def prepare_log_talents(records, class_name, spec_name, *, provider=None, metada
                     node = candidates[0] if len(candidates) == 1 else None
                 resolved_cache[cache_key] = node
             node = resolved_cache[cache_key]
+            # 旧采集器曾将Entry ID同时填入spell_id；只有不同于Entry的技能号才是独立身份依据。
+            if node and spell_id and spell_id != entry_id and spell_id not in {
+                    _integer(node.get('spell_id')), _integer(node.get('display_spell_id'))}:
+                row['_log_talent_status'] = 'conflict'
+                break
             if not node:
                 row['_log_talent_status'] = 'unresolved'
                 break

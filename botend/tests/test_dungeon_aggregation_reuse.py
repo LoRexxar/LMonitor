@@ -578,3 +578,40 @@ class DungeonAggregationReuseTests(TestCase):
             self.assertGreaterEqual(result[key], 0)
         self.assertTrue(all(isinstance(v, int) for k, v in result.items()
                             if k not in duration_fields | {'retry_at'}))
+
+
+    def test_current_identity_rebuild_uses_existing_facts_and_leaves_other_class_reusable(self):
+        from botend.services.dungeon_aggregation import aggregate_dungeon
+        version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={
+            'is_active': True, 'status': 'active', 'is_default_stats': True})
+        node, talents = self.talent_metadata(version, description_zh='原技能说明' * 40)
+        row = self.row()
+        talents[0]['spellID'] = node.spell_id
+        self.fact(row, talent_tree=talents)
+        first = self.aggregate()
+        mage_path = Path(self.tmp.name) / '77/Mage/Fire/dungeon.json'
+        mage = lambda: aggregate_dungeon(self.season, 'Mage', 'Fire', mage_path, publish_stats)
+        mage_first = mage()
+        Node = WowTalentNodeMetadata
+        original_pk = node.pk
+        Node.objects.filter(pk=node.pk).update(spell_id=999999, description_zh='新的技能说明')
+        version.current_build = '仅构建号变化'
+        version.save(update_fields=['current_build'])
+        self.assertTrue(read_projection(self.path, 'dungeon-1')['_stats_refresh_required'])
+        with CaptureQueriesContext(connection) as queries:
+            rebuilt = self.aggregate()
+            unchanged = mage()
+        self.assertFalse(rebuilt['reused'])
+        self.assertNotEqual(first['generation'], rebuilt['generation'])
+        self.assertTrue(unchanged['reused'])
+        self.assertEqual(mage_first['generation'], unchanged['generation'])
+        self.assertTrue(Node.objects.filter(pk=original_pk, spell_id=999999).exists())
+        self.assertFalse(Node.all_objects.filter(is_current=False).exists())
+        self.assertFalse(any(q['sql'].lstrip().upper().startswith(('INSERT', 'UPDATE', 'DELETE')) for q in queries))
+        # 明确携带旧技能编号的日志不能被重新解释为新技能；性能样本仍保留。
+        detail = self.detail(1)
+        self.assertEqual(detail['sample_size'], 1)
+        self.assertEqual(detail['talent_sample_size'], 0)
+        before = self.path.read_bytes()
+        self.assertTrue(self.aggregate()['reused'])
+        self.assertEqual(before, self.path.read_bytes())

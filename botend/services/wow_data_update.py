@@ -1,4 +1,4 @@
-"""同分支增量发布：保留稳定入口，天赋身份变化分离旧行，失败保留当前数据。"""
+"""同分支增量发布：保留稳定入口，天赋原位更新并重建受影响聚合，失败保留当前数据。"""
 import csv
 import hashlib
 import json
@@ -634,7 +634,7 @@ def publish(bundle, version, state, run, task):
     target.save()
     node_key = lambda node: (node.class_name, node.spec_name, node.tree_type, node.node_id)
     old_nodes = {node_key(node): node for node in WowTalentNodeMetadata.all_objects.filter(
-        talent_version=target, localization_only=False).order_by('is_current', 'pk')}
+        talent_version=target, localization_only=False, is_current=True).order_by('pk')}
     node_fields = [field.name for field in WowTalentNodeMetadata._meta.concrete_fields
                    if field.name not in ('id', 'talent_version', 'last_updated')]
     retained = []
@@ -657,8 +657,12 @@ def publish(bundle, version, state, run, task):
             node.pk, node.talent_version = None, target
             node.save(force_insert=True)
             retained.append(node.pk)
-    # 身份变化由模型原子分离；同一完整身份重新出现可复用退役行。
-    WowTalentNodeMetadata.objects.filter(talent_version=target).exclude(pk__in=retained).update(is_current=False)
+    # 中央表只保留当前节点；旧聚合由资料指纹失效并使用已有采集事实重建。
+    removed = WowTalentNodeMetadata.all_objects.filter(
+        talent_version=target, localization_only=False).exclude(pk__in=retained)
+    removed_ids = list(removed.values_list('pk', flat=True))
+    for offset in range(0, len(removed_ids), 500):
+        WowTalentNodeMetadata.all_objects.filter(pk__in=removed_ids[offset:offset + 500]).delete()
     from botend.services.wow_spell_display import sync_spell_display
     sync_spell_display(branch=run.branch, apply=True)
     season.gear_batch_key, season.gear_sync_status, season.gear_synced_at = batch, 'ready', timezone.now()

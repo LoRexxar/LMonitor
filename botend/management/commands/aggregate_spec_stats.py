@@ -40,6 +40,14 @@ class Command(BaseCommand):
         has_cycle = WclCollectionCycle.objects.filter(season=season).exists()
         if not has_cycle and not options.get('allow_legacy'):
             raise CommandError('无 WCL 采集周期；旧数据兼容预热须显式 --allow-legacy')
+        if not any((not options.get('class_name') or options['class_name'] == cls)
+                   and (not options.get('spec_name') or options['spec_name'] in specs)
+                   for cls, specs in CLASS_SPEC_MAP.items()):
+            raise CommandError('未找到指定职业/专精')
+        metadata_checked_at = None
+        if has_cycle and (options.get('class_name') or options.get('spec_name') or options.get('dungeon_only')):
+            metadata_checked_at = WclCollectionCycle.objects.filter(season=season, phase='published').order_by(
+                '-slot').values_list('last_attempt_at', flat=True).first()
         task = cycle = None
         if has_cycle:
             configured = MonitorTask.objects.filter(name='SpecDetailAggregationMonitor').first()
@@ -76,7 +84,7 @@ class Command(BaseCommand):
                     total_files += 1 if options.get('dungeon_only') else 3
                     self.stdout.write(f'  {class_name}/{spec_name} ✓')
             if cycle:
-                finish_publication(cycle)
+                finish_publication(cycle, metadata_checked_at=metadata_checked_at)
             self.stdout.write(self.style.SUCCESS(f'完成: {total_files} 个文件, {time.time() - t0:.1f}s'))
         except CycleOwnershipLost as exc:
             raise CommandError(str(exc)) from exc

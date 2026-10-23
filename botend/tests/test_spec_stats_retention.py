@@ -831,3 +831,16 @@ class RetentionTests(SimpleTestCase):
         result = retention.maintain_scope(self.scope, delete_limit=1)
         self.assertEqual(result['deleted'], 1, result)
         self.assertEqual(result['pending'], 0, result)
+
+
+    def test_current_metadata_token_allows_publication_and_old_file_collection(self):
+        for value in range(5):
+            snapshot.publish_projection(self.scope / 'dungeon.json', {
+                'dungeons': [{'dungeon_id': 1, 'sample_size': value}],
+                '_talent_structure_token': f'{value:064x}'}, _write)
+        self.age()
+        with patch('botend.services.stats_talent_references._catalog', side_effect=AssertionError('回收不能读取中央资料')):
+            result = retention.maintain_scope(self.scope)
+        self.assertEqual(result['status'], 'ok')
+        self.assertEqual(result['deleted'], 2)
+        self.assertEqual(len(list((self.scope / 'stats-details').iterdir())), 3)

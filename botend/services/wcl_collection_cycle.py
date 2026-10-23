@@ -245,12 +245,16 @@ def _metadata_projection_due(published):
     """中央装备/天赋发布后刷新普通投影；不依赖独立爆发统计。"""
     from botend.models import WowDataUpdateState
     return bool(published.published_at and WowDataUpdateState.objects.filter(
-        branch='retail', published_at__gt=published.published_at).exists())
+        branch='retail', published_at__gt=published.last_attempt_at).exists())
 
 
-def finish_publication(cycle):
+def finish_publication(cycle, *, metadata_checked_at=None):
     with fenced_cycle(cycle, phases=('aggregating',)) as current:
-        _save(current, cycle, phase='published', published_at=timezone.now(), next_retry_at=None, error='')
+        fields = {'phase': 'published', 'published_at': timezone.now(), 'next_retry_at': None, 'error': ''}
+        if metadata_checked_at is not None:
+            # 手工只重建部分专精不能确认其他专精已消费本轮中央更新。
+            fields['last_attempt_at'] = metadata_checked_at
+        _save(current, cycle, **fields)
 
 
 @contextmanager

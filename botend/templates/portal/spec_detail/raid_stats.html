@@ -9,6 +9,7 @@
 {% endblock %}
 
 {% block content %}
+{% if stats_refresh_required %}<p role="status">天赋资料已更新，统计正在重新生成，请稍后重试。</p>{% else %}
 <div class="spec-detail-page">
     {% include "portal/spec_detail/_overview_identity_and_tabs.html" with active_tab="raid" %}
 
@@ -2055,5 +2056,6 @@ a.enchant-name:hover { color: #2563eb; }
     }
 })();
 </script>
+{% endif %}
 {% endblock %}
 

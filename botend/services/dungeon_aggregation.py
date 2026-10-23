@@ -5,7 +5,6 @@
 """
 from botend.services.talent_source_retention import protect_sources
 from functools import lru_cache
-from hashlib import sha256
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -103,16 +102,26 @@ def _reference_table(attribute, file_key):
 
 
 @lru_cache(maxsize=16)
-def _structural_dump_digest(file_key):
+def _structural_dump_digest(file_key, entry_ids=(), tree_ids=()):
     """Choice ordering and decoder placeholders also consume exact-build CSVs."""
     path = Path(file_key[0])
     if not path.is_file():
         return None
-    digest = sha256()
-    with path.open('rb') as handle:
-        for chunk in iter(lambda: handle.read(128 * 1024), b''):
-            digest.update(chunk)
-    return digest.hexdigest()
+    import csv
+    entries, trees = set(entry_ids), set(tree_ids)
+    selected = []
+    with path.open(encoding='utf-8-sig', newline='') as handle:
+        for row in csv.DictReader(handle):
+            try:
+                relevant = (int(row.get('TraitNodeEntryID') or 0) in entries
+                            if path.name == 'TraitNodeXTraitNodeEntry.csv'
+                            else int(row.get('TraitTreeID') or 0) in trees)
+            except (ValueError, TypeError):
+                continue
+            if relevant:
+                selected.append(row)
+    return content_digest(selected)
+
 
 
 @protect_sources
@@ -152,7 +161,9 @@ def _resolved_talent_dependencies(nodes, version, supplements):
     source = Path(version.source_dir or '')
     return {
         'nodes': resolved,
-        'structure': [_structural_dump_digest(_file_cache_key(source / filename))
+        'structure': [_structural_dump_digest(_file_cache_key(source / filename),
+                      tuple(sorted({row['node_id'] for row in rows if row['node_id']})),
+                      tuple(sorted({row['db2_tree_id'] for row in rows if row['db2_tree_id']})))
                       for filename in ('TraitNodeXTraitNodeEntry.csv', 'TraitNode.csv')],
     }
 
@@ -164,6 +175,7 @@ def _metadata_dependencies(records, facts, class_name, spec_name):
     mapping. No all-item/all-spec JSON scan per spec and no timestamp-only cache.
     The decoder consumes other specs of the *same class*, not only selected nodes.
     """
+    from .stats_talent_dependencies import effective_grants
     events = [event for payloads in facts.values() for event in payloads]
     gear_records = [*records, *({'gear_json': event.get('gear') or []} for event in events)]
     catalog = combatants._enchant_catalog([
@@ -216,7 +228,10 @@ def _metadata_dependencies(records, facts, class_name, spec_name):
         'enchant_catalog': sorted(catalog.items()),
         'variants': variants,
         'gear_scope': gear_scope,
-        'talent_versions': _content_rows(WowTalentVersion.objects.all()),
+        # 当前分支版本的内容由节点、解析输出及结构文件覆盖；无关版本和构建时间不触发全量重算。
+        'talent_grants': effective_grants(version, class_name),
+        'talent_versions': {'id': getattr(version, 'pk', None),
+                            'branch': getattr(version, 'branch', None)},
         'resolved_versions': resolved_versions,
         'talent_nodes': nodes,
         'talent_names': supplements,
@@ -239,6 +254,8 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
     source_cutoff limits central facts, but the wall clock itself is not hashed.
     publish(path, payload, class_name, spec_name) must publish a stats projection.
     """
+    from .stats_talent_dependencies import structure_token
+    token = structure_token(class_name)
     path = Path(path)
     encounters = {int(enc['id']): enc for enc in (season.mplus_encounters or [])}
     if selected_ids is not None and set(selected_ids) != {str(key) for key in encounters}:
@@ -269,7 +286,7 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
     metadata = _metadata_dependencies(selected, facts, class_name, spec_name)
     fingerprint = content_digest({
         'algorithm': ALGORITHM_VERSION,
-        'storage_version': 3,
+        'storage_version': 4,
         'scope': [season.pk, class_name, spec_name],
         'encounters': [(key, stats._lookup_dungeon_cn(enc['name'])) for key, enc in encounters.items()],
         'selected': list(by_dungeon.items()),
@@ -289,7 +306,7 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
             from botend.services.spec_aggregation_cache import load_work, save_work
             scope = f'dungeon:{class_name}:{spec_name}:{dungeon_id}'
             scope_fingerprint = content_digest({'algorithm': ALGORITHM_VERSION, 'name': name,
-                'storage_version': 3, 'rows': rows,
+                'storage_version': 4, 'rows': rows,
                 'facts': [enriched_by_id[row['id']] for row in rows], 'metadata': metadata})
             detail = load_work(season.id, scope, scope_fingerprint)
             if detail is None:
@@ -320,7 +337,8 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
         target = len(encounters) * 100
         summary.update(target_sample_size=target, missing_sample_size=max(0, target - len(union)),
                        dungeon_samples=coverage)
-        publish(path, {'dungeons': singles, 'summary': summary, '_input_fingerprint': fingerprint},
+        publish(path, {'dungeons': singles, 'summary': summary, '_input_fingerprint': fingerprint,
+                       '_talent_structure_token': token},
                 class_name, spec_name)
         index = reusable_projection(path, fingerprint, required_keys)
         if index is None:

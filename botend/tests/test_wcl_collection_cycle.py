@@ -281,3 +281,27 @@ class WclCollectionCycleTests(TestCase):
                 patch.object(SpecDetailAggregationMonitor, '_aggregate_leaderboard'):
             SpecDetailAggregationMonitor(None, self.aggregation).scan('')
         dungeon.assert_not_called()
+
+
+    def test_metadata_published_during_aggregation_requires_another_replay(self):
+        from botend.models import WowDataUpdateState
+        from botend.services.wcl_collection_cycle import _metadata_projection_due
+        cycle = self.cycle(phase='published', collected_at=self.now,
+            last_attempt_at=self.now, published_at=self.now + timedelta(minutes=10))
+        WowDataUpdateState.objects.update_or_create(branch='retail', defaults={
+            'published_at': self.now + timedelta(minutes=5)})
+        self.assertTrue(_metadata_projection_due(cycle))
+        cycle.last_attempt_at = self.now + timedelta(minutes=11)
+        cycle.save(update_fields=['last_attempt_at'])
+        self.assertFalse(_metadata_projection_due(cycle))
+
+
+    def test_partial_manual_replay_does_not_acknowledge_other_specs(self):
+        from botend.models import WowDataUpdateState
+        from botend.services.wcl_collection_cycle import finish_publication, _metadata_projection_due
+        old = self.now - timedelta(minutes=30)
+        cycle = self.cycle(phase='aggregating', collected_at=old, last_attempt_at=self.now)
+        WowDataUpdateState.objects.update_or_create(branch='retail', defaults={'published_at': old + timedelta(minutes=5)})
+        finish_publication(cycle, metadata_checked_at=old)
+        cycle.refresh_from_db()
+        self.assertTrue(_metadata_projection_due(cycle))

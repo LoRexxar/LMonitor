@@ -289,6 +289,9 @@ class SpecDetailDungeonView(View):
             if dungeon_id != 'all' and dungeon_id not in {enc['dungeon_id'] for enc in ctx['dungeon_options']}:
                 raise Http404
             data = _load_json(season_id, class_name, spec_name, 'dungeon.json', f'dungeon-{dungeon_id}') or {}
+            if data.get('_stats_refresh_required'):
+                ctx['stats_refresh_required'] = True
+                return render(request, 'portal/spec_detail/dungeon_stats.html', ctx, status=503)
             if dungeon_id == 'all':
                 ctx['dungeon_detail'] = data.get('summary')
             else:
@@ -338,6 +341,9 @@ class SpecDetailRaidView(View):
         if season_id:
             data = _load_json(season_id, class_name, spec_name, 'raid.json',
                               f'raid-{difficulty}-{bid}' if boss_id else None)
+            if data and data.get('_stats_refresh_required'):
+                ctx['stats_refresh_required'] = True
+                return render(request, 'portal/spec_detail/raid_stats.html', ctx, status=503)
             if data:
                 from botend.services.raid_instance_projection import project_raid_instances
                 data = project_raid_instances(data)

@@ -95,7 +95,8 @@ def publish_stats(path, payload, class_name, spec_name, *, cycle=None, legacy_se
     # the fence. A replacement owner can never publish through an old callback.
     guard = (fenced_cycle(cycle, phases=('aggregating',)) if cycle else
              legacy_publication(legacy_season) if legacy_season else nullcontext())
-    with guard:
+    from botend.services.stats_talent_dependencies import publication_metadata_guard
+    with guard, publication_metadata_guard(class_name, payload.get('_talent_structure_token')):
         publish_projection(path, payload, lambda target, data: atomic_dump_json(
             target, data, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False,
             separators=(',', ':')))
@@ -181,6 +182,8 @@ class SpecDetailAggregationMonitor(BaseScan):
 
         from botend.services.raid_aggregation import raid_stats
         from botend.services.spec_stats_snapshot import content_digest
+        from botend.services.stats_talent_dependencies import structure_token
+        token = structure_token(class_name)
         fingerprints = []
         reused = 0
 
@@ -225,7 +228,8 @@ class SpecDetailAggregationMonitor(BaseScan):
 
         path = os.path.join(spec_dir, 'raid.json')
         (publish or publish_stats)(path, {
-            '_input_fingerprint': content_digest({'algorithm': 'raid-publication-v3-references', 'scopes': fingerprints,
+            '_talent_structure_token': token,
+            '_input_fingerprint': content_digest({'algorithm': 'raid-publication-v4-current-metadata', 'scopes': fingerprints,
                 'zones': season.raid_zones, 'encounters': season.raid_encounters}),
             'zone_groups': mythic_zones,
             'difficulties': [

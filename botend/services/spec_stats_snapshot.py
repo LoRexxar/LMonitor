@@ -150,6 +150,8 @@ def _publish_projection_locked(path, payload, write_json):
                                   detail_hashes=detail_hashes)
     index['_snapshot'].update(detail_hashes=detail_hashes,
                               index_hash=content_digest({k: v for k, v in index.items() if k != '_snapshot'}))
+    if payload.get('_talent_structure_token'):
+        index['_snapshot']['talent_structure_token'] = payload['_talent_structure_token']
     write_json(path, index)
 
 
@@ -238,6 +240,11 @@ def read_projection(path, detail_key=None):
         return None
     if detail_key is None:
         return payload
+    from .stats_talent_references import StaleTalentReferences
+    from .stats_talent_dependencies import structure_token
+    token = meta.get('talent_structure_token')
+    if token and token != structure_token(meta['scope'][1]):
+        return {'_stats_refresh_required': True}
     detail = None
     if (isinstance(detail_key, str) and re.fullmatch(r'(dungeon-(all|\d+)|raid-[45]-\d+)', detail_key)
             and detail_key in meta['details']):
@@ -247,6 +254,8 @@ def read_projection(path, detail_key=None):
                 and envelope.get('key') == detail_key and isinstance(envelope.get('data'), dict)):
             try:
                 detail = unpack_detail(envelope['data'])
+            except StaleTalentReferences:
+                return {'_stats_refresh_required': True}
             except (ValueError, KeyError, TypeError):
                 return None
     if path.stem == 'dungeon':

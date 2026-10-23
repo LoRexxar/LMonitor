@@ -96,7 +96,7 @@ class StatsTalentReferenceTests(TestCase):
     def test_central_text_update_does_not_change_frozen_selection_or_counts(self):
         packed = pack_detail(self.payload())
         WowTalentNodeMetadata.all_objects.filter(pk=self.row.pk).update(
-            name='修正后的名称', description='修正后的描述', is_current=False,
+            name='修正后的名称', description='修正后的描述',
             row=99, column=99, max_points=5)
         restored = unpack_detail(packed)['talent_popularity_tree']['render_model']
         node = restored['nodes'][0]
@@ -112,9 +112,10 @@ class StatsTalentReferenceTests(TestCase):
         with self.assertRaises(ValueError):
             unpack_detail(wrong)
         WowTalentNodeMetadata.all_objects.filter(pk=self.row.pk).update(spell_id=9999)
-        self.assertEqual(unpack_detail(packed), self.payload())
+        with self.assertRaises(ValueError):
+            unpack_detail(packed)
         wrong = deepcopy(packed)
-        wrong['_stats_storage']['metadata']['rows'][0][3] = 9999
+        wrong['_stats_storage']['metadata']['rows'][0][0] = 'class'
         with self.assertRaises(ValueError):
             unpack_detail(wrong)
 

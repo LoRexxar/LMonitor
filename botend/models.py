@@ -1,5 +1,4 @@
 from botend.localization_managers import TalentStructureManager
-from botend.talent_identity import TalentIdentityManager, save_node
 from botend.raiderio_identity import activity_identity_digest, normalized_name
 import hashlib
 import secrets
@@ -3029,17 +3028,17 @@ class WowTalentVersion(models.Model):
 class WowTalentNodeMetadata(models.Model):
     """WoW 天赋节点元数据缓存，用于树形展示和名称/图标补全。"""
     localization_only = models.BooleanField('仅名称资料', default=False)
-    is_current = models.BooleanField(default=True, db_index=True, help_text='是否属于当前分支节点集合；退役节点保留引用')
+    is_current = models.BooleanField(default=True, db_index=True, help_text='是否属于当前分支节点集合；非当前节点可清理')
     name_kind = models.CharField('名称类型', max_length=16, default='talent', choices=[('talent', '天赋'), ('spell', '技能'), ('item', '物品'), ('phrase', '专有名词'), ('macro', '宏名称')])
     reference_id = models.PositiveBigIntegerField('名称引用编号', null=True, blank=True)
     reference_aliases = models.JSONField('来源编号别名', default=list, blank=True)
     localization_evidence = models.CharField('名称核对依据', max_length=1000, default='', blank=True)
     objects = TalentStructureManager()
-    all_objects = TalentIdentityManager()
+    all_objects = models.Manager()
 
     talent_version = models.ForeignKey(
         WowTalentVersion,
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name='nodes',
@@ -3073,7 +3072,7 @@ class WowTalentNodeMetadata(models.Model):
         app_label = 'botend'
         verbose_name = 'WoW天赋与名称元数据'
         verbose_name_plural = 'WoW天赋与名称元数据'
-        unique_together = (('talent_version', 'class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id', 'talent_id', 'localization_only'),)
+        unique_together = (('talent_version', 'class_name', 'spec_name', 'tree_type', 'node_id', 'spell_id'),)
         base_manager_name = 'all_objects'
         indexes = [
             models.Index(fields=['talent_version', 'class_name', 'spec_name', 'tree_type'], name='idx_talent_meta_ver_spec'),
@@ -3083,19 +3082,6 @@ class WowTalentNodeMetadata(models.Model):
 
     def __str__(self):
         return f"{self.class_name}/{self.spec_name}/{self.tree_type}/{self.node_id or self.spell_id}"
-
-    def save(self, force_insert=False, force_update=False, using=None, update_fields=None):
-        return save_node(self, force_insert=force_insert, force_update=force_update,
-                         using=using, update_fields=update_fields)
-
-    def delete(self, using=None, keep_parents=False):
-        if self.pk is None:
-            raise ValueError('未保存的天赋节点不能退役')
-        if self.localization_only:
-            return super().delete(using=using, keep_parents=keep_parents)
-        self.is_current = False
-        self.save(using=using, update_fields=['is_current'])
-        return 1, {self._meta.label: 1}
 
 
 

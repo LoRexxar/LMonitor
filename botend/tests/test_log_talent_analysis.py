@@ -184,3 +184,16 @@ class LogTalentAnalysisTests(SimpleTestCase):
             self.assertIsNone(rows[0]['spell_id'])
             self.assertTrue(rows[1]['invalid'])
         self.assertEqual(combatant[0]['db2_trait_node_id'], 2)
+
+
+    def test_legacy_entry_alias_is_not_treated_as_conflicting_spell_identity(self):
+        row = self.row()
+        for raw in row['talents_json']:
+            raw['spellID'] = raw['talentID']
+            raw['spell_id'] = raw['talentID']
+        self.assertEqual(self.prepare([row])[0]['_log_talent_status'], 'ok')
+
+    def test_explicit_old_spell_is_not_counted_as_replacement_talent(self):
+        row = self.row()
+        row['talents_json'][0]['spellID'] = 999999
+        self.assertEqual(self.prepare([row])[0]['_log_talent_status'], 'conflict')

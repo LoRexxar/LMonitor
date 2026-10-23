@@ -166,13 +166,13 @@ class IncrementalUpdateTests(TestCase):
         self.assertEqual((self.talent.pk, self.talent.current_build), (old_version_id, NEW))
         self.assertFalse(WowTalentVersion.objects.filter(status='staging').exists())
 
-    def test_removed_node_is_retired_and_reuses_primary_key_when_returning(self):
+    def test_removed_node_is_deleted_and_returning_node_is_current(self):
         stale = WowTalentNodeMetadata.objects.create(talent_version=self.talent,
             class_name='Warrior', spec_name='Fury', tree_type='spec', node_id=9991,
             spell_id=9992, name_zh='旧节点', source='db2_backfill')
         self.run_update()
         self.assertFalse(WowTalentNodeMetadata.objects.filter(pk=stale.pk).exists())
-        self.assertTrue(WowTalentNodeMetadata.all_objects.filter(pk=stale.pk).exists())
+        self.assertFalse(WowTalentNodeMetadata.all_objects.filter(pk=stale.pk).exists())
         original = self.candidate
         def restored(*args):
             version = original(*args)
@@ -183,9 +183,9 @@ class IncrementalUpdateTests(TestCase):
         self.source.discover.return_value = '12.1.0.99999'
         with patch.object(update, 'prepare_talent_version', side_effect=restored):
             self.run_update()
-        self.assertEqual(WowTalentNodeMetadata.objects.get(node_id=9991).pk, stale.pk)
+        self.assertTrue(WowTalentNodeMetadata.objects.get(node_id=9991).is_current)
 
-    def test_real_central_publish_preserves_stat_references_across_identity_replacements(self):
+    def test_real_central_publish_invalidates_changed_identity_without_history(self):
         import tempfile
         from pathlib import Path
         from botend.services import spec_stats_snapshot as snapshot, spec_aggregation_cache as cache
@@ -215,19 +215,25 @@ class IncrementalUpdateTests(TestCase):
             cache.save_work(1, 'identity:central', 'v1', detail)
             self.assertEqual(self.run_update()['retail']['status'], 'published')
             self.node.refresh_from_db()
-            self.assertEqual(self.node.spell_id, 20)
-            self.assertFalse(self.node.is_current)
+            self.assertEqual(self.node.spell_id, 9002)
+            self.assertTrue(self.node.is_current)
             current = WowTalentNodeMetadata.objects.get(talent_version=self.talent, node_id=10)
-            self.assertNotEqual(current.pk, self.node.pk)
+            self.assertEqual(current.pk, self.node.pk)
             self.assertEqual((current.talent_id, current.spell_id), (9001, 9002))
-            self.assertEqual(snapshot.read_projection(root / 'dungeon.json', 'dungeon-1')['dungeons'], [detail])
-            self.assertEqual(snapshot.read_projection(root / 'raid.json', 'raid-5-1')['zone_groups'][0]['bosses'], [detail])
-            self.assertEqual(cache.load_work(1, 'identity:central', 'v1'), detail)
+            self.assertTrue(snapshot.read_projection(root / 'dungeon.json', 'dungeon-1')['_stats_refresh_required'])
+            self.assertTrue(snapshot.read_projection(root / 'raid.json', 'raid-5-1')['_stats_refresh_required'])
+            self.assertIsNone(cache.load_work(1, 'identity:central', 'v1'))
             # 再发布同一身份不得挑到旧退役行，也不能按每日更新重复复制资料。
             self.source.discover.return_value = '12.1.0.99999'
-            self.run_update()
+            from django.db import connection
+            from django.test.utils import CaptureQueriesContext
+            with CaptureQueriesContext(connection) as queries:
+                self.run_update()
+            writes = [q['sql'] for q in queries if 'wow_talent_node_metadata' in q['sql']
+                      and q['sql'].lstrip().upper().startswith(('UPDATE', 'DELETE', 'INSERT'))]
+            self.assertEqual(writes, [])
             self.assertEqual(WowTalentNodeMetadata.objects.get(talent_version=self.talent, node_id=10).pk, current.pk)
-            self.assertEqual(WowTalentNodeMetadata.all_objects.filter(talent_version=self.talent, node_id=10).count(), 2)
+            self.assertEqual(WowTalentNodeMetadata.all_objects.filter(talent_version=self.talent, node_id=10).count(), 1)
 
     def test_unchanged_does_not_download_or_write_again(self):
         self.run_update()
