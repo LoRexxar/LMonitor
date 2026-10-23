@@ -112,8 +112,11 @@ class StatsTalentReferenceTests(TestCase):
         with self.assertRaises(ValueError):
             unpack_detail(wrong)
         WowTalentNodeMetadata.all_objects.filter(pk=self.row.pk).update(spell_id=9999)
+        self.assertEqual(unpack_detail(packed), self.payload())
+        wrong = deepcopy(packed)
+        wrong['_stats_storage']['metadata']['rows'][0][3] = 9999
         with self.assertRaises(ValueError):
-            unpack_detail(packed)
+            unpack_detail(wrong)
 
     def test_invalid_reference_and_recipe_are_rejected(self):
         packed = pack_detail(self.payload())

@@ -185,6 +185,50 @@ class IncrementalUpdateTests(TestCase):
             self.run_update()
         self.assertEqual(WowTalentNodeMetadata.objects.get(node_id=9991).pk, stale.pk)
 
+    def test_real_central_publish_preserves_stat_references_across_identity_replacements(self):
+        import tempfile
+        from pathlib import Path
+        from botend.services import spec_stats_snapshot as snapshot, spec_aggregation_cache as cache
+        from botend.services.stats_talent_references import _catalog
+        from botend.services.simc_benchmark_result_snapshot import _write
+        _, catalog = _catalog('Warrior', 'Fury', self.talent.pk, ids=[self.node.pk])
+        detail = {'dungeon_id': 1, 'boss_id': 1, 'sample_size': 100, 'talent_popularity_tree': {
+            'metadata_version_id': self.talent.pk, 'render_model': {
+                'tree_set': {'class_name': 'Warrior', 'spec_name': 'Fury'},
+                'selection': {**catalog[0][1], 'count': 100, 'points': 1}}}}
+        # 提供可引用的真实资料，确保用例确实跨越文件到中央数据库的边界。
+        self.node.description_zh = '更新前属于旧技能的说明。' * 30
+        self.node.save(update_fields=['description_zh'])
+        detail['talent_popularity_tree']['render_model']['selection']['description_zh'] = self.node.description_zh
+        original_candidate = self.candidate
+        def replacement(*args):
+            version = original_candidate(*args)
+            version._prepared_nodes[0].talent_id = 9001
+            version._prepared_nodes[0].spell_id = 9002
+            return version
+        update.prepare_talent_version.side_effect = replacement
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / '1/Warrior/Fury'
+            for module, payload in [('dungeon', {'dungeons': [detail]}),
+                                    ('raid', {'zone_groups': [{'bosses': [detail]}]})]:
+                snapshot.publish_projection(root / f'{module}.json', payload, _write)
+            cache.save_work(1, 'identity:central', 'v1', detail)
+            self.assertEqual(self.run_update()['retail']['status'], 'published')
+            self.node.refresh_from_db()
+            self.assertEqual(self.node.spell_id, 20)
+            self.assertFalse(self.node.is_current)
+            current = WowTalentNodeMetadata.objects.get(talent_version=self.talent, node_id=10)
+            self.assertNotEqual(current.pk, self.node.pk)
+            self.assertEqual((current.talent_id, current.spell_id), (9001, 9002))
+            self.assertEqual(snapshot.read_projection(root / 'dungeon.json', 'dungeon-1')['dungeons'], [detail])
+            self.assertEqual(snapshot.read_projection(root / 'raid.json', 'raid-5-1')['zone_groups'][0]['bosses'], [detail])
+            self.assertEqual(cache.load_work(1, 'identity:central', 'v1'), detail)
+            # 再发布同一身份不得挑到旧退役行，也不能按每日更新重复复制资料。
+            self.source.discover.return_value = '12.1.0.99999'
+            self.run_update()
+            self.assertEqual(WowTalentNodeMetadata.objects.get(talent_version=self.talent, node_id=10).pk, current.pk)
+            self.assertEqual(WowTalentNodeMetadata.all_objects.filter(talent_version=self.talent, node_id=10).count(), 2)
+
     def test_unchanged_does_not_download_or_write_again(self):
         self.run_update()
         self.source.prepare.reset_mock()

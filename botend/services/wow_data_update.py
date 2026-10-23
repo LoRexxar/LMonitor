@@ -1,4 +1,4 @@
-"""同分支单份数据的增量更新：校验候选后原位替换，失败保留当前数据。"""
+"""同分支增量发布：保留稳定入口，天赋身份变化分离旧行，失败保留当前数据。"""
 import csv
 import hashlib
 import json
@@ -633,16 +633,20 @@ def publish(bundle, version, state, run, task):
             setattr(target, flag, True)
     target.save()
     node_key = lambda node: (node.class_name, node.spec_name, node.tree_type, node.node_id)
-    old_nodes = {node_key(node): node for node in WowTalentNodeMetadata.all_objects.filter(talent_version=target, localization_only=False)}
+    old_nodes = {node_key(node): node for node in WowTalentNodeMetadata.all_objects.filter(
+        talent_version=target, localization_only=False).order_by('is_current', 'pk')}
     node_fields = [field.name for field in WowTalentNodeMetadata._meta.concrete_fields
                    if field.name not in ('id', 'talent_version', 'last_updated')]
     retained = []
     for node in version._prepared_nodes:
         old = old_nodes.get(node_key(node))
         if old:
+            identity_changed = old.talent_id != node.talent_id or old.spell_id != node.spell_id
+            display_fields = ('name', 'name_zh', 'description', 'description_zh', 'icon')
             changed = [field for field in node_fields if getattr(old, field) != getattr(node, field)
-                       and not (field in ('name', 'name_zh', 'description', 'description_zh', 'icon')
-                                and not getattr(node, field))]
+                       and not (field in display_fields and not getattr(node, field) and not identity_changed)]
+            if identity_changed:
+                changed.extend(field for field in display_fields if field not in changed)
             if changed:
                 for field in changed:
                     setattr(old, field, getattr(node, field))
@@ -653,7 +657,7 @@ def publish(bundle, version, state, run, task):
             node.pk, node.talent_version = None, target
             node.save(force_insert=True)
             retained.append(node.pk)
-    # 已移除节点退出当前结构，保留主键供历史模拟引用；重新出现时复用原行。
+    # 身份变化由模型原子分离；同一完整身份重新出现可复用退役行。
     WowTalentNodeMetadata.objects.filter(talent_version=target).exclude(pk__in=retained).update(is_current=False)
     from botend.services.wow_spell_display import sync_spell_display
     sync_spell_display(branch=run.branch, apply=True)

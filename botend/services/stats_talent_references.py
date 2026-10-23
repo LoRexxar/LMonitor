@@ -42,7 +42,7 @@ def _catalog(class_name, spec_name, version_id, *, ids=None):
             *ROW_FIELDS, 'talent_version__id', 'talent_version__key', 'talent_version__branch')
     if ids is not None:
         rows = rows.filter(pk__in=ids)
-    rows = list(rows.order_by('pk'))
+    rows = list(rows.order_by('-is_current', 'pk'))
     if not rows:
         return version_id, []
     provider = TalentMetadataProvider(talent_version=rows[0].talent_version)
@@ -87,6 +87,13 @@ def pack_metadata_references(detail, *, catalog_cache=None):
                 candidates.update((row.pk, (row, data)) for row, data in indexes.get((key, value[key]), ()))
         best = None
         for row, data in candidates.values():
+            # 相同node_id可能经历技能替换，不能仅凭展示文字相同绑定另一身份。
+            if any(type(value.get(key)) is int and value[key] > 0 and value[key] != data.get(key)
+                   for key in ('node_id', 'talent_id')):
+                continue
+            if (type(value.get('spell_id')) is int and value['spell_id'] > 0
+                    and value['spell_id'] not in (data.get('spell_id'), data.get('display_spell_id'))):
+                continue
             fields = [key for key in TEXT_FIELDS if isinstance(value.get(key), str)
                       and value[key] and value[key] == data.get(key)]
             score = sum(len(value[key].encode('utf-8')) for key in fields)

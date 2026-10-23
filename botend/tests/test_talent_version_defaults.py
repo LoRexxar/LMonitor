@@ -1,7 +1,6 @@
 import importlib
 from types import SimpleNamespace
 
-from django.apps import apps
 from django.db import connection
 from django.test import TestCase
 
@@ -83,8 +82,12 @@ class TalentVersionDefaultsTests(TestCase):
         )
 
         migration = importlib.import_module('botend.migrations.0222_normalize_talent_versions')
+        # 使用身份保护加入前、与测试表字段一致的迁移模型，避免调用当前运行时删除规则。
+        from django.db.migrations.loader import MigrationLoader
+        historical_apps = MigrationLoader(connection).project_state(
+            [('botend', '0253_character_bindings')]).apps
         migration.normalize_talent_versions(
-            apps, SimpleNamespace(connection=connection),
+            historical_apps, SimpleNamespace(connection=connection),
         )
 
         retail = WowTalentVersion.objects.get(key='retail')
