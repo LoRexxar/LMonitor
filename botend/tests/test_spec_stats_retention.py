@@ -34,6 +34,71 @@ class RetentionTests(SimpleTestCase):
                 row['retired_at'] = 1
         _write(manifest, data)
 
+    def test_large_scope_resumes_bounded_reads_and_deletion(self):
+        # Real producer + on-disk envelopes: 39 generations, 702 details.
+        generations = []
+        for i in range(39):
+            snapshot.publish_projection(self.scope / 'dungeon.json', {'dungeons': [
+                {'dungeon_id': key, 'sample_size': i} for key in range(1, 19)]}, _write)
+            generations.append(json.loads((self.scope / 'dungeon.json').read_text())[
+                '_snapshot']['generation'])
+        self.age()
+        root = self.scope / 'stats-details'
+        self.assertEqual(len(list(root.rglob('*.json'))), 702)
+        first = retention.maintain_scope(self.scope, delete_limit=1)
+        self.assertEqual(first['status'], 'paused', first)
+        self.assertGreater(first['validated_files'], 0)
+        checkpoint = self.scope / retention.CHECKPOINT
+        self.assertTrue(checkpoint.exists())
+        # Unknown metadata still fails closed, even with authenticated progress.
+        unknown = root / 'backup'
+        unknown.mkdir()
+        refused = retention.maintain_scope(self.scope, delete_limit=1)
+        self.assertEqual(refused['status'], 'refused', refused)
+        self.assertEqual(refused['deleted'], 0)
+        unknown.rmdir()
+        # Directory identity drift invalidates the previous checkpoint.
+        restarted = retention.maintain_scope(self.scope, delete_limit=1)
+        self.assertEqual(restarted['status'], 'paused', restarted)
+        # Reading the discarded checkpoint itself consumes one read slot.
+        self.assertEqual(restarted['validated_files'], first['validated_files'] - 1)
+        results = [retention.maintain_scope(self.scope, delete_limit=1) for _ in range(4)]
+        self.assertEqual(sum(r['deleted'] for r in results), 2, results)
+        for result in [first, restarted, *results]:
+            self.assertLessEqual(result['files_read'], retention.MAX_ENTRIES)
+            self.assertLessEqual(result['bytes_read'], retention.MAX_BYTES)
+            self.assertLessEqual(result['deleted'], 1)
+        self.assertTrue(all((root / g).exists() for g in generations[-3:]))
+        self.assertFalse((root / generations[0]).exists())
+        self.assertFalse((root / generations[1]).exists())
+        # A smaller per-call content budget must accumulate MORE than 512
+        # authenticated observations, not silently discard that checkpoint.
+        checkpoint.unlink()
+        with patch.object(retention, 'MAX_ENTRIES', 200):
+            pauses = [retention.maintain_scope(self.scope, delete_limit=1) for _ in range(3)]
+            self.assertTrue(all(r['status'] == 'paused' for r in pauses), pauses)
+            saved = retention.Budget._signer().unsign_object(json.loads(checkpoint.read_text())['proof'])
+            self.assertGreater(len(saved['files']), 512)
+            resumed = retention.maintain_scope(self.scope, delete_limit=1)
+            self.assertEqual(resumed['deleted'], 1, resumed)
+            self.assertLessEqual(resumed['files_read'], 200)
+
+    def test_more_than_512_generations_can_publish_and_reclaim(self):
+        generations = [self.publish(value=i) for i in range(514)]
+        self.assertFalse((self.scope / retention.DISABLED).exists())
+        self.age()
+        root = self.scope / 'stats-details'
+        self.assertEqual(len(list(root.iterdir())), 514)
+        results = [retention.maintain_scope(self.scope, delete_limit=1) for _ in range(4)]
+        self.assertEqual(sum(r['deleted'] for r in results), 2, results)
+        self.assertEqual(results[0]['status'], 'paused', results)
+        for result in results:
+            self.assertIn(result['status'], ('paused', 'ok'), result)
+            self.assertLessEqual(result['files_read'], retention.MAX_ENTRIES)
+            self.assertLessEqual(result['bytes_read'], retention.MAX_BYTES)
+        self.assertEqual(len(list(root.iterdir())), 512)
+        self.assertTrue(all((root / g).exists() for g in generations[-3:]))
+
     def test_latest_two_per_module_and_cross_module_current(self):
         raid = self.publish('raid')
         generations = [self.publish(value=i) for i in range(5)]
