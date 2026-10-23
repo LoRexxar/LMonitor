@@ -9,6 +9,18 @@
   template.innerHTML = '<div class="wow-item-tooltip" role="tooltip" hidden></div>';
   const tooltip = template.content.firstElementChild;
   let activeTrigger = null;
+  let hideTimer = null;
+  let lastPointerType = "";
+
+  function cancelHide() {
+    window.clearTimeout(hideTimer);
+    hideTimer = null;
+  }
+
+  function scheduleHide() {
+    cancelHide();
+    hideTimer = window.setTimeout(() => hide(), 120);
+  }
 
   function ensureTooltipMounted() {
     if (!tooltip.isConnected && document.body) document.body.append(tooltip);
@@ -46,14 +58,23 @@
   function position(trigger) {
     const rect = trigger.getBoundingClientRect();
     const gap = 8;
+    tooltip.style.maxHeight = `${Math.max(0, window.innerHeight - gap * 2)}px`;
     const maxLeft = Math.max(gap, window.innerWidth - tooltip.offsetWidth - gap);
     tooltip.style.left = `${Math.min(maxLeft, Math.max(gap, rect.left))}px`;
-    const below = rect.bottom + gap;
-    const above = rect.top - tooltip.offsetHeight - gap;
-    tooltip.style.top = `${below + tooltip.offsetHeight <= window.innerHeight || above < gap ? below : above}px`;
+    const belowSpace = Math.max(0, window.innerHeight - rect.bottom - gap * 2);
+    const aboveSpace = Math.max(0, rect.top - gap * 2);
+    const useBelow = tooltip.offsetHeight <= belowSpace || (
+      tooltip.offsetHeight > aboveSpace && belowSpace >= aboveSpace
+    );
+    // Keep the trigger clickable; constrain the roomier side and scroll within it.
+    tooltip.style.maxHeight = `${useBelow ? belowSpace : aboveSpace}px`;
+    const preferredTop = useBelow ? rect.bottom + gap : rect.top - tooltip.offsetHeight - gap;
+    const maxTop = Math.max(gap, window.innerHeight - tooltip.offsetHeight - gap);
+    tooltip.style.top = `${Math.min(maxTop, Math.max(gap, preferredTop))}px`;
   }
 
   function show(trigger) {
+    cancelHide();
     const description = String(trigger?.dataset.wowItemTooltip || "").trim();
     if (!description) return;
     ensureTooltipMounted();
@@ -71,10 +92,12 @@
     if (!tooltip.id) tooltip.id = "wow-item-tooltip";
     trigger.setAttribute("aria-describedby", tooltip.id);
     tooltip.hidden = false;
+    tooltip.scrollTop = 0;
     position(trigger);
   }
 
   function hide(trigger = null) {
+    cancelHide();
     if (trigger && trigger !== activeTrigger) return;
     activeTrigger?.removeAttribute("aria-describedby");
     activeTrigger = null;
@@ -85,21 +108,28 @@
   if (!tooltip.isConnected) {
     window.addEventListener("DOMContentLoaded", ensureTooltipMounted, {once: true});
   }
+  document.addEventListener("pointerdown", (event) => {
+    lastPointerType = event.pointerType;
+  });
   document.addEventListener("pointerover", (event) => {
+    if (event.pointerType === "touch") return;
     const trigger = triggerFor(event.target);
     if (trigger && !trigger.contains(event.relatedTarget)) show(trigger);
   });
   document.addEventListener("pointerout", (event) => {
+    if (event.pointerType === "touch") return;
     const trigger = triggerFor(event.target);
-    if (trigger && !trigger.contains(event.relatedTarget)) hide(trigger);
+    if (trigger && !trigger.contains(event.relatedTarget) && !tooltip.contains(event.relatedTarget)) scheduleHide();
   });
   document.addEventListener("focusin", (event) => {
+    if (lastPointerType === "touch") return;
     const trigger = triggerFor(event.target);
     if (trigger) show(trigger);
   });
   document.addEventListener("focusout", (event) => {
+    if (lastPointerType === "touch") return;
     const trigger = triggerFor(event.target);
-    if (trigger && !trigger.contains(event.relatedTarget)) hide(trigger);
+    if (trigger && !trigger.contains(event.relatedTarget) && !tooltip.contains(event.relatedTarget)) scheduleHide();
   });
   document.addEventListener("click", (event) => {
     const trigger = triggerFor(event.target);
@@ -111,8 +141,16 @@
     else show(trigger);
   });
   document.addEventListener("keydown", (event) => {
+    lastPointerType = "";
     if (event.key === "Escape") hide();
   });
   window.addEventListener("resize", () => activeTrigger && position(activeTrigger));
-  window.addEventListener("scroll", () => hide(), true);
+  tooltip.addEventListener("pointerenter", cancelHide);
+  tooltip.addEventListener("pointerleave", (event) => {
+    if (event.pointerType === "touch") return;
+    if (!activeTrigger?.contains(event.relatedTarget)) scheduleHide();
+  });
+  window.addEventListener("scroll", (event) => {
+    if (!tooltip.contains(event.target)) hide();
+  }, true);
 })();
