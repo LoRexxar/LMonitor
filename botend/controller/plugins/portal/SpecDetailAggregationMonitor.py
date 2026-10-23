@@ -40,12 +40,26 @@ class DecimalEncoder(json.JSONEncoder):
 
 def atomic_dump_json(path, payload, **dump_kwargs):
     """原子写 JSON：写入失败或进程中断时保留旧文件。"""
+    from pathlib import Path
+    from django.conf import settings
+    maximum = (int(getattr(settings, 'SPEC_STATS_DETAIL_MAX_BYTES', 64 * 1024 * 1024))
+               if Path(path).parent.parent.name == 'stats-details' else None)
+    if maximum is not None and maximum < 1024:
+        raise ValueError('统计详情文件预算必须至少为1024字节')
     directory = os.path.dirname(path)
     os.makedirs(directory, exist_ok=True)
     fd, tmp_path = tempfile.mkstemp(prefix='.tmp-', suffix='.json', dir=directory)
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
-            json.dump(payload, f, **dump_kwargs)
+            # 流式编码并在写入前计量，异常大投影不能把磁盘写满才失败。
+            encoder_class = dump_kwargs.pop('cls', json.JSONEncoder)
+            encoder = encoder_class(**dump_kwargs)
+            written = 0
+            for part in encoder.iterencode(payload):
+                written += len(part.encode('utf-8'))
+                if maximum is not None and written > maximum:
+                    raise ValueError('统计详情超过单文件预算，请检查字段体积诊断')
+                f.write(part)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp_path, path)
@@ -83,7 +97,8 @@ def publish_stats(path, payload, class_name, spec_name, *, cycle=None, legacy_se
              legacy_publication(legacy_season) if legacy_season else nullcontext())
     with guard:
         publish_projection(path, payload, lambda target, data: atomic_dump_json(
-            target, data, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False))
+            target, data, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False,
+            separators=(',', ':')))
 
 
 class SpecDetailAggregationMonitor(BaseScan):
@@ -210,7 +225,7 @@ class SpecDetailAggregationMonitor(BaseScan):
 
         path = os.path.join(spec_dir, 'raid.json')
         (publish or publish_stats)(path, {
-            '_input_fingerprint': content_digest({'algorithm': 'raid-publication-v1', 'scopes': fingerprints,
+            '_input_fingerprint': content_digest({'algorithm': 'raid-publication-v3-references', 'scopes': fingerprints,
                 'zones': season.raid_zones, 'encounters': season.raid_encounters}),
             'zone_groups': mythic_zones,
             'difficulties': [

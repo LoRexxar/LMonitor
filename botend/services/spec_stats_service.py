@@ -2184,6 +2184,7 @@ def _compute_talent_popularity_tree(records, class_name, spec_name, top_n=20, sn
         preserved_parent_edges += len(tree.get('paths') or [])
     return {
         'point_statistics_version': 2,
+        'metadata_version_id': getattr(provider.resolved_version, 'pk', None),
         'sample_size': snapshot.get('total', 0),
         'highlighted_node_count': len(highlighted_keys),
         'rendered_node_count': total_nodes,

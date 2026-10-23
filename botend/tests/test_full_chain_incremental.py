@@ -1,5 +1,6 @@
 """验证全链路局部失效、分页续跑、发布失败恢复和更新及时性。"""
 import json
+import gzip
 import os
 import subprocess
 import sys
@@ -114,9 +115,10 @@ class FullChainIncrementalTests(TestCase):
         expected = raid_stats(*args)[0]
         from botend.services.spec_aggregation_cache import work_path
         path = work_path(self.season.pk, 'raid:Mage:Fire:5:1')
-        envelope = json.loads(path.read_text(encoding='utf-8'))
+        envelope = json.loads(gzip.decompress(path.read_bytes()))
         envelope['data']['payload'] = {'错误': True}
-        path.write_text(json.dumps(envelope), encoding='utf-8')
+        path.write_bytes(gzip.compress(json.dumps(envelope, ensure_ascii=False,
+                                               separators=(',', ':')).encode('utf-8')))
         actual, _, hit = raid_stats(*args)
         self.assertFalse(hit); self.assertEqual(actual, expected)
 

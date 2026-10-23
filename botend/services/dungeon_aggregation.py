@@ -269,6 +269,7 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
     metadata = _metadata_dependencies(selected, facts, class_name, spec_name)
     fingerprint = content_digest({
         'algorithm': ALGORITHM_VERSION,
+        'storage_version': 3,
         'scope': [season.pk, class_name, spec_name],
         'encounters': [(key, stats._lookup_dungeon_cn(enc['name'])) for key, enc in encounters.items()],
         'selected': list(by_dungeon.items()),
@@ -288,7 +289,8 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
             from botend.services.spec_aggregation_cache import load_work, save_work
             scope = f'dungeon:{class_name}:{spec_name}:{dungeon_id}'
             scope_fingerprint = content_digest({'algorithm': ALGORITHM_VERSION, 'name': name,
-                'rows': rows, 'facts': [enriched_by_id[row['id']] for row in rows], 'metadata': metadata})
+                'storage_version': 3, 'rows': rows,
+                'facts': [enriched_by_id[row['id']] for row in rows], 'metadata': metadata})
             detail = load_work(season.id, scope, scope_fingerprint)
             if detail is None:
                 detail = stats.SpecStatsService._compute_dungeon_records(

@@ -1,44 +1,27 @@
-"""Idle, opt-in maintenance of cold projection/download scopes.
-
-Scheduling metadata is separate from cache contents. Each domain has its own
-explicit apply switch; enabling news GC does not authorize these newer domains.
-"""
+"""独立回收聚合历史；下载和其他快照继续使用各自的显式开关。"""
 from contextlib import contextmanager
-import fcntl
 import json
 import os
 from pathlib import Path
 import stat
 
 from django.conf import settings
-from .download_checkpoint import atomic_json
+from .simc_benchmark_result_snapshot import _write as atomic_json
+from .spec_stats_retention import _scope_lock, _safe_path
 
 
 _FLAGS = ('SPEC_STATS_GC_ENABLED', 'MYTHICSTATS_GC_ENABLED', 'DOWNLOAD_PARTS_GC_ENABLED')
 
 
 def _safe(path):
-    if any(p.is_symlink() for p in (path, *path.parents)):
-        raise ValueError('linked maintenance path')
+    _safe_path(path)
 
 
 @contextmanager
 def _coordinator(root):
     _safe(root)
-    root.mkdir(parents=True, exist_ok=True)
-    fd = os.open(root / 'worker.lock', os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_NONBLOCK, 0o600)
-    try:
-        info = os.fstat(fd)
-        if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
-            raise ValueError('unsafe maintenance lock')
-        try:
-            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError:
-            yield False
-        else:
-            yield True
-    finally:
-        os.close(fd)
+    with _scope_lock(root / 'worker.lock', blocking=False) as acquired:
+        yield acquired
 
 
 def _state(root):
@@ -46,7 +29,7 @@ def _state(root):
     _safe(path)
     if not path.exists():
         return {'schema': 1, 'aggregate_after': '', 'download_after': '', 'refused': {}}
-    fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0) | getattr(os, 'O_NONBLOCK', 0))
     with os.fdopen(fd, 'rb') as stream:
         info = os.fstat(stream.fileno())
         if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_size > 1024 * 1024:
@@ -101,11 +84,11 @@ def _part_roots(base, *, prune_tooltips=False):
 
 def _result(kind, apply=False, status='ok', deleted=0, error='', **extra):
     return dict(kind=kind, apply=apply, status=status, deleted=deleted,
-                deleted_bytes=None, error=error, **extra)
+                deleted_bytes=extra.pop('deleted_bytes', None), error=error, **extra)
 
 
 def run_extended_maintenance():
-    if not any(getattr(settings, flag, False) is True for flag in _FLAGS):
+    if not any(getattr(settings, flag, flag == 'SPEC_STATS_GC_ENABLED') is True for flag in _FLAGS):
         return []
     root = Path(getattr(settings, 'STORAGE_MAINTENANCE_ROOT', Path(settings.BASE_DIR) / 'var/storage-maintenance'))
     results = []
@@ -114,8 +97,8 @@ def run_extended_maintenance():
             if not acquired:
                 return [_result('lifecycle', status='busy')]
             state = _state(root)
-            if getattr(settings, 'SPEC_STATS_GC_ENABLED', False) is True:
-                apply = getattr(settings, 'SPEC_STATS_GC_AUTO_APPLY', False) is True
+            if getattr(settings, 'SPEC_STATS_GC_ENABLED', True) is True:
+                apply = getattr(settings, 'SPEC_STATS_GC_AUTO_APPLY', True) is True
                 try:
                     from .spec_stats_retention import maintain_scopes
                     response = maintain_scopes(Path(getattr(settings, 'MEDIA_ROOT', '') or 'media') / 'aggregated',
@@ -135,7 +118,12 @@ def run_extended_maintenance():
                         status='refused' if response.get('error') else 'partial' if any(
                             i['status'] in ('refused', 'disabled', 'error') for i in response['results']) else 'paused' if paused else 'ok',
                         deleted=sum(i.get('deleted', 0) for i in response['results']),
+                        deleted_bytes=sum(i.get('deleted_bytes', 0) for i in response['results']),
                         error=response.get('error', ''), scopes=len(response['results']),
+                        paused_scopes=sum(i['status'] == 'paused' for i in response['results']),
+                        bytes_read=sum(i.get('bytes_read', 0) for i in response['results']),
+                        reasons=[{'scope': i['scope'], 'status': i['status'], 'reason': i.get('reason', '')}
+                                 for i in response['results'] if i['status'] not in ('ok', 'bootstrapped')],
                         has_more=response['has_more'] or paused))
                 except Exception as exc:
                     results.append(_result('aggregate', apply, status='refused', error=str(exc)[:200]))

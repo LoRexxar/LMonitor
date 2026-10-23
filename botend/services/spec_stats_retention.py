@@ -23,6 +23,9 @@ DISABLED = '.stats-retention-disabled.json'
 LOCK = '.stats-publish.lock'
 CHECKPOINT = '.stats-validation.json'
 MAX_ENTRIES = 512
+# 历史文件总量与单目录/单批工作量分离，避免超过512份详情后永久拒绝回收。
+MAX_INVENTORY_ENTRIES = 32768
+MAX_SINGLE_FILE_BYTES = 256 * 1024 * 1024
 MAX_BYTES = 64 * 1024 * 1024
 # Publication must observe both currents atomically (observed closure: ~75 MB).
 # Keep its bounded allowance independent of resumable maintenance/GC reads.
@@ -133,7 +136,7 @@ def _inventory(scope):
             result[directory.relative_to(scope).as_posix()] = _identity(directory)
             for path in _entries(directory):
                 count += 1
-                if count > MAX_ENTRIES:
+                if count > MAX_INVENTORY_ENTRIES:
                     raise Unsafe('scope entry budget')
                 result[path.relative_to(scope).as_posix()] = _identity(path)
     return result
@@ -150,6 +153,7 @@ class Budget:
         self.scope = None
         self.inventory = None
         self.digests = {}
+        self.detail_bytes_read = 0
 
     def checkpoint(self, scope):
         self.scope = scope
@@ -165,7 +169,11 @@ class Budget:
                     return
                 saved = self._signer().unsign_object(saved['proof'])
                 if self._valid_checkpoint(saved):
-                    self.cache = saved['files']
+                    # 新发布会改入口和目录身份，但不可变历史的独立证明仍有效。
+                    # 当前控制文件已重新读取，随后仍按最新清单逐项核对内容摘要。
+                    self.cache = {name: item for name, item in saved['files'].items()
+                                  if saved['inventory'].get(name) == self.inventory.get(name)
+                                  and name in self.inventory}
             except Paused:
                 raise
             except (BadSignature, ValueError, TypeError, KeyError):
@@ -184,13 +192,17 @@ class Budget:
         if (not isinstance(saved, dict) or set(saved) != {'schema', 'scope', 'inventory', 'controls', 'files'}
                 or type(saved['schema']) is not int or saved['schema'] != 2
                 or saved['scope'] != str(self.scope.absolute())
-                or saved['inventory'] != self.inventory or saved['controls'] != self.controls
-                or not isinstance(saved['files'], dict) or len(saved['files']) > MAX_ENTRIES):
+                or not isinstance(saved['inventory'], dict)
+                or not isinstance(saved['controls'], dict) or not saved['controls']
+                or any(name not in (MANIFEST, 'dungeon.json', 'raid.json')
+                       or not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest)
+                       for name, digest in saved['controls'].items())
+                or not isinstance(saved['files'], dict) or len(saved['files']) > MAX_INVENTORY_ENTRIES):
             return False
         for name, item in saved['files'].items():
             if (not isinstance(name, str) or not re.fullmatch(
                     r'stats-details/[0-9a-f]{32}/(dungeon-(all|\d+)|raid-[45]-\d+)\.json', name)
-                    or name not in self.inventory or not isinstance(item, dict)
+                    or name not in saved['inventory'] or not isinstance(item, dict)
                     or set(item) != {'raw_hash', 'digest', 'body'}
                     or any(not isinstance(item[k], str) or not re.fullmatch('[0-9a-f]{64}', item[k])
                            for k in ('raw_hash', 'digest'))):
@@ -232,8 +244,13 @@ class Budget:
             self.digests[path] = item['digest']
             return item['body']
         size = identity[2]
+        if size > MAX_SINGLE_FILE_BYTES:
+            raise Unsafe('单文件超过安全读取上限，需要重新生成紧凑投影')
         if size > self.remaining:
-            raise Paused('file or byte budget')
+            # 每轮允许一个大详情完成校验，否则单项超过64MiB会无限暂停。
+            # 上限仍独立限制；已校验项通过签名检查点逐轮复用。
+            if not detail or self.detail_bytes_read:
+                raise Paused('file or byte budget')
         try:
             fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
         except FileNotFoundError as exc:
@@ -244,6 +261,8 @@ class Budget:
                 raise ObservationChanged('file changed')
             raw = stream.read(size)
         self.remaining -= len(raw)
+        if detail:
+            self.detail_bytes_read += len(raw)
         try:
             final_identity = _identity(path)
         except FileNotFoundError as exc:
@@ -517,7 +536,7 @@ def maintain_scope(scope, *, delete_limit=8, now=None, dry_run=False):
     """
     scope = Path(scope)
     now = time.time() if now is None else now
-    result = {'scope': str(scope), 'deleted': 0, 'status': 'refused'}
+    result = {'scope': str(scope), 'deleted': 0, 'deleted_bytes': 0, 'status': 'refused'}
     if not 1 <= delete_limit <= MAX_ENTRIES:
         raise ValueError('delete_limit outside budget')
     try:
@@ -606,7 +625,9 @@ def maintain_scope(scope, *, delete_limit=8, now=None, dry_run=False):
                     directory = root / item['meta']['generation']
                     existed = directory.exists()
                     for path in paths:
+                        size = path.stat().st_size
                         path.unlink()
+                        result['deleted_bytes'] += size
                     if existed:
                         directory.rmdir()
                         result['deleted'] += 1
@@ -644,6 +665,9 @@ def maintain_scopes(root, *, after='', scope_limit=8, delete_limit=8, dry_run=Fa
         raise ValueError('scope_limit outside budget')
     root = Path(root)
     results = []
+    _safe_path(root)
+    if not root.exists():
+        return {'results': [], 'next_cursor': '', 'has_more': False}
     remaining = MAX_ENTRIES
     cursor = after
     def walk(path, depth):
@@ -670,6 +694,73 @@ def maintain_scopes(root, *, after='', scope_limit=8, delete_limit=8, dry_run=Fa
         return {'results': results, 'next_cursor': cursor, 'has_more': False}
     except (OSError, ValueError) as exc:
         return {'results': results, 'next_cursor': cursor, 'has_more': True, 'error': str(exc)}
+
+
+def repair_disabled_scope(scope, *, dry_run=True):
+    """完整校验后修复禁用状态；不删除历史，不把孤儿伪装成已发布版本。"""
+    scope = Path(scope)
+    result = {'scope': str(scope), 'status': 'refused', 'deleted': 0}
+    budget = None
+    try:
+        with _scope_lock(scope / LOCK, blocking=False, create=not dry_run) as acquired:
+            if not acquired:
+                return {**result, 'status': 'locked'}
+            _safe_path(scope / DISABLED)
+            if not (scope / DISABLED).exists():
+                return {**result, 'status': 'not_disabled'}
+            budget = Budget()
+            currents = _currents(scope, budget)
+            if not currents:
+                raise Unsafe('缺少有效当前版本，不修复禁用标记')
+            data = _manifest(scope, budget) if (scope / MANIFEST).exists() else {
+                'schema': 1, 'scope': list(scope.parts[-3:]), 'records': []}
+            budget.checkpoint(scope)
+            by_gen = {r['meta']['generation']: r for r in data['records']}
+            for row in data['records']:
+                _validate_generation(scope, row['meta'], budget)
+            for meta in currents.values():
+                _validate_generation(scope, meta, budget)
+                if meta['generation'] in by_gen and by_gen[meta['generation']]['meta'] != meta:
+                    raise Unsafe('当前与历史记录内容冲突')
+            pending = {item['meta']['generation']: item for item in data.get('pending_deletes', [])}
+            for item in pending.values():
+                if item['meta']['generation'] in {m['generation'] for m in currents.values()}:
+                    raise Unsafe('当前版本出现在删除意图中')
+                _pending_paths(scope, item, budget)
+            known = set(by_gen) | set(pending) | {m['generation'] for m in currents.values()}
+            for directory in _entries(scope / 'stats-details'):
+                if not GEN.fullmatch(directory.name) or not directory.is_dir():
+                    raise Unsafe('未知历史目录')
+                if directory.name not in known:
+                    _known_orphan(scope, directory, budget)
+            if _inventory(scope) != budget.inventory:
+                raise ObservationChanged('修复过程中目录变化')
+            now = time.time()
+            for row in data['records']:
+                if currents.get(row['meta']['module']) == row['meta']:
+                    row['retired_at'] = None
+                elif row['retired_at'] is None:
+                    row['retired_at'] = now
+            for meta in currents.values():
+                if meta['generation'] not in by_gen:
+                    data['records'].append({'meta': meta, 'retired_at': None})
+            if len(data['records']) > MAX_ENTRIES:
+                raise Unsafe('历史清单超出记录上限')
+            if not dry_run:
+                _write(scope / MANIFEST, data)
+                archived = scope / '.stats-retention-repaired.json'
+                _safe_path(archived)
+                os.replace(scope / DISABLED, archived)
+                _sync_directory(scope)
+            return {**result, 'status': 'repairable' if dry_run else 'repaired'}
+    except Paused as exc:
+        if not dry_run and budget is not None:
+            with _scope_lock(scope / LOCK, blocking=False) as acquired:
+                if acquired:
+                    budget.save()
+        return {**result, 'status': 'paused', 'reason': str(exc)}
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        return {**result, 'reason': str(exc)}
 
 
 def _observe_current(scope, module, budget):

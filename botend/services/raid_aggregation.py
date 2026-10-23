@@ -5,7 +5,7 @@ from botend.services.dungeon_aggregation import _metadata_dependencies
 from botend.services.spec_aggregation_cache import load_work, save_work
 from botend.services.spec_stats_snapshot import content_digest
 
-ALGORITHM_VERSION = 'raid-scope-v1'
+ALGORITHM_VERSION = 'raid-scope-v2-references'
 
 
 def raid_stats(season_id, boss_id, boss_name, class_name, spec_name, difficulty):

@@ -1,5 +1,6 @@
 """验证中间文件的持久复用、原子提交、范围隔离和旧表升级兼容。"""
 import json
+import gzip
 import os
 import subprocess
 import sys
@@ -17,6 +18,7 @@ from botend.tests.aggregation_cache_helpers import isolate_work_cache
 class AggregationFileCacheTests(TestCase):
     def setUp(self):
         self.root = isolate_work_cache(self)
+        self.enterContext(self.settings(SPEC_AGGREGATION_IMPORT_LEGACY_DATABASE=True))
         self.season = SeasonMeta.objects.create(season_key='文件缓存', season_name='文件缓存',
                                                mplus_zone_id=1, raid_zone_id=2)
         self.scope = 'raid:Mage:Fire:5:1'
@@ -35,7 +37,7 @@ class AggregationFileCacheTests(TestCase):
             self.assertEqual(self.load(), self.payload)
             self.assertIsNone(self.load('输入二'))
         self.assertFalse(SpecAggregationWorkCache.objects.exists())
-        envelope = json.loads(cache.work_path(self.season.pk, self.scope).read_text(encoding='utf-8'))
+        envelope = json.loads(gzip.decompress(cache.work_path(self.season.pk, self.scope).read_bytes()))
         self.assertEqual(envelope['data']['payload'], self.payload)
 
     def test_scope_and_season_cannot_share_results(self):
@@ -53,10 +55,10 @@ class AggregationFileCacheTests(TestCase):
                          ('"fingerprint":"输入一"', '"fingerprint":"输入二"')):
             self.save()
             path = cache.work_path(self.season.pk, self.scope)
-            original = path.read_bytes()
+            original = gzip.decompress(path.read_bytes())
             changed = original.replace(old.encode('utf-8'), new.encode('utf-8'))
             self.assertNotEqual(original, changed)
-            path.write_bytes(changed)
+            path.write_bytes(gzip.compress(changed))
             self.assertIsNone(self.load('输入二' if 'fingerprint' in old else '输入一'))
 
     def test_truncated_or_unknown_schema_rebuilds(self):
@@ -124,7 +126,7 @@ class AggregationFileCacheTests(TestCase):
     def test_only_latest_result_is_retained_for_each_scope(self):
         for index in range(12):
             self.save(str(index), {'次数': index})
-        self.assertEqual(len(list(self.root.rglob('*.json'))), 1)
+        self.assertEqual(len(list(self.root.rglob('*.json.gz'))), 1)
         self.assertEqual(self.load('11'), {'次数': 11})
         self.assertIsNone(self.load('10'))
 
@@ -151,7 +153,7 @@ class AggregationFileCacheTests(TestCase):
         cache.save_state(self.season.pk, scope, '版本', state)
         self.assertEqual(cache.load_state(self.season.pk, scope, '版本'), state)
         self.assertEqual(SpecAggregationWorkCache.objects.count(), 1)
-        self.assertFalse(list(self.root.rglob('*.json')))
+        self.assertFalse(list(self.root.rglob('*.json.gz')))
         with self.assertRaises(ValueError):
             cache.save_state(self.season.pk, self.scope, '版本', {})
 

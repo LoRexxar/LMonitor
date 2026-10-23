@@ -8,6 +8,7 @@ import re
 import uuid
 
 from botend.services.simc_benchmark_result_snapshot import _load
+from botend.services.stats_storage_codec import pack_detail, unpack_detail
 
 
 SCHEMA = 1
@@ -21,9 +22,12 @@ def content_digest(value):
         if isinstance(obj, (date, datetime)):
             return obj.isoformat()
         raise TypeError(f'Unsupported snapshot scalar: {type(obj).__name__}')
-    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False,
-                                    separators=(',', ':'), allow_nan=False,
-                                    default=encode).encode('utf-8')).hexdigest()
+    digest = hashlib.sha256()
+    encoder = json.JSONEncoder(sort_keys=True, ensure_ascii=False,
+                               separators=(',', ':'), allow_nan=False, default=encode)
+    for fragment in encoder.iterencode(value):
+        digest.update(fragment.encode('utf-8'))
+    return digest.hexdigest()
 
 
 def _summary(detail):
@@ -71,12 +75,15 @@ def _publish_projection_locked(path, payload, write_json):
     details = []
     detail_hashes = {}
     detail_bodies = {}
+    # 同一发布中的首领/副本共用一次元数据读取，缓存随本次发布结束释放。
+    catalog_cache = {}
 
     def save(key, detail):
         if not re.fullmatch(r'(dungeon-(all|\d+)|raid-[45]-\d+)', key) or key in details:
             raise ValueError('统计详情范围缺失或重复')
         if not isinstance(detail, dict):
             raise ValueError('统计详情不是有效对象')
+        detail = pack_detail(detail, catalog_cache=catalog_cache)
         details.append(key)
         detail_hashes[key] = content_digest(detail)
         detail_bodies[key] = detail
@@ -238,7 +245,10 @@ def read_projection(path, detail_key=None):
         if (isinstance(envelope, dict) and envelope.get('schema') == SCHEMA
                 and envelope.get('generation') == meta['generation'] and envelope.get('scope') == meta['scope']
                 and envelope.get('key') == detail_key and isinstance(envelope.get('data'), dict)):
-            detail = envelope['data']
+            try:
+                detail = unpack_detail(envelope['data'])
+            except (ValueError, KeyError, TypeError):
+                return None
     if path.stem == 'dungeon':
         if detail_key == 'dungeon-all':
             payload['summary'] = detail

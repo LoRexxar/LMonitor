@@ -471,7 +471,6 @@ class RetentionTests(SimpleTestCase):
 
     def test_paused_reacquire_does_not_wait_for_real_publisher(self):
         from contextlib import contextmanager
-        import time
         for i in range(5):
             snapshot.publish_projection(self.scope / 'dungeon.json', {'dungeons': [
                 {'dungeon_id': 1, 'sample_size': i, 'padding': 'x' * 6000}]}, _write)
@@ -479,7 +478,7 @@ class RetentionTests(SimpleTestCase):
         other.mkdir()
         snapshot.publish_projection(other / 'dungeon.json', {'dungeons': [{'dungeon_id': 1}]}, _write)
         original_lock = retention._scope_lock
-        entered, release = threading.Event(), threading.Event()
+        entered, release, holder_finished = threading.Event(), threading.Event(), threading.Event()
         threads, modes = [], []
         @contextmanager
         def contended(path, blocking=True, create=True):
@@ -489,7 +488,8 @@ class RetentionTests(SimpleTestCase):
                     def publisher():
                         with original_lock(path):
                             entered.set()
-                            release.wait(1)
+                            release.wait(5)
+                        holder_finished.set()
                     thread = threading.Thread(target=publisher)
                     threads.append(thread)
                     thread.start()
@@ -497,11 +497,11 @@ class RetentionTests(SimpleTestCase):
             with original_lock(path, blocking=blocking, create=create) as acquired:
                 yield acquired
         try:
-            started = time.monotonic()
             with patch.object(retention, 'MAX_BYTES', 18000), patch.object(retention, '_scope_lock', contended):
                 result = retention.maintain_scope(self.scope)
                 following = retention.maintain_scope(other)
-            self.assertLess(time.monotonic() - started, .5)
+            # 直接证明发布锁尚未释放时回收已返回，避免磁盘元数据耗时影响结论。
+            self.assertFalse(holder_finished.is_set(), '回收不应等发布者释放锁')
             self.assertEqual(modes, [False, False])
             self.assertIn(result['status'], ('paused', 'locked'))
             self.assertEqual(following['status'], 'ok', following)

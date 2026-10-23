@@ -1,5 +1,10 @@
 """大块中间结果写私有文件；人物重试状态留表，兼容旧版数据库缓存。"""
 import json
+import gzip
+import math
+import zlib
+from datetime import date, datetime
+from decimal import Decimal
 import hashlib
 import logging
 import os
@@ -13,6 +18,17 @@ from botend.services.spec_stats_snapshot import content_digest
 
 logger = logging.getLogger(__name__)
 SCHEMA = 1
+MAX_WORK_BYTES = 64 * 1024 * 1024
+NEW_PREFIX = b'{"data":'
+NEW_SUFFIX = b',"digest":"'
+
+
+class WorkCacheTooLarge(OSError):
+    """可重建缓存超出预算；调用方仍可使用已经计算的结果。"""
+
+
+def byte_limit():
+    return max(1024, int(getattr(settings, 'SPEC_AGGREGATION_WORK_MAX_BYTES', MAX_WORK_BYTES)))
 PREFIX = b'{"digest":"'
 SEPARATOR = b'","data":'
 
@@ -36,29 +52,67 @@ def cache_root():
 def work_path(season_id, scope):
     # 业务范围不直接拼入路径，避免角色名、区域或首领名影响目录边界。
     key = content_digest(scope)
-    path = cache_root() / str(int(season_id)) / key[:2] / (key + '.json')
+    path = cache_root() / str(int(season_id)) / key[:2] / (key + '.json.gz')
     _safe_path(path)
     return path
 
 
-def _normalized(payload):
-    from botend.controller.plugins.portal.SpecDetailAggregationMonitor import DecimalEncoder
-    return json.loads(json.dumps(payload, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False))
+def _normalized(value):
+    """只复制需要标量转换的分支，不再整块编码后解码。"""
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
+    if isinstance(value, Decimal):
+        return _normalized(float(value))
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError('缓存不允许非有限数值')
+    if isinstance(value, dict):
+        def key(k):
+            if isinstance(k, str):
+                return k
+            if k is None:
+                return 'null'
+            if type(k) is bool:
+                return 'true' if k else 'false'
+            if isinstance(k, (int, float)):
+                _normalized(k)
+                return str(k)
+            raise TypeError('缓存对象键必须是JSON支持的标量')
+        result = {key(k): _normalized(v) for k, v in value.items()}
+        return value if len(value) == len(result) and all(
+            k in value and value[k] is v for k, v in result.items()) else result
+    if isinstance(value, (list, tuple)):
+        result = [_normalized(v) for v in value]
+        return value if isinstance(value, list) and all(a is b for a, b in zip(value, result)) else result
+    return value
 
 
 def _read_file(path):
-    """读取标准 JSON 信封，以原始数据字节校验，避免命中时重新序列化整块结果。"""
+    """有界解压；直接校验正文视图，不额外复制大块字节。"""
     try:
-        raw = path.read_bytes()
-        start = len(PREFIX) + 64 + len(SEPARATOR)
-        if (not raw.startswith(PREFIX) or raw[len(PREFIX) + 64:start] != SEPARATOR
-                or not raw.endswith(b'}')):
+        if path.stat().st_size > byte_limit():
             return None
-        body = raw[start:-1]
-        if hashlib.sha256(body).hexdigest().encode('ascii') != raw[len(PREFIX):len(PREFIX) + 64]:
+        opener = gzip.open if path.name.endswith('.gz') else open
+        with opener(path, 'rb') as stream:
+            raw = stream.read(byte_limit() + 1)
+        if len(raw) > byte_limit():
             return None
-        return json.loads(body)
-    except (OSError, ValueError):
+        if raw.startswith(NEW_PREFIX):
+            end = len(raw) - len(NEW_SUFFIX) - 64 - 2
+            if raw[end:end + len(NEW_SUFFIX)] != NEW_SUFFIX or not raw.endswith(b'"}'):
+                return None
+            digest = raw[-66:-2]
+            body = memoryview(raw)[len(NEW_PREFIX):end]
+        else:
+            start = len(PREFIX) + 64 + len(SEPARATOR)
+            if (not raw.startswith(PREFIX) or raw[len(PREFIX) + 64:start] != SEPARATOR
+                    or not raw.endswith(b'}')):
+                return None
+            body = memoryview(raw)[start:-1]
+            digest = raw[len(PREFIX):len(PREFIX) + 64]
+        if hashlib.sha256(body).hexdigest().encode('ascii') != digest:
+            return None
+        return json.loads(raw)['data']
+    except (OSError, EOFError, ValueError, KeyError, TypeError, zlib.error):
         return None
 
 
@@ -71,39 +125,62 @@ def _valid(data, season_id, scope):
 
 
 def load_work(season_id, scope, fingerprint):
-    """文件命中不查询数据库；旧表只作为首次升级或文件损坏时的兼容来源。"""
+    """新缓存不回查旧大表；旧表兼容导入由显式开关控制。"""
+    from .stats_storage_codec import unpack_detail
     try:
-        data = _read_file(work_path(season_id, scope))
+        path = work_path(season_id, scope)
+        data = _read_file(path)
+        if data is None:
+            data = _read_file(path.with_suffix(''))
     except OSError:
         logger.warning('读取聚合中间缓存失败：赛季=%s 范围=%s', season_id, scope, exc_info=True)
         data = None
     if _valid(data, season_id, scope):
-        return data['payload'] if data['fingerprint'] == fingerprint else None
+        if data['fingerprint'] != fingerprint:
+            return None
+        payload = data['payload']
+        try:
+            return unpack_detail(payload) if isinstance(payload, dict) else payload
+        except (ValueError, KeyError, TypeError):
+            return None
+    if not getattr(settings, 'SPEC_AGGREGATION_IMPORT_LEGACY_DATABASE', False):
+        return None
     payload = _load_database(season_id, scope, fingerprint)
     if payload is not None:
-        # 不删除旧记录，已应用 0252 的环境可直接升级；之后只写文件。
         save_work(season_id, scope, fingerprint, payload)
     return payload
 
 
-def save_work(season_id, scope, fingerprint, payload):
-    from botend.controller.plugins.portal.SpecDetailAggregationMonitor import DecimalEncoder
+def save_work(season_id, scope, fingerprint, payload, *, strict=False):
+    from .stats_storage_codec import pack_detail
+    payload = _normalized(payload)
+    stored = pack_detail(payload) if isinstance(payload, dict) else payload
     data = {'schema': SCHEMA, 'season_id': int(season_id), 'scope': scope,
-            'fingerprint': fingerprint, 'payload': payload}
-    body = json.dumps(data, cls=DecimalEncoder, ensure_ascii=False,
-                      allow_nan=False, separators=(',', ':')).encode('utf-8')
-    payload = json.loads(body)['payload']
-    header = PREFIX + hashlib.sha256(body).hexdigest().encode('ascii') + SEPARATOR
+            'fingerprint': fingerprint, 'payload': stored}
     try:
         path = work_path(season_id, scope)
-        # 同范围串行提交；固定暂存文件使反复失败不累计临时文件。
-        with _scope_lock(path.with_suffix('.lock')):
-            pending = path.with_suffix('.pending')
+        # 与旧版共用同一把锁，升级过程也不允许两个写入者同时提交。
+        with _scope_lock(path.with_suffix('').with_suffix('.lock')):
+            pending = path.with_suffix('').with_suffix('.pending')
             _safe_path(pending)
+            digest, size = hashlib.sha256(), len(NEW_PREFIX) + len(NEW_SUFFIX) + 66
+            encoder = json.JSONEncoder(ensure_ascii=False, allow_nan=False, separators=(',', ':'))
             with pending.open('wb') as stream:
-                stream.write(header)
-                stream.write(body)
-                stream.write(b'}')
+                with gzip.GzipFile(fileobj=stream, mode='wb', compresslevel=3, mtime=0) as compressed:
+                    compressed.write(NEW_PREFIX)
+                    buffer = bytearray()
+                    for fragment in encoder.iterencode(data):
+                        chunk = fragment.encode('utf-8')
+                        size += len(chunk)
+                        if size > byte_limit():
+                            raise WorkCacheTooLarge('中间缓存单项超过字节预算')
+                        digest.update(chunk)
+                        buffer.extend(chunk)
+                        if len(buffer) >= 65536:
+                            compressed.write(buffer)
+                            buffer.clear()
+                    compressed.write(buffer)
+                    compressed.write(NEW_SUFFIX + digest.hexdigest().encode('ascii') + b'"}')
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(pending, path)
@@ -114,8 +191,9 @@ def save_work(season_id, scope, fingerprint, payload):
                 finally:
                     os.close(directory_fd)
     except OSError:
-        # 缓存故障不能把已经完成的计算变成全链路失败；旧文件仍可核验复用。
         logger.warning('保存聚合中间缓存失败：赛季=%s 范围=%s', season_id, scope, exc_info=True)
+        if strict:
+            raise
     return payload
 
 
