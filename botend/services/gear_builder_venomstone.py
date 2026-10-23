@@ -16,6 +16,31 @@ TRACK_BONUSES = set(range(12841, 12857)) | {13848}
 CRAFTED_LEVELS = {318: 328, 331: 337}
 
 
+def legacy_340_target(variant):
+    """仅识别中央目录中曾使用 340 的两种毒液石身份，不采信分享内容。"""
+    from botend.services.wow_data_branch import variant_branch
+
+    marker = (variant.metadata or {}).get('venomstone')
+    if (not isinstance(marker, dict) or marker.get('item_id') != 280562
+            or variant.item.inventory_type not in INVENTORY_TYPES):
+        return None
+    branch = variant_branch(variant)
+    key = variant.variant_key.removeprefix(f'{branch}:')
+    if (variant.variant_type == 'crafted_equipment' and variant.crafting_quality == 5
+            and re.fullmatch(r'crafted-[a-z]+-q5-331-venomstone', key)):
+        return 337
+    if (variant.variant_type == 'drop_equipment' and variant.upgrade_track == 'myth'
+            and variant.track_rank == 8 and variant.track_max_rank == 6
+            and re.fullmatch(r'[a-z]+-myth-6-334-venomstone', key)):
+        return 341
+    return None
+
+
+def matches_legacy_340(variant, level):
+    """装等之外的物品、变体键、批次、分支等校验仍由调用方执行。"""
+    return level == 340 and variant.item_level == legacy_340_target(variant)
+
+
 def tooltip_branch(metadata, requested='auto'):
     """正式服装备沿用正式服中文；只有预览装备自动选择 PTR 数据。"""
     if requested != 'auto':

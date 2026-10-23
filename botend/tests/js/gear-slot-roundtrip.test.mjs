@@ -336,6 +336,40 @@ test('counts, previews and saved library follow actual slots, preserving unsuppo
 const history = JSON.parse(fs.readFileSync(new URL('./fixtures/gear-share-history.json', import.meta.url), 'utf8'));
 const codeFor = payload => 'j' + Buffer.from(JSON.stringify(payload)).toString('base64url');
 
+test('旧毒液石引用接收校验后的新装等并保留增强和锁定，完整快照仍保留旧装等', async () => {
+  for (const [key, level] of [['crafted-myth-q5-331-venomstone', 337], ['raid-myth-6-334-venomstone', 341],
+    ['raid-hero-6-321-venomstone', 328]]) {
+    const {api} = fixture();
+    const old = structuredClone(entry(1));
+    old.variant.key = key;
+    old.variant.item_level = old.itemLevel = level === 328 ? 328 : 340;
+    const reference = component => [component.variant.id, component.item.item_id, component.variant.key, component.variant.item_level || 1];
+    const payload = {v: 3, c: 'Warrior', s: 'Fury', b: 'old-batch', l: ['neck'], e: [
+      ['neck', old.item.item_id, reference(old), old.selectedStats, reference(old.embellishment),
+        old.gems.map(reference), reference(old.enchant), 1],
+    ]};
+    const updated = structuredClone(old);
+    updated.variant.item_level = updated.itemLevel = level;
+    updated.variant.stats = {stamina: 200};
+    api.request(async (url, options) => {
+      const sent = JSON.parse(options.body);
+      assert.equal(sent.strict, true);
+      assert.equal(sent.e[0][2][3], old.itemLevel);
+      return {equipment: {neck: updated}, warnings: [], batch_key: 'new-batch'};
+    });
+    const restored = await api.hydrateSharePayload(payload);
+    assert.equal(restored.equipment.neck.itemLevel, level);
+    assert.deepEqual(plain(restored.lockedSlots), ['neck']);
+    for (const field of ['gems', 'enchant', 'embellishment', 'selectedStats', 'addedSocket']) {
+      assert.deepEqual(plain(restored.equipment.neck[field]), old[field]);
+    }
+    payload.e[0].push(old);
+    const snapshot = await api.hydrateSharePayload(payload);
+    assert.deepEqual(plain(snapshot.equipment.neck), old);
+    assert.deepEqual(plain(api.compactShareState(snapshot).e[0][8]), old);
+  }
+});
+
 test('real historical v2/v3/v4 producer payloads retain reference layouts and all 16 slots', async () => {
   for (const name of ['v2-aliases', 'v3-aliases', 'v4-aliases', 'v4-equal-18']) {
     const {api} = fixture();

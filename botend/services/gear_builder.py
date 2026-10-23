@@ -34,6 +34,7 @@ from botend.services.simc_player_config import (
 )
 from botend.services.wow_item_display import item_display_metadata
 from botend.services.gear_builder_tier_sources import tier_set_source_catalog, tier_set_sources
+from botend.services.gear_builder_venomstone import legacy_340_target, matches_legacy_340
 
 
 EQUIPMENT_SLOTS = (
@@ -1046,7 +1047,7 @@ def _resolve_share_variant(reference, expected_types, variants_by_reference):
 
 
 def current_variants(rows, season=None):
-    """仅刷新相同物品、变体、装等、分支；不替换用户选择，不回写历史记录。"""
+    """刷新相同身份，另兼容毒液石旧 340 装等；不回写历史记录。"""
     rows = list(rows)
     season = season or active_season()
     if not season or not rows:
@@ -1069,8 +1070,18 @@ def current_variants(rows, season=None):
         branch = variant_branch(row)
         return (row.item_id, row.variant_key.removeprefix(f'{branch}:'), row.item_level, branch)
     lookup = {identity(row): row for row in latest}
-    return {row.pk: row if row.season_id == season.pk and row.batch_key == season.gear_batch_key
-            else lookup.get(identity(row), row) for row in rows}
+    def resolve(row):
+        if row.season_id == season.pk and row.batch_key == season.gear_batch_key:
+            return row
+        item, key, level, branch = identity(row)
+        # 仅同赛季的已知旧身份允许改变装等，且目标也必须通过中央资料识别。
+        if level == 340 and row.season_id == season.pk:
+            target = legacy_340_target(row)
+            candidate = lookup.get((item, key, target, branch)) if target else None
+            if candidate and matches_legacy_340(candidate, level):
+                return candidate
+        return lookup.get((item, key, level, branch), row)
+    return {row.pk: resolve(row) for row in rows}
 
 
 def _share_integer(value, *, zero=False):
@@ -1231,9 +1242,11 @@ def _validated_share_snapshot(snapshot, slot, class_name, spec_name, batch_key):
                 variant_key=variant['key'], batch_key=component_batch).select_related('item').first()
         if existing:
             from botend.services.wow_data_branch import variant_branch
+            # 中央装等更正仅放行已知的旧身份；返回的历史快照仍保持原值。
             if (existing.item.item_id != item_id or existing.batch_key != component_batch
                     or variant.get('key') and existing.variant_key != variant['key']
-                    or variant.get('item_level') is not None and existing.item_level != variant['item_level']
+                    or (variant.get('item_level') is not None and existing.item_level != variant['item_level']
+                        and not matches_legacy_340(existing, variant['item_level']))
                     or variant.get('type') and existing.variant_type != variant['type']
                     or variant.get('data_branch') is not None and variant_branch(existing) != variant['data_branch']
                     or existing.variant_type not in expected_types):
@@ -1375,7 +1388,9 @@ def hydrate_shared_state(*, share_version, class_name, spec_name, batch_key, ent
             _, pk, item_id, key, level = ref
             variant = legacy.get(pk)
             if (not variant or item_id and variant.item.item_id != item_id
-                    or key and variant.variant_key != key or level is not None and variant.item_level != level):
+                    or key and variant.variant_key != key
+                    or (level is not None and variant.item_level != level
+                        and not matches_legacy_340(variant, level))):
                 missing.append({'slot': slot, 'field': field, 'code': 'unresolved_reference', 'reference': list(ref)})
                 return 0
             return [variant.item.item_id, variant.variant_key]
