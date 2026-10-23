@@ -178,8 +178,9 @@ class UpdateSource:
         from botend.services.spec_aggregation_cache import load_work, save_work
         from botend.services.spec_stats_snapshot import content_digest
         stage_scope = f'catalog-source:{branch}'
+        from botend.services.gear_builder_venomstone import TRACKS, CRAFTED_LEVELS
         stage_fingerprint = content_digest(['catalog-source-v1', season.season_key, build,
-            getattr(run, '_source_fingerprint', None)])
+            getattr(run, '_source_fingerprint', None), TRACKS, CRAFTED_LEVELS])
         staged = load_work(season.pk, stage_scope, stage_fingerprint)
         if staged and 0 <= time.time() - staged['checked_at'] < 86400:
             payload = staged['catalog']

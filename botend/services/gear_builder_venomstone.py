@@ -7,13 +7,13 @@ SOURCE_BUILD = '12.1.5.70077'
 # ItemBonus 12848/12856 -> ItemScalingConfig 321/452；普通轨道仍为六阶。
 TRACKS = {
     'hero': {'base_level': 321, 'item_level': 328, 'bonus_id': 12848},
-    'myth': {'base_level': 334, 'item_level': 340, 'bonus_id': 12856},
+    'myth': {'base_level': 334, 'item_level': 341, 'bonus_id': 12856},
 }
 # 武器（含盾牌和副手）、饰品、项链；不包括戒指和防具。
 INVENTORY_TYPES = {2, 12, 13, 14, 15, 17, 21, 22, 23, 25, 26, 28}
 TRACK_BONUSES = set(range(12841, 12857)) | {13848}
 # 配装器指定的两档制造选项；不把掉落轨道 bonus 用到制造装备上。
-CRAFTED_LEVELS = {318: 328, 331: 340}
+CRAFTED_LEVELS = {318: 328, 331: 337}
 
 
 def tooltip_branch(metadata, requested='auto'):

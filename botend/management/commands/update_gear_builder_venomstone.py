@@ -1,16 +1,17 @@
-"""为现有活动目录补充晋升毒液石英雄八阶、神话八阶。"""
+"""为活动目录更新毒液石掉落与制造档位，并校验对应装等数值。"""
 import json
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 
 from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
+from django.db.models import Q
 
 from botend.management.commands.sync_gear_builder_catalog import Command as SyncCommand
-from botend.models import SeasonMeta, WowItemVariantSnapshot
+from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.gear_builder import active_season
 from botend.services.gear_builder_catalog_source import CurrentGearCatalogSource, CatalogSourceError
-from botend.services.gear_builder_venomstone import SOURCE_BUILD, upgraded_variant, apply_tooltip, preserve_localized_effects, tooltip_branch
+from botend.services.gear_builder_venomstone import SOURCE_BUILD, TRACKS, CRAFTED_LEVELS, upgraded_variant, apply_tooltip, preserve_localized_effects, tooltip_branch
 from botend.services.season_keys import canonical_season_key
 
 
@@ -22,15 +23,17 @@ def base_payload(row):
         'socket_count': row.socket_count, 'socket_types': row.socket_types,
         'sources': row.source_json, 'unique_group': row.unique_group,
         'max_equipped': row.max_equipped, 'is_intrinsic_embellishment': row.is_intrinsic_embellishment,
+        'crafting_quality': row.crafting_quality, 'crafting_options': deepcopy(row.crafting_options or {}),
         'metadata': deepcopy(row.metadata or {}),
     }
 
 
 class Command(BaseCommand):
-    help = '补充第二赛季毒液石英雄 8/6（328）、神话 8/6（340）；默认预览，--apply 写入'
+    help = '更新第二赛季毒液石英雄 328、神话 341、制造 328/337；默认预览，--apply 写入'
 
     def add_arguments(self, parser):
         parser.add_argument('--apply', action='store_true', help='抓取目标装等属性后写入活动批次')
+        parser.add_argument('--levels-only', action='store_true', help='仅修正制造 337 和神话 341，保留 328 与其他档位')
         parser.add_argument('--workers', type=int, default=6, help='并发请求数')
         parser.add_argument('--timeout', type=int, default=30, help='单次请求超时秒数')
         parser.add_argument('--cache-dir', default='.cache/gear_builder/venomstone', help='提示缓存目录')
@@ -44,28 +47,44 @@ class Command(BaseCommand):
         if not season or not season.gear_batch_key or canonical_season_key(season.season_key) != 'mn-s2':
             raise CommandError('活动装备目录必须为至暗之夜第二赛季。')
         rows = list(WowItemVariantSnapshot.objects.filter(
-            season=season, batch_key=season.gear_batch_key, variant_type='drop_equipment',
-            track_rank=6, track_max_rank=6, upgrade_track__in=('hero', 'myth'),
-        ).select_related('item'))
+            season=season, batch_key=season.gear_batch_key,
+        ).filter(Q(variant_type='drop_equipment', track_rank=6, track_max_rank=6,
+                   upgrade_track__in=('hero', 'myth')) |
+                 Q(variant_type='crafted_equipment', crafting_quality=5, item_level__in=CRAFTED_LEVELS))
+            .select_related('item').order_by('item_id', 'pk'))
         targets = [(row, upgraded_variant(row.item.inventory_type, base_payload(row))) for row in rows]
         targets = [(row, payload) for row, payload in targets if payload]
+        if options['levels_only']:
+            targets = [(row, payload) for row, payload in targets if payload['item_level'] != 328]
+            existing_levels = {(row.item_id, row.variant_key): row.item_level for row in
+                WowItemVariantSnapshot.objects.filter(season=season, batch_key=season.gear_batch_key,
+                    item_id__in={row.item_id for row, _ in targets},
+                    variant_key__in={payload['key'] for _, payload in targets})
+                .only('item_id', 'variant_key', 'item_level')}
+            targets = [(row, payload) for row, payload in targets
+                       if existing_levels.get((row.item_id, payload['key'])) != payload['item_level']]
         # PTR 会持续调数值；只新增八阶会把旧 SimC 构建与当前提示混在一起。
         # 同步刷新这些预览装备的全部已有掉落档位，包含勇士及特殊高阶。
         preview_items = {row.item_id for row, _ in targets
                          if (row.metadata or {}).get('ptr_preview') or (row.item.metadata or {}).get('ptr_preview')}
-        existing = list(WowItemVariantSnapshot.objects.filter(
+        existing = [] if options['levels_only'] else list(WowItemVariantSnapshot.objects.filter(
             season=season, batch_key=season.gear_batch_key, variant_type='drop_equipment',
             item_id__in=preview_items,
         ).select_related('item'))
         upgrade_keys = {(row.item_id, payload['key']) for row, payload in targets}
-        refresh = [(row, base_payload(row)) for row in existing
+        refresh = [] if options['levels_only'] else [(row, base_payload(row)) for row in existing
                    if (row.item_id, row.variant_key) not in upgrade_keys]
         updates = targets + refresh
         report = {'season': season.season_key, 'batch': season.gear_batch_key,
-                  'variants': len(targets), 'refreshed_variants': len(refresh), 'hero_level': 328, 'myth_level': 340}
+                  'variants': len(targets), 'refreshed_variants': len(refresh),
+                  'hero_level': TRACKS['hero']['item_level'], 'myth_level': TRACKS['myth']['item_level'],
+                  'crafted_levels': sorted(CRAFTED_LEVELS.values())}
         if not options['apply']:
             self.stdout.write(json.dumps(report, ensure_ascii=False))
             self.stdout.write('仅预览，未请求远端或写入数据库；添加 --apply 执行。')
+            return
+        if not updates:
+            self.stdout.write('没有需要更新的毒液石变体。')
             return
         source = CurrentGearCatalogSource(
             cache_dir=options['cache_dir'], workers=options['workers'], timeout=options['timeout'],
@@ -103,11 +122,22 @@ class Command(BaseCommand):
             if not current.is_active or current.gear_batch_key != season.gear_batch_key or active_season().pk != season.pk:
                 raise CommandError('活动目录已切换，请重新执行。')
             for row, payload in targets:
-                _variant, added = WowItemVariantSnapshot.objects.update_or_create(
-                    season=current, batch_key=current.gear_batch_key, item=row.item, variant_key=payload['key'],
-                    defaults=SyncCommand()._variant_defaults(payload, SOURCE_BUILD),
-                )
-                created += int(added)
+                from botend.services.variant_text import prepare_effects
+                item = WowItemSnapshot.objects.select_for_update().get(pk=row.item_id)
+                scope = dict(season=current, batch_key=current.gear_batch_key, item=item, variant_key=payload['key'])
+                saved = WowItemVariantSnapshot.objects.select_for_update().filter(**scope).first()
+                defaults = SyncCommand()._variant_defaults(payload, SOURCE_BUILD)
+                defaults['effects_json'] = prepare_effects(item, defaults['effects_json'])
+                if saved is None:
+                    WowItemVariantSnapshot.objects.create(**scope, **defaults)
+                    created += 1
+                else:
+                    # 已验证的新装等事实完整替换旧数值，不能合并回旧主属性或特效来源。
+                    changed = [field for field, value in defaults.items() if getattr(saved, field) != value]
+                    for field in changed:
+                        setattr(saved, field, defaults[field])
+                    if changed:
+                        saved.save(update_fields=[*changed, 'updated_at'])
             for row, payload in refresh:
                 # 保留原 ID、槽位、来源和升级标识，只替换本次核实的数值及其来源。
                 WowItemVariantSnapshot.objects.filter(pk=row.pk).update(
@@ -116,7 +146,7 @@ class Command(BaseCommand):
                 )
             if targets:
                 current.gear_sync_report = deepcopy(current.gear_sync_report or {})
-                current.gear_sync_report['venomstone'] = {'build': SOURCE_BUILD, 'variants': len(targets), 'refreshed_variants': len(refresh), 'levels': [328, 340], 'tooltip_branches': branch_counts}
+                current.gear_sync_report['venomstone'] = {'build': SOURCE_BUILD, 'variants': len(targets), 'refreshed_variants': len(refresh), 'levels': sorted({*CRAFTED_LEVELS.values(), *(rule['item_level'] for rule in TRACKS.values())}), 'tooltip_branches': branch_counts}
                 current.save(update_fields=['gear_sync_report'])
             from botend.services.wow_item_effects import sync_central_effects
             sync_central_effects(season=current, item_ids={row.item.item_id for row, _ in updates})

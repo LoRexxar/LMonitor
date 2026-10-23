@@ -43,7 +43,7 @@ class GearAssistantSourcesTests(GearBuilderTestDataMixin, TestCase):
         self.assertEqual(self.highest(False).stats_json, self.hero.stats_json)
 
     def test_last_two_standard_myth_and_venomstone_remain_obtainable(self):
-        for level, rank in ((334, 6), (340, 8)):
+        for level, rank in ((334, 6), (341, 8)):
             with self.subTest(level=level):
                 standard = self.hero.__class__.objects.create(
                     item=self.hero.item, season=self.season, batch_key=self.season.gear_batch_key,

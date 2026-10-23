@@ -8,6 +8,8 @@ from unittest.mock import patch
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase, SimpleTestCase
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 
 from botend.models import SeasonMeta, WowItemSnapshot, WowItemVariantSnapshot
 from botend.services.gear_builder import serialize_variant
@@ -21,21 +23,21 @@ class VenomstoneRulesTests(SimpleTestCase):
             item = {'inventory_type': inventory_type, 'metadata': {}, 'variants': []}
             CurrentGearCatalogSource._add_crafted_variants(item, SEASON_LEVEL_PROFILES['mid2'], [{'type': 'crafted'}])
             upgrades = [v for v in item['variants'] if v.get('metadata', {}).get('venomstone')]
-            self.assertEqual([v['item_level'] for v in upgrades], [] if inventory_type in (1, 11) else [328, 340])
+            self.assertEqual([v['item_level'] for v in upgrades], [] if inventory_type in (1, 11) else [328, 337])
             self.assertTrue(all(v['type'] == 'crafted_equipment' and v['crafting_quality'] == 5 for v in upgrades))
         base = {'key': 'crafted-myth-q5-331', 'type': 'crafted_equipment', 'item_level': 331,
                 'crafting_quality': 5, 'crafting_options': {'stat_count': 2, 'stat_pool': ['crit', 'haste'], 'secondary_total': 198},
                 'bonus_ids': [1808], 'socket_count': 1, 'is_intrinsic_embellishment': True}
         upgrade = upgraded_variant(17, base)
-        self.assertEqual(upgrade['item_level'], 340)
+        self.assertEqual(upgrade['item_level'], 337)
         self.assertEqual(upgrade['bonus_ids'], [1808], '制造档位不套用掉落轨道bonus')
         self.assertEqual(upgrade['crafting_options']['stat_count'], 2)
         self.assertNotIn('secondary_total', upgrade['crafting_options'])
         self.assertTrue(upgrade['is_intrinsic_embellishment'])
         self.assertEqual(upgrade['socket_count'], 1)
         with self.assertRaisesMessage(ValueError, '副属性'):
-            apply_tooltip(upgrade, {'item_level': 340, 'stats': {'strength': 199}})
-        apply_tooltip(upgrade, {'item_level': 340, 'stats': {'strength': 199}, 'secondary_total': 216})
+            apply_tooltip(upgrade, {'item_level': 337, 'stats': {'strength': 199}})
+        apply_tooltip(upgrade, {'item_level': 337, 'stats': {'strength': 199}, 'secondary_total': 216})
         self.assertEqual(upgrade['crafting_options']['secondary_total'], 216)
         self.assertEqual(base['crafting_options']['secondary_total'], 198)
         self.assertIsNone(upgraded_variant(17, dict(base, crafting_quality=4)))
@@ -48,9 +50,9 @@ class VenomstoneRulesTests(SimpleTestCase):
 
     @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
     def test_full_catalog_uses_live_for_regular_upgrades(self, fetch):
-        fetch.return_value = {'item_level': 340, 'stats': {'strength': 120}, 'effects': [{'description_zh': '装备：新数值。'}]}
+        fetch.return_value = {'item_level': 341, 'stats': {'strength': 120}, 'effects': [{'description_zh': '装备：新数值。'}]}
         source = CurrentGearCatalogSource(cache_dir='.cache/venomstone-fix-tests')
-        variant = {'item_level': 340, 'type': 'drop_equipment', 'metadata': {'venomstone': {'item_id': 280562}}}
+        variant = {'item_level': 341, 'type': 'drop_equipment', 'metadata': {'venomstone': {'item_id': 280562}}}
         source._enrich_wowhead([{'item_id': 270175, 'inventory_type': 12, 'variants': [variant]}], '测试构建')
         self.assertEqual(fetch.call_args.args[-1], 'live')
         self.assertEqual(variant['effects'][0]['description_zh'], '装备：新数值。')
@@ -65,7 +67,7 @@ class VenomstoneRulesTests(SimpleTestCase):
                 CurrentGearCatalogSource._add_drop_variants(item, SEASON_LEVEL_PROFILES['mid2'], 'raid', [])
                 extra = [row for row in item['variants'] if row['track_rank'] > 6]
                 self.assertEqual([(v['upgrade_track'], v['track_rank'], v['track_max_rank'], v['item_level'], v['bonus_ids']) for v in extra],
-                                 [] if inventory_type in (1, 11) else [('hero', 8, 6, 328, [12848]), ('myth', 8, 6, 340, [12856])])
+                                 [] if inventory_type in (1, 11) else [('hero', 8, 6, 328, [12848]), ('myth', 8, 6, 341, [12856])])
 
     def test_delve_myth_unlock_and_special_mythic_limits(self):
         item = {'inventory_type': 17, 'metadata': {}, 'variants': []}
@@ -73,7 +75,7 @@ class VenomstoneRulesTests(SimpleTestCase):
         CurrentGearCatalogSource._add_drop_variants(item, SEASON_LEVEL_PROFILES['mid2'], 'delve', sources)
         myth = [row for row in item['variants'] if row['upgrade_track'] == 'myth']
         self.assertEqual([(row['track_rank'], row['item_level']) for row in myth],
-                         [(1, 318), (2, 321), (3, 324), (4, 328), (5, 331), (6, 334), (8, 340)])
+                         [(1, 318), (2, 321), (3, 324), (4, 328), (5, 331), (6, 334), (8, 341)])
         self.assertTrue(all(row['metadata']['delve_myth']['patch'] == '12.1.5' for row in myth))
         self.assertTrue(all(row['sources'] == sources for row in myth))
         item['variants'] = []
@@ -102,12 +104,12 @@ class VenomstoneRulesTests(SimpleTestCase):
             self.assertIsNone(upgraded_variant(17, dict(base, **changes)))
 
     def test_tooltip_must_match_level_and_include_required_effects(self):
-        variant = {'item_level': 340}
+        variant = {'item_level': 341}
         with self.assertRaisesMessage(ValueError, '目标装等'):
             apply_tooltip(variant, {'item_level': 334, 'stats': {'haste': 100}})
         with self.assertRaisesMessage(ValueError, '装备特效'):
-            apply_tooltip(variant, {'item_level': 340, 'stats': {'haste': 100}}, requires_effect=True)
-        details = _tooltip_details({'tooltip': '<span>Item Level <!--ilvl-->340</span><!--rf--><br>+190 Intellect<!--nameDescStats-->'})
+            apply_tooltip(variant, {'item_level': 341, 'stats': {'haste': 100}}, requires_effect=True)
+        details = _tooltip_details({'tooltip': '<span>Item Level <!--ilvl-->341</span><!--rf--><br>+190 Intellect<!--nameDescStats-->'})
         apply_tooltip(variant, details)
         self.assertEqual(variant['stats'], {'intellect': 190})
 
@@ -133,11 +135,14 @@ class VenomstoneImportTests(TestCase):
             socket_count=1, socket_types=['prismatic'], stats_json={'strength': 100},
             effects_json=[{'description_zh': '装备：旧数值。'}], source_json=[{'type': 'raid'}],
             metadata={'primary_stat_values': {'strength': 100}, 'two_handed': True})
-        self.details = {'item_level': 340, 'stats': {'strength': 120}, 'effects': [{'description_zh': '装备：提高150急速。'}]}
+        self.details = {'item_level': 341, 'stats': {'strength': 120}, 'effects': [{'description_zh': '装备：提高150急速。'}]}
 
     def execute(self, **options):
         call_command('update_gear_builder_venomstone', stdout=StringIO(), **options)
 
+    # 保留历史 340 装等原始样本，单独验证旧资料的语言和版本处理。
+    @patch.dict('botend.services.gear_builder_venomstone.TRACKS',
+                {'myth': {'base_level': 334, 'item_level': 340, 'bonus_id': 12856}})
     @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
     def test_real_retail_chinese_without_templates_imports_new_values(self, fetch):
         fixture = json.loads((Path(__file__).parent / 'fixtures/venomstone_retail_270175.json').read_text(encoding='utf8'))
@@ -171,6 +176,9 @@ class VenomstoneImportTests(TestCase):
         self.assertEqual(fetch.call_args.args[-1], 'ptr-2')
         self.assertEqual(WowItemVariantSnapshot.objects.get(track_rank=8).effects_data[0]['description_zh'], '装备：获得150急速。')
 
+    # 保留历史 340 装等原始样本，单独验证旧资料的语言和版本处理。
+    @patch.dict('botend.services.gear_builder_venomstone.TRACKS',
+                {'myth': {'base_level': 334, 'item_level': 340, 'bonus_id': 12856}})
     @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
     def test_real_ptr_tuning_refreshes_base_and_upgrade_together(self, fetch):
         fixture = json.loads((Path(__file__).parent / 'fixtures/venomstone_ptr_280799.json').read_text(encoding='utf8'))
@@ -221,7 +229,7 @@ class VenomstoneImportTests(TestCase):
         special.save()
         fetch.side_effect = lambda _iid, level, *_args: dict(self.details, item_level=level)
         self.execute(apply=True)
-        self.assertEqual({call.args[1] for call in fetch.call_args_list}, {292, 334, 340, 344})
+        self.assertEqual({call.args[1] for call in fetch.call_args_list}, {292, 334, 341, 344})
         for row in (champion, special):
             row.refresh_from_db()
             self.assertEqual(row.effects_data, self.details['effects'])
@@ -238,7 +246,7 @@ class VenomstoneImportTests(TestCase):
         with self.assertRaises(CommandError) as error:
             self.execute(apply=True)
         message = str(error.exception)
-        for expected in ('数据库未修改', '测试武器', '物品 280799', '装等 340', '来源 live', 'myth 8/6'):
+        for expected in ('数据库未修改', '测试武器', '物品 280799', '装等 341', '来源 live', 'myth 8/6'):
             self.assertIn(expected, message)
         self.assertEqual(WowItemVariantSnapshot.objects.count(), 1)
 
@@ -279,3 +287,50 @@ class VenomstoneImportTests(TestCase):
         self.season.save(update_fields=['season_key'])
         with self.assertRaisesMessage(CommandError, '第二赛季'):
             self.execute(apply=True)
+
+    @patch.object(CurrentGearCatalogSource, 'venomstone_tooltip')
+    def test_levels_only_updates_existing_drop_and_crafted_preserving_328_and_ids(self, fetch):
+        crafted = WowItemVariantSnapshot.objects.create(item=self.item, season=self.season,
+            batch_key=self.season.gear_batch_key, variant_key='crafted-myth-q5-331',
+            variant_type='crafted_equipment', crafting_quality=5, item_level=331,
+            compatible_slots=['main_hand'], stats_json={'strength': 90}, bonus_ids=[1808],
+            crafting_options={'secondary_total': 198, 'stat_count': 2, 'stat_pool': ['crit', 'haste']})
+        old = []
+        for base in (self.base, crafted):
+            row = deepcopy(base)
+            row.pk = None
+            row.variant_key += '-venomstone'
+            row.item_level = 340
+            if row.variant_type == 'drop_equipment':
+                row.track_rank = 8
+            row.metadata = {'venomstone': {'item_id': 280562}, 'tooltip_item_level': 340,
+                            'primary_stat_amount': 999, 'simc_revision': '旧装等来源'}
+            row.save()
+            old.append(row)
+        unchanged = deepcopy(old[0])
+        unchanged.pk = None
+        unchanged.variant_key = 'raid-hero-6-321-venomstone'
+        unchanged.item_level, unchanged.upgrade_track = 328, 'hero'
+        unchanged.save()
+        from botend.services.wow_item_effects import sync_central_effects
+        sync_central_effects(season=self.season, notify=False)
+        before = list(WowItemVariantSnapshot.objects.filter(pk__in=[self.base.pk, crafted.pk, unchanged.pk]).values())
+        fetch.side_effect = lambda _iid, level, *_args: dict(self.details, item_level=level, secondary_total=211)
+        self.execute(apply=True, levels_only=True)
+        self.assertEqual({call.args[1] for call in fetch.call_args_list}, {337, 341})
+        old[0].refresh_from_db()
+        old[1].refresh_from_db()
+        self.assertEqual((old[0].item_level, old[1].item_level), (341, 337))
+        for row in old:
+            self.assertNotIn('primary_stat_amount', row.metadata)
+            self.assertNotIn('simc_revision', row.metadata)
+        self.assertEqual(old[1].crafting_quality, 5)
+        self.assertEqual(old[1].crafting_options['secondary_total'], 211)
+        self.assertEqual(old[1].crafting_options['stat_pool'], ['crit', 'haste'])
+        self.assertEqual(old[1].bonus_ids, [1808])
+        self.assertEqual(before, list(WowItemVariantSnapshot.objects.filter(pk__in=[self.base.pk, crafted.pk, unchanged.pk]).values()))
+        fetch.reset_mock()
+        with CaptureQueriesContext(connection) as queries:
+            self.execute(apply=True, levels_only=True)
+        fetch.assert_not_called()
+        self.assertFalse(any(q['sql'].startswith(('UPDATE ', 'INSERT ', 'DELETE ')) for q in queries))
