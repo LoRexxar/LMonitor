@@ -1052,15 +1052,25 @@ def current_variants(rows, season=None):
     if not season or not rows:
         return {row.pk: row for row in rows}
     from botend.services.wow_data_branch import variant_branch
+    historical = [row for row in rows
+                  if row.season_id != season.pk or row.batch_key != season.gear_batch_key]
+    if not historical:
+        return {row.pk: row for row in rows}
+    keys = set()
+    for row in historical:
+        branch = variant_branch(row)
+        key = row.variant_key.removeprefix(f'{branch}:')
+        keys.update((row.variant_key, key, f'{branch}:{key}'))
     latest = list(WowItemVariantSnapshot.objects.filter(
         season=season, batch_key=season.gear_batch_key,
-        item_id__in={row.item_id for row in rows},
-    ).select_related('item'))
+        item_id__in={row.item_id for row in historical}, variant_key__in=keys,
+    ).prefetch_related('item'))
     def identity(row):
         branch = variant_branch(row)
         return (row.item_id, row.variant_key.removeprefix(f'{branch}:'), row.item_level, branch)
     lookup = {identity(row): row for row in latest}
-    return {row.pk: lookup.get(identity(row), row) for row in rows}
+    return {row.pk: row if row.season_id == season.pk and row.batch_key == season.gear_batch_key
+            else lookup.get(identity(row), row) for row in rows}
 
 
 def _share_integer(value, *, zero=False):
@@ -1411,7 +1421,6 @@ def _hydrate_catalog_shared_state(*, share_version, class_name, spec_name, batch
         raise GearBuilderError('分享链接中的装备槽位数量无效')
 
     parsed = []
-    item_ids = set()
     seen_slots = set()
     for row in entries:
         if not isinstance(row, list) or len(row) < 3:
@@ -1434,14 +1443,17 @@ def _hydrate_catalog_shared_state(*, share_version, class_name, spec_name, batch
         selected_stats = [str(value) for value in (row[3] or [])][:4] if len(row) > 3 and isinstance(row[3], list) else []
         added_socket = bool(row[7]) if len(row) > 7 else False
         parsed.append((slot, item_id, equipment_ref, selected_stats, embellishment_ref, gem_refs, enchant_ref, added_socket))
-        item_ids.update(reference[0] for reference in [equipment_ref, embellishment_ref, enchant_ref, *gem_refs] if reference)
 
     selection = Q(batch_key=batch_key)
     if current_season:
         selection |= Q(season=current_season, batch_key=current_season.gear_batch_key)
+    requested = {ref for row in parsed for ref in (row[2], row[4], *row[5], row[6]) if ref}
+    identities = Q(pk__in=[])
+    for item_id, key in sorted(requested):
+        identities |= Q(item__item_id=item_id, variant_key=key)
     batch_variants = list(WowItemVariantSnapshot.objects.filter(
-        selection, item__item_id__in=item_ids,
-    ).select_related('item'))
+        selection, identities,
+    ).prefetch_related('item'))
     # Prefer original-batch facts; only current_variants may refresh a proven
     # same-item/key/level/branch identity, never queryset ordering by accident.
     variants_by_reference = {

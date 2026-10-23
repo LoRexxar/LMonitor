@@ -51,7 +51,7 @@ function fixture(dataset = {}) {
       request: value => { requestJson = value; },
       initialize, normalizeState, hydrateSharePayload, compactShareState, buildSimcProfile, importSimc,
       persist, loadStored, equippedCount, renderAll, saveCurrentLoadout, readSavedLoadouts, toggleSlotLock,
-      refreshState, loadSavedLoadout, loadOnlineLoadout, copyShare, copySimcProfile, restoreShareIfPresent,
+      refreshState, refreshCurrentState, loadSavedLoadout, loadOnlineLoadout, copyShare, copySimcProfile, restoreShareIfPresent,
       saveOnlineLoadout,
       setLibrary: rows => { savedLoadouts = rows; },
       get library() { return savedLoadouts; },
@@ -62,6 +62,46 @@ function fixture(dataset = {}) {
   return {api, nodes, store, node, context, page};
 }
 const storageKey = 'wowdaily:gear-builder:v1:Warrior:Fury';
+
+test('刷新尚未完成时显示本地配装，迟到响应不能覆盖用户换装', async () => {
+  const {api, node, store} = fixture();
+  store.set(storageKey, JSON.stringify({className: 'Warrior', specName: 'Fury', batchKey: 'old', equipment: {head: entry(1)}}));
+  let release, started;
+  const pending = new Promise(resolve => { started = resolve; });
+  api.request(async url => {
+    if (url === '/bootstrap') return metadata;
+    started();
+    return new Promise(resolve => { release = resolve; });
+  });
+  const initializing = api.initialize();
+  await pending;
+  assert.match(node('gear-slot-list').innerHTML, /物品1/);
+  assert.equal(node('gear-equipped-count').textContent, '1/16');
+  api.setState({...api.state, equipment: {head: entry(2)}});
+  api.persist();
+  release({batch_key: 'new', equipment: {head: entry(1)}});
+  await initializing;
+  assert.equal(api.state.equipment.head.item.item_id, 2);
+  assert.equal(JSON.parse(store.get(storageKey)).equipment.head.item.item_id, 2);
+});
+
+test('刷新失败保留属性和强化，旧专精响应不能覆盖新专精', async () => {
+  const {api} = fixture();
+  api.setState({className: 'Warrior', specName: 'Fury', batchKey: 'old', equipment: {head: entry(1)}});
+  const before = plain(api.state.equipment);
+  api.request(async () => { throw Error('连接超时'); });
+  await api.refreshCurrentState();
+  assert.deepEqual(plain(api.state.equipment), before);
+  let release;
+  api.request(() => new Promise(resolve => { release = resolve; }));
+  const refreshing = api.refreshCurrentState();
+  api.setState({className: 'Mage', specName: 'Fire', equipment: {head: entry(2)}});
+  api.persist();
+  release({equipment: {head: entry(1)}});
+  await refreshing;
+  assert.equal(api.state.className, 'Mage');
+  assert.equal(api.state.equipment.head.item.item_id, 2);
+});
 
 test('export → parser alias payload → import updates visible slots without 16→18 ghost entries', async () => {
   const {api, node} = fixture();

@@ -1,0 +1,4 @@
+/* 配装页的预编译基础样式；更新命令见配装加载优化复盘。 */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

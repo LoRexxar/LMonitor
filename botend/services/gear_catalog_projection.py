@@ -1,9 +1,8 @@
-"""Consumer-only projection for public equipment/enhancement catalog caches.
+"""公开装备目录与配装刷新接口的展示投影。
 
-Call at the public snapshot boundary, AFTER the canonical serializers have
-resolved identity, specialization, effects, source/track and recipe eligibility.
-Never use this as an ORM/internal-service serializer: those consumers need the
-central evidence. See docs/gear-catalog-storage-fields.md for the field audit.
+仅在中央序列化完成身份、专精、特效、来源和制造资格解析后调用。
+内部服务及 ORM 仍需要完整中央证据，不能使用本模块替代内部序列化。
+字段审计见 docs/gear-catalog-storage-fields.md。
 """
 from copy import deepcopy
 
@@ -92,3 +91,29 @@ def compact_catalog_content(content):
         else:
             result[key] = deepcopy(value)
     return result
+
+
+def compact_equipment_payload(payload, *, snapshot_slots=()):
+    """仅在公开接口裁剪配装元数据，保留属性计算结果和全部装备选择。"""
+    def component(value):
+        if not isinstance(value, dict):
+            return deepcopy(value)
+        result = {}
+        for key, row in value.items():
+            if key == 'item':
+                result[key] = _item(row)
+            elif key == 'variant':
+                result[key] = _variant(row)
+            elif key in ('embellishment', 'enchant'):
+                result[key] = component(row)
+            elif key == 'gems' and isinstance(row, list):
+                result[key] = [component(gem) for gem in row]
+            else:
+                result[key] = deepcopy(row)
+        return result
+
+    # 用户提交并通过校验的历史快照必须原样回传；裁剪中央资料生成的响应。
+    return {key: {slot: deepcopy(entry) if slot in snapshot_slots else component(entry)
+                  for slot, entry in value.items()}
+            if key == 'equipment' and isinstance(value, dict) else deepcopy(value)
+            for key, value in payload.items()}

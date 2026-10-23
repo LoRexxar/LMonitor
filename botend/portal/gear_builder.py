@@ -19,6 +19,7 @@ from botend.services.gear_builder import (
     share_payload_arguments,
     import_simc_profile,
     resolve_crafted_variant,
+    canonical_equipment_slot,
 )
 from botend.services.gear_builder_storage import (
     GearBuilderStorageError,
@@ -37,6 +38,7 @@ from botend.services.gear_builder_owned import (
     save_owned_items,
 )
 from botend.services.gear_assistant import assistant_bootstrap, optimize_loadouts
+from botend.services.gear_catalog_projection import compact_equipment_payload
 
 
 def _json_body(request):
@@ -128,15 +130,17 @@ class PortalGearBuilderShareResolveAPIView(View):
             if len(request.body) > MAX_DECODED_STATE_LENGTH:
                 raise GearBuilderError('配装请求内容过大')
             body = _json_body(request)
+            arguments = share_payload_arguments(body)
             payload = hydrate_shared_state(
-                **share_payload_arguments(body),
+                **arguments,
                 current=body.get('current', True) is True,
                 strict=body.get('strict', False),
             )
         except GearBuilderError as exc:
             return JsonResponse({'success': False, 'error': str(exc),
                                  'issues': getattr(exc, 'issues', [])}, status=400)
-        return JsonResponse({'success': True, **payload})
+        snapshot_slots = {canonical_equipment_slot(row[0]) for row in arguments['entries'] if len(row) == 9}
+        return JsonResponse({'success': True, **compact_equipment_payload(payload, snapshot_slots=snapshot_slots)})
 
 
 class PortalGearBuilderSimcImportAPIView(View):

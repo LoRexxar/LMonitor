@@ -380,6 +380,23 @@
     return normalizeState({...refreshed, equipment});
   }
 
+  let refreshSequence = 0;
+  async function refreshCurrentState() {
+    const sequence = ++refreshSequence;
+    const original = JSON.stringify(state);
+    try {
+      const refreshed = await refreshState(state);
+      // 用户可能已切换专精、换装或清空；迟到的响应不能覆盖新操作。
+      if (sequence !== refreshSequence || JSON.stringify(state) !== original) return;
+      state = refreshed;
+      persist(); renderAll();
+    } catch (error) {
+      if (sequence !== refreshSequence || JSON.stringify(state) !== original) return;
+      state = normalizeState({...state, snapshotSlots: Object.keys(state.equipment)});
+      toast(`装备资料刷新失败，已保留当前配装：${error.message}`, true);
+    }
+  }
+
   function equipmentComponents(entry) {
     return entry ? [entry, entry.embellishment, ...(entry.gems || []), entry.enchant].filter(Boolean) : [];
   }
@@ -2272,8 +2289,8 @@
       state.className = className;
       state.specName = specName;
       state.viewMode = viewMode;
-      state = await refreshState(state);
-      syncSelectors(); persist(); renderAll(); await loadActiveBrowser();
+      syncSelectors(); persist(); renderAll();
+      await Promise.all([refreshCurrentState(), loadActiveBrowser()]);
     });
     els.spec_select.addEventListener("change", async () => {
       const viewMode = state.viewMode;
@@ -2281,8 +2298,8 @@
       state.className = els.class_select.value;
       state.specName = els.spec_select.value;
       state.viewMode = viewMode;
-      state = await refreshState(state);
-      persist(); renderAll(); await loadActiveBrowser();
+      persist(); renderAll();
+      await Promise.all([refreshCurrentState(), loadActiveBrowser()]);
     });
     els.slot_list.addEventListener("click", async (event) => {
       const lock = event.target.closest("[data-toggle-slot-lock]");
@@ -2430,31 +2447,21 @@
       const restored = await restoreShareIfPresent();
       if (!restored) state = loadStored(state.className, state.specName);
       if (!state.batchKey) state.batchKey = bootstrap.catalog?.batch_key || "";
-      try {
-        state = await refreshState(state);
-      } catch (error) {
-        // The local/full snapshot is complete even when its old catalogue
-        // references are gone. Keep every fact and share it as a snapshot.
-        state = normalizeState({...state, snapshotSlots: Object.keys(state.equipment)});
-        toast(`装备资料刷新失败，已保留原始快照：${error.message}`, true);
-      }
       persist();
-      document.addEventListener("visibilitychange", async () => {
+      document.addEventListener("visibilitychange", () => {
         if (document.hidden) return;
-        try { state = await refreshState(state); persist(); renderAll(); }
-        catch (error) {
-          state = normalizeState({...state, snapshotSlots: Object.keys(state.equipment)});
-          toast(`装备资料刷新失败，已保留当前配装：${error.message}`, true);
-        }
+        void refreshCurrentState();
       });
       syncSelectors();
+      renderCatalogStatus();
+      renderAll();
+      // 先显示本地装备；方案库恢复完成后再开放保存操作，避免覆盖旧方案。
       savedLoadouts = await readSavedLoadouts();
       renderSavedLoadouts();
-      renderCatalogStatus();
       bindEvents();
-      renderAll();
+      page.setAttribute("aria-busy", "false");
       if (els.online_list) refreshOnlineLoadouts().catch((error) => toast(error.message || "线上配装读取失败。", true));
-      await loadActiveBrowser();
+      await Promise.all([refreshCurrentState(), loadActiveBrowser()]);
     } catch (error) {
       restorationError = error.message || "配装恢复失败";
       els.catalog_status.textContent = "配装器初始化失败";
