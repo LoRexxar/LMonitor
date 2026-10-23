@@ -23,8 +23,6 @@ DISABLED = '.stats-retention-disabled.json'
 LOCK = '.stats-publish.lock'
 CHECKPOINT = '.stats-validation.json'
 MAX_ENTRIES = 512
-# 历史文件总量与单目录/单批工作量分离，避免超过512份详情后永久拒绝回收。
-MAX_INVENTORY_ENTRIES = 32768
 MAX_SINGLE_FILE_BYTES = 256 * 1024 * 1024
 MAX_BYTES = 64 * 1024 * 1024
 # Publication must observe both currents atomically (observed closure: ~75 MB).
@@ -59,12 +57,12 @@ def _safe_path(path):
             raise Unsafe('symlink')
 
 
-def _entries(path):
+def _entries(path, *, bounded=True):
     _safe_path(path)
     with os.scandir(path) as entries:
         result = []
         for entry in entries:
-            if len(result) >= MAX_ENTRIES:
+            if bounded and len(result) >= MAX_ENTRIES:
                 raise Paused('directory entry budget exceeded')
             if entry.is_symlink():
                 raise Unsafe('symlink')
@@ -120,6 +118,8 @@ def _scope_lock(path, blocking=True, create=True):
 
 
 def _inventory(scope):
+    # Metadata is an exact identity fence, not the content-read batch. Capping
+    # accumulated entries would permanently strand otherwise valid old scopes.
     result = {}
     for name in (LOCK, MANIFEST, 'dungeon.json', 'raid.json', DISABLED):
         path = scope / name
@@ -129,25 +129,23 @@ def _inventory(scope):
     _safe_path(root)
     if root.exists():
         result['stats-details'] = _identity(root)
-        count = 0
-        for directory in _entries(root):
+        for directory in _entries(root, bounded=False):
             if not GEN.fullmatch(directory.name) or not directory.is_dir():
                 raise Unsafe('unknown generation')
             result[directory.relative_to(scope).as_posix()] = _identity(directory)
             for path in _entries(directory):
-                count += 1
-                if count > MAX_INVENTORY_ENTRIES:
-                    raise Unsafe('scope entry budget')
                 result[path.relative_to(scope).as_posix()] = _identity(path)
     return result
 
 
 class Budget:
-    def __init__(self, *, reuse=False, max_bytes=None):
+    def __init__(self, *, reuse=False, max_bytes=None, max_reads=None):
         self.reuse = reuse
         self.reads = {}
         self.identities = {}
         self.remaining = MAX_BYTES if max_bytes is None else max_bytes
+        self.files_read = 0
+        self.max_reads = max_reads
         self.hashes = {}
         self.cache = {}
         self.scope = None
@@ -197,7 +195,7 @@ class Budget:
                 or any(name not in (MANIFEST, 'dungeon.json', 'raid.json')
                        or not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest)
                        for name, digest in saved['controls'].items())
-                or not isinstance(saved['files'], dict) or len(saved['files']) > MAX_INVENTORY_ENTRIES):
+                or not isinstance(saved['files'], dict)):
             return False
         for name, item in saved['files'].items():
             if (not isinstance(name, str) or not re.fullmatch(
@@ -244,6 +242,8 @@ class Budget:
             self.digests[path] = item['digest']
             return item['body']
         size = identity[2]
+        if self.max_reads is not None and self.files_read >= self.max_reads:
+            raise Paused('file read budget')
         if size > MAX_SINGLE_FILE_BYTES:
             raise Unsafe('单文件超过安全读取上限，需要重新生成紧凑投影')
         if size > self.remaining:
@@ -263,6 +263,7 @@ class Budget:
         self.remaining -= len(raw)
         if detail:
             self.detail_bytes_read += len(raw)
+        self.files_read += 1
         try:
             final_identity = _identity(path)
         except FileNotFoundError as exc:
@@ -337,7 +338,7 @@ def _manifest(scope, budget):
             or set(data) not in ({'schema', 'scope', 'records'},
                                 {'schema', 'scope', 'records', 'pending_deletes'})
             or data['schema'] != 1 or data['scope'] != list(scope.parts[-3:])
-            or not isinstance(data['records'], list) or len(data['records']) > MAX_ENTRIES):
+            or not isinstance(data['records'], list)):
         raise Unsafe('invalid manifest')
     seen = set()
     for row in data['records']:
@@ -521,9 +522,6 @@ def record_publication(scope):
     for meta in currents.values():
         if meta['generation'] not in by_gen:
             data['records'].append({'meta': meta, 'retired_at': None})
-    if len(data['records']) > MAX_ENTRIES:
-        _disable(scope, 'manifest record budget exceeded')
-        return
     if json.dumps(data, sort_keys=True) != original:
         _write(scope / MANIFEST, data)
 
@@ -533,6 +531,9 @@ def maintain_scope(scope, *, delete_limit=8, now=None, dry_run=False):
 
     Returns explicit fail-closed status; no database or source files are touched.
     First maintenance of a legacy scope bootstraps current pointers, deleting zero.
+    Metadata scans scale with the scope; JSON/hash reads are bounded per call
+    and resume via authenticated checkpoints. Generation counts are not a cap
+    on existing storage. Each individual generation retains its schema limit.
     """
     scope = Path(scope)
     now = time.time() if now is None else now
@@ -557,6 +558,9 @@ def maintain_scope(scope, *, delete_limit=8, now=None, dry_run=False):
                     _bootstrap(scope, currents)
                 return {**result, 'status': 'bootstrapped'}
             data = _manifest(scope, budget)
+            # Bootstrap observes only the schema-bounded current closure and
+            # has no resumable history yet; batch limits begin with checkpointing.
+            budget.max_reads = MAX_ENTRIES
             budget.checkpoint(scope)
             rows = data['records']
             by_gen = {r['meta']['generation']: r for r in rows}
@@ -584,7 +588,7 @@ def maintain_scope(scope, *, delete_limit=8, now=None, dry_run=False):
                     candidates.append((meta, paths))
             _safe_path(root)
             if root.exists():
-                for directory in _entries(root):
+                for directory in _entries(root, bounded=False):
                     if not GEN.fullmatch(directory.name) or not directory.is_dir():
                         raise Unsafe('unknown generation')
                     if directory.name not in by_gen and directory.name not in pending_gens:
@@ -640,6 +644,7 @@ def maintain_scope(scope, *, delete_limit=8, now=None, dry_run=False):
                 _write(scope / MANIFEST, data)
             return {**result, 'status': 'ok', 'eligible': len(work),
                     'pending': len(data.get('pending_deletes', [])),
+                    'files_read': budget.files_read,
                     'bytes_read': MAX_BYTES - budget.remaining}
     except Paused as exc:
         if not dry_run and 'budget' in locals():
@@ -650,6 +655,7 @@ def maintain_scope(scope, *, delete_limit=8, now=None, dry_run=False):
             except (OSError, ValueError, TypeError, KeyError) as save_exc:
                 return {**result, 'reason': str(save_exc)}
         return {**result, 'status': 'paused', 'reason': str(exc),
+                'files_read': budget.files_read,
                 'validated_files': len(budget.cache), 'bytes_read': MAX_BYTES - budget.remaining}
     except (OSError, ValueError, TypeError, KeyError) as exc:
         return {**result, 'reason': str(exc)}
@@ -714,6 +720,7 @@ def repair_disabled_scope(scope, *, dry_run=True):
                 raise Unsafe('缺少有效当前版本，不修复禁用标记')
             data = _manifest(scope, budget) if (scope / MANIFEST).exists() else {
                 'schema': 1, 'scope': list(scope.parts[-3:]), 'records': []}
+            budget.max_reads = MAX_ENTRIES
             budget.checkpoint(scope)
             by_gen = {r['meta']['generation']: r for r in data['records']}
             for row in data['records']:
@@ -728,7 +735,7 @@ def repair_disabled_scope(scope, *, dry_run=True):
                     raise Unsafe('当前版本出现在删除意图中')
                 _pending_paths(scope, item, budget)
             known = set(by_gen) | set(pending) | {m['generation'] for m in currents.values()}
-            for directory in _entries(scope / 'stats-details'):
+            for directory in _entries(scope / 'stats-details', bounded=False):
                 if not GEN.fullmatch(directory.name) or not directory.is_dir():
                     raise Unsafe('未知历史目录')
                 if directory.name not in known:
@@ -744,8 +751,6 @@ def repair_disabled_scope(scope, *, dry_run=True):
             for meta in currents.values():
                 if meta['generation'] not in by_gen:
                     data['records'].append({'meta': meta, 'retired_at': None})
-            if len(data['records']) > MAX_ENTRIES:
-                raise Unsafe('历史清单超出记录上限')
             if not dry_run:
                 _write(scope / MANIFEST, data)
                 archived = scope / '.stats-retention-repaired.json'

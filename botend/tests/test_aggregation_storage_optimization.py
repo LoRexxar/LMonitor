@@ -198,6 +198,9 @@ class AggregationStorageTests(SimpleTestCase):
     def test_more_than_512_historical_detail_files_can_be_reclaimed(self):
         self.publish_history(details=110)
         self.assertEqual(len(list((self.scope / 'stats-details').rglob('*.json'))), 550)
+        first = retention.maintain_scope(self.scope)
+        self.assertEqual(first['status'], 'paused', first)
+        self.assertLessEqual(first['files_read'], retention.MAX_ENTRIES)
         result = retention.maintain_scope(self.scope)
         self.assertEqual(result['status'], 'ok', result)
         self.assertEqual(result['deleted'], 2)
@@ -239,3 +242,18 @@ class AggregationStorageTests(SimpleTestCase):
         next((self.scope / 'stats-details').rglob('*.json')).write_text('{}')
         self.assertEqual(retention.repair_disabled_scope(self.scope, dry_run=False)['status'], 'refused')
         self.assertTrue((self.scope / retention.DISABLED).exists())
+
+    def test_disabled_repair_resumes_beyond_single_batch(self):
+        self.publish_history()
+        retention._disable(self.scope, '历史数量超过旧批次上限')
+        with patch.object(retention, 'MAX_ENTRIES', 4):
+            results = []
+            for _ in range(5):
+                result = retention.repair_disabled_scope(self.scope, dry_run=False)
+                results.append(result)
+                if result['status'] != 'paused':
+                    break
+        self.assertEqual(results[0]['status'], 'paused', results)
+        self.assertEqual(results[-1]['status'], 'repaired', results)
+        self.assertEqual(len(list((self.scope / 'stats-details').iterdir())), 5)
+        self.assertEqual(retention.maintain_scope(self.scope)['deleted'], 2)
