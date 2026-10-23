@@ -511,7 +511,7 @@ def item_display_metadata(
     from botend.services.wow_item_effects import resolve_effects
     shared_effects, effects_status = resolve_effects(
         central_snapshot, variant, branch=effect_branch, raw_effects=effects, item_id=normalized_id,
-        known_empty=native_journal and not variant.effects_json,
+        known_empty=native_journal and not variant.effects_data,
         allow_reference=not frozen_identity and variant is None and (
             not strict_difficulty or data_branch in ('retail', 'ptr', 'beta')),
     )
@@ -579,7 +579,7 @@ def item_display_metadata(
         for key in ordered_stat_keys
     ]
     native_stat_only = bool(variant is not None and native_journal
-                            and normalized_stats and variant.effects_json == [])
+                            and normalized_stats and variant.effects_data == [])
     expects_effect = bool(
         snapshot and (
             (snapshot.slot_key == 'trinket' and not native_stat_only)
@@ -722,10 +722,10 @@ def _difficulty_variant(candidates, context, item_id):
             continue
         matching.append(row)
     # Duplicate evidence may agree; conflicting facts are explicitly unresolved.
-    if not matching or any((row.item_level, row.stats_json, row.effects_json,
+    if not matching or any((row.item_level, row.stats_json, row.effects_data,
                             row.metadata, row.source_json, set(row.bonus_ids), row.game_build)
                            != (matching[0].item_level, matching[0].stats_json,
-                               matching[0].effects_json, matching[0].metadata, matching[0].source_json,
+                               matching[0].effects_data, matching[0].metadata, matching[0].source_json,
                                set(matching[0].bonus_ids), matching[0].game_build) for row in matching[1:]):
         return None
     return min(matching, key=lambda row: row.pk)
@@ -833,8 +833,8 @@ def load_item_tooltip_metadata(requests):
                 projected['display_description'] = projected['tooltip']
             result.append(projected)
             continue
-        if require_complete and any(row.effects_json for row in candidates):
-            candidates = [row for row in candidates if row.effects_json]
+        if require_complete and any(row.effects_data for row in candidates):
+            candidates = [row for row in candidates if row.effects_data]
         if item_level:
             exact = [row for row in candidates if _positive_int(row.item_level) == item_level]
             candidates = exact

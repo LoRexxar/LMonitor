@@ -78,7 +78,7 @@ def _source():
     catalog = gb.catalog_context(season)
     variants = WowItemVariantSnapshot.objects.filter(season=season, batch_key=season.gear_batch_key) if season else WowItemVariantSnapshot.objects.none()
     facts = {
-        'effects_contract': 1,
+        'effects_contract': 2,
         'schema': SCHEMA_VERSION, 'catalog': catalog,
         'variants': variants.aggregate(count=Count('pk'), updated=Max('updated_at')),
         'items': WowItemSnapshot.objects.aggregate(count=Count('pk'), updated=Max('updated_at')),
@@ -90,6 +90,12 @@ def _source():
 
 def _index(key):
     return storage.read_index(_directory(key), key)
+
+
+def _accepts_gzip(request):
+    return any(part.split(';')[0].strip() == 'gzip'
+               and not re.search(r';\s*q=0(?:\.0*)?\s*$', part)
+               for part in request.headers.get('Accept-Encoding', '').lower().split(','))
 
 
 def catalog_snapshot_response(request, *, kind='equipment'):
@@ -113,6 +119,8 @@ def catalog_snapshot_response(request, *, kind='equipment'):
         try:
             payload = storage.read_payload(_directory(key), index)
             storage.validate_payload(payload, key, index['generation'], index['schema_version'])
+            from .variant_text import catalog_text
+            payload = catalog_text(payload, expand=True)
         except storage.ERRORS:
             payload = None
         if not isinstance(payload, dict) or payload.get('snapshot', {}).get('coordinate') != key:
@@ -122,9 +130,30 @@ def catalog_snapshot_response(request, *, kind='equipment'):
                                  'snapshot': payload['snapshot']})
         response['Cache-Control'] = 'public, max-age=60'
         return response
-    encodings = request.headers.get('Accept-Encoding', '').lower()
-    compressed = any(part.split(';')[0].strip() == 'gzip'
-                     and not re.search(r';\s*q=0(?:\.0*)?\s*$', part) for part in encodings.split(','))
+    if index.get('text_format') == 1 and request.GET.get('text_format') != '1':
+        # 已打开的旧页面仍读取展开后的同一文件，不保留第二套历史正文。
+        from .variant_text import catalog_text
+        compressed = _accepts_gzip(request)
+        etag = f'"{index["generation"]}-expanded{"-gzip" if compressed else ""}"'
+        tags = [tag.removeprefix('W/') for tag in parse_etags(request.headers.get('If-None-Match', ''))]
+        if etag in tags or '*' in tags:
+            response = HttpResponse(status=304)
+        else:
+            try:
+                payload = storage.read_payload(_directory(key), index)
+                payload = catalog_text(payload, expand=True)
+            except storage.ERRORS:
+                return JsonResponse({'success': False, 'error': '装备描述暂不可用，请稍后重试。'}, status=503)
+            response = JsonResponse(payload)
+            if compressed:
+                response.content = gzip.compress(response.content, mtime=0)
+        if compressed:
+            response['Content-Encoding'] = 'gzip'
+        response['Vary'] = 'Accept-Encoding'
+        response['Cache-Control'] = 'public, max-age=60'
+        response['ETag'] = etag
+        return response
+    compressed = _accepts_gzip(request)
     compressed = compressed and bool(index.get('gzip_bytes'))
     filename = storage.gzip_path(_directory(key), index).name if compressed else index['file']
     etag = f'"{index["generation"]}{"-gzip" if compressed else ""}"'
@@ -235,6 +264,8 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=
                     total = len(rows)
                 from botend.services.gear_catalog_projection import compact_catalog_content
                 content = compact_catalog_content(content)
+                from .variant_text import compact_catalog_text
+                content = compact_catalog_text(content)
                 content_hash = storage.content_hash(content)
                 previous = _index(key)
                 if (previous and previous['schema_version'] == SCHEMA_VERSION

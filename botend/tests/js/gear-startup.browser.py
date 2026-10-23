@@ -22,6 +22,7 @@ django.setup()
 from django.template import Context, Engine
 from playwright.async_api import async_playwright
 from botend.services.gear_catalog_projection import compact_equipment_payload
+from botend.services.variant_text import catalog_text
 
 OUTPUT = ROOT / 'tmp' / 'gear-startup-20261023'
 OUTPUT.mkdir(parents=True, exist_ok=True)
@@ -90,7 +91,7 @@ async def run():
                     refreshed.set()
                 elif path.endswith('/catalog/'):
                     await asyncio.sleep(.1)
-                    await request.fulfill(json=sample['catalog'])
+                    await request.fulfill(json=sample['catalog'] if baseline else catalog_text(sample['catalog']))
                 else:
                     await request.fulfill(json={'success': True, 'items': []})
             await page.route('**/*', route)

@@ -145,7 +145,7 @@ def import_localization(path, *, apply=False, backup_path=None):
                 item_changes.append((current, fields))
         for variant in variants:
             effects = []
-            for effect in variant.effects_json:
+            for effect in variant.effects_data:
                 template = spells.get(int(effect.get('spell_id') or 0), {}).get('Description_lang')
                 if not template:
                     raise ValueError(f'物品 {variant.item.item_id} 的特效没有官方中文')
@@ -157,7 +157,8 @@ def import_localization(path, *, apply=False, backup_path=None):
                 if isinstance(source, dict) and int(source.get('instance_id') or 0) == INSTANCE_ID:
                     source.update(instance_zh=translated['name'], encounter_zh=translated['encounters'][0]['name'])
             fields = {'effects_json': effects, 'source_json': sources}
-            if any(getattr(variant, key) != value for key, value in fields.items()):
+            if any((variant.effects_data if key == 'effects_json' else getattr(variant, key)) != value
+                   for key, value in fields.items()):
                 variant_changes.append((variant, fields))
         # 描述使用最新中文手册；原有掉落关系、难度、部位保持不变。
         localized = deepcopy(old)
@@ -211,7 +212,8 @@ def import_localization(path, *, apply=False, backup_path=None):
                   'previous_release_id': previous.pk, 'season_id': season.pk, 'batch_key': season.gear_batch_key,
                   'items': [{'pk': obj.pk, 'item_id': obj.item_id, 'created': obj.pk is None,
                              'fields': {key: getattr(obj, key) for key in fields}} for obj, fields in item_changes],
-                  'variants': [{'pk': obj.pk, 'fields': {key: getattr(obj, key) for key in fields}} for obj, fields in variant_changes]}
+                  'variants': [{'pk': obj.pk, 'fields': {key: obj.effects_data if key == 'effects_json' else getattr(obj, key)
+                                                       for key in fields}} for obj, fields in variant_changes]}
         backup_path = Path(backup_path)
         backup_path.parent.mkdir(parents=True, exist_ok=True)
         with backup_path.open('x', encoding='utf-8') as stream:

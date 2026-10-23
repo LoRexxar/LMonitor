@@ -72,7 +72,7 @@ def _needs_effect(row):
 def _has_active_effect(row):
     return any(
         re.search(r'(^|\n)\s*(?:(?:装备|使用)\s*[:：]|(?:equip|use)\s*:)', text, re.I)
-        for effect in (row.effects_json or [])
+        for effect in (row.effects_data or [])
         for text in [
             str(effect.get('description_zh') or effect.get('description') or '')
             if isinstance(effect, dict) else str(effect or '')
@@ -108,7 +108,7 @@ class Command(BaseCommand):
         targets = defaultdict(list)
         for row in rows:
             item_missing = not row.item.name_zh or not row.item.icon
-            variant_missing = not row.stats_json and not row.effects_json
+            variant_missing = not row.stats_json and not row.effects_data
             effect_missing = _needs_effect(row) and not _has_active_effect(row)
             if options['force'] or item_missing or variant_missing or effect_missing:
                 targets[(int(row.item.item_id), int(row.item_level or 0))].append(row)
@@ -213,7 +213,7 @@ class Command(BaseCommand):
                         row.stats_json = details.get('stats') or {}
                         update_fields.append('stats_json')
                     if (details.get('effects') or benchmark_refresh) and (
-                        options['force'] or benchmark_refresh or not row.effects_json
+                        options['force'] or benchmark_refresh or not row.effects_data
                     ):
                         row.effects_json = details.get('effects') or []
                         update_fields.append('effects_json')
@@ -245,7 +245,7 @@ class Command(BaseCommand):
                             'name': item.name, 'name_zh': item.name_zh,
                             'description': item.description, 'description_zh': item.description_zh,
                             'catalog_type': item.catalog_type, 'metadata': dict(item.metadata or {}),
-                            'variants': [{'stats': row.stats_json, 'effects': row.effects_json,
+                            'variants': [{'stats': row.stats_json, 'effects': row.effects_data,
                                           'metadata': dict(row.metadata or {})}],
                         }
                         normalize_catalog_text(text_payload)
@@ -254,7 +254,7 @@ class Command(BaseCommand):
                                 setattr(item, field, text_payload[field])
                                 item_fields.append(field)
                         normalized = text_payload['variants'][0]
-                        if row.effects_json != normalized['effects'] or row.metadata != normalized['metadata']:
+                        if row.effects_data != normalized['effects'] or row.metadata != normalized['metadata']:
                             row.effects_json, row.metadata = normalized['effects'], normalized['metadata']
                             row.save(update_fields=['effects_json', 'metadata'])
                         item.updated_at = timezone.now()

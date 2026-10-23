@@ -31,7 +31,7 @@ class Command(BaseCommand):
                 payload = {'name': item.name, 'name_zh': item.name_zh, 'description': item.description,
                     'description_zh': item.description_zh, 'catalog_type': item.catalog_type,
                     'metadata': deepcopy(item.metadata or {}),
-                    'variants': [{'stats': row.stats_json, 'effects': deepcopy(row.effects_json),
+                    'variants': [{'stats': row.stats_json, 'effects': deepcopy(row.effects_data),
                                   'metadata': deepcopy(row.metadata or {})} for row in variants]}
                 normalize_catalog_text(payload)
                 fields = [field for field in ('description', 'description_zh', 'metadata') if getattr(item, field) != payload[field]]
@@ -42,7 +42,7 @@ class Command(BaseCommand):
                             setattr(item, field, payload[field])
                         item.save(update_fields=fields)
                 for row, normalized in zip(variants, payload['variants']):
-                    if row.effects_json == normalized['effects'] and row.metadata == normalized['metadata']:
+                    if row.effects_data == normalized['effects'] and row.metadata == normalized['metadata']:
                         continue
                     changed_variants += 1
                     if options['apply']:

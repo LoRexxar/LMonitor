@@ -92,7 +92,7 @@ def compile_effects(variants):
         branch = variant_branch(variant)
         definitions = branches.setdefault(branch, {})
         refs = []
-        for raw in variant.effects_json or []:
+        for raw in variant.effects_data or []:
             definition, values = _definition(raw)
             if definition is None:
                 refs.append({})
@@ -115,7 +115,7 @@ def compile_effects(variants):
             refs.append({'key': key, 'values': values,
                          'language': 'zhCN' if _is_chinese(_display_text(_text(raw))) else 'enUS'})
         references[variant.pk] = {'schema': SCHEMA, 'branch': branch,
-                                 'source_hash': digest(variant.effects_json or []), 'effects': refs}
+                                 'source_hash': digest(variant.effects_data or []), 'effects': refs}
     for definitions in branches.values():
         groups = {}
         for definition in definitions.values():
@@ -276,6 +276,9 @@ def sync_central_effects(*, season=None, item_ids=None, apply=True, notify=True)
                 WowItemSnapshot.objects.bulk_update(changed_items, ['effects', 'updated_at'])
             if changed_variants:
                 WowItemVariantSnapshot.objects.bulk_update(changed_variants, ['effect_values'])
+            from .variant_text import compact_item
+            for item in items:
+                compact_item(item.pk, apply=True)
             if (changed_items or changed_variants) and notify:
                 transaction.on_commit(notify_effects_changed)
     return report

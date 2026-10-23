@@ -39,6 +39,7 @@ def baseline_state(variant):
     # 排除它也保持迁移前已保存的证据摘要有效。
     state = {f.attname: deepcopy(getattr(variant, f.attname))
              for f in variant._meta.concrete_fields if f.name not in ('created_at', 'updated_at', 'effect_values')}
+    state['effects_json'] = variant.effects_data
     state['metadata'].pop('effect_supplement', None)
     return state
 
@@ -60,6 +61,8 @@ def adapt_record(variant, record, source_build):
     for key in required:
         expected = deepcopy(before[key])
         actual = getattr(variant, key)
+        if key == 'effects_json':
+            actual = variant.effects_data
         if key == 'item_id':
             actual = variant.item.item_id
         elif key == 'updated_at':
@@ -123,7 +126,7 @@ def _validated(v, r):
             v.variant_type == 'drop_equipment' and v.variant_key.startswith('journal-difficulty:ptr:12.1.5.69594:1324:') and
             drop['instance_id'] == 1324 and drop['difficulty_id'] in DIFFICULTIES and
             drop['rule_build'] == '12.1.5.69594', 'outside bounded scope')
-    require(v.effects_json == [], 'original effects must be empty')
+    require(v.effects_data == [], 'original effects must be empty')
     require(r['schema'] == 1 and r['variant_id'] == v.pk and
             r['baseline_sha256'] == baseline_sha256(v), 'baseline/identity mismatch')
     require(r['rule_build'] == BUILD, 'unsupported supplement rule build')
@@ -200,8 +203,8 @@ def _validated(v, r):
 def supplemental_effects(variant):
     """Fail closed when any frozen fact changed; never mutate the source list."""
     supplement = (variant.metadata or {}).get('effect_supplement')
-    if (variant.effects_json == [] and isinstance(supplement, dict) and
+    if (variant.effects_data == [] and isinstance(supplement, dict) and
             supplement.get('schema') == 1 and supplement.get('baseline_sha256') == baseline_sha256(variant)
             and isinstance(supplement.get('effects'), list)):
         return deepcopy(supplement['effects'])
-    return deepcopy(variant.effects_json)
+    return deepcopy(variant.effects_data)

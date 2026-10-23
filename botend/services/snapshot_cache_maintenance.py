@@ -40,6 +40,13 @@ def run_maintenance_once():
         # 一个领域的导入或检查失败，不能掩盖其他领域的回收结果。
         results.append(dict(kind='lifecycle', apply=False, status='error',
                             deleted=0, deleted_bytes=0, error=str(exc)))
+    if getattr(settings, 'VARIANT_TEXT_MAINTENANCE_ENABLED', True):
+        try:
+            from .variant_text import maintain_variant_text
+            results.append(maintain_variant_text())
+        except Exception as exc:
+            results.append(dict(kind='variant_text', apply=True, status='error',
+                                deleted=0, deleted_bytes=0, error=str(exc)))
     for result in results:
         logger.info('[Snapshot Cache Maintenance] kind=%s apply=%s status=%s deleted=%s bytes=%s error=%s',
                     result['kind'], result['apply'], result['status'], result['deleted'],
@@ -48,6 +55,9 @@ def run_maintenance_once():
             logger.info('[Snapshot Cache Maintenance] kind=%s paused=%s read_bytes=%s reasons=%s',
                         result['kind'], result.get('paused_scopes', 0),
                         result.get('bytes_read', 0), result['reasons'])
+        if result['kind'] == 'variant_text' and 'items' in result:
+            logger.info('装备共享文本维护：检查物品=%s，修改变体=%s，下次起点=%s，错误数=%s',
+                        result['items'], result['variants'], result.get('next_cursor', ''), len(result['errors']))
     return results
 
 

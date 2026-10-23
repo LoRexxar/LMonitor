@@ -274,13 +274,12 @@ def item_catalog_is_complete(items, season, build):
         season=season,
         batch_key=season.gear_batch_key,
         item__item_id__in=[int(item['item_id']) for item in items],
-    ).values_list(
-        'item__item_id', 'variant_key', 'game_build', 'metadata', 'stats_json', 'effects_json',
-    )
+    ).select_related('item').only('item_id', 'item__item_id', 'item__variant_text_templates',
+                                'variant_key', 'game_build', 'metadata', 'stats_json', 'effects_json')
     actual = {}
-    for item_id, variant_key, game_build, metadata, stats, effects in rows:
+    for row in rows:
         if exact_build_variant_payload_is_complete(
-            build=build, metadata=metadata, stats=stats, effects=effects,
+            build=build, metadata=row.metadata, stats=row.stats_json, effects=row.effects_data,
         ):
-            actual[(int(item_id), str(variant_key))] = str(game_build or '')
+            actual[(row.item.item_id, row.variant_key)] = str(row.game_build or '')
     return expected == set(actual) and all(actual[key] == build for key in expected)

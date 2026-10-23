@@ -89,8 +89,8 @@ class Command(BaseCommand):
                 key = target_key(row, payload)
                 try:
                     apply_tooltip(payload, details[key],
-                                  requires_effect=bool(row.effects_json or row.item.effect_refs) or row.item.inventory_type == 12)
-                    preserve_localized_effects(payload, row.effects_json or [])
+                                  requires_effect=bool(row.effects_data or row.item.effect_refs) or row.item.inventory_type == 12)
+                    preserve_localized_effects(payload, row.effects_data or [])
                 except ValueError as exc:
                     failures.append(f'{row.item.name_zh or row.item.name}（物品 {key[0]}，{payload["upgrade_track"]} {payload["track_rank"]}/{payload["track_max_rank"]}，装等 {key[1]}，来源 {key[2]}）：{exc}')
             if failures:

@@ -1142,7 +1142,7 @@ class GearBuilderTooltipRepairCommandTests(GearBuilderTestDataMixin, TestCase):
         self.hero.refresh_from_db()
         self.season.refresh_from_db()
         self.assertEqual(self.hero.stats_json, {'strength': 999, 'crit': 333})
-        self.assertEqual(self.hero.effects_json, [{'description_zh': '装备：补齐后的效果。'}])
+        self.assertEqual(self.hero.effects_data, [{'description_zh': '装备：补齐后的效果。'}])
         self.assertGreaterEqual(self.season.gear_sync_report['tooltip_repair']['updated_variants'], 1)
         self.assertEqual(self.season.gear_sync_report['catalog_rules'], original_rules)
         self.assertIn('活动装备目录 Tooltip 补齐与审计已完成', output.getvalue())
@@ -1182,7 +1182,7 @@ class GearBuilderTooltipRepairCommandTests(GearBuilderTestDataMixin, TestCase):
         )
         self.assertEqual(variant.compatible_slots, ['trinket'])
         self.assertEqual(variant.stats_json, {'intellect': 159})
-        self.assertEqual(variant.effects_json, [{'description_zh': '使用: 发射苦痛箭矢。'}])
+        self.assertEqual(variant.effects_data, [{'description_zh': '使用: 发射苦痛箭矢。'}])
         self.assertEqual(variant.source_json[0]['type_zh'], '装备选优配置')
 
     def test_repair_command_replaces_stale_benchmark_stats_and_effects(self):
@@ -1217,7 +1217,7 @@ class GearBuilderTooltipRepairCommandTests(GearBuilderTestDataMixin, TestCase):
 
         self.hero.refresh_from_db()
         self.assertEqual(self.hero.stats_json, {'crit': 136})
-        self.assertEqual(self.hero.effects_json, [{'description_zh': '使用: 当前装等效果。'}])
+        self.assertEqual(self.hero.effects_data, [{'description_zh': '使用: 当前装等效果。'}])
 
 
 class GearBuilderImportCommandTests(TestCase):
@@ -1306,7 +1306,7 @@ class GearBuilderImportCommandTests(TestCase):
         original.refresh_from_db()
         self.assertEqual(WowItemVariantSnapshot.objects.count(), 1)
         self.assertEqual(original.stats_json, {'strength': 900})
-        self.assertEqual(original.effects_json, [{'description_zh': '原特效'}])
+        self.assertEqual(original.effects_data, [{'description_zh': '原特效'}])
         self.season.refresh_from_db()
         self.assertEqual(self.season.gear_batch_key, 'batch-20260831')
 

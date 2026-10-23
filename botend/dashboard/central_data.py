@@ -154,7 +154,7 @@ class CentralDataAPI(DashboardPermissionRequiredMixin, View):
             for row in selected:
                 row.item = item
                 effects, status = resolve_effects(item, row, branch=branch,
-                    known_empty=_native_journal_variant(row) and not row.effects_json)
+                    known_empty=_native_journal_variant(row) and not row.effects_data)
                 entries.append({'id': row.pk, 'item_level': row.item_level,
                     'kind': row.get_variant_type_display(), 'track': TRACKS.get(row.upgrade_track, row.upgrade_track),
                     'rank': row.track_rank, 'season': row.season.season_name, 'stats': row.stats_json,

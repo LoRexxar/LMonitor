@@ -22,13 +22,17 @@ from botend.wow.talents.versioning import TalentVersionResolver
 
 # Bump when selection, aggregation, source interpretation or display code changes.
 ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v3-log-talents'
-_NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at'}
+_NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at', 'variant_text_templates'}
 
 
 def _content_rows(queryset):
     """Hash contents, not MAX(timestamp): bulk .update() must invalidate too."""
     fields = [field.attname for field in queryset.model._meta.concrete_fields
               if field.name not in _NON_CONTENT_FIELDS]
+    if queryset.model is WowItemVariantSnapshot:
+        # 存储格式变化不是装备事实变化，不能触发各专精聚合重复重建。
+        return [{**{field: getattr(row, field) for field in fields}, 'effects_json': row.effects_data}
+                for row in queryset.select_related('item').order_by('pk')]
     return list(queryset.order_by('pk').values(*fields))
 
 

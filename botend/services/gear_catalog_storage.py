@@ -145,6 +145,9 @@ def payload_content(payload):
 
 
 def validate_payload(payload, key, generation, schema):
+    if 'variant_text_templates' in payload:
+        from .variant_text import catalog_text
+        catalog_text(payload, expand=True)
     snapshot = payload.get('snapshot', {})
     if (payload.get('success') is not True or snapshot.get('state') != 'ready'
             or snapshot.get('coordinate') != key or snapshot.get('generation') != generation
@@ -210,6 +213,8 @@ def prepare(directory, key, content, total, source_version):
                  'file': filename, 'source_version': source_version, 'built_at': time.time(),
                  'bytes': length, 'gzip_bytes': target.stat().st_size,
                  'payload_sha256': digest.hexdigest(), 'content_hash': content_hash(content)}
+        if 'variant_text_templates' in content:
+            index['text_format'] = 1
         verify(directory, key, index)
         return index
     except BaseException:

@@ -295,7 +295,10 @@ class Command(BaseCommand):
         return WowItemSnapshot.objects.create(item_id=item_id, **defaults)
 
     @staticmethod
+    @transaction.atomic
     def _upsert_variant(*, season, batch_key, item, variant_key, defaults):
+        from botend.services.variant_text import prepare_effects
+        item = WowItemSnapshot.objects.select_for_update().get(pk=item.pk)
         from botend.services.wow_data_branch import variant_branch
         branch = defaults['data_branch']
         key = variant_key.removeprefix(f'{branch}:')
@@ -303,6 +306,7 @@ class Command(BaseCommand):
             season=season, batch_key=batch_key, item=item)
             if variant_branch(row) == branch and row.variant_key.removeprefix(f'{branch}:') == key), None)
         if row is None:
+            defaults = {**defaults, 'effects_json': prepare_effects(item, defaults.get('effects_json') or [])}
             stored_key = variant_key
             if WowItemVariantSnapshot.objects.filter(season=season, batch_key=batch_key,
                     item=item, variant_key=stored_key).exists():
@@ -315,10 +319,12 @@ class Command(BaseCommand):
                 defaults[field] = getattr(row, field)
         # 官方中文/模板结构化特效不能被导入资料的 tooltip 单键文本覆盖。
         from botend.services.gear_builder_catalog_source import merge_effects
-        defaults['effects_json'] = merge_effects(row.effects_json, defaults.get('effects_json'),
+        row.item = item
+        defaults['effects_json'] = merge_effects(row.effects_data, defaults.get('effects_json'),
             same_coordinates=(row.item_level == defaults.get('item_level', row.item_level)
                               and sorted(row.bonus_ids or []) == sorted(defaults.get('bonus_ids', row.bonus_ids) or [])))
         defaults['metadata'] = {**(row.metadata or {}), **defaults.get('metadata', {})}
+        defaults['effects_json'] = prepare_effects(item, defaults['effects_json'])
         changed = [field for field, value in defaults.items() if getattr(row, field) != value]
         if changed:
             for field in changed:
@@ -381,7 +387,7 @@ class Command(BaseCommand):
                 WowItemVariantSnapshot.TYPE_CRAFTED_EQUIPMENT,
                 WowItemVariantSnapshot.TYPE_GEM,
                 WowItemVariantSnapshot.TYPE_ENCHANT,
-            ) and not row.stats_json and not row.effects_json:
+            ) and not row.stats_json and not row.effects_data:
                 missing['stats'].append(identity)
                 warnings.append(f'{identity} 缺少属性或效果。')
             if row.variant_type in (
@@ -393,7 +399,7 @@ class Command(BaseCommand):
             if not row.source_json:
                 missing['sources'].append(identity)
                 warnings.append(f'{identity} 缺少来源。')
-            if (row.item.effect_refs or (row.metadata or {}).get('requires_effect_mapping')) and not row.effects_json:
+            if (row.item.effect_refs or (row.metadata or {}).get('requires_effect_mapping')) and not row.effects_data:
                 missing['effect_mapping'].append(identity)
                 warnings.append(f'{identity} 缺少效果映射。')
         return {

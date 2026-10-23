@@ -53,7 +53,8 @@ def branch_item(item, branch):
         return item
     result = copy(item)
     result._central_icon_provenance = getattr(item, '_central_icon_provenance', (item.icon, item.source))
-    allowed = {field.name for field in item._meta.concrete_fields} - {'id', 'item_id', 'metadata', 'updated_at'}
+    allowed = {field.name for field in item._meta.concrete_fields} - {
+        'id', 'item_id', 'metadata', 'updated_at', 'variant_text_templates'}
     for key in allowed & payload.keys():
         # A branch's raw FDID is not a replacement for a resolved icon name.
         # Keep the source payload intact for Journal's authorized /art path.

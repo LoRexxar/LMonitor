@@ -1,6 +1,42 @@
 /* 公共装备分片：浏览器筛选、分页与有界短期缓存。 */
 (() => {
   "use strict";
+  function expandTexts(payload) {
+    if (!payload?.variant_text_templates) return payload;
+    const templates = payload.variant_text_templates;
+    function decode(ref) {
+      const template = templates[ref?.template], values = ref?.values;
+      if (ref?.$variant_text !== 1 || !template || !Array.isArray(values)) throw new Error("装备描述模板不完整，请刷新目录。");
+      const used = new Set();
+      function parameter(index) {
+        if (!Number.isInteger(index) || index < 0 || index >= values.length) throw new Error("装备描述参数无效。");
+        used.add(index); return values[index];
+      }
+      function visit([kind, value]) {
+        if (kind === "c") return value;
+        if (kind === "v") return parameter(value);
+        if (kind === "s") return value.map(part => typeof part === "number" ? String(parameter(part)) : part).join("");
+        if (kind === "l") return value.map(visit);
+        if (kind === "d") return Object.fromEntries(value.map(([key, row]) => [key, visit(row)]));
+        throw new Error("装备描述模板格式无效。");
+      }
+      const result = visit(template);
+      if (used.size !== values.length) throw new Error("装备描述参数数量不匹配。");
+      return result;
+    }
+    function item(row) {
+      return {...row, variants: (row.variants || []).map(variant => {
+        if (!variant.text_reference) return variant;
+        const {text_reference, ...rest} = variant;
+        return {...rest, ...decode(text_reference)};
+      })};
+    }
+    const {variant_text_templates, ...result} = payload;
+    if (result.items) result.items = result.items.map(item);
+    if (result.groups) result.groups = Object.fromEntries(Object.entries(result.groups).map(([key, rows]) => [key, rows.map(item)]));
+    if (result.embellishment_options) result.embellishment_options = Object.fromEntries(Object.entries(result.embellishment_options).map(([key, row]) => [key, item(row)]));
+    return result;
+  }
   function preferredItems(items) {
     const selected = new Map();
     for (const item of items || []) {
@@ -18,6 +54,7 @@
   }
 
   function filter(payload, {query = "", source = "all", excludedSources = [], excludedStats = [], page = 1, pageSize = 60} = {}) {
+    payload = expandTexts(payload);
     const search = String(query).trim().toLowerCase();
     const numericId = /^\d+$/.test(search) ? Number(search) : null;
     const excluded = new Set(excludedSources.flatMap(key => payload.source_groups?.[key] || []));
@@ -45,6 +82,7 @@
   }
 
   function selectEnhancements(payload, variantId) {
+    payload = expandTexts(payload);
     const keys = payload.embellishments_by_equipment?.[String(variantId || "")] || [];
     const options = payload.embellishment_options || {};
     return {...payload.groups, embellishments: keys.map(key => options[key]).filter(Boolean)};
@@ -57,6 +95,7 @@
       if (cached && (cached.pending || now() - cached.at < ttlMs)) return cached.promise;
       const entry = {pending: true, at: now()};
       entry.promise = Promise.resolve().then(() => fetchJson(url)).then(payload => {
+        payload = expandTexts(payload);
         const complete = kind === "enhancements"
           ? ["embellishments", "gems", "enchants"].every(key => Array.isArray(payload?.groups?.[key]))
             && payload.embellishment_options && payload.embellishments_by_equipment
@@ -79,5 +118,5 @@
       return entry.promise;
     };
   }
-  window.WowGearCatalog = {filter, selectEnhancements, createLoader};
+  window.WowGearCatalog = {filter, selectEnhancements, createLoader, expandTexts};
 })();

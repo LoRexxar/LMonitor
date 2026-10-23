@@ -743,6 +743,7 @@
       spec: state.specName,
       slot: requestedSlot,
       snapshot: "1",
+      text_format: "1",
     });
     const source = els.source_filter.value;
     const query = els.search_input.value.trim();
@@ -931,7 +932,7 @@
     const variantId = entry?.variant?.id || "";
     els.embellishment_list.innerHTML = els.gem_list.innerHTML = els.enchant_list.innerHTML = '<div class="gear-option-empty">正在读取兼容选项…</div>';
     const identity = [state.className, state.specName, state.selectedSlot].join(":");
-    const params = new URLSearchParams({class: state.className, spec: state.specName, slot: state.selectedSlot, snapshot: "1"});
+    const params = new URLSearchParams({class: state.className, spec: state.specName, slot: state.selectedSlot, snapshot: "1", text_format: "1"});
     const current = () => requestId === enhancementRequestId
       && identity === [state.className, state.specName, state.selectedSlot].join(":")
       && String(variantId) === String(selectedEntry()?.variant?.id || "");

@@ -26,8 +26,13 @@ def _digest(value):
 
 
 def _state(row):
-    return {field.attname: deepcopy(getattr(row, field.attname))
-            for field in row._meta.concrete_fields} if row else None
+    if row is None:
+        return None
+    value = {field.attname: deepcopy(getattr(row, field.attname))
+             for field in row._meta.concrete_fields if field.name != 'variant_text_templates'}
+    if isinstance(row, WowItemVariantSnapshot):
+        value['effects_json'] = row.effects_data
+    return value
 
 
 def _require(condition, message):
@@ -290,7 +295,8 @@ def import_difficulty_variant(*, rule, payload, tooltip_evidence, item_id,
     frozen = dict(season_id=season.pk, batch=season.gear_batch_key, item=_state(item), variant=_state(existing))
     before_hash = _digest(frozen)
     _require(expected_before_hash is None or expected_before_hash == before_hash, 'stale before hash')
-    _require(existing is None or all(getattr(existing, k) == v for k, v in fields.items()),
+    _require(existing is None or all((existing.effects_data if k == 'effects_json' else getattr(existing, k)) == v
+                                    for k, v in fields.items()),
              'conflicting dedicated variant facts')
     result = dict(status='noop' if existing else 'dry_run', variant_key=key,
                   variant_id=existing.pk if existing else None, before_hash=before_hash,
@@ -317,7 +323,8 @@ def import_difficulty_variant(*, rule, payload, tooltip_evidence, item_id,
         _require(current is not None and current.pk == season.pk and locked_season.is_active
                  and locked_season.gear_batch_key == season.gear_batch_key, 'active season/batch changed')
         saved = WowItemVariantSnapshot.objects.get(pk=locked_variant.pk)
-        _require(all(getattr(saved, k) == v for k, v in fields.items()), 'variant readback mismatch')
+        _require(all((saved.effects_data if k == 'effects_json' else getattr(saved, k)) == v
+                     for k, v in fields.items()), 'variant readback mismatch')
         locked_item.refresh_from_db()
         _require(_state(locked_item) == frozen['item'], 'base item changed')
         if sync_effects:

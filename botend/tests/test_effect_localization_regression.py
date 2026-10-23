@@ -28,7 +28,7 @@ class EffectLocalizationRegressionTests(TestCase):
         self.backup = Path(self.temp.name) / 'before.json'
         self.row = WowItemVariantSnapshot.objects.select_related('item').get(
             item__item_id=281029, variant_key='ptr-kithix-champion-1')
-        self.original = deepcopy(self.row.effects_json)
+        self.original = deepcopy(self.row.effects_data)
 
     def apply(self):
         return import_localization(self.localization, apply=True, backup_path=self.backup)
@@ -39,7 +39,7 @@ class EffectLocalizationRegressionTests(TestCase):
         from botend.services.wow_data_update import item_payload, publish, update_lease
         self.apply()
         self.row.refresh_from_db()
-        original = deepcopy(self.row.effects_json)
+        original = deepcopy(self.row.effects_data)
         state, _ = WowDataUpdateState.objects.get_or_create(branch='ptr')
         value = variant_payload(self.row)
         item = item_payload(self.row.item)
@@ -56,14 +56,14 @@ class EffectLocalizationRegressionTests(TestCase):
             with update_lease() as (task, heartbeat):
                 publish(bundle, version, state, run, task)
             self.row.refresh_from_db()
-            self.assertEqual(self.row.effects_json, expected if expected is not None else incoming)
+            self.assertEqual(self.row.effects_data, expected if expected is not None else incoming)
             run.refresh_from_db()
             self.assertEqual(run.status, 'published')
 
     def test_cached_tooltip_and_real_catalog_upsert_preserve_and_accept_new_facts(self):
         self.apply()
         self.row.refresh_from_db()
-        trusted = deepcopy(self.row.effects_json)
+        trusted = deepcopy(self.row.effects_data)
         source = CurrentGearCatalogSource(cache_dir=self.temp.name)
         cache = source._tooltip_cache_directory(self.row.game_build)
         cache.mkdir(parents=True)
@@ -82,7 +82,7 @@ class EffectLocalizationRegressionTests(TestCase):
                 item=self.row.item, variant_key=self.row.variant_key,
                 defaults=importer._variant_defaults(value, self.row.game_build))
             result.refresh_from_db()
-            self.assertEqual(result.effects_json, expected if expected is not None else incoming)
+            self.assertEqual(result.effects_data, expected if expected is not None else incoming)
 
 
 class DifficultyImmutabilityRegressionTests(TestCase):

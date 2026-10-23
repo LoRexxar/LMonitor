@@ -3093,6 +3093,7 @@ class WowItemSnapshot(models.Model):
     name_zh = models.CharField(max_length=255, default="", blank=True, help_text="中文名称")
     description = models.TextField(default="", blank=True, help_text="英文描述")
     description_zh = models.TextField(default="", blank=True, help_text="中文描述")
+    variant_text_templates = models.JSONField(default=dict, blank=True, help_text="变体共享的无损文本模板")
     icon = models.CharField(max_length=255, default="", blank=True, help_text="图标名称")
     quality = models.IntegerField(default=0, blank=True, help_text="品质等级")
     source = models.CharField(max_length=32, default="wowhead", blank=True, help_text="数据源")
@@ -3171,7 +3172,7 @@ class WowItemVariantSnapshot(models.Model):
     socket_count = models.PositiveSmallIntegerField(default=0)
     stats_json = models.JSONField(default=dict, blank=True)
     effects_json = models.JSONField(default=list, blank=True)
-    effect_values = models.JSONField(default=dict, blank=True, help_text="中央特效引用与此变体参数；effects_json 保留采集原文兼容")
+    effect_values = models.JSONField(default=dict, blank=True, help_text="中央特效翻译引用与此变体参数")
     source_json = models.JSONField(default=list, blank=True)
     crafting_options = models.JSONField(default=dict, blank=True)
     unique_group = models.CharField(max_length=128, default='', blank=True)
@@ -3180,6 +3181,12 @@ class WowItemVariantSnapshot(models.Model):
     metadata = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def effects_data(self):
+        """业务读取原始特效；数据库字段可以是旧列表或共享模板引用。"""
+        from botend.services.variant_text import stored_effects
+        return stored_effects(self)
 
     class Meta:
         db_table = 'wow_item_variant_snapshot'

@@ -137,7 +137,7 @@ def variant_payload(row):
         'unique_group', 'max_equipped', 'is_intrinsic_embellishment', 'metadata',
     )}
     payload.update(key=row.variant_key, type=row.variant_type, stats=deepcopy(row.stats_json),
-                   effects=deepcopy(row.effects_json), sources=deepcopy(row.source_json))
+                   effects=deepcopy(row.effects_data), sources=deepcopy(row.source_json))
     return payload
 
 
@@ -582,10 +582,12 @@ def publish(bundle, version, state, run, task):
                 for field in ('stats_json', 'source_json', 'crafting_options', 'compatible_slots'):
                     if not defaults.get(field):
                         defaults[field] = deepcopy(getattr(row, field))
-                defaults['effects_json'] = merge_effects(row.effects_json, defaults.get('effects_json'),
+                defaults['effects_json'] = merge_effects(row.effects_data, defaults.get('effects_json'),
                     same_coordinates=(row.item_level == defaults['item_level']
                                       and sorted(row.bonus_ids or []) == sorted(defaults['bonus_ids'] or [])))
                 defaults['metadata'] = {**(row.metadata or {}), **defaults['metadata']}
+                from botend.services.variant_text import prepare_effects
+                defaults['effects_json'] = prepare_effects(item, defaults['effects_json'])
                 fields = [field for field, value in defaults.items() if getattr(row, field) != value]
                 if fields:
                     for field in fields:
@@ -595,6 +597,8 @@ def publish(bundle, version, state, run, task):
             else:
                 if not (defaults['stats_json'] or defaults['effects_json'] or defaults['metadata'].get('primary_stat_values')):
                     continue
+                from botend.services.variant_text import prepare_effects
+                defaults['effects_json'] = prepare_effects(item, defaults['effects_json'])
                 WowItemVariantSnapshot.objects.create(season=season, batch_key=batch, item=item,
                     variant_key=variant['key'], **defaults)
                 changed_variants += 1

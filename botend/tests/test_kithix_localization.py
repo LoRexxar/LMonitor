@@ -55,7 +55,7 @@ class KithixLocalizationTests(TestCase):
         old.refresh_from_db()
         self.assertEqual(old_fields, (old.name, old.metadata, old.updated_at))
         for variant in WowItemVariantSnapshot.objects.filter(item__item_id__in=ITEM_IDS):
-            self.assertNotRegex(variant.effects_json[0]['description_zh'], r'[A-Za-z]{3,}|\$')
+            self.assertNotRegex(variant.effects_data[0]['description_zh'], r'[A-Za-z]{3,}|\$')
 
     def test_handbook_is_current_season_and_has_chinese_tooltip_without_ptr_badge(self):
         self.apply()
@@ -140,6 +140,7 @@ class KithixLocalizationTests(TestCase):
         for variant in WowItemVariantSnapshot.objects.filter(item__item_id__in=item_ids, variant_key__startswith='ptr-kithix-'):
             variant.game_build = '12.1.5.70077'
             variant.metadata = {'ptr_preview': True, 'tooltip_source': {'provider': 'wowhead'}}
+            variant.effects_json = variant.effects_data
             for effect in variant.effects_json:
                 effect.pop('game_build', None)
             variant.save(update_fields=['game_build', 'metadata', 'effects_json'])
@@ -178,7 +179,7 @@ class KithixLocalizationTests(TestCase):
 
     def test_unknown_effect_rejects_whole_update_and_failure_rolls_back(self):
         variant = WowItemVariantSnapshot.objects.filter(item__item_id=281029).first()
-        effects = deepcopy(variant.effects_json)
+        effects = deepcopy(variant.effects_data)
         effects[0]['spell_id'] = 99999999
         variant.effects_json = effects
         variant.save()
@@ -198,6 +199,6 @@ class KithixLocalizationTests(TestCase):
 
     def test_changed_translation_tokens_are_rejected(self):
         _payload, _row, _catalog, _items, spells, _digest = load_localization(self.artifact)
-        effect = WowItemVariantSnapshot.objects.filter(item__item_id=281029).first().effects_json[0]
+        effect = WowItemVariantSnapshot.objects.filter(item__item_id=281029).first().effects_data[0]
         with self.assertRaisesRegex(ValueError, '变量不一致'):
             localize_effect(effect, spells[effect['spell_id']]['Description_lang'] + '$s9', '12.1.5.70077')
