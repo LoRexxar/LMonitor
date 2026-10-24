@@ -1,10 +1,16 @@
 from copy import deepcopy
 from datetime import timedelta
 import re
+import shutil
+import weakref
+from unittest.mock import patch
+
+from django.conf import settings
+from django.db.models.query import QuerySet
 
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, connection, transaction
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 
@@ -35,6 +41,176 @@ class SpecDetailRankingMonitorDifferentialUpdateTests(TestCase):
         self.assertTrue(sql.startswith('UPDATE '), sql)
         assignments = sql.split(' SET ', 1)[1].rsplit(' WHERE ', 1)[0]
         return set(re.findall(r'"([a-z_]+)" = CASE', assignments))
+
+    def _memory_rows(self, model, count=1003):
+        now = timezone.now() - timedelta(days=1)
+        rows = []
+        for index in range(count):
+            row = self._record(report_code=f'memory-{index}', fight_id=index + 1,
+                               dps=100 + index, last_updated=now)
+            if model is SpecDungeonRanking:
+                row = model(**{name: getattr(row, name) for name in (
+                    *SpecDetailRankingMonitor.DUNGEON_KEY_FIELDS, 'season_id', 'dps',
+                    'talents_json', 'gear_json', 'last_updated',
+                )}, dungeon_id=100, dungeon_name='Dungeon')
+            row.gear_json = [{'item_id': index, 'source_detail': 'x' * 4096}]
+            rows.append(row)
+        model.objects.bulk_create(rows, batch_size=500)
+        return rows
+
+    def test_existing_reads_are_bounded_and_old_json_is_released(self):
+        for model in (SpecRaidRanking, SpecDungeonRanking):
+            with self.subTest(model=model.__name__):
+                incoming = self._memory_rows(model)
+                for row in incoming:
+                    row.dps += 1
+                live_payloads = weakref.WeakSet()
+                peak = 0
+                original_from_db = model.from_db
+
+                def tracked_from_db(cls, db, field_names, values):
+                    nonlocal peak
+                    row = original_from_db(db, field_names, values)
+                    if 'gear_json' in field_names:
+                        live_payloads.add(row)
+                        peak = max(peak, len(live_payloads))
+                    return row
+
+                # Observe actual materialization; never replace the ORM/database.
+                with patch.object(model, 'from_db', classmethod(tracked_from_db)), \
+                        CaptureQueriesContext(connection) as queries:
+                    result = self._sync(incoming, model)
+                reads = [q['sql'] for q in queries if q['sql'].startswith('SELECT ')
+                         and model._meta.db_table in q['sql']]
+                full_reads = [sql for sql in reads if 'gear_json' in sql]
+                identity_reads = [sql for sql in reads if 'gear_json' not in sql]
+                unbounded = [sql for sql in full_reads if not re.search(r'\bLIMIT (\d+)\b', sql)
+                             or int(re.search(r'\bLIMIT (\d+)\b', sql)[1]) > 500]
+                self.assertTrue(full_reads)
+                self.assertEqual(unbounded, [], 'Old JSON SELECT must have LIMIT <= 500')
+                # Freeze the identity set once; unordered OFFSET pages are unsafe.
+                self.assertEqual(len(identity_reads), 1)
+                self.assertNotIn('talents_json', identity_reads[0])
+                self.assertNotIn(' OFFSET ', identity_reads[0])
+                if not model._meta.ordering:
+                    self.assertFalse(any(' ORDER BY ' in sql for sql in reads), reads)
+                self.assertLessEqual(peak, 500, 'Previous batches still retain old JSON models')
+                self.assertEqual(len(live_payloads), 0)
+                self.assertEqual(result, {'created': 0, 'updated': 1003, 'deleted': 0, 'unchanged': 0})
+
+    def test_bulk_update_calls_are_bounded_and_do_not_retain_unchanged_json(self):
+        for model in (SpecRaidRanking, SpecDungeonRanking):
+            with self.subTest(model=model.__name__):
+                incoming = self._memory_rows(model)
+                for row in incoming:
+                    row.dps += 1
+                before = [deepcopy(row.__dict__) for row in incoming]
+                calls = []
+                original_bulk_update = QuerySet.bulk_update
+
+                def tracked_bulk_update(queryset, objs, fields, batch_size=None):
+                    if queryset.model is model:
+                        calls.append((len(objs), tuple(fields),
+                                      any(obj.gear_json or obj.talents_json for obj in objs)))
+                    return original_bulk_update(queryset, objs, fields, batch_size=batch_size)
+
+                with patch.object(QuerySet, 'bulk_update', tracked_bulk_update):
+                    result = self._sync(incoming, model)
+                self.assertTrue(calls)
+                self.assertLessEqual(max(size for size, _, _ in calls), 500, calls)
+                self.assertEqual(sum(size for size, _, _ in calls), 1003)
+                self.assertTrue(all(fields == ('dps', 'last_updated') for _, fields, _ in calls), calls)
+                self.assertFalse(any(retained_json for _, _, retained_json in calls), calls)
+                for row, state in zip(incoming, before):
+                    # ModelState has identity equality; compare its state separately.
+                    self.assertEqual(row._state.__dict__, state.pop('_state').__dict__)
+                    self.assertEqual({k: v for k, v in row.__dict__.items() if k != '_state'}, state)
+                self.assertEqual(result['updated'], 1003)
+                self.assertEqual(list(model.objects.order_by('pk').values_list('dps', flat=True)),
+                                 [row.dps for row in incoming])
+
+    def test_late_invalid_input_and_storage_rejection_precede_all_dml(self):
+        from botend.services.wcl_storage_guard import WCLStorageError
+
+        rows = self._memory_rows(SpecRaidRanking, count=503)
+        stale = self._record(report_code='stale', fight_id=9999, dps=1,
+                             last_updated=timezone.now())
+        stale.save()
+        before = list(SpecRaidRanking.objects.order_by('pk').values())
+        for row in rows:
+            row.dps += 1
+        rows.append(self._record(report_code='new', fight_id=9998, dps=1,
+                                 last_updated=timezone.now()))
+        rows[-1].kill_time = 'invalid-after-first-batch'
+        with CaptureQueriesContext(connection) as queries:
+            with self.assertRaises((ValidationError, ValueError)), transaction.atomic():
+                self._sync(rows)
+        self.assertEqual(self._dml(queries), [])
+        rows[-1].kill_time = 100000
+        high = shutil.disk_usage(settings.BASE_DIR).total * 2
+        with override_settings(WCL_MIN_FREE_DISK_BYTES=high), CaptureQueriesContext(connection) as queries:
+            with self.assertRaises(WCLStorageError), transaction.atomic():
+                self._sync(rows)
+        self.assertEqual(self._dml(queries), [])
+        self.assertEqual(list(SpecRaidRanking.objects.order_by('pk').values()), before)
+
+    def test_caller_transaction_rolls_back_after_a_later_update_chunk(self):
+        rows = self._memory_rows(SpecRaidRanking, count=503)
+        before = list(SpecRaidRanking.objects.order_by('pk').values())
+        incoming = deepcopy(rows[:-1])  # Leave one stale row for deletion.
+        for row in incoming:
+            row.dps += 1
+        incoming[-1].dps = None  # NOT NULL failure after the first 500 updates.
+        incoming.append(self._record(report_code='new', fight_id=9998, dps=1,
+                                     last_updated=timezone.now()))
+        original_bulk_update = QuerySet.bulk_update
+        completed_chunks = []
+
+        def tracked_bulk_update(queryset, objs, fields, batch_size=None):
+            result = original_bulk_update(queryset, objs, fields, batch_size=batch_size)
+            if queryset.model is SpecRaidRanking:
+                completed_chunks.append(len(objs))
+            return result
+
+        with patch.object(QuerySet, 'bulk_update', tracked_bulk_update), \
+                CaptureQueriesContext(connection) as queries:
+            with self.assertRaises(IntegrityError), transaction.atomic():
+                self._sync(incoming)
+        self.assertEqual(completed_chunks, [500])
+        self.assertTrue(any(sql.startswith('DELETE ') for sql in self._dml(queries)))
+        self.assertTrue(any(sql.startswith('INSERT ') for sql in self._dml(queries)))
+        self.assertEqual(list(SpecRaidRanking.objects.order_by('pk').values()), before)
+
+    def test_duplicate_survivor_and_stale_rows_across_read_pages(self):
+        for model in (SpecRaidRanking, SpecDungeonRanking):
+            with self.subTest(model=model.__name__):
+                rows = self._memory_rows(model, count=503)
+                duplicate = deepcopy(rows[0])
+                duplicate.pk = None
+                duplicate.dps = 99999  # Must not introduce DPS ordering.
+                duplicate.save()
+                duplicate_stale = deepcopy(rows[-1])
+                duplicate_stale.pk = None
+                duplicate_stale.save()
+                scope = {'season_id': 1, 'boss_id': 100, 'difficulty': 5} if model is SpecRaidRanking else {
+                    'season_id': 1, 'dungeon_id': 100,
+                }
+                # Read exactly the old scope query, not .first() (which can add PK
+                # ordering), to establish the original duplicate survivor.
+                expected_survivor = next(row.pk for row in model.objects.filter(**scope)
+                                         if row.report_code == rows[0].report_code)
+                incoming = deepcopy(rows[:-1])
+                repeated = deepcopy(incoming[0])
+                repeated.dps = 88888
+                incoming.append(repeated)
+                with transaction.atomic():
+                    result = self._sync(incoming, model)
+                self.assertEqual(result, {'created': 0, 'updated': 0, 'deleted': 3, 'unchanged': 502})
+                self.assertEqual(model.objects.get(report_code=rows[0].report_code).pk, expected_survivor)
+                self.assertFalse(model.objects.filter(report_code=rows[-1].report_code).exists())
+                with CaptureQueriesContext(connection) as queries:
+                    self.assertEqual(self._sync(incoming, model)['unchanged'], 502)
+                self.assertEqual(self._dml(queries), [])
 
     def test_numeric_scalar_strings_round_trip_without_repeated_dml(self):
         old_time = timezone.now() - timedelta(days=1)
