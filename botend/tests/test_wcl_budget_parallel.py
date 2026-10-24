@@ -23,6 +23,100 @@ class ParallelBudgetTests(TransactionTestCase):
     def request(self, post):
         return budget.graphql_request('parallel', 'token', QUERY, {'code': 'Report'}, post=post)
 
+    def test_fresh_window_measures_every_success_without_extra_http(self):
+        calls = []
+        def post(*args, **kwargs):
+            calls.append(kwargs['json']['query'])
+            self.assertIn('_wclBudget', calls[-1])
+            return Response({'data': {**DATA, '_wclBudget': quota(
+                spent=100 + len(calls), cost=1, limit=1000)}})
+        for _ in range(25):
+            self.assertEqual(self.request(post).error, '')
+        self.row.refresh_from_db()
+        self.assertEqual(len(calls), 25)
+        self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (126, 25, 25))
+        self.assertEqual(self.row.costs[self.key], 40)
+
+    def test_measured_success_releases_only_its_proven_overestimate(self):
+        self.row.spent = 750
+        self.row.save()
+        response = Response({'data': {**DATA, '_wclBudget': quota(spent=751, cost=1, limit=1000)}})
+        self.assertEqual(self.request(lambda *a, **k: response).error, '')
+        self.row.refresh_from_db()
+        # The inline quota may omit the current request: keep its actual cost.
+        self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (752, 1, 1))
+        self.assertEqual(self.row.costs[self.key], 40)  # Do not lower learned safety margins.
+        sent = Mock(return_value=Response({'data': DATA}))
+        self.assertEqual(self.request(sent).error, '')
+        sent.assert_called_once()
+        self.row.refresh_from_db()
+        self.assertEqual(self.row.spent, 792)
+
+    def test_reverse_refunds_preserve_external_usage_and_completed_baselines(self):
+        early, _, _ = budget._reserve(self.row.account_key, 'early', self.key, False)
+        late, _, _ = budget._reserve(self.row.account_key, 'late', self.key, False)
+        self.assertEqual((early.baseline, late.baseline), (0, 0))
+        budget._settle(self.row.account_key, 'late', self.key,
+                       {'data': {**DATA, '_wclBudget': quota(spent=600, cost=2, limit=1000)}})
+        newest, _, deferred = budget._reserve(self.row.account_key, 'newest', self.key, False)
+        self.assertIsNone(deferred)
+        self.assertEqual(newest.baseline, 2)
+        budget._settle(self.row.account_key, 'early', self.key,
+                       {'data': {**DATA, '_wclBudget': quota(spent=101, cost=1, limit=1000)}})
+        self.row.refresh_from_db()
+        self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (643, 43, 3))
+        budget._settle(self.row.account_key, 'newest', self.key,
+                       {'data': {**DATA, '_wclBudget': quota(spent=602, cost=3, limit=1000)}})
+        self.row.refresh_from_db()
+        self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (606, 6, 6))
+        self.assertEqual(self.row.reservations.count(), 0)
+
+    def test_graphql_error_with_quota_does_not_refund(self):
+        result = self.request(lambda *a, **k: Response({
+            'data': {'_wclBudget': quota(spent=101, cost=1, limit=1000)},
+            'errors': [{'message': 'failed'}]}))
+        self.assertEqual(result.error, 'graphql')
+        self.row.refresh_from_db()
+        self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (141, 40, 40))
+
+    def test_missing_or_invalid_actual_cost_never_releases_reservation(self):
+        for actual in (None, -1, float('nan'), float('inf'), 'invalid'):
+            with self.subTest(actual=actual):
+                self.row.spent = 100
+                self.row.charged = self.row.completed = 0
+                self.row.save()
+                result = self.request(lambda *a, **k: Response({'data': {
+                    **DATA, '_wclBudget': quota(spent=0, cost=actual, limit=1000)}}))
+                self.assertEqual(result.error, '')
+                self.row.refresh_from_db()
+                self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (140, 40, 40))
+
+    def test_zero_actual_cost_refunds_once_without_erasing_existing_spent(self):
+        reservation, _, _ = budget._reserve(self.row.account_key, 'zero', self.key, False)
+        payload = {'data': {**DATA, '_wclBudget': quota(spent=0, cost=0, limit=1000)}}
+        self.assertIsNone(budget._settle(self.row.account_key, reservation.request_id, self.key, payload))
+        self.assertEqual(budget._settle(self.row.account_key, reservation.request_id, self.key, payload).error,
+                         'budget_wait')
+        self.row.refresh_from_db()
+        self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (100, 0, 0))
+
+    def test_event_workloads_learn_independent_costs(self):
+        from botend.services.raid_burst_events import PAGE
+        learned = {}
+        for kind, actual in [('Casts', 8), ('Buffs', 2), ('CombatantInfo', 40)]:
+            with self.subTest(kind=kind):
+                variables = {'code': 'Report', 'ids': [1], 'actor': 2,
+                             'start': 0.0, 'end': 1000.0, 'kind': kind}
+                sent = Mock(return_value=Response({'data': {
+                    **DATA, '_wclBudget': quota(spent=100, cost=actual, limit=1000)}}))
+                self.assertEqual(budget.graphql_request('parallel', 'token', PAGE, variables, post=sent).error, '')
+                self.assertIn('_wclBudget', sent.call_args.kwargs['json']['query'])
+                learned[budget._query_info(PAGE, variables)[0]] = actual * 1.25
+        self.assertEqual(len(learned), 3)
+        self.row.refresh_from_db()
+        for key, cost in learned.items():
+            self.assertEqual(self.row.costs[key], cost)
+
     def test_known_requests_overlap_and_late_quota_preserves_spent(self):
         def first(*args, **kwargs):
             self.assertFalse(connection.in_atomic_block)
@@ -104,8 +198,8 @@ class ParallelBudgetTests(TransactionTestCase):
         self.assertEqual(result.error, 'budget_wait')
         self.row.refresh_from_db()
         self.assertEqual((self.row.spent, self.row.charged, self.row.completed), before)
-        self.assertGreaterEqual(self.row.spent, 180)
-        self.assertTrue(self.row.reservations.filter(request_id='crashed').exists())
+        self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (141, 41, 1))
+        self.assertEqual(self.row.reservations.get(request_id='crashed').cost, 40)
 
     def test_reset_generation_fences_late_old_window_response(self):
         old, _, _ = budget._reserve(self.row.account_key, 'old-window', self.key, False)
@@ -152,7 +246,9 @@ class ParallelBudgetTests(TransactionTestCase):
         self.assertEqual(self.request(first).error, '')
         self.row.refresh_from_db()
         self.assertEqual(self.row.limit_per_hour, 900)
-        self.assertGreaterEqual(self.row.spent, 720)
+        # Keep the 600-point upstream observation plus both actual costs,
+        # not the early request's disproven 40-point reservation.
+        self.assertEqual((self.row.spent, self.row.charged, self.row.completed), (685, 85, 85))
         self.assertEqual(self.row.costs[self.key], 100)
         denied = Mock()
         self.assertEqual(self.request(denied).error, 'budget_wait')

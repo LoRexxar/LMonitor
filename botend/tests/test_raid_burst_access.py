@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import AnonymousUser, User
 from django.contrib.staticfiles import finders
 from django.template.loader import render_to_string
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import resolve, reverse
 
 from botend.portal.raid_burst import PortalRaidBurstView
@@ -18,9 +18,10 @@ from botend.services.raid_burst_aggregation import build_groups, SUPPORTED
 from botend.portal.views import PortalHomeView
 
 
-class RaidBurstAccessTests(SimpleTestCase):
+class RaidBurstAccessTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
+        self.user = User.objects.create(username="普通测试用户", is_staff=False)
         self.url = reverse('portal_raid_burst')
         self.root = Path(tempfile.mkdtemp(prefix='raid-burst-access-'))
         override = override_settings(RAID_BURST_SNAPSHOT_ROOT=self.root)
@@ -39,7 +40,7 @@ class RaidBurstAccessTests(SimpleTestCase):
 
     def request(self, authenticated=False, method='get', scope='1/Warrior/Arms/5/3470'):
         request = getattr(self.factory, method)(self.url, {'scope': scope} if authenticated else {})
-        request.user = User(username='普通测试用户', is_staff=False) if authenticated else AnonymousUser()
+        request.user = self.user if authenticated else AnonymousUser()
         return request
 
     def test_anonymous_cannot_read_page_or_payload(self):

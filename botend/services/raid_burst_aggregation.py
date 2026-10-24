@@ -18,14 +18,15 @@ FIELDS = ('report_code', 'fight_id', 'character_name', 'realm', 'region', 'class
           'spec_name', 'boss_id', 'difficulty', 'dps')
 
 
-def normalize(raw, row, rank, config):
+def eligibility(raw, row, config):
+    """Evaluate complete eligibility evidence before fetching any cast pages."""
     if raw.get('invalid'):
         return None, 'invalid'
     fight = next(f for f in raw['report']['fights'] if f['id'] == row['fight_id'])
     actor = raw['actor']
     start, end = fight['startTime'], fight['endTime']
     streams = raw['streams']
-    if not all(streams.get(name, {}).get('complete') for name in ('casts', 'buffs', 'combatants')):
+    if not all(streams.get(name, {}).get('complete') for name in ('buffs', 'combatants')):
         raise ValueError('禁止用未完成的事件流聚合')
     info = [e for e in streams['combatants']['data']
             if e.get('sourceID') == actor['id'] and e.get('fight') == fight['id']
@@ -61,6 +62,18 @@ def normalize(raw, row, rank, config):
             merged.append(window)
     if not merged:
         return None, 'no_lust'
+    return {'fight': fight, 'actor': actor, 'start': start, 'end': end, 'merged': merged}, None
+
+
+def normalize(raw, row, rank, config):
+    eligible, reason = eligibility(raw, row, config)
+    if reason:
+        return None, reason
+    fight, actor = eligible['fight'], eligible['actor']
+    start, end, merged = eligible['start'], eligible['end'], eligible['merged']
+    streams = raw['streams']
+    if not streams.get('casts', {}).get('complete'):
+        raise ValueError('禁止用未完成的事件流聚合')
     lust = merged[0]['start']
     phases = sorted([{'id': p['id'], 'start': round((p['startTime'] - start) / 1000, 3)}
                      for p in fight.get('phaseTransitions') or []], key=lambda p: p['start'])
@@ -169,7 +182,8 @@ def build_scope(rows, scope, config, root, guard, client):
         if identity is None:
             counts['invalid'] += 1
             continue
-        raw = fetch_events(root, row, client, guard)
+        raw = fetch_events(root, row, client, guard,
+                           exclude=lambda candidate: eligibility(candidate, row, config)[1])
         sample, reason = normalize(raw, row, rank, config)
         if reason:
             counts[reason] += 1

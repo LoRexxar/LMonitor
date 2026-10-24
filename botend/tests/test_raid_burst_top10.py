@@ -18,14 +18,13 @@ class CandidateClient(EventClient):
         self.rows = {r['report_code']: r for r in rows}
         self.modes = modes or {}
 
-    def _wcl_graphql(self, query, variables):
+    def _response(self, variables):
         mode = self.modes.get(variables['code'])
         if mode in ('permission', 'budget_wait'):
-            self.calls.append(dict(variables))
             self._wcl_last_error = mode
             return None
         self.pi, self.no_lust = mode == 'pi', mode == 'no_lust'
-        result = super()._wcl_graphql(query, variables)
+        result = super()._response(variables)
         assert result is not None
         if mode == 'initial_pi' and variables.get('kind') == 'CombatantInfo':
             result['reportData']['report']['page']['data'][0]['auras'] = [{'ability': 10060}]

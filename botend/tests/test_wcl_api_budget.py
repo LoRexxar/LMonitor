@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 import requests
 from django.db import connection
-from django.test import TransactionTestCase, override_settings
+from django.test import SimpleTestCase, TransactionTestCase, override_settings
 from django.utils import timezone
 
 from botend.models import WclApiBudget
@@ -33,6 +33,29 @@ class Response:
         return self._payload
 
 
+class QueryCostShapeTests(SimpleTestCase):
+    def test_event_enum_costs_split_without_partitioning_report_or_actor_values(self):
+        from botend.services.raid_burst_events import PAGE
+        variables = {'code': 'Report', 'ids': [1], 'actor': 2, 'start': 0.0,
+                     'end': 1000.0, 'kind': 'Casts'}
+        keys = {kind: budget._query_info(PAGE, {**variables, 'kind': kind})[0]
+                for kind in ('Casts', 'Buffs', 'CombatantInfo')}
+        self.assertEqual(len(set(keys.values())), 3)
+        self.assertEqual(keys['Casts'], budget._query_info(PAGE, {
+            **variables, 'code': 'PrivateReport', 'ids': [9], 'actor': 77,
+            'start': 500.0, 'end': 2000.0})[0])
+        self.assertNotEqual(keys['Casts'], budget._query_info(PAGE, {**variables, 'ids': [1, 2]})[0])
+        # Use declared enum type, not the caller's choice of variable name.
+        renamed = PAGE.replace('$kind', '$stream')
+        renamed_variables = {k: v for k, v in variables.items() if k != 'kind'}
+        self.assertNotEqual(
+            budget._query_info(renamed, {**renamed_variables, 'stream': 'Casts'})[0],
+            budget._query_info(renamed, {**renamed_variables, 'stream': 'Buffs'})[0])
+        # An unrelated scalar called kind must retain the private-value shape.
+        self.assertEqual(budget._query_info(QUERY, {'code': 'A', 'kind': 'Casts'})[0],
+                         budget._query_info(QUERY, {'code': 'B', 'kind': 'Buffs'})[0])
+
+
 @override_settings(WCL_V2_CONFIG={'client_id': 'shared-client', 'client_secret': 'not-real'})
 class WclBudgetTests(TransactionTestCase):
     def setUp(self):
@@ -50,7 +73,7 @@ class WclBudgetTests(TransactionTestCase):
     def request(self, post, client_id='shared-client', query=QUERY):
         return budget.graphql_request(client_id, 'not-real', query, {'code': 'Report'}, post=post)
 
-    def test_discover_actual_window_learn_cost_and_stop_adding_quota(self):
+    def test_discover_actual_window_and_measure_every_business_response(self):
         queries = []
 
         def post(url, **kwargs):
@@ -77,7 +100,7 @@ class WclBudgetTests(TransactionTestCase):
         self.assertIn('currentRequest', queries[0])
         self.assertNotIn('currentRequest {', queries[0])
         self.assertIn('_wclBudget', queries[1])
-        self.assertNotIn('rateLimitData', queries[2])
+        self.assertIn('rateLimitData', queries[2])
 
     def test_shared_reserve_blocks_second_instance_but_not_other_account(self):
         row = self.row(spent=14399)
@@ -202,7 +225,7 @@ class WclBudgetTests(TransactionTestCase):
         self.assertIsNone(first._wcl_retry_at)
         self.assertEqual(first._wcl_last_error, '')
 
-    def test_periodic_sync_and_request_shapes_are_bounded(self):
+    def test_inline_sync_and_request_shapes_are_bounded(self):
         self.row()
         calls = []
         def post(url, **kwargs):
@@ -212,14 +235,14 @@ class WclBudgetTests(TransactionTestCase):
             return Response({'data': data})
         self.request(post)
         self.request(post)
-        self.assertNotIn('rateLimitData', calls[-1])
+        self.assertIn('rateLimitData', calls[-1])
         row = WclApiBudget.objects.get()
         row.observed_at = self.now - timedelta(seconds=301)
         row.save()
         self.request(post)
         self.assertIn('_wclBudget', calls[-1])
         self.request(post)
-        self.assertNotIn('rateLimitData', calls[-1])
+        self.assertIn('rateLimitData', calls[-1])
         # Different batch cardinalities must not re-use a cheap scalar estimate.
         budget.graphql_request('shared-client', 'not-real', QUERY, {'code': 'Report', 'fightIDs': [1, 2]}, post=post)
         self.assertIn('_wclBudget', calls[-1])
