@@ -1,11 +1,14 @@
 """统计文件按范围发布；概览与详情共用一个原子替换的入口。"""
+from contextlib import nullcontext
 from pathlib import Path
 from datetime import date, datetime
 from decimal import Decimal
 import hashlib
 import json
 import re
+import time
 import uuid
+from utils.log import logger
 
 from botend.services.simc_benchmark_result_snapshot import _load
 from botend.services.stats_storage_codec import pack_detail, unpack_detail
@@ -38,28 +41,51 @@ def _summary(detail):
     return {key: detail[key] for key in fields if key in detail}
 
 
-def publish_projection(path, payload, write_json):
-    """Serialize both modules and GC through the same scope publication lock."""
+def publish_projection(path, payload, write_json, *, publication_guard=None):
+    """Stage immutable bodies before the short DB-fenced index/ledger commit.
+
+    The scope file lock still covers preparation, publication and rollback/GC.
+    Source and metadata fences are rechecked immediately before making staged
+    bodies visible; failed fences leave the old index untouched.
+    """
     from .spec_stats_retention import publication, record_publication, _disable
     path = Path(path)
+    guard = publication_guard if publication_guard is not None else nullcontext()
     if path.stem not in ('dungeon', 'raid'):
-        return write_json(path, payload)
+        with guard:
+            return write_json(path, payload)
+    prepared_started = time.monotonic()
     with publication(path.parent):
         from .simc_benchmark_result_snapshot import _load as load_previous
         previous = load_previous(path)
-        _publish_projection_locked(path, payload, write_json)
-        try:
-            record_publication(path.parent)
-        except (OSError, ValueError, TypeError, KeyError) as exc:
-            # Accounting failure must not turn an unrecorded publication into
-            # permission to prune. Restore last-good where one existed.
+        staged = []
+        def prepare(target, data):
+            if Path(target) == path:
+                staged.append(data)
+            else:
+                write_json(target, data)
+        _publish_projection_locked(path, payload, prepare)
+        prepared_at = time.monotonic()
+        with guard:
+            if staged:
+                if len(staged) != 1:
+                    raise ValueError('multiple staged publication indexes')
+                write_json(path, staged[0])
             try:
-                if previous is not None:
-                    from .simc_benchmark_result_snapshot import _write
-                    _write(path, previous)
-            finally:
-                _disable(path.parent, exc)
-            raise
+                record_publication(path.parent)
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                # Accounting failure must not turn an unrecorded publication into
+                # permission to prune. Restore last-good where one existed.
+                try:
+                    if previous is not None:
+                        from .simc_benchmark_result_snapshot import _write
+                        _write(path, previous)
+                finally:
+                    _disable(path.parent, exc)
+                raise
+        logger.info('[SpecStatsPublish] %s prepare_seconds=%.3f fenced_commit_seconds=%.3f',
+                    '/'.join(path.parts[-4:]), prepared_at - prepared_started,
+                    time.monotonic() - prepared_at)
 
 
 def _publish_projection_locked(path, payload, write_json):

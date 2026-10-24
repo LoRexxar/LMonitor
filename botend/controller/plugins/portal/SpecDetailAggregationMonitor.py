@@ -7,7 +7,7 @@
 import json
 import os
 import tempfile
-from contextlib import nullcontext
+from contextlib import nullcontext, contextmanager
 from functools import partial
 from decimal import Decimal
 from datetime import date, datetime
@@ -96,10 +96,13 @@ def publish_stats(path, payload, class_name, spec_name, *, cycle=None, legacy_se
     guard = (fenced_cycle(cycle, phases=('aggregating',)) if cycle else
              legacy_publication(legacy_season) if legacy_season else nullcontext())
     from botend.services.stats_talent_dependencies import publication_metadata_guard
-    with guard, publication_metadata_guard(class_name, payload.get('_talent_structure_token')):
-        publish_projection(path, payload, lambda target, data: atomic_dump_json(
-            target, data, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False,
-            separators=(',', ':')))
+    @contextmanager
+    def publication_fence():
+        with guard, publication_metadata_guard(class_name, payload.get('_talent_structure_token')):
+            yield
+    publish_projection(path, payload, lambda target, data: atomic_dump_json(
+        target, data, cls=DecimalEncoder, ensure_ascii=False, allow_nan=False,
+        separators=(',', ':')), publication_guard=publication_fence())
 
 
 class SpecDetailAggregationMonitor(BaseScan):
