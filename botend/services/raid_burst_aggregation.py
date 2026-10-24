@@ -12,10 +12,21 @@ from botend.services.raid_burst_snapshot import (
 
 ANALYSIS_VERSION = 1
 SAMPLE_LIMIT = 10
-SELECTION_POLICY = 'top-usable-unique-player-no-pi-v1'
+SELECTION_POLICY = 'top-usable-unique-player-no-external-pi-v2'
 LUST = {2825, 32182, 80353, 390386, 264667, 272678}
 FIELDS = ('report_code', 'fight_id', 'character_name', 'realm', 'region', 'class_name',
           'spec_name', 'boss_id', 'difficulty', 'dps')
+
+
+def pi_source(record, field):
+    """Resolve a positive actor ID without guessing or coercing missing facts."""
+    source = record.get(field)
+    if type(source) is not int or source <= 0:
+        return None
+    other = 'sourceID' if field == 'source' else 'source'
+    if other in record and (type(record[other]) is not int or record[other] != source):
+        return None
+    return source
 
 
 def eligibility(raw, row, config):
@@ -24,6 +35,8 @@ def eligibility(raw, row, config):
         return None, 'invalid'
     fight = next(f for f in raw['report']['fights'] if f['id'] == row['fight_id'])
     actor = raw['actor']
+    if type(actor.get('id')) is not int or actor['id'] <= 0:
+        return None, 'invalid'
     start, end = fight['startTime'], fight['endTime']
     streams = raw['streams']
     if not all(streams.get(name, {}).get('complete') for name in ('buffs', 'combatants')):
@@ -37,7 +50,15 @@ def eligibility(raw, row, config):
              and e.get('targetID') == actor['id'] and e.get('fight') == fight['id']
              and start <= e.get('timestamp', -1) <= end]
     initial = {a.get('ability') for a in info[0].get('auras', [])}
-    if 10060 in initial or any(e.get('abilityGameID') == 10060 for e in buffs):
+    # Buff events use sourceID; CombatantInfo aura entries use source. An
+    # absent/invalid/conflicting source is not evidence of a self cast.
+    pi_sources = []
+    for aura in info[0].get('auras', []):
+        if aura.get('ability') == 10060:
+            pi_sources.append(pi_source(aura, 'source'))
+    pi_sources.extend(pi_source(event, 'sourceID') for event in buffs
+                      if event.get('abilityGameID') == 10060)
+    if any(source != actor['id'] for source in pi_sources):
         return None, 'pi'
     windows = []
     for ability in LUST:
@@ -62,7 +83,8 @@ def eligibility(raw, row, config):
             merged.append(window)
     if not merged:
         return None, 'no_lust'
-    return {'fight': fight, 'actor': actor, 'start': start, 'end': end, 'merged': merged}, None
+    return {'fight': fight, 'actor': actor, 'start': start, 'end': end, 'merged': merged,
+            'self_pi_observed': bool(pi_sources)}, None
 
 
 def normalize(raw, row, rank, config):
@@ -93,7 +115,10 @@ def normalize(raw, row, rank, config):
                                  'region': row.get('region') or ''},
         'dps': row['dps'], 'duration': round((end - start) / 1000, 3),
         'url': f"https://www.warcraftlogs.com/reports/{row['report_code']}?fight={fight['id']}&type=casts&source={actor['id']}",
-        'incoming_complete': True, 'pi_observed': False, 'times': times, 'phases': phases,
+        'incoming_complete': True, 'pi_observed': eligible['self_pi_observed'],
+        'self_pi_observed': eligible['self_pi_observed'],
+        'external_pi_observed': False, 'pi_source_unknown': False,
+        'times': times, 'phases': phases,
         'lust_start': lust, 'lust_windows': merged, 'lust_group': group, 'lust_label': label,
         'lust_focus': {spell: [round(t - lust, 3) for t in sequence if -20 <= t - lust <= 40]
                        for spell, sequence in times.items()},
@@ -195,6 +220,7 @@ def build_scope(rows, scope, config, root, guard, client):
         'generated_at': timezone.now().isoformat(), 'skill_names': config['spells'],
         'skill_role': config.get('role', '输出'), 'catalog_build': CATALOG_BUILD,
         'selection_policy': SELECTION_POLICY, 'selection_limit': SAMPLE_LIMIT,
+        'self_pi_allowed': True,
         'candidate_count': len(rows), 'attempted': attempted,
         'successful': attempted - counts['invalid'],
         'excluded_duplicate': counts['duplicate'],

@@ -90,6 +90,21 @@ class RaidBurstAccessTests(TestCase):
         self.assertContains(response, '每日自动更新已关闭')
         self.assertNotContains(response, '当前显示历史采样版本')
 
+    def test_pi_policy_text_distinguishes_new_and_historical_results(self):
+        payload, _ = load_published('1/Warrior/Arms/5/3470')
+        for allowed in (False, True):
+            html = render_to_string('portal/raid_burst.html',
+                {'raid_burst_payload': dict(payload, self_pi_allowed=allowed)},
+                request=self.request(authenticated=True))
+            self.assertIn('20261024_external_pi', html)
+            if allowed:
+                self.assertIn('允许本人来源的灌注', html)
+                self.assertIn('灌注来源不明', html)
+                self.assertNotIn('当前为历史筛选口径', html)
+            else:
+                self.assertIn('当前为历史筛选口径', html)
+                self.assertNotIn('允许本人来源的灌注', html)
+
     def test_global_header_never_renders_battle_entry(self):
         for authenticated in (False, True):
             header = render_to_string('portal/_header.html', request=self.request(authenticated))

@@ -60,7 +60,7 @@ class EventClient:
                     dict(base, type='applybuff', timestamp=11000, abilityGameID=2825),
                     dict(base, type='removebuff', timestamp=51000, abilityGameID=2825)]
                 if self.pi:
-                    data.append(dict(base, type='refreshbuff', timestamp=20000, abilityGameID=10060))
+                    data.append(dict(base, sourceID=8, type='refreshbuff', timestamp=20000, abilityGameID=10060))
             else:
                 data = [dict(base, type='cast', timestamp=t, abilityGameID=107574)
                         for t in (12000, 132000, 252000) if t >= variables['start']]
@@ -92,6 +92,74 @@ class RaidBurstAggregationTests(TestCase):
     def publish(self, descriptor):
         manifest = {'schema': 1, 'scopes': [descriptor]}
         write_json(self.directory / 'index.json', {'data': manifest, 'digest': digest(manifest)})
+
+    def test_pi_source_identity_and_mixed_events(self):
+        from copy import deepcopy
+        raw = fetch_events(self.root, self.row, self.client, nullcontext)
+        for source, allowed in [(7, True), (8, False), (None, False), (0, False),
+                                (-1, False), ('7', False), (True, False)]:
+            for kind in ('applybuff', 'refreshbuff', 'removebuff'):
+                with self.subTest(source=source, kind=kind):
+                    candidate = deepcopy(raw)
+                    candidate['streams']['buffs']['data'].append(dict(
+                        type=kind, abilityGameID=10060, timestamp=20000,
+                        fight=1, targetID=7, sourceID=source))
+                    sample, reason = agg.normalize(candidate, self.row, 1, self.config)
+                    self.assertEqual(reason, None if allowed else 'pi')
+                    if allowed:
+                        self.assertTrue(sample['pi_observed'])
+                        self.assertTrue(sample['self_pi_observed'])
+                        self.assertIs(sample['external_pi_observed'], False)
+                        self.assertIs(sample['pi_source_unknown'], False)
+        for second in (8, None):
+            candidate = deepcopy(raw)
+            candidate['streams']['buffs']['data'] += [dict(
+                type='applybuff', abilityGameID=10060, timestamp=20000,
+                fight=1, targetID=7, sourceID=source) for source in (7, second)]
+            self.assertEqual(agg.normalize(candidate, self.row, 1, self.config)[1], 'pi')
+
+    def test_initial_pi_requires_positive_unambiguous_source(self):
+        from copy import deepcopy
+        raw = fetch_events(self.root, self.row, self.client, nullcontext)
+        for fields, allowed in [({'source': 7}, True), ({'source': 8}, False),
+                                ({}, False), ({'sourceID': 7}, False),
+                                ({'source': None}, False), ({'source': '7'}, False),
+                                ({'source': True}, False), ({'source': 0}, False),
+                                ({'source': 7, 'sourceID': 8}, False),
+                                ({'source': 7, 'sourceID': 7}, True)]:
+            with self.subTest(fields=fields):
+                candidate = deepcopy(raw)
+                candidate['streams']['combatants']['data'][0]['auras'] = [
+                    dict(ability=10060, **fields)]
+                sample, reason = agg.normalize(candidate, self.row, 1, self.config)
+                self.assertEqual(reason, None if allowed else 'pi')
+                if allowed:
+                    self.assertTrue(sample['self_pi_observed'])
+        candidate = deepcopy(raw)
+        candidate['streams']['combatants']['data'][0]['auras'] = [{'ability': 10060}]
+        candidate['streams']['buffs']['data'].append(dict(type='applybuff',
+            abilityGameID=10060, timestamp=20000, fight=1, targetID=7, sourceID=7))
+        self.assertEqual(agg.normalize(candidate, self.row, 1, self.config)[1], 'pi')
+
+    def test_pi_still_obeys_identity_window_completeness_and_lust(self):
+        from copy import deepcopy
+        raw = fetch_events(self.root, self.row, self.client, nullcontext)
+        for fields in ({'fake': True}, {'fight': 2}, {'targetID': 8}, {'timestamp': 0}):
+            candidate = deepcopy(raw)
+            event = dict(type='applybuff', abilityGameID=10060, timestamp=20000,
+                         fight=1, targetID=7, sourceID=8)
+            event.update(fields)
+            candidate['streams']['buffs']['data'].append(event)
+            sample, reason = agg.normalize(candidate, self.row, 1, self.config)
+            self.assertIsNone(reason)
+            self.assertFalse(sample['pi_observed'])
+        candidate = deepcopy(raw)
+        candidate['streams']['buffs']['data'] = [dict(type='applybuff',
+            abilityGameID=10060, timestamp=20000, fight=1, targetID=7, sourceID=7)]
+        self.assertEqual(agg.normalize(candidate, self.row, 1, self.config)[1], 'no_lust')
+        candidate['streams']['buffs']['complete'] = False
+        with self.assertRaises(ValueError):
+            agg.normalize(candidate, self.row, 1, self.config)
 
     def test_identical_data_reuses_snapshot_without_fetch_or_regroup(self):
         descriptor = self.build()

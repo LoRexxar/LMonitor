@@ -21,7 +21,11 @@
         </div>
         {% if raid_burst_payload %}
         <p>{{ raid_burst_payload.scope.label }} · 更新时间 {{ raid_burst_updated_at|date:"Y年n月j日 H:i" }}</p>
-        <p>已排除获得灌注及未记录到嗜血的日志。</p>
+        {% if raid_burst_payload.self_pi_allowed %}
+        <p>允许本人来源的灌注；已排除外部灌注、灌注来源不明及未记录到嗜血的日志。</p>
+        {% else %}
+        <p>当前为历史筛选口径：已排除所有灌注（含本人来源）及未记录到嗜血的日志；新口径结果生成后自动替换。</p>
+        {% endif %}
         {% if raid_burst_payload.selection_limit %}
         <p>按排名依次筛选，最多保留前{{ raid_burst_payload.selection_limit }}位可用且不重复的玩家；不足时展示实际数量。每日自动更新已关闭。</p>
         {% else %}
@@ -76,6 +80,6 @@
         <p class="burst-muted">按当前专精标注主动爆发与关键技能，仅统计玩家本人实际施放。治疗和坦克专精同时包含主要治疗、减伤技能；样本仍来自团本 DPS 排名，不代表治疗量或承伤排名。</p>
     </main>
     {{ raid_burst_payload|json_script:"raid-burst-data" }}
-    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261021_manual_top10" defer></script>
+    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261024_external_pi" defer></script>
 </body>
 </html>
