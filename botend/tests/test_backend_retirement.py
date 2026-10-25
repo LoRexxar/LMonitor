@@ -184,7 +184,7 @@ class BackendRetirementProcessTests(unittest.TestCase):
                    CHECK_INTERVAL='.05', STOP_GRACE_SECONDS='.2',
                    BACKEND_LOCK_FILE=str(Path(self.tmp.name) / 'supervisor.lock'))
         child = [sys.executable, str(self.worker), str(self.log), mode]
-        command = ['bash', str(ROOT / 'start.sh'), *child] if supervisor else child
+        command = [str(ROOT / 'start.sh'), *child] if supervisor else child
         proc = subprocess.Popen(command, cwd=ROOT, env=env, stdout=self.output,
                                 stderr=subprocess.STDOUT, start_new_session=True)
         self.processes.append(proc)
