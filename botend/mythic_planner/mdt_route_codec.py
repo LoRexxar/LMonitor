@@ -4,6 +4,9 @@ import base64
 import math
 import struct
 import zlib
+from functools import cached_property
+
+from django.db.models.fields.json import KeyTransform, compile_json_path
 
 from botend.models import MythicDungeon, MythicDungeonFloor, MythicDungeonSpawn
 
@@ -243,6 +246,7 @@ def _active_dungeon_by_key(key):
             data_version__is_active=True,
         )
         .select_related('data_version')
+        .only('id', 'key', 'external_index', 'data_version_id', 'data_version__key')
         .order_by('-data_version__imported_at', '-data_version_id')
         .first()
     )
@@ -256,35 +260,82 @@ def _active_dungeon_by_external_index(external_index):
             data_version__is_active=True,
         )
         .select_related('data_version')
+        .only('id', 'key', 'external_index', 'data_version_id', 'data_version__key')
         .order_by('-data_version__imported_at', '-data_version_id')
         .first()
     )
 
 
-def _dungeon_maps(dungeon):
-    floors = list(
-        MythicDungeonFloor.objects.filter(dungeon=dungeon, is_active=True)
-        .order_by('floor_index')
-    )
-    spawns = list(
-        MythicDungeonSpawn.objects.filter(
-            enemy__dungeon=dungeon,
+class _SourceIndex(KeyTransform):
+    """Project a JSON scalar without coercing numeric strings on SQLite.
+
+    MySQL/PostgreSQL return JSON; SQLite's normal KeyTransform returns unquoted
+    strings, which JSONField can mistake for numbers (or booleans).
+    """
+
+    def as_sqlite(self, compiler, connection):
+        lhs, params, keys = self.preprocess_lhs(compiler, connection)
+        path = compile_json_path(keys)
+        sql = (
+            f"(CASE WHEN JSON_TYPE({lhs}, %s) IN ('true', 'false', 'null') "
+            f"THEN JSON_TYPE({lhs}, %s) "
+            f"ELSE JSON_QUOTE(JSON_EXTRACT({lhs}, %s)) END)"
+        )
+        return sql, (tuple(params) + (path,)) * 3
+
+
+class DungeonRouteContext:
+    """Lazy, single-request facts for exactly one dungeon, never a global cache."""
+
+    def __init__(self, dungeon, *, floors=None):
+        self.dungeon = dungeon
+        self._floors = floors
+
+    def check_dungeon(self, dungeon):
+        if (self.dungeon.pk, self.dungeon.data_version_id) != (dungeon.pk, dungeon.data_version_id):
+            raise ValueError('路线所属地下城与当前地下城不一致。')
+
+    @cached_property
+    def floors(self):
+        if self._floors is not None:
+            return sorted(self._floors, key=lambda floor: floor.floor_index)
+        return list(
+            MythicDungeonFloor.objects.filter(dungeon=self.dungeon, is_active=True)
+            .only('id', 'key', 'floor_index')
+            .order_by('floor_index')
+        )
+
+    @cached_property
+    def spawn_maps(self):
+        rows = MythicDungeonSpawn.objects.filter(
+            enemy__dungeon=self.dungeon,
             enemy__is_active=True,
             floor__is_active=True,
             is_active=True,
-        ).select_related('enemy', 'floor')
-    )
-    by_uid = {}
-    by_source = {}
-    for spawn in spawns:
-        enemy_index = (spawn.enemy.metadata or {}).get('source_enemy_index')
-        clone_index = (spawn.metadata or {}).get('source_clone_index')
-        if not isinstance(enemy_index, int) or not isinstance(clone_index, int):
-            continue
-        uid = f'{spawn.enemy.key}:{spawn.key}'
-        by_uid[uid] = (enemy_index, clone_index)
-        by_source[(enemy_index, clone_index)] = uid
-    return floors, by_uid, by_source
+        ).values_list(
+            'enemy__key', 'key',
+            _SourceIndex('source_enemy_index', 'enemy__metadata'),
+            _SourceIndex('source_clone_index', 'metadata'),
+        )
+        valid_uids, by_uid, by_source = set(), {}, {}
+        for enemy_key, spawn_key, enemy_index, clone_index in rows:
+            uid = f'{enemy_key}:{spawn_key}'
+            valid_uids.add(uid)
+            if not isinstance(enemy_index, int) or not isinstance(clone_index, int):
+                continue
+            by_uid[uid] = (enemy_index, clone_index)
+            by_source[(enemy_index, clone_index)] = uid
+        return valid_uids, by_uid, by_source
+
+    @property
+    def valid_uids(self):
+        return self.spawn_maps[0]
+
+
+def _dungeon_maps(dungeon, route_context=None):
+    context = route_context if route_context is not None else DungeonRouteContext(dungeon)
+    context.check_dungeon(dungeon)
+    return context.floors, context.spawn_maps[1], context.spawn_maps[2]
 
 
 def _hex_color(value, fallback):
@@ -381,13 +432,15 @@ def _lua_index(value, index, default=None):
     return default
 
 
-def route_payload_to_preset(payload, dungeon=None):
+def route_payload_to_preset(payload, dungeon=None, *, route_context=None):
+    if route_context is not None:
+        dungeon = dungeon or route_context.dungeon
     dungeon = dungeon or _active_dungeon_by_key(str((payload or {}).get('dungeon_key') or ''))
     if not dungeon:
         raise ValueError('路线所属地下城不存在。')
     if dungeon.external_index is None:
         raise ValueError('地下城缺少 MDT external index，无法导出。')
-    floors, by_uid, _by_source = _dungeon_maps(dungeon)
+    floors, by_uid, _by_source = _dungeon_maps(dungeon, route_context)
     floor_by_key = {floor.key: floor for floor in floors}
     pulls = []
     pull_metadata = []
@@ -595,8 +648,8 @@ def preset_to_route_payload(preset):
     }
 
 
-def encode_route_payload(payload):
-    return encode_mdt2_table(route_payload_to_preset(payload))
+def encode_route_payload(payload, *, route_context=None):
+    return encode_mdt2_table(route_payload_to_preset(payload, route_context=route_context))
 
 
 def decode_route_payload(code):

@@ -16,11 +16,13 @@ from botend.models import (
     MythicDungeonSelectionGroup,
     MythicDungeonSelectionMembership,
     MythicDungeonSpawn,
+    MythicDungeonSpell,
     MythicPlannerConfig,
 )
 from botend.mythic_planner.spell_tooltips import spell_snapshot_provenance
 from botend.mythic_planner.mdt_route_codec import (
     MAX_ROUTE_BYTES,
+    DungeonRouteContext,
     decode_route_payload,
     encode_route_payload,
 )
@@ -110,17 +112,17 @@ def planner_config_dict():
     }
 
 
-def default_route_compatibility(route):
+def default_route_compatibility(route, *, route_context=None):
     """按路线实际引用的地下城和刷新点校验推荐路线。"""
 
     route_data = route.route_data if isinstance(route.route_data, dict) else {}
     try:
         if not route_data:
             raise ValueError('路线内容为空，请管理员重新发布。')
-        validated = validate_route_payload(route_data, route.dungeon)
+        validated = validate_route_payload(route_data, route.dungeon, route_context=route_context)
         canonical_payload = dict(validated.payload)
         canonical_payload['data_version_key'] = route.dungeon.data_version.key
-        route_code = encode_share_code(canonical_payload)
+        route_code = encode_share_code(canonical_payload, route_context=route_context)
     except Exception as exc:  # 单条坏路线不能拖垮整个公开目录。
         expected_error = isinstance(exc, (TypeError, ValueError, OverflowError))
         reason = str(exc).strip() if expected_error else ''
@@ -151,8 +153,8 @@ def default_route_compatibility(route):
     }
 
 
-def serialize_default_route(route):
-    compatibility = default_route_compatibility(route)
+def serialize_default_route(route, *, route_context=None):
+    compatibility = default_route_compatibility(route, route_context=route_context)
     return {
         'id': route.id,
         'revision': route.revision,
@@ -191,7 +193,9 @@ def serialize_catalog():
     dungeons = list(
         version.dungeons.filter(is_active=True)
         .prefetch_related(
-            Prefetch('floors', queryset=MythicDungeonFloor.objects.filter(is_active=True)),
+            Prefetch('floors', queryset=MythicDungeonFloor.objects.filter(is_active=True).only(
+                'id', 'dungeon_id', 'key', 'floor_index', 'name', 'name_zh',
+            )),
         )
         .order_by('order', 'name_zh', 'name')
     )
@@ -201,9 +205,23 @@ def serialize_catalog():
             dungeon__is_active=True,
             is_active=True,
         )
-        .select_related('dungeon', 'dungeon__data_version')
         .order_by('-is_featured', 'order', 'name', 'id')
     )
+    # Reuse the catalog's known-active dungeon/floor objects. Load spawn facts
+    # lazily only for dungeons whose recommended routes actually need them.
+    dungeons_by_id = {dungeon.pk: dungeon for dungeon in dungeons}
+    route_contexts = {}
+    for route in default_routes:
+        dungeon = dungeons_by_id.get(route.dungeon_id)
+        if dungeon is None:
+            # A concurrent import can add a route after the dungeon query.
+            # Preserve the standalone lookup path instead of failing the catalog.
+            continue
+        route.dungeon = dungeon
+        if route.dungeon_id not in route_contexts:
+            route_contexts[route.dungeon_id] = DungeonRouteContext(
+                route.dungeon, floors=list(route.dungeon.floors.all()),
+            )
     groups = list(
         MythicDungeonSelectionGroup.objects.filter(
             data_version=version,
@@ -303,7 +321,7 @@ def serialize_catalog():
             for dungeon in dungeons
         ],
         'default_routes': [
-            serialize_default_route(route)
+            serialize_default_route(route, route_context=route_contexts.get(route.dungeon_id))
             for route in default_routes
         ],
         'config': config,
@@ -317,13 +335,27 @@ def get_active_dungeon(dungeon_key):
     floors = MythicDungeonFloor.objects.filter(is_active=True).prefetch_related(
         Prefetch('pois', queryset=MythicDungeonPoi.objects.filter(is_active=True)),
     )
-    abilities = MythicDungeonAbility.objects.filter(is_active=True).select_related(
-        'spell_record',
+    # serialize_ability consumes these snapshot fields (including provenance
+    # from metadata); fetch each referenced snapshot once, not once per enemy.
+    abilities = MythicDungeonAbility.objects.filter(is_active=True).prefetch_related(
+        Prefetch('spell_record', queryset=MythicDungeonSpell.objects.only(
+            'id', 'name', 'name_zh', 'description', 'description_zh',
+            'aura_description', 'aura_description_zh', 'icon_url',
+            'source_branch', 'source_locale', 'snapshot_build',
+            'icon_file_data_id', 'metadata',
+        )),
     )
     spawns = MythicDungeonSpawn.objects.filter(
         is_active=True,
         floor__is_active=True,
-    ).select_related('floor')
+    ).select_related('floor').defer(
+        # Spawn serialization uses only floor.key; keep its FK relation intact
+        # for other callers without retransmitting the floor's map metadata.
+        'floor__dungeon_id', 'floor__floor_index', 'floor__name', 'floor__name_zh',
+        'floor__background_url', 'floor__background_color', 'floor__map_width',
+        'floor__map_height', 'floor__order', 'floor__is_active', 'floor__metadata',
+        'floor__created_at', 'floor__updated_at',
+    )
     enemies = MythicDungeonEnemy.objects.filter(is_active=True).prefetch_related(
         Prefetch('abilities', queryset=abilities),
         Prefetch('spawns', queryset=spawns),
@@ -572,15 +604,17 @@ def _route_json(payload):
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
-def encode_share_code(payload):
-    return encode_route_payload(payload)
+def encode_share_code(payload, *, route_context=None):
+    return encode_route_payload(payload, route_context=route_context)
 
 
 def decode_share_code(code):
     return decode_route_payload(code)
 
 
-def validate_route_payload(payload, dungeon, *, check_spawns=True):
+def validate_route_payload(payload, dungeon, *, check_spawns=True, route_context=None):
+    if route_context is not None:
+        route_context.check_dungeon(dungeon)
     if not isinstance(payload, dict):
         raise ValueError('路线内容必须是 JSON 对象。')
     raw_size = len(_route_json(payload).encode('utf-8'))
@@ -613,7 +647,7 @@ def validate_route_payload(payload, dungeon, *, check_spawns=True):
             spawn_uids.add(uid)
 
     if check_spawns and spawn_uids:
-        valid_uids = {
+        valid_uids = route_context.valid_uids if route_context is not None else {
             f'{enemy_key}:{spawn_key}'
             for enemy_key, spawn_key in MythicDungeonSpawn.objects.filter(
                 enemy__dungeon=dungeon,

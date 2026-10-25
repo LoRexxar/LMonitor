@@ -2,6 +2,7 @@
 import re
 from urllib.parse import urlencode
 
+from django.db.models.fields.json import KeyTextTransform
 from django.http import Http404
 from django.shortcuts import get_object_or_404, render
 from django.utils.html import strip_tags
@@ -39,13 +40,28 @@ def article_updated(guide):
 
 
 def catalog_rows(query):
-    query = query.prefetch_related('tags')
+    # Keep database collation/order, but never put the source JSON needed by
+    # JSON_EXTRACT into a MySQL filesort row (which can exceed sort_buffer_size).
+    guide_ids = list(query.values_list('pk', flat=True))
+    if not guide_ids:
+        return []
+    # Both the catalog and related-article tabs need metadata, never article
+    # bodies. Include the author/date helpers' inputs to avoid deferred N+1s.
+    query = query.filter(pk__in=guide_ids).order_by().only(
+        'id', 'title', 'class_name', 'spec_name', 'spec_id',
+        'author', 'author_profile', 'source_author_profile',
+        'source_url', 'source_modified', 'updated_at',
+    ).annotate(catalog_cover=KeyTextTransform('featuredImage', 'source_payload')).prefetch_related('tags')
     specs = {s['spec_id']: s for s in specialization_catalog()}
     rows = []
-    for guide in query:
+    guides = {guide.pk: guide for guide in query}
+    for guide_id in guide_ids:
+        guide = guides.get(guide_id)
+        if guide is None:  # An article may be archived/deleted between reads.
+            continue
         rows.append({'guide': guide, 'title': guide.title, 'spec': specs[guide.spec_id],
                      'author_name': author_profile_for(guide)['name'],
-                     'tags': list(guide.tags.all()), 'cover': safe_url(guide.source_payload.get('featuredImage', '')),
+                     'tags': list(guide.tags.all()), 'cover': safe_url(guide.catalog_cover),
                      'updated': article_updated(guide), 'role': SPEC_ROLE[(guide.class_name, guide.spec_name)]})
     return rows
 
