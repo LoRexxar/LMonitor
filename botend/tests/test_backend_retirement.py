@@ -311,7 +311,7 @@ class BackendRetirementProcessTests(unittest.TestCase):
         def terminated(pid):
             try:
                 return Path(f'/proc/{pid}/stat').read_text().split(') ', 1)[1].split()[0] == 'Z'
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
                 return True
         deadline = time.monotonic() + 2
         while not terminated(helper) and time.monotonic() < deadline:
@@ -339,7 +339,7 @@ class BackendRetirementProcessTests(unittest.TestCase):
         while time.monotonic() < until:
             try:
                 state = Path(f'/proc/{child}/stat').read_text().split()[2]
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
                 return
             if state == 'Z':
                 return  # Already exited; init will reap the orphan's zombie.

@@ -23,9 +23,6 @@ flock -n 9 || { echo 'backend supervisor already running' >&2; exit 1; }
 
 if [ "$#" -eq 0 ]; then
     PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
-    if [ -x "$PROJECT_DIR/.venv/bin/python" ]; then
-        PYTHON_BIN="$PROJECT_DIR/.venv/bin/python"
-    fi
     set -- "$PYTHON_BIN" "$PROJECT_DIR/manage.py" LMonitorCoreBackend
 fi
 
