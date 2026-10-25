@@ -8,7 +8,8 @@ from botend.services.spec_stats_snapshot import content_digest
 ALGORITHM_VERSION = 'raid-scope-v3-current-metadata'
 
 
-def raid_stats(season_id, boss_id, boss_name, class_name, spec_name, difficulty):
+def raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, difficulty):
+    """Validate exact current inputs without decoding cached result bodies."""
     rows = list(SpecRaidRanking.objects.filter(season_id=season_id, boss_id=boss_id,
         class_name=class_name, spec_name=spec_name, difficulty=difficulty).order_by('pk').values())
     keys = {tuple((row.get(field) or '').lower() for field in ('region', 'realm', 'character_name'))
@@ -20,7 +21,21 @@ def raid_stats(season_id, boss_id, boss_name, class_name, spec_name, difficulty)
     fingerprint = content_digest({'algorithm': ALGORITHM_VERSION, 'name': boss_name,
         'rows': [{k: v for k, v in row.items() if k != 'last_updated'} for row in rows],
         'profiles': sorted(profiles.items()), 'metadata': dependencies})
+    return fingerprint
+
+
+def raid_stats(season_id, boss_id, boss_name, class_name, spec_name, difficulty, *, fingerprint=None):
+    """An already-checked fingerprint is only a hint for exact work reuse.
+
+    A missing/corrupt work body always rechecks current inputs before computing;
+    never attach a previously captured identity to newly read source facts.
+    """
     scope = f'raid:{class_name}:{spec_name}:{difficulty}:{boss_id}'
+    if fingerprint is not None:
+        cached = load_work(season_id, scope, fingerprint)
+        if cached is not None:
+            return cached, fingerprint, True
+    fingerprint = raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, difficulty)
     cached = load_work(season_id, scope, fingerprint)
     if cached is not None:
         return cached, fingerprint, True

@@ -5,7 +5,7 @@ from contextlib import ExitStack
 from threading import Event
 from unittest.mock import MagicMock, patch
 
-from django.test import TestCase
+from django.test import TransactionTestCase
 from django.utils import timezone
 
 from botend.models import MonitorTask, MonitorTaskLease
@@ -28,7 +28,9 @@ class _FakeHeartbeat:
         self.stopped = True
 
 
-class MonitorTaskExecutionLeaseTests(TestCase):
+class MonitorTaskExecutionLeaseTests(TransactionTestCase):
+    # The real cleanup path closes connections. It must not run inside the
+    # synthetic outer transaction held by TestCase (breaks MySQL isolation).
     def setUp(self):
         MonitorTask.objects.update(is_active=False)
 
@@ -45,6 +47,33 @@ class MonitorTaskExecutionLeaseTests(TestCase):
         claimed = claim_next_monitor_task(now=now, lease_owner=owner)
         self.assertEqual(claimed.id, task.id)
         return claimed
+
+    def test_retirement_during_real_claim_does_not_consume_daily_task_without_execution(self):
+        from botend.backend_lifecycle import BackendLifecycle
+        from botend.plugin_sync import complete_monitor_task_lease
+        old_time = timezone.now() - timedelta(days=2)
+        task = MonitorTask.objects.create(name='RetirementClaimTest', target='', type=0,
+            is_active=True, wait_time=86400, last_scan_time=old_time)
+        lifecycle = BackendLifecycle(retire_after=0)
+        calls = []
+        def claim_then_retire(**kwargs):
+            claimed = claim_next_monitor_task(**kwargs)
+            self.assertIsNotNone(claimed)
+            lifecycle.request_retirement()
+            return claimed
+        class Core(LMonitorCore):
+            def _execute_claimed_task(self, claimed, owner):
+                calls.append(claimed.pk)
+                complete_monitor_task_lease(claimed.pk, owner,
+                                           task_updates={'flag': 'actually-executed'})
+        with patch('botend.views.claim_next_monitor_task', side_effect=claim_then_retire) as claim:
+            Core(lifecycle).scan()
+        self.assertEqual(claim.call_count, 1)
+        self.assertEqual(calls, [task.pk])
+        task.refresh_from_db()
+        self.assertGreater(task.last_scan_time, old_time)
+        self.assertEqual(task.flag, 'actually-executed')
+        self.assertFalse(MonitorTaskLease.objects.filter(task=task).exists())
 
     def test_execution_logs_preserve_scan_and_lease_semantics(self):
         scenarios = [
@@ -86,7 +115,10 @@ class MonitorTaskExecutionLeaseTests(TestCase):
                     stack.enter_context(patch('botend.views.Monitor_Type_BaseObject_List', [Plugin]))
                     stack.enter_context(patch('botend.views._record_monitor_task_alert'))
                     log = stack.enter_context(patch('botend.views.logger'))
-                    stack.enter_context(patch('botend.views.time.monotonic', side_effect=[100.0, 102.75]))
+                    # Isolate the application clock; patching time.monotonic
+                    # globally also affects Django's real COMMIT/ROLLBACK timers.
+                    clock = stack.enter_context(patch('botend.views.time', wraps=__import__('time')))
+                    clock.monotonic.side_effect = [100.0, 102.75]
                     stack.enter_context(patch('botend.views.LReq', return_value=request,
                                               side_effect=RuntimeError('setup') if scenario in ('setup_error', 'release_error') else None))
                     if scenario == 'start_error':

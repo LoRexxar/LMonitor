@@ -17,6 +17,7 @@ from botend.plugin_sync import claim_next_monitor_task, release_monitor_task_lea
 from botend.controller.plugins.portal.SpecDetailRankingMonitor import SpecDetailRankingMonitor
 from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
 from botend.services.wcl_collection_cycle import begin_collection, checkpoint_scope, freeze_samples, finish_collection
+from botend.wow.talents.parser import normalize_talent_payload
 
 RANKING = 'botend.controller.plugins.portal.SpecDetailRankingMonitor'
 AGGREGATION = 'botend.controller.plugins.portal.SpecDetailAggregationMonitor'
@@ -132,15 +133,27 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
 
     def test_raid_report_talent_fallback_is_preserved(self):
         old = self.old_raid()
+        # Current character talents must not replace the report's historical facts.
+        current = PlayerSpecTopPlayer.objects.create(season_id=self.season.pk,
+            class_name='Mage', spec_name='Fire', character_name='Player',
+            realm='Realm', region='eu', rank=1, score=1234,
+            talents_json=[{'talentID': 9876, 'points': 2, 'source': 'profile'}])
         events = [{'fight': 1, 'sourceID': 7, 'specID': 63,
                    'source': {'id': 7, 'name': 'Player', 'server': 'Realm', 'type': 'Player'},
-                   'talentTree': [{'id': 1234, 'rank': 1}]}]
+                   'talentTree': [{'id': 1234, 'nodeID': 4321, 'rank': 1}]}]
         with patch.object(self.monitor, 'fetch_wcl_rankings', return_value=self.page()), \
              patch.object(self.monitor, 'fetch_wcl_combatant_info', return_value=events) as fetch:
             self.assertTrue(self.monitor.scan(''))
         old.refresh_from_db()
-        self.assertEqual(old.talents_json, self.monitor.parse_wcl_talent_tree(events[0]['talentTree']))
-        self.assertTrue(old.talents_json)
+        # Persistence omits parser defaults/aliases, not source selection facts.
+        self.assertEqual(old.talents_json, [{'tree_type': 'spec', 'talentID': 1234,
+            'entry_id': 1234, 'node_id': 1234, 'db2_trait_node_id': 4321,
+            'points': 1, 'source': 'wcl_combatantinfo'}])
+        self.assertEqual(normalize_talent_payload(old.talents_json),
+            normalize_talent_payload(self.monitor.parse_wcl_talent_tree(events[0]['talentTree'])))
+        current.refresh_from_db()
+        self.assertEqual(current.talents_json,
+            [{'talentID': 9876, 'points': 2, 'source': 'profile'}])
         self.assertEqual(fetch.call_count, 1)  # 两个难度共享中央战斗事实。
 
     def test_raid_quota_preserves_entire_boss_then_resumes(self):

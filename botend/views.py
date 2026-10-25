@@ -8,6 +8,7 @@ from datetime import datetime, timezone as datetime_timezone
 import threading
 import time
 import traceback
+from contextlib import nullcontext
 from uuid import uuid4
 from django.core.exceptions import ImproperlyConfigured
 from django.db.utils import OperationalError
@@ -18,6 +19,7 @@ from utils.log import logger
 from core.threadingpool import ThreadPool
 
 from botend.alerting import upsert_system_alert
+from botend.backend_lifecycle import BackendLifecycle
 from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import (
@@ -179,7 +181,17 @@ class LMonitorCoreBackend:
     """
     monitor 守护线程
     """
-    def __init__(self):
+    def __init__(self, *, lifecycle=None):
+        self.lifecycle = lifecycle or BackendLifecycle()
+        self._workers = []
+        self.threadpool = ThreadPool()
+        try:
+            self._run()
+        finally:
+            # Join isolated daemons and maintenance too, after lease cleanup.
+            self.lifecycle.drain_threads(self._workers + self.threadpool.alive_thread_list)
+
+    def _run(self):
         if getattr(django_settings, 'MONITOR_TASK_AUTO_SYNC_PLUGINS', True):
             try:
                 sync_monitortasks_from_plugin_list(
@@ -191,55 +203,63 @@ class LMonitorCoreBackend:
             except Exception:
                 logger.warning('[MonitorTask Sync] error, {}'.format(traceback.format_exc()))
 
-        # 任务与线程分发
-        self.threadpool = ThreadPool()
-
         MonitorTasks = filter_runnable_tasks(MonitorTask.objects.filter(is_active=1)).count()
         left_tasks = MonitorTasks
 
         logger.info("[LMonitor Main] Monitor Backend Start...now {} targets in monitor.".format(left_tasks))
 
         # 单独领取耗时的数据更新，不消耗普通监控线程池的名额。
-        start_isolated_monitor_worker(LMonitorCore().scan)
+        self._workers.append(start_isolated_monitor_worker(LMonitorCore(self.lifecycle).scan))
         from botend.services.gear_catalog_snapshot import start_catalog_snapshot_worker
-        start_catalog_snapshot_worker()
+        self._workers.append(start_catalog_snapshot_worker(lifecycle=self.lifecycle))
         from botend.services.journal_loot_snapshot import start_journal_loot_snapshot_worker
-        start_journal_loot_snapshot_worker()
+        self._workers.append(start_journal_loot_snapshot_worker(lifecycle=self.lifecycle))
         from botend.services.news_snapshot import start_news_snapshot_worker
-        start_news_snapshot_worker()
+        self._workers.append(start_news_snapshot_worker(lifecycle=self.lifecycle))
         from botend.services.journal_snapshot import start_journal_snapshot_worker
-        start_journal_snapshot_worker()
+        self._workers.append(start_journal_snapshot_worker(lifecycle=self.lifecycle))
         from botend.services.snapshot_cache_maintenance import start_snapshot_cache_maintenance_worker
-        start_snapshot_cache_maintenance_worker()
+        maintenance = start_snapshot_cache_maintenance_worker(lifecycle=self.lifecycle)
+        if maintenance is not None:
+            self._workers.append(maintenance)
 
         # 获取线程池然后分发信息对象
         # 当有空闲线程时才继续
         i = 0
 
-        while 1:
-            while self.threadpool.get_free_num():
+        while not self.lifecycle.retiring:
+            while not self.lifecycle.retiring and self.threadpool.get_free_num():
 
                 if i > THREAD_LIMIT_NUM:
                     logger.warning("[LMonitor Core] More than {} thread init. stop new Thread.".format(THREAD_LIMIT_NUM))
-                    self.threadpool.wait_all_thread()
+                    self.lifecycle.wait(10)
                     break
 
                 else:
                     i += 1
-                    botcore = LMonitorCore()
+                    botcore = LMonitorCore(self.lifecycle)
                     logger.info("[LMonitor Core] New Thread {} for LMonitor Core.".format(i))
 
                     self.threadpool.new(botcore.scan)
-                    time.sleep(30)
+                    self.lifecycle.wait(30)
 
             # self.threadpool.wait_all_thread()
-            time.sleep(10)
+            self.lifecycle.wait(10)
 
 
 class LMonitorCore:
     """
     bot 主线程
     """
+
+    def __init__(self, lifecycle=None):
+        self.lifecycle = lifecycle
+
+    def _wait(self, seconds):
+        if self.lifecycle is not None:
+            self.lifecycle.wait(seconds)
+        else:
+            time.sleep(seconds)
 
     def _execute_claimed_task(self, now_task, lease_owner):
         # Return values describe scan(), not completeness of the business data.
@@ -360,17 +380,24 @@ class LMonitorCore:
 
     def scan(self, *, task_names=None):
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')
-        while 1:
+        while self.lifecycle is None or not self.lifecycle.retiring:
             try:
-                close_old_connections()
-                lease_owner = uuid4().hex
-                now_task = claim_next_monitor_task(lease_owner=lease_owner, task_names=task_names)
-                if not now_task:
-                    time.sleep(10)
-                    continue
-
-                self._execute_claimed_task(now_task, lease_owner)
-                time.sleep(10)
+                admission = (self.lifecycle.admission('monitor-claim-and-execution')
+                             if self.lifecycle is not None else nullcontext(True))
+                with admission as admitted:
+                    if not admitted:
+                        return
+                    close_old_connections()
+                    lease_owner = uuid4().hex
+                    now_task = claim_next_monitor_task(lease_owner=lease_owner, task_names=task_names)
+                    if now_task:
+                        # Admission covers the DB claim and its execution as
+                        # one operation. A claim that finishes during retirement
+                        # must still run: it has already advanced last_scan_time
+                        # and may have fenced a source cycle. Dropping it here
+                        # would silently consume a daily task without doing it.
+                        self._execute_claimed_task(now_task, lease_owner)
+                self._wait(10)
 
             except KeyboardInterrupt:
                 logger.error("[Scan] Stop Scaning.")
@@ -378,10 +405,10 @@ class LMonitorCore:
 
             except OperationalError:
                 logger.error("[Scan] mysql link timeout. wait start.")
-                time.sleep(600)
+                self._wait(600)
                 continue
 
             except:
                 logger.warning('[Scan] something error, {}'.format(traceback.format_exc()))
-                time.sleep(5)
+                self._wait(5)
                 continue

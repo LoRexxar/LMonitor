@@ -17,6 +17,77 @@ from botend.services.stats_storage_codec import pack_detail, unpack_detail
 SCHEMA = 1
 
 
+def _bounded_canonical_chunks(value, encoder, *, byte_budget=256 * 1024, node_budget=4096):
+    """Use the C encoder on bounded subtrees, preserving canonical JSON bytes.
+
+    Never materialize a whole large publication just to hash it. The cheap
+    iterative bound limits both encoded bytes and temporary traversal references.
+    Oversize scalar strings keep the stdlib encoder's existing scalar behavior.
+    """
+    def fits(root):
+        remaining, nodes, pending = byte_budget, node_budget, [root]
+        while pending:
+            item = pending.pop()
+            nodes -= 1
+            if nodes < 0:
+                return False
+            if isinstance(item, str):
+                remaining -= 6 * len(item) + 2  # Worst-case JSON escaping.
+            elif isinstance(item, dict):
+                if len(item) * 2 > nodes:
+                    return False
+                remaining -= 2 + 2 * len(item)
+                pending.extend(item.keys())
+                pending.extend(item.values())
+            elif isinstance(item, (list, tuple)):
+                if len(item) > nodes:
+                    return False
+                remaining -= 2 + len(item)
+                pending.extend(item)
+            elif isinstance(item, int):
+                remaining -= item.bit_length() + 8
+            elif isinstance(item, (Decimal, date, datetime)):
+                remaining -= 6 * len(str(item)) + 4
+            else:
+                remaining -= 32
+            if remaining < 0:
+                return False
+        return True
+
+    active = set()
+    def chunks(item):
+        container = isinstance(item, (dict, list, tuple))
+        if not container or fits(item):
+            # encode() selects the stdlib C encoder; iterencode() defaults to
+            # Python recursion and millions of tiny hash.update calls.
+            yield encoder.encode(item)
+            return
+        identity = id(item)
+        if identity in active:
+            raise ValueError('Circular reference detected')
+        active.add(identity)
+        try:
+            if isinstance(item, dict):
+                yield '{'
+                for index, key in enumerate(sorted(item)):
+                    if index:
+                        yield ','
+                    # Let the same encoder handle legal non-string JSON keys.
+                    yield encoder.encode({key: None})[1:-5]
+                    yield from chunks(item[key])
+                yield '}'
+            else:
+                yield '['
+                for index, child in enumerate(item):
+                    if index:
+                        yield ','
+                    yield from chunks(child)
+                yield ']'
+        finally:
+            active.remove(identity)
+    yield from chunks(value)
+
+
 def content_digest(value):
     """Canonical content hash using the publisher's JSON scalar encoding."""
     def encode(obj):
@@ -28,7 +99,7 @@ def content_digest(value):
     digest = hashlib.sha256()
     encoder = json.JSONEncoder(sort_keys=True, ensure_ascii=False,
                                separators=(',', ':'), allow_nan=False, default=encode)
-    for fragment in encoder.iterencode(value):
+    for fragment in _bounded_canonical_chunks(value, encoder):
         digest.update(fragment.encode('utf-8'))
     return digest.hexdigest()
 

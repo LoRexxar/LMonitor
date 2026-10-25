@@ -325,13 +325,14 @@ def refresh_journal_loot_snapshots(*, batch_size=4, force=False, poll=False, tar
     return built
 
 
-def start_journal_loot_snapshot_worker():
+def start_journal_loot_snapshot_worker(*, lifecycle=None):
     global _thread
     with _thread_lock:
         if _thread is not None and _thread.is_alive():
-            return
+            return _thread
+        from botend.backend_lifecycle import worker_cycles
         def run():
-            while True:
+            for _ in worker_cycles(lifecycle, interval=15, label='journal-loot-snapshot'):
                 close_old_connections()
                 try:
                     refresh_journal_loot_snapshots(poll=True)
@@ -339,6 +340,6 @@ def start_journal_loot_snapshot_worker():
                     logger.exception('冒险手册掉落维护失败')
                 finally:
                     close_old_connections()
-                time.sleep(15)
         _thread = threading.Thread(target=run, name='journal-loot-snapshot', daemon=True)
         _thread.start()
+        return _thread

@@ -183,17 +183,40 @@ class SpecDetailAggregationMonitor(BaseScan):
         if not season.raid_encounters and not season.raid_zones:
             return
 
-        from botend.services.raid_aggregation import raid_stats
-        from botend.services.spec_stats_snapshot import content_digest
+        from botend.services.raid_aggregation import raid_stats, raid_fingerprint
+        from botend.services.spec_stats_snapshot import content_digest, reusable_projection
         from botend.services.stats_talent_dependencies import structure_token
         token = structure_token(class_name)
+        path = os.path.join(spec_dir, 'raid.json')
+        encounters = ([enc for zone in season.raid_zones for enc in zone.get('encounters', [])]
+                      if season.raid_zones else season.raid_encounters)
+        prepared = {}
+        checked = []
+        for difficulty in (5, 4):
+            for enc in encounters:
+                cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
+                fingerprint = raid_fingerprint(season.id, enc['id'], cn_name,
+                                               class_name, spec_name, difficulty)
+                prepared[difficulty, enc['id']] = fingerprint
+                checked.append([difficulty, enc['id'], fingerprint])
+        def publication_fingerprint(scopes):
+            return content_digest({'algorithm': 'raid-publication-v4-current-metadata', 'scopes': scopes,
+                'zones': season.raid_zones, 'encounters': season.raid_encounters})
+        required = [f'raid-{difficulty}-{boss}' for difficulty, boss, _ in checked]
+        # Existing publication is the checkpoint. Prove its current input and
+        # every detail body before decoding any per-boss work/talent catalog.
+        if reusable_projection(path, publication_fingerprint(checked), required) is not None:
+            logger.info('[SpecDetailAggregation] %s/%s 团本整模块发布复用 %s/%s；跳过工作缓存展开',
+                        class_name, spec_name, len(checked), len(checked))
+            return
         fingerprints = []
         reused = 0
 
         def compute(enc, cn_name, difficulty):
             nonlocal reused
             result, fingerprint, hit = raid_stats(
-                season.id, enc['id'], cn_name, class_name, spec_name, difficulty)
+                season.id, enc['id'], cn_name, class_name, spec_name, difficulty,
+                fingerprint=prepared[difficulty, enc['id']])
             fingerprints.append([difficulty, enc['id'], fingerprint])
             reused += int(hit)
             return result
@@ -229,11 +252,9 @@ class SpecDetailAggregationMonitor(BaseScan):
         mythic_zones = aggregate_difficulty(5)
         heroic_zones = aggregate_difficulty(4)
 
-        path = os.path.join(spec_dir, 'raid.json')
         (publish or publish_stats)(path, {
             '_talent_structure_token': token,
-            '_input_fingerprint': content_digest({'algorithm': 'raid-publication-v4-current-metadata', 'scopes': fingerprints,
-                'zones': season.raid_zones, 'encounters': season.raid_encounters}),
+            '_input_fingerprint': publication_fingerprint(fingerprints),
             'zone_groups': mythic_zones,
             'difficulties': [
                 {'difficulty': 5, 'label': '史诗团本表现', 'zone_groups': mythic_zones},

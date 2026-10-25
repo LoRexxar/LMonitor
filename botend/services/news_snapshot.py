@@ -330,14 +330,15 @@ def news_response(request, section=None):
     return response
 
 
-def start_news_snapshot_worker():
+def start_news_snapshot_worker(*, lifecycle=None):
     """监控进程维护，公开页面不会启动构建或查询数据库。"""
     global _thread
     with _thread_lock:
         if _thread is not None and _thread.is_alive():
-            return
+            return _thread
+        from botend.backend_lifecycle import worker_cycles
         def run():
-            while True:
+            for _ in worker_cycles(lifecycle, interval=15, label='news-snapshot'):
                 close_old_connections()
                 try:
                     refresh_news_snapshot(poll=True)
@@ -345,6 +346,6 @@ def start_news_snapshot_worker():
                     logger.exception('新闻轻量索引维护失败')
                 finally:
                     close_old_connections()
-                time.sleep(15)
         _thread = threading.Thread(target=run, name='news-snapshot', daemon=True)
         _thread.start()
+        return _thread
