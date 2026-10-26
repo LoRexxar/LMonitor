@@ -53,9 +53,9 @@ class IcyFullBundleImportTests(TestCase):
         print(f'完整包文件读取：{len(ids)} 篇，0 次 SQL，{(perf_counter() - started) * 1000:.1f} 毫秒（本地 SQLite 夹具）')
         longest = max(guides, key=lambda guide: len(guide.content_markdown))
         checks = check_article(longest)
-        expected = render_to_string('shared/class_guide_blocks.html', {
-            'blocks': render_blocks(longest.blocks, checks['references'], longest),
-        })
+        from botend.services.class_guide_presentation import guide_reading_structure
+        chapters, _ = guide_reading_structure(render_blocks(longest.blocks, checks['references'], longest))
+        expected = render_to_string('portal/class_guide_body.html', {'chapters': chapters})
         self.assertEqual(read_guide_snapshot(longest.pk)['article_html'], expected)
         self.assertEqual(self.client.get('/portal/class-guides/').status_code, 200)
         for guide in guides:

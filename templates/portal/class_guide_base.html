@@ -1,19 +1,19 @@
 {% load static %}<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,nofollow">
 <title>{{ title }} · WowDaily</title><link rel="icon" href="/favicon.ico">
-<script src="https://cdn.tailwindcss.com"></script>
 <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
 <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
 <link rel="stylesheet" href="{% static 'portal/css/class-guides.css' %}?v=20260908_clean_labels">
 <link rel="stylesheet" href="{% static 'shared/class-guide-author.css' %}">
 <link rel="stylesheet" href="{% static 'shared/css/class-guide-tooltip.css' %}?v=20260910_local">
+<link rel="stylesheet" href="{% static 'portal/css/class-guide-reader.css' %}?v=20261026_reading">
 </head><body class="portal-bg cg-page">
 {% if snapshot_header_slot %}{{ snapshot_header_slot }}{% else %}{% include 'portal/_header.html' %}{% endif %}
 <a class="cg-skip" href="#cg-main">跳到正文</a>
 {% block content %}{% endblock %}
-<footer class="cg-footer"><a href="/portal/class-guides/">WowDaily 职业攻略</a><span>中文内容持续维护 · 来源 Maxroll</span>{% if snapshot_management_slot %}{{ snapshot_management_slot }}{% elif can_manage_guides %}<a href="/dashboard/?section=class-guides{% if guide %}&amp;guide={{ guide.id }}{% endif %}">{% if guide %}编辑攻略{% else %}管理攻略{% endif %}</a>{% endif %}</footer>
+<footer class="cg-footer"><a href="/portal/class-guides/">WowDaily 职业攻略</a><span>中文职业攻略 · 持续维护</span>{% if snapshot_management_slot %}{{ snapshot_management_slot }}{% elif can_manage_guides %}<a href="/dashboard/?section=class-guides{% if guide %}&amp;guide={{ guide.id }}{% endif %}">{% if guide %}编辑攻略{% else %}管理攻略{% endif %}</a>{% endif %}</footer>
 <script src="{% static 'dashboard/js/class_guide_reader.js' %}" defer></script>
-<script src="{% static 'portal/js/class-guides.js' %}?v=20260908_1" defer></script>
+<script src="{% static 'portal/js/class-guides.js' %}?v=20261026_reading" defer></script>
 <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260911_class_guides" defer></script>
 <script src="{% static 'shared/js/class-guide-tooltip.js' %}?v=20260910_local" defer></script>
 </body></html>

@@ -1,13 +1,28 @@
 {% extends 'portal/class_guide_base.html' %}
 {% block content %}
 <div class="cg-container cg-reader" style="--class-color:{{ spec.color }}">
-<nav class="cg-breadcrumb" aria-label="面包屑"><a href="/portal/class-guides/">职业攻略</a><span>／</span><a href="/portal/class-guides/?class={{ guide.class_name }}&amp;spec={{ guide.spec_id }}">{{ spec.label }}</a><span>／</span><span>{{ guide.title }}</span></nav>
-<header class="cg-article-hero">{% if cover %}<img class="cg-hero-cover" src="{{ cover }}" alt="">{% endif %}<div class="cg-hero-content"><div class="cg-hero-spec"><img src="{{ spec.icon }}" alt="" width="36" height="36">{{ spec.label }}</div><h1>{{ guide.title }}</h1><div class="cg-hero-tags">{% for tag in guide.tags.all %}<a class="cg-tag" href="/portal/class-guides/?tag={{ tag.name|urlencode }}">{{ tag.name }}</a>{% endfor %}</div><div class="cg-byline"><span>作者 {{ author_profile.name }}</span>{% if updated %}<span>更新时间 <time datetime="{{ updated|date:'c' }}">{{ updated|date:'Y-m-d' }}</time></span>{% endif %}<span>约 {{ read_minutes }} 分钟</span>{% if guide.source_url %}<a href="{{ guide.source_url }}" target="_blank" rel="noopener noreferrer">来源原文 ↗</a>{% endif %}</div></div></header>
-<div class="cg-reading-layout"><aside class="cg-toc"><details open id="cg-toc-panel"><summary>本篇目录 <span id="cg-reading-progress">0%</span></summary><nav aria-label="本篇目录">{% for heading in toc %}<a href="#{{ heading.id }}" data-cg-heading="{{ heading.id }}" class="cg-toc-level-{{ heading.level }}">{{ heading.title }}</a>{% empty %}<span class="cg-muted">本文暂无分节</span>{% endfor %}</nav></details><a href="#cg-main" class="cg-back-top">↑ 回到正文顶部</a></aside>
-<main id="cg-main" class="cg-article"><nav class="cg-related-tabs" aria-label="同专精攻略">{% for row in related %}<a href="{% url 'portal_class_guide_article' row.guide.id %}" {% if row.guide.id == guide.id %}aria-current="page"{% endif %}>{{ row.title }}</a>{% endfor %}</nav>
-{% include 'shared/class_guide_author.html' %}
-{% include 'shared/class_guide_disclaimer.html' %}
-<div class="cg-article-body guide-article">{{ article_html|safe }}</div>
-<div class="cg-article-end"><span>已读完本篇攻略</span><a href="/portal/class-guides/?spec={{ guide.spec_id }}">查看{{ spec.spec_label }}的其他攻略 →</a></div></main>
-<aside class="cg-reader-tools"><p class="cg-section-label">实战工具</p><a href="{{ talent_url }}" target="_blank" rel="noopener"><strong>天赋模拟器 ↗</strong><span>查看与调整天赋</span></a><a href="{{ gear_url }}" target="_blank" rel="noopener"><strong>职业配装器 ↗</strong><span>组合装备与属性</span></a><a href="/portal/spec/{{ guide.class_name }}/{{ guide.spec_name }}/" target="_blank" rel="noopener"><strong>专精数据 ↗</strong><span>查看实战与排名</span></a><p class="cg-section-label cg-more-label">同专精攻略</p>{% for row in related %}{% if row.guide.id != guide.id %}<a href="{% url 'portal_class_guide_article' row.guide.id %}">{{ row.title }}</a>{% endif %}{% endfor %}</aside></div>
-</div>{% endblock %}
+<nav class="cg-breadcrumb" aria-label="面包屑"><a href="/portal/class-guides/">职业攻略</a><span>／</span><a href="/portal/class-guides/?class={{ guide.class_name }}&amp;spec={{ guide.spec_id }}">{{ spec.label }}</a></nav>
+<header class="cg-article-hero">
+  <div class="cg-hero-content">
+    <div class="cg-title-line"><img src="{{ spec.icon }}" alt="" width="40" height="40"><h1>{{ guide.title }}</h1></div>
+    <div class="cg-byline"><span>作者 {{ author_profile.name }}</span>{% if updated %}<span>更新于 <time datetime="{{ updated|date:'c' }}">{{ updated|date:'Y-m-d' }}</time></span>{% endif %}<span>完整阅读约 {{ read_minutes }} 分钟</span>{% if guide.source_url %}<a href="{{ guide.source_url }}" target="_blank" rel="noopener noreferrer">来源原文 ↗</a>{% endif %}</div>
+    <div class="cg-reader-meta"><div class="cg-hero-tags">{% for tag in guide.tags.all %}<a class="cg-tag" href="/portal/class-guides/?tag={{ tag.name|urlencode }}">{{ tag.name }}</a>{% endfor %}</div><nav class="cg-tool-links" aria-label="实战工具"><a href="{{ talent_url }}" target="_blank" rel="noopener">天赋模拟器 ↗</a><a href="{{ gear_url }}" target="_blank" rel="noopener">职业配装器 ↗</a><a href="/portal/spec/{{ guide.class_name }}/{{ guide.spec_name }}/" target="_blank" rel="noopener">专精数据 ↗</a></nav></div>
+  </div>
+</header>
+<div class="cg-reading-layout">
+  <aside class="cg-toc">
+    <details open id="cg-toc-panel"><summary><span>本篇目录</span><span id="cg-reading-progress">0%</span></summary>
+      <nav aria-label="本篇目录">{% include 'portal/class_guide_toc.html' with headings=toc_tree %}</nav>
+    </details>
+    <a href="#cg-main" class="cg-back-top">回到正文顶部</a>
+  </aside>
+  <main id="cg-main" class="cg-article">
+    {% if related|length > 1 %}<nav class="cg-related-tabs" aria-label="同专精攻略">{% for row in related %}<a href="{% url 'portal_class_guide_article' row.guide.id %}" {% if row.guide.id == guide.id %}aria-current="page"{% endif %}>{{ row.title }}</a>{% endfor %}</nav>{% endif %}
+    {% if author_profile.bio or author_profile.title %}<details class="cg-author-note"><summary>关于作者 {{ author_profile.name }}</summary>{% include 'shared/class_guide_author.html' with hide_author_links=True %}</details>{% endif %}
+    {% include 'shared/class_guide_disclaimer.html' %}
+    <div class="cg-article-body guide-article">{{ article_html|safe }}</div>
+    <div class="cg-article-end"><span>已读完本篇攻略</span><a href="/portal/class-guides/?spec={{ guide.spec_id }}">查看{{ spec.spec_label }}的其他攻略 →</a></div>
+  </main>
+</div>
+</div>
+{% endblock %}

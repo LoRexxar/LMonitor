@@ -24,4 +24,5 @@ def render_blocks(blocks, refs, guide):
         if data.get('steps'):
             data['steps'] = [render_references(str(step), refs) for step in data['steps']]
         data['source_url'] = safe_url(data.get('source_url', ''))
-    return result
+    from botend.services.class_guide_presentation import prepare_guide_presentation
+    return prepare_guide_presentation(result, guide)

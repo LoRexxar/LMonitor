@@ -971,7 +971,8 @@ class GuideFlowTests(TestCase):
         page = self.client.get(f'/portal/class-guides/{self.guide.id}/')
         self.assertContains(page, '中文编辑')
         self.assertContains(page, '第一段简介')
-        self.assertContains(page, 'https://example.com/me')
+        self.assertNotContains(page, 'https://example.com/me')
+        self.assertEqual(self.client.get(endpoint).json()['display_author_profile']['links'], profile['links'])
         self.assertContains(page, '中文编辑')
         body['author_profile'] = {'name':'过期修改'}
         self.assertEqual(self.client.patch(endpoint, data=json.dumps(body), content_type='application/json').status_code,409)

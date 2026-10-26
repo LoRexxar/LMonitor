@@ -1,0 +1,7 @@
+{% for chapter in chapters %}
+{% if chapter.is_source %}
+<details class="cg-source-note" id="{{ chapter.id }}"><summary>{{ chapter.title }}<span>原作者、翻译声明与章节原文</span></summary><div>{% include 'shared/class_guide_blocks.html' with blocks=chapter.blocks|slice:'1:' %}</div></details>
+{% else %}
+<section class="cg-chapter"{% if chapter.id %} data-chapter="{{ chapter.id }}"{% endif %}>{% include 'shared/class_guide_blocks.html' with blocks=chapter.blocks %}</section>
+{% endif %}
+{% endfor %}

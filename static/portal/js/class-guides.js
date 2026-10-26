@@ -56,27 +56,56 @@
     const small=matchMedia('(max-width:760px)'); const collapse=()=>{toc.open=!small.matches;};collapse();small.addEventListener('change',collapse);
     function revealHash() {
       let id;try{id=decodeURIComponent(location.hash.slice(1));}catch{return;}
-      const target=document.getElementById(id);if(target&&article.contains(target))window.revealGuideHeading(target);
+      const target=document.getElementById(id);if(!target||(!article.contains(target)&&id!=='cg-main'))return;
+      let branch=links.find(link=>link.dataset.cgHeading===id)?.closest('.cg-toc-branch');
+      while(branch){branch.open=true;branch=branch.parentElement.closest('.cg-toc-branch');}
+      window.revealGuideHeading(target);
     }
-    links.forEach(link=>link.addEventListener('click',e=>{
+    document.querySelector('.cg-reader').addEventListener('click',e=>{
+      const link=e.target.closest('a[href]');
+      if(!link||e.defaultPrevented||e.button!==0||e.ctrlKey||e.metaKey||e.shiftKey||e.altKey)return;
+      if(link.origin!==location.origin||link.pathname!==location.pathname||link.search!==location.search||!link.hash)return;
+      let id;try{id=decodeURIComponent(link.hash.slice(1));}catch{return;}
+      const target=document.getElementById(id);if(!target||(!article.contains(target)&&id!=='cg-main'))return;
       e.preventDefault();if(small.matches)toc.open=false;
-      history.pushState(null,'',link.hash);revealHash();
-    }));
+      if(location.hash!==link.hash)history.pushState(null,'',link.hash);
+      revealHash();
+    });
     window.addEventListener('hashchange',revealHash);if(location.hash)requestAnimationFrame(revealHash);
-    let scheduled=false;
-    function progress() {
-      scheduled=false;let active=links[0];
-      const threshold=(header?.getBoundingClientRect().height||64)+(small.matches?80:40);
-      links.forEach(link=>{const node=document.getElementById(link.dataset.cgHeading);if(node?.getClientRects().length && node.getBoundingClientRect().top<=threshold)active=link;});
-      links.forEach(link=>{if(link===active)link.setAttribute('aria-current','true');else link.removeAttribute('aria-current');});
-      const rect=article.getBoundingClientRect(), total=Math.max(1,rect.height-innerHeight+threshold);
-      document.getElementById('cg-reading-progress').textContent=`${Math.round(Math.max(0,Math.min(1,(threshold-rect.top)/total))*100)}%`;
+    const targets=links.map(link=>({link,node:document.getElementById(link.dataset.cgHeading)})).filter(row=>row.node);
+    let positions=[], activeLink=null, activeChapter=null, scheduled=false, measuring=false;
+    const threshold=()=> (header?.getBoundingClientRect().height||64)+(small.matches?76:28);
+    function measure() {
+      measuring=false;
+      positions=targets.filter(row=>row.node.getClientRects().length).map(row=>({...row,top:row.node.getBoundingClientRect().top+window.scrollY})).sort((a,b)=>a.top-b.top);
+      progress();
     }
-    document.addEventListener('scroll',()=>{if(!scheduled){scheduled=true;requestAnimationFrame(progress);}},{passive:true,capture:true});progress();
+    function scheduleMeasure(){if(!measuring){measuring=true;requestAnimationFrame(measure);}}
+    function progress() {
+      scheduled=false;
+      const edge=window.scrollY+threshold()+2;
+      let low=0,high=positions.length-1,index=0;
+      while(low<=high){const mid=(low+high)>>1;if(positions[mid].top<=edge){index=mid;low=mid+1;}else high=mid-1;}
+      const current=positions[index]?.link;
+      if(current&&current!==activeLink){
+        activeLink?.removeAttribute('aria-current');current.setAttribute('aria-current','true');activeLink=current;
+        let branch=current.closest('.cg-toc-branch');
+        while(branch?.parentElement.closest('.cg-toc-branch'))branch=branch.parentElement.closest('.cg-toc-branch');
+        if(branch!==activeChapter){activeChapter?.classList.remove('is-current-chapter');branch?.classList.add('is-current-chapter');activeChapter=branch;}
+      }
+      const rect=article.getBoundingClientRect(), total=Math.max(1,rect.height-innerHeight+threshold());
+      document.getElementById('cg-reading-progress').textContent=`${Math.round(Math.max(0,Math.min(1,(threshold()-rect.top)/total))*100)}%`;
+    }
+    document.addEventListener('scroll',()=>{if(!scheduled){scheduled=true;requestAnimationFrame(progress);}},{passive:true,capture:true});
+    article.addEventListener('toggle',scheduleMeasure,true);
+    article.addEventListener('load',scheduleMeasure,true);
+    new ResizeObserver(scheduleMeasure).observe(article);
+    window.addEventListener('resize',scheduleMeasure);
+    measure();
   }
   // 来源封面不可用时保留职业底图，避免破图占位影响阅读。
   document.querySelectorAll('.cg-card-cover>img,.cg-hero-cover').forEach(img=>{const fallback=()=>{img.hidden=true;};img.addEventListener('error',fallback);if(img.complete&&!img.naturalWidth)fallback();});
-  document.querySelectorAll('.cg-hero-spec img,.cg-cover-spec img,.guide-ref img,.cg-class-symbol img').forEach(img=>{
+  document.querySelectorAll('.cg-title-line>img,.cg-hero-spec img,.cg-cover-spec img,.guide-ref img,.cg-class-symbol img').forEach(img=>{
     const recover=()=>{
       if(!img.dataset.cgFallback){
         img.dataset.cgFallback='1';

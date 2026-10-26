@@ -1,0 +1,4 @@
+{% for heading in headings %}
+{% if heading.children %}<details class="cg-toc-branch" data-toc-section="{{ heading.id }}"><summary><a href="#{{ heading.id }}" data-cg-heading="{{ heading.id }}" data-heading-level="{{ heading.level }}">{{ heading.title }}</a><svg aria-hidden="true" viewBox="0 0 16 16"><path d="m5 3 5 5-5 5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg></summary><div>{% include 'portal/class_guide_toc.html' with headings=heading.children %}</div></details>
+{% else %}<a href="#{{ heading.id }}" data-cg-heading="{{ heading.id }}" data-heading-level="{{ heading.level }}">{{ heading.title }}</a>{% endif %}
+{% endfor %}

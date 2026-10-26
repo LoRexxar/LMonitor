@@ -9,11 +9,11 @@
   window.initializeGuideReader();
   window.revealGuideHeading = target => {
     if (!target) return;
-    const parents = []; for (let node = target.parentElement; node; node = node.parentElement) parents.unshift(node);
+    const parents = []; for (let node = target; node; node = node.parentElement) parents.unshift(node);
     parents.forEach(node => {
       if (node.matches('details')) node.open = true;
     });
-    target.scrollIntoView({block:'start',behavior:'smooth'});
+    target.scrollIntoView({block:'start',behavior:matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
   };
   document.querySelectorAll('.reading-toc a').forEach(link => link.addEventListener('click', event => {
     const target = document.getElementById(link.hash.slice(1));

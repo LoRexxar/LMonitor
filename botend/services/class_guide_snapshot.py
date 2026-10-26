@@ -30,7 +30,7 @@ from botend.services.class_guide_tools import gear_tool_url
 from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write
 
 logger = logging.getLogger(__name__)
-SCHEMA = 2
+SCHEMA = 3
 _thread = None
 _thread_lock = threading.Lock()
 
@@ -94,6 +94,8 @@ def _article(guide, row):
     refs = resolve_references(blocks, guide.game_version, guide.class_name, guide.spec_name,
                               (guide.check_data or {}).get('source_refs'))
     blocks = render_blocks(blocks, refs, guide)
+    from botend.services.class_guide_presentation import guide_reading_structure
+    chapters, toc_tree = guide_reading_structure(blocks)
     gear_url = next((b['data']['tool_url'] for b in walk_blocks(blocks)
                      if b['type'] == 'gear' and b.get('data', {}).get('tool_url')), None)
     query = urlencode({'class': guide.class_name, 'spec': guide.spec_name, 'version': guide.game_version})
@@ -101,7 +103,8 @@ def _article(guide, row):
         'schema': SCHEMA, 'title': guide.title, 'guide': {**row['guide'], 'tags': {'all': row['tags']}},
         'spec': row['spec'], 'author_profile': author_profile_for(guide),
         'disclaimers': guide_disclaimers(guide), 'updated': row['updated'], 'cover': row['cover'],
-        'article_html': render_to_string('shared/class_guide_blocks.html', {'blocks': blocks}),
+        'article_html': render_to_string('portal/class_guide_body.html', {'chapters': chapters}),
+        'toc_tree': toc_tree,
         'toc': [{'id': b['id'], 'title': strip_tags(b['title']), 'level': b['data']['level']}
                 for b in walk_blocks(blocks) if b['type'] == 'heading'],
         'read_minutes': max(1, len(re.sub(r'\s', '', strip_tags(guide.content_markdown))) // 500),
