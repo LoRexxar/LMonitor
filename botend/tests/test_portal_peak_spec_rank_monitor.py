@@ -156,7 +156,7 @@ class PortalPeakSpecRankPreloadTests(TestCase):
         self.assertIsNotNone(payload['updated_at'])
         self.assertEqual(player.last_updated, content_updated_at)
 
-    def test_peak_refresh_initializes_only_new_players_and_lightly_updates_existing_players(self):
+    def test_peak_refresh_only_places_new_players_and_lightly_updates_existing_players(self):
         season = SeasonMeta.objects.create(
             season_key='mn-s2', season_name='MN S2', rio_season='season-mn-2',
             mplus_zone_id=1, raid_zone_id=1,
@@ -195,32 +195,13 @@ class PortalPeakSpecRankPreloadTests(TestCase):
         response.json.return_value = {'rankings': {'rankedCharacters': rankings}}
         monitor = PortalPeakSpecRankMonitor(Mock(), Mock())
 
-        attempts = {}
-        stats_attempts = {}
-
-        def initialize_new_player(profile):
-            attempts[profile.character_name] = attempts.get(profile.character_name, 0) + 1
-            profile.gear_json = [{'id': 456, 'name': '新玩家初始化装备', 'slot': 'head'}]
-            profile.talent_build_code = 'NEW-TALENT'
-            return True
-
-        def initialize_new_player_stats(profile):
-            stats_attempts[profile.character_name] = stats_attempts.get(profile.character_name, 0) + 1
-            if profile.character_name == 'NewPlayer1' and stats_attempts[profile.character_name] == 1:
-                profile.stats_crawl_status = -1
-                profile.save(update_fields=['stats_crawl_status'])
-                return False
-            profile.stats_crawl_status = 1
-            profile.save(update_fields=['stats_crawl_status'])
-            return True
-
         with patch('botend.controller.plugins.portal.PortalPeakSpecRankMonitor.requests.get', return_value=response), \
-                patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.SpecDetailPlayerMonitor._enrich_profile_model_from_raiderio', side_effect=initialize_new_player) as enrich, \
-                patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.SpecDetailPlayerMonitor._crawl_battlenet_stats_for_profile', side_effect=initialize_new_player_stats) as crawl_stats:
+                patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.SpecDetailPlayerMonitor._enrich_profile_model_from_raiderio') as enrich, \
+                patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.SpecDetailPlayerMonitor._crawl_battlenet_stats_for_profile') as crawl_stats:
             self.assertTrue(monitor._fetch_and_upsert(
                 season='season-mn-2', region='world', class_slug='mage', spec_slug='arcane'
             ))
-            # 初始化失败的占位人物应在下一次轻量榜单刷新中继续初始化。
+            # Repeated short refreshes leave initialization to the daily task.
             self.assertTrue(monitor._fetch_and_upsert(
                 season='season-mn-2', region='world', class_slug='mage', spec_slug='arcane'
             ))
@@ -235,18 +216,13 @@ class PortalPeakSpecRankPreloadTests(TestCase):
         self.assertEqual((misclassified.class_name, misclassified.rank, misclassified.score), ('Mage', 3, 3998))
         self.assertEqual(misclassified.gear_json, [{'id': 789, 'name': '错误职业记录的旧装备'}])
         self.assertEqual(misclassified.talent_build_code, 'MISCLASSIFIED-TALENT')
-        self.assertEqual(enrich.call_count, 19)
-        self.assertEqual(attempts['NewPlayer1'], 2)
-        self.assertNotIn('NewPlayer2', attempts)
-        self.assertTrue(all(attempts[f'NewPlayer{index}'] == 1 for index in range(3, 20)))
-        self.assertEqual(crawl_stats.call_count, 19)
-        self.assertEqual(stats_attempts['NewPlayer1'], 2)
+        enrich.assert_not_called()
+        crawl_stats.assert_not_called()
         initialized = PlayerSpecTopPlayer.objects.get(character_name='NewPlayer1')
         self.assertEqual((initialized.rank, initialized.score), (2, 3999))
-        self.assertEqual(initialized.gear_json[0]['id'], 456)
-        self.assertEqual(initialized.gear_json[0]['name'], '新玩家初始化装备')
-        self.assertEqual(initialized.gear_json[0]['slot'], 'head')
-        self.assertEqual(initialized.talent_build_code, 'NEW-TALENT')
+        self.assertEqual(initialized.gear_json, [])
+        self.assertEqual(initialized.talent_build_code, '')
+        self.assertIsNone(initialized.last_updated)
 
 
 class PortalPeakLightweightPreloadTests(TestCase):
@@ -259,7 +235,7 @@ class PortalPeakLightweightPreloadTests(TestCase):
         )
         self.monitor = SpecDetailPlayerMonitor(Mock(), Mock())
         # Independent consumers have their own regression coverage; keep SQL here
-        # attributable to reconciliation and exact-ID initialization only.
+        # attributable to local reconciliation only.
         self.enterContext(patch.object(self.monitor, 'backfill_missing_battlenet_stats'))
         self.enterContext(patch.object(self.monitor, 'refresh_top20_activity'))
         self.enterContext(patch(
@@ -318,7 +294,7 @@ class PortalPeakLightweightPreloadTests(TestCase):
             self.assertEqual(self.preload(['mage', 'MAGE', 'Repair'])['updated'], 0)
         self.assertFalse(any(q['sql'].startswith('UPDATE') for q in unchanged))
 
-    def test_only_pending_ids_hydrate_and_unknown_failure_remains_retryable(self):
+    def test_pending_ids_never_hydrate_or_initialize_in_short_task(self):
         healthy = self.player('Healthy')
         pending = self.player('Pending', last_updated=None, realm='HYJAL')
         departed = self.player('Departed', last_updated=None)
@@ -336,18 +312,16 @@ class PortalPeakLightweightPreloadTests(TestCase):
                     CaptureQueriesContext(connection) as queries:
                 result = self.preload(['Healthy', 'Pending'])
             selects = self.profile_selects(queries)
-            self.assertEqual(len(selects), 2)
+            self.assertEqual(len(selects), 1)
             self.assertNotIn('gear_json', selects[0])
-            self.assertIn('gear_json', selects[1])
-            self.assertIn(f'"id" IN ({pending.pk})', selects[1])
-            self.assertEqual(result['initialized'], int(attempt == 2))
+            self.assertEqual(result['initialized'], 0)
             pending.refresh_from_db()
-            self.assertEqual(pending.last_updated is None, attempt != 2)
+            self.assertIsNone(pending.last_updated)
             self.assertEqual(pending.gear_json, before[pending.pk]['gear_json'])
             self.assertEqual(pending.talents_json, before[pending.pk]['talents_json'])
             self.assertEqual(pending.stats_json, before[pending.pk]['stats_json'])
-        self.assertEqual(fetch.call_count, 3)
-        stats.assert_called_once()
+        fetch.assert_not_called()
+        stats.assert_not_called()
         for player in (healthy, departed):
             row = PlayerSpecTopPlayer.objects.values().get(pk=player.pk)
             for field, value in before[player.pk].items():
@@ -420,7 +394,7 @@ class PortalPeakStatsBackfillTests(TestCase):
         path = self.media_root / 'aggregated' / str(self.season.id) / 'DeathKnight' / 'Frost' / 'leaderboard.json'
         return json.loads(path.read_text(encoding='utf-8'))
 
-    def test_preload_repairs_only_missing_old_stats_and_publishes_rankings(self):
+    def test_separate_stats_backfill_repairs_missing_old_stats_after_rank_publication(self):
         missing = self.player('Aghistør')
         healthy = self.player('Healthy', stats_json={'crit': {'rating': 99, 'pct': 12}}, stats_crawl_status=1)
         preserved = self.player('Preserved', stats_json={'crit': {'rating': 88, 'pct': 10}}, stats_crawl_status=-1)
@@ -429,6 +403,10 @@ class PortalPeakStatsBackfillTests(TestCase):
         before = {row['id']: row for row in PlayerSpecTopPlayer.objects.values()}
 
         result = self.preload([missing, healthy, preserved, cn])
+        self.stats.assert_not_called()
+        self.oauth.assert_not_called()
+        self.monitor.backfill_missing_battlenet_stats(
+            season_id=self.season.pk, class_name='DeathKnight', spec_name='Frost')
 
         missing.refresh_from_db()
         self.assertEqual(missing.stats_json['crit'], {'rating': 1239, 'pct': 32.93478})
@@ -451,7 +429,13 @@ class PortalPeakStatsBackfillTests(TestCase):
         self.assertEqual(projected['id'], missing.id)
         self.assertEqual(projected['score'], 4000)
 
-    def test_stats_errors_are_isolated_and_failed_players_retry_next_preload(self):
+    def test_daily_stats_errors_are_isolated_and_failed_players_respect_backoff(self):
+        # MySQL JSON rounds this fractional epoch on readback; persisted retry
+        # state must survive that boundary rather than rely on the memory cache.
+        self.enterContext(patch(
+            'botend.controller.plugins.portal.SpecDetailPlayerMonitor.time.time',
+            return_value=1793026500.0000021,
+        ))
         players = [self.player(name) for name in ('Malformed', 'Unavailable', 'Good')]
         self.stats.side_effect = [
             Mock(status_code=200, json=lambda: ['malformed payload']),
@@ -461,6 +445,7 @@ class PortalPeakStatsBackfillTests(TestCase):
 
         self.preload(players)
 
+        self.monitor._crawl_battlenet_stats(self.season.pk, ranked_only=True)
         for player in players:
             player.refresh_from_db()
         self.assertEqual(players[2].stats_crawl_status, 1)
@@ -470,29 +455,32 @@ class PortalPeakStatsBackfillTests(TestCase):
         self.stats.side_effect = None
 
         self.preload(players)
+        self.monitor._crawl_battlenet_stats(self.season.pk, ranked_only=True)
 
         self.assertEqual(self.stats.call_count, 3)  # 同一退避窗口不立即重试。
         import time
         with patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.time.time', return_value=time.time() + 301):
             self.preload(players)
+            self.monitor._crawl_battlenet_stats(self.season.pk, ranked_only=True)
         self.assertEqual(self.stats.call_count, 5)
         self.assertEqual(PlayerSpecTopPlayer.objects.filter(stats_crawl_status=1).count(), 3)
         self.oauth.assert_called_once()  # successful OAuth reused across the batch and retry
         self.rio.assert_not_called()
 
-    def test_token_failure_short_circuits_old_batch_without_repeating_new_initialization(self):
+    def test_daily_token_failure_short_circuits_batch_without_initializing_profiles(self):
         players = [self.player('Old1'), self.player('Old2'), self.player('New', last_updated=None)]
         self.oauth.return_value = Mock(status_code=503)
 
         result = self.preload(players)
+        self.monitor._crawl_battlenet_stats(self.season.pk, ranked_only=True)
 
-        self.assertEqual(result['initialized'], 1)
-        self.assertEqual(self.oauth.call_count, 2)  # one old batch + existing new-player initialization
+        self.assertEqual(result['initialized'], 0)
+        self.assertEqual(self.oauth.call_count, 1)
         self.stats.assert_not_called()
-        self.rio.assert_called_once_with('eu', 'Hyjal', 'New')
+        self.rio.assert_not_called()
         self.assertEqual(len(self.projection()['players']), 3)
         new = PlayerSpecTopPlayer.objects.get(pk=players[2].pk)
-        self.assertIsNotNone(new.last_updated)
+        self.assertIsNone(new.last_updated)
         self.assertEqual(new.stats_crawl_status, -2)
         self.oauth.return_value = Mock(status_code=200, json=lambda: {
             'access_token': 'fixture-token', 'expires_in': 3600,
@@ -500,9 +488,10 @@ class PortalPeakStatsBackfillTests(TestCase):
 
         self.preload(players)
 
-        self.assertEqual(self.oauth.call_count, 3)
+        self.monitor._crawl_battlenet_stats(self.season.pk, ranked_only=True)
+        self.assertEqual(self.oauth.call_count, 2)
         self.assertEqual(self.stats.call_count, 3)
-        self.assertEqual(self.rio.call_count, 1)
+        self.rio.assert_not_called()
         self.assertEqual(PlayerSpecTopPlayer.objects.filter(stats_crawl_status=1).count(), 3)
 
     def test_direct_stats_only_backfill_is_scoped_stable_and_bounded(self):

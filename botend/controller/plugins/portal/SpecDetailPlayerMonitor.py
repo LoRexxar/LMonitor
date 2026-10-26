@@ -4,6 +4,7 @@
 从 Raider.IO 获取每个专精榜单玩家数据，从 Battle.net 补充前排玩家属性面板
 """
 
+import math
 import time
 import unicodedata
 from types import SimpleNamespace
@@ -33,7 +34,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         'rank', 'score', 'last_updated',
     )
     PROFILE_UPDATE_FIELDS = (
-        'class_name', 'rank', 'score', 'faction', 'race', 'gender', 'guild_name',
+        # Rank/score are owned exclusively by the short peak-ranking writer.
+        # Include neither in daily updates nor insert-conflict recovery.
+        'class_name', 'faction', 'race', 'gender', 'guild_name',
         'realm_rank', 'avatar_url', 'profile_url', 'achievement_points', 'item_level',
         'gear_json', 'talents_json', 'talent_build_code', 'stats_json',
         'stats_crawl_status',
@@ -81,6 +84,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 before_counts = self._get_profile_cache().counts.copy()
                 # 从 Raider.IO 获取榜单玩家
                 players = self._fetch_top_players(class_name, spec_name, rio_season)
+                fetch_finished = time.monotonic()
+                logger.info(f"[SpecDetailPlayer] phase=daily_fetch_enrich {class_name}/{spec_name} "
+                            f"seconds={fetch_finished - spec_started:.3f} players={len(players)}")
                 if not players:
                     continue
 
@@ -93,22 +99,18 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         for row in existing_qs
                     }
                     existing_map.pop(None, None)
-                    seen_keys = set()
-
-                    for i, player in enumerate(players):
+                    for player in players:
                         try:
                             region = player.get('region', '')
                             realm = player.get('realm', '')
                             character_name = player.get('name', '')
                             row_key = self._profile_identity_key(region, realm, character_name)
-                            seen_keys.add(row_key)
+
                             existing = existing_map.get(row_key)
                             stats_json = existing.stats_json if existing and existing.stats_json else {}
                             stats_status = existing.stats_crawl_status if existing else 0
 
                             defaults = {
-                                'rank': i + 1,
-                                'score': player.get('score'),
                                 'faction': player.get('faction'),
                                 'race': player.get('race'),
                                 'gender': player.get('gender'),
@@ -131,10 +133,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                 'stats_crawl_status': stats_status,
                                 'last_updated': timezone.now(),
                             }
-                            if existing and player.get('_profile_refresh_failed'):
-                                # Ranking data remains usable, but absent/rejected profile
-                                # data is not an authoritative empty profile or a refresh.
-                                defaults = {key: defaults[key] for key in ('rank', 'score')}
+                            if player.get('_profile_refresh_failed'):
+                                # A failed source is not empty content or a successful
+                                # initialization. Short-task ranks may already be newer.
+                                defaults = {} if existing else {'last_updated': None}
                             self._preserve_complete_talents_when_new_payload_is_downgrade(existing, defaults, class_name, spec_name)
                             if existing:
                                 defaults['class_name'] = class_name
@@ -162,6 +164,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         except Exception as e:
                             logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
 
+                profiles_finished = time.monotonic()
+                logger.info(f"[SpecDetailPlayer] phase=daily_profile_write {class_name}/{spec_name} "
+                            f"seconds={profiles_finished - fetch_finished:.3f}")
                 self._backfill_ranking_sample_profiles(
                     season.id,
                     class_name,
@@ -169,6 +174,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     limit=self.RANKING_SAMPLE_BACKFILL_LIMIT,
                 )
 
+                logger.info(f"[SpecDetailPlayer] phase=daily_sample_backfill {class_name}/{spec_name} "
+                            f"seconds={time.monotonic() - profiles_finished:.3f}")
                 logger.info(f"[SpecDetailPlayer] 专精 {class_name}/{spec_name} "
                             f"耗时 {time.monotonic() - spec_started:.1f}s，详情缓存统计 "
                             f"{dict(self._get_profile_cache().counts - before_counts)}")
@@ -178,7 +185,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         logger.info(f"[SpecDetailPlayer] 人物榜采集完成，共 {total_inserted} 条")
 
         # 补充 Battle.net 属性（排除国服）
+        stats_started = time.monotonic()
         self._crawl_battlenet_stats(season.id, ranked_only=True)
+        logger.info(f"[SpecDetailPlayer] phase=daily_battlenet seconds={time.monotonic() - stats_started:.3f}")
 
         from botend.services.character_bindings import refresh_bound_characters
         bound_count = refresh_bound_characters(self, season, refreshed_identities)
@@ -252,13 +261,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return all_players[:self.PLAYER_RANKING_LIMIT]
 
     def preload_peak_rankings(self, *, rio_season, class_name, spec_name, rankings):
-        """消费高频巅峰榜：应用排名，补旧人物缺失属性，初始化新人物。"""
+        """高频本地阶段：身份占位、排名/分数/离榜、展示投影；禁止人物补采。"""
+        started = time.monotonic()
         season = SeasonMeta.objects.filter(is_active=True, rio_season=rio_season).first()
         if not season:
             logger.warning(f"[SpecDetailPlayer] 预载跳过，无匹配赛季: {rio_season}")
             return {'new': 0, 'updated': 0, 'departed': 0}
 
-        pending_profile_ids = set()
         initialized = 0
         updated = 0
         departed = 0
@@ -278,7 +287,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
             current_keys = set()
             for index, ranking in enumerate((rankings or [])[:self.PLAYER_RANKING_LIMIT]):
-                player = self._build_player_from_ranking(class_name, spec_name, ranking)
+                player = self._build_player_from_ranking(class_name, spec_name, ranking, include_profile=False)
                 if not player:
                     continue
                 key = self._profile_identity_key(player.get('region'), player.get('realm'), player.get('name'))
@@ -330,10 +339,6 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                             light_updates['class_name'] = class_name
                         updated += int(self._save_changed_profile(profile, light_updates))
 
-                # last_updated=None 是专用于新玩家初始化失败重试的占位状态。
-                if profile.last_updated is None:
-                    pending_profile_ids.add(profile.id)
-
             for key, profile in existing_map.items():
                 if key in current_keys or profile.rank is None:
                     continue
@@ -341,44 +346,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 profile.save(update_fields=['rank'])
                 departed += 1
 
-        # 在初始化新人物之前补旧人物缺口，避免本轮新人物被重复采集。
-        # 排名已提交；属性补采失败不能阻止新人物初始化或公开榜单投影。
-        try:
-            self.backfill_missing_battlenet_stats(
-                season_id=season.id, class_name=class_name, spec_name=spec_name,
-            )
-        except Exception as exc:
-            logger.warning(f"[SpecDetailPlayer] 旧人物属性补采失败 {class_name}/{spec_name}: {exc}")
-
-        initialization_success = 0
-        for profile in PlayerSpecTopPlayer.objects.filter(id__in=pending_profile_ids):
-            try:
-                if not self._enrich_profile_model_from_raiderio(profile):
-                    continue
-                profile.save(update_fields=[
-                    'faction', 'race', 'avatar_url', 'profile_url', 'achievement_points',
-                    'item_level', 'gear_json', 'talents_json', 'talent_build_code',
-                ])
-                stats_initialized = self._crawl_battlenet_stats_for_profile(profile)
-                if not stats_initialized and profile.stats_crawl_status != -2 and (profile.region or '').lower() != 'cn':
-                    # 临时属性初始化失败时保留占位状态，下一个10分钟周期继续补齐。
-                    continue
-                profile.last_updated = timezone.now()
-                profile.save(update_fields=['last_updated'])
-                initialization_success += 1
-            except Exception as exc:
-                logger.warning(
-                    f"[SpecDetailPlayer] 新入榜人物初始化失败 "
-                    f"{class_name}/{spec_name}/{profile.character_name}: {exc}"
-                )
-
-        # Activity has an independent TTL and never refreshes existing profile facts.
-        # Initialize new profiles first so one combined request can fill both scopes.
-        try:
-            self.refresh_top20_activity(season, class_name, spec_name)
-        except Exception as exc:
-            logger.warning(f"[SpecDetailPlayer] activity refresh failed: {type(exc).__name__}")
-
+        # Daily scan already owns profile/activity (including roster maintenance)
+        # and current-ranked Battle.net refresh, with their existing TTL/backoff.
+        reconciled = time.monotonic()
         from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDetailAggregationMonitor
         SpecDetailAggregationMonitor.refresh_leaderboard_projection(
             season.id, class_name, spec_name,
@@ -386,12 +356,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         logger.info(
             f"[SpecDetailPlayer] 巅峰榜预载 {class_name}/{spec_name}: "
-            f"new={initialized}, initialized={initialization_success}, "
-            f"updated={updated}, departed={departed}"
+            f"new={initialized}, initialized=0, updated={updated}, departed={departed} "
+            f"phase=short_local reconcile_seconds={reconciled - started:.3f} "
+            f"projection_seconds={time.monotonic() - reconciled:.3f}"
         )
         return {
             'new': initialized,
-            'initialized': initialization_success,
+            'initialized': 0,
             'updated': updated,
             'departed': departed,
         }
@@ -538,7 +509,11 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             for field, value in values.items()
             if field != 'last_updated' and getattr(profile, field) != value
         ]
-        if not changed_fields:
+        # A verified first profile may match every ranking-derived placeholder
+        # field. Mark it initialized once, but never refresh a timestamp alone.
+        initializing = ('last_updated' in values and values['last_updated'] is not None
+                        and profile.last_updated is None)
+        if not changed_fields and not initializing:
             return False
         for field in changed_fields:
             setattr(profile, field, values[field])
@@ -725,7 +700,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 profile.talents_json = self._normalize_talent_nodes(structured, profile.class_name, profile.spec_name)
         return True
 
-    def _build_player_from_ranking(self, class_name, spec_name, ranking):
+    def _build_player_from_ranking(self, class_name, spec_name, ranking, *, include_profile=True):
         """将 Raider.IO 排名响应中的单个角色转换为统一结构。"""
         char = ranking.get('character', {}) or {}
         if not char:
@@ -738,7 +713,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
 
         path = char.get('path', '')
         profile_url = ('https://raider.io' + path) if path else None
-        talent_build_code = self._extract_rio_talent_build_code(char)
+        talent_build_code = self._extract_rio_talent_build_code(char) if include_profile else ''
         if talent_build_code and not TalentBuildCodeDecoder.matches_spec(
             talent_build_code, class_name, spec_name,
         ):
@@ -760,7 +735,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             'profile_url': profile_url,
             'achievement_points': None,
             'item_level': self._coerce_item_level(char.get('gear')),
-            'gear': self._parse_rio_gear(char.get('gear')),
+            'gear': self._parse_rio_gear(char.get('gear')) if include_profile else [],
             'talent_build_code': talent_build_code,
             'talents': self._parse_rio_talents(talent_build_code),
         }
@@ -1264,8 +1239,11 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         except (ValueError, TypeError, AttributeError):
             stats = None
         failures = 0 if stats else min(8, (cached or {}).get('failures', 0) + 1)
+        # MySQL JSON can round fractional epochs and invalidate the payload hash.
+        # Whole seconds round-trip exactly; ceil never shortens the retry window.
+        next_attempt = math.ceil(now) + (86400 if stats else min(21600, 300 * 2 ** (failures - 1)))
         saved = save_state(player.season_id, scope, fingerprint, {'ok': bool(stats), 'stats': stats or {},
-            'failures': failures, 'next_attempt': now + (86400 if stats else min(21600, 300 * 2 ** (failures - 1)))})
+            'failures': failures, 'next_attempt': next_attempt})
         cached_rows[cache_key] = saved
         self._battlenet_cached = cached_rows
         if stats:
