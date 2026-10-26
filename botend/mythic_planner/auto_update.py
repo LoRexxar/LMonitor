@@ -58,13 +58,18 @@ def get_mdt_monitor_task():
     return task
 
 
-def assert_lease(task):
-    """在发布事务内锁住任务及租约，阻止过期执行者提交。"""
-    MonitorTask.objects.select_for_update().get(pk=task.pk)
-    if not MonitorTaskLease.objects.select_for_update().filter(
-        task_id=task.pk, owner=task._monitor_task_lease_owner,
-        expires_at__gt=timezone.now(),
-    ).exists():
+def assert_lease(task, *, lock=True):
+    """Final fence uses current locking reads, never a transaction snapshot."""
+    leases = MonitorTaskLease.objects
+    if lock:
+        # Same task -> lease order as claim/renew/release. Do not take these
+        # locks until the expensive import and integrity checks have finished.
+        MonitorTask.objects.select_for_update().get(pk=task.pk)
+        leases = leases.select_for_update()
+    lease = leases.filter(task_id=task.pk).first()
+    # Read time AFTER acquiring both locks: a wait must not revive an expiry.
+    if (lease is None or lease.owner != task._monitor_task_lease_owner
+            or lease.expires_at <= timezone.now()):
         raise MonitorTaskLeaseLost('MDT 更新执行锁已失效，停止发布。')
 
 
@@ -83,12 +88,36 @@ def update_lease(task=None):
         if not renew_monitor_task_lease(task.pk, task._monitor_task_lease_owner):
             raise MonitorTaskLeaseLost('MDT 更新执行锁已失效。')
 
+    background_heartbeat = None
+    failed = False
     try:
         heartbeat()
+        if manual:
+            # Lazy import: views/config imports the MDT plugin. Scheduled scans
+            # already own this heartbeat; only the manual command starts one.
+            from botend.views import _MonitorTaskLeaseHeartbeat
+            background_heartbeat = _MonitorTaskLeaseHeartbeat(task.pk, task._monitor_task_lease_owner)
+            background_heartbeat.start()
         yield task, heartbeat
+    except BaseException:
+        failed = True
+        raise
     finally:
         if manual:
-            release_monitor_task_lease(task.pk, task._monitor_task_lease_owner)
+            cleanup_error = None
+            # Stop before exact-owner release, and attempt release even if stop
+            # fails. Cleanup must never replace the original import exception.
+            for cleanup in (
+                background_heartbeat.stop if background_heartbeat else lambda: None,
+                lambda: release_monitor_task_lease(task.pk, task._monitor_task_lease_owner),
+            ):
+                try:
+                    cleanup()
+                except Exception as exc:
+                    cleanup_error = cleanup_error or exc
+                    logger.exception('MDT manual lease cleanup failed: task_id=%s', task.pk)
+            if cleanup_error is not None and not failed:
+                raise cleanup_error
 
 
 class UpstreamClient:
@@ -387,8 +416,10 @@ def import_candidate(payload, package_path, version, task, heartbeat):
         options['upgrade_from_version'] = original_key
     for dry_run in (True, False):
         heartbeat()
+        # Advisory check outside atomic(): no task/lease lock across the import,
+        # nor an early REPEATABLE READ snapshot before waiting for version locks.
+        assert_lease(task, lock=False)
         with transaction.atomic():
-            assert_lease(task)
             list(MythicDungeonDataVersion.objects.select_for_update().order_by('pk'))
             current = active_version()
             if (current.pk if current else None, current.key if current else '') != (version.pk if version else None, original_key):
