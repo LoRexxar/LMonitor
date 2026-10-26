@@ -69,7 +69,7 @@ echo "=== 5. 重启 lmback ==="
 screen -S lmback -X quit 2>/dev/null || true
 kill_processes 'LMonitorCoreBackend'
 sleep 2
-screen -dmS lmback bash -lc "cd '$PROJECT_DIR' && ./start.sh"
+screen -dmS lmback bash -lc "cd '$PROJECT_DIR' && ./start.sh '$PYTHON_BIN' '$PROJECT_DIR/manage.py' LMonitorCoreBackend"
 
 echo "=== 6. 重启 lmsimc ==="
 screen -S lmsimc -X quit 2>/dev/null || true
