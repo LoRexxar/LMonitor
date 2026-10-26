@@ -271,10 +271,11 @@ def component_html(kind, data):
     if kind == 'priority':
         relations = {0: ' ', 1: ' ＞ ', 2: ' ＝ ', 3: ' ≥ ', 4: ' ≫ '}
         parts = []
-        for i, stat in enumerate(data['stats']):
+        labels = data.get('stat_labels') or [STATS.get(stat, '属性 {}'.format(stat)) for stat in data['stats']]
+        for i, label in enumerate(labels):
             if i:
                 parts.append(relations.get(data['relation'][i - 1], ' ＞ '))
-            parts.append(STATS.get(stat, '属性 {}'.format(stat)))
+            parts.append(html.escape(str(label)))
         return '<p><strong>' + ''.join(parts) + '</strong></p>'
     if kind == 'paperdoll':
         rows = []

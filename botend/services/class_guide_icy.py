@@ -203,11 +203,32 @@ class IcyPageConverter:
             strong = self.soup.new_tag('strong')
             strong.string = '适用条件：' + '；'.join(labels) + '。 '
             node.insert(0, strong)
+        for number in list(self.body.select('.heading_container > span')):
+            if re.fullmatch(r'\d+(?:\.\d+)*\.?', number.get_text(strip=True)):
+                number.decompose()
+        # HTML 段内空行只是空白；导出字符串的换行仍是代码的一部分。
+        for text in list(self.body.find_all(string=True)):
+            in_export = text.find_parent(lambda n: any(c.startswith('export-string') for c in n.get('class', [])))
+            if not isinstance(text, Comment) and not text.find_parent(['pre', 'code']) and not in_export and '\n' in text:
+                text.replace_with(NavigableString(re.sub(r'\s*\n\s*', ' ', str(text))))
 
     def rows(self, parent):
-        result = []
+        from botend.services.class_guide_icy_format import is_inline_node
+        result, pending = [], []
+        def flush():
+            markup = ''.join(html.escape(str(n)) if isinstance(n, NavigableString) else str(n) for n in pending)
+            if markup.strip():
+                result.append(self.block('html', html='<p>' + self.inline(markup) + '</p>'))
+            pending.clear()
         for node in list(parent.children):
-            result.extend(self.visit(node))
+            if isinstance(node, Comment):
+                continue
+            if is_inline_node(node):
+                pending.append(node)
+            else:
+                flush()
+                result.extend(self.visit(node))
+        flush()
         return result
 
     def visit(self, node):
@@ -228,12 +249,31 @@ class IcyPageConverter:
             self.issues.append({'type': '动态内容需要补充', 'tag': node.name, 'url': node.get('src', '')})
             return []
         classes = node.get('class', [])
+        if 'stat-priority-widget' in classes:
+            from botend.services.class_guide_icy_format import stat_widget_data, localize_stat_label
+            data = stat_widget_data(node)
+            data['stat_labels'] = [localize_stat_label(label) for label in data['stat_labels']]
+            return [self.block('priority', data={'decoded': data, 'converted': True})]
+        if 'performance-overview__panel' in classes:
+            label = self.soup.find(id=node.get('aria-labelledby', ''))
+            title = label.get_text(' ', strip=True) if label else '表现分析'
+            rating = node.get('data-rating', '')
+            return [self.block('rating', title=title + (' · ' + rating if rating else ''), children=self.rows(node))]
+        if 'faq-block__dropdown' in classes:
+            question = node.select_one('.faq-block__question')
+            summary = node.find('summary', recursive=False)
+            badge = node.select_one('.faq-block__badge')
+            title = ((badge.get_text(strip=True) + '：') if badge else '') + (self.inline(question.decode_contents()) if question else '补充说明')
+            if summary:
+                summary.extract()
+            return [self.block('details', title=title, children=self.rows(node))]
         if 'changelog_wrapper' in classes:
             return [self.block('details', title='历史更新记录', children=self.rows(node))]
         if 'leveling-slider-wrapper' in classes:
             return [self.block('callout', title='练级内容阅读说明',
                                html='<p>原文等级滑块中的内容已按等级区间展开，请阅读对应等级的说明。</p>')]
-        if 'heading_number' in classes or 'image_block_header_buttons' in classes:
+        if ((node.name == 'span' and any(c.startswith('heading_number') for c in classes))
+                or 'image_block_header_buttons' in classes):
             return []
         if re.fullmatch(r'h[1-6]', node.name):
             return [self.block('heading', title=self.inline(node.decode_contents()), data={'level': min(6, int(node.name[1]) + 1)})]

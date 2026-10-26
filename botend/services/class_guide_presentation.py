@@ -104,6 +104,8 @@ def prepare_guide_presentation(blocks, guide):
         if in_source:
             source_ids.update(id(row) for row in walk_blocks([block]))
     for block in walk_blocks(blocks):
+        if icy and block['type'] == 'details' and block.get('title'):
+            block['title'] = re.sub(r'^(常见问题|FAQ)(?![：:\s])', r'\1：', block.get('title', ''))
         for field in ('html', 'title'):
             markup = block.get(field, '')
             if not markup:
@@ -119,6 +121,12 @@ def prepare_guide_presentation(blocks, guide):
                 if strong.get_text(strip=True).startswith(('适用条件：', '适用条件:')):
                     strong['class'] = ['guide-condition']
             for table in soup.find_all('table'):
+                first_row = table.find('tr')
+                if (not table.find('thead') and first_row
+                        and first_row.find('th', recursive=False) and not first_row.find('td', recursive=False)):
+                    head = soup.new_tag('thead')
+                    head.append(first_row.extract())
+                    table.insert(0, head)
                 wrapper = soup.new_tag('div', attrs={'class': 'guide-table-scroll', 'role': 'region',
                                                      'aria-label': '攻略表格，可横向滚动', 'tabindex': '0'})
                 table.wrap(wrapper)
