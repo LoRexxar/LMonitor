@@ -1168,13 +1168,22 @@ class WagoSkillDiffMonitor(BaseScan):
         return out
 
     def _fetch_hotfix_push_rows(self, push_id, *, region_id, locale, build_number=None):
+        checkpoints = getattr(self, '_hotfix_push_checkpoints', None)
+        proof = {}
         try:
-            return collect_hotfix_push_rows(
+            rows = collect_hotfix_push_rows(
                 self._http_get_text, self._extract_inertia_props, push_id,
                 region_id=region_id, locale=locale, build_number=build_number,
                 max_pages=int(getattr(settings, 'WAGO_HOTFIX_PUSH_MAX_PAGES', 40) or 40),
                 timeout=max(60, self.http_timeout),
+                checkpoint=checkpoints.load(push_id) if checkpoints is not None else None,
+                proof=proof,
             )
+            if checkpoints is not None:
+                checkpoints.save(push_id, proof)
+                logger.info('[WagoSkillDiffMonitor] verified push=%s checkpoint_reused=%s source_total=%s',
+                            push_id, proof.get('reused', False), proof.get('total'))
+            return rows
         except HotfixSourceIncomplete as exc:
             raise WagoDiffUnavailable(str(exc)) from exc
 
@@ -1264,13 +1273,23 @@ class WagoSkillDiffMonitor(BaseScan):
             raise WagoDiffUnavailable(f'Hotfix push span limit: {from_push}→{to_push} > {max_span}')
         max_entries = max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 4000) or 4000))
         rows = []
-        for push_id in range(from_push + 1, to_push + 1):
-            # The shared push cursor covers all builds; dropping old-build
-            # rows here would permanently skip facts when that cursor advances.
-            scope = {'build_number': build_number} if build_number is not None else {}
-            rows.extend(self._fetch_hotfix_push_rows(push_id, region_id=region_id, locale=locale, **scope))
-            if len(rows) > max_entries:
-                raise WagoDiffUnavailable(f'Hotfix entry limit: {len(rows)} > {max_entries}')
+        from botend.services.wago_push_checkpoint import PushCheckpoints
+        previous = getattr(self, '_hotfix_push_checkpoints', None)
+        self._hotfix_push_checkpoints = PushCheckpoints(
+            from_push=from_push, to_push=to_push, region_id=region_id, locale=locale,
+            build_number=build_number,
+            max_pages=int(getattr(settings, 'WAGO_HOTFIX_PUSH_MAX_PAGES', 40) or 40),
+        )
+        try:
+            for push_id in range(from_push + 1, to_push + 1):
+                # The shared push cursor covers all builds; dropping old-build
+                # rows here would permanently skip facts when that cursor advances.
+                scope = {'build_number': build_number} if build_number is not None else {}
+                rows.extend(self._fetch_hotfix_push_rows(push_id, region_id=region_id, locale=locale, **scope))
+                if len(rows) > max_entries:
+                    raise WagoDiffUnavailable(f'Hotfix entry limit: {len(rows)} > {max_entries}')
+        finally:
+            self._hotfix_push_checkpoints = previous
         return sorted(rows, key=lambda row: (int(row['push_id']), int(row['id'])))
 
     def _load_hotfix_daily_state(self, branch, day_key):

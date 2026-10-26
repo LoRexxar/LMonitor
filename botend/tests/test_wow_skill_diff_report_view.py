@@ -1584,8 +1584,8 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
     def test_hotfix_push_collection_verifies_pages_and_region_before_reporting(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
 
-        def inertia(page, rows, *, total=3, last_page=2):
-            payload = {'props': {'filters': {'search': 'enUS 112185'}, 'hotfixes': {
+        def inertia(page, rows, *, total=3, last_page=2, search='enUS 112185'):
+            payload = {'props': {'filters': {'search': search}, 'hotfixes': {
                 'total': total, 'current_page': page, 'last_page': last_page,
                 'per_page': 2, 'data': rows,
             }}}
@@ -1595,15 +1595,21 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
               'table_name': 'SpellEffect', 'record_id': 1106904, 'status': 1, 'build': 69933,
               'data': [1106904, '10.451600074768']}
         eu = {**us, 'id': 102, 'region_id': 3}
-        another = {**us, 'id': 103, 'push_id': 112181}
+        another = {**us, 'id': 103, 'record_id': 2106904}
 
         def page_for(url, **kwargs):
-            self.assertIn('search=enUS+112185', url)
-            return inertia(2, [another]) if 'page=2' in url else inertia(1, [us, eu])
+            from urllib.parse import parse_qs, urlsplit
+            query = parse_qs(urlsplit(url).query)['search'][0]
+            self.assertTrue(query.startswith('enUS 112185'))
+            tokens = query.split()
+            prefix = tokens[2] if len(tokens) > 2 else ''
+            matched = [r for r in (us, eu, another) if str(r['record_id']).startswith(prefix)]
+            return inertia(1, matched[:2], total=len(matched),
+                           last_page=max(1, (len(matched) + 1) // 2), search=query)
 
         with patch.object(monitor, '_http_get_text', side_effect=page_for):
             rows = monitor._fetch_hotfix_push_rows(112185, region_id=1, locale='enUS')
-        self.assertEqual(rows, [us])
+        self.assertEqual(rows, [us, another])
         with patch.object(monitor, '_http_get_text', side_effect=lambda url, **kwargs: inertia(1, [us, eu])):
             with self.assertRaisesRegex(WagoDiffUnavailable, 'Hotfix.*incomplete'):
                 monitor._fetch_hotfix_push_rows(112185, region_id=1, locale='enUS')

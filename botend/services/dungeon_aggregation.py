@@ -25,14 +25,22 @@ ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v3-log-talents'
 _NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at', 'variant_text_templates'}
 
 
-def _content_rows(queryset):
+def _content_rows(queryset, *, items_by_pk=None):
     """Hash contents, not MAX(timestamp): bulk .update() must invalidate too."""
     fields = [field.attname for field in queryset.model._meta.concrete_fields
               if field.name not in _NON_CONTENT_FIELDS]
     if queryset.model is WowItemVariantSnapshot:
         # 存储格式变化不是装备事实变化，不能触发各专精聚合重复重建。
-        return [{**{field: getattr(row, field) for field in fields}, 'effects_json': row.effects_data}
-                for row in queryset.select_related('item').order_by('pk')]
+        rows = queryset.order_by('pk')
+        if items_by_pk is None:
+            rows = rows.select_related('item')
+        result = []
+        for row in rows:
+            if items_by_pk is not None:
+                row.item = items_by_pk[row.item_id]
+            result.append({**{field: getattr(row, field) for field in fields},
+                           'effects_json': row.effects_data})
+        return result
     return list(queryset.order_by('pk').values(*fields))
 
 
@@ -54,8 +62,10 @@ def _variant_dependencies(items, gear_records):
               or active.order_by('-id').first())
     if season is None:
         return None, []
+    items_by_pk = {item.pk: item for item in items.values()}
+    # Selection has explicit level/PK tie-breaks; no related ordering is needed.
     variants = WowItemVariantSnapshot.objects.filter(
-        season=season, batch_key=season.gear_batch_key, item__item_id__in=items)
+        season=season, batch_key=season.gear_batch_key, item_id__in=items_by_pk).order_by()
     grouped = {}
     for row in variants.values('pk', 'item_id', 'item_level', 'variant_type', 'data_branch',
                                'metadata__data_branch', 'metadata__ptr_preview'):
@@ -84,7 +94,8 @@ def _variant_dependencies(items, gear_records):
                 variant = min(candidates, key=lambda row: (row.item_level, row.pk), default=None)
             if variant is not None:
                 selected.add(variant.pk)
-    return [season.pk, season.gear_batch_key], _content_rows(variants.filter(pk__in=selected))
+    return [season.pk, season.gear_batch_key], _content_rows(
+        variants.filter(pk__in=selected), items_by_pk=items_by_pk)
 
 
 @lru_cache(maxsize=24)
@@ -172,7 +183,7 @@ def _resolved_talent_dependencies(nodes, version, supplements):
     }
 
 
-def _metadata_dependencies(records, facts, class_name, spec_name):
+def _metadata_dependencies(records, facts, class_name, spec_name, *, context=None):
     """Bound reads to the cohort's items and this class's talent universe.
 
     Reuse the statistics item discovery (gear/gems/enchants) and central enchant
@@ -191,13 +202,22 @@ def _metadata_dependencies(records, facts, class_name, spec_name):
                   if field.name not in _NON_CONTENT_FIELDS}
                  for _, item in sorted(items.items())]
     gear_scope, variants = _variant_dependencies(items, gear_records)
-    version = TalentVersionResolver.get_default(TalentVersionResolver.USAGE_STATS)
-    node_query = WowTalentNodeMetadata.objects.filter(class_name=class_name)
-    if version is not None:
-        # Build summaries also read unversioned hero-anchor names for this spec.
-        node_query = node_query.filter(Q(talent_version=version) |
-                                       Q(tree_type='hero_anchor', spec_name=spec_name))
-    nodes = _content_rows(node_query)
+    # Caller-owned, one fingerprint batch only. Never retain DB facts on a
+    # process-wide provider or on the long-lived monitor instance.
+    context = context if context is not None else {}
+    base_key = ('talent-base', class_name, spec_name)
+    if base_key not in context:
+        version = TalentVersionResolver.get_default(TalentVersionResolver.USAGE_STATS)
+        node_query = WowTalentNodeMetadata.objects.filter(class_name=class_name)
+        if version is not None:
+            # Build summaries also read unversioned hero-anchor names for this spec.
+            node_query = node_query.filter(Q(talent_version=version) |
+                                           Q(tree_type='hero_anchor', spec_name=spec_name))
+        nodes = _content_rows(node_query)
+        subtree_ids = sorted({row['db2_subtree_id'] for row in nodes if row['db2_subtree_id']})
+        context[base_key] = (version, nodes, [
+            (sid, stats._hero_subtree_name_from_table(sid)) for sid in subtree_ids])
+    version, nodes, hero_names = context[base_key]
     reference_ids = {row[field] for row in nodes for field in
                      ('node_id', 'talent_id', 'spell_id', 'display_spell_id') if row[field]}
     def collect_talent_ids(value):
@@ -223,7 +243,12 @@ def _metadata_dependencies(records, facts, class_name, spec_name):
     ).annotate(folded_name=Lower('name')).filter(
         Q(reference_id__in=reference_ids) | Q(folded_name__in=names)
     ).order_by('pk').values('talent_version_id', 'reference_id', 'name_kind', 'name', 'name_zh', 'icon'))
-    subtree_ids = sorted({row['db2_subtree_id'] for row in nodes if row['db2_subtree_id']})
+    # Raw WCL references can differ by scope. Resolve only identical complete
+    # supplement inputs once; never share a scope's reference set with another.
+    resolved_key = ('resolved-talents', base_key, content_digest(supplements))
+    if resolved_key not in context:
+        context[resolved_key] = _resolved_talent_dependencies(nodes, version, [
+            row for row in supplements if version and row['talent_version_id'] == version.pk])
     # 当前版本解析器将所有使用场景固定到正式服；同一依赖检查无需重复查询四次。
     resolved_versions = {usage: getattr(version, 'pk', None)
                          for usage in (*TalentVersionResolver.DEFAULT_FLAG_BY_USAGE, 'retail')}
@@ -241,9 +266,8 @@ def _metadata_dependencies(records, facts, class_name, spec_name):
         'talent_names': supplements,
         # Direct snapshot fallbacks also supply names for raw WCL nodes.
         'spells': _content_rows(WowSpellSnapshot.objects.filter(spell_id__in=reference_ids)),
-        'resolved_talents': _resolved_talent_dependencies(nodes, version, [
-            row for row in supplements if version and row['talent_version_id'] == version.pk]),
-        'hero_names': [(sid, stats._hero_subtree_name_from_table(sid)) for sid in subtree_ids],
+        'resolved_talents': context[resolved_key],
+        'hero_names': hero_names,
     }
 
 

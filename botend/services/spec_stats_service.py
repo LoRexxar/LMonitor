@@ -2743,17 +2743,20 @@ def _selected_player_profiles(keys, season_id, class_name, spec_name, fields, pr
     """
     from botend.models import PlayerSpecTopPlayer
     cache = profile_cache if profile_cache is not None else {}
-    scope = (season_id, class_name, spec_name, frozenset(keys))
+    identity_scope = (season_id, class_name, spec_name)
+    scope = (*identity_scope, frozenset(keys))
     queryset = PlayerSpecTopPlayer.objects.filter(
         season_id=season_id, class_name=class_name, spec_name=spec_name)
-    if scope not in cache:
-        selected = {}
+    identity_key = ('profile-identities', identity_scope)
+    if identity_key not in cache:
+        identities = {}
         for profile in queryset.values('id', 'region', 'realm', 'character_name'):
             key = tuple((profile.get(field) or '').lower()
                         for field in ('region', 'realm', 'character_name'))
-            if key in keys:
-                selected[key] = profile['id']
-        cache[scope] = selected
+            identities[key] = profile['id']
+        cache[identity_key] = identities
+    if scope not in cache:
+        cache[scope] = {key: pk for key, pk in cache[identity_key].items() if key in keys}
     selected = cache[scope]
     payload_key = (scope, tuple(fields))
     if payload_key not in cache:

@@ -11,6 +11,7 @@ from types import SimpleNamespace
 
 from django.utils import timezone
 from django.db import IntegrityError, transaction
+from django.db.models import IntegerField, Value
 
 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
 from botend.models import SeasonMeta, PlayerSpecTopPlayer
@@ -26,6 +27,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     PLAYER_RANKING_LIMIT = 20
     PROFILE_ENRICH_LIMIT = 20
     RANKING_SAMPLE_BACKFILL_LIMIT = 100
+    PROFILE_LOOKUP_BATCH_SIZE = 100
     # Ranking reconciliation never consumes profile content. Keep every field
     # read by identity matching, differential updates and retry detection loaded
     # together so deferred attributes cannot turn this index into N+1 queries.
@@ -91,14 +93,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     continue
 
                 with transaction.atomic():
-                    existing_qs = PlayerSpecTopPlayer.objects.filter(
-                        season_id=season.id, class_name=class_name, spec_name=spec_name
+                    existing_map = self._load_profiles_for_identities(
+                        season.id, spec_name,
+                        ((p.get('region'), p.get('realm'), p.get('name')) for p in players),
                     )
-                    existing_map = {
-                        self._profile_identity_key(row.region, row.realm, row.character_name): row
-                        for row in existing_qs
-                    }
-                    existing_map.pop(None, None)
                     for player in players:
                         try:
                             region = player.get('region', '')
@@ -152,7 +150,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                                 )
                                 for field, value in defaults.items():
                                     setattr(profile, field, value)
-                                self._save_profile_safely(profile)
+                                existing_map[row_key] = self._save_profile_safely(profile)
                             total_inserted += 1
                             if not player.get('_profile_refresh_failed'):
                                 from botend.services.player_raiderio_activity import player_identity
@@ -421,14 +419,11 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         if not sample_map:
             return 0
 
-        existing = {}
-        for profile in PlayerSpecTopPlayer.objects.filter(
-            season_id=season_id,
-            spec_name=spec_name,
-        ):
-            key = self._profile_identity_key(profile.region, profile.realm, profile.character_name)
-            if key:
-                existing[key] = profile
+        existing = self._load_profiles_for_identities(
+            season_id, spec_name,
+            ((row.get('region'), row.get('realm'), row.get('character_name'))
+             for row in sample_map.values()),
+        )
 
         updated = 0
         for key, row in sample_map.items():
@@ -540,14 +535,55 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return True
 
     def _find_existing_profile_for_unique_key(self, profile):
-        target_key = self._profile_identity_key(profile.region, profile.realm, profile.character_name)
-        for existing in PlayerSpecTopPlayer.objects.filter(
+        # Let the unique index/collation resolve concurrent inserts too. Class is
+        # deliberately absent: a historical class mistake must remain repairable.
+        return PlayerSpecTopPlayer.objects.filter(
             season_id=profile.season_id,
             spec_name=profile.spec_name,
-        ):
-            if self._profile_identity_key(existing.region, existing.realm, existing.character_name) == target_key:
-                return existing
-        return None
+            region=profile.region,
+            realm=profile.realm,
+            character_name=profile.character_name,
+        ).first()
+
+    def _load_profiles_for_identities(self, season_id, spec_name, identities):
+        """Resolve bounded unique keys in SQL, then hydrate only matched IDs.
+
+        UNION ALL retains each input's ordinal: Python accent normalization is
+        not MySQL collation (e.g. Straße/Strasse). A Python re-key of an OR-query
+        would lose those aliases and could overwrite saved content on insert
+        recovery. Each branch is a full unique-key probe, with no class filter.
+        Only IDs cross this first query; large JSON is loaded once per DB row.
+        Both query size and full-row reads are bounded by actual input, never
+        by the number of retained historical profiles in the specialization.
+        """
+        incoming = {}
+        for region, realm, name in identities:
+            key = self._profile_identity_key(region, realm, name)
+            if key and key not in incoming:
+                incoming[key] = ((region or '').strip().lower(),
+                                 (realm or '').strip(), (name or '').strip())
+        entries = list(incoming.items())
+        result, profiles_by_id = {}, {}
+        for start in range(0, len(entries), self.PROFILE_LOOKUP_BATCH_SIZE):
+            batch = entries[start:start + self.PROFILE_LOOKUP_BATCH_SIZE]
+            probes = [
+                PlayerSpecTopPlayer.objects.filter(
+                    season_id=season_id, spec_name=spec_name,
+                    region=region, realm=realm, character_name=name,
+                ).order_by().annotate(
+                    _incoming_index=Value(index, output_field=IntegerField()),
+                ).values_list('_incoming_index', 'pk')
+                for index, (_, (region, realm, name)) in enumerate(batch)
+            ]
+            matches = list(probes[0].union(*probes[1:], all=True))
+            missing_ids = {pk for _, pk in matches} - profiles_by_id.keys()
+            if missing_ids:
+                profiles_by_id.update(PlayerSpecTopPlayer.objects.in_bulk(missing_ids))
+            for index, pk in matches:
+                profile = profiles_by_id.get(pk)
+                if profile is not None:
+                    result[batch[index][0]] = profile
+        return result
 
     @staticmethod
     def _profile_needs_rio_enrichment(profile):

@@ -79,12 +79,25 @@ def build_site_updates(now=None):
 
     season = active_season()
     dungeon_ids = [item.get('id') for item in (season.mplus_encounters or []) if isinstance(item, dict)] if season else []
-    for key, label, model, url, filters in (
-        ('mplus', '大秘境 DPS', SpecDungeonRanking, '/portal/mplus/dps-rankings/', {'dungeon_id__in': dungeon_ids}),
-        ('raid', '团本数据', SpecRaidRanking, '/portal/specs/', {}),
+    # One covering-index seek per current dungeon, not MAX over large JSON rows.
+    # Keep the original source timestamps (including partial source updates),
+    # rather than substituting monitor check or aggregation publication times.
+    dungeon_times = []
+    raid_time = None
+    if season:
+        for dungeon_id in dict.fromkeys(dungeon_ids):
+            updated = SpecDungeonRanking.objects.filter(
+                season_id=season.pk, dungeon_id=dungeon_id, last_updated__lte=now,
+            ).order_by('-last_updated').values_list('last_updated', flat=True).first()
+            if updated is not None:
+                dungeon_times.append(updated)
+        raid_time = SpecRaidRanking.objects.filter(
+            season_id=season.pk, last_updated__lte=now,
+        ).order_by('-last_updated').values_list('last_updated', flat=True).first()
+    for key, label, url, updated in (
+        ('mplus', '大秘境 DPS', '/portal/mplus/dps-rankings/', max(dungeon_times, default=None)),
+        ('raid', '团本数据', '/portal/specs/', raid_time),
     ):
-        updated = model.objects.filter(season_id=season.pk, last_updated__lte=now, **filters).aggregate(
-            latest=Max('last_updated'))['latest'] if season else None
         add(key, label, url, updated, detail=season.season_name if season else '')
 
     gear_season = gear_active_season()
