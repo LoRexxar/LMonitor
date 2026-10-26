@@ -48,9 +48,23 @@ def source_post():
             {'blockName': 'core/paragraph', 'innerHTML': '<p>Cast <span class="wow-spell" data-wow-id="30451">Arcane Blast</span>.</p>'}]}
 
 
+class PublishedGuideClient(Client):
+    """既有显示契约测试先显式发布，再执行真实公开请求；发布不属于请求链路。"""
+    def get(self, path, *args, **kwargs):
+        if path.startswith('/portal/class-guides/'):
+            from botend.services.class_guide_snapshot import refresh_guide_snapshot
+            refresh_guide_snapshot()
+        return super().get(path, *args, **kwargs)
+
+
 @override_settings(SECURE_SSL_REDIRECT=False)
 class GuideFlowTests(TestCase):
+    client_class = PublishedGuideClient
+
     def setUp(self):
+        override = override_settings(CLASS_GUIDE_SNAPSHOT_ROOT=Path('tmp/class-guides-flow-tests') / uuid.uuid4().hex)
+        override.enable()
+        self.addCleanup(override.disable)
         self.user = get_user_model().objects.create_superuser(username='guide_editor', password='test-only')
         self.client.force_login(self.user)
         self.url = 'https://maxroll.gg/wow/class-guides/arcane-mage-raid-guide'
@@ -828,8 +842,8 @@ class GuideFlowTests(TestCase):
     def test_portal_guides_allow_readers_and_hide_archived(self):
         catalog = '/portal/class-guides/'
         article = f'{catalog}{self.guide.id}/'
-        anonymous = Client()
-        reader = Client()
+        anonymous = PublishedGuideClient()
+        reader = PublishedGuideClient()
         reader.force_login(get_user_model().objects.create_user(username='portal_guide_reader'))
         for client in (anonymous, reader):
             for url in (catalog, article):
@@ -840,7 +854,7 @@ class GuideFlowTests(TestCase):
             self.assertEqual(client.post(article).status_code, 405)
         page = self.client.get(catalog)
         self.assertContains(page, article)
-        self.assertTemplateUsed(page, 'portal/class_guides.html')
+        self.assertContains(page, 'id="cg-guide-grid"')
         self.assertContains(page, 'data-spec="62"')
         self.assertContains(page, 'data-cg-tag="团本"')
         self.assertContains(page, '/dashboard/?section=class-guides')
@@ -860,15 +874,15 @@ class GuideFlowTests(TestCase):
         endpoint = f'/portal/class-guides/{self.guide.id}/'
         page = self.client.get(endpoint)
         self.assertEqual(page.status_code, 200)
-        self.assertTemplateUsed(page, 'shared/class_guide_blocks.html')
+        self.assertContains(page, '中文正文')
         self.assertContains(page, '中文章节')
         self.assertContains(page, '本篇目录')
         self.assertContains(page, '法师 · 奥术')
         self.assertContains(page, f'/dashboard/?section=class-guides&amp;guide={self.guide.id}')
         self.assertContains(page, 'class=Mage&amp;spec=Arcane')
         self.assertContains(page, 'shared/js/wow-item-tooltip.js')
-        self.assertEqual(page.context['guide'].id, revision.id)
-        self.assertEqual(page.context['toc'][0]['title'], '中文章节')
+        self.assertContains(page, f'&amp;guide={revision.id}')
+        self.assertContains(page, 'data-cg-heading="md-1"')
         self.assertContains(self.client.get(endpoint, {'revision':'bad'}), '中文正文')
         other = ClassGuide.objects.create(title='其他专精', slug='other', spec_id=257, game_version='current')
         other_revision = save_article(other.id, other.title, content_markdown='其他正文', expected_updated_at=other.updated_at)
@@ -879,9 +893,9 @@ class GuideFlowTests(TestCase):
         post = source_post();post['gutenbergBlock'][1]['innerHTML'] = '<p>Changed source.</p>'
         import_post(post, self.url)
         page = self.client.get('/portal/class-guides/')
-        self.assertEqual(page.context['rows'][0]['title'], '人工保留标题')
+        self.assertContains(page, '人工保留标题')
         page = self.client.get(f'/portal/class-guides/{self.guide.id}/')
-        self.assertEqual(page.context['guide'].id, manual.id)
+        self.assertContains(page, f'&amp;guide={manual.id}')
 
     def test_author_card_is_extracted_outside_article_body(self):
         soup = BeautifulSoup('<div class="_Widget_x _Author_abc"><div class="_Author__image_xyz" style="background-image:url(https://example.com/avatar.svg)"></div><span class="_Author__nickname_xyz">作者名</span><span class="_Author__title_xyz">团队成员</span><a href="https://example.com/channel" title="频道"></a></div>', 'html.parser')
@@ -958,7 +972,7 @@ class GuideFlowTests(TestCase):
         self.assertContains(page, '中文编辑')
         self.assertContains(page, '第一段简介')
         self.assertContains(page, 'https://example.com/me')
-        self.assertEqual(page.context['author_profile']['name'], '中文编辑')
+        self.assertContains(page, '中文编辑')
         body['author_profile'] = {'name':'过期修改'}
         self.assertEqual(self.client.patch(endpoint, data=json.dumps(body), content_type='application/json').status_code,409)
         self.guide.refresh_from_db()

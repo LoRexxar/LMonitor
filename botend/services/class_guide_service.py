@@ -75,6 +75,8 @@ def save_article(guide_id, title, blocks=None, *, content_markdown=None, expecte
         changed = ClassGuide.objects.filter(pk=guide_id, updated_at=expected_updated_at).update(**fields)
         if changed != 1:
             raise ArticleConflict('文章已被其他编辑或同步更新，请刷新后再保存')
+        from botend.services.class_guide_snapshot import request_guide_refresh
+        request_guide_refresh()
         return ClassGuide.objects.get(pk=guide_id)
 
 
@@ -281,6 +283,8 @@ def import_post(post, url, *, translate=False, progress=None, refresh_translatio
         from botend.services.class_guide_authors import normalize_author_profile
         profile = normalize_author_profile(post['author_profile'])
         ClassGuide.objects.filter(pk=guide.pk).update(source_author_profile=profile)
+        from botend.services.class_guide_snapshot import request_guide_refresh
+        request_guide_refresh()
         guide.source_author_profile = profile
     from botend.services.class_guide_tags import ensure_source_tag, set_guide_tags, source_labels
     if created:

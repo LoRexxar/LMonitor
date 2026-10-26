@@ -3,6 +3,7 @@
 import hashlib
 import io
 import json
+import uuid
 from pathlib import Path
 from zipfile import ZipFile
 
@@ -19,6 +20,11 @@ BUNDLE = Path(__file__).resolve().parents[1] / 'data/class_guides/icy-initial-di
 
 @override_settings(SECURE_SSL_REDIRECT=False)
 class IcyGuideBundleTests(TestCase):
+    def setUp(self):
+        override = override_settings(CLASS_GUIDE_SNAPSHOT_ROOT=Path('tmp/icy-guide-snapshots') / uuid.uuid4().hex)
+        override.enable()
+        self.addCleanup(override.disable)
+
     def test_bundle_import_reading_idempotency_and_manual_preservation(self):
         """全包真实导入、公开阅读、重复导入及人工稿保护。"""
         output = io.StringIO()
@@ -39,6 +45,7 @@ class IcyGuideBundleTests(TestCase):
         self.assertEqual(guides.filter(archived=True).count(), 0)
         original.refresh_from_db()
         self.assertEqual(original.content_markdown, '原有正文保持不变。')
+        call_command('refresh_class_guide_snapshots', stdout=output)
         catalog = self.client.get('/portal/class-guides/')
         self.assertEqual(catalog.status_code, 200)
         for guide in guides:

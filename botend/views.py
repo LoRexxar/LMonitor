@@ -207,6 +207,8 @@ class LMonitorCoreBackend:
         start_journal_loot_snapshot_worker()
         from botend.services.news_snapshot import start_news_snapshot_worker
         start_news_snapshot_worker()
+        from botend.services.class_guide_snapshot import start_guide_snapshot_worker
+        start_guide_snapshot_worker()
         from botend.services.journal_snapshot import start_journal_snapshot_worker
         start_journal_snapshot_worker()
         from botend.services.snapshot_cache_maintenance import start_snapshot_cache_maintenance_worker

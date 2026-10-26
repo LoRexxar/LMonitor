@@ -24,6 +24,8 @@ class Command(BaseCommand):
                 try:
                     pk, profile = task.result()
                     ClassGuide.objects.filter(pk=pk).update(source_author_profile=profile)
+                    from botend.services.class_guide_snapshot import request_guide_refresh
+                    request_guide_refresh()
                     self.stdout.write(f'已补全 {pk}：{profile["name"]}')
                 except Exception as exc:
                     failed.append(tasks[task]['id'])

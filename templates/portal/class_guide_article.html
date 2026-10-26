@@ -7,7 +7,7 @@
 <main id="cg-main" class="cg-article"><nav class="cg-related-tabs" aria-label="同专精攻略">{% for row in related %}<a href="{% url 'portal_class_guide_article' row.guide.id %}" {% if row.guide.id == guide.id %}aria-current="page"{% endif %}>{{ row.title }}</a>{% endfor %}</nav>
 {% include 'shared/class_guide_author.html' %}
 {% include 'shared/class_guide_disclaimer.html' %}
-<div class="cg-article-body guide-article">{% include 'shared/class_guide_blocks.html' with blocks=blocks %}</div>
+<div class="cg-article-body guide-article">{{ article_html|safe }}</div>
 <div class="cg-article-end"><span>已读完本篇攻略</span><a href="/portal/class-guides/?spec={{ guide.spec_id }}">查看{{ spec.spec_label }}的其他攻略 →</a></div></main>
 <aside class="cg-reader-tools"><p class="cg-section-label">实战工具</p><a href="{{ talent_url }}" target="_blank" rel="noopener"><strong>天赋模拟器 ↗</strong><span>查看与调整天赋</span></a><a href="{{ gear_url }}" target="_blank" rel="noopener"><strong>职业配装器 ↗</strong><span>组合装备与属性</span></a><a href="/portal/spec/{{ guide.class_name }}/{{ guide.spec_name }}/" target="_blank" rel="noopener"><strong>专精数据 ↗</strong><span>查看实战与排名</span></a><p class="cg-section-label cg-more-label">同专精攻略</p>{% for row in related %}{% if row.guide.id != guide.id %}<a href="{% url 'portal_class_guide_article' row.guide.id %}">{{ row.title }}</a>{% endif %}{% endfor %}</aside></div>
 </div>{% endblock %}

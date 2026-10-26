@@ -110,6 +110,8 @@ class Command(BaseCommand):
                     ensure_source_tag(guide)
                 elif 'source_author_profile' in draft and draft['source_author_profile'].get('avatar'):
                     ClassGuide.objects.filter(pk=guide.pk).update(source_author_profile=draft['source_author_profile'])
+                    from botend.services.class_guide_snapshot import request_guide_refresh
+                    request_guide_refresh()
                 existing = (guide.content_markdown == draft['content_markdown'] and guide.title == draft['title'] and guide.source_hash == draft['source_hash'])
                 if existing or has_manual_content(guide):
                     skipped += 1
