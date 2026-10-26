@@ -46,6 +46,37 @@ def _render(template, values):
     return re.sub(r'\{(v\d+)\}', lambda m: str(values.get(m[1], '数值待确认')), template)
 
 
+def _resolve_numeric_expressions(text):
+    """Project complete numeric Wowhead brackets, never interpret runtime macros."""
+    from botend.services.simc_benchmark_tooltip_generator import (
+        _evaluate_constant_expression, _format_tooltip_number,
+    )
+    # A bracket can also be a WoW conditional branch. Leave unresolved macro
+    # text intact rather than interpreting its numeric-looking branches.
+    if not isinstance(text, str) or '$' in text:
+        return text
+
+    def replace(match):
+        expression = match[0][1:-1].strip()
+        if (len(expression) > 512 or not re.search(r'[+*/-]', expression)
+                or not re.fullmatch(r'[0-9.,()+*/\s-]+', expression)):
+            return match[0]
+        # The shared AST evaluator accepts formatted numbers; validate grouping
+        # before it removes commas so malformed numeric evidence stays verbatim.
+        if any(not re.fullmatch(r'(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)(?:\.[0-9]+)?', number)
+               for number in re.findall(r'[0-9.,]+', expression)):
+            return match[0]
+        try:
+            value = _evaluate_constant_expression(expression)
+            return _format_tooltip_number(value) if value is not None else match[0]
+        except (OverflowError, RecursionError, ValueError):
+            return match[0]
+
+    # Consume an outer bracket first: do not reduce a numeric subexpression
+    # inside an unresolved/nested expression such as [x + [2 * 3]].
+    return re.sub(r'\[[^\]]*\]', replace, text)
+
+
 def _capture(template, text):
     parts = re.split(r'(\{v\d+\})', template)
     pattern, keys = '', []
@@ -196,6 +227,12 @@ def resolve_effects(item, variant=None, *, branch='retail', raw_effects=None,
         # 线上补充模板也走中央读取，保留当前数值和分支，不回写采集原文。
         from botend.services.item_effect_localization import localize_item_effects
         result = localize_item_effects(item_id or getattr(item, 'item_id', None), result, branch=branch)
+        # Only after shared-template substitution and language matching: changing
+        # raw text earlier would invalidate source hashes and numeric captures.
+        for row in result:
+            for field in ('description_zh', 'description', 'name_zh', 'name'):
+                if field in row:
+                    row[field] = _resolve_numeric_expressions(row[field])
         status = 'localized' if all(_is_chinese(_display_text(row)) for row in result) else 'untranslated'
         return result, status
     if not allow_reference:

@@ -30,9 +30,19 @@ class InnoDBParallelBudgetTests(TransactionTestCase):
     def test_real_late_success_cannot_clear_concurrent_429(self):
         self.ordered_responses(rate_limit=True)
 
-    def ordered_responses(self, *, rate_limit):
+    def test_real_reverse_success_refunds_only_proven_cost(self):
+        self.ordered_responses(rate_limit=False, refund=True)
+
+    def test_real_refund_does_not_release_concurrent_rate_limit(self):
+        self.ordered_responses(rate_limit=True, refund=True)
+
+    def test_real_refund_keeps_unknown_transport_charge(self):
+        self.ordered_responses(rate_limit=False, refund=True, network_failure=True)
+
+    def ordered_responses(self, *, rate_limit, refund=False, network_failure=False):
         now = timezone.now()
-        key = budget._query_info(QUERY, {'code': 'early'})[0]
+        query = QUERY[:-1] + ' ' + budget.QUOTA_FIELDS + '}'
+        key = budget._query_info(query, {'code': 'early'})[0]
         row = WclApiBudget.objects.create(account_key=budget.account_key('ordered'),
             limit_per_hour=1000, spent=100, reset_at=now + timedelta(seconds=600),
             observed_at=now, costs={key: 40})
@@ -46,13 +56,18 @@ class InnoDBParallelBudgetTests(TransactionTestCase):
                     arrived.set()
                     if not release.wait(timeout=10):
                         failures.append('late response release timed out')
+                if network_failure and not early:
+                    # Close a real accepted TCP request without an HTTP response.
+                    self.close_connection = True
+                    return
                 self.send_response(429 if rate_limit and not early else 200)
                 self.send_header('Content-Type', 'application/json')
                 if rate_limit and not early:
                     self.send_header('Retry-After', '900')
                 self.end_headers()
                 self.wfile.write(json.dumps({'data': {**DATA, '_wclBudget': quota(
-                    spent=101 if early else 600, cost=40, limit=1000)}}).encode())
+                    spent=101 if early else 600,
+                    cost=(1 if early else 2) if refund else 40, limit=1000)}}).encode())
             def log_message(self, *args):
                 pass
         server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
@@ -64,7 +79,7 @@ class InnoDBParallelBudgetTests(TransactionTestCase):
                 def local_post(url, **kwargs):
                     self.assertFalse(connection.in_atomic_block)
                     return requests.post('http://127.0.0.1:%s/' % server.server_port, **kwargs)
-                return budget.graphql_request('ordered', 'local-token', QUERY, {'code': code}, post=local_post)
+                return budget.graphql_request('ordered', 'local-token', query, {'code': code}, post=local_post)
             finally:
                 connections.close_all()
         try:
@@ -74,7 +89,7 @@ class InnoDBParallelBudgetTests(TransactionTestCase):
                 later = pool.submit(worker, 'later').result(timeout=10)
                 row.refresh_from_db()
                 watermark, blocked = row.spent, row.blocked_until
-                self.assertEqual(later.error, 'rate_limit' if rate_limit else '')
+                self.assertEqual(later.error, 'network' if network_failure else ('rate_limit' if rate_limit else ''))
                 release.set()
                 self.assertEqual(early.result(timeout=10).error, '')
         finally:
@@ -84,14 +99,23 @@ class InnoDBParallelBudgetTests(TransactionTestCase):
             thread.join()
         row.refresh_from_db()
         self.assertEqual(failures, [])
-        self.assertGreaterEqual(row.spent, watermark)
-        if rate_limit:
-            self.assertIsNotNone(blocked)
+        self.assertGreaterEqual(row.spent, watermark - (39 if refund else 0))
+        if rate_limit or network_failure:
+            if rate_limit:
+                self.assertIsNotNone(blocked)
+            else:
+                self.assertIsNone(blocked)
             self.assertEqual(row.blocked_until, blocked)
+            if refund:
+                self.assertEqual((row.spent, row.charged, row.completed), (142, 41, 1))
+                self.assertEqual(row.reservations.get().cost, 40)
+        elif refund:
+            self.assertEqual((row.spent, row.charged, row.completed), (603, 3, 3))
+            self.assertEqual(row.reservations.count(), 0)
         else:
             self.assertGreaterEqual(row.spent, 680)
-        print('INNODB_ORDER_PROOF rate_limit=%s spent=%s late_success_preserves_block=%s' %
-              (rate_limit, row.spent, row.blocked_until == blocked))
+        print('INNODB_ORDER_PROOF rate_limit=%s network_failure=%s refund=%s spent=%s late_success_preserves_block=%s' %
+              (rate_limit, network_failure, refund, row.spent, row.blocked_until == blocked))
 
     def exercise(self, *, workers, spent, expected):
         now = timezone.now()

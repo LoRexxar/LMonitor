@@ -304,14 +304,15 @@ def read_guide_snapshot(guide_id=None):
     return _article_context(article, catalog)
 
 
-def start_guide_snapshot_worker():
+def start_guide_snapshot_worker(*, lifecycle=None):
     """仅由监控进程启动，与其他公共数据快照保持一致。"""
     global _thread
     with _thread_lock:
         if _thread is not None and _thread.is_alive():
-            return
+            return _thread
+        from botend.backend_lifecycle import worker_cycles
         def run():
-            while True:
+            for _ in worker_cycles(lifecycle, interval=15, label='class-guide-snapshot'):
                 close_old_connections()
                 try:
                     refresh_guide_snapshot(poll=True)
@@ -319,6 +320,6 @@ def start_guide_snapshot_worker():
                     logger.exception('攻略快照维护失败')
                 finally:
                     close_old_connections()
-                time.sleep(15)
         _thread = threading.Thread(target=run, name='class-guide-snapshot', daemon=True)
         _thread.start()
+        return _thread

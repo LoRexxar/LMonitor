@@ -39,7 +39,7 @@ def cache_path(root, row):
     return root / 'events' / f'{digest(identity(row))}.json'
 
 
-def fetch_events(root, row, client, guard):
+def fetch_events(root, row, client, guard, *, exclude=None):
     """身份或分页失败不发布新统计；恢复时接着已成功的页继续。"""
     key = identity(row)
     path = cache_path(root, row)
@@ -88,28 +88,62 @@ def fetch_events(root, row, client, guard):
     fight, actor = fights[0], actors[0]
     if not fight.get('kill') or fight.get('encounterID') != row['boss_id'] or fight.get('difficulty') != row['difficulty']:
         return {'invalid': '首领、难度或击杀状态不匹配'}
-    for field, kind in STREAMS.items():
-        # 战斗人员信息可能在开怪前写入，首个请求仅按 fightIDs 限定。
-        initial_cursor = None if field == 'combatants' else fight['startTime']
-        stream = state['streams'].setdefault(field, {'data': [], 'cursor': initial_cursor, 'complete': False})
-        while not stream['complete']:
-            cursor = stream['cursor']
-            report_page = request(PAGE, {'code': row['report_code'], 'ids': [row['fight_id']],
-                                 'actor': actor['id'], 'start': cursor,
-                                 'end': fight['endTime'], 'kind': kind})
-            if report_page is None:
-                # Preserve the checkpoint, but never return partial streams as
-                # usable events or persist a permission denial as empty success.
-                return {'invalid': '日志权限拒绝（permission）'}
-            page = report_page.get('page')
+    raw = {'report': report, 'actor': actor, 'streams': state['streams']}
+    for field in STREAMS:
+        # CombatantInfo can precede the pull. Keep the initial cursor unbounded.
+        state['streams'].setdefault(field, {
+            'data': [], 'cursor': None if field == 'combatants' else fight['startTime'],
+            'complete': False})
+    while True:
+        eligible_complete = all(state['streams'][f]['complete'] for f in ('combatants', 'buffs'))
+        if exclude and eligible_complete and exclude(raw):
+            return raw
+        pending = [f for f in STREAMS if not state['streams'][f]['complete']]
+        if not pending:
+            return raw
+        # Fetch cold first pages together: WCL may coalesce event work. Once a
+        # cast page exists, defer further casts until eligibility is established.
+        if exclude and not eligible_complete and state['streams']['casts']['cursor'] != fight['startTime']:
+            pending = [f for f in pending if f != 'casts']
+        query, variables = event_page_query(row, actor['id'], fight, state['streams'], pending)
+        report_page = request(query, variables)
+        if report_page is None:
+            return {'invalid': '日志权限拒绝（permission）'}
+        pages = {}
+        for field in pending:
+            page = report_page.get(field)
             if not isinstance(page, dict) or not isinstance(page.get('data'), list) or 'nextPageTimestamp' not in page:
                 raise EventFetchDeferred('事件分页结构不完整')
+            cursor = state['streams'][field]['cursor']
             next_cursor = page['nextPageTimestamp']
             if next_cursor is not None and (not isinstance(next_cursor, (int, float))
+                                            or isinstance(next_cursor, bool)
                                             or next_cursor <= (cursor if cursor is not None else -1)
                                             or next_cursor > fight['endTime']):
                 raise EventFetchDeferred('事件分页游标异常')
+            pages[field] = page
+        # All aliases validated before advancing any cursor. An empty page is
+        # not a terminal page; WCL can share continuation between aliased fields.
+        for field, page in pages.items():
+            stream = state['streams'][field]
             stream['data'].extend(page['data'])
-            stream.update(cursor=next_cursor, complete=next_cursor is None)
-            save()
-    return {'report': report, 'actor': actor, 'streams': state['streams']}
+            stream.update(cursor=page['nextPageTimestamp'], complete=page['nextPageTimestamp'] is None)
+        save()
+
+
+def event_page_query(row, actor_id, fight, streams, pending):
+    """Only request incomplete aliases; each retains its own durable cursor."""
+    definitions = ['$code:String!', '$ids:[Int]', '$actor:Int', '$end:Float']
+    fields = []
+    variables = {'code': row['report_code'], 'ids': [row['fight_id']],
+                 'actor': actor_id, 'end': fight['endTime']}
+    for field in pending:
+        if field not in STREAMS:
+            raise ValueError('unknown event stream')
+        definitions.extend([f'$start_{field}:Float', f'$kind_{field}:EventDataType'])
+        fields.append(f'{field}:events(fightIDs:$ids,dataType:$kind_{field},sourceID:$actor,'
+                      f'startTime:$start_{field},endTime:$end,limit:10000) {{data nextPageTimestamp}}')
+        variables[f'start_{field}'] = streams[field]['cursor']
+        variables[f'kind_{field}'] = STREAMS[field]
+    return ('query(' + ','.join(definitions) + ') {reportData {report(code:$code) {'
+            + ' '.join(fields) + '}}}', variables)

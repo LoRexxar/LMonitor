@@ -9,7 +9,7 @@ from unittest.mock import patch
 from django.contrib.auth.models import AnonymousUser, User
 from django.contrib.staticfiles import finders
 from django.template.loader import render_to_string
-from django.test import RequestFactory, SimpleTestCase, override_settings
+from django.test import RequestFactory, TestCase, override_settings
 from django.urls import resolve, reverse
 
 from botend.portal.raid_burst import PortalRaidBurstView
@@ -18,9 +18,10 @@ from botend.services.raid_burst_aggregation import build_groups, SUPPORTED
 from botend.portal.views import PortalHomeView
 
 
-class RaidBurstAccessTests(SimpleTestCase):
+class RaidBurstAccessTests(TestCase):
     def setUp(self):
         self.factory = RequestFactory()
+        self.user = User.objects.create(username="普通测试用户", is_staff=False)
         self.url = reverse('portal_raid_burst')
         self.root = Path(tempfile.mkdtemp(prefix='raid-burst-access-'))
         override = override_settings(RAID_BURST_SNAPSHOT_ROOT=self.root)
@@ -39,7 +40,7 @@ class RaidBurstAccessTests(SimpleTestCase):
 
     def request(self, authenticated=False, method='get', scope='1/Warrior/Arms/5/3470'):
         request = getattr(self.factory, method)(self.url, {'scope': scope} if authenticated else {})
-        request.user = User(username='普通测试用户', is_staff=False) if authenticated else AnonymousUser()
+        request.user = self.user if authenticated else AnonymousUser()
         return request
 
     def test_anonymous_cannot_read_page_or_payload(self):
@@ -88,6 +89,21 @@ class RaidBurstAccessTests(SimpleTestCase):
         self.assertContains(response, '最多保留前10位可用且不重复的玩家')
         self.assertContains(response, '每日自动更新已关闭')
         self.assertNotContains(response, '当前显示历史采样版本')
+
+    def test_pi_policy_text_distinguishes_new_and_historical_results(self):
+        payload, _ = load_published('1/Warrior/Arms/5/3470')
+        for allowed in (False, True):
+            html = render_to_string('portal/raid_burst.html',
+                {'raid_burst_payload': dict(payload, self_pi_allowed=allowed)},
+                request=self.request(authenticated=True))
+            self.assertIn('20261024_external_pi', html)
+            if allowed:
+                self.assertIn('允许本人来源的灌注', html)
+                self.assertIn('灌注来源不明', html)
+                self.assertNotIn('当前为历史筛选口径', html)
+            else:
+                self.assertIn('当前为历史筛选口径', html)
+                self.assertNotIn('允许本人来源的灌注', html)
 
     def test_global_header_never_renders_battle_entry(self):
         for authenticated in (False, True):

@@ -1,17 +1,91 @@
 """统计文件按范围发布；概览与详情共用一个原子替换的入口。"""
+from contextlib import nullcontext
 from pathlib import Path
 from datetime import date, datetime
 from decimal import Decimal
 import hashlib
 import json
 import re
+import time
 import uuid
+from utils.log import logger
 
 from botend.services.simc_benchmark_result_snapshot import _load
 from botend.services.stats_storage_codec import pack_detail, unpack_detail
 
 
 SCHEMA = 1
+
+
+def _bounded_canonical_chunks(value, encoder, *, byte_budget=256 * 1024, node_budget=4096):
+    """Use the C encoder on bounded subtrees, preserving canonical JSON bytes.
+
+    Never materialize a whole large publication just to hash it. The cheap
+    iterative bound limits both encoded bytes and temporary traversal references.
+    Oversize scalar strings keep the stdlib encoder's existing scalar behavior.
+    """
+    def fits(root):
+        remaining, nodes, pending = byte_budget, node_budget, [root]
+        while pending:
+            item = pending.pop()
+            nodes -= 1
+            if nodes < 0:
+                return False
+            if isinstance(item, str):
+                remaining -= 6 * len(item) + 2  # Worst-case JSON escaping.
+            elif isinstance(item, dict):
+                if len(item) * 2 > nodes:
+                    return False
+                remaining -= 2 + 2 * len(item)
+                pending.extend(item.keys())
+                pending.extend(item.values())
+            elif isinstance(item, (list, tuple)):
+                if len(item) > nodes:
+                    return False
+                remaining -= 2 + len(item)
+                pending.extend(item)
+            elif isinstance(item, int):
+                remaining -= item.bit_length() + 8
+            elif isinstance(item, (Decimal, date, datetime)):
+                remaining -= 6 * len(str(item)) + 4
+            else:
+                remaining -= 32
+            if remaining < 0:
+                return False
+        return True
+
+    active = set()
+    def chunks(item):
+        container = isinstance(item, (dict, list, tuple))
+        if not container or fits(item):
+            # encode() selects the stdlib C encoder; iterencode() defaults to
+            # Python recursion and millions of tiny hash.update calls.
+            yield encoder.encode(item)
+            return
+        identity = id(item)
+        if identity in active:
+            raise ValueError('Circular reference detected')
+        active.add(identity)
+        try:
+            if isinstance(item, dict):
+                yield '{'
+                for index, key in enumerate(sorted(item)):
+                    if index:
+                        yield ','
+                    # Let the same encoder handle legal non-string JSON keys.
+                    yield encoder.encode({key: None})[1:-5]
+                    yield from chunks(item[key])
+                yield '}'
+            else:
+                yield '['
+                for index, child in enumerate(item):
+                    if index:
+                        yield ','
+                    yield from chunks(child)
+                yield ']'
+        finally:
+            active.remove(identity)
+    yield from chunks(value)
 
 
 def content_digest(value):
@@ -25,7 +99,7 @@ def content_digest(value):
     digest = hashlib.sha256()
     encoder = json.JSONEncoder(sort_keys=True, ensure_ascii=False,
                                separators=(',', ':'), allow_nan=False, default=encode)
-    for fragment in encoder.iterencode(value):
+    for fragment in _bounded_canonical_chunks(value, encoder):
         digest.update(fragment.encode('utf-8'))
     return digest.hexdigest()
 
@@ -38,28 +112,51 @@ def _summary(detail):
     return {key: detail[key] for key in fields if key in detail}
 
 
-def publish_projection(path, payload, write_json):
-    """Serialize both modules and GC through the same scope publication lock."""
+def publish_projection(path, payload, write_json, *, publication_guard=None):
+    """Stage immutable bodies before the short DB-fenced index/ledger commit.
+
+    The scope file lock still covers preparation, publication and rollback/GC.
+    Source and metadata fences are rechecked immediately before making staged
+    bodies visible; failed fences leave the old index untouched.
+    """
     from .spec_stats_retention import publication, record_publication, _disable
     path = Path(path)
+    guard = publication_guard if publication_guard is not None else nullcontext()
     if path.stem not in ('dungeon', 'raid'):
-        return write_json(path, payload)
+        with guard:
+            return write_json(path, payload)
+    prepared_started = time.monotonic()
     with publication(path.parent):
         from .simc_benchmark_result_snapshot import _load as load_previous
         previous = load_previous(path)
-        _publish_projection_locked(path, payload, write_json)
-        try:
-            record_publication(path.parent)
-        except (OSError, ValueError, TypeError, KeyError) as exc:
-            # Accounting failure must not turn an unrecorded publication into
-            # permission to prune. Restore last-good where one existed.
+        staged = []
+        def prepare(target, data):
+            if Path(target) == path:
+                staged.append(data)
+            else:
+                write_json(target, data)
+        _publish_projection_locked(path, payload, prepare)
+        prepared_at = time.monotonic()
+        with guard:
+            if staged:
+                if len(staged) != 1:
+                    raise ValueError('multiple staged publication indexes')
+                write_json(path, staged[0])
             try:
-                if previous is not None:
-                    from .simc_benchmark_result_snapshot import _write
-                    _write(path, previous)
-            finally:
-                _disable(path.parent, exc)
-            raise
+                record_publication(path.parent)
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                # Accounting failure must not turn an unrecorded publication into
+                # permission to prune. Restore last-good where one existed.
+                try:
+                    if previous is not None:
+                        from .simc_benchmark_result_snapshot import _write
+                        _write(path, previous)
+                finally:
+                    _disable(path.parent, exc)
+                raise
+        logger.info('[SpecStatsPublish] %s prepare_seconds=%.3f fenced_commit_seconds=%.3f',
+                    '/'.join(path.parts[-4:]), prepared_at - prepared_started,
+                    time.monotonic() - prepared_at)
 
 
 def _publish_projection_locked(path, payload, write_json):

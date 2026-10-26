@@ -97,6 +97,66 @@ class FullChainIncrementalTests(TestCase):
         self.assertEqual(before, (index.read_bytes(), index.stat().st_mtime_ns))
         self.assertEqual(read_projection(index, 'raid-5-1')['zone_groups'][0]['bosses'][0]['sample_size'], 1)
 
+    def test_old_hint_with_missing_work_rechecks_current_input(self):
+        from botend.services.raid_aggregation import raid_fingerprint
+        from botend.services.spec_aggregation_cache import work_path
+        row = self.raid()
+        args = (self.season.pk, 1, '首领', 'Mage', 'Fire', 5)
+        _, old_fingerprint, _ = raid_stats(*args)
+        work_path(self.season.pk, 'raid:Mage:Fire:5:1').unlink()
+        SpecRaidRanking.objects.filter(pk=row.pk).update(dps=299)
+        _, actual_fingerprint, hit = raid_stats(*args, fingerprint=old_fingerprint)
+        self.assertFalse(hit)
+        self.assertNotEqual(old_fingerprint, actual_fingerprint)
+        self.assertEqual(actual_fingerprint, raid_fingerprint(*args))
+        self.assertTrue(raid_stats(*args)[2])
+
+    def test_complete_raid_publication_skips_all_work_decoding(self):
+        self.raid()
+        run = lambda: SpecDetailAggregationMonitor._aggregate_raid(
+            self.season, 'Mage', 'Fire', str(self.path), publish=publish_stats)
+        run()
+        index = self.path / 'raid.json'
+        before = index.read_bytes(), index.stat().st_mtime_ns
+        with patch('botend.services.raid_aggregation.load_work', side_effect=AssertionError('unnecessary work decode')), \
+             patch.object(SpecStatsService, '_compute_raid_stats', side_effect=AssertionError('unnecessary compute')), \
+             patch('botend.services.wow_talent_display.refresh_aggregate_talents', side_effect=AssertionError('unnecessary enrichment')):
+            run()
+        self.assertEqual(before, (index.read_bytes(), index.stat().st_mtime_ns))
+
+    def test_raid_checkpoint_rechecks_raw_changes_and_missing_details(self):
+        row = self.raid()
+        run = lambda: SpecDetailAggregationMonitor._aggregate_raid(
+            self.season, 'Mage', 'Fire', str(self.path), publish=publish_stats)
+        run()
+        index = self.path / 'raid.json'
+        old = json.loads(index.read_text())
+        meta = old['_snapshot']
+        detail = self.path / 'stats-details' / meta['generation'] / 'raid-5-1.json'
+        detail.unlink()
+        with patch.object(SpecStatsService, '_compute_raid_stats', side_effect=AssertionError('work should survive lost published detail')):
+            run()
+        self.assertIsNotNone(read_projection(index, 'raid-5-1'))
+        SpecRaidRanking.objects.filter(pk=row.pk).update(dps=201)
+        with patch.object(SpecStatsService, '_compute_raid_stats', wraps=SpecStatsService._compute_raid_stats) as compute:
+            run()
+        self.assertEqual(compute.call_count, 1)
+        self.assertNotEqual(old['_snapshot']['input_fingerprint'], json.loads(index.read_text())['_snapshot']['input_fingerprint'])
+
+    def test_raid_checkpoint_rechecks_metadata_without_timestamp_changes(self):
+        from botend.models import WowItemSnapshot
+        self.raid(gear_json=[{'id': 321, 'slot': 'head'}])
+        item = WowItemSnapshot.objects.create(item_id=321, name='Helmet', name_zh='before')
+        run = lambda: SpecDetailAggregationMonitor._aggregate_raid(
+            self.season, 'Mage', 'Fire', str(self.path), publish=publish_stats)
+        run()
+        index = self.path / 'raid.json'
+        before = index.read_bytes()
+        WowItemSnapshot.objects.filter(pk=item.pk).update(name_zh='after')
+        run()
+        self.assertNotEqual(before, index.read_bytes())
+        self.assertIn('after', json.dumps(read_projection(index, 'raid-5-1'), ensure_ascii=False))
+
     def test_dungeon_one_change_reuses_other_dungeon(self):
         rows = [SpecDungeonRanking.objects.create(season_id=self.season.pk, dungeon_id=i, dungeon_name=str(i),
             class_name='Mage', spec_name='Fire', character_name='角色', realm='Realm', region='eu',

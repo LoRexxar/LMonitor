@@ -31,7 +31,7 @@ class RaidBurstScheduleTests(TestCase):
             raid_encounters=[{'id': 3470, 'name': '测试首领'}])
         self.cycle = WclCollectionCycle.objects.create(season=self.season, phase='published', owner='old',
             slot=self.now.replace(hour=3), collected_at=self.now.replace(hour=5),
-            published_at=self.now.replace(hour=6), completed_scopes=['raid:5:3470', 'raid:4:3470'])
+            published_at=self.now.replace(hour=6), last_attempt_at=self.now.replace(hour=6), completed_scopes=['raid:5:3470', 'raid:4:3470'])
 
     def test_missing_or_outdated_burst_does_not_reopen_published_cycle(self):
         with patch('botend.services.raid_burst_snapshot.needs_raid_burst_refresh',

@@ -569,14 +569,22 @@ class SpecDetailRankingMonitor(SpecDetailBase):
     @classmethod
     def _sync_ranking_records(cls, model, filters, records, key_fields, update_fields):
         """按稳定业务键同步排名，只写入新增、变化和已消失的记录。"""
+        from itertools import islice
+
+        batch_size = 500
+        # Freeze lightweight identities in ONE query, preserving the queryset's
+        # ordering. Unordered LIMIT/OFFSET pages can overlap or omit identities.
+        # MySQL may buffer this projection, but it contains no large JSON fields.
+        existing_query = model.objects.filter(**filters)
+        identities = existing_query.only('pk', *key_fields, 'dps')
         existing_map = {}
         duplicate_existing_ids = []
-        for row in model.objects.filter(**filters):
+        for row in identities.iterator(chunk_size=batch_size):
             key = cls._ranking_business_key(row, key_fields)
             if key in existing_map:
-                duplicate_existing_ids.append(row.id)
-                continue
-            existing_map[key] = row
+                duplicate_existing_ids.append(row.pk)
+            else:
+                existing_map[key] = row.pk
         incoming_map = {}
         for row in records:
             key = cls._ranking_business_key(row, key_fields)
@@ -599,45 +607,51 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         to_create = []
         update_groups = {}
         unchanged = 0
-        for key, incoming in incoming_map.items():
-            values = {name: getattr(incoming, name) for name in update_fields}
-            if 'talents_json' in values:
-                values['talents_json'] = compact_ranking_talents(values['talents_json'])
-            for name, field in numeric_fields.items():
-                raw = values[name]
-                if isinstance(raw, bool):
-                    raise ValueError(f'Invalid numeric ranking field: {name}')
-                value = field.to_python(raw)
-                # Reject non-finite or lossy values, rather than silently repairing
-                # invalid facts. All conversions finish before any snapshot DML.
-                if value is not None and (
-                    isinstance(field, FloatField) and not math.isfinite(value)
-                    or isinstance(field, IntegerField) and not isinstance(raw, str) and raw != value
-                ):
-                    raise ValueError(f'Invalid numeric ranking field: {name}')
-                values[name] = value
-            existing = existing_map.get(key)
-            if existing is None:
-                created = copy(incoming)
-                for name, value in values.items():
-                    setattr(created, name, value)
-                to_create.append(created)
-                continue
-            changed_fields = tuple(
-                name for name in update_fields
-                if (compact_ranking_talents(getattr(existing, name))
-                    if name == 'talents_json' else getattr(existing, name)) != values[name]
-            )
-            if not changed_fields:
-                unchanged += 1
-                continue
-            for name in changed_fields:
-                setattr(existing, name, values[name])
-            existing.last_updated = incoming.last_updated
-            update_groups.setdefault(changed_fields, []).append(existing)
+        incoming_items = iter(incoming_map.items())
+        while batch := list(islice(incoming_items, batch_size)):
+            ids = [existing_map[key] for key, _ in batch if key in existing_map]
+            existing_batch = {row.pk: row for row in existing_query.filter(pk__in=ids)[:batch_size]}
+            for key, incoming in batch:
+                values = {name: getattr(incoming, name) for name in update_fields}
+                if 'talents_json' in values:
+                    values['talents_json'] = compact_ranking_talents(values['talents_json'])
+                for name, field in numeric_fields.items():
+                    raw = values[name]
+                    if isinstance(raw, bool):
+                        raise ValueError(f'Invalid numeric ranking field: {name}')
+                    value = field.to_python(raw)
+                    # Reject non-finite or lossy values, rather than silently repairing
+                    # invalid facts. All conversions finish before any snapshot DML.
+                    if value is not None and (
+                        isinstance(field, FloatField) and not math.isfinite(value)
+                        or isinstance(field, IntegerField) and not isinstance(raw, str) and raw != value
+                    ):
+                        raise ValueError(f'Invalid numeric ranking field: {name}')
+                    values[name] = value
+                existing = existing_batch.get(existing_map.get(key))
+                if existing is None:
+                    created = copy(incoming)
+                    for name, value in values.items():
+                        setattr(created, name, value)
+                    to_create.append(created)
+                    continue
+                changed_fields = tuple(
+                    name for name in update_fields
+                    if (compact_ranking_talents(getattr(existing, name))
+                        if name == 'talents_json' else getattr(existing, name)) != values[name]
+                )
+                if not changed_fields:
+                    unchanged += 1
+                    continue
+                # Never retain the loaded row (and its unchanged large JSON) in
+                # the global write plan. Only changed values belong to an update.
+                changed = model(pk=existing.pk, last_updated=incoming.last_updated,
+                                **{name: values[name] for name in changed_fields})
+                update_groups.setdefault(changed_fields, []).append(changed)
+            del existing, existing_batch
 
         stale_ids = duplicate_existing_ids + [
-            row.id for key, row in existing_map.items()
+            row_id for key, row_id in existing_map.items()
             if key not in incoming_map
         ]
         if stale_ids or to_create or update_groups:
@@ -647,11 +661,14 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         if to_create:
             model.objects.bulk_create(to_create, batch_size=500)
         for changed_fields, rows in update_groups.items():
-            model.objects.bulk_update(
-                rows,
-                fields=[*changed_fields, 'last_updated'],
-                batch_size=500,
-            )
+            # Django prepares expressions for every object passed to bulk_update
+            # before executing its internal batches. Bound the call itself.
+            for offset in range(0, len(rows), batch_size):
+                model.objects.bulk_update(
+                    rows[offset:offset + batch_size],
+                    fields=[*changed_fields, 'last_updated'],
+                    batch_size=batch_size,
+                )
         return {
             'created': len(to_create),
             'updated': sum(len(rows) for rows in update_groups.values()),

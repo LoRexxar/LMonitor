@@ -2,18 +2,46 @@
 import io
 from pathlib import Path
 import uuid
+import threading
 from unittest.mock import patch
 
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.db import transaction
-from django.test import TestCase, RequestFactory, override_settings
+from django.test import TestCase, SimpleTestCase, RequestFactory, override_settings
 
 from botend.guide_models import ClassGuide, ClassGuideTag
 from botend.portal.class_guides import PortalClassGuideArticleView, PortalClassGuideCatalogView
 from botend.services import class_guide_snapshot as files
 from botend.services.class_guide_service import save_article
+
+
+class GuideWorkerRetirementTests(SimpleTestCase):
+    def test_retirement_finishes_current_build_and_prevents_another_cycle(self):
+        from botend.backend_lifecycle import BackendLifecycle
+        lifecycle = BackendLifecycle()
+        started, finish = threading.Event(), threading.Event()
+
+        def build(**kwargs):
+            started.set()
+            if not finish.wait(5):
+                raise AssertionError('测试未释放正在生成的攻略')
+
+        with (patch.object(files, '_thread', None),
+              patch.object(files, 'close_old_connections'),
+              patch.object(files, 'refresh_guide_snapshot', side_effect=build) as refresh):
+            worker = files.start_guide_snapshot_worker(lifecycle=lifecycle)
+            try:
+                self.assertTrue(started.wait(2))
+                self.assertIs(files.start_guide_snapshot_worker(lifecycle=lifecycle), worker)
+                lifecycle.request_retirement()
+                self.assertTrue(worker.is_alive(), '退出时必须让已开始的构建完成')
+            finally:
+                finish.set()
+                worker.join(timeout=2)
+            self.assertFalse(worker.is_alive())
+            refresh.assert_called_once_with(poll=True)
 
 
 @override_settings(SECURE_SSL_REDIRECT=False)

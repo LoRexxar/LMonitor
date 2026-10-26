@@ -61,7 +61,7 @@ class ReportPermissionTests(SimpleTestCase):
                     self.client.failure = None
                     self.client.calls.clear()
                     recovered = fetch_events(self.root, private, self.client, nullcontext)
-                    self.assertEqual(self.client.calls[0]['start'], 130000)
+                    self.assertEqual(self.client.calls[0]['start_casts'], 130000)
                     self.assertEqual(len(recovered['streams']['casts']['data']), 3)
                 else:
                     self.assertFalse(cache_path(self.root, private).exists())

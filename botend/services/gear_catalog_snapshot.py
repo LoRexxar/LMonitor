@@ -310,14 +310,15 @@ def refresh_catalog_snapshots(*, batch_size=1, force=False, poll=False, targets=
     return built
 
 
-def start_catalog_snapshot_worker():
+def start_catalog_snapshot_worker(*, lifecycle=None):
     """由监控后端启动独立维护线程，不占 Web 请求和普通采集线程。"""
     global _thread
     with _thread_lock:
         if _thread is not None and _thread.is_alive():
-            return
+            return _thread
+        from botend.backend_lifecycle import worker_cycles
         def run():
-            while True:
+            for _ in worker_cycles(lifecycle, interval=15, label='gear-catalog-snapshot'):
                 close_old_connections()
                 try:
                     refresh_catalog_snapshots(batch_size=4, poll=True)
@@ -325,6 +326,6 @@ def start_catalog_snapshot_worker():
                     logger.exception('装备目录快照维护失败')
                 finally:
                     close_old_connections()
-                time.sleep(15)
         _thread = threading.Thread(target=run, name='gear-catalog-snapshot', daemon=True)
         _thread.start()
+        return _thread

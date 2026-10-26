@@ -1,11 +1,14 @@
 """Durable WCL admission with parallel HTTP and short row-locked transactions.
 
-``spent`` is a monotonic conservative admission bound, not a refund balance.
-``charged`` counts local reservations in the calibrated generation; ``completed``
-counts confirmed completions. Each request captures completed-before-dispatch as
-its baseline. An observation can safely raise spent to upstream_spent + charged
-- baseline: every local charge not certainly included in that response survives,
-even when responses finish in reverse order. No expired request may settle.
+``spent`` is a conservative admission bound. ``charged`` counts local charges
+in the calibrated generation; ``completed`` counts settled charges. A successful
+measured request replaces only its own estimate with its proven actual cost.
+Every existing bound contains that still-unsettled reservation, so this delta
+can adjust both spent and charged without refunding other requests. Completed
+charges never change, keeping completed-before-dispatch baselines stable.
+An observation raises spent to upstream_spent + charged - baseline: every local
+charge not certainly included in that response survives, even when responses
+finish in reverse order. No expired request may settle.
 
 Only bootstrap/reset and unlearned query costs are single-flight. Failed charges
 remain booked until authoritative reset calibration. Estimates cannot guarantee
@@ -92,7 +95,17 @@ def _query_info(query, variables):
         if isinstance(value, dict):
             return '{' + ','.join(str(k) + ':' + shape(v) for k, v in sorted(value.items())) + '}'
         return 'null' if value is None else type(value).__name__
-    key = hashlib.sha256((' '.join(normalized) + shape(variables or {})).encode()).hexdigest()
+    # EventDataType is a workload selector (Casts/Buffs/CombatantInfo), not a
+    # report identity. Preserve its enum value in the digest even when supplied
+    # through a variable; all other scalar values keep their private shape.
+    texts = [token.group() for token in tokens]
+    event_types = sorted({texts[i + 1] for i in range(len(texts) - 3)
+                          if texts[i] == '$' and texts[i + 2:i + 4] == [':', 'EventDataType']})
+    enum_shape = ''.join('|EventDataType:' + name + ':' + value
+                         for name in event_types
+                         if isinstance(value := (variables or {}).get(name), str)
+                         and re.fullmatch(r'[_A-Za-z][_0-9A-Za-z]*', value))
+    key = hashlib.sha256((' '.join(normalized) + shape(variables or {}) + enum_shape).encode()).hexdigest()
     if end is None:
         raise ValueError('No GraphQL root selection')
     measured = query if has_quota else query[:end] + ' _wclBudget: ' + QUOTA_FIELDS + ' ' + query[end:]
@@ -143,12 +156,14 @@ def _reserve(account, owner, cost_key, explicit_quota):
             row.spent = row.charged = row.completed = 0
             row.reset_at = None
             row.reservations.all().delete()
-        stale = not row.observed_at or (now - row.observed_at).total_seconds() >= _setting('WCL_BUDGET_SYNC_SECONDS', 300, minimum=1)
-        measure = explicit_quota or stale or unknown
+        # Include quota in the SAME HTTP response for every request. Sparse
+        # sampling leaves almost all successful requests charged at the historic
+        # worst-case estimate, despite knowing how to settle actual costs.
+        measure = True
         cost = float(row.costs.get('__quota__', 2)) if discovery else float(
             row.costs.get(cost_key, _setting('WCL_BUDGET_UNKNOWN_COST', 32, minimum=1)))
-        if measure and not unknown and not explicit_quota and not discovery:
-            cost += float(row.costs.get('__quota__', 2))
+        # Learned currentRequest.total already includes the inline quota field;
+        # adding a separate quota charge here would count it twice.
         if not math.isfinite(cost) or cost < 0:
             raise ValueError('Invalid WCL cost estimate')
         available = row.limit_per_hour * (1 - _setting('WCL_BUDGET_RESERVE_FRACTION', .2, maximum=.99))
@@ -214,10 +229,14 @@ def _settle(account, owner, cost_key, payload):
         if observed:
             limit, spent, reset, actual = observed
             if actual is not None:
-                extra = max(0, actual - reservation.cost)
-                row.charged += extra
-                row.spent += extra
-                reservation.cost += extra
+                # Refund only this live request's proven overestimate, never
+                # infer a refund from a smaller (possibly out-of-order) snapshot.
+                # Error/partial payloads retain the estimate; overruns always book.
+                delta = actual - reservation.cost
+                if delta > 0 or not _error(payload):
+                    row.charged += delta
+                    row.spent += delta
+                    reservation.cost = actual
                 costs = dict(row.costs)
                 costs[cost_key] = max(float(costs.get(cost_key, 0)),
                                       actual * _setting('WCL_BUDGET_COST_MARGIN', 1.25, minimum=1))

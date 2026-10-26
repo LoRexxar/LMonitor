@@ -61,23 +61,24 @@ def run_maintenance_once():
     return results
 
 
-def _loop():
-    stop = threading.Event()
-    while True:
+def _loop(lifecycle=None):
+    from botend.backend_lifecycle import worker_cycles
+    interval = lambda: max(60, int(getattr(settings, 'SNAPSHOT_CACHE_GC_INTERVAL_SECONDS', 3600)))
+    for _ in worker_cycles(lifecycle, interval=interval, label='snapshot-cache-maintenance'):
         try:
             run_maintenance_once()
         except Exception:
             logger.exception('[Snapshot Cache Maintenance] cycle failed')
-        interval = max(60, int(getattr(settings, 'SNAPSHOT_CACHE_GC_INTERVAL_SECONDS', 3600)))
-        stop.wait(interval)
 
 
-def start_snapshot_cache_maintenance_worker():
+
+def start_snapshot_cache_maintenance_worker(*, lifecycle=None):
     global _thread
     if not getattr(settings, 'SNAPSHOT_CACHE_GC_WORKER_ENABLED', True):
         return None
     with _guard:
         if _thread is None or not _thread.is_alive():
-            _thread = threading.Thread(target=_loop, name='snapshot-cache-maintenance', daemon=True)
+            _thread = threading.Thread(target=_loop, kwargs={'lifecycle': lifecycle},
+                                       name='snapshot-cache-maintenance', daemon=True)
             _thread.start()
         return _thread

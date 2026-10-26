@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from django.test import SimpleTestCase, override_settings
+from django.test import TestCase, override_settings
 
 from botend.services import raid_burst_aggregation as agg
 from botend.services.raid_burst_events import EventFetchDeferred, cache_path, fetch_events
@@ -28,6 +28,20 @@ class EventClient:
 
     def _wcl_graphql(self, query, variables):
         self.calls.append(dict(variables))
+        aliases = [key[5:] for key in variables if key.startswith('kind_')]
+        if aliases:
+            report = {}
+            for field in aliases:
+                single = {**variables, 'kind': variables['kind_' + field],
+                          'start': variables['start_' + field]}
+                response = self._response(single)
+                if response is None:
+                    return None
+                report[field] = response['reportData']['report']['page']
+            return {'reportData': {'report': report}}
+        return self._response(variables)
+
+    def _response(self, variables):
         kind = variables.get('kind')
         if self.failure and self.failure(variables):
             return None
@@ -46,7 +60,7 @@ class EventClient:
                     dict(base, type='applybuff', timestamp=11000, abilityGameID=2825),
                     dict(base, type='removebuff', timestamp=51000, abilityGameID=2825)]
                 if self.pi:
-                    data.append(dict(base, type='refreshbuff', timestamp=20000, abilityGameID=10060))
+                    data.append(dict(base, sourceID=8, type='refreshbuff', timestamp=20000, abilityGameID=10060))
             else:
                 data = [dict(base, type='cast', timestamp=t, abilityGameID=107574)
                         for t in (12000, 132000, 252000) if t >= variables['start']]
@@ -57,7 +71,7 @@ class EventClient:
         return {'reportData': {'report': result}}
 
 
-class RaidBurstAggregationTests(SimpleTestCase):
+class RaidBurstAggregationTests(TestCase):
     def setUp(self):
         self.root = Path(tempfile.mkdtemp(prefix='raid-burst-tests-'))
         override = override_settings(RAID_BURST_SNAPSHOT_ROOT=self.root)
@@ -79,9 +93,77 @@ class RaidBurstAggregationTests(SimpleTestCase):
         manifest = {'schema': 1, 'scopes': [descriptor]}
         write_json(self.directory / 'index.json', {'data': manifest, 'digest': digest(manifest)})
 
+    def test_pi_source_identity_and_mixed_events(self):
+        from copy import deepcopy
+        raw = fetch_events(self.root, self.row, self.client, nullcontext)
+        for source, allowed in [(7, True), (8, False), (None, False), (0, False),
+                                (-1, False), ('7', False), (True, False)]:
+            for kind in ('applybuff', 'refreshbuff', 'removebuff'):
+                with self.subTest(source=source, kind=kind):
+                    candidate = deepcopy(raw)
+                    candidate['streams']['buffs']['data'].append(dict(
+                        type=kind, abilityGameID=10060, timestamp=20000,
+                        fight=1, targetID=7, sourceID=source))
+                    sample, reason = agg.normalize(candidate, self.row, 1, self.config)
+                    self.assertEqual(reason, None if allowed else 'pi')
+                    if allowed:
+                        self.assertTrue(sample['pi_observed'])
+                        self.assertTrue(sample['self_pi_observed'])
+                        self.assertIs(sample['external_pi_observed'], False)
+                        self.assertIs(sample['pi_source_unknown'], False)
+        for second in (8, None):
+            candidate = deepcopy(raw)
+            candidate['streams']['buffs']['data'] += [dict(
+                type='applybuff', abilityGameID=10060, timestamp=20000,
+                fight=1, targetID=7, sourceID=source) for source in (7, second)]
+            self.assertEqual(agg.normalize(candidate, self.row, 1, self.config)[1], 'pi')
+
+    def test_initial_pi_requires_positive_unambiguous_source(self):
+        from copy import deepcopy
+        raw = fetch_events(self.root, self.row, self.client, nullcontext)
+        for fields, allowed in [({'source': 7}, True), ({'source': 8}, False),
+                                ({}, False), ({'sourceID': 7}, False),
+                                ({'source': None}, False), ({'source': '7'}, False),
+                                ({'source': True}, False), ({'source': 0}, False),
+                                ({'source': 7, 'sourceID': 8}, False),
+                                ({'source': 7, 'sourceID': 7}, True)]:
+            with self.subTest(fields=fields):
+                candidate = deepcopy(raw)
+                candidate['streams']['combatants']['data'][0]['auras'] = [
+                    dict(ability=10060, **fields)]
+                sample, reason = agg.normalize(candidate, self.row, 1, self.config)
+                self.assertEqual(reason, None if allowed else 'pi')
+                if allowed:
+                    self.assertTrue(sample['self_pi_observed'])
+        candidate = deepcopy(raw)
+        candidate['streams']['combatants']['data'][0]['auras'] = [{'ability': 10060}]
+        candidate['streams']['buffs']['data'].append(dict(type='applybuff',
+            abilityGameID=10060, timestamp=20000, fight=1, targetID=7, sourceID=7))
+        self.assertEqual(agg.normalize(candidate, self.row, 1, self.config)[1], 'pi')
+
+    def test_pi_still_obeys_identity_window_completeness_and_lust(self):
+        from copy import deepcopy
+        raw = fetch_events(self.root, self.row, self.client, nullcontext)
+        for fields in ({'fake': True}, {'fight': 2}, {'targetID': 8}, {'timestamp': 0}):
+            candidate = deepcopy(raw)
+            event = dict(type='applybuff', abilityGameID=10060, timestamp=20000,
+                         fight=1, targetID=7, sourceID=8)
+            event.update(fields)
+            candidate['streams']['buffs']['data'].append(event)
+            sample, reason = agg.normalize(candidate, self.row, 1, self.config)
+            self.assertIsNone(reason)
+            self.assertFalse(sample['pi_observed'])
+        candidate = deepcopy(raw)
+        candidate['streams']['buffs']['data'] = [dict(type='applybuff',
+            abilityGameID=10060, timestamp=20000, fight=1, targetID=7, sourceID=7)]
+        self.assertEqual(agg.normalize(candidate, self.row, 1, self.config)[1], 'no_lust')
+        candidate['streams']['buffs']['complete'] = False
+        with self.assertRaises(ValueError):
+            agg.normalize(candidate, self.row, 1, self.config)
+
     def test_identical_data_reuses_snapshot_without_fetch_or_regroup(self):
         descriptor = self.build()
-        self.assertEqual(len(self.client.calls), 4)
+        self.assertEqual(len(self.client.calls), 2)
         self.publish(descriptor)
         path = self.directory / 'snapshots' / f"{descriptor['blob']}.json"
         before = path.stat().st_mtime_ns
@@ -95,7 +177,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
         self.publish(self.build())
         self.client.calls.clear()
         self.build([self.row, dict(self.row, region='EU', report_code='NEW456', fight_id=2, dps=90000)])
-        self.assertEqual(len(self.client.calls), 4)
+        self.assertEqual(len(self.client.calls), 2)
         self.assertTrue(all(c['code'] == 'NEW456' for c in self.client.calls))
         self.client.calls.clear()
         descriptor = self.build([dict(self.row, dps=777)])
@@ -124,8 +206,8 @@ class RaidBurstAggregationTests(SimpleTestCase):
         self.client.calls.clear()
         self.client.failure = None
         descriptor = self.build([self.row, new])
-        self.assertEqual(self.client.calls[0]['start'], 130000)
-        self.assertTrue(all(call.get('kind') for call in self.client.calls))
+        self.assertEqual(self.client.calls[0]['start_casts'], 130000)
+        self.assertTrue(all(call.get('kind_casts') for call in self.client.calls))
         payload = read_blob(self.directory, descriptor['blob'])
         self.assertEqual([len(s['times']['107574']) for s in payload['samples']], [3, 3])
 
@@ -144,6 +226,73 @@ class RaidBurstAggregationTests(SimpleTestCase):
                     self.build([row])
                 self.assertEqual(self.client.calls, [])
 
+    def test_rejected_candidate_skips_cast_continuation_and_reuses_evidence(self):
+        for reason in ('pi', 'no_lust'):
+            with self.subTest(reason=reason):
+                self.client.paginate = True
+                self.client.pi = reason == 'pi'
+                self.client.no_lust = reason == 'no_lust'
+                self.client.calls.clear()
+                row = dict(self.row, report_code='early-' + reason)
+                descriptor = self.build([row])
+                self.assertEqual(len(self.client.calls), 2)
+                self.assertEqual(self.client.calls[1]['start_casts'], 10000)
+                self.assertEqual(read_blob(self.directory, descriptor['blob'])['excluded_' + reason], 1)
+                state = read_json(cache_path(self.root, row))['data']
+                self.assertFalse(state['streams']['casts']['complete'])
+                self.assertEqual(state['streams']['casts']['cursor'], 130000)
+                self.client.calls.clear()
+                with patch.object(agg, 'ANALYSIS_VERSION', 999):
+                    self.build([row])
+                self.assertEqual(self.client.calls, [])
+
+    def test_eligibility_cannot_accept_partial_buffs_or_publish_partial_casts(self):
+        raw = fetch_events(self.root, self.row, self.client, nullcontext)
+        raw['streams']['buffs']['complete'] = False
+        with self.assertRaises(ValueError):
+            agg.eligibility(raw, self.row, self.config)
+        raw['streams']['buffs']['complete'] = True
+        raw['streams']['casts']['complete'] = False
+        with self.assertRaises(ValueError):
+            agg.normalize(raw, self.row, 1, self.config)
+
+    def test_combined_empty_pages_follow_each_cursor_and_do_not_repeat_complete_alias(self):
+        original = self.client._wcl_graphql
+        first = True
+        def pages(query, variables):
+            nonlocal first
+            response = original(query, variables)
+            if first and 'kind_casts' in variables:
+                first = False
+                for field in ('casts', 'buffs'):
+                    response['reportData']['report'][field] = {'data': [], 'nextPageTimestamp': 11000}
+            return response
+        self.client._wcl_graphql = pages
+        descriptor = self.build()
+        self.assertEqual(len(self.client.calls), 4)
+        self.assertEqual(set(k for k in self.client.calls[2] if k.startswith('kind_')), {'kind_buffs'})
+        self.assertEqual(set(k for k in self.client.calls[3] if k.startswith('kind_')), {'kind_casts'})
+        self.assertEqual(self.client.calls[3]['start_casts'], 11000)
+        payload = read_blob(self.directory, descriptor['blob'])
+        self.assertEqual(len(payload['samples'][0]['times']['107574']), 3)
+
+    def test_malformed_alias_does_not_advance_any_event_stream(self):
+        original = self.client._wcl_graphql
+        def malformed(query, variables):
+            response = original(query, variables)
+            if 'kind_casts' in variables:
+                del response['reportData']['report']['combatants']['nextPageTimestamp']
+            return response
+        self.client._wcl_graphql = malformed
+        with self.assertRaises(EventFetchDeferred):
+            self.build()
+        self.assertEqual(read_json(cache_path(self.root, self.row))['data']['streams'], {})
+        self.client._wcl_graphql = original
+        self.client.calls.clear()
+        self.build()
+        self.assertEqual(len(self.client.calls), 1)
+        self.assertEqual(self.client.calls[0]['start_casts'], 10000)
+
     def test_corrupt_cache_repaired_when_rebuilding_and_old_snapshot_read_only(self):
         descriptor = self.build()
         self.publish(descriptor)
@@ -151,7 +300,7 @@ class RaidBurstAggregationTests(SimpleTestCase):
         self.client.calls.clear()
         with patch.object(agg, 'ANALYSIS_VERSION', 2):
             self.build()
-        self.assertEqual(len(self.client.calls), 4)
+        self.assertEqual(len(self.client.calls), 2)
         with patch.object(agg, 'build_scope', side_effect=AssertionError('访问重算')):
             self.assertEqual(load_published(self.scope['key'])[0]['samples'][0]['player']['name'], '测试玩家')
 

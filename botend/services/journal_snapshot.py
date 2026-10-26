@@ -295,13 +295,14 @@ def read_skills(index, instance, boss, difficulty):
     return data
 
 
-def start_journal_snapshot_worker():
+def start_journal_snapshot_worker(*, lifecycle=None):
     global _thread
     with _thread_lock:
         if _thread is not None and _thread.is_alive():
-            return
+            return _thread
+        from botend.backend_lifecycle import worker_cycles
         def run():
-            while True:
+            for _ in worker_cycles(lifecycle, interval=15, label='journal-snapshot'):
                 close_old_connections()
                 try:
                     refresh_journal_snapshot(poll=True)
@@ -309,6 +310,6 @@ def start_journal_snapshot_worker():
                     logger.exception('冒险手册目录维护失败')
                 finally:
                     close_old_connections()
-                time.sleep(15)
         _thread = threading.Thread(target=run, name='journal-snapshot', daemon=True)
         _thread.start()
+        return _thread
