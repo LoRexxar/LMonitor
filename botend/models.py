@@ -2765,6 +2765,7 @@ class PlayerSpecTopPlayer(models.Model):
             models.Index(fields=['class_name', 'spec_name']),
             models.Index(fields=['season_id', 'class_name', '-score', 'rank', 'id'], name='idx_season_class_top'),
             models.Index(fields=['season_id', 'character_name', 'region'], name='idx_player_binding_lookup'),
+            models.Index(fields=['season_id', 'class_name', 'spec_name', 'rank'], name='idx_peak_current_rank'),
         ]
 
     def __str__(self):

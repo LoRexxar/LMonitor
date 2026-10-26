@@ -272,12 +272,16 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         updated = 0
         departed = 0
         with transaction.atomic():
+            # Historical profiles can be large and numerous. Lock only current
+            # ranks here; returning/new identities use the unique-key probe below.
+            # idx_peak_current_rank keeps NULL-rank history out of this scan.
             existing_rows = list(PlayerSpecTopPlayer.objects.select_for_update().only(
                 *self.PEAK_RANKING_INDEX_FIELDS,
             ).filter(
                 season_id=season.id,
                 class_name=class_name,
                 spec_name=spec_name,
+                rank__isnull=False,
             ))
             existing_map = {
                 self._profile_identity_key(row.region, row.realm, row.character_name): row
@@ -286,6 +290,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             existing_map.pop(None, None)
 
             current_keys = set()
+            current_ids = set()
             for index, ranking in enumerate((rankings or [])[:self.PLAYER_RANKING_LIMIT]):
                 player = self._build_player_from_ranking(class_name, spec_name, ranking, include_profile=False)
                 if not player:
@@ -297,12 +302,18 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 rank = index + 1
                 profile = existing_map.get(key)
                 if profile:
+                    if profile.pk in current_ids:
+                        continue
+                    current_ids.add(profile.pk)
                     updated += int(self._save_changed_profile(profile, {
                         'rank': rank,
                         'score': player.get('score'),
                     }))
                 else:
-                    profile, created = PlayerSpecTopPlayer.objects.only(
+                    # Match the DB unique key, including its case/accent rules,
+                    # without class (historical misclassification is repairable).
+                    # get_or_create retains this lock on its conflict retry too.
+                    profile, created = PlayerSpecTopPlayer.objects.select_for_update().only(
                         *self.PEAK_RANKING_INDEX_FIELDS,
                     ).get_or_create(
                         season_id=season.id,
@@ -327,6 +338,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                             'last_updated': None,
                         },
                     )
+                    if profile.pk in current_ids:
+                        continue
+                    current_ids.add(profile.pk)
                     if created:
                         initialized += 1
                     else:
@@ -339,8 +353,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                             light_updates['class_name'] = class_name
                         updated += int(self._save_changed_profile(profile, light_updates))
 
-            for key, profile in existing_map.items():
-                if key in current_keys or profile.rank is None:
+            # Database collation can equate names that Python NFKD does not.
+            # Reconcile departures by persisted ID, not a second identity test.
+            for profile in existing_rows:
+                if profile.pk in current_ids:
                     continue
                 profile.rank = None
                 profile.save(update_fields=['rank'])
