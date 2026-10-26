@@ -21,7 +21,7 @@ class MonitorWorkerIsolationTests(TestCase):
             target='', is_active=True, wait_time=60,
             last_scan_time=self.now - timedelta(days=days))
 
-    def test_normal_slots_exclude_both_due_long_tasks_and_resume_original_cycle(self):
+    def test_shared_pool_claims_peak_and_wago_and_resumes_original_cycle(self):
         wago = self.task('WagoSkillDiffMonitor', days=3)
         peak = self.task('PortalPeakSpecRankMonitor', days=3)
         news = self.task('PortalPostMonitor', days=2)
@@ -30,6 +30,9 @@ class MonitorWorkerIsolationTests(TestCase):
             is_active=True, mplus_zone_id=1, raid_zone_id=2)
         cycle = WclCollectionCycle.objects.create(season=season, slot=self.now-timedelta(days=1),
             owner='interrupted', phase='aggregating', collected_at=self.now-timedelta(hours=1))
+        claimed_sources = [claim_next_monitor_task(now=self.now, lease_owner=f'source-{i}')
+                           for i in range(2)]
+        self.assertEqual({task.pk for task in claimed_sources}, {wago.pk, peak.pk})
         first = claim_next_monitor_task(now=self.now, lease_owner='normal-1')
         self.assertEqual(first.pk, news.pk)
         second = claim_next_monitor_task(now=self.now, lease_owner='normal-2')
@@ -40,16 +43,13 @@ class MonitorWorkerIsolationTests(TestCase):
         self.assertEqual(cycle.owner, second._wcl_cycle_owner)
         self.assertNotEqual(cycle.owner, 'interrupted')
         for task in (wago, peak):
-            claimed = claim_next_monitor_task(now=self.now, task_names={task.name},
-                lease_owner=task.name, lease_seconds=7200)
-            self.assertEqual(claimed.pk, task.pk)
-            self.assertIsNone(claim_next_monitor_task(now=self.now+timedelta(hours=1),
+            self.assertIsNone(claim_next_monitor_task(now=self.now,
                 task_names={task.name}, lease_owner='duplicate'))
             self.assertFalse(release_monitor_task_lease(task.pk, 'wrong-owner'))
         self.assertEqual(MonitorTaskLease.objects.count(), 4)
 
     @override_settings(MONITOR_TASK_AUTO_SYNC_PLUGINS=False)
-    def test_backend_starts_one_independent_bounded_worker_per_slow_source(self):
+    def test_backend_keeps_only_original_data_update_worker_outside_pool(self):
         from botend.views import LMonitorCore, LMonitorCoreBackend
         started, release, lock = Event(), Event(), Lock()
         calls = []
@@ -57,7 +57,7 @@ class MonitorWorkerIsolationTests(TestCase):
         def blocked_scan(core, *, task_names=None):
             with lock:
                 calls.append((task_names, current_thread()))
-                if len(calls) == 3:
+                if len(calls) == 1:
                     started.set()
             release.wait(5)
 
@@ -81,8 +81,8 @@ class MonitorWorkerIsolationTests(TestCase):
                 backend._run()
                 self.assertTrue(started.wait(2), 'all slow-source workers must start independently')
                 self.assertCountEqual([names for names, _ in calls], [
-                    {'WowDataVersionMonitor'}, {'WagoSkillDiffMonitor'}, {'PortalPeakSpecRankMonitor'}])
-                self.assertEqual(len({thread.ident for _, thread in calls}), 3)
+                    {'WowDataVersionMonitor'}])
+                self.assertEqual(len({thread.ident for _, thread in calls}), 1)
                 self.assertTrue(all(thread.is_alive() for _, thread in calls))
                 backend.threadpool.new.assert_not_called()
         finally:

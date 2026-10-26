@@ -44,11 +44,9 @@ PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
-# 每种长任务独占一个有界工作线程，不能彼此或挤占普通池；仍走统一租约/night lane。
+# 仅保留原有游戏数据更新独立线程；榜单与 Wago 使用普通池的并发上限。
 ISOLATED_MONITOR_WORKERS = {
     'WowDataVersionMonitor': 'wow-data-update-worker',
-    'WagoSkillDiffMonitor': 'wago-skill-diff-worker',
-    'PortalPeakSpecRankMonitor': 'portal-peak-rank-worker',
 }
 ISOLATED_MONITOR_TASKS = frozenset(ISOLATED_MONITOR_WORKERS)
 
@@ -61,7 +59,7 @@ def start_isolated_monitor_worker(worker, *, task_name='WowDataVersionMonitor'):
     return thread
 
 PORTAL_MONITOR_TASK_PRIORITY = {
-    # 同时到期时的次级排序；巅峰榜可能预载人物，实际由独立 worker 执行。
+    # 同时到期时优先短周期榜单，普通池统一限制并发。
     "PortalPeakSpecRankMonitor": 0,
     "SpecDungeonDpsRankingMonitor": 5,
     "SpecDetailPlayerMonitor": 10,

@@ -10,8 +10,7 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-ISOLATED_LABELS = ('isolated-WowDataVersionMonitor', 'isolated-WagoSkillDiffMonitor',
-                   'isolated-PortalPeakSpecRankMonitor')
+ISOLATED_LABELS = ('isolated-WowDataVersionMonitor',)
 
 # No signal mocks: this process imports the production admission/retirement code.
 WORKER = r'''
