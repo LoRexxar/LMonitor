@@ -44,20 +44,24 @@ PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
-# 大型装备/天赋同步不占普通监控工作线程，仍共用数据库租约防重入。
-ISOLATED_MONITOR_TASKS = frozenset({'WowDataVersionMonitor'})
+# 每种长任务独占一个有界工作线程，不能彼此或挤占普通池；仍走统一租约/night lane。
+ISOLATED_MONITOR_WORKERS = {
+    'WowDataVersionMonitor': 'wow-data-update-worker',
+    'WagoSkillDiffMonitor': 'wago-skill-diff-worker',
+    'PortalPeakSpecRankMonitor': 'portal-peak-rank-worker',
+}
+ISOLATED_MONITOR_TASKS = frozenset(ISOLATED_MONITOR_WORKERS)
 
 
-def start_isolated_monitor_worker(worker):
-    """独立工作线程不占普通线程池，跨进程重复执行由任务租约拦截。"""
-    thread = Thread(target=worker, kwargs={'task_names': ISOLATED_MONITOR_TASKS},
-                    name='wow-data-update-worker', daemon=True)
+def start_isolated_monitor_worker(worker, *, task_name='WowDataVersionMonitor'):
+    """单线程串行领取一种长任务，跨进程重复执行由原任务租约拦截。"""
+    thread = Thread(target=worker, kwargs={'task_names': frozenset({task_name})},
+                    name=ISOLATED_MONITOR_WORKERS[task_name], daemon=True)
     thread.start()
     return thread
 
 PORTAL_MONITOR_TASK_PRIORITY = {
-    # 巅峰榜 Top20 是快速任务；长任务结束后必须先补它，避免按旧
-    # last_scan_time 排序时被人物、排名和聚合任务连续阻塞。
+    # 同时到期时的次级排序；巅峰榜可能预载人物，实际由独立 worker 执行。
     "PortalPeakSpecRankMonitor": 0,
     "SpecDungeonDpsRankingMonitor": 5,
     "SpecDetailPlayerMonitor": 10,
@@ -396,7 +400,7 @@ def sync_monitortasks_from_plugin_list(
             }
             if plugin_is_active:
                 # 首次部署后立即补一份数据，之后再按固定时段运行。
-                create_values['last_scan_time'] = (timezone.now() if name in ISOLATED_MONITOR_TASKS
+                create_values['last_scan_time'] = (timezone.now() if name == 'WowDataVersionMonitor'
                                                  else timezone.now() - timedelta(days=2))
             MonitorTask.objects.create(
                 **create_values,

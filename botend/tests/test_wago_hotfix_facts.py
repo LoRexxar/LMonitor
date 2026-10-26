@@ -274,7 +274,7 @@ class WagoHotfixFactsTests(SimpleTestCase):
     def test_distinct_source_ids_for_same_record_are_never_silently_collapsed(self):
         rows = [
             {'id': sid, 'push_id': 111885, 'locale': 'enUS', 'region_id': 3,
-             'table_name': 'SpellEffect', 'record_id': 10, 'status': 1, 'data': [10]}
+             'table_name': 'SpellEffect', 'record_id': 10, 'build': 69587, 'status': 1, 'data': [10]}
             for sid in (91, 92)
         ]
         def fetch(url, **kwargs):

@@ -60,16 +60,24 @@ def decode_hotfix_row(payload, schema_row: Mapping, *, record_id: int):
     return result if valid else None
 
 
+def hotfix_record_identity(row):
+    """Build is part of a physical record's scope, never a tie breaker."""
+    return (
+        str(row.get('region_id') or ''), str(row.get('locale') or ''),
+        str(row.get('table_name') or '').lower(), str(row.get('record_id') or ''),
+        str(row.get('build') or ''),
+    )
+
+
 def previous_hotfix_row(rows, target):
-    """Return the last unambiguous source row in the same exact record scope."""
-    def identity(row):
-        return (
-            str(row.get('region_id') or ''), str(row.get('locale') or ''),
-            str(row.get('table_name') or '').lower(), str(row.get('record_id') or ''),
-        )
+    """Return the last unambiguous source row in the same exact build scope.
+
+    A different build is not a verified predecessor, even with an older push.
+    Cross-build migration needs separate proven lineage, not numeric proximity.
+    """
 
     scoped = [row for row in rows if isinstance(row, dict)
-              and identity(row) == identity(target)
+              and hotfix_record_identity(row) == hotfix_record_identity(target)
               and int(row.get('push_id') or 0) < int(target.get('push_id') or 0)]
     if not scoped:
         return None

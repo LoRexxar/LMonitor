@@ -144,11 +144,13 @@ class MonitorTaskClaimTests(TestCase):
         )
 
         first_claim = claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=first_started_at,
             lease_owner='worker-a-long-run',
             lease_seconds=3 * 3600,
         )
         duplicate_claim = claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=datetime(2026, 9, 3, 23, 0, tzinfo=shanghai),
             lease_owner='worker-b',
         )
@@ -166,11 +168,13 @@ class MonitorTaskClaimTests(TestCase):
         )
 
         first_claim = claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at,
             lease_owner='crashed-worker',
             lease_seconds=60,
         )
         recovered_claim = claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at + timedelta(seconds=60),
             lease_owner='replacement-worker',
             lease_seconds=60,
@@ -190,6 +194,7 @@ class MonitorTaskClaimTests(TestCase):
             wait_time=0, is_active=True,
         )
         claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at,
             lease_owner='worker-a',
             lease_seconds=60,
@@ -208,6 +213,7 @@ class MonitorTaskClaimTests(TestCase):
             lease_seconds=60,
         ))
         self.assertIsNone(claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at + timedelta(seconds=61),
             lease_owner='worker-b',
         ))
@@ -225,6 +231,7 @@ class MonitorTaskClaimTests(TestCase):
             wait_time=0, is_active=True,
         )
         claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at,
             lease_owner='worker-a',
             lease_seconds=60,
@@ -236,6 +243,7 @@ class MonitorTaskClaimTests(TestCase):
             lease_seconds=60,
         ))
         claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at + timedelta(seconds=60),
             lease_owner='worker-b',
             lease_seconds=60,
@@ -278,11 +286,13 @@ class MonitorTaskClaimTests(TestCase):
             wait_time=0, is_active=True, flag='original',
         )
         stale_task = claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at,
             lease_owner='worker-a',
             lease_seconds=60,
         )
         replacement = claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at + timedelta(seconds=60),
             lease_owner='worker-b',
             lease_seconds=60,
@@ -333,12 +343,14 @@ class MonitorTaskClaimTests(TestCase):
             wait_time=0, is_active=True, flag='original',
         )
         stale_task = claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at,
             lease_owner='worker-a',
             lease_seconds=60,
         )
         stale_task.flag = 'stale-result'
         replacement = claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at + timedelta(seconds=60),
             lease_owner='worker-b',
             lease_seconds=60,
@@ -399,6 +411,7 @@ class MonitorTaskMySQLConcurrencyTests(TransactionTestCase):
             wait_time=3600, is_active=True,
         )
         claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at,
             lease_owner='already-running-worker',
             lease_seconds=3 * 3600,
@@ -457,6 +470,7 @@ class MonitorTaskMySQLConcurrencyTests(TransactionTestCase):
             wait_time=0, is_active=True,
         )
         claim_next_monitor_task(
+            task_names={'WagoSkillDiffMonitor'},
             now=started_at,
             lease_owner='old-worker',
             lease_seconds=60,
@@ -479,6 +493,7 @@ class MonitorTaskMySQLConcurrencyTests(TransactionTestCase):
             connections.close_all()
             try:
                 results['claim'] = claim_next_monitor_task(
+                    task_names={'WagoSkillDiffMonitor'},
                     now=started_at + timedelta(seconds=60),
                     lease_owner='new-worker',
                     lease_seconds=60,

@@ -1536,7 +1536,7 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
              patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.update_or_create', return_value=(saved_row, True)) as reports:
             existing.return_value.first.return_value = None
             self.assertTrue(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
-        latest.assert_called_once_with(locale='enUS', region_id=1, current_build='12.1.0.69933')
+        latest.assert_called_once_with(locale='enUS', region_id=1, current_build='12.1.0.69933', after_push=112181)
         collect.assert_called_once_with(112181, 112185, region_id=1, locale='enUS')
         resolve.assert_called_once_with([source], db2_build='12.1.0.69933', interval_only=False)
         self.assertIs(full_writer.call_args.kwargs['facts'], class_writer.call_args.kwargs['facts'])
@@ -1592,7 +1592,7 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
             return '<div data-page="' + html.escape(json.dumps(payload), quote=True) + '"></div>'
 
         us = {'id': 101, 'push_id': 112185, 'region_id': 1, 'locale': 'enUS',
-              'table_name': 'SpellEffect', 'record_id': 1106904, 'status': 1,
+              'table_name': 'SpellEffect', 'record_id': 1106904, 'status': 1, 'build': 69933,
               'data': [1106904, '10.451600074768']}
         eu = {**us, 'id': 102, 'region_id': 3}
         another = {**us, 'id': 103, 'push_id': 112181}

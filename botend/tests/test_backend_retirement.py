@@ -10,6 +10,8 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
+ISOLATED_LABELS = ('isolated-WowDataVersionMonitor', 'isolated-WagoSkillDiffMonitor',
+                   'isolated-PortalPeakSpecRankMonitor')
 
 # No signal mocks: this process imports the production admission/retirement code.
 WORKER = r'''
@@ -42,7 +44,7 @@ if mode.startswith('scheduler'):
     settings.MONITOR_RETIRE_CLEANUP_SECONDS = .2
     settings.SNAPSHOT_CACHE_GC_WORKER_ENABLED = True
     def claim(*, lease_owner, task_names=None):
-        label = 'isolated' if task_names else 'ordinary'
+        label = 'isolated-' + next(iter(task_names)) if task_names else 'ordinary'
         record('claim-' + label)
         if mode == 'scheduler-claim':
             time.sleep(.5)  # Retirement while the claim is in progress.
@@ -246,8 +248,9 @@ class BackendRetirementProcessTests(unittest.TestCase):
         first_pid = events[0]['pid']
         first = [e['event'] for e in events if e['pid'] == first_pid]
         self.assertEqual(first.count('claim-ordinary'), 1)
-        self.assertEqual(first.count('claim-isolated'), 1)
-        for label in ['ordinary', 'isolated', 'gear', 'loot', 'news', 'guides', 'journal', 'gc']:
+        for label in ISOLATED_LABELS:
+            self.assertEqual(first.count('claim-' + label), 1)
+        for label in ['ordinary', *ISOLATED_LABELS, 'gear', 'loot', 'news', 'guides', 'journal', 'gc']:
             self.assertEqual(first.count('started-' + label), 1, first)
             self.assertEqual(first.count('finished-' + label), 1, first)
             self.assertLess(first.index('finished-' + label), first.index('drained'))
@@ -256,8 +259,12 @@ class BackendRetirementProcessTests(unittest.TestCase):
     def test_scheduler_startup_error_drains_already_started_worker_then_fails(self):
         proc = self.launch('scheduler-error', supervisor=False)
         self.assertEqual(proc.wait(timeout=15), 1)
-        self.assertEqual([e['event'] for e in self.events()],
-                         ['boot', 'claim-isolated', 'started-isolated', 'finished-isolated'])
+        events = [e['event'] for e in self.events()]
+        self.assertCountEqual(events, ['boot'] + [prefix + label
+            for label in ISOLATED_LABELS for prefix in ('claim-', 'started-', 'finished-')])
+        for label in ISOLATED_LABELS:
+            self.assertLess(events.index('claim-' + label), events.index('started-' + label))
+            self.assertLess(events.index('started-' + label), events.index('finished-' + label))
         self.output.flush()
         self.output.seek(0)
         self.assertIn('injected scheduler startup failure', self.output.read())
@@ -272,15 +279,17 @@ class BackendRetirementProcessTests(unittest.TestCase):
 
     def test_claim_in_progress_is_drained_without_a_second_claim(self):
         proc = self.launch('scheduler-claim', supervisor=False)
-        self.wait_for(lambda es: any(e['event'] == 'claim-isolated' for e in es))
+        self.wait_for(lambda es: all(any(e['event'] == 'claim-' + label for e in es)
+                                    for label in ISOLATED_LABELS))
         proc.send_signal(signal.SIGUSR1)
         self.assertEqual(proc.wait(timeout=5), 0)
         events = [e['event'] for e in self.events()]
-        self.assertEqual(events.count('claim-isolated'), 1)
         self.assertNotIn('claim-ordinary', events)
-        self.assertEqual(events.count('started-isolated'), 1)
-        self.assertEqual(events.count('finished-isolated'), 1)
-        self.assertLess(events.index('finished-isolated'), events.index('drained'))
+        for label in ISOLATED_LABELS:
+            self.assertEqual(events.count('claim-' + label), 1)
+            self.assertEqual(events.count('started-' + label), 1)
+            self.assertEqual(events.count('finished-' + label), 1)
+            self.assertLess(events.index('finished-' + label), events.index('drained'))
 
     def test_an_expired_worker_cannot_kill_another_still_legal_worker(self):
         proc = self.launch('mixed-deadlines', supervisor=False)

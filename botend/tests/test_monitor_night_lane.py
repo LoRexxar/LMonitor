@@ -73,7 +73,7 @@ class NightLaneTests(TestCase):
         self.assertIsNotNone(claim_monitor_task(first.pk, now=self.now, lease_owner='manual'))
         self.assertIsNone(claim_monitor_task(second.pk, now=self.now))
         fast = self.task('PortalPeakSpecRankMonitor')
-        self.assertEqual(claim_next_monitor_task(now=self.now).pk, fast.pk)
+        self.assertEqual(claim_next_monitor_task(now=self.now, task_names={fast.name}).pk, fast.pk)
         self.assertFalse(release_monitor_task_lease(first.pk, 'wrong'))
 
     def test_midnight_defaults_and_long_cycle_retry(self):
@@ -164,5 +164,5 @@ class NightLaneConcurrentClaimsTests(TransactionTestCase):
         self.assertIsNone(results[1])  # isolated worker never bypasses global head
         self.assertEqual(MonitorTaskLease.objects.count(), 1)
         fast = MonitorTask.objects.create(name='PortalPeakSpecRankMonitor', type=904, **values)
-        self.assertEqual(claim_next_monitor_task(now=now).pk, fast.pk)
+        self.assertEqual(claim_next_monitor_task(now=now, task_names={fast.name}).pk, fast.pk)
         self.assertEqual(MonitorTaskLease.objects.count(), 2)

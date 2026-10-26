@@ -150,6 +150,144 @@ class IncrementalUpdateTests(TestCase):
     def run_update(self, branches=('retail',)):
         return update.sync_game_data(branches=branches, source=self.source)
 
+    def test_real_source_excludes_benchmark_supplement_but_still_rejects_invalid_drop(self):
+        from contextlib import ExitStack
+        from tempfile import TemporaryDirectory
+        benchmark = WowItemVariantSnapshot.objects.create(
+            item=self.item, season=self.season, batch_key='stable', game_build=OLD,
+            variant_key='benchmark-123-298', variant_type='drop_equipment', item_level=298,
+            compatible_slots=['head'], stats_json={'strength': 15},
+            source_json=[{'type': 'benchmark'}], metadata={'benchmark_candidate': True})
+        # Match an already-published catalog: central effect references are
+        # initialized independently of the source-selection behavior under test.
+        from botend.services.wow_item_effects import sync_central_effects
+        sync_central_effects(season=self.season, item_ids=[self.item.item_id], notify=False)
+        before = WowItemVariantSnapshot.objects.filter(pk=benchmark.pk).values().get()
+        source = update.UpdateSource()
+        with TemporaryDirectory() as root, ExitStack() as stack:
+            stack.enter_context(self.settings(BASE_DIR=root))
+            stack.enter_context(patch.object(update.BranchCatalogSource, 'build',
+                side_effect=lambda **kwargs: deepcopy(self.bundle('retail', NEW, None, None)['catalog'])))
+            enrich = stack.enter_context(patch.object(update.BranchCatalogSource, '_enrich_wowhead'))
+            stack.enter_context(patch.object(source, 'facts', return_value=([], [])))
+            stack.enter_context(patch.object(source, 'talents', return_value=root))
+            stack.enter_context(patch.object(source, 'talent_display'))
+            stack.enter_context(patch('botend.services.item_loot_specializations.prepare_specializations', return_value={}))
+            run = WowDataUpdateRun.objects.create(branch='retail', build=NEW)
+            bundle = source.prepare('retail', NEW, run, lambda: None)
+            keys = {v['key'] for item in bundle['catalog']['items'] for v in item['variants']}
+            self.assertNotIn(benchmark.variant_key, keys)
+            self.assertEqual(enrich.call_args.args[0], [])
+            self.assertEqual(update.validate_catalog(bundle, 'retail', NEW)['blocking_errors'], [])
+            self.source.prepare.side_effect = lambda *args: bundle
+            self.run_update()
+            self.assertEqual(WowItemVariantSnapshot.objects.filter(pk=benchmark.pk).values().get(), before)
+            # A benchmark-looking key is not provenance; genuine invalid drops still fail.
+            self.variant.upgrade_track = ''
+            self.variant.variant_key = 'benchmark-looking-real-drop'
+            for metadata in ({}, {'benchmark_candidate': False},
+                             {'benchmark_candidate': 'true'}, {'benchmark_candidate': 1}):
+                with self.subTest(metadata=metadata):
+                    self.variant.metadata = metadata
+                    self.variant.save()
+                    bundle = source.prepare('retail', NEW, run, lambda: None)
+                    with self.assertRaisesMessage(ValueError, '不属于勇士、英雄或神话轨道'):
+                        update.validate_catalog(bundle, 'retail', NEW)
+
+    def test_restart_reconciles_running_only_after_exclusive_claim(self):
+        from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
+        task = update.get_monitor_task()
+        state = WowDataUpdateState.objects.create(branch='ptr', published_build=OLD,
+            revision=3, status='preparing', report={'last_good': True}, projections_pending=True)
+        stale = WowDataUpdateRun.objects.create(branch='ptr', build=NEW)
+        published = WowDataUpdateRun.objects.create(branch='ptr', build=OLD, status='published')
+        MonitorTaskLease.objects.update_or_create(task=task, defaults={
+            'owner': 'active-worker', 'claimed_at': timezone.now(),
+            'expires_at': timezone.now() + timedelta(hours=1)})
+        with self.assertRaises(MonitorTaskLeaseLost):
+            self.run_update()
+        stale.refresh_from_db()
+        self.assertEqual(stale.status, 'running')
+        # Expiration, not the run's age, makes takeover possible.
+        MonitorTaskLease.objects.filter(task=task).update(expires_at=timezone.now() - timedelta(seconds=1))
+        self.run_update()
+        stale.refresh_from_db()
+        published.refresh_from_db()
+        state.refresh_from_db()
+        self.assertEqual(stale.status, 'interrupted')
+        self.assertIsNotNone(stale.finished_at)
+        self.assertEqual(published.status, 'published')
+        self.assertEqual((state.published_build, state.revision, state.report), (OLD, 3, {'last_good': True}))
+        self.assertTrue(state.projections_pending)
+        self.assertEqual(state.status, 'interrupted')
+        self.assertFalse(WowDataUpdateRun.objects.filter(status='running').exists())
+        self.assertEqual(self.run_update()['retail']['status'], 'unchanged')
+
+    def test_lost_owner_cannot_rewrite_reconciled_run(self):
+        from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
+        def stolen(*args):
+            task = update.get_monitor_task()
+            MonitorTaskLease.objects.filter(task=task).update(owner='replacement')
+            WowDataUpdateRun.objects.filter(status='running').update(status='interrupted', error='reconciled')
+            raise ValueError('old worker failed late')
+        self.source.prepare.side_effect = stolen
+        with self.assertRaises(MonitorTaskLeaseLost):
+            self.run_update()
+        run = WowDataUpdateRun.objects.get()
+        self.assertEqual((run.status, run.error), ('interrupted', 'reconciled'))
+
+    def test_lost_owner_after_source_return_cannot_write_control_state(self):
+        from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
+        for phase in ('discover', 'prepare'):
+            with self.subTest(phase=phase):
+                WowDataUpdateRun.objects.all().delete()
+                WowDataUpdateState.objects.all().delete()
+                MonitorTaskLease.objects.all().delete()
+                state = WowDataUpdateState.objects.create(branch='retail', published_build=OLD)
+                expected = {}
+                def stolen(*args):
+                    result = NEW if phase == 'discover' else self.bundle(*args)
+                    MonitorTaskLease.objects.filter(task=update.get_monitor_task()).update(owner='replacement')
+                    WowDataUpdateState.objects.filter(pk=state.pk).update(status='ready', revision=9)
+                    WowDataUpdateRun.objects.filter(status='running').update(
+                        status='interrupted', report={'replacement': True}, error='reconciled')
+                    expected['state'] = WowDataUpdateState.objects.filter(pk=state.pk).values().get()
+                    expected['runs'] = list(WowDataUpdateRun.objects.values())
+                    return result
+                self.source.discover.side_effect = stolen if phase == 'discover' else None
+                self.source.prepare.side_effect = stolen if phase == 'prepare' else self.bundle
+                with self.assertRaises(MonitorTaskLeaseLost):
+                    self.run_update()
+                self.assertEqual(WowDataUpdateState.objects.filter(pk=state.pk).values().get(), expected['state'])
+                self.assertEqual(list(WowDataUpdateRun.objects.values()), expected['runs'])
+                self.assertEqual(MonitorTaskLease.objects.get().owner, 'replacement')
+
+    def test_reconciliation_requires_live_owner_and_preserves_published_state(self):
+        from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
+        task = update.claim_monitor_task(update.get_monitor_task().pk)
+        state = WowDataUpdateState.objects.create(branch='ptr', published_build=OLD,
+            status='ready', revision=3, report={'last_good': True}, projections_pending=True)
+        stale = WowDataUpdateRun.objects.create(branch='ptr', build=NEW, report={'stage': 'download'})
+        before = WowDataUpdateState.objects.filter(pk=state.pk).values().get()
+        lease = MonitorTaskLease.objects.get(task=task)
+        for owner, expires in (('other-owner', lease.expires_at),
+                               (task._monitor_task_lease_owner, timezone.now() - timedelta(seconds=1))):
+            MonitorTaskLease.objects.filter(pk=lease.pk).update(owner=owner, expires_at=expires)
+            with self.assertRaises(MonitorTaskLeaseLost):
+                update.reconcile_interrupted_runs(task)
+            stale.refresh_from_db()
+            self.assertEqual(stale.status, 'running')
+        MonitorTaskLease.objects.filter(pk=lease.pk).update(owner=task._monitor_task_lease_owner,
+                                                           expires_at=lease.expires_at)
+        update.reconcile_interrupted_runs(task)
+        stale.refresh_from_db()
+        self.assertEqual((stale.status, stale.report), ('interrupted', {'stage': 'download'}))
+        finished = stale.finished_at
+        update.reconcile_interrupted_runs(task)
+        stale.refresh_from_db()
+        self.assertEqual(stale.finished_at, finished)
+        self.assertEqual(WowDataUpdateState.objects.filter(pk=state.pk).values().get(), before)
+
     def test_replaces_rows_in_place_and_keeps_other_branch(self):
         old_node_id, old_version_id = self.node.pk, self.talent.pk
         self.run_update()
@@ -386,12 +524,19 @@ class IncrementalUpdateTests(TestCase):
         self.assertEqual(WowItemVariantSnapshot.objects.count(), 3)
 
     def test_lost_lease_cannot_publish(self):
-        from botend.models import MonitorTaskLeaseLost
-        with patch.object(update, 'assert_lease', side_effect=MonitorTaskLeaseLost('租约失效')):
+        from botend.models import MonitorTaskLease, MonitorTaskLeaseLost
+        publish = update.publish
+        def stolen(bundle, version, state, run, task):
+            MonitorTaskLease.objects.filter(task=task).update(owner='replacement')
+            return publish(bundle, version, state, run, task)
+        with patch.object(update, 'publish', side_effect=stolen) as attempted:
             with self.assertRaises(MonitorTaskLeaseLost):
                 self.run_update()
+        attempted.assert_called_once()
         self.variant.refresh_from_db()
         self.assertEqual(self.variant.stats_json, {'strength': 20})
+        self.assertEqual(WowDataUpdateState.objects.get(branch='retail').revision, 0)
+        self.assertEqual(MonitorTaskLease.objects.get().owner, 'replacement')
 
     def test_missing_talent_text_does_not_erase_existing_description(self):
         def missing(*args):

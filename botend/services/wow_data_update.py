@@ -79,6 +79,7 @@ def update_lease(task=None):
             raise MonitorTaskLeaseLost('装备天赋更新租约已失效')
     try:
         heartbeat()
+        reconcile_interrupted_runs(task)
         yield task, heartbeat
     finally:
         if manual:
@@ -91,6 +92,19 @@ def assert_lease(task):
         task_id=task.pk, owner=task._monitor_task_lease_owner, expires_at__gt=timezone.now(),
     ).exists():
         raise MonitorTaskLeaseLost('更新执行权已失效，拒绝发布')
+
+
+@transaction.atomic
+def reconcile_interrupted_runs(task):
+    """Only a newly claimed owner may close attempts left by a previous lease."""
+    assert_lease(task)
+    # All branches share this monitor lease. Age alone never proves interruption.
+    running = WowDataUpdateRun.objects.filter(status='running')
+    branches = list(running.values_list('branch', flat=True).distinct())
+    error = '前次执行租约已结束，由新持有者标记中断；保留已发布资料，等待重试。'
+    running.update(status='interrupted', error=error, finished_at=timezone.now())
+    WowDataUpdateState.objects.filter(branch__in=branches, status='preparing').update(
+        status='interrupted', error=error)
 
 
 class BranchCatalogSource(CurrentGearCatalogSource):
@@ -202,6 +216,10 @@ class UpdateSource:
         supplemental = {}
         for row in previous:
             if 'difficulty_drop' in (row.metadata or {}):
+                continue
+            # Benchmark tooltip supplements are not upgrade-track catalog drops.
+            # Keep their stored variants intact; a key prefix is not provenance.
+            if (row.metadata or {}).get('benchmark_candidate') is True:
                 continue
             if variant_branch(row) != branch:
                 continue
@@ -728,7 +746,9 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
     results, failures = {}, []
     with update_lease(monitor_task) as (task, heartbeat):
         for branch in branches:
-            state, _ = WowDataUpdateState.objects.get_or_create(branch=branch)
+            with transaction.atomic():
+                assert_lease(task)
+                state, _ = WowDataUpdateState.objects.get_or_create(branch=branch)
             run = None
             try:
                 if state.projections_pending:
@@ -738,24 +758,28 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
                 build = observation['build'] if isinstance(observation, dict) else observation
                 fingerprint = json.dumps(observation, sort_keys=True) if isinstance(observation, dict) else build
                 build_number(build)
-                state.observed_build, state.checked_at = build, timezone.now()
-                state.save(update_fields=['observed_build', 'checked_at'])
-                if (state.published_build == build and not state.report.get('missing_fields')
-                        and state.report.get('source_fingerprint', state.published_build) == fingerprint):
-                    state.status, state.error = 'ready', ''
+                with transaction.atomic():
+                    assert_lease(task)
+                    state.observed_build, state.checked_at = build, timezone.now()
+                    state.save(update_fields=['observed_build', 'checked_at'])
+                    if (state.published_build == build and not state.report.get('missing_fields')
+                            and state.report.get('source_fingerprint', state.published_build) == fingerprint):
+                        state.status, state.error = 'ready', ''
+                        state.save(update_fields=['status', 'error'])
+                        results[branch] = {'status': 'unchanged', 'build': state.published_build}
+                        continue
+                    run = WowDataUpdateRun.objects.create(branch=branch, build=build)
+                    run._source_fingerprint = fingerprint
+                    state.status, state.error = 'preparing', ''
                     state.save(update_fields=['status', 'error'])
-                    results[branch] = {'status': 'unchanged', 'build': state.published_build}
-                    continue
-                run = WowDataUpdateRun.objects.create(branch=branch, build=build)
-                run._source_fingerprint = fingerprint
-                state.status, state.error = 'preparing', ''
-                state.save(update_fields=['status', 'error'])
                 with source_access():
                     phase_started = time.monotonic()
                     bundle = source.prepare(branch, build, run, heartbeat)
                     logger.info(f'[WowDataUpdate] {branch}/{build} 来源准备耗时 {time.monotonic() - phase_started:.1f}s')
                     run.report = validate_catalog(bundle, branch, build)
-                    run.save(update_fields=['report'])
+                    with transaction.atomic():
+                        assert_lease(task)
+                        run.save(update_fields=['report'])
                     phase_started = time.monotonic()
                     version = prepare_talent_version(bundle, branch, build, heartbeat)
                     logger.info(f'[WowDataUpdate] {branch}/{build} 天赋导入耗时 {time.monotonic() - phase_started:.1f}s')
@@ -768,14 +792,14 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
                 results[branch] = {'status': 'published', **state.report}
                 _maintain_talent_sources(branch, heartbeat)
             except Exception as exc:
-                if run:
-                    run.refresh_from_db()
-                # 已发布成功但投影队列失败，绝不能把版本发布状态回滚为失败。
-                if run and run.status != 'published':
-                    run.status, run.error, run.finished_at = 'failed', str(exc)[:4000], timezone.now()
-                    run.save(update_fields=['status', 'error', 'finished_at'])
                 with transaction.atomic():
                     assert_lease(task)
+                    if run:
+                        run.refresh_from_db()
+                    # 已发布成功但投影队列失败，绝不能把版本发布状态回滚为失败。
+                    if run and run.status == 'running':
+                        run.status, run.error, run.finished_at = 'failed', str(exc)[:4000], timezone.now()
+                        run.save(update_fields=['status', 'error', 'finished_at'])
                     WowDataUpdateState.objects.filter(pk=state.pk).update(
                         status='projection_pending' if run and run.status == 'published' else 'failed',
                         error=str(exc)[:4000], checked_at=timezone.now())

@@ -78,7 +78,11 @@ def _search_rows(fetch_text, extract_props, query, *, max_pages, timeout, max_at
     raise HotfixSourceIncomplete(f'Hotfix duplicate/incomplete query={query}: unique={len(unique)} total={expected_total}')
 
 
-def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, push_id=None):
+def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, push_id=None, build_number=None):
+    # None explicitly means all builds, not a guessed/latest build. Pagination
+    # completeness is established before selecting this coordinate.
+    if build_number is not None and (not str(build_number).isdigit() or int(build_number) <= 0):
+        raise HotfixSourceIncomplete(f'Hotfix invalid requested build identity: {build_number}')
     selected = {}
     for row in rows:
         try:
@@ -99,7 +103,12 @@ def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, pus
             rid = pid = 0
         if not table or rid <= 0 or pid <= 0:
             raise HotfixSourceIncomplete(f'Hotfix incomplete region={region_id} locale={locale}: missing record identity')
-        key = (pid, table.lower(), rid)
+        build = row.get('build')
+        if not str(build).isdigit() or int(build) <= 0:
+            raise HotfixSourceIncomplete(f'Hotfix incomplete source ID={row.get("id")}: missing build identity')
+        if build_number is not None and int(build) != int(build_number):
+            continue
+        key = (pid, int(build), table.lower(), rid)
         previous = selected.get(key)
         if previous is not None:
             raise HotfixSourceIncomplete(
@@ -213,7 +222,7 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
     return [selected[source_id] for source_id in sorted(selected)]
 
 
-def collect_hotfix_push_rows(fetch_text, extract_props, push_id, *, region_id, locale, max_pages=40, timeout=60):
+def collect_hotfix_push_rows(fetch_text, extract_props, push_id, *, region_id, locale, build_number=None, max_pages=40, timeout=60):
     query = f'{locale} {int(push_id)}'
 
     def verified_props(text):
@@ -227,17 +236,16 @@ def collect_hotfix_push_rows(fetch_text, extract_props, push_id, *, region_id, l
         rows = _search_rows(fetch_text, verified_props, query, max_pages=max_pages, timeout=timeout)
     except HotfixSourceIncomplete:
         rows = _partition_push_rows(fetch_text, extract_props, push_id, locale, timeout=timeout)
-    return _exact_rows(rows, region_id=region_id, locale=locale, push_id=push_id)
+    return _exact_rows(rows, region_id=region_id, locale=locale, push_id=push_id, build_number=build_number)
 
 
-def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table_name, region_id, locale, max_pages=40, timeout=60):
+def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table_name, region_id, locale, build_number=None, max_pages=40, timeout=60):
     rows = _search_rows(fetch_text, extract_props, str(int(record_id)), max_pages=max_pages, timeout=timeout)
-    return _exact_rows(rows, region_id=region_id, locale=locale, table_name=table_name, record_id=record_id)
+    return _exact_rows(rows, region_id=region_id, locale=locale, table_name=table_name, record_id=record_id, build_number=build_number)
 
 
 def collect_hotfix_build_rows(fetch_text, extract_props, build_number, *, region_id, locale, max_pages=200, timeout=60):
     """Discover a build's latest regional push only after its search is exhaustive."""
     build_number = int(build_number)
     rows = _search_rows(fetch_text, extract_props, str(build_number), max_pages=max_pages, timeout=timeout)
-    selected = _exact_rows(rows, region_id=region_id, locale=locale)
-    return [row for row in selected if str(row.get('build') or '') == str(build_number)]
+    return _exact_rows(rows, region_id=region_id, locale=locale, build_number=build_number)
