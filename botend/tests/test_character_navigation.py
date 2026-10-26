@@ -75,6 +75,30 @@ class CharacterNavigationTests(TestCase):
         self.assertIn('no-store', response['Cache-Control'])
         self.assertEqual(self.client.post(url).status_code, 405)
 
+    def test_navigation_uses_rank_range_index_not_regional_history(self):
+        from django.db import connection
+        from django.test.utils import CaptureQueriesContext
+        if connection.vendor != 'mysql':
+            self.skipTest('MySQL optimizer regression; exercised on isolated InnoDB')
+        PlayerSpecTopPlayer.objects.bulk_create([
+            PlayerSpecTopPlayer(season_id=self.season.pk, region='cn', realm='白银之手',
+                character_name=f'history-{i}', class_name='DeathKnight', spec_name='Blood',
+                rank=None, gear_json=[{'id': 1, 'description': 'x' * 4096}])
+            for i in range(600)
+        ])
+        with CaptureQueriesContext(connection) as queries:
+            response = self.visit(region='cn', realm='silver-hand', name='测试')
+        self.assertEqual(response.status_code, 302)
+        self.assertIn(f'/player/{self.player.pk}/', response['Location'])
+        scans = [q['sql'] for q in queries if 'FROM `wow_spec_top_player`' in q['sql']]
+        self.assertEqual(len(scans), 1)
+        self.assertNotIn('gear_json', scans[0])
+        with connection.cursor() as cursor:
+            cursor.execute('EXPLAIN ' + scans[0])
+            plan = dict(zip([column[0] for column in cursor.description], cursor.fetchone()))
+        self.assertEqual(plan['key'], 'idx_character_nav')
+        self.assertLessEqual(plan['rows'], 5)
+
     def test_invalid_links_never_redirect_to_arbitrary_hosts_or_paths(self):
         for params in ({'url': 'https://evil.test/characters/cn/silver-hand/测试'},
                        {'url': 'https://raider.io/characters/cn/a%2Fb/测试'},
