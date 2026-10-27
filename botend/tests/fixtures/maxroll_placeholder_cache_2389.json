@@ -1,0 +1,13 @@
+{
+  "cache_id": 2389,
+  "block_id": "b-3-1-0",
+  "field": "title",
+  "key": "ee912f4e2f51c0ecb316769f1aab21665f1bb6c6ae754a4d5bc2af9f145ccab4",
+  "source": "<figcaption><strong><strong><mark><mark><mark><strong><mark><mark><strong><strong><mark><strong><mark>Brewmaster Monk</mark></strong></mark></strong></strong></mark></mark></strong></mark></mark></mark></strong></strong> Mythic+ Best in Slot</figcaption>",
+  "protected": "<figcaption><strong><strong><mark><mark><mark><strong><mark><mark><strong><strong><mark><strong><mark>⟦WOWTERM_00001⟧</mark></strong></mark></strong></strong></mark></mark></strong></mark></mark></mark></strong></strong> ⟦WOWTERM_00002⟧ Best in Slot</figcaption>",
+  "replacements": {
+    "⟦WOWTERM_00001⟧": "酒仙武僧",
+    "⟦WOWTERM_00002⟧": "大秘境"
+  },
+  "cached_translated": "<figcaption><strong><strong><mark><mark><mark><strong><mark><mark><strong><strong><mark><strong><mark>酒仙武僧</mark></strong></mark></strong></strong></mark></mark></strong></mark></mark></mark></strong></strong> ⟦WOWTERM_00002⟫最佳配装</figcaption>"
+}

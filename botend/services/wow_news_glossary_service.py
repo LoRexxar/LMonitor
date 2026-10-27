@@ -140,6 +140,11 @@ def _name_candidate_queries(query, candidates):
         yield query.filter(name__in=candidates[offset:offset + batch_size])
 
 
+def has_wowterm_placeholder(text: str) -> bool:
+    """Reserved namespace check independent of bracket shape or numeric width."""
+    return 'WOWTERM_' in (text or '').upper()
+
+
 @dataclass(frozen=True)
 class ProtectedText:
     text: str
@@ -148,7 +153,9 @@ class ProtectedText:
 
     def is_intact(self, translated: str) -> bool:
         """检查模型是否完整保留了本次签发的所有占位符。"""
-        return Counter(_TOKEN_PATTERN.findall(translated or "")) == Counter(_TOKEN_PATTERN.findall(self.text))
+        translated = translated or ""
+        return (not has_wowterm_placeholder(_TOKEN_PATTERN.sub('', translated))
+                and Counter(_TOKEN_PATTERN.findall(translated)) == Counter(_TOKEN_PATTERN.findall(self.text)))
 
 
 class WowNewsGlossary:

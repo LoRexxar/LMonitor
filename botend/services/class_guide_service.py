@@ -17,7 +17,7 @@ from botend.services.article_translation_service import build_translation_servic
 from botend.services.class_guide_content import REF_RE, resolve_references, validate_blocks, walk_blocks, reference_names_match
 from botend.services.class_guide_maxroll import MaxrollClient, chinese_title, convert, fingerprint, identity, latest_source_version, is_leveling
 from botend.services.class_guide_markdown import blocks_to_markdown, compile_markdown, html_to_markdown, normalize_tab_markdown
-from botend.services.wow_news_glossary_service import WowNewsGlossary, ProtectedText
+from botend.services.wow_news_glossary_service import WowNewsGlossary, ProtectedText, has_wowterm_placeholder
 from botend.services.class_guide_translation import translate_fragment_nodes
 from botend.services.class_guide_glossary import GuideGlossary
 from botend.services.wow_localization import effective_names, macro_reference_version, macro_spell_context
@@ -164,14 +164,16 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
             protected = protect_guide_text(value, glossary)
             key = fingerprint(['guide-v1', game_version, protected.text, protected.replacements])
             cached = ClassGuideTranslation.objects.filter(key=key).first()
-            if cached:
+            # Keep rejected rows as evidence; never publish merely because a key exists.
+            if cached and not has_wowterm_placeholder(cached.translated):
                 block[field] = cached.translated
                 continue
             required_terms = Counter()
             for token, chinese in protected.replacements.items():
                 required_terms[chinese] += protected.text.count(token)
             reusable = next((text for text in (prior_by_source.get(value, []) if not glossary.needs_new_translation(value) else [])
-                if re.findall(r'<[^>]+>', text) == re.findall(r'<[^>]+>', value)
+                if not has_wowterm_placeholder(text)
+                and re.findall(r'<[^>]+>', text) == re.findall(r'<[^>]+>', value)
                 and Counter(REF_RE.findall(text)) == Counter(REF_RE.findall(value))
                 and all(text.count(term) >= count for term, count in required_terms.items())), None)
             if reusable is not None:
@@ -181,11 +183,14 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
             remaining = re.sub(r'<[^>]*>|\[\[.*?\]\]|⟦WOWTERM_\d+⟧', '', protected.text)
             if not re.search(r'[A-Za-z]{2}', remaining):
                 restored = glossary.restore(protected.text, protected.replacements)
+                if has_wowterm_placeholder(restored):
+                    failed.append({'id': block['id'], 'field': field, 'reason': '术语占位符还原残留'})
+                    continue
                 ClassGuideTranslation.objects.get_or_create(key=key, defaults={'source': value, 'translated': restored})
                 block[field] = restored
                 continue
             cached_nodes = translate_fragment_nodes(value, game_version, glossary, service, cache_only=True)
-            if cached_nodes is not None and Counter(REF_RE.findall(cached_nodes)) == Counter(REF_RE.findall(value)):
+            if cached_nodes is not None and not has_wowterm_placeholder(cached_nodes) and Counter(REF_RE.findall(cached_nodes)) == Counter(REF_RE.findall(value)):
                 ClassGuideTranslation.objects.get_or_create(key=key, defaults={'source': value, 'translated': cached_nodes})
                 block[field] = cached_nodes
                 continue
@@ -238,7 +243,7 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
             valid = valid and Counter(REF_RE.findall(text)) == Counter(REF_RE.findall(source))
             valid = valid and re.findall(r'<[^>]+>', text) == re.findall(r'<[^>]+>', source)
             restored = glossary.restore(text, protected.replacements) if isinstance(text, str) else ''
-            valid = valid and bool(re.search(r'[\u3400-\u9fff]', restored))
+            valid = valid and not has_wowterm_placeholder(restored) and bool(re.search(r'[\u3400-\u9fff]', restored))
             if valid:
                 text = restored
                 ClassGuideTranslation.objects.get_or_create(key=key, defaults={'source': source, 'translated': text})
@@ -246,7 +251,7 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
             else:
                 fallback = translate_fragment_nodes(source, game_version, glossary, service,
                     progress=(lambda: progress(len(pending), len(failed))) if progress else None)
-                if fallback is not None and Counter(REF_RE.findall(fallback)) == Counter(REF_RE.findall(source)):
+                if fallback is not None and not has_wowterm_placeholder(fallback) and Counter(REF_RE.findall(fallback)) == Counter(REF_RE.findall(source)):
                     ClassGuideTranslation.objects.get_or_create(key=key, defaults={'source': source, 'translated': fallback})
                     block[field] = fallback
                 else:
