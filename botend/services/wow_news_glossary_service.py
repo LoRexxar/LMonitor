@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from html import unescape
 import re
 from typing import Dict, Iterable, Sequence, Set, Tuple
 
@@ -12,7 +13,7 @@ from utils.log import logger
 
 
 _TOKEN_TEMPLATE = "⟦WOWTERM_{:03d}⟧"
-_TOKEN_PATTERN = re.compile(r"⟦WOWTERM_\d{3}⟧")
+_TOKEN_PATTERN = re.compile(r"⟦WOWTERM_\d{3,}⟧")
 _WORD_BOUNDARY = r"(?<![A-Za-z0-9]){}(?![A-Za-z0-9])"
 _NAME_CONNECTORS = {"a", "an", "and", "for", "from", "in", "of", "on", "the", "to", "with"}
 TRUSTED_NEWS_TERM_EVIDENCE_PREFIX = "新闻译名官方证据："
@@ -100,8 +101,8 @@ def _pairs_with_source_aliases(
     return expanded
 
 
-def _extract_name_candidates(text: str, limit: int = 500) -> Set[str]:
-    """从已有文章文本提取可能的英文专名，不读取链接也不发起请求。"""
+def _extract_name_candidates(text: str) -> Set[str]:
+    """提取全文的唯一英文专名候选；查询分批不能截断文章后部。"""
     candidates: Set[str] = set()
     for line in re.split(r"[\r\n.!?;:]+", text or ""):
         words = re.findall(r"[A-Za-z][A-Za-z'’.-]*", line)
@@ -116,9 +117,40 @@ def _extract_name_candidates(text: str, limit: int = 500) -> Set[str]:
                 phrase.append(word)
                 if word[:1].isupper():
                     candidates.add(" ".join(phrase))
-                    if len(candidates) >= limit:
-                        return candidates
     return candidates
+
+
+def _name_candidate_queries(query, candidates):
+    """Yield bounded name queries, exhausting all candidates without a count cap."""
+    from django.db import connections
+
+    candidates = sorted(set(candidates))
+    if not candidates:
+        return
+    connection = connections[query.db]
+    # Reserve parameters for branch/build/context filters and annotations too.
+    _, params = query.query.get_compiler(using=query.db).as_sql()
+    batch_size = 1000
+    if connection.features.max_query_params:
+        batch_size = min(batch_size, connection.features.max_query_params - len(params))
+    if connection.ops.max_in_list_size():
+        batch_size = min(batch_size, connection.ops.max_in_list_size())
+    if batch_size < 1:
+        raise ValueError('Name query context exceeds the database parameter limit')
+    for offset in range(0, len(candidates), batch_size):
+        yield query.filter(name__in=candidates[offset:offset + batch_size])
+
+
+def has_wowterm_placeholder(text: str) -> bool:
+    """Check a decoded copy; never alter stored source or translation text."""
+    text = text or ''
+    while True:
+        if 'WOWTERM_' in text.upper():
+            return True
+        decoded = unescape(text)
+        if decoded == text:
+            return False
+        text = decoded
 
 
 @dataclass(frozen=True)
@@ -129,7 +161,9 @@ class ProtectedText:
 
     def is_intact(self, translated: str) -> bool:
         """检查模型是否完整保留了本次签发的所有占位符。"""
-        return Counter(_TOKEN_PATTERN.findall(translated or "")) == Counter(_TOKEN_PATTERN.findall(self.text))
+        translated = translated or ""
+        return (not has_wowterm_placeholder(_TOKEN_PATTERN.sub('', translated))
+                and Counter(_TOKEN_PATTERN.findall(translated)) == Counter(_TOKEN_PATTERN.findall(self.text)))
 
 
 class WowNewsGlossary:
@@ -310,16 +344,16 @@ class WowNewsGlossary:
             snapshot_build = (getattr(state, "snapshot_build", "") or "").strip()
             if not snapshot_build:
                 return cls.empty()
-            pairs = list(
+            query = (
                 WowSpellSnapshot.objects.filter(
                     branch=branch,
                     locale="zhCN",
                     snapshot_build=snapshot_build,
-                    name__in=sorted(candidates),
                 )
                 .exclude(name="").exclude(name_zh="")
                 .values_list("name", "name_zh")
             )
+            pairs = [pair for batch in _name_candidate_queries(query, candidates) for pair in batch]
             combat_context_terms = (
                 list(CLASS_CN)
                 + [_split_pascal_name(name) for name in CLASS_CN]
@@ -345,11 +379,12 @@ class WowNewsGlossary:
         try:
             from botend.models import WowItemSnapshot
 
-            pairs = (
-                WowItemSnapshot.objects.filter(name__in=sorted(candidates))
+            query = (
+                WowItemSnapshot.objects.all()
                 .exclude(name="").exclude(name_zh="")
                 .values_list("name", "name_zh")
             )
+            pairs = [pair for batch in _name_candidate_queries(query, candidates) for pair in batch]
             return cls.from_pairs(pairs)
         except Exception as exc:  # 物品快照缺失不应阻断文章翻译。
             logger.warning("[WowNewsGlossary] cannot load current item metadata: %s", str(exc)[:300])

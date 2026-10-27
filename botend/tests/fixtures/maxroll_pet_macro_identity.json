@@ -1,0 +1,393 @@
+{
+  "provenance": {
+    "guide": {
+      "id": 123,
+      "title": "痛苦术士 · 团本攻略",
+      "slug": "affliction-warlock-raid-guide",
+      "class_name": "Warlock",
+      "spec_name": "Affliction",
+      "spec_id": 265,
+      "game_version": "12.1.5",
+      "source_url": "https://maxroll.gg/wow/class-guides/affliction-warlock-raid-guide",
+      "source_hash": "3c58b550ed6c0c4ef7e6d7fffba454e515e6836ae685c1700a23c30525a3d3a8",
+      "source_modified": "2026-10-15"
+    },
+    "central_evidence_sha256": "3a08a7172f8db354b87a47337e89df3155e7f81ba01f60b17796004acc12105d",
+    "note": "Frozen source and central facts; central build is NOT current client 70575."
+  },
+  "pet_section": {
+    "id": "b-123-2",
+    "type": "details",
+    "source_type": "advgb/accordion-item",
+    "title": "<mark>Pet Macros</mark>",
+    "children": [
+      {
+        "id": "b-123-2-0",
+        "type": "html",
+        "source_type": "core/quote",
+        "html": "<blockquote><p>We're mainly using <mark>custom macros</mark> for Pets because the normal functionality of [[spell:119898]] proved unreliable in the past.</p></blockquote>",
+        "children": []
+      },
+      {
+        "id": "b-123-2-2",
+        "type": "html",
+        "source_type": "core/paragraph",
+        "html": "<p><strong>Pet Ability 1 Macro</strong> -- <em><em><em>Casts your main pet <em><em><em><em><em><em>abilities</em></em></em></em></em></em> for each pet on </em></em></em>your mouseover target.</p>",
+        "children": []
+      },
+      {
+        "id": "b-123-2-4",
+        "type": "code",
+        "source_type": "core/code",
+        "data": {
+          "code": "/cast [@mouseover]Singe Magic\n/cast [@mouseover,exists]Spell Lock;Spell Lock\n/cast [@mouseover]Suffering\n/cast [@mouseover,exists]Seduce;Seduce\n/cast [@mouseover,exists]Axe Toss;Axe Toss\n/cast [nopet,@mouseover,exists]Command Demon;[nopet]Command Demon"
+        },
+        "children": []
+      },
+      {
+        "id": "b-123-2-6",
+        "type": "html",
+        "source_type": "core/paragraph",
+        "html": "<p><strong>Focus Pet <strong>Ability</strong></strong> <strong>1 Macro</strong> -- <em><em><em><em><em><em>Casts your main pet abilities for each pet on </em></em></em>your focus target.</em></em></em></p>",
+        "children": []
+      },
+      {
+        "id": "b-123-2-8",
+        "type": "code",
+        "source_type": "core/code",
+        "data": {
+          "code": "/cast [@focus] Singe Magic\n/cast [@focus] Spell Lock\n/cast [@focus] Suffering\n/cast [@focus] Seduce\n/cast [@focus] Axe Toss\n/cast [nopet,@focus] Command Demon"
+        },
+        "children": []
+      },
+      {
+        "id": "b-123-2-10",
+        "type": "html",
+        "source_type": "core/paragraph",
+        "html": "<p><strong>Pet <strong>Ability</strong></strong> <strong>2 Macro</strong> <em>-- Casts your second relevant pet ability on your mouseover target if needed.</em></p>",
+        "children": []
+      },
+      {
+        "id": "b-123-2-12",
+        "type": "code",
+        "source_type": "core/code",
+        "data": {
+          "code": "/cast [@mouseover] Singe Magic\n/cast [@mouseover,exists] Devour Magic;Devour Magic\n/cast Shadow Bulwark\n/cast Felstorm \n/cast [nopet,@mouseover] Command Demon"
+        },
+        "children": []
+      },
+      {
+        "id": "b-123-2-14",
+        "type": "html",
+        "source_type": "core/paragraph",
+        "html": "<p><strong>Focus Pet <strong>Ability</strong></strong> <strong>2 Macro </strong>-- <em><em><em>Casts the second relevant Pet ability on your focus target, also sends your pet to attack your focus.</em></em></em></p>",
+        "children": []
+      },
+      {
+        "id": "b-123-2-16",
+        "type": "code",
+        "source_type": "core/code",
+        "data": {
+          "code": "/cast [@focus]Singe Magic;\n/cast [@focus] Devour Magic;\n/cast [@focus] Lesser Invisibility;\n/cast Shadow Bulwark;\n/cast [nopet,@focus] Command Demon\n/petattack [@focus]"
+        },
+        "children": []
+      },
+      {
+        "id": "b-123-2-18",
+        "type": "html",
+        "source_type": "core/paragraph",
+        "html": "<p><strong>[[spell:108503]] &amp; dismiss pet</strong> -- <em><em><em>Casts [[spell:108503]] if you specced into it. If you don't have Grimoire of Sacrifice talented it dismisses your pet instead.</em></em></em></p>",
+        "children": []
+      },
+      {
+        "id": "b-123-2-20",
+        "type": "code",
+        "source_type": "core/code",
+        "data": {
+          "code": "#showtooltip\n/run if not IsSpellKnown(108503) then PetDismiss(); end\n/cast Grimoire of Sacrifice"
+        },
+        "children": []
+      }
+    ]
+  },
+  "snapshots": [
+    {
+      "branch": "wow",
+      "locale": "enUS",
+      "spell_id": 474060,
+      "name": "Axe Toss",
+      "name_zh": "",
+      "description": "Xathuux hurls a massive flaming axe at a target and inflicts $s1 Fire damage and interrupts targets within $A1 yards of the impact.",
+      "snapshot_build": "12.1.0.69299"
+    },
+    {
+      "branch": "wow",
+      "locale": "enUS",
+      "spell_id": 1214637,
+      "name": "Axe Toss",
+      "name_zh": "",
+      "description": "$@spelldesc1214663",
+      "snapshot_build": "12.1.0.69299"
+    },
+    {
+      "branch": "wow",
+      "locale": "enUS",
+      "spell_id": 1214641,
+      "name": "Axe Toss",
+      "name_zh": "",
+      "description": "$@spelldesc474060",
+      "snapshot_build": "12.1.0.69299"
+    },
+    {
+      "branch": "wow",
+      "locale": "enUS",
+      "spell_id": 1214647,
+      "name": "Axe Toss",
+      "name_zh": "",
+      "description": "$@spelldesc1214663",
+      "snapshot_build": "12.1.0.69299"
+    },
+    {
+      "branch": "wow",
+      "locale": "enUS",
+      "spell_id": 1214663,
+      "name": "Axe Toss",
+      "name_zh": "",
+      "description": "Xathuux the Annihilator throws his massive axe at the location of a random player inflicting $s1 Chaos damage to players within $a yds of the impact. The axe remains on the ground emitting $@spellname1214650 until it is destroyed.",
+      "snapshot_build": "12.1.0.69299"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 89766,
+      "name": "Axe Toss",
+      "name_zh": "巨斧投掷",
+      "description": "$?s108499[愤怒卫士][恶魔卫士]掷出武器，使目标昏迷并打断目标$89766d。",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 119898,
+      "name": "Command Demon",
+      "name_zh": "恶魔掌控",
+      "description": "命令你的恶魔施放威力最强大的技能。该法术的具体效果视你当前召唤的宠物而定。\n$?s30146[\n恶魔卫士：$@spellname89766][]\n地狱猎犬：$@spellname19647\n虚空行者：$@spellname17767\n夜魔与魅魔：$@spellname6358\n小鬼：$@spellname89808",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 119914,
+      "name": "Axe Toss",
+      "name_zh": "巨斧投掷",
+      "description": "$@spelldesc89766",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 474060,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "description": "萨祖克斯朝目标投掷巨大的烈焰战斧，造成$s1点火焰伤害并打断冲击点$A1码范围内的目标的施法。",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 474062,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "description": "$@spelldesc474060",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 1214637,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "description": "$@spelldesc1214663",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 1214641,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "description": "$@spelldesc474060",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 1214647,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "description": "$@spelldesc1214663",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "branch": "wow",
+      "locale": "zhCN",
+      "spell_id": 1214663,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "description": "歼灭者萨祖克斯将他那把巨斧掷向一名随机玩家的位置，对冲击点$a码范围内的玩家造成$s1点混乱伤害。这把斧头会留在地上并散发$@spellname1214650，直到被摧毁。",
+      "snapshot_build": "12.1.0.69404"
+    },
+    {
+      "spell_id": 108503,
+      "name": "Grimoire of Sacrifice",
+      "name_zh": "牺牲魔典",
+      "description": "牺牲你的恶魔宠物来获得力量，获得它的恶魔掌控技能，并使你的法术有时会额外造成$196100s1点暗影伤害。\n\n持续$196099d或者直到你召唤出一个恶魔宠物为止。",
+      "snapshot_build": "12.1.0.69404",
+      "branch": "wow",
+      "locale": "zhCN"
+    },
+    {
+      "spell_id": 6358,
+      "name": "Seduction",
+      "name_zh": "诱惑",
+      "description": "诱惑目标，使其迷惑并不由自主地走向恶魔，持续$6358d。任何伤害可能会解除此效果。只对人型生物有效。",
+      "snapshot_build": "12.1.0.69404",
+      "branch": "wow",
+      "locale": "zhCN"
+    },
+    {
+      "spell_id": 17767,
+      "name": "Shadow Bulwark",
+      "name_zh": "暗影壁垒",
+      "description": "当前生命值和最大生命值暂时提高$s1%，持续$d。\n\n|cFFFFFFFF自动施法：|r\n生命值低于20%时使用该技能。\n\n|cFF777777（右键点击切换）|r",
+      "snapshot_build": "12.1.0.69404",
+      "branch": "wow",
+      "locale": "zhCN"
+    },
+    {
+      "spell_id": 19647,
+      "name": "Spell Lock",
+      "name_zh": "法术封锁",
+      "description": "反制敌人的施法，使其在$19647d内无法施放任何同系法术。",
+      "snapshot_build": "12.1.0.69404",
+      "branch": "wow",
+      "locale": "zhCN"
+    },
+    {
+      "spell_id": 89808,
+      "name": "Singe Magic",
+      "name_zh": "烧灼驱魔",
+      "description": "用烈火净化有害魔法，从一个盟友身上移除$89808s1个有害的魔法效果。\n\n|cFFFFFFFF自动施放：|r\n在主人受魔法效果影响，无法施法时对其施放。\n\n|cFF777777（点击右键以启用或禁用该技能）|r",
+      "snapshot_build": "12.1.0.69404",
+      "branch": "wow",
+      "locale": "zhCN"
+    }
+  ],
+  "supplemental": [
+    {
+      "id": 76255,
+      "talent_version_id": 2,
+      "name_kind": "spell",
+      "reference_id": 119898,
+      "localization_only": true,
+      "name": "Command Demon",
+      "name_zh": "恶魔掌控",
+      "class_name": "",
+      "spec_name": "",
+      "node_id": null,
+      "spell_id": null,
+      "display_spell_id": null,
+      "localization_evidence": "攻略客户端快照 12.1.0.69214；zhCN SHA256 ae9a648e96b5e92bc1b9b998921dc87075c1afd7b3e103afc289e384bb01afc5；enUS SHA256 c638c55a8aed5ced833c4bd6c910bc5cc401a769e5aaa5acd1d2ccd6daa4b399；按技能 ID 对应"
+    },
+    {
+      "id": 78838,
+      "talent_version_id": 2,
+      "name_kind": "spell",
+      "reference_id": 474060,
+      "localization_only": true,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "class_name": "",
+      "spec_name": "",
+      "node_id": null,
+      "spell_id": null,
+      "display_spell_id": null,
+      "localization_evidence": ""
+    },
+    {
+      "id": 77209,
+      "talent_version_id": 2,
+      "name_kind": "spell",
+      "reference_id": 474062,
+      "localization_only": true,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "class_name": "",
+      "spec_name": "",
+      "node_id": null,
+      "spell_id": null,
+      "display_spell_id": null,
+      "localization_evidence": "攻略客户端快照 12.1.0.69214；zhCN SHA256 ae9a648e96b5e92bc1b9b998921dc87075c1afd7b3e103afc289e384bb01afc5；enUS SHA256 c638c55a8aed5ced833c4bd6c910bc5cc401a769e5aaa5acd1d2ccd6daa4b399；按技能 ID 对应"
+    },
+    {
+      "id": 77230,
+      "talent_version_id": 2,
+      "name_kind": "spell",
+      "reference_id": 1214637,
+      "localization_only": true,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "class_name": "",
+      "spec_name": "",
+      "node_id": null,
+      "spell_id": null,
+      "display_spell_id": null,
+      "localization_evidence": "攻略客户端快照 12.1.0.69214；zhCN SHA256 ae9a648e96b5e92bc1b9b998921dc87075c1afd7b3e103afc289e384bb01afc5；enUS SHA256 c638c55a8aed5ced833c4bd6c910bc5cc401a769e5aaa5acd1d2ccd6daa4b399；按技能 ID 对应"
+    },
+    {
+      "id": 78615,
+      "talent_version_id": 2,
+      "name_kind": "spell",
+      "reference_id": 1214641,
+      "localization_only": true,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "class_name": "",
+      "spec_name": "",
+      "node_id": null,
+      "spell_id": null,
+      "display_spell_id": null,
+      "localization_evidence": ""
+    },
+    {
+      "id": 78617,
+      "talent_version_id": 2,
+      "name_kind": "spell",
+      "reference_id": 1214647,
+      "localization_only": true,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "class_name": "",
+      "spec_name": "",
+      "node_id": null,
+      "spell_id": null,
+      "display_spell_id": null,
+      "localization_evidence": ""
+    },
+    {
+      "id": 77232,
+      "talent_version_id": 2,
+      "name_kind": "spell",
+      "reference_id": 1214663,
+      "localization_only": true,
+      "name": "Axe Toss",
+      "name_zh": "利斧投掷",
+      "class_name": "",
+      "spec_name": "",
+      "node_id": null,
+      "spell_id": null,
+      "display_spell_id": null,
+      "localization_evidence": "攻略客户端快照 12.1.0.69214；zhCN SHA256 ae9a648e96b5e92bc1b9b998921dc87075c1afd7b3e103afc289e384bb01afc5；enUS SHA256 c638c55a8aed5ced833c4bd6c910bc5cc401a769e5aaa5acd1d2ccd6daa4b399；按技能 ID 对应"
+    }
+  ]
+}

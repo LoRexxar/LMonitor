@@ -506,15 +506,53 @@ class GuideFlowTests(TestCase):
             self.assertEqual(status, 'unchanged')
         self.assertIn('术语修正后中文', ClassGuide.objects.get(pk=self.guide.pk).content_markdown)
 
-    def test_macro_name_override_does_not_replace_boss_reference(self):
+    def test_unscoped_macro_override_cannot_replace_identity_or_boss_reference(self):
         create_name(game_version='12.1', kind='spell', object_id=1300877, name_en='Corruption', name_zh='腐化')
         response = self.client.post('/api/dashboard/wow-localization/', data=json.dumps({'game_version':'12.1', 'kind':'macro', 'name_en':'Corruption', 'name_zh':'腐蚀术', 'evidence':'玩家技能 ID 172', 'create':True}), content_type='application/json')
         self.assertEqual(response.status_code, 200)
         service = Mock(); service.available.return_value = False
         result, failed = translate_blocks([{'id':'macro','type':'code','data':{'code':'/cast Corruption'}}, {'id':'boss','type':'html','html':'<p>[[spell:1300877]]</p>'}], '12.1', service=service)
-        self.assertFalse(failed)
-        self.assertEqual(result[0]['data']['code'], '/cast 腐蚀术')
+        self.assertEqual(failed[0]['operands'][0]['status'], 'missing_identity')
+        self.assertEqual(result[0]['data']['code'], '/cast Corruption')
         self.assertEqual(resolve_references(result, '12.1')['[[spell:1300877]]']['name'], '腐化')
+
+    def test_long_guide_macro_operands_survive_prose_candidate_cap(self):
+        # Actual Maxroll macro b-123-1-25; unrelated long prose must not hide it.
+        create_name(game_version='12.1', kind='spell', object_id=234153,
+                    name_en='Drain Life', name_zh='吸取生命')
+        create_name(game_version='12.1', kind='spell', object_id=89766,
+                    name_en='Axe Toss', name_zh='巨斧投掷')
+        create_name(game_version='12.1', kind='spell', object_id=474062,
+                    name_en='Axe Toss', name_zh='利斧投掷')
+        noise = '\n'.join('/run print("Noise' + chr(65 + i // 26) + chr(65 + i % 26) + '")'
+                          for i in range(510))
+        code = '#showtooltip\n/cast [@mouseover,exists] Drain Life;Drain Life'
+        blocks = [
+            {'id':'noise', 'type':'code', 'data':{'code':noise}},
+            # Keep explicit-reference branch selection, without selecting Drain Life by ID.
+            {'id':'ref', 'type':'html', 'html':'<p>[[spell:172]]</p>'},
+            {'id':'late', 'type':'code', 'data':{'code':code}},
+            {'id':'ambiguous', 'type':'code', 'data':{'code':'/cast [@focus] Axe Toss'}},
+        ]
+        class NoProvider:
+            def available(self):
+                return False
+        result, failed = translate_blocks(blocks, '12.1', service=NoProvider())
+        self.assertEqual(result[0]['data']['code'], noise)
+        # Complete candidates are necessary, but no longer certify an identity
+        # without local evidence. Do not add a Drain Life token to rescue it.
+        self.assertEqual(result[2]['data']['code'], code)
+        self.assertEqual(result[3]['data']['code'], '/cast [@focus] Axe Toss')
+        self.assertEqual([(row['id'], row['field']) for row in failed], [('late', 'code'), ('ambiguous', 'code')])
+        self.assertEqual(failed[0]['operands'][0]['unscoped_candidates'], [('spell', 234153)])
+        self.assertEqual(failed[1]['operands'][0]['unscoped_candidates'], [('spell', 89766), ('spell', 474062)])
+        # All candidates survived >500 prose terms, but removing a homonym
+        # still cannot turn the remaining supplemental row into local evidence.
+        WowTalentNodeMetadata.all_objects.filter(localization_only=True, name_kind='spell',
+                                                 reference_id=474062).delete()
+        resolved, failed = translate_blocks(blocks, '12.1', service=NoProvider())
+        self.assertEqual(resolved[3]['data']['code'], '/cast [@focus] Axe Toss')
+        self.assertEqual(failed[1]['operands'][0]['unscoped_candidates'], [('spell', 89766)])
 
     def test_manual_content_survives_source_update_and_default_editor(self):
         self.guide.refresh_from_db()
