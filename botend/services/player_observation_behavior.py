@@ -360,17 +360,38 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         out['witnesses'][code].sort()
         if len(out['witnesses'][code]) >= 2:
             out['supported'][code] = evidence_ids[code]
-    # 取证只围绕四人协作与具体受益事件，不补全队八本资料。
+    # 各标签独立提出能改变结论的具体问题，共享有界采集预算。
     from botend.services.player_observation_questions import four_plus_one
     inquiry = four_plus_one(subject=subject, selected=selected, teams=teams,
         run_records=run_records, rosters=rosters, records=records, histories=accepted_histories)
+    from botend.services.player_observation_resolution import resolve_labels
+    resolutions, followups = resolve_labels(review=out, subject=subject, selected=selected,
+        teams=teams, run_records=run_records, records=records, histories=accepted_histories,
+        before=before, higher=higher, snapshot=snapshot, evidence=evidence)
+    resolutions['carrying'] = dict(status='supported' if inquiry['events'] else 'excluded' if inquiry.get('exclusion') else 'unknown',
+        scope='仅限本轮近期公开记录中的重复四人组合与受益事件。',
+        supported_run_ids=sorted({event['run_id'] for event in inquiry['events']}),
+        excluded_run_ids=inquiry['exclusion']['run_ids'] if inquiry.get('exclusion') else [],
+        unknown_run_ids=[] if inquiry['events'] or inquiry.get('exclusion') else sorted(selected),
+        support_ids=[f'behavior:carrying:{rid}' for rid in sorted({event['run_id'] for event in inquiry['events']})],
+        counter_ids=['behavior:carrying_excluded'] if inquiry.get('exclusion') else [])
+    out['label_reviews'] = resolutions
+    out['supported'].pop('key_access', None)
     from botend.services.player_observation_strength import grade_review, CONTEXT_UNKNOWNS, RULES
     # 分级只消费本轮已有事实，不触发新问题或新抓取。
     structure['recent_run_ids'] = sorted(selected)
     out['evidence_strengths'] = grade_review(out, inquiry, teams, run_records)
     out['strength_rules'] = RULES
     out['context_unknowns'] = list(CONTEXT_UNKNOWNS)
-    out['questions'] = inquiry['questions']
+    out['questions'] = [{**q, 'label_codes': ['carrying']} for q in inquiry['questions']] + followups
+    if inquiry.get('exclusion'):
+        out['evidence'].append({'id': 'behavior:carrying_excluded', 'run_url': '',
+            'text': inquiry['exclusion']['reason'] + ' 核验场次：'
+                    + '、'.join(map(str, inquiry['exclusion']['run_ids']))
+                    + ('；跑前反证：' + '、'.join(f'场次{rid}对应前场{prior}'
+                       for rid, prior in inquiry['exclusion']['counter_records'])
+                       if inquiry['exclusion']['counter_records'] else '')
+                    + '。仅排除这些样本内的重复4带1模式，不代表从未带人或没有协助行为。'})
     for event in inquiry['events']:
         rid = event['run_id']
         guest_name = next(member.get('character', {}).get('name', '该第五人')
@@ -382,7 +403,7 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
             '已核验至少两名不同受益成员，未将一个成员的连续通关重复计数；公开历史可能不完整。')
     if inquiry['events']:
         out['supported']['carrying'] = evidence_ids['carrying']
-    out['triggered'] = bool(out['triggered'] or inquiry['questions'])
+    out['triggered'] = bool(out['triggered'] or out['questions'])
     out['triggered'] = bool(out['triggered'] or any(out['witnesses'].values()))
     if invalid:
         out['limitations'].append('冲突的角色/场次成绩已隔离，不作时序证据。')

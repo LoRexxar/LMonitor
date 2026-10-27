@@ -282,6 +282,8 @@ class SpecDetailAggregationMonitor(BaseScan):
         result = SpecStatsService.get_player_list(
             class_name, spec_name, season_id=season_id, page=1, page_size=20
         )
+        from botend.services.player_observation_badges import attach_badge_snapshots
+        attach_badge_snapshots(result['players'])
         # last_updated 是人物内容时间；榜单投影必须展示本次排名刷新时间。
         result['updated_at'] = timezone.now().isoformat()
 

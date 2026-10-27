@@ -4,7 +4,7 @@ const {test, createDOM, mount, initDashboard, closeDOM, response, tick} = requir
 const assert = require('node:assert/strict');
 const {Client, buildPatch, safeURL} = require('../../static/dashboard/js/player-analysis-management.js');
 const record = () => ({id:7,revision:3,player_id:42,player:{id:42,character_name:'<img src=x onerror=bad>',realm:'Realm'},status:'ready',review_status:'pending',is_published:false,review_note:'',source_kind:'ai',manual:null,ai:{validation_status:'valid',tags:[{label:'AI',value:'判断',reason:'依据',evidence:[]}],conclusion:'冻结结论',evidence:[{text:'冻结证据',url:'javascript:bad'}],result_json:{large:true}},effective:{}});
-const page = (items,number=1,total=1) => ({items,total,page:number,page_size:20,total_pages:Math.ceil(total/20)});
+const page = (items,number=1,total=1) => ({items,total,page:number,page_size:20,total_pages:Math.ceil(total/20),tag_options:[]});
 async function fixture({row=record(),confirm=()=>true,handler}={}) {
  const dom=createDOM('<main id="player-analysis-app"></main><meta name="csrf-token" content="token">',{url:'https://example.com/dashboard/player-analyses/'});
  const calls=[];
@@ -31,17 +31,22 @@ test('list uses authoritative Chinese identity and season names, never a databas
   assert.match(rows[2].textContent,/FutureClass FutureSpec/);assert.match(rows[2].textContent,/赛季未知/);assert.doesNotMatch(rows[2].textContent,/876/);
  }finally{closeDOM(f.dom,f.app);}
 });
-test('list displays every tag safely, preserves confidence and never falls back to any conclusion',async()=>{
- const row={...record(),tags:[{label:'组队模式',value:'五人固定车队',confidence:'low',confidence_label:'低'},{label:'<img src=x>',value:'第二标签'}],conclusion:'LIST_SECRET',manual:{tags:[],conclusion:'MANUAL_SECRET',evidence:[]},effective:{conclusion:'EFFECTIVE_SECRET'}};
+test('列表只预览两个标签，汇总排除项，其余从详情查看',async()=>{
+ const row={...record(),tags:[{label:'组队模式',value:'五人固定车队',confidence:'low',confidence_label:'低'},{label:'<img src=x>',value:'第二标签'},{label:'第三标签'},{label:'第四标签'}],assessments:[{label:'某标签',level:'excluded',scope:'详细排除范围只在详情展示'}],conclusion:'LIST_SECRET',manual:{tags:[],conclusion:'MANUAL_SECRET',evidence:[]},effective:{conclusion:'EFFECTIVE_SECRET'}};
  const empty={...row,id:8,tags:[]};
  const f=await fixture({row,handler:async(url)=>url.includes('?')?response(page([row,empty])):null});
  try {
   const rows=f.doc.querySelectorAll('.pa-list-row');
-  assert.deepEqual(Array.from(rows[0].querySelectorAll('.pa-list-tag')).map(n=>n.textContent),['组队模式 · 五人固定车队 · 置信度：低','<img src=x> · 第二标签']);
+  assert.deepEqual(Array.from(rows[0].querySelectorAll('.pa-list-tag')).map(n=>n.textContent),['组队模式 · 五人固定车队 · 低','<img src=x> · 第二标签']);
+  assert.match(rows[0].querySelector('.pa-list-tag').title,/置信度：低/);
+  assert.equal(rows[0].querySelector('[data-action="more-tags"]').textContent,'+2');
+  assert.match(rows[0].textContent,/已排除 1 项/);
+  assert.doesNotMatch(rows[0].textContent,/详细排除范围|第三标签|第四标签/);
+  assert.equal(rows[0].querySelectorAll('.pa-row-actions button').length,2);
   assert.match(rows[1].textContent,/暂无标签/);assert.equal(rows[1].querySelectorAll('.pa-list-tag').length,0);
   assert.equal(f.doc.querySelector('.pa-results img'),null);assert.equal(f.doc.querySelector('.pa-list-summary'),null);
   assert.doesNotMatch(f.doc.querySelector('.pa-results').textContent,/LIST_SECRET|MANUAL_SECRET|EFFECTIVE_SECRET|冻结结论/);
-  await f.click('[data-action="open"]');assert.match(f.doc.querySelector('.pa-projections').textContent,/冻结结论/);assert.equal(f.doc.querySelector('[data-field="conclusion"]').value,'MANUAL_SECRET');
+  await f.click('[data-action="more-tags"]');assert.match(f.doc.querySelector('.pa-projections').textContent,/冻结结论/);assert.equal(f.doc.querySelector('[data-field="conclusion"]').value,'MANUAL_SECRET');
  }finally{closeDOM(f.dom,f.app);}
 });
 test('tag options follow server metadata; exact selection persists through pagination, option refresh and empty results',async()=>{
@@ -73,6 +78,38 @@ test('PATCH only changes, preserves manual; explicit restoration and publication
  assert.equal(safeURL('javascript:alert(1)'), '');
  assert.equal(safeURL('//evil.example'), '');
  assert.equal(safeURL('https://example.com/a'), 'https://example.com/a');
+});
+
+test('输入防抖、中文组合输入和筛选自动更新，翻页复用标签菜单',async()=>{
+ const f=await fixture();
+ const input=f.doc.querySelector('[name="q"]');
+ const dispatch=type=>input.dispatchEvent(new f.dom.window.Event(type,{bubbles:true}));
+ const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+ dispatch('compositionstart');input.value='阿';dispatch('input');await wait(330);
+ assert.equal(f.calls.length,1);
+ input.value='阿诺';dispatch('compositionend');dispatch('input');await wait(330);await f.app.settled();
+ assert.equal(f.calls.length,2);
+ assert.equal(new URL(f.calls.at(-1)[0],'https://example.com').searchParams.get('q'),'阿诺');
+ assert.equal(new URL(f.calls.at(-1)[0],'https://example.com').searchParams.get('include_tag_options'),'0');
+ const select=f.doc.querySelector('[data-field="review_status"]');select.value='pending';
+ select.dispatchEvent(new f.dom.window.Event('change',{bubbles:true}));await wait(10);await f.app.settled();
+ assert.equal(new URL(f.calls.at(-1)[0],'https://example.com').searchParams.get('review_status'),'pending');
+ await f.click('[data-action="reset"]');assert.equal(input.value,'');assert.equal(select.value,'');
+});
+
+test('新筛选取消旧请求，迟到结果不覆盖最新列表',async()=>{
+ let release;
+ const f=await fixture({handler:async(url)=>{
+  if(url.includes('q=old'))return new Promise(resolve=>{release=()=>resolve(response(page([{...record(),id:99}])));});
+  return null;
+ }});
+ const input=f.doc.querySelector('[name="q"]');input.value='old';
+ f.doc.querySelector('.pa-filters').dispatchEvent(new f.dom.window.Event('submit',{cancelable:true}));await tick();
+ const oldSignal=f.calls.at(-1)[1].signal;
+ input.value='new';await f.submit('.pa-filters');assert.equal(oldSignal.aborted,true);
+ release();await tick();
+ assert.equal(f.doc.querySelector('[data-row-id="99"]'),null);
+ assert.ok(f.doc.querySelector('[data-row-id="7"]'));
 });
 test('write lock, CSRF, exact object GET readback and server revision',async()=>{
  const calls=[]; let release;
@@ -166,9 +203,9 @@ test('stale AI approval is visible and explicit reapproval survives unchanged va
   if(options.method==='PATCH')r.review_matches_ai=true;
   return null;
  }});
- assert.match(doc.querySelector('.pa-results').textContent,/原审核不适用/);
+ assert.match(doc.querySelector('.pa-results').textContent,/需复审/);
  await click('[data-action="open"]');
- assert.match(doc.querySelector('[data-review-stale]').textContent,/证据或结论已更新/);
+ assert.match(doc.querySelector('.pa-detail [data-review-stale]').textContent,/证据或结论已更新/);
  await click('[data-action="reapprove-ai"]');
  assert.deepEqual(JSON.parse(calls.find(c=>c[1].method==='PATCH')[1].body),{revision:3,review_status:'approved'});
  assert.equal(doc.querySelector('[data-review-stale]'),null);

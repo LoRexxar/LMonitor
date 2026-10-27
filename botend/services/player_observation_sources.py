@@ -356,7 +356,8 @@ def _merge_behavior_questions(evidence, recent_ids):
                             ('member_key', 'dungeon_id', 'required_level', 'run_ids'))
                     for target in targets):
                 continue
-        signature = json.dumps([q.get('kind'), q.get('member_key'), q.get('dungeon_id'), sorted(ids)], sort_keys=True)
+        signature = json.dumps([q.get('kind'), q.get('member_key'), q.get('dungeon_id'),
+                                q.get('purpose'), q.get('required_level'), sorted(ids)], sort_keys=True)
         qid = 'behavior_' + hashlib.sha256(signature.encode()).hexdigest()[:20]
         if any(old.get('kind') == q.get('kind') and old.get('identity_digest') == q.get('member_key')
                and old.get('dungeon_id') == q.get('dungeon_id') and old.get('run_ids') == ids
@@ -382,7 +383,7 @@ def _question_outcomes(investigation, entries, characters, states, scores, rio_s
             continue
         seen.add(qid)
         item = {field: question.get(field) for field in
-                ('id', 'kind', 'identity_digest', 'dungeon_id', 'run_ids', 'hypothesis_ids', 'priority', 'reason', 'purpose', 'expected_change', 'core_members', 'prior_run_ids')}
+                ('id', 'kind', 'identity_digest', 'dungeon_id', 'run_ids', 'hypothesis_ids', 'priority', 'reason', 'purpose', 'expected_change', 'core_members', 'prior_run_ids', 'label_codes', 'required_level')}
         item.update(status='invalid_question', request_status='not_requested')
         outcomes.append(item)
         ids = question.get('run_ids')
@@ -402,12 +403,30 @@ def _question_outcomes(investigation, entries, characters, states, scores, rio_s
                     or any(type(rid) is not int or rid <= 0 or rid in ids for rid in proofs.values())
                     or any(set(core) != members[rid] - {key} for rid in ids)):
                 continue
+        if question.get('purpose') == 'verify_core_history':
+            core = question.get('core_members')
+            if (not isinstance(core, list) or len(set(core)) != 4 or key not in core
+                    or any(not set(core) < members[rid] for rid in ids)):
+                continue
+        from botend.services.player_observation_resolution import PURPOSES
+        if question.get('purpose') in PURPOSES:
+            if question.get('kind') != PURPOSES[question['purpose']]:
+                continue
+            codes = question.get('label_codes')
+            allowed = {'joint_progress'} if question['purpose'] == 'verify_joint_history' else {
+                'being_carried', 'high_score_collaborator'}
+            if question['purpose'] != 'resilience_gap' and (
+                    not isinstance(codes, list) or not codes or any(code not in allowed for code in codes)):
+                continue
+            if question['purpose'] != 'resilience_gap' and any(
+                    runs[rid]['dungeon']['id'] != question.get('dungeon_id') for rid in ids):
+                continue
         request_key = _request_key(question)
         if question.get('kind') == 'scored_history':
             did = question.get('dungeon_id')
             if type(did) is not int or did <= 0:
                 continue
-            if any(runs[rid]['dungeon']['id'] != did for rid in ids):
+            if question.get('purpose') == 'resilience_gap' or any(runs[rid]['dungeon']['id'] != did for rid in ids):
                 level = question.get('required_level')
                 targets = investigation.get('resilience_history_targets', [])
                 if (question.get('purpose') != 'resilience_gap' or type(level) is not int
@@ -470,15 +489,21 @@ def _followup_plan(evidence, activity, entries, characters, states, scores, rio_
     plan = (evidence or {}).get('metrics', {}).get('investigation') or {}
     if not plan.get('triggered'):
         return [], 'no_signal'
-    permitted = [q for q in plan.get('questions', []) if isinstance(q, dict) and q.get('purpose') == 'verify_guest_gain'
-                 and q.get('kind') == 'scored_history' and q.get('reason') and q.get('expected_change')
-                 and isinstance(q.get('core_members'), list) and len(q['core_members']) == 4
-                 and isinstance(q.get('prior_run_ids'), dict) and len(q['prior_run_ids']) == 4]
+    from botend.services.player_observation_resolution import PURPOSES
+    permitted = [q for q in plan.get('questions', []) if isinstance(q, dict)
+                 and q.get('reason') and q.get('expected_change') and (
+                     q.get('purpose') in PURPOSES and q.get('kind') == PURPOSES[q['purpose']] or
+                     q.get('purpose') in ('verify_guest_gain', 'verify_core_history')
+                     and q.get('kind') == 'scored_history'
+                     and isinstance(q.get('core_members'), list) and len(q['core_members']) == 4
+                     and (q['purpose'] == 'verify_core_history' or
+                          isinstance(q.get('prior_run_ids'), dict) and len(q['prior_run_ids']) == 4))]
     preference = {qid: i for i, qid in enumerate(preferred_question_ids)}
     permitted.sort(key=lambda q: (preference.get(q.get('id'), len(preference)), -q.get('priority', 0)))
     outcomes = _question_outcomes({**plan, 'questions': permitted}, entries, characters, states, scores, rio_season)
     pending = {q['id'] for q in outcomes if q['status'] == 'budget_pending'}
-    return list(dict.fromkeys(_request_key(q) for q in permitted if q['id'] in pending)), 'verify_guest_gain'
+    planned = [q for q in permitted if q['id'] in pending]
+    return list(dict.fromkeys(_request_key(q) for q in planned)), (planned[0]['purpose'] if planned else 'verify_guest_gain')
 
 
 def _finish_investigation(before, after, entries, characters, states, scores, attempts, result, rio_season):
@@ -554,15 +579,17 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
     visible = {rid: _visible_facts(rows.get(rid), run, season.rio_season) for rid, run in runs.items()}
     result['runs_truncated'] = False
     recent_ids = {run_reference(run, season.rio_season) for run in recent}
-    questions = roster_questions(subject=digest, runs=runs, visible=visible, season=season.rio_season)
+    questions = roster_questions(subject=digest, runs=runs, visible=visible, season=season.rio_season, recent_ids=recent_ids)
     from botend.services.player_observation import build_evidence
 
     def roster_question_resolved():
         review = (build_evidence(primary) or {}).get('metrics', {}).get('behavior_review', {})
-        return bool(review.get('supported', {}).get('carrying') or review.get('questions'))
+        return bool(review.get('supported', {}).get('carrying') or any(
+            q.get('purpose') in ('verify_guest_gain', 'verify_core_history') for q in review.get('questions', [])))
 
     if questions and roster_question_resolved():
-        questions = {}
+        questions = {rid: q for rid, q in questions.items() if q['purpose'] != 'verify_repeated_relationship'
+                     or (len(recent_ids) >= 3 and rid in recent_ids)}
     def priority(run):
         rid = run_reference(run, season.rio_season)
         try:
@@ -598,9 +625,10 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
             fact = _visible_facts(row, run, season.rio_season)
             state['question'] = questions[rid]
             visible[rid] = fact
-            questions = roster_questions(subject=digest, runs=runs, visible=visible, season=season.rio_season)
+            questions = roster_questions(subject=digest, runs=runs, visible=visible, season=season.rio_season, recent_ids=recent_ids)
             if questions and roster_question_resolved():
-                questions = {}
+                questions = {rid: q for rid, q in questions.items() if q['purpose'] != 'verify_repeated_relationship'
+                             or (len(recent_ids) >= 3 and rid in recent_ids)}
         result['runs'].append(state)
         if fact and state['status'] != 'busy':
             entries.append((run, fact))
@@ -659,11 +687,23 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
             if key is None:
                 break
             current_plan = (current.get('metrics', {}).get('investigation') or {})
-            question = next((q for q in current_plan.get('questions', []) if _request_key(q) == key), None)
-            if not question or question.get('purpose') != 'verify_guest_gain':
+            from botend.services.player_observation_resolution import PURPOSES
+            # 相同请求可能服务多个标签，只采用当前仍通过成员、场次与副本校验的问题。
+            question = next((q for q in current_plan.get('questions', []) if _request_key(q) == key
+                and q.get('purpose') in (*PURPOSES, 'verify_guest_gain', 'verify_core_history')
+                and q.get('reason') and q.get('expected_change') and any(
+                    item['status'] == 'budget_pending' for item in _question_outcomes(
+                        {**current_plan, 'questions': [q]}, entries, characters, states, scores, season.rio_season))), None)
+            if not question or question.get('purpose') not in (*PURPOSES, 'verify_guest_gain', 'verify_core_history'):
                 break
             request_start = batch.requests
-            states[key] = collect_history(batch, characters[key[0]], season, key[1], required_after=required_after(question))
+            if question['kind'] == 'scored_runs':
+                states[key] = batch.scored(characters[key], season, False)
+                _, score = _score_cache(characters[key], season)
+                if score is not None:
+                    scores[key] = score
+            else:
+                states[key] = collect_history(batch, characters[key[0]], season, key[1], required_after=required_after(question))
             attempts[key] = {**states[key], 'api_requests': batch.requests - request_start,
                              'question': question}
             # 每次补证后重算，不执行已解决或已失效的旧问题。
@@ -701,7 +741,7 @@ def refresh_observation_sources(player, *, max_runs=MAX_RUNS, max_characters=MAX
     """显式刷新来源并返回可审计结果；不会启动自动监控。
 
     渐进分析优先复用已有记录。阵容请求只核验重复成绩后的组队关系；
-    历史请求只回答已知四人跑前能力下，具体第五人的可见成绩是否提高。
+    历史请求只核验明确重复组合中成员的同本跑前能力，以及具体第五人的可见成绩提升。
     每次补证后重算问题；资料不齐本身不是请求理由。
     原有五次阵容、两次后续请求限制不变，额度不互借；force 不绕过缓存、
     隐私、退避或租约。非渐进模式保留显式来源采集的既有行为。

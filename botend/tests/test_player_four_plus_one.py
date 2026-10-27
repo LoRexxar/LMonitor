@@ -29,7 +29,7 @@ class FourPlusOneTests(TestCase):
         args=anuo_args(); result=build_behavior_review(**args)
         self.assertIn('carrying', result['supported'])
         self.assertGreaterEqual(len(result['witnesses']['carrying']),2)
-        self.assertEqual(result['questions'],[])
+        self.assertFalse(any('carrying' in q.get('label_codes', []) for q in result['questions']))
         grade = result['evidence_strengths']['carrying']
         self.assertEqual((grade['level'], grade['confidence']), ('strong', '高'))
         self.assertEqual(grade['distinct_beneficiaries'], 2)
@@ -66,7 +66,7 @@ class FourPlusOneTests(TestCase):
                 run.update(level=27,score=540,timed=False)
         result=build_behavior_review(**args)
         self.assertNotIn('carrying',result['supported'])
-        self.assertFalse(any(q['member_key']==key for q in result['questions']))
+        self.assertFalse(any(q['member_key']==key and 'carrying' in q.get('label_codes', []) for q in result['questions']))
 
     def test_fixed_five_and_single_guest_multiple_runs_are_not_rotation(self):
         args=anuo_args()
@@ -74,8 +74,8 @@ class FourPlusOneTests(TestCase):
         args['recent']=[r for r in args['recent'] if int(r['url'].split('/')[5]) in ids]
         result=build_behavior_review(**args)
         self.assertNotIn('carrying',result['supported'])
-        self.assertEqual(result['questions'],[])
-        self.assertEqual(result['evidence_strengths']['carrying']['level'], 'insufficient')
+        self.assertFalse(any('carrying' in q.get('label_codes', []) for q in result['questions']))
+        self.assertEqual(result['evidence_strengths']['carrying']['level'], 'excluded')
 
     def test_normal_substitutes_with_prior_ability_are_not_beneficiaries(self):
         args=anuo_args()
@@ -89,8 +89,59 @@ class FourPlusOneTests(TestCase):
                         run['level']=24;run['score']=545
         result=build_behavior_review(**args)
         self.assertNotIn('carrying',result['supported'])
-        self.assertEqual(result['questions'],[])
+        self.assertFalse(any('carrying' in q.get('label_codes', []) for q in result['questions']))
+        # 其他副本仍有未知事件；不追着采集，也不把它们算作已排除。
         self.assertEqual(result['evidence_strengths']['carrying']['level'], 'insufficient')
+
+    def test_incomplete_rosters_cannot_exclude_the_pattern(self):
+        args = anuo_args()
+        ids = {21631117, 21646965, 21654678, 21663568}
+        args['recent'] = [r for r in args['recent'] if int(r['url'].split('/')[5]) in ids]
+        args['rosters'].pop(21663568)
+        result = build_behavior_review(**args)
+        self.assertNotEqual(result['evidence_strengths']['carrying']['level'], 'excluded')
+
+    def test_missing_core_history_creates_bounded_same_dungeon_questions(self):
+        args = anuo_args()
+        args['scores'] = {}; args['histories'] = {}
+        # 移除较早阵容中的跑前能力，只保留后续重复组合。
+        ids = {21551218, 21631117, 21646965, 21654678, 21663568}
+        args['recent'] = [r for r in args['recent'] if int(r['url'].split('/')[5]) in ids]
+        args['rosters'] = {rid: value for rid, value in args['rosters'].items() if rid in ids}
+        result = build_behavior_review(**args)
+        questions = [q for q in result['questions'] if q['purpose'] == 'verify_core_history']
+        self.assertTrue(questions)
+        self.assertEqual(len({(q['member_key'], q['dungeon_id']) for q in questions}), len(questions))
+        for question in questions:
+            self.assertIn(question['member_key'], question['core_members'])
+            self.assertEqual(question['dungeon_id'], args['rosters'][question['run_ids'][0]][0]['dungeon']['id'])
+        self.assertNotIn('carrying', result['supported'])
+        self.assertNotEqual(result['evidence_strengths']['carrying']['level'], 'excluded')
+
+    def test_exclusion_is_rendered_as_a_scoped_negative_not_a_positive_label(self):
+        from botend.services.player_observation_contract import build_contract, render_investigation
+        args = anuo_args()
+        ids = {21631117, 21646965, 21654678, 21663568}
+        args['recent'] = [r for r in args['recent'] if int(r['url'].split('/')[5]) in ids]
+        review = build_behavior_review(**args)
+        plan = _merge_behavior_investigation({'triggered': True, 'evidence': [], 'questions': [],
+            'hypotheses': [], 'scope': '本轮样本'}, review)
+        evidence = {'prompt_version': 9, 'evidence': review['evidence'] + plan['evidence'],
+            'metrics': {'behavior_review': review, 'investigation': plan}}
+        contract = build_contract(evidence)
+        excluded = next(h for h in contract['hypotheses'] if h['id'] == 'assistance')
+        self.assertEqual(excluded['assessment_options'], ['weakened'])
+        self.assertIn('assistance', contract['required_hypothesis_ids'])
+        value = {'schema_version': 9, 'confidence': '分项评估', 'next_question_ids': [],
+            'hypotheses': [dict(id=h['id'], assessment=h['assessment_options'][0],
+                support_ids=h['support_ids'][:3], counter_ids=h['counter_ids'], unknown_ids=h['unknown_ids'][:3])
+                for h in contract['hypotheses']]}
+        rendered = render_investigation(value, evidence)
+        result = next(h for h in rendered['hypotheses'] if h['id'] == 'assistance')
+        self.assertEqual(result['assessment_label'], '已排除（本轮样本）')
+        self.assertEqual(result['evidence_strength']['confidence'], '高')
+        self.assertTrue(result['counter_evidence'])
+        self.assertFalse(result['evidence'])
 
     def test_slot_order_does_not_define_the_rotating_member(self):
         args=anuo_args()
@@ -103,7 +154,7 @@ class FourPlusOneTests(TestCase):
         args['recent']=[r for r in args['recent'] if int(r['url'].split('/')[5]) in {21551218,21654678}]
         result=build_behavior_review(**args)
         self.assertNotIn('carrying',result['supported'])
-        self.assertEqual(result['questions'],[])
+        self.assertFalse(any('carrying' in q.get('label_codes', []) for q in result['questions']))
 
     def test_invalid_or_private_guest_history_never_supports_a_label(self):
         for change in ({'status':'private'},{'status':'error'},{'private':True},
@@ -119,7 +170,7 @@ class FourPlusOneTests(TestCase):
         result=build_behavior_review(**args)
         self.assertNotIn('carrying',result['supported'])
         self.assertTrue(result['questions'])
-        for q in result['questions']:
+        for q in [q for q in result['questions'] if 'carrying' in q.get('label_codes', [])]:
             self.assertEqual(q['purpose'],'verify_guest_gain')
             self.assertEqual(len(q['core_members']),4)
             self.assertEqual(len(q['prior_run_ids']),4)
@@ -194,10 +245,16 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
         self.calls.append((url,kwargs['params']))
         if url.endswith('/run-details'):
             return Mock(status_code=200,headers={},json=Mock(return_value=self.data['rosters'][str(kwargs['params']['id'])]))
+        if url.endswith('/mythic-plus-scored-runs'):
+            member = next(m for raw in self.data['rosters'].values() for m in raw['roster']
+                          if m['character']['id'] == kwargs['params']['characterId'])
+            snapshot = self.data['scores'].get(_member_identity(member), {})
+            return Mock(status_code=200, headers={}, json=Mock(return_value={
+                'ui': kwargs['params'], 'dungeons': snapshot.get('dungeons', [])}))
         self.assertTrue(url.endswith('/mythic-plus-runs'), (url,kwargs['params']))
         params = kwargs['params']
-        history = next(h[str(params['dungeonId'])] for h in self.data['histories'].values()
-            if str(params['dungeonId']) in h and h[str(params['dungeonId'])]['ui']['characterId'] == params['characterId'])
+        history = next((h[str(params['dungeonId'])] for h in self.data['histories'].values()
+            if str(params['dungeonId']) in h and h[str(params['dungeonId'])]['ui']['characterId'] == params['characterId']), {'runs': []})
         runs = [{'score': r['score'], 'summary': dict(season=params['season'],
             dungeon={'id':r['dungeon_id']}, keystone_run_id=r['run_id'], mythic_level=r['level'],
             num_chests=int(r['timed']), completed_at=r['completed_at'])} for r in history['runs']]
@@ -211,14 +268,29 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
                 patch('botend.services.player_observation_sources._pace', return_value=True):
             return refresh_observation_sources(self.player, progressive=True, force=True)
 
-    def test_anuo_real_cache_two_questions_then_zero_requests_and_publishable_tag(self):
+    def finish_other_labels(self):
+        """剩余标签分轮补证，共享预算且不重复请求已读空的同一来源。"""
+        seen = set()
+        for _ in range(12):
+            self.calls.clear()
+            result = self.refresh()
+            self.assertLessEqual(result['followup_api_requests'], 2)
+            for url, params in self.calls:
+                signature = (url, params.get('characterId'), params.get('dungeonId'), params.get('id'))
+                self.assertNotIn(signature, seen)
+                seen.add(signature)
+            if result['api_requests'] == 0:
+                return
+        self.fail('已回答的补证问题未停止')
+
+    def test_anuo_carrying_then_other_labels_share_bounded_budget(self):
         before = service.build_evidence(self.player)
         self.assertNotIn('carrying',before['metrics']['behavior_review']['supported'])
         result = self.refresh()
         self.assertEqual(result['basic_api_requests'],0)
         self.assertEqual(result['followup_api_requests'],2)
-        self.assertEqual(result['investigation']['stop_reason'],'completed')
-        self.assertEqual(result['investigation']['remaining_question_ids'],[])
+        self.assertEqual(result['investigation']['stop_reason'],'budget_completed')
+        self.assertTrue(result['investigation']['remaining_question_ids'])
         self.assertEqual({(p['characterId'],p['dungeonId']) for _,p in self.calls},
                          {(305720261,9527),(309612162,16359)})
         for trace in result['investigation']['requests']:
@@ -226,9 +298,13 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
             self.assertTrue(trace['question']['reason']);self.assertTrue(trace['question']['expected_change'])
         after = service.build_evidence(self.player)
         self.assertIn('carrying',after['metrics']['behavior_review']['supported'])
-        self.assertEqual(after['metrics']['behavior_review']['questions'],[])
+        self.assertFalse(any('carrying' in q.get('label_codes', []) for q in after['metrics']['behavior_review']['questions']))
         self.calls.clear()
-        self.assertEqual(self.refresh()['api_requests'],0)
+        next_result = self.refresh()
+        self.assertGreater(next_result['api_requests'], 0)
+        self.assertLessEqual(next_result['api_requests'], 2)
+        self.assertTrue(all(r['question']['purpose'] != 'verify_guest_gain' for r in next_result['investigation']['requests']))
+        self.finish_other_labels()
         self.assertEqual(self.calls,[])
         from botend.tests.test_player_observation import structured_response
         def choose(prompt, **kwargs):
@@ -239,6 +315,7 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
                 evidence_ids=label['evidence_ids'])], 'conclusion_id':'public_sample',
                 'investigation':structured_response(data['metrics']['investigation']['response_contract'])},ensure_ascii=False)
         engine=Mock(send_message=Mock(side_effect=choose))
+        choose(json.dumps(service._generation_input(service.build_evidence(self.player))))
         self.assertEqual(service.generate_observation(self.player,engine=engine)['status'],'ready')
         view=service.project_player_observation(self.player)
         self.assertTrue(any('4带1' in x['label'] for x in view['observations']))
@@ -272,9 +349,9 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
         self.assertGreaterEqual(calls[0],2)
         self.assertTrue(any(q['status']=='not_needed' for q in result['investigation']['outcomes']))
 
-    def test_missing_rosters_prefer_higher_prior_attainment_then_stop(self):
+    def test_missing_rosters_prefer_prior_attainment_and_complete_structure(self):
         # 复现线上起点：小花生的受益已缓存，两场黑按摩捣师阵容缺失。
-        # 最新场次21663568只有同层跑前成绩；21654678有24层跑前证明。
+        # 最新场次21663568只有同层跑前成绩；21654678有24层跑前证明，优先核验。
         guest = '52affcc3c4c1a22d15de2f13abcdf59b2eb5d369272475c0a9919f090bacbefc'
         row = self.rows[guest]
         row.payload_json['mythic_plus_scored_history'] = self.data['histories'][guest]
@@ -284,23 +361,22 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
         self.assertNotIn('carrying', service.build_evidence(self.player)['metrics']['behavior_review']['supported'])
         result = self.refresh()
         self.assertEqual([(url.rsplit('/', 1)[-1], params.get('id'), params.get('dungeonId'))
-                          for url, params in self.calls],
-                         [('run-details', 21654678, None), ('mythic-plus-runs', None, 16359)])
-        self.assertEqual(result['api_requests'], 2)
-        self.assertEqual(result['basic_api_requests'], 1)
-        self.assertEqual(result['followup_api_requests'], 1)
+                          for url, params in self.calls[:3]],
+                         [('run-details', 21654678, None), ('run-details', 21663568, None),
+                          ('mythic-plus-runs', None, 16359)])
+        self.assertEqual(result['api_requests'], 4)
+        self.assertEqual(result['basic_api_requests'], 2)
+        self.assertEqual(result['followup_api_requests'], 2)
         request = next(r for r in result['runs'] if r['status'] == 'ready')
         self.assertEqual(request['question']['prior_level_advantage'], 1)
         self.assertTrue(request['question']['selection_reason'])
         self.assertIn('carrying', service.build_evidence(self.player)['metrics']['behavior_review']['supported'])
-        self.assertEqual(result['investigation']['stop_reason'], 'completed')
-        self.assertEqual(result['investigation']['remaining_question_ids'], [])
-        self.assertEqual(RaiderIORunRoster.objects.get(run_id=21663568).status, 'pending')
-        self.calls.clear()
-        self.assertEqual(self.refresh()['api_requests'], 0)
+        self.assertTrue(result['investigation']['remaining_question_ids'])
+        self.assertEqual(RaiderIORunRoster.objects.get(run_id=21663568).status, 'ready')
+        self.finish_other_labels()
         self.assertEqual(self.calls, [])
 
-    def test_normal_substitutes_do_not_trigger_requests_or_carrying(self):
+    def test_normal_substitutes_can_check_joint_progress_without_carrying(self):
         guests = ('52affcc3c4c1a22d15de2f13abcdf59b2eb5d369272475c0a9919f090bacbefc',
                   '620e5a03673b8c031b2708439ff9da0bfef5286bfb438593fedad851c368939b')
         selected = {int(rid) for rid in self.data['rosters']}
@@ -314,8 +390,9 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
             row.payload_json['mythic_plus_scored_history'] = histories
             row.save(update_fields=['payload_json'])
         result = self.refresh()
-        self.assertEqual(result['api_requests'], 0)
-        self.assertEqual(self.calls, [])
+        self.assertGreater(result['api_requests'], 0)
+        self.assertLessEqual(result['api_requests'], 2)
+        self.assertTrue(all(r['question']['purpose'] != 'verify_guest_gain' for r in result['investigation']['requests']))
         evidence = service.build_evidence(self.player)
         self.assertNotIn('carrying', evidence['metrics']['behavior_review']['supported'])
         self.assertNotIn('carrying', [label['code'] for label in evidence['eligible_labels']])
@@ -353,7 +430,7 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
                 self.assertTrue(row['question']['prior_run_ids'])
                 self.assertTrue(row['question']['expected_change'])
 
-    def test_fixed_five_uses_no_history_requests(self):
+    def test_fixed_five_can_check_joint_history_without_carrying(self):
         ids={21631117,21646965,21654678,21663568}
         raw=copy.deepcopy(self.data['rosters']['21654678']['roster'])
         for row in RaiderIORunRoster.objects.all():
@@ -364,13 +441,17 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
         self.activity.save()
         evidence=service.build_evidence(self.player)
         self.assertNotIn('carrying',evidence['metrics']['behavior_review']['supported'])
-        self.assertEqual(evidence['metrics']['behavior_review']['questions'],[])
-        self.assertEqual(self.refresh()['api_requests'],0)
+        questions = evidence['metrics']['behavior_review']['questions']
+        self.assertTrue(questions)
+        self.assertTrue(all('carrying' not in q.get('label_codes', []) for q in questions))
+        self.assertTrue(any(q['purpose'] == 'verify_joint_history' for q in questions))
+        self.assertEqual(self.refresh()['api_requests'],2)
+        self.finish_other_labels()
 
     def test_empty_answer_stays_unknown_and_does_not_expand_to_other_dungeons(self):
         def empty(url,**kwargs):
             self.calls.append((url,kwargs['params']))
-            return Mock(status_code=200,headers={},json=Mock(return_value={'ui':kwargs['params'],'runs':[]}))
+            return Mock(status_code=200,headers={},json=Mock(return_value={'ui':kwargs['params'],'runs':[], 'dungeons': []}))
         with patch.object(self,'transport',side_effect=empty):
             result=self.refresh()
         self.assertLessEqual(len(self.calls),2)
@@ -378,7 +459,7 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
         self.assertNotIn('carrying',service.build_evidence(self.player)['metrics']['behavior_review']['supported'])
         self.calls.clear()
         with patch.object(self,'transport',side_effect=empty):
-            self.assertEqual(self.refresh()['api_requests'],0)
+            self.finish_other_labels()
 
     def test_guest_question_requires_exact_core_and_dungeon_scope(self):
         original=service.build_evidence(self.player)
@@ -405,5 +486,5 @@ class FourPlusOnePipelineTests(DatabaseTestCase):
         result=self.refresh()
         self.assertEqual(result['followup_api_requests'],2)
         self.assertIn((309612162,16359),{(p['characterId'],p['dungeonId']) for _,p in self.calls})
-        self.assertEqual(result['investigation']['stop_reason'],'completed')
+        self.assertEqual(result['investigation']['stop_reason'],'budget_completed')
         self.assertIn('carrying',service.build_evidence(self.player)['metrics']['behavior_review']['supported'])

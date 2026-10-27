@@ -7,7 +7,7 @@ from itertools import combinations
 from botend.services.player_observation_behavior import _date, _record, _reference, _score, _MARGIN
 
 
-def roster_questions(*, subject, runs, visible, season):
+def roster_questions(*, subject, runs, visible, season, recent_ids=None):
     """先发现重复成绩，再用少量关键阵容区分固定五人和四人轮换。"""
     records = {}
     for rid, run in runs.items():
@@ -25,8 +25,28 @@ def roster_questions(*, subject, runs, visible, season):
                  if did == dungeon and when < start and points + _MARGIN >= score]
         if prior:
             repeats[rid] = prior
+    structural = {}
+    if recent_ids is not None:
+        recent = sorted(set(recent_ids) & records.keys())
+        if len(recent) >= 3:
+            for rid in recent:
+                if not visible.get(rid):
+                    structural[rid] = {'id': f'roster_structure:{rid}', 'kind': 'roster', 'run_ids': [rid],
+                        'purpose': 'verify_sample_structure', 'prior_run_ids': [], 'prior_level_advantage': 0,
+                        'reason': f'核验本轮场次{rid}的五人阵容，区分固定、轮换与未知样本。',
+                        'expected_change': '完整阵容可确认或排除样本内组队结构，并为其他行为标签提供成员身份。'}
+            # 已发现的升层候选也核验前场阵容，不由成绩相似推定同队。
+            for rid in recent:
+                did, _, start, score = records[rid]
+                for pid, (prior_did, completed, _, points) in records.items():
+                    if (prior_did == did and completed < start and points + _MARGIN < score
+                            and not visible.get(pid)):
+                        structural.setdefault(pid, {'id': f'roster_joint:{pid}', 'kind': 'roster', 'run_ids': [pid],
+                            'purpose': 'verify_joint_roster', 'prior_run_ids': [], 'prior_level_advantage': 0,
+                            'reason': f'核验升层候选前场{pid}与场次{rid}是否有至少四名相同成员。',
+                            'expected_change': '阵容重合可支持共同提高；明确不足四人可排除此候选。'})
     if len(repeats) < 2:
-        return {}
+        return structural
     from botend.services.player_observation import _member_identity
     observed = []
     for rid in repeats:
@@ -37,7 +57,7 @@ def roster_questions(*, subject, runs, visible, season):
                 observed.append(team)
     # 三场相同阵容先保留固定五人解释，不因还有缺口继续补齐。
     if len(observed) >= 3 and len(set(observed)) == 1:
-        return {}
+        return structural
     questions = {}
     for rid, priors in repeats.items():
         if visible.get(rid):
@@ -56,7 +76,7 @@ def roster_questions(*, subject, runs, visible, season):
                                  else '已有跑前同层相当成绩，核验重复通关的组队关系。'),
             'expected_change': '阵容可支持或否定轮换关系；单纯重复通关不发布带人标签。',
         }
-    return questions
+    return {**structural, **questions}
 
 
 def four_plus_one(*, subject, selected, teams, run_records, rosters, records, histories):
@@ -68,18 +88,27 @@ def four_plus_one(*, subject, selected, teams, run_records, rosters, records, hi
         for core in combinations(sorted(teams[rid]), 4):
             if subject in core:
                 groups[core].append(rid)
-    questions, candidates, supported = {}, [], []
+    questions, core_questions, candidates, supported = {}, {}, [], []
     closed_queries = set()
+    checked_core_members = set()
+    possible_groups = 0
+    unresolved_groups = 0
+    excluded_events = set()
     for core, ids in sorted(groups.items()):
         guests = {next(iter(teams[rid] - set(core))) for rid in ids}
         if len(ids) < 3 or len(guests) < 2:
             continue
+        possible_groups += 1
+        possible_guests = set()
         confirmed = {}
         pending = []
+        group_core_questions = {}
+        has_core_proof = False
         for rid in sorted(ids, key=lambda rid: (run_records[rid]['completed'], rid)):
             rec = run_records[rid]
             duration = rosters[rid][0].get('clear_time_ms')
             if type(duration) is not int or duration <= 0:
+                possible_guests.add(next(iter(teams[rid] - set(core))))
                 continue
             start = rec['completed'] - timedelta(milliseconds=duration)
             did = rec['dungeon_id']
@@ -87,19 +116,39 @@ def four_plus_one(*, subject, selected, teams, run_records, rosters, records, hi
             priors = {key: [r for r in records.get(key, {}).values()
                        if r['dungeon_id'] == did and r['completed'] < start]
                       for key in (*core, guest)}
+            # 反证必须是实际跑前成绩；当前低分、缺失历史不能排除受益。
+            counters = [r for r in priors[guest] if r['score'] + _MARGIN >= rec['score']]
+            if counters:
+                excluded_events.add((rid, max(counters, key=lambda r: r['score'])['run_id']))
+                history = histories.get(guest, {}).get(str(did))
+                if history and _date(history.get('fetched_at')) and _date(history['fetched_at']) >= rec['completed']:
+                    closed_queries.add(guest)
+                continue
+            possible_guests.add(guest)
             # 四人均有跑前能力，不能拿本场或之后的成绩倒推。
             attained = {key: [r for r in priors[key] if r['timed'] and r['level'] >= rec['level']
                              and r['score'] + _MARGIN >= rec['score']] for key in core}
             if not all(attained.values()):
+                for key in core:
+                    history = histories.get(key, {}).get(str(did))
+                    observed_core = bool(history and _date(history.get('fetched_at'))
+                                         and _date(history['fetched_at']) >= rec['completed'])
+                    if observed_core and not attained[key]:
+                        checked_core_members.add(key)
+                    if attained[key] or observed_core:
+                        continue
+                    group_core_questions.setdefault(key, {
+                        'kind': 'scored_history', 'member_key': key, 'dungeon_id': did,
+                        'run_ids': [rid], 'priority': 90, 'purpose': 'verify_core_history',
+                        'core_members': list(core),
+                        'reason': f'四人组合已重复至少三场并出现不同第五人；核验场次{rid}中该成员同本跑前能力。',
+                        'expected_change': '找到跑前相当成绩则继续核验受益人；未查到不等于能力不足，保留未知。'})
                 continue
+            has_core_proof = True
             proof = {key: max(rows, key=lambda r: r['score'])['run_id'] for key, rows in attained.items()}
             history = histories.get(guest, {}).get(str(did))
             observed = bool(history and _date(history.get('fetched_at'))
                             and _date(history['fetched_at']) >= rec['completed'])
-            if any(r['score'] + _MARGIN >= rec['score'] for r in priors[guest]):
-                if observed:
-                    closed_queries.add(guest)
-                continue  # 已查到相当成绩即停止追查该成员，不换副本寻找支持。
             if observed:
                 # 接口返回的缺失记录不是零分；必须确有可见跑前记录及本场。
                 contains_run = any(r.get('run_id') == rid for r in history.get('runs', []))
@@ -121,6 +170,11 @@ def four_plus_one(*, subject, selected, teams, run_records, rosters, records, hi
                     'reason': f'场次{rid}的四名成员已有同本相当或更高成绩，且该组合存在不同第五人；核验第五人的可见跑前成绩是否被本场提高。',
                     'expected_change': '确认可见提升则增加一个独立受益成员；已有相当成绩则排除此事件；没有跑前记录保持未知。'})
         candidates.extend(confirmed.values())
+        if len(possible_guests) >= 2:
+            unresolved_groups += 1
+            if not has_core_proof:
+                for key, question in group_core_questions.items():
+                    core_questions.setdefault(key, question)
         if len(confirmed) >= 2:
             supported.extend(list(confirmed.values())[:2])
             continue
@@ -133,10 +187,22 @@ def four_plus_one(*, subject, selected, teams, run_records, rosters, records, hi
                 continue
             key = q['member_key']
             questions.setdefault(key, q)
+    # 结论只覆盖本轮完整可见的样本，不外推角色整个赛季或私人身份。
+    complete = len(selected) >= 3 and all(rid in teams and subject in teams[rid] for rid in selected)
+    exclusion = None
+    if complete and not unresolved_groups and not supported:
+        exclusion = {'run_ids': sorted(selected), 'candidate_groups': possible_groups,
+            'counter_records': sorted(excluded_events),
+            'reason': ('本轮全部已验证阵容中，没有同时满足至少三场及两个不同第五人的四人组合。'
+                       if not possible_groups else
+                       '本轮每个候选四人组合中，除至多一名第五人外，其余第五人在对应场次之前均已有相当或更高成绩；不满足至少两名不同受益者。')}
     if supported:
-        return {'events': supported, 'questions': [], 'candidates': candidates}
-    return {'events': [], 'questions': [q for key, q in questions.items() if key not in closed_queries],
-            'candidates': candidates}
+        return {'events': supported, 'questions': [], 'candidates': candidates, 'exclusion': None}
+    pending = [q for key, q in questions.items() if key not in closed_queries]
+    if not pending and not closed_queries:
+        pending = [q for key, q in core_questions.items() if key not in checked_core_members]
+    return {'events': [], 'questions': [] if exclusion else pending,
+            'candidates': candidates, 'exclusion': exclusion}
 
 
 def observed_runs(activity, season):

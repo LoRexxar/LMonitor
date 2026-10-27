@@ -27,7 +27,7 @@ def compact_ai_input(evidence):
             for row in structure.get('lineups', [])]
         metrics['behavior_review'] = {key: deepcopy(review[key]) for key in (
             'version', 'triggered', 'supported', 'witnesses', 'questions', 'limitations',
-            'evidence_strengths', 'strength_rules', 'context_unknowns') if key in review}
+            'evidence_strengths', 'strength_rules', 'context_unknowns', 'label_reviews') if key in review}
         metrics['behavior_review']['structure'] = summary
         resilience = review.get('resilience')
         if isinstance(resilience, dict):
@@ -58,7 +58,13 @@ def compact_ai_input(evidence):
             # key supply as a competing explanation and prioritize witnessed
             # directions; omitted hypotheses remain unassessed, not disproved.
             by_id = {row['id']: row for row in plan.get('hypotheses', [])}
-            priority = ['key_access']
+            resolved_codes = {code for code, item in (review or {}).get('label_reviews', {}).items()
+                              if item.get('status') in ('supported', 'excluded')}
+            mapping = {'carrying': 'assistance', 'high_score_collaborator': 'external_assistance'}
+            resolved = {mapping.get(code, code) for code in resolved_codes}
+            priority = [row['id'] for row in by_id.values() if row['id'] in resolved
+                        or 'behavior:carrying_excluded' in row.get('counter_ids', [])]
+            priority += ['key_access']
             external = by_id.get('external_assistance', {})
             if (external.get('support_ids') or external.get('counter_ids')
                     or any(':high:' in ref for ref in external.get('unknown_ids', []))):

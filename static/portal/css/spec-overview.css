@@ -38,6 +38,11 @@
 .spec-module-row--fact::before { background: #14b8a6; border-radius: 50%; content: ""; height: .35rem; margin-left: .2rem; position: absolute; width: .35rem; }
 .spec-module-row--fact .spec-module-copy { padding-left: .85rem; }
 .spec-module-copy { display: grid; min-width: 0; }
+.spec-module-title { display:flex; align-items:center; flex-wrap:wrap; gap:5px 10px; min-width:0; }
+.spec-module-title > strong { min-width:0; max-width:100%; }
+.spec-player-badges { display:inline-flex; flex-wrap:wrap; align-items:center; gap:4px 6px; min-width:0; max-width:100%; }
+.spec-player-badge { display:inline-block; box-sizing:border-box; max-width:100%; padding:2px 7px; border-radius:4px; background:#f0f4f6; color:#526474; font-size:11px; font-weight:500; line-height:1.55; overflow-wrap:anywhere; }
+.spec-module-copy:focus-visible { outline:2px solid var(--portal-accent-primary,#6155b7); outline-offset:4px; border-radius:4px; }
 .spec-module-copy:is(a) { text-decoration: none; }
 .spec-module-copy:is(a):hover strong { color: #2563eb; text-decoration: underline; }
 .spec-module-audit { color: #64748b; font-size: .62rem; margin-top: .3rem; }
@@ -99,6 +104,7 @@
 .simc-profile-equipment div { border-bottom: 1px solid #e5e7eb; display: flex; gap: .75rem; justify-content: space-between; padding: .45rem 0; }
 .simc-profile-code { overflow-wrap: anywhere; white-space: pre-wrap; }
 @media (max-width: 760px) {
+  .spec-player-badges { flex-basis:100%; }
   .spec-overview { padding: 1rem; }
   .spec-overview-hero { align-items: flex-start; flex-direction: column; padding: 1.1rem; }
   .spec-overview-season { width: 100%; }

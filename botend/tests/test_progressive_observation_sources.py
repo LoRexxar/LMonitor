@@ -37,12 +37,107 @@ class ProgressiveSourcesTests(TestCase):
         self.assertEqual(result['followup_api_requests'], 0)
         self.assertFalse(result['followup_triggered'])
 
+    def test_core_history_question_is_bound_to_member_run_and_dungeon(self):
+        from botend.services.player_observation_sources import _characters, _followup_plan
+        from botend.raiderio_identity import activity_identity_digest
+        chars, _ = _characters([self.row.payload_json], self.activity.identity_digest)
+        characters = {activity_identity_digest(**char['identity']): char for char in chars}
+        core = list(characters)[:4]
+        key = core[0]
+        did = self.row.payload_json['dungeon']['id']
+        question = {'id': f'scored_history:{key}:{did}', 'kind': 'scored_history',
+            'identity_digest': key, 'member_key': key, 'dungeon_id': did, 'run_ids': [123],
+            'core_members': core, 'purpose': 'verify_core_history', 'priority': 90,
+            'reason': '核验已知重复组合中的跑前能力', 'expected_change': '补齐后继续核验受益事件'}
+        def planned(q):
+            return _followup_plan({'metrics': {'investigation': {'triggered': True, 'questions': [q]}}},
+                self.activity, [(self.run, self.row.payload_json)], characters, {}, {}, self.season.rio_season)[0]
+        self.assertEqual(planned(question), [(key, did)])
+        self.assertEqual(planned({**question, 'dungeon_id': did + 999}), [])
+        self.assertEqual(planned({**question, 'core_members': core[1:]}), [])
+        self.assertEqual(planned({**question, 'run_ids': [999]}), [])
+
     def test_fixed_five_never_requests_scores(self):
         with patch('botend.services.player_observation.build_evidence', return_value={
                 'metrics': {'team_pattern': {'kind': 'fixed_five'}}}):
             result = self.refresh(progressive=True)
         self.assertEqual(self.calls, [])
         self.assertFalse(result['followup_triggered'])
+
+    def label_question(self, purpose='verify_relative_score'):
+        from botend.services.player_observation_sources import _characters
+        from botend.raiderio_identity import activity_identity_digest
+        chars, _ = _characters([self.row.payload_json], self.activity.identity_digest)
+        key = activity_identity_digest(**chars[0]['identity'])
+        return dict(id='label-gap', kind='scored_runs' if purpose == 'verify_relative_score' else 'scored_history',
+            identity_digest=key, member_key=key, dungeon_id=self.row.payload_json['dungeon']['id'],
+            run_ids=[123], label_codes=['joint_progress' if purpose == 'verify_joint_history' else 'high_score_collaborator'],
+            purpose=purpose, priority=70, reason='核验本场已发现的具体比较缺口', expected_change='支持、反向或保留未知',
+            prior_run_ids=[122])
+
+    def test_other_label_questions_require_exact_members_and_dungeon(self):
+        from botend.services.player_observation_sources import _characters, _followup_plan
+        from botend.raiderio_identity import activity_identity_digest
+        chars, _ = _characters([self.row.payload_json], self.activity.identity_digest)
+        characters = {activity_identity_digest(**c['identity']): c for c in chars}
+        def planned(q, states=None):
+            return _followup_plan({'metrics': {'investigation': {'triggered': True, 'questions': [q]}}},
+                self.activity, [(self.run, self.row.payload_json)], characters, states or {}, {}, self.season.rio_season)[0]
+        for purpose in ('verify_relative_score', 'verify_relative_history', 'verify_joint_history'):
+            q = self.label_question(purpose)
+            with self.subTest(purpose=purpose):
+                self.assertTrue(planned(q))
+                for change in ({'dungeon_id': 999999}, {'identity_digest': '其他成员'}, {'run_ids': [999]},
+                               {'label_codes': ['key_access']}, {'purpose': '补全资料'}, {'expected_change': ''}):
+                    self.assertEqual(planned({**q, **change}), [])
+                self.assertEqual(planned(q, {q['identity_digest']: {'status': 'backoff'},
+                    (q['identity_digest'], q['dungeon_id']): {'status': 'backoff'}}), [])
+
+    def test_relative_score_execution_replans_and_reuses_cache(self):
+        question = self.label_question()
+        def evidence(_):
+            return {'metrics': {'investigation': {'version': 1, 'triggered': True,
+                'questions': [] if self.calls else [question]}}}
+        with patch('botend.services.player_observation.build_evidence', side_effect=evidence):
+            result = self.refresh(progressive=True)
+        self.assertEqual(result['followup_api_requests'], 1)
+        self.assertEqual(result['investigation']['requests'][0]['question']['purpose'], 'verify_relative_score')
+        self.assertNotIn('dungeonId', self.calls[0][1]['params'])
+        self.calls.clear()
+        with patch('botend.services.player_observation.build_evidence', side_effect=evidence):
+            self.assertEqual(self.refresh(progressive=True)['api_requests'], 0)
+
+    def test_joint_history_empty_answer_is_partial_and_not_repeated(self):
+        from unittest.mock import Mock
+        question = self.label_question('verify_joint_history')
+        evidence = {'metrics': {'investigation': {'version': 1, 'triggered': True, 'questions': [question]}}}
+        def empty(url, **kwargs):
+            self.calls.append((url, kwargs))
+            return Mock(status_code=200, headers={}, json=Mock(return_value={'ui': kwargs['params'], 'runs': []}))
+        with patch('botend.services.player_observation.build_evidence', return_value=evidence), \
+                patch.object(self, 'transport', side_effect=empty):
+            result = self.refresh(progressive=True)
+            self.assertEqual(result['followup_api_requests'], 1)
+            self.assertEqual(result['investigation']['outcomes'][0]['status'], 'observed_partial')
+            self.assertEqual(self.calls[0][1]['params']['dungeonId'], question['dungeon_id'])
+            self.calls.clear()
+            self.assertEqual(self.refresh(progressive=True)['api_requests'], 0)
+
+    def test_protection_gap_needs_canonical_target_even_for_same_dungeon(self):
+        from botend.services.player_observation_sources import _characters, _followup_plan
+        from botend.raiderio_identity import activity_identity_digest
+        chars, _ = _characters([self.row.payload_json], self.activity.identity_digest)
+        characters = {activity_identity_digest(**c['identity']): c for c in chars}
+        q = self.label_question('resilience_gap')
+        q.update(required_level=self.row.payload_json['mythic_level'] + 1, label_codes=['being_carried'])
+        def planned(targets):
+            return _followup_plan({'metrics': {'investigation': {'triggered': True, 'questions': [q],
+                'resilience_history_targets': targets}}}, self.activity, [(self.run, self.row.payload_json)],
+                characters, {}, {}, self.season.rio_season)[0]
+        self.assertEqual(planned([]), [])
+        target = {field: q[field] for field in ('member_key', 'dungeon_id', 'required_level', 'run_ids')}
+        self.assertTrue(planned([target]))
+        self.assertEqual(planned([{**target, 'required_level': q['required_level'] + 1}]), [])
 
     def four_evidence(self):
         from botend.services.player_observation_sources import _characters
@@ -86,11 +181,11 @@ class ProgressiveSourcesTests(TestCase):
         self.activity.save()
         self.row.delete()
         result = self.refresh(progressive=True)
-        self.assertEqual(result['basic_api_requests'], 0)
+        self.assertEqual(result['basic_api_requests'], 5)
         self.assertEqual(result['followup_api_requests'], 0)
-        self.assertEqual(RaiderIORunRoster.objects.count(), 0)
+        self.assertEqual(RaiderIORunRoster.objects.count(), 5)
         self.assertFalse(RaiderIORunRoster.objects.filter(status='error').exists())
-        self.assertEqual(sum(s['status'] == 'not_needed' for s in result['runs']), 10)
+        self.assertEqual(sum(s['status'] == 'budget_exhausted' for s in result['runs']), 5)
 
     def test_force_preserves_privacy_leases_backoff_and_top20(self):
         from datetime import timedelta
@@ -147,11 +242,11 @@ class ProgressiveSourcesTests(TestCase):
         with patch('botend.services.player_observation.build_evidence', return_value=evidence), \
                 patch.object(self, 'transport', side_effect=transport):
             result = self.refresh(progressive=True)
-        self.assertEqual(result['basic_api_requests'], 1)
+        self.assertEqual(result['basic_api_requests'], 6)
         self.assertEqual(result['followup_api_requests'], 0)
-        self.assertEqual(result['api_requests'], 1)
+        self.assertEqual(result['api_requests'], 6)
         self.assertEqual(result['api_budget'], 8)
-        self.assertEqual(len(self.calls), 1)
+        self.assertEqual(len(self.calls), 6)
         self.assertEqual(type(self.player).objects.values().get(pk=self.player.pk), before)
 
     def test_missing_fifth_snapshot_alone_is_not_a_question(self):

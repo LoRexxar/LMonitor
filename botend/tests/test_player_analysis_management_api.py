@@ -103,8 +103,10 @@ class PlayerAnalysisManagementAPITests(TestCase):
             evidence_json={'eligible_labels': [{'code': 'fixed_team', 'label': '固定队'}],
                 'conclusion_options': {'public_sample': {'text': '冻结的角色结论'}},
                 'large_fact': 'x' * 100000})
-        with self.assertNumQueries(4):
+        with self.assertNumQueries(5):
             response = self.client.get(COLLECTION, {'q': row['id']})
+        with self.assertNumQueries(4):
+            self.client.get(COLLECTION, {'q': row['id'], 'include_tag_options': '0'})
         item = self.success(response)['items'][0]
         self.assertEqual(item['tags'], [{'label': '固定队', 'value': '低'}])
         self.assertEqual(self.success(response)['tag_options'], ['固定队'])

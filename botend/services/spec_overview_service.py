@@ -116,6 +116,8 @@ class SpecOverviewService:
     def players(cls, class_name, spec_name):
         data, mtime = cls._aggregate('players', class_name, spec_name)
         players = list(data.get('players') or [])
+        from botend.services.player_observation_badges import public_badge_players
+        players = public_badge_players(players, class_name, spec_name)
         public_players = []
         for player in players:
             row = dict(player)

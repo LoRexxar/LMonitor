@@ -299,6 +299,10 @@ def _merge_behavior_investigation(plan, behavior):
         proxy_ids = {e['id'] for e in plan['evidence'] if re.match(
             r'^investigation:(?:low|high|near|mixed)(?::|$)', e['id'])}
         counter = [eid for eid in old.get('counter_ids', []) if eid not in proxy_ids]
+        resolution = behavior.get('label_reviews', {}).get(code, {})
+        # 某些场次的反向比较不否定其他独立支持场次；完整结果在逐标签核验中展示。
+        if resolution.get('status') == 'excluded':
+            counter += resolution.get('counter_ids', [])
         unresolved = (old.get('support_ids', []) + old.get('unknown_ids', [])
                       + [eid for eid in old.get('counter_ids', []) if eid in proxy_ids])
         if code == 'carrying':
@@ -306,8 +310,9 @@ def _merge_behavior_investigation(plan, behavior):
             # absence of proof is not a fact against assistance.
             unresolved += [e['id'] for e in behavior['evidence']
                            if e['id'].startswith('behavior:key_recovery_unknown:')]
+            counter += [e['id'] for e in behavior['evidence'] if e['id'] == 'behavior:carrying_excluded']
         existing[hid] = {'id': hid, 'label': BEHAVIOR_LABELS[code],
-            'status': 'supported' if support and code != 'key_access' else 'unknown',
+            'status': 'supported' if support and code != 'key_access' else 'weakened' if counter else 'unknown',
             'support_ids': support[:3], 'counter_ids': list(dict.fromkeys(counter)),
             'unknown_ids': list(dict.fromkeys([unknown] + unresolved))}
     # A dated pre-start higher run counters only that run's 'later progress'
@@ -329,10 +334,11 @@ def _merge_behavior_investigation(plan, behavior):
     for q in behavior['questions']:
         key = q['member_key']
         qid = f"{q['kind']}:{key}" + (f":{q['dungeon_id']}" if q.get('dungeon_id') else '')
+        qid += ':' + q.get('purpose', '') + ':' + str(q.get('required_level', ''))
         if qid not in known:
             known.add(qid)
             plan['questions'].append({**q, 'id': qid, 'identity_digest': key,
-                'hypothesis_ids': list(mapping.values()),
+                'hypothesis_ids': [mapping[c] for c in q.get('label_codes', list(mapping)) if c in mapping],
                 'reason': q.get('reason', '核验具体事件的受益关系。')})
     plan['questions'] = sorted(plan['questions'], key=lambda q: (-q['priority'], q['id']))[:8]
     # Cross-dungeon history is authorized only by current event member proofs.
@@ -581,6 +587,11 @@ def _build(context):
             '近期已验证阵容呈固定五人或偶尔替补结构；结构不证明带人。',
             [item['run_url'] for item in behavior['evidence'] if item.get('run_url')][:1])
         labels[-1]['reason_options'] = {'stable_five': '近期已验证阵容呈固定五人或偶尔替补结构，不代表真实核心或组队目的。'}
+    for label in labels:
+        if label['code'] in ('fixed_team', 'rotating_core'):
+            strength = behavior.get('evidence_strengths', {}).get(label['code'])
+            if strength:
+                label.update(evidence_strength=strength, confidence_max=strength['confidence'])
     allowed = {item['id'] for item in evidence}
     for code, title in BEHAVIOR_LABELS.items():
         refs = list(dict.fromkeys(behavior['supported'].get(code, [])))
@@ -1494,19 +1505,21 @@ def project_player_observation(player):
         return view
     source_failed = current['source_failed']
     current = row.evidence_json
+    from botend.services.player_observation_resolution import render_label_reviews
+    view['label_reviews'] = render_label_reviews(current)
     view['evidence_strength_rules'] = deepcopy(current.get('metrics', {}).get('behavior_review', {}).get('strength_rules', {}))
     if _local_empty(row.result_json, current):
         view.update(status='stale' if row.last_error or source_failed else 'ready',
                     generated_at=row.generated_at, model_label='',
                     source_kind='local_deterministic',
-                    display_judgements=_display_judgements(current), has_supported_judgements=bool(_display_judgements(current)),
+                    display_judgements=_display_judgements(current), has_supported_judgements=bool(_display_judgements(current) or view['label_reviews']),
                     publication_metadata=row.result_json['metadata'])
         return view
     labels = {item['code']: item['label'] for item in current['eligible_labels']}
     refs = {item['id']: item for item in current['evidence']}
     view.update(status='stale' if row.last_error or source_failed else 'ready', generated_at=row.generated_at, conclusion=current['conclusion_options'][result['conclusion_id']]['text'], judgements=current['judgements'], progression=current['metrics'].get('progression'))
     view['display_judgements'] = _display_judgements(current, result)
-    view['has_supported_judgements'] = any(item['supported'] for item in view['display_judgements'])
+    view['has_supported_judgements'] = bool(view['label_reviews']) or any(item['supported'] for item in view['display_judgements'])
     if 'investigation' in result:
         # Separate inference projection; never replace editorial content or
         # reinterpret this prose as a canonical fact/public confirmed label.

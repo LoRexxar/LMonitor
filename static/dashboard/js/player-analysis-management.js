@@ -28,10 +28,10 @@
     }
     class Client {
         constructor(fetcher, csrf, signal) { this.fetcher=fetcher; this.csrf=csrf; this.signal=signal; this.busy=false; }
-        async request(path, method='GET', body) {
+        async request(path, method='GET', body, signal=this.signal) {
             const headers = {'Accept':'application/json'};
             if (method !== 'GET') { headers['Content-Type']='application/json'; headers['X-CSRFToken']=this.csrf(); }
-            const response = await this.fetcher(BASE+path,{method,headers,credentials:'same-origin',cache:'no-store', ...(method === 'GET' && this.signal ? {signal:this.signal} : {}), ...(body === undefined ? {} : {body:JSON.stringify(body)})});
+            const response = await this.fetcher(BASE+path,{method,headers,credentials:'same-origin',cache:'no-store', ...(method === 'GET' && signal ? {signal} : {}), ...(body === undefined ? {} : {body:JSON.stringify(body)})});
             const errors = {401:'登录已失效，请返回后台重新登录。',403:'权限不足或 CSRF 校验失败，请刷新页面并确认超级管理员权限。',409:'版本冲突：其他人已修改此记录。请重新读取详情后再操作；当前输入未保存。'};
             const failure=message=>Object.assign(Error(message),{httpStatus:response.status});
             if (errors[response.status]) throw failure(errors[response.status]);
@@ -122,7 +122,7 @@
                     const row=await client.request(id+'/');if(destroyed || checks.get(id)!==check)return;check.readbackKey=terminalKey;
                     if(current?.id===id && !dirty() && !client.busy){current=row;renderDetail();}
                     else if(current?.id===id){message.textContent='检查状态已更新；未保存草稿已保留。保存前请核对新版本，版本冲突时先复制草稿再重新读取。';}
-                    await loadList(listPage);
+                    menuKey=null;await loadList(listPage);
                 }
             } catch(error){check.message='状态读取失败，请恢复页面后重试：'+error.message;updateChecks();}
             finally {
@@ -147,6 +147,7 @@
         }
         let current=null, editing=false, creating=false, selected=null, listPage=1, characterPage=1;
         let pending=Promise.resolve(), readSequence=0, detailSequence=0, characterSequence=0;
+        let filterTimer=null, listRequest=null, menuKey=null, composing=false;
         const filters={}, characterFilters={q:''};
         function el(tag, text, attrs={}) {
             const node=doc.createElement(tag);
@@ -160,7 +161,7 @@
         }
         function task(run) {
             pending=Promise.resolve().then(()=>{if(!destroyed)return run();}).catch(error=>{
-                if(!destroyed){message.textContent=error.message;message.dataset.kind='error';}
+                if(!destroyed && error.name!=='AbortError'){message.textContent=error.message;message.dataset.kind='error';}
             });
             return pending;
         }
@@ -196,6 +197,20 @@
             evidenceView(section,data.evidence);parent.append(section);
         }
         function investigationView(parent, ai) {
+            if(ai?.validation_status==='valid' && Array.isArray(ai.label_reviews) && ai.label_reviews.length){
+                const section=el('section',null,{class:'pa-investigation','data-label-reviews':''});
+                section.append(el('h3','逐标签核验'),el('p','每项独立判断；已排除的范围见对应说明，资料缺失不计为反证。',{class:'pa-muted'}));
+                ai.label_reviews.forEach(item=>{
+                    const block=el('details',null,{'data-label-review':item.code,'data-level':item.strength?.level || 'insufficient'});
+                    block.append(el('summary',`${item.label} · ${item.strength?.label || '证据不足'}`));
+                    block.append(el('p',item.scope),el('p',`支持 ${item.supported_run_ids?.length || 0} 场 · 反向 ${item.excluded_run_ids?.length || 0} 场 · 未决 ${item.unknown_run_ids?.length || 0} 场`));
+                    if(item.reason)block.append(el('p',item.reason));
+                    evidenceView(block,item.evidence);evidenceView(block,item.counter_evidence);
+                    (item.questions || []).forEach(q=>block.append(el('p',`补证：${q.reason} ${q.expected_change || ''}`)));
+                    if(item.status==='unknown' && !item.questions?.length)block.append(el('p','现有公开来源未提供可继续核验的具体记录，保留未知。'));
+                    section.append(block);
+                });parent.append(section);
+            }
             // Server validation/projection is the only source of explanations.
             // Raw JSON is reserved for the separate administrator audit panel.
             const view=ai?.rendered_investigation;
@@ -209,7 +224,9 @@
             const alternatives=el('div',null,{'data-investigation-hypotheses':''});
             array(view.hypotheses).forEach(item=>{
                 const card=el('article',null,{class:'pa-investigation-card','data-investigation-hypothesis':item.id});
-                card.append(el('h4',item.label),el('p',item.assessment_label || '待核查'),el('p',item.explanation));
+                const strength=item.evidence_strength;
+                card.append(el('h4',item.label),el('p',strength?`${strength.label} · 置信度：${strength.confidence}`:(item.assessment_label || '待核查'),{class:'pa-assessment','data-level':strength?.level || 'unknown'}),el('p',item.explanation));
+                if(strength?.scope)card.append(el('p',strength.scope,{class:'pa-muted'}));
                 for(const [key,title] of [['evidence','支持线索'],['counter_evidence','反向线索'],['unknown_evidence','未知 / 缺口（不作为支持线索）']]) {
                     if(!array(item[key]).length)continue;
                     const group=el('div',null,{class:'pa-investigation-refs','data-evidence-kind':key});
@@ -251,19 +268,24 @@
             selects.tag.replaceChildren(el('option','全部',{value:''}),...Array.from(choices,v=>el('option',v,{value:v})));
             selects.tag.value=selected;
         }
-        function listTags(tags) {
+        function listTags(tags,openDetail) {
             const group=el('div',null,{class:'pa-list-tags','aria-label':'分析标签'});
             if(!Array.isArray(tags) || !tags.length){group.append(el('span','暂无标签',{class:'pa-muted'}));return group;}
-            tags.forEach(tag=>{
+            tags.slice(0,2).forEach(tag=>{
                 const text=typeof tag==='string'?tag:[tag.label,tag.value].filter(Boolean).join(' · ');
                 const confidence=tag.confidence_label || tag.confidence;
-                group.append(el('span',text+(confidence?` · 置信度：${label(confidence)}`:''),{class:'pa-badge pa-list-tag'}));
+                const full=text+(confidence?` · 置信度：${label(confidence)}`:'');
+                group.append(el('span',text+(confidence?` · ${label(confidence)}`:''),{class:'pa-list-tag',title:full}));
             });
+            if(tags.length>2){
+                const more=button(`+${tags.length-2}`,'more-tags',openDetail);
+                more.setAttribute('aria-label',`查看全部 ${tags.length} 个标签`);group.append(more);
+            }
             return group;
         }
         const message=el('div','', {role:'status','aria-live':'polite',class:'pa-message'});
         const filterForm=el('form',null,{class:'pa-filters','aria-label':'筛选分析'});
-        const query=inputField(filterForm,'角色 ID / 名字','',{type:'search',name:'q'});
+        const query=inputField(filterForm,'搜索角色','',{type:'search',name:'q',placeholder:'名字、服务器或 ID',autocomplete:'off'});
         const selects={};
         for (const [key,title,values] of [
             ['status','生成状态',['pending','ready','error']],
@@ -272,13 +294,27 @@
         ]) selects[key]=selectField(filterForm,title,'',key,[['','全部'],...values.map(v=>[v,v==='published'?'已发布':v==='hidden'?'隐藏':label(v)])]);
         selects.tag=selectField(filterForm,'分析标签','','tag',[['','全部']]);
         const pageSize=selectField(filterForm,'每页','20','page_size',[['20','20'],['50','50']]);
-        const search=el('button','搜索',{type:'submit'});filterForm.append(search,button('新增人工分析','new',()=>newRecord()));
-        listen(filterForm,'submit',event=>{event.preventDefault();task(()=>loadList(1));});
+        const toolbar=el('div',null,{class:'pa-filter-actions'});
+        const search=el('button','刷新',{type:'submit'});toolbar.append(search,button('重置筛选','reset',()=>{
+            query.value='';Object.values(selects).forEach(input=>input.value='');pageSize.value='20';menuKey=null;return loadList(1);
+        }),button('新增人工分析','new',()=>newRecord()));
+        filterForm.append(toolbar);
+        const listStatus=el('p','正在加载…',{class:'pa-list-status','aria-live':'polite'});
+        function scheduleList(delay=0) {
+            win.clearTimeout(filterTimer);++readSequence;listRequest?.abort();
+            listStatus.textContent='正在更新筛选…';
+            filterTimer=win.setTimeout(()=>task(()=>loadList(1)),delay);
+        }
+        listen(query,'compositionstart',()=>{composing=true;win.clearTimeout(filterTimer);});
+        listen(query,'compositionend',()=>{composing=false;scheduleList(300);});
+        listen(query,'input',()=>{if(!composing)scheduleList(300);});
+        Object.values(selects).concat(pageSize).forEach(input=>listen(input,'change',()=>scheduleList()));
+        listen(filterForm,'submit',event=>{event.preventDefault();menuKey=null;task(()=>loadList(1));});
         const results=el('section',null,{'aria-label':'分析列表',class:'pa-results'});
         const backdrop=el('div',null,{class:'pa-backdrop','aria-hidden':'true'});backdrop.hidden=true;
         const detail=el('section',null,{'aria-label':'分析详情',role:'dialog','aria-modal':'true',class:'pa-detail',tabindex:'-1'});detail.hidden=true;
         const messageSlot=el('div',null,{class:'pa-drawer-message'});
-        root.append(message,filterForm,results,backdrop,detail);
+        root.append(message,filterForm,listStatus,results,backdrop,detail);
         listen(backdrop,'click',()=>hideDrawer(true));
         listen(doc,'keydown',event=>{
             if(!drawerOpen || !active)return;
@@ -293,29 +329,45 @@
         listen(doc,'visibilitychange',()=>{checks.forEach((c,id)=>{win.clearTimeout(c.timer);if(active && doc.visibilityState!=='hidden')task(()=>pollCheck(id));});});
         listen(win,'beforeunload',event=>{if(dirty()){event.preventDefault();event.returnValue='';}});
         async function loadList(page=1) {
+            win.clearTimeout(filterTimer);listRequest?.abort();listRequest=new win.AbortController();
             const sequence=++readSequence;
             Object.assign(filters,{q:query.value,page:String(page),page_size:pageSize.value});
             for (const key of Object.keys(selects)) filters[key]=selects[key].value;
+            // 输入和筛选复用已加载的标签菜单，避免每次按键遍历全部匹配 JSON。
+            const requestedMenu='loaded';
+            filters.include_tag_options=requestedMenu===menuKey?'0':'1';
             results.setAttribute('aria-busy','true');
+            listStatus.textContent='正在更新…';
             try {
-                const data=await client.request('?'+new URLSearchParams(filters));
+                const data=await client.request('?'+new URLSearchParams(filters),'GET',undefined,listRequest.signal);
                 if(sequence!==readSequence)return;
-                refreshTagOptions(data.tag_options);
-                listPage=data.page;results.replaceChildren(el('h2','角色分析'));
-                if(!data.items.length)results.append(el('p','没有匹配的分析记录。'));
+                if(data.tag_options){refreshTagOptions(data.tag_options);menuKey=requestedMenu;}
+                listStatus.textContent=`共 ${data.total} 个角色 · 输入后自动搜索，筛选即时生效`;
+                listPage=data.page;results.replaceChildren();
+                if(!data.items.length)results.append(el('p','没有匹配的分析记录。试试其他名字，或重置筛选。',{class:'pa-empty'}));
                 data.items.forEach(row=>{
                     const card=el('article',null,{class:'pa-list-row','data-row-id':row.id});
-                    const info=el('div');info.append(el('strong',playerText(row.player,row.player_id,row.character)));
-                    const badges=el('div',null,{class:'pa-badges'});
-                    [row.status,row.review_status,row.source_kind,row.is_published?'已发布':'隐藏'].forEach(value=>badges.append(el('span',label(value),{class:'pa-badge','data-state':value})));
-                    info.append(badges,listTags(row.tags));
-                    if(staleReview(row))info.append(el('strong','AI 证据或结论已更新，原审核不适用。',{class:'pa-warning'}));
+                    const info=el('div',null,{class:'pa-row-identity'}), identity=row.player || row.character;
+                    const title=identity?.character_name || `角色 #${row.player_id ?? '—'}`;
+                    const description=playerText(row.player,row.player_id,row.character);
+                    info.append(el('strong',title,{title}),el('p',identity?description.slice(title.length+3):description,{class:'pa-player-meta',title:description}));
+                    const overview=el('div',null,{class:'pa-row-overview'});
+                    overview.append(listTags(row.tags,()=>open(row.id)));
+                    const states=[staleReview(row)?'需复审':label(row.review_status),row.is_published?'已发布':'隐藏'];
+                    if(row.status!=='ready')states.unshift(label(row.status));
+                    if(row.source_kind==='manual')states.push('人工维护');
+                    const excluded=(Array.isArray(row.assessments)?row.assessments:[]).filter(item=>item.level==='excluded').length;
+                    if(excluded)states.push(`已排除 ${excluded} 项`);
+                    overview.append(el('p',states.join(' · '),{class:'pa-row-state',title:states.join(' · '),...(staleReview(row)?{'data-review-stale':''}:{})}));
                     const actions=el('div',null,{class:'pa-row-actions'});
-                    actions.append(button('审查详情','open',()=>open(row.id)),button('人工编辑','edit-row',()=>open(row.id,true)),recheckButton(row));
+                    actions.append(button('详情','open',()=>open(row.id)),recheckButton(row));
                     if(row.recheck && !checks.has(row.id))checks.set(row.id,{...row.recheck});
-                    card.append(info,actions);results.append(card);
+                    card.append(info,overview,actions);results.append(card);
                 });pageControls(results,data,loadList);updateChecks();
                 checks.forEach((c,id)=>{if(checkBusy(c) && !c.timer && !c.reading && !c.submitting)task(()=>pollCheck(id));});
+            } catch(error) {
+                if(sequence!==readSequence || error.name==='AbortError')return;
+                listStatus.textContent='更新失败，当前列表仍为上次结果。请点击刷新重试。';throw error;
             } finally { if(sequence===readSequence)results.removeAttribute('aria-busy'); }
         }
         async function open(id,focusEditor=false,force=false) {
@@ -387,7 +439,7 @@
                 if(destroyed)return;
                 current=row;creating=false;editing=false;renderDetail();
                 message.textContent='已保存，并已从服务器重新读取记录。';message.dataset.kind='success';
-                try { await loadList(listPage); } catch(error) {message.textContent+=' 列表刷新失败：'+error.message;}
+                try { menuKey=null;await loadList(listPage); } catch(error) {message.textContent+=' 列表刷新失败：'+error.message;}
             } finally {if(!destroyed){setBusy(false);updateChecks();}}
         }
         function renderDetail() {
@@ -409,6 +461,8 @@
                 else if(current.prompt_version===7)detail.append(el('p','v7 冻结结果已通过兼容校验，保留原解释；无需仅因版本较旧重新生成。',{class:'pa-muted','data-publication-validation':''}));
                 detail.append(columns);
                 investigationView(detail,current.ai);
+                const reviews=detail.querySelector('[data-label-reviews]');
+                if(reviews)detail.insertBefore(reviews,columns);
                 const raw=el('details');raw.append(el('summary','展开 AI 原始 JSON（仅供核验）'));
                 listen(raw,'toggle',()=>{if(raw.open && !raw.querySelector('pre'))raw.append(el('pre',JSON.stringify({result_json:current.ai?.result_json,evidence_json:current.ai?.evidence_json},null,2)));});detail.append(raw);
             }
@@ -498,6 +552,7 @@
         const controller={ready,settled:()=>pending,setActive,destroy:()=>{
             if(destroyed)return;
             destroyed=true;++readSequence;++detailSequence;++characterSequence;
+            win.clearTimeout(filterTimer);listRequest?.abort();
             // Cancel reads and detach listeners, never cancel/replay a submitted write.
             checks.forEach(c=>win.clearTimeout(c.timer));if(drawerOpen && active)doc.body.style.overflow=previousOverflow;
             lifetime.abort();mounts.delete(root);root.replaceChildren();root.removeAttribute('aria-busy');
