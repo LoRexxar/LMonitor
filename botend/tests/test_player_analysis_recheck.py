@@ -1,6 +1,6 @@
 """Real ORM/API state-machine tests; external process/network boundaries only mocked."""
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -127,6 +127,9 @@ class RecheckTests(TestCase):
         self.assertEqual(self.row.recheck_json['token'], new_token)
 
     def test_generator_publication_fences_supersession_and_source_failure(self):
+        # Run the AI callback where source failure/token replacement is injected.
+        self.enterContext(patch('django.utils.timezone.now',
+            return_value=datetime(2026, 10, 11, 12, tzinfo=datetime_timezone.utc)))
         from botend.tests.test_player_observation import PlayerObservationTests
         from botend.services.player_analysis_recheck import RUN_SECONDS
         from botend.services.player_observation import generate_observation
@@ -152,6 +155,7 @@ class RecheckTests(TestCase):
             RaiderIOCharacterActivity.objects.filter(pk=self.activity.pk).update(last_error='transport_error')
         engine = PlayerObservationTests.engine(self, fail_source)
         result = generate_observation(self.player, force=True, engine=engine, recheck_token=token)
+        engine.send_message.assert_called_once()
         self.assertEqual(result['status'], 'recheck_invalidated')
         self.row.refresh_from_db()
         self.assertEqual(self.row.result_json, {'last': 'good'})
@@ -161,7 +165,9 @@ class RecheckTests(TestCase):
         def supersede(result):
             data = {**self.row.recheck_json, 'token': 'f'*32}
             PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(recheck_json=data)
-        result = generate_observation(self.player, force=True, engine=PlayerObservationTests.engine(self, supersede), recheck_token=token)
+        replacement_engine = PlayerObservationTests.engine(self, supersede)
+        result = generate_observation(self.player, force=True, engine=replacement_engine, recheck_token=token)
+        replacement_engine.send_message.assert_called_once()
         self.assertEqual(result['status'], 'recheck_invalidated')
         self.row.refresh_from_db()
         self.assertEqual(self.row.result_json, {'last': 'good'})

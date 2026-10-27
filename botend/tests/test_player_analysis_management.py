@@ -1,4 +1,7 @@
 """Management contracts exercised through the real ORM, without transport calls."""
+from datetime import datetime, timezone as datetime_timezone
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.core.exceptions import ValidationError
 from django.db import connection
@@ -313,6 +316,9 @@ class PlayerAnalysisManagementTests(TestCase):
 
 class PlayerAnalysisGenerationTests(TestCase):
     def setUp(self):
+        # Shared run fixtures are dated 2026-10-10; keep them in the 14-day window.
+        self.enterContext(patch('django.utils.timezone.now',
+            return_value=datetime(2026, 10, 11, 12, tzinfo=datetime_timezone.utc)))
         from botend.tests.test_player_observation import PlayerObservationTests
         PlayerObservationTests.setUp(self)
         self.user = get_user_model().objects.create_user(username='reviewer')
@@ -341,6 +347,7 @@ class PlayerAnalysisGenerationTests(TestCase):
         from botend.services.player_observation import generate_observation, project_player_observation
         generated = generate_observation(self.player, engine=self.engine())
         self.assertEqual(generated['status'], 'ready')
+        self.assertTrue(generated['ai_called'])
         row = PlayerObservationAnalysis.objects.get(pk=generated['analysis_id'])
         self.assertEqual(row.player_id, self.player.pk)
         detail = service.update_analysis(row.pk, {'revision': row.revision, 'review_status': 'approved'}, self.user)
@@ -353,7 +360,9 @@ class PlayerAnalysisGenerationTests(TestCase):
         def edit_while_ai_runs():
             service.update_analysis(row.pk, {'revision': detail['revision'], 'manual': manual,
                 'review_status': 'approved', 'is_published': False, 'review_note': 'keep'}, self.user)
-        self.assertEqual(generate_observation(self.player, force=True, engine=self.engine(edit_while_ai_runs))['status'], 'ready')
+        refreshed = generate_observation(self.player, force=True, engine=self.engine(edit_while_ai_runs))
+        self.assertEqual(refreshed['status'], 'ready')
+        self.assertTrue(refreshed['ai_called'])
         row.refresh_from_db()
         self.assertEqual(row.manual_json, manual)
         self.assertEqual(row.review_status, 'approved')
