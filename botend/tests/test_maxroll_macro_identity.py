@@ -184,6 +184,128 @@ class MaxrollMacroIdentityTests(TestCase):
         self.assertEqual({r['kind'] for r in failed[0]['operands']}, {'item', 'spell_or_item'})
         self.assertTrue(all(r['status'] == 'incomplete_context' for r in failed[0]['operands']))
 
+    def test_real_repair_fixtures_typed_talent_self_name_and_items(self):
+        from botend.models import WowItemSnapshot
+        from botend.services.class_guide_macros import macro_block_references, macro_operands, resolve_macro_operands
+        from botend.services import wow_localization
+        fixture = json.loads((Path(__file__).parent / 'fixtures/maxroll_macro_repair.json').read_text())
+        targets = {126: ('b-102-2-2', 'Battle Stance', '战斗姿态'),
+                   128: (None, 'Shadowstep', '暗影步'),
+                   138: ('b-123-3-6', 'Residual Neural Channeling Agent', '神经传导残剂'),
+                   140: ('b-113-3-10', 'Grotesque Vial', '怪诞之瓶')}
+        for guide in fixture['guides']:
+            gid = int(guide['guide_id'])
+            if gid not in targets:
+                continue
+            with self.subTest(guide=gid):
+                WowSpellSnapshot.objects.all().delete()
+                WowTalentNodeMetadata.all_objects.all().delete()
+                WowItemSnapshot.objects.all().delete()
+                WowSpellSnapshot.objects.bulk_create([WowSpellSnapshot(**r) for r in guide['snapshots']])
+                for raw in guide['raw_talents']:
+                    row = {k: v for k, v in raw.items() if k not in ('id', 'talent_version_id')}
+                    WowTalentNodeMetadata.all_objects.create(talent_version=self.version, **row)
+                WowItemSnapshot.objects.bulk_create([WowItemSnapshot(**r) for r in fixture['items']])
+                before = list(WowSpellSnapshot.objects.order_by('pk').values())
+                blocks, failed = self.translate(guide['blocks'])
+                bid, english, chinese = targets[gid]
+                sources = [b for b in walk_blocks(guide['blocks']) if b['type'] == 'code'
+                           and english in b.get('data', {}).get('code', '') and (bid is None or b['id'] == bid)]
+                self.assertTrue(sources)
+                for source in sources:
+                    self.assertIn(chinese, blocks[source['id']]['data']['code'])
+                    self.assertNotIn(english, blocks[source['id']]['data']['code'])
+                self.assertEqual(list(WowSpellSnapshot.objects.order_by('pk').values()), before)
+                if gid == 126:
+                    refs = macro_block_references(guide['blocks'])[bid]
+                    context = wow_localization.macro_identity_context(refs, self.version)
+                    decisions = resolve_macro_operands([('spell', english)], context, refs)
+                    decision = decisions[('spell', english.casefold())]
+                    self.assertEqual(decision['identity'], ('spell', 386164))
+                    self.assertEqual(decision['snapshot_build'], '12.1.0.69814')
+                    self.assertTrue(any(e.get('entry_id') == 112184 and e.get('talent_build') == '12.1.5.70575'
+                                        for e in decision['relations']))
+
+    def test_full_frozen_macro_replay_preserves_resolved_and_true_ambiguities(self):
+        from collections import Counter
+        from botend.models import WowItemSnapshot
+        from botend.services.class_guide_macros import macro_block_references, macro_operands, resolve_macro_operands
+        from botend.services.wow_localization import macro_identity_context
+        fixture = json.loads((Path(__file__).parent / 'fixtures/maxroll_macro_repair.json').read_text())
+        counts, changes, total = Counter(), [], 0
+        self.assertEqual(len(fixture['guides']), 31)
+        for guide in fixture['guides']:
+            WowSpellSnapshot.objects.all().delete()
+            WowTalentNodeMetadata.all_objects.all().delete()
+            WowItemSnapshot.objects.all().delete()
+            WowSpellSnapshot.objects.bulk_create([WowSpellSnapshot(**r) for r in guide['snapshots']])
+            WowItemSnapshot.objects.bulk_create([WowItemSnapshot(**r) for r in fixture['items']])
+            for raw in guide['raw_talents']:
+                row = {k: v for k, v in raw.items() if k not in ('id', 'talent_version_id')}
+                WowTalentNodeMetadata.all_objects.create(talent_version=self.version, **row)
+            refs = macro_block_references(guide['blocks'])
+            for replay in guide['macro_replay']:
+                total += 1
+                local = refs[replay['id']]
+                self.assertEqual(local, replay['source_refs'])
+                context = macro_identity_context(local, self.version)
+                decisions = resolve_macro_operands(macro_operands(replay['source_code']), context, local)
+                for old in replay['decisions']:
+                    new = decisions[(old['kind'], old['operand'].casefold())]
+                    counts[new['status']] += 1
+                    if old['status'] == 'resolved':
+                        if new['status'] == 'resolved':
+                            self.assertEqual(list(new['identity']), old['identity'])
+                            self.assertEqual(new['name_zh'], old['name_zh'])
+                        else:
+                            # Newly inspected Entry evidence may be incomplete;
+                            # never retain a former success by ignoring it.
+                            self.assertEqual(new['status'], 'incomplete_context')
+                            self.assertTrue(new['issues'])
+                            self.assertTrue(all(i['reason'] == 'unproven_talent_relation' for i in new['issues']))
+                    if old['status'] == 'ambiguous_identity':
+                        self.assertIn(new['status'], ('ambiguous_identity', 'incomplete_context'))
+                        self.assertEqual(new['candidate_ids'], old['candidate_ids'])
+                    if old['status'] != new['status']:
+                        changes.append([guide['guide_id'], replay['id'], old['operand'], old['status'], new['status']])
+        self.assertEqual(total, 381)
+        self.assertEqual(sum(counts.values()), 671)
+        self.assertGreater(counts['resolved'], 444)
+        print('FROZEN_REPAIR_REPLAY=' + json.dumps({'guides': 31, 'blocks': total, 'counts': counts, 'changes': changes}, ensure_ascii=False))
+
+    def test_typed_identity_rejects_conflicts_stale_and_namespace_collisions(self):
+        from botend.models import WowItemSnapshot
+        from botend.services.class_guide_macros import resolve_macro_operands
+        from botend.services.wow_localization import macro_identity_context
+        refs = [{'kind': 'talent', 'object_id': 700, 'source_block': 'ref'}]
+        row = WowTalentNodeMetadata.all_objects.create(talent_version=self.version,
+            node_id=700, talent_id=123, spell_id=89766, display_spell_id=89766,
+            name='Axe Toss', name_zh='巨斧投掷', class_name='Warlock', spec_name='Demo')
+        def decision():
+            context = macro_identity_context(refs, self.version)
+            return resolve_macro_operands([('spell', 'Axe Toss')], context, refs)[('spell', 'axe toss')]
+        self.assertEqual(decision()['identity'], ('spell', 89766))
+        for fields in ({'display_spell_id': 119914}, {'is_current': False}, {'node_id': 701, 'talent_id': 700}):
+            original = {key: getattr(row, key) for key in fields}
+            WowTalentNodeMetadata.all_objects.filter(pk=row.pk).update(**fields)
+            self.assertEqual(decision()['status'], 'incomplete_context')
+            WowTalentNodeMetadata.all_objects.filter(pk=row.pk).update(**original)
+        WowTalentNodeMetadata.all_objects.filter(pk=row.pk).update(node_id=701, reference_aliases=[700])
+        self.assertEqual(decision()['identity'], ('spell', 89766))
+        WowTalentNodeMetadata.all_objects.create(talent_version=self.version,
+            node_id=700, spell_id=119914, display_spell_id=119914, name='Axe Toss', name_zh='巨斧投掷')
+        # Direct Entry wins over an alias; conflicting same-tier facts do not.
+        self.assertEqual(decision()['identity'], ('spell', 119914))
+        WowTalentNodeMetadata.all_objects.filter(pk=row.pk).update(node_id=700)
+        self.assertEqual(decision()['status'], 'incomplete_context')
+        WowItemSnapshot.objects.create(item_id=89766, name='Axe Toss', name_zh='物品名')
+        block = section('typed', [89766], '/cast Axe Toss\n/equip Axe Toss\n/use Axe Toss\n/use item:89766')
+        block['children'][0]['html'] += ' [[item:89766]]'
+        blocks, failed = self.translate([block])
+        self.assertEqual(blocks['typed-code']['data']['code'], '/cast 巨斧投掷\n/equip 物品名\n/use Axe Toss\n/use item:89766')
+        self.assertEqual(failed[0]['operands'][0]['status'], 'ambiguous_identity')
+        self.assertEqual(failed[0]['operands'][0]['candidate_identities'], [('item', 89766), ('spell', 89766)])
+
     def test_exact_normal_macro_and_non_spell_operands_preserve_syntax(self):
         code = ('#showtooltip Axe Toss\n/cast [known:Axe Toss,noknown:Spell Lock] !Axe Toss; Spell Lock\n'
                 '/castsequence reset=target/3 Axe Toss, Spell Lock\n/use 13\n'

@@ -81,27 +81,34 @@ def resolve_macro_operands(operands, context, source_refs, unscoped_rows=()):
     decisions = {}
     for kind, operand in operands:
         key = operand.casefold()
-        candidates = {sid: row for sid, row in context['rows'].items()
+        candidates = {('spell', sid): row for sid, row in context['rows'].items()
                       if kind in ('spell', 'spell_or_item') and row['name'].casefold() == key}
+        if kind in ('item', 'spell_or_item'):
+            candidates.update({('item', sid): row for sid, row in context.get('items', {}).items()
+                               if row['name'].casefold() == key})
+        issues = (list(context['issues']) if kind != 'item' else [])
+        if kind != 'spell':
+            issues += context.get('item_issues', [])
         decision = {'operand': operand, 'kind': kind, 'status': 'missing_identity',
-                    'candidate_ids': sorted(candidates), 'source_refs': source_refs,
+                    'candidate_ids': sorted({sid for _, sid in candidates}),
+                    'candidate_identities': sorted(candidates), 'source_refs': source_refs,
                     'unscoped_candidates': sorted({(r['kind'], r['object_id']) for r in unscoped_rows
                         if r['kind'] in ('spell', 'talent', 'item') and r['name_en'].casefold() == key}),
-                    'issues': context['issues']}
-        # Named items/talent-entry anchors need their own proven namespace
-        # projection. Do not mistake a same-name spell for an item in /use.
-        if kind == 'item' or (kind == 'spell_or_item' and any(r['kind'] == 'item' for r in source_refs)):
-            decision['status'] = 'incomplete_context'
-            decision['issues'] = context['issues'] + [{'reason': 'unsupported_item_identity'}]
-        elif context['issues']:
-            decision['status'] = 'incomplete_context'
-        elif len(candidates) > 1:
+                    'issues': issues}
+        if len(candidates) > 1:
             decision['status'] = 'ambiguous_identity'
+        elif issues:
+            decision['status'] = 'incomplete_context'
         elif candidates:
-            sid, row = next(iter(candidates.items()))
-            decision.update(identity=('spell', sid), branch=row['branch'],
-                            snapshot_build=row['snapshot_build'],
-                            relations=[edge for edge in context['edges'] if edge['to'] == sid])
+            identity, row = next(iter(candidates.items()))
+            entity_kind, sid = identity
+            decision.update(identity=identity,
+                            relations=[edge for edge in context['edges'] if edge['to'] == sid
+                                       and edge.get('to_kind', 'spell') == entity_kind])
+            if entity_kind == 'spell':
+                decision.update(branch=row['branch'], snapshot_build=row['snapshot_build'])
+            else:
+                decision['source'] = 'WowItemSnapshot'
             if not re.search(r'[\u3400-\u9fff]', row['name_zh']):
                 decision['status'] = 'missing_zh'
             else:

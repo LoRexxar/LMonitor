@@ -36,6 +36,11 @@ def translate_fragment_nodes(value, game_version, glossary, service, progress=No
         cached = cache.get()
         if cached is not None:
             node.replace_with(NavigableString(cached)); continue
+        # A cursor-target selector followed solely by one canonical reference
+        # is macro syntax, not prose. Preserve it byte-for-byte; adding Chinese
+        # would change the selector. Never exempt surrounding explanation.
+        if re.fullmatch(r'(?i:@cursor)\s+' + REF_RE.pattern, source.strip()):
+            continue
         remaining = re.sub(r'⟦WOWTERM_\d+⟧|\[\[.*?\]\]', '', protected.text)
         if not re.search(r'[A-Za-z]{2}', remaining):
             restored = glossary.restore(protected.text, protected.replacements)

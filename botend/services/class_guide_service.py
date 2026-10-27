@@ -21,7 +21,7 @@ from botend.services.wow_news_glossary_service import WowNewsGlossary, Protected
 from botend.services.class_guide_translation import translate_fragment_nodes
 from botend.services.class_guide_translation_cache import GuideTranslationCache
 from botend.services.class_guide_glossary import GuideGlossary
-from botend.services.wow_localization import effective_names, macro_reference_version, macro_spell_context
+from botend.services.wow_localization import effective_names, macro_reference_version, macro_identity_context
 from botend.services.class_guide_macros import (
     localize_macro, macro_source_repairs, macro_operands,
     macro_block_references, resolve_macro_operands,
@@ -148,7 +148,7 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
         if block['type'] == 'code' and block.get('data', {}).get('code'):
             source_code = block['data']['code']
             refs = macro_refs.get(block['id'], [])
-            context = macro_spell_context({r['object_id'] for r in refs if r['kind'] == 'spell'}, macro_version)
+            context = macro_identity_context(refs, macro_version)
             decisions = resolve_macro_operands(operands[block['id']], context, refs, macro_rows)
             code, missing = localize_macro(source_code, {}, resolve=lambda value, kind:
                 decisions[(kind, value.casefold())].get('name_zh'))
@@ -408,8 +408,10 @@ def _sync_guides(*, task, heartbeat, translate, cache_dir, limit, log, workers, 
                     record(future.result())
         heartbeat()
         run.status = 'partial' if any(r['status'] in {'failed', 'translation_partial'} for r in run.results) else ('limited' if limit and len(urls) > limit else 'completed')
-    except Exception as exc:
-        run.status, run.error = 'failed', str(exc)[:2000]
+    except BaseException as exc:
+        # Interrupts must terminate the durable batch too. Keep the original
+        # signal propagating, including when final heartbeat detects lease loss.
+        run.status, run.error = 'failed', (str(exc) or type(exc).__name__)[:2000]
         raise
     finally:
         run.finished_at = timezone.now()
