@@ -1206,6 +1206,9 @@ class WagoSkillDiffMonitor(BaseScan):
 
     def _resolve_hotfix_facts(self, rows, *, db2_build, interval_only=False, recover_spell_history=False):
         schema_cache = {}
+        # Share complete raw searches (and exhausted failures) only in this
+        # resolution; the next resolution may retry a transient failure.
+        history_search_cache = {}
         interval_history = {}
         if interval_only:
             for row in rows:
@@ -1252,6 +1255,7 @@ class WagoSkillDiffMonitor(BaseScan):
                         build_number=int(key[4]),
                         max_pages=int(getattr(settings, 'WAGO_HOTFIX_HISTORY_MAX_PAGES', 40) or 40),
                         timeout=max(60, self.http_timeout),
+                        search_cache=history_search_cache,
                     )
                 except (HotfixSourceIncomplete, OSError, requests.RequestException) as exc:
                     logger.warning('[WagoSkillDiffMonitor] Hotfix predecessor unresolved: %s', exc)

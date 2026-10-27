@@ -288,8 +288,27 @@ def collect_hotfix_push_rows(fetch_text, extract_props, push_id, *, region_id, l
     return selected
 
 
-def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table_name, region_id, locale, build_number=None, max_pages=40, timeout=60):
-    rows = _search_rows(fetch_text, extract_props, str(int(record_id)), max_pages=max_pages, timeout=timeout)
+def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table_name, region_id, locale, build_number=None, max_pages=40, timeout=60, search_cache=None):
+    # Caller owns a single resolution's cache, never a persistent page cache.
+    # All scopes search the same raw record query; filter only AFTER a complete
+    # independent sweep. Failed sweeps must never be combined or treated as [].
+    query = str(int(record_id))
+    key = ('https://wago.tools/hotfixes', query, max_pages, timeout)
+    cached = search_cache.get(key) if search_cache is not None else None
+    if cached is None:
+        try:
+            rows = _search_rows(fetch_text, extract_props, query, max_pages=max_pages, timeout=timeout)
+        except (HotfixSourceIncomplete, OSError) as exc:
+            if search_cache is not None:
+                search_cache[key] = ('incomplete', str(exc))
+            raise
+        if search_cache is not None:
+            search_cache[key] = ('complete', rows)
+    elif cached[0] == 'incomplete':
+        raise HotfixSourceIncomplete(cached[1])
+    else:
+        rows = cached[1]
+    # Scope conflicts do not poison the complete search for other coordinates.
     return _exact_rows(rows, region_id=region_id, locale=locale, table_name=table_name, record_id=record_id, build_number=build_number)
 
 
