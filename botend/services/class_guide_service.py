@@ -127,7 +127,14 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
     result = copy.deepcopy(blocks)
     glossary = build_guide_glossary(blocks, game_version)
     pending, failed = [], []
-    macro_names = macro_name_map((r['kind'], r['name_en'], r['name_zh']) for r in effective_names(game_version, source_text='\n'.join(str(b) for b in walk_blocks(blocks))))
+    # 宏参数复用实际本地化语法提取，不受前文自然术语的候选上限影响。
+    # 仍传完整来源以保留原显式引用/分支选择，名称冲突仍由 macro_name_map 拒绝。
+    macro_candidates = {name for block in walk_blocks(blocks)
+                        if block['type'] == 'code'
+                        for name in localize_macro(block.get('data', {}).get('code', ''), {})[1]}
+    macro_names = macro_name_map((r['kind'], r['name_en'], r['name_zh']) for r in effective_names(
+        game_version, source_text='\n'.join(str(b) for b in walk_blocks(blocks)),
+        name_candidates=macro_candidates))
     # 保护协议或术语范围调整后，复用结构和官方术语仍然吻合的旧译文。
     source_values = {b.get(field, '') for b in walk_blocks(result) for field in ('title', 'html')} - {''}
     prior_by_source = defaultdict(list)
