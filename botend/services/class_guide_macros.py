@@ -32,11 +32,11 @@ def macro_source_repairs(code):
 
 
 def macro_block_references(blocks):
-    """Scope source tokens to structural sections and preceding explanations.
+    """Keep structural preambles separate from next-code-run explanations.
 
-    Introductory references remain local to that section. Later explanations
-    apply to the next uninterrupted run of code blocks. Headings and sibling containers reset
-    scope; descendant or later references never leak backwards into a macro.
+    Ordinary sibling prose, including the first macro explanation, is consumed
+    by the next uninterrupted code run. Only structural owner/heading anchors
+    and the verified Maxroll leading-quote template form persistent intro.
     """
     from botend.services.class_guide_content import REF_RE
 
@@ -44,32 +44,44 @@ def macro_block_references(blocks):
         return [{'kind': kind, 'object_id': int(sid), 'source_block': block['id']}
                 for kind, sid, _ in REF_RE.findall(block.get('title', '') + '\n' + block.get('html', ''))]
 
+    def has_maxroll_preamble(owner, rows):
+        if not owner or owner.get('type') != 'details' or owner.get('source_type') != 'advgb/accordion-item':
+            return False
+        if len(rows) < 3:
+            return False
+        quote, explanation, first_code = rows[:3]
+        # core/quote alone does not imply section-wide identity: require the
+        # verified accordion prefix and a separate first-macro explanation.
+        return (quote.get('type') == 'html' and quote.get('source_type') == 'core/quote'
+                and not quote.get('children')
+                and re.fullmatch(r'\s*<blockquote\b[^>]*>.*</blockquote>\s*', quote.get('html', ''), re.S | re.I)
+                and explanation.get('type') == 'html' and explanation.get('source_type') == 'core/paragraph'
+                and not explanation.get('children') and first_code.get('type') == 'code')
+
     result = {}
 
-    def visit(rows, initial=()):
-        intro, adjacent, seen_code = list(initial), [], False
-        run_refs = None
-        for block in rows:
+    def visit(rows, initial=(), owner=None):
+        intro, adjacent, run_refs = list(initial), [], None
+        has_preamble = has_maxroll_preamble(owner, rows)
+        for index, block in enumerate(rows):
             own = refs(block)
             if block['type'] != 'code':
                 run_refs = None
             if block['type'] in ('heading', 'separator') or re.search(r'<h[2-6]\b', block.get('html', ''), re.I):
-                intro, adjacent, seen_code = own, [], False
-                run_refs = None
+                intro, adjacent = own, []
             elif block['type'] == 'code':
                 if run_refs is None:
                     run_refs = intro + adjacent
                 # Share the explanation, not a preceding code's own override.
                 result[block['id']] = own or list(run_refs)
-                adjacent, seen_code = [], True
-            elif block.get('children'):
-                # A new structural subsection owns its own introduction.
-                visit(block['children'], own)
-                intro, adjacent, seen_code = [], [], False
-            elif seen_code:
-                adjacent.extend(own)
-            else:
+                adjacent = []
+            elif block.get('children') or block['type'] in ('details', 'accordion', 'tabs', 'tab', 'columns', 'column', 'group'):
+                visit(block.get('children', []), own, block)
+                intro, adjacent = [], []
+            elif index == 0 and has_preamble:
                 intro.extend(own)
+            else:
+                adjacent.extend(own)
     visit(blocks)
     return result
 
