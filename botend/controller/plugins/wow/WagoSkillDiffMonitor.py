@@ -517,6 +517,7 @@ class WagoSkillDiffMonitor(BaseScan):
             facts = self._resolve_hotfix_facts(
                 hotfix_rows, db2_build=current_build,
                 interval_only=backfill_interval is not None,
+                recover_spell_history=backfill_interval is not None,
             )
             class_report = self._generate_hotfix_class_report(
                 branch, current_build, from_push, latest_push,
@@ -1187,7 +1188,7 @@ class WagoSkillDiffMonitor(BaseScan):
         matches = {str(version) for version in versions if self._extract_build_number(version) == short}
         return next(iter(matches)) if len(matches) == 1 else ''
 
-    def _resolve_hotfix_facts(self, rows, *, db2_build, interval_only=False):
+    def _resolve_hotfix_facts(self, rows, *, db2_build, interval_only=False, recover_spell_history=False):
         schema_cache = {}
         interval_history = {}
         if interval_only:
@@ -1222,9 +1223,11 @@ class WagoSkillDiffMonitor(BaseScan):
         def previous_for(source):
             key = (int(source['region_id']), source['locale'], source['table_name'].lower(), int(source['record_id']))
             if interval_only:
-                # Only previous pushes inside the explicitly requested range
-                # can establish old values; don't trace unrelated history.
-                return previous_hotfix_row(interval_history.get(key, []), source)
+                # 补报告优先使用完整区间内的前态；仅为技能表按需向前查找，
+                # 避免为道具、地图等无关记录启动大量历史请求。
+                previous = previous_hotfix_row(interval_history.get(key, []), source)
+                if previous is not None or not (recover_spell_history and key[2].startswith('spell')):
+                    return previous
             if key not in self._hotfix_history_cache:
                 try:
                     self._hotfix_history_cache[key] = collect_hotfix_record_history(
@@ -1235,7 +1238,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     )
                 except (HotfixSourceIncomplete, OSError, requests.RequestException) as exc:
                     logger.warning('[WagoSkillDiffMonitor] Hotfix predecessor unresolved: %s', exc)
-                    self._hotfix_history_cache[key] = []
+                    return None
             return previous_hotfix_row(self._hotfix_history_cache[key], source)
 
         facts = build_hotfix_facts(rows, schema_for=schema_for, previous_for=previous_for)
@@ -1245,6 +1248,8 @@ class WagoSkillDiffMonitor(BaseScan):
                 if not version:
                     raise WagoDiffUnavailable('Hotfix decoded source build lost its verified identity')
                 fact['source_build'] = version
+                if fact.get('before_source'):
+                    fact['before_source_build'] = self._full_hotfix_source_build(fact['before_source'], db2_build)
         return facts
 
     def _collect_hotfix_interval_rows(self, from_push, to_push, *, region_id, locale):
@@ -2697,6 +2702,24 @@ class WagoSkillDiffMonitor(BaseScan):
                 source_class_variants.setdefault(sid, set()).add(frozenset(class_ids))
             return bool(class_ids)
 
+        # 仅为职业效果中仍缺少前次热修的记录补充同版本基表对照。
+        # 对照单独保存，不能改写 before_verified 或伪装成热修前态。
+        baseline_left = max(0, min(32, int(getattr(settings, 'WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS', 24) or 0)))
+        for fact in facts:
+            source, after = fact.get('source') or {}, fact.get('after') or {}
+            if (not baseline_left or fact.get('before_verified') or 'client_baseline' in fact
+                    or str(source.get('table_name') or '').lower() != 'spelleffect'
+                    or not fact.get('after_verified')):
+                continue
+            sid = self._to_int(after.get('SpellID'))
+            if sid <= 0 or not source_class_ids(sid, source):
+                continue
+            baseline_left -= 1
+            baseline = self._fetch_hotfix_db2_baseline_row(
+                'SpellEffect', fact['source_build'], int(source['record_id']), source['locale'],
+            )
+            if baseline is not None:
+                fact['client_baseline'] = baseline
         changes = project_class_spell_changes(facts, is_class_spell=source_class_ids)
         for sid in changes:
             variants = source_spec_variants.get(sid) or set()
@@ -3052,7 +3075,7 @@ class WagoSkillDiffMonitor(BaseScan):
         table_stats = list(table_stats or [])
         by_table = by_table or {}
         fact_lookup = {
-            (int(f['source']['push_id']), str(f['source']['table_name']).lower(), int(f['source']['record_id'])): f
+            (int(f['source']['push_id']), str(f['source']['table_name']).lower(), int(f['source']['record_id']), str(f['source'].get('build') or '')): f
             for f in (facts or []) if isinstance(f, dict) and isinstance(f.get('source'), dict)
         }
         if facts is not None:
@@ -3557,8 +3580,8 @@ class WagoSkillDiffMonitor(BaseScan):
             for raw_row in raw_rows:
                 rid = self._to_int((raw_row or {}).get('record_id') or 0)
                 pid = self._to_int((raw_row or {}).get('push_id') or to_push)
-                key = (pid, tkey(table_name), rid)
-                identity = (pid, rid) if facts is not None else rid
+                key = (pid, tkey(table_name), rid, str(raw_row.get('build') or ''))
+                identity = (pid, rid, str(raw_row.get('build') or '')) if facts is not None else rid
                 if rid <= 0 or identity in seen_rids:
                     continue
                 seen_rids.add(identity)
@@ -4020,11 +4043,11 @@ class WagoSkillDiffMonitor(BaseScan):
             for r in raw_rows:
                 rid = self._to_int((r or {}).get('record_id') or 0)
                 pid = self._to_int((r or {}).get('push_id') or to_push)
-                identity = (pid, rid) if facts is not None else rid
+                identity = (pid, rid, str(r.get('build') or '')) if facts is not None else rid
                 if rid <= 0 or identity in seen:
                     continue
                 seen.add(identity)
-                fact = fact_lookup.get((pid, key, rid))
+                fact = fact_lookup.get((pid, key, rid, str(r.get('build') or '')))
                 row = (fact.get('after') or {}) if fact is not None else fetch_row(t, rid)
                 summary = summarize_row(t, rid, row)
                 records.append({
@@ -7282,7 +7305,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
             parts.append(f"<div class='meta'><span>主要变更表：{html.escape(table_summary)}</span></div>")
         parts.append("<section class='impact-overview' aria-labelledby='impactOverviewTitle'>")
         impact_note = ('仅对可直接判读的数值、系数与消耗字段评估方向；枚举与机制参数不等于伤害百分比。'
-                       if assess_tone else '只有已核实前态的旧→新值才证明字段变化；其余只是本次 payload 观察值，不能据此判断强弱。')
+                       if assess_tone else '旧→新值标明前次热修来源；基表对照单独标注，不等同于前次热修。缺少对照时仅展示本次观察值，机制参数不直接代表强弱。')
         parts.append(f"<div class='impact-overview-head'><div class='impact-overview-title' id='impactOverviewTitle'>影响评估（独立于改动事实）</div><div class='impact-note'>{impact_note}</div></div>")
         parts.append("<div class='tone-tabs' role='group' aria-label='按改动方向筛选'>")
         parts.append(f"<button class='tone-tab' type='button' data-filter-tone='all' aria-pressed='true'>全部<span class='tab-count'>{len(spell_changes)}</span></button>")
@@ -7545,6 +7568,14 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                                     source_build = (it.get('meta') or {}).get('SourceBuild') if effect_record_ids else ''
                                     if source_build:
                                         record_label += f" · 来源 build {html.escape(str(source_build))}"
+                                    before_push = (it.get('meta') or {}).get('BeforePushID')
+                                    if before_push:
+                                        before_build = (it.get('meta') or {}).get('BeforeSourceBuild') or ''
+                                        record_label += f" · 前次热修 push {html.escape(str(before_push))} / build {html.escape(str(before_build))}"
+                                    if (it.get('meta') or {}).get('ComparisonKind') == 'client_baseline':
+                                        record_label += ' · 同版本客户端基表 → 本次热修（非前次热修值）'
+                                    elif (it.get('meta') or {}).get('BaselineMissing'):
+                                        record_label += ' · 同版本客户端基表无此记录'
                                     effect_index = (it.get('meta') or {}).get('EffectIndex')
                                     if effect_index is None and not effect_record_ids:
                                         effect_index = it.get('id')
@@ -7635,7 +7666,7 @@ body{{font-family:ui-sans-serif,system-ui,Segoe UI,Arial;margin:0;padding:16px;l
                     if desc_primary:
                         parts.append(f"<div class='spell-desc'>{desc_primary}</div>")
                     parts.append("</div></div>")
-                    heading = '本次热修来源事实（已核实变化 / 前态未核实的观察值）' if effect_record_ids else '本次字段与数值变化'
+                    heading = '本次热修来源事实（已核实变化 / 基表对照 / 前态未核实的观察值）' if effect_record_ids else '本次字段与数值变化'
                     parts.append(f"<div class='impact-block'><div class='impact-block-title'>{heading}</div><div class='impact-list'>")
                     if impact_lines or fact_lines:
                         parts.extend(impact_lines)

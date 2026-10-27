@@ -8,6 +8,7 @@ An unrecognized layout is unresolved rather than guessed.
 from __future__ import annotations
 
 import re
+from decimal import Decimal, InvalidOperation
 from collections.abc import Mapping
 
 
@@ -48,7 +49,9 @@ def decode_hotfix_row(payload, schema_row: Mapping, *, record_id: int):
                 col += len(members)
                 pos += 1
                 continue
-        result[name] = _text(payload[pos])
+        # Wago 的旧记录省略内嵌 ID；此时使用已经过精确筛选的来源 record_id。
+        # 非空但不匹配的 ID 仍在下方拒绝，不能覆盖错误身份。
+        result[name] = str(record_id) if name == 'ID' and payload[pos] == '' else _text(payload[pos])
         col += 1
         pos += 1
     if pos != len(payload) or any(v is None for v in result.values()):
@@ -70,16 +73,29 @@ def previous_hotfix_row(rows, target):
 
     scoped = [row for row in rows if isinstance(row, dict)
               and identity(row) == identity(target)
-              and int(row.get('push_id') or 0) < int(target.get('push_id') or 0)]
+              and int(row.get('push_id') or 0) < int(target.get('push_id') or 0)
+              and (not target.get('build') or not row.get('build')
+                   or int(row['build']) <= int(target['build']))]
     if not scoped:
         return None
     latest_push = max(int(row.get('push_id') or 0) for row in scoped)
     latest = [row for row in scoped if int(row.get('push_id') or 0) == latest_push]
+    exact_build = [row for row in latest if str(row.get('build') or '') == str(target.get('build') or '')]
+    if exact_build:
+        latest = exact_build
+    def comparable_payload(row):
+        data = row.get('data')
+        if isinstance(data, list) and data and data[0] == '':
+            return [int(row['record_id']), *data[1:]]
+        return data
+    # 同一推送多个版本的值一致时可选择最新适用版本，并用它自己的结构解码。
+    # 不同版本给出相互矛盾的值时，不能随意选取一个作为前态。
     if not latest or not isinstance(latest[0].get('data'), list) or any(
-        row.get('data') != latest[0]['data'] or row.get('build') != latest[0].get('build') for row in latest
+        comparable_payload(row) != comparable_payload(latest[0])
+        or row.get('status') != latest[0].get('status') for row in latest
     ):
         return None
-    return latest[0]
+    return max(latest, key=lambda row: (int(row.get('build') or 0), int(row.get('id') or 0)))
 
 
 def previous_hotfix_payload(rows, target):
@@ -97,6 +113,24 @@ def field_changes(before: Mapping | None, after: Mapping | None):
     ]
 
 
+def client_baseline_changes(before, after):
+    """客户端基表仅用于明确标注的对照，忽略 Wago 浮点序列化末位误差。"""
+    changes = []
+    for item in field_changes(before, after):
+        old, new = item['before'], item['after']
+        try:
+            left, right = Decimal(str(old)), Decimal(str(new))
+            if left.is_finite() and right.is_finite():
+                if left == right:
+                    continue
+                if (left != left.to_integral_value() or right != right.to_integral_value()) and abs(left - right) <= max(abs(left), abs(right)) * Decimal('1e-10'):
+                    continue
+        except InvalidOperation:
+            pass
+        changes.append(item)
+    return changes
+
+
 def build_hotfix_facts(rows, *, schema_for, previous_for):
     """One canonical, source-identified fact set for both report projections."""
     facts = []
@@ -108,18 +142,23 @@ def build_hotfix_facts(rows, *, schema_for, previous_for):
             schema = None
         after = decode_hotfix_row(source.get('data'), schema, record_id=record_id)
         before = None
+        predecessor = None
         if after is not None:
             try:
                 predecessor = previous_for(source)
             except Exception:
                 predecessor = None
             if isinstance(predecessor, Mapping) and 'data' in predecessor:
-                before = decode_hotfix_row(predecessor['data'], schema_for(predecessor), record_id=record_id)
+                try:
+                    before = decode_hotfix_row(predecessor['data'], schema_for(predecessor), record_id=record_id)
+                except Exception:
+                    before = None
             else:
                 before = decode_hotfix_row(predecessor, schema, record_id=record_id)
         facts.append({
             'source': source,
             'before': before,
+            'before_source': dict(predecessor) if before is not None and isinstance(predecessor, Mapping) else None,
             'after': after,
             'changes': field_changes(before, after),
             'before_verified': before is not None,
@@ -152,17 +191,29 @@ def project_class_spell_changes(facts, *, is_class_spell):
         if fact.get('before_verified'):
             changes = fact.get('changes') or []
             fields = [dict(item) for item in changes if item.get('field') not in identity_fields]
+            action = 'changed'
+        elif fact.get('client_baseline'):
+            fields = client_baseline_changes(fact['client_baseline'], after)
+            action = 'baseline'
         else:
             fields = [
                 {'field': name, 'before': '旧值未核实', 'after': value}
                 for name, value in after.items()
                 if name not in identity_fields and str(value) not in ('', '0', '0.0')
             ]
+            action = 'observed'
         if not fields:
             continue
         meta = {'PushID': push_id}
         if fact.get('source_build'):
             meta['SourceBuild'] = fact['source_build']
+        if fact.get('before_source'):
+            meta['BeforePushID'] = fact['before_source'].get('push_id')
+            meta['BeforeSourceBuild'] = fact.get('before_source_build') or fact['before_source'].get('build')
+        if action == 'baseline':
+            meta['ComparisonKind'] = 'client_baseline'
+        elif fact.get('client_baseline') == {}:
+            meta['BaselineMissing'] = True
         if table == 'spelleffect':
             meta['EffectIndex'] = effect_index
             if 'Effect' in after:
@@ -171,7 +222,7 @@ def project_class_spell_changes(facts, *, is_class_spell):
         spells[spell_id]['tables'].add(table)
         spells[spell_id]['diffs'].setdefault(table, []).append({
             'id': record_id,
-            'action': 'changed' if fact.get('before_verified') else 'observed',
+            'action': action,
             'meta': meta,
             'fields': fields,
         })

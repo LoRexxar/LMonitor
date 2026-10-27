@@ -3,8 +3,8 @@ from urllib.parse import parse_qs, urlsplit
 from django.test import SimpleTestCase
 from unittest.mock import patch
 
-from botend.services.wago_hotfix_facts import decode_hotfix_row, previous_hotfix_payload, field_changes, build_hotfix_facts, project_class_spell_changes
-from botend.services.wago_hotfix_source import collect_hotfix_build_rows, collect_hotfix_push_rows, HotfixSourceIncomplete
+from botend.services.wago_hotfix_facts import decode_hotfix_row, previous_hotfix_row, previous_hotfix_payload, field_changes, client_baseline_changes, build_hotfix_facts, project_class_spell_changes
+from botend.services.wago_hotfix_source import collect_hotfix_build_rows, collect_hotfix_push_rows, collect_hotfix_record_history, HotfixSourceIncomplete
 
 
 class WagoHotfixFactsTests(SimpleTestCase):
@@ -164,6 +164,95 @@ class WagoHotfixFactsTests(SimpleTestCase):
         self.assertIsNone(decode_hotfix_row(self.new[:-1], self.schema, record_id=1106904))
         self.assertIsNone(decode_hotfix_row(self.new[:2] + [[0]] + self.new[3:], self.schema, record_id=1106904))
 
+    def test_legacy_empty_embedded_id_uses_exact_source_record_identity(self):
+        decoded = decode_hotfix_row([''] + self.old[1:], self.schema, record_id=1106904)
+        self.assertEqual(decoded['ID'], '1106904')
+        self.assertEqual(decoded['PvpMultiplier'], '0.68000000715256')
+        self.assertIsNone(decode_hotfix_row([None] + self.old[1:], self.schema, record_id=1106904))
+
+    def test_history_preserves_multiple_builds_at_same_push(self):
+        rows = [
+            {'id': i, 'push_id': 113265, 'locale': 'enUS', 'region_id': 3,
+             'table_name': 'SpellEffect', 'record_id': 1123513, 'build': build,
+             'status': 1, 'data': self.new}
+            for i, build in ((1, 70529), (2, 70575))
+        ]
+        def fetch(url, **kwargs):
+            return {'filters': {'search': parse_qs(urlsplit(url).query)['search'][0]},
+                    'hotfixes': {'data': rows, 'total': 2, 'current_page': 1,
+                                'last_page': 1, 'per_page': 25}}
+        self.assertEqual(collect_hotfix_record_history(
+            fetch, lambda value: value, 1123513, table_name='SpellEffect',
+            region_id=3, locale='enUS'), rows)
+        self.assertEqual(collect_hotfix_push_rows(
+            fetch, lambda value: value, 113265, region_id=3, locale='enUS'), rows)
+
+    def test_predecessor_prefers_exact_build_and_rejects_ambiguous_cross_build_values(self):
+        source = {'id': 3, 'push_id': 113265, 'locale': 'enUS', 'region_id': 3,
+                  'table_name': 'SpellEffect', 'record_id': 1106904, 'build': 70575,
+                  'status': 1, 'data': self.new}
+        old = {**source, 'id': 1, 'push_id': 112386, 'build': 70529, 'data': self.old}
+        other = {**old, 'id': 2, 'build': 70575, 'data': self.new}
+        self.assertEqual(previous_hotfix_row([old, other], source), other)
+        self.assertIsNone(previous_hotfix_row([old, other], {**source, 'build': 70600}))
+        identical = {**other, 'data': self.old}
+        self.assertEqual(previous_hotfix_row([old, identical], {**source, 'build': 70600}), identical)
+        self.assertEqual(previous_hotfix_row([old, other], {**source, 'build': 70529}), old)
+
+    def test_predecessor_does_not_skip_deleted_latest_push_or_use_future_push(self):
+        source = {'id': 3, 'push_id': 113265, 'locale': 'enUS', 'region_id': 3,
+                  'table_name': 'SpellEffect', 'record_id': 1106904, 'build': 70575,
+                  'status': 1, 'data': self.new}
+        old = {**source, 'id': 1, 'push_id': 112179, 'data': self.old}
+        deleted = {**source, 'id': 2, 'push_id': 113000, 'status': 2, 'data': None}
+        self.assertIsNone(previous_hotfix_row([old, deleted, source], source))
+        self.assertIsNone(previous_hotfix_row([{**old, 'push_id': 113266}], source))
+
+    def test_equivalent_legacy_ids_do_not_make_cross_build_history_ambiguous(self):
+        source = {'id': 3, 'push_id': 113265, 'locale': 'enUS', 'region_id': 3,
+                  'table_name': 'SpellEffect', 'record_id': 1106904, 'build': 70575,
+                  'status': 1, 'data': self.new}
+        old = {**source, 'id': 1, 'push_id': 107263, 'build': 66709, 'data': [''] + self.old[1:]}
+        modern = {**old, 'id': 2, 'build': 66838, 'data': self.old}
+        self.assertEqual(previous_hotfix_row([old, modern], source), modern)
+
+    def test_client_baseline_is_explicit_and_never_becomes_verified_hotfix_predecessor(self):
+        fact = {'source': {'id': 1, 'table_name': 'SpellEffect', 'record_id': 1138787, 'push_id': 113265},
+                'after': {'ID': '1138787', 'SpellID': '443113', 'EffectIndex': '0',
+                          'EffectBonusCoefficient': '1.7999999523163'},
+                'before_verified': False, 'after_verified': True, 'changes': [],
+                'client_baseline': {'ID': 1138787, 'SpellID': 443113, 'EffectIndex': 0,
+                                    'EffectBonusCoefficient': 1.5}}
+        entry = project_class_spell_changes([fact], is_class_spell=lambda *args: True)[443113]['diffs']['spelleffect'][0]
+        self.assertEqual(entry['action'], 'baseline')
+        self.assertEqual(entry['meta']['ComparisonKind'], 'client_baseline')
+        self.assertEqual(entry['fields'], [{'field': 'EffectBonusCoefficient', 'before': 1.5, 'after': '1.7999999523163'}])
+        self.assertFalse(fact['before_verified'])
+        fact['client_baseline'] = dict(fact['after'])
+        self.assertEqual(project_class_spell_changes([fact], is_class_spell=lambda *args: True), {})
+        fact['client_baseline'] = {}
+        entry = project_class_spell_changes([fact], is_class_spell=lambda *args: True)[443113]['diffs']['spelleffect'][0]
+        self.assertEqual(entry['action'], 'observed')
+        self.assertTrue(entry['meta']['BaselineMissing'])
+
+    def test_client_baseline_ignores_serialization_noise_but_keeps_integer_mask_changes(self):
+        self.assertEqual(client_baseline_changes(
+            {'PvpMultiplier': 2.70399999619, 'Mask': 2147483647},
+            {'PvpMultiplier': '2.7039999961853', 'Mask': '2147483648'}),
+            [{'field': 'Mask', 'before': 2147483647, 'after': '2147483648'}])
+
+    def test_predecessor_schema_failure_keeps_verified_new_payload(self):
+        source = {'id': 2, 'record_id': 1106904, 'data': self.new}
+        old = {**source, 'id': 1, 'data': self.old}
+        def schema(row):
+            if row['id'] == 1:
+                raise OSError('历史结构暂时不可用')
+            return self.schema
+        fact = build_hotfix_facts([source], schema_for=schema, previous_for=lambda _: old)[0]
+        self.assertTrue(fact['after_verified'])
+        self.assertFalse(fact['before_verified'])
+        self.assertIsNone(fact['before_source'])
+
     def test_table_schema_is_reusable_without_becoming_another_records_values(self):
         different_id = 1106905
         payload = [different_id] + self.new[1:]
@@ -243,6 +332,7 @@ class WagoHotfixFactsTests(SimpleTestCase):
             return OrderedDict(keys)
         facts = build_hotfix_facts([new_source], schema_for=schema, previous_for=lambda source: old_source)
         self.assertTrue(facts[0]['before_verified'])
+        self.assertEqual(facts[0]['before_source'], old_source)
         self.assertEqual(facts[0]['changes'], [
             {'field': 'BonusCoefficientFromAP', 'before': '6.9677400588989', 'after': '10.451600074768'},
             {'field': 'PvpMultiplier', 'before': '旧值未核实', 'after': '0.5440000295639'},
@@ -284,3 +374,38 @@ class WagoHotfixFactsTests(SimpleTestCase):
         with self.assertRaisesRegex(HotfixSourceIncomplete, 'duplicate record'):
             collect_hotfix_push_rows(fetch, lambda value: value, 111885,
                                      region_id=3, locale='enUS')
+
+class Hotfix149LiveEvidenceTests(SimpleTestCase):
+    def test_real_effect_histories_recover_values_and_filter_unchanged_fields(self):
+        import json
+        from pathlib import Path
+        sample = json.loads((Path(__file__).parent / 'fixtures' / 'hotfix_149_spell_effects.json').read_text(encoding='utf-8'))
+        facts = []
+        for history in sample['histories'].values():
+            sources = [row for row in history if 112881 < row['push_id'] <= 113268]
+            facts.extend(build_hotfix_facts(sources,
+                schema_for=lambda row: sample['schemas'].get(str(row['build'])),
+                previous_for=lambda row: previous_hotfix_row(history, row)))
+        self.assertEqual(len(facts), 34)
+        self.assertEqual(sum(fact['before_verified'] for fact in facts), 28)
+        self.assertEqual(sum(fact['before_verified'] and not fact['changes'] for fact in facts), 8)
+        by_id = {fact['source']['record_id']: fact for fact in facts}
+        self.assertEqual(by_id[1123513]['changes'], [{'field': 'PvpMultiplier',
+            'before': '2.7039999961853', 'after': '2.1631999015808'}])
+        self.assertEqual(by_id[1315666]['changes'], [{'field': 'EffectBasePointsF', 'before': '-50', 'after': '-32'}])
+        for fact in facts:
+            if fact['source']['build'] == 70575 and fact['before_verified']:
+                baseline = sample['baselines_70575'][str(fact['source']['record_id'])][0]
+                for change in fact['changes']:
+                    field = change['field']
+                    self.assertEqual(client_baseline_changes(
+                        {field: baseline[field]}, {field: change['before']}), [])
+        for fact in facts:
+            if fact['source']['build'] == 70575 and not fact['before_verified']:
+                rows = sample['baselines_70575'][str(fact['source']['record_id'])]
+                fact['client_baseline'] = rows[0] if rows else {}
+        latest = [fact for fact in facts if fact['source']['build'] == 70575]
+        projected = project_class_spell_changes(latest, is_class_spell=lambda *args: True)
+        self.assertNotIn(137019, projected)
+        self.assertEqual(projected[443113]['diffs']['spelleffect'][0]['action'], 'baseline')
+        self.assertTrue(next(item for item in projected[428200]['diffs']['spelleffect'] if item['id'] == 1364784)['meta']['BaselineMissing'])

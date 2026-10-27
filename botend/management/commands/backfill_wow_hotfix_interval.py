@@ -61,7 +61,7 @@ class Command(BaseCommand):
                     sid, push, row_region, record_id = (int(row[key]) for key in ('id', 'push_id', 'region_id', 'record_id'))
                     build, status = int(row['build']), int(row['status'])
                     table = row['table_name']
-                    identity = (push, table.lower(), record_id)
+                    identity = (push, table.lower(), record_id, build)
                     valid = (sid > 0 and from_push < push <= to_push and row_region == region_id
                              and record_id > 0 and build > 0 and isinstance(table, str)
                              and re.fullmatch(r'[A-Za-z][A-Za-z0-9_]*', table)

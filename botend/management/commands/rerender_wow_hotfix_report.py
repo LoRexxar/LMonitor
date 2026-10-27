@@ -1,4 +1,4 @@
-"""Re-render one already complete Hotfix report from saved source facts only."""
+"""重绘完整热修报告；显式选择时补充历史旧值，保持原始来源与采集游标不变。"""
 import fcntl
 import hashlib
 import json
@@ -6,10 +6,12 @@ import os
 import re
 import shutil
 import tempfile
+from contextlib import nullcontext
 from pathlib import Path
 
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 from botend.controller.plugins.wow.WagoSkillDiffMonitor import WagoSkillDiffMonitor
 from botend.models import WowHotfixReport
@@ -17,7 +19,7 @@ from botend.services.wago_hotfix_source import source_ids_sha256
 
 
 class Command(BaseCommand):
-    help = 'Re-render an existing verified Hotfix HTML pair without recollecting facts or moving the cursor'
+    help = '重绘已核实热修报告；可显式补充旧值，保持原始来源与采集游标不变'
 
     def add_arguments(self, parser):
         parser.add_argument('--report-id', type=int, required=True)
@@ -25,12 +27,17 @@ class Command(BaseCommand):
         parser.add_argument('--expected-id-sha256', required=True)
         parser.add_argument('--expected-facts-sha256', required=True)
         parser.add_argument('--full-only', action='store_true', help='仅更新正常全量 HTML，保持职业报告原文件不变')
+        parser.add_argument('--refresh-predecessors', action='store_true',
+                            help='为旧值缺失的记录重新查询历史来源，同步更新事实与两份报告，保持采集游标不变')
 
     def handle(self, *args, **options):
         report_id, expected_count = options['report_id'], options['expected_count']
         digest = options['expected_id_sha256']
         facts_digest = options['expected_facts_sha256']
         full_only = bool(options['full_only'])
+        refresh_predecessors = bool(options['refresh_predecessors'])
+        if full_only and refresh_predecessors:
+            raise CommandError('补充旧值必须同时更新职业报告，不能与 --full-only 合用')
         if (report_id <= 0 or expected_count <= 0
                 or not re.fullmatch(r'[0-9a-f]{64}', digest)
                 or not re.fullmatch(r'[0-9a-f]{64}', facts_digest)):
@@ -49,7 +56,7 @@ class Command(BaseCommand):
         try:
             facts = json.loads(row.source_facts_json)
             sources = [item['source'] for item in facts]
-            identities = {(int(source['push_id']), str(source['table_name']).lower(), int(source['record_id']))
+            identities = {(int(source['push_id']), str(source['table_name']).lower(), int(source['record_id']), str(source.get('build') or ''))
                           for source in sources}
             valid = (len(facts) == len(sources) == len(identities) == expected_count
                      and len({int(source['id']) for source in sources}) == expected_count
@@ -90,6 +97,25 @@ class Command(BaseCommand):
             try:
                 monitor = WagoSkillDiffMonitor(None, None)
                 monitor._hotfix_report_only = True
+                if refresh_predecessors:
+                    missing = [fact for fact in facts if fact.get('after_verified') and not fact.get('before_verified')
+                               and str(fact['source'].get('table_name') or '').lower().startswith('spell')]
+                    recovered = monitor._resolve_hotfix_facts(
+                        [fact['source'] for fact in missing], db2_build=row.build_str,
+                    ) if missing else []
+                    if len(recovered) != len(missing):
+                        raise CommandError('补充旧值后的来源数量不一致，保留原报告')
+                    replacements = {}
+                    for original, updated in zip(missing, recovered):
+                        if (updated.get('source') != original['source']
+                                or not updated.get('after_verified')
+                                or updated.get('after') != original.get('after')):
+                            raise CommandError('补充旧值改变了原始来源或已核实的新值，保留原报告')
+                        if updated.get('before_verified'):
+                            replacements[int(original['source']['id'])] = {**original, **updated}
+                    if not replacements:
+                        raise CommandError('未找到可核实的新增旧值，保留原报告')
+                    facts = [replacements.get(int(fact['source']['id']), fact) for fact in facts]
                 cls = None
                 if not full_only:
                     cls = monitor._generate_hotfix_class_report(
@@ -125,9 +151,10 @@ class Command(BaseCommand):
                         or full.get('table_count') != row.table_count
                         or full.get('content_html_path') != row.content_html_path
                         or (not full_only and (not cls
-                            or cls.get('spell_count') != row.class_spell_count
-                            or cls.get('class_count') != row.class_class_count
-                            or cls.get('unresolved_count') != row.class_unresolved_count
+                            or (not refresh_predecessors and (
+                                cls.get('spell_count') != row.class_spell_count
+                                or cls.get('class_count') != row.class_class_count
+                                or cls.get('unresolved_count') != row.class_unresolved_count))
                             or cls.get('content_html_path') != row.class_content_html_path))):
                     raise CommandError('Re-rendered Hotfix report identity or counts changed')
                 paths = []
@@ -139,7 +166,7 @@ class Command(BaseCommand):
                 full_text = paths[0].read_text(encoding='utf-8')
                 class_text = paths[1].read_text(encoding='utf-8') if not full_only else ''
                 if (full_text.count("<article class='record'") != expected_count
-                        or (not full_only and class_text.count("<article class='spell'") != row.class_spell_count)):
+                        or (not full_only and class_text.count("<article class='spell'") != cls['spell_count'])):
                     raise CommandError('Re-rendered HTML omitted frozen source records or class spells')
                 previous_full = targets[0].read_text(encoding='utf-8')
                 old_comparisons = set(re.findall(r"data-baseline-key='([^']+)'", previous_full))
@@ -164,11 +191,23 @@ class Command(BaseCommand):
                     shutil.copy2(target, backup)
                     backups.append((target, Path(backup)))
                 try:
-                    for source, target in zip(paths, targets):
-                        os.replace(source, target)
-                    for target, digest_after in zip(targets, expected_hashes):
-                        if hashlib.sha256(target.read_bytes()).hexdigest() != digest_after:
-                            raise OSError('Published report file hash mismatch')
+                    with transaction.atomic() if refresh_predecessors else nullcontext():
+                        if refresh_predecessors:
+                            locked = WowHotfixReport.objects.select_for_update().get(pk=row.pk)
+                            if locked.source_facts_json != row.source_facts_json:
+                                raise CommandError('报告事实已被其他进程更新，取消本次替换')
+                        for source, target in zip(paths, targets):
+                            os.replace(source, target)
+                        for target, digest_after in zip(targets, expected_hashes):
+                            if hashlib.sha256(target.read_bytes()).hexdigest() != digest_after:
+                                raise OSError('Published report file hash mismatch')
+                        if refresh_predecessors:
+                            locked.source_facts_json = json.dumps(facts, ensure_ascii=False, separators=(',', ':'))
+                            locked.class_spell_count = cls['spell_count']
+                            locked.class_class_count = cls['class_count']
+                            locked.class_unresolved_count = cls['unresolved_count']
+                            locked.save(update_fields=['source_facts_json', 'class_spell_count', 'class_class_count',
+                                                       'class_unresolved_count', 'updated_at'])
                 except Exception as exc:
                     failures = []
                     for target, backup in backups:
@@ -188,6 +227,7 @@ class Command(BaseCommand):
                     backup.unlink(missing_ok=True)
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
         self.stdout.write(self.style.SUCCESS(
-            f'Hotfix report #{row.pk} re-rendered from {expected_count} frozen sources; '
-            'report facts and cursor unchanged'
+            (f'热修报告 #{row.pk} 已为 {len(replacements)} 条来源补齐旧值并更新报告；原始来源与采集游标保持不变'
+             if refresh_predecessors else
+             f'Hotfix report #{row.pk} re-rendered from {expected_count} frozen sources; report facts and cursor unchanged')
         ))

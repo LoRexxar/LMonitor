@@ -99,7 +99,8 @@ def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, pus
             rid = pid = 0
         if not table or rid <= 0 or pid <= 0:
             raise HotfixSourceIncomplete(f'Hotfix incomplete region={region_id} locale={locale}: missing record identity')
-        key = (pid, table.lower(), rid)
+        # 同一推送会为多个客户端版本分别发布，版本也是物理记录身份的一部分。
+        key = (pid, table.lower(), rid, str(row.get('build') or ''))
         previous = selected.get(key)
         if previous is not None:
             raise HotfixSourceIncomplete(

@@ -401,7 +401,7 @@ class WagoSkillDiffHtmlReportTests(SimpleTestCase):
         report = BeautifulSoup(html, 'html.parser')
         self.assertIn('改动来源', report.select_one('.summary').get_text())
         self.assertEqual(report.select_one('.affected-metric strong').get_text(strip=True), '—')
-        self.assertEqual(report.select_one('.impact-block-title').get_text(strip=True), '本次热修来源事实（已核实变化 / 前态未核实的观察值）')
+        self.assertEqual(report.select_one('.impact-block-title').get_text(strip=True), '本次热修来源事实（已核实变化 / 基表对照 / 前态未核实的观察值）')
         facts = report.select('.impact-block [data-effect-index]')
         self.assertEqual([row['data-effect-index'] for row in facts], ['9', '10', '11', '12'])
         self.assertIn('EffectAura', facts[0].get_text())
@@ -1538,7 +1538,7 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
             self.assertTrue(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
         latest.assert_called_once_with(locale='enUS', region_id=1, current_build='12.1.0.69933')
         collect.assert_called_once_with(112181, 112185, region_id=1, locale='enUS')
-        resolve.assert_called_once_with([source], db2_build='12.1.0.69933', interval_only=False)
+        resolve.assert_called_once_with([source], db2_build='12.1.0.69933', interval_only=False, recover_spell_history=False)
         self.assertIs(full_writer.call_args.kwargs['facts'], class_writer.call_args.kwargs['facts'])
         self.assertTrue(full_writer.call_args.kwargs['stage_for_publication'])
         self.assertTrue(class_writer.call_args.kwargs['stage_for_publication'])
@@ -2110,3 +2110,106 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
             names.assert_called_once_with({427453}, 'wow', '12.1.0.69933', allow_compatible_name=True)
             self.assertIn('Hammer of Light', Path(path).read_text(encoding='utf-8'))
 
+
+class HotfixPredecessorRecoveryTests(SimpleTestCase):
+    def test_default_resolution_recovers_before_interval_and_preserves_origin(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._full_hotfix_source_build = lambda source, current: f"12.1.5.{source['build']}"
+        monitor._fetch_db2_row_by_id = lambda table, build, rid: {'ID': rid, 'Value': '0'}
+        source = {'id': 2, 'push_id': 113265, 'region_id': 3, 'locale': 'enUS',
+                  'table_name': 'SpellEffect', 'record_id': 7, 'build': 70575,
+                  'status': 1, 'data': [7, '2.1631999015808']}
+        old = {**source, 'id': 1, 'push_id': 112179, 'build': 69933,
+               'data': [7, '2.7039999961853']}
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.collect_hotfix_record_history',
+                   return_value=[old, source]) as history:
+            facts = monitor._resolve_hotfix_facts([source], db2_build='12.1.5.70575',
+                                                interval_only=True, recover_spell_history=True)
+        history.assert_called_once()
+        self.assertTrue(facts[0]['before_verified'])
+        self.assertEqual(facts[0]['before_source']['id'], 1)
+        self.assertEqual(facts[0]['before_source_build'], '12.1.5.69933')
+        self.assertEqual(facts[0]['changes'], [
+            {'field': 'Value', 'before': '2.7039999961853', 'after': '2.1631999015808'}])
+
+    def test_transient_history_failure_does_not_poison_following_resolution(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._full_hotfix_source_build = lambda source, current: current
+        monitor._fetch_db2_row_by_id = lambda table, build, rid: {'ID': rid, 'Value': '0'}
+        source = {'id': 2, 'push_id': 113265, 'region_id': 3, 'locale': 'enUS',
+                  'table_name': 'SpellEffect', 'record_id': 7, 'build': 70575,
+                  'status': 1, 'data': [7, '20']}
+        old = {**source, 'id': 1, 'push_id': 112179, 'data': [7, '10']}
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.collect_hotfix_record_history',
+                   side_effect=[OSError('临时断连'), [old, source]]):
+            first = monitor._resolve_hotfix_facts([source], db2_build='12.1.5.70575')[0]
+            second = monitor._resolve_hotfix_facts([source], db2_build='12.1.5.70575')[0]
+        self.assertFalse(first['before_verified'])
+        self.assertTrue(second['before_verified'])
+
+    def test_full_report_preserves_separate_build_rows_and_their_decoded_values(self):
+        import tempfile
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        sources = [{'id': sid, 'push_id': 113265, 'region_id': 3, 'locale': 'enUS',
+                    'table_name': 'SpellEffect', 'record_id': 1123513, 'build': build,
+                    'status': 1, 'data': [1123513, value]}
+                   for sid, build, value in [(1, 70529, '2.1632'), (2, 70575, '2.5')]]
+        facts = [{'source': source, 'source_build': f"12.1.5.{source['build']}",
+                  'after': {'ID': '1123513', 'SpellID': '433895', 'PvpMultiplier': source['data'][1]},
+                  'before_verified': False, 'after_verified': True, 'changes': []} for source in sources]
+        with tempfile.TemporaryDirectory() as root, override_settings(BASE_DIR=root), \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.database_spell_metadata', return_value={}):
+            path, _ = monitor._write_hotfix_full_html(
+                branch='wow', locale='enUS', region_id=3, to_push=113265,
+                summary_title='多版本来源验证', wago_url='https://wago.tools/hotfixes',
+                build_num='70529 / 70575', db2_build='12.1.5.70575', from_push=112881,
+                table_stats=[('SpellEffect', 2)], by_table={'SpellEffect': sources},
+                sample_per_table=2, enrich_max=0, facts=facts)
+            body = Path(path).read_text(encoding='utf-8')
+        self.assertEqual(body.count("<article class='record'"), 2)
+        self.assertIn('2.1632', body)
+        self.assertIn('2.5', body)
+
+    @override_settings(WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS=1)
+    def test_class_baseline_is_frozen_and_labeled_without_overwriting_missing_predecessor(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._load_chr_classes = lambda *args, **kwargs: {10: '武僧'}
+        monitor._load_chr_specialization_meta = lambda *args, **kwargs: {268: {'name': '酒仙', 'class_id': 10}}
+        monitor._load_specialization_spells = lambda *args: {443113: {268}}
+        monitor._render_spell_primary_description = lambda *args, **kwargs: ''
+        source = {'id': 1, 'table_name': 'SpellEffect', 'record_id': 1138787, 'push_id': 113265,
+                  'build': 70575, 'locale': 'enUS', 'region_id': 3}
+        fact = {'source': source, 'source_build': '12.1.5.70575',
+                'after': {'ID': '1138787', 'SpellID': '443113', 'EffectIndex': '0', 'PvpMultiplier': '1.25'},
+                'before_verified': False, 'after_verified': True, 'changes': []}
+        baseline = {'ID': 1138787, 'SpellID': 443113, 'EffectIndex': 0, 'PvpMultiplier': 1}
+        with tempfile.TemporaryDirectory() as root, override_settings(BASE_DIR=root), \
+             patch.object(monitor, '_fetch_hotfix_db2_baseline_row', return_value=baseline) as lookup, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowSpellSnapshot.objects.filter') as snapshots, \
+             patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.database_spell_metadata', return_value={}):
+            snapshots.return_value.values.return_value = []
+            result = monitor._generate_hotfix_class_report(
+                'wow', '12.1.5.70575', 112881, 113268, region_id=3, facts=[fact], locale='enUS')
+            body = (Path(root) / 'static' / result['content_html_path']).read_text(encoding='utf-8')
+        lookup.assert_called_once_with('SpellEffect', '12.1.5.70575', 1138787, 'enUS')
+        self.assertEqual(fact['client_baseline'], baseline)
+        self.assertFalse(fact['before_verified'])
+        self.assertIn('同版本客户端基表 → 本次热修（非前次热修值）', body)
+        self.assertNotIn('旧值未核实，不能判断是否变化', body)
+
+    def test_backfill_only_fetches_missing_spell_history_and_reuses_interval_predecessor(self):
+        monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
+        monitor._full_hotfix_source_build = lambda source, current: current
+        monitor._fetch_db2_row_by_id = lambda table, build, rid: {'ID': rid, 'Value': '0'}
+        source = {'id': 2, 'push_id': 113265, 'region_id': 3, 'locale': 'enUS',
+                  'table_name': 'SpellEffect', 'record_id': 7, 'build': 70575,
+                  'status': 1, 'data': [7, '20']}
+        previous = {**source, 'id': 1, 'push_id': 113000, 'data': [7, '10']}
+        item = {**source, 'id': 3, 'table_name': 'ItemSparse'}
+        with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.collect_hotfix_record_history', return_value=[]) as history:
+            facts = monitor._resolve_hotfix_facts([previous, source, item], db2_build='12.1.5.70575',
+                                                 interval_only=True, recover_spell_history=True)
+        history.assert_called_once()
+        self.assertEqual(history.call_args.kwargs['table_name'], 'spelleffect')
+        self.assertTrue(facts[1]['before_verified'])
+        self.assertFalse(facts[2]['before_verified'])
