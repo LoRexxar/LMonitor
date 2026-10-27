@@ -1,4 +1,4 @@
-"""全职业专精的主动爆发与关键技能；仅匹配本人成功施法事件。
+"""全职业专精的爆发与关键技能；默认本人成功施法，光环生效须显式配置。
 
 技能名称核对来源：Wago 正式服 12.1.5.70448 的 SpellName。
 专精编号来自站内统一身份表；同名天赋、光环和伤害子法术不可自动作为施放编号。
@@ -89,7 +89,7 @@ _PROFILES = {
     1473: {"label": '增辉唤魔师', "role": '输出', "spells": {'403631': '亘古吐息', '395152': '黑檀之力'},
           "cast_aliases": {}},
     1480: {"label": '噬灭恶魔猎手', "role": '输出', "spells": {'1217605': '虚空变形', '1221150': '坍缩之星'},
-          "cast_aliases": {}},
+          "cast_aliases": {}, "aura_applications": {'1217605': 1217607}},
 }
 
 SUPPORTED = {SPEC_IDENTITY_MAP[spec_id]: dict(profile, spec_id=spec_id)

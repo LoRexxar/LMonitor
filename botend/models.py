@@ -297,6 +297,7 @@ class WowArticle(models.Model):
     content_cn = models.TextField(null=True, blank=True)
     content_blocks = models.TextField(null=True, blank=True)
     content_blocks_cn = models.TextField(null=True, blank=True)
+    content_fetch_retry_at = models.DateTimeField(null=True, blank=True)
     publish_time = models.DateTimeField(default=timezone.now, null=True)
     reply_count = models.IntegerField(default=0)
     nga_board_id = models.CharField(max_length=32, blank=True, default='', db_index=True)
@@ -2765,6 +2766,8 @@ class PlayerSpecTopPlayer(models.Model):
             models.Index(fields=['class_name', 'spec_name']),
             models.Index(fields=['season_id', 'class_name', '-score', 'rank', 'id'], name='idx_season_class_top'),
             models.Index(fields=['season_id', 'character_name', 'region'], name='idx_player_binding_lookup'),
+            models.Index(fields=['season_id', 'class_name', 'spec_name', 'rank'], name='idx_peak_current_rank'),
+            models.Index(fields=['season_id', 'region', 'rank'], name='idx_character_nav'),
         ]
 
     def __str__(self):
@@ -2908,6 +2911,7 @@ class SpecDungeonRanking(models.Model):
         indexes = [
             models.Index(fields=['season_id', 'dungeon_id', 'class_name', 'spec_name'], name='idx_dungeon_spec'),
             models.Index(fields=['class_name', 'spec_name', 'season_id', 'dps'], name='idx_dungeon_spec_dps'),
+            models.Index(fields=['season_id', 'dungeon_id', 'last_updated'], name='idx_dungeon_freshness'),
         ]
 
     def __str__(self):
@@ -2956,6 +2960,7 @@ class SpecRaidRanking(models.Model):
         indexes = [
             models.Index(fields=['season_id', 'boss_id', 'difficulty', 'class_name', 'spec_name'], name='idx_boss_diff_spec'),
             models.Index(fields=['class_name', 'spec_name', 'season_id', 'dps'], name='idx_raid_spec_dps'),
+            models.Index(fields=['season_id', 'last_updated'], name='idx_raid_freshness'),
         ]
 
     def __str__(self):

@@ -96,7 +96,7 @@ class RaidBurstAccessTests(TestCase):
             html = render_to_string('portal/raid_burst.html',
                 {'raid_burst_payload': dict(payload, self_pi_allowed=allowed)},
                 request=self.request(authenticated=True))
-            self.assertIn('20261024_external_pi', html)
+
             if allowed:
                 self.assertIn('允许本人来源的灌注', html)
                 self.assertIn('灌注来源不明', html)

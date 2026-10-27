@@ -210,7 +210,7 @@ class PlayerActivityTests(TestCase):
         self.assertNotIn('gear_json', ' '.join(q['sql'] for q in queries))
         self.assertNotIn('stats_json', ' '.join(q['sql'] for q in queries))
 
-    def test_monitor_combines_profile_request_and_rank_refresh_only_writes_activity(self):
+    def test_monitor_combines_profile_request_but_rank_refresh_never_refreshes_activity(self):
         import tempfile
         from django.test import override_settings
         from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
@@ -232,8 +232,8 @@ class PlayerActivityTests(TestCase):
         with tempfile.TemporaryDirectory() as root, override_settings(MEDIA_ROOT=root), patch('requests.get', transport):
             monitor.preload_peak_rankings(rio_season=self.season.rio_season,
                 class_name='Priest', spec_name='Holy', rankings=rankings)
-        self.assertEqual(transport.call_count, 3)
-        self.assertEqual(sum(call.args[0].endswith('/profile') for call in transport.call_args_list), 2)
+        self.assertEqual(transport.call_count, 2)
+        self.assertEqual(sum(call.args[0].endswith('/profile') for call in transport.call_args_list), 1)
         current = PlayerSpecTopPlayer.objects.values().get(pk=self.player.pk)
         for field in ('gear_json', 'talents_json', 'stats_json', 'last_updated'):
             self.assertEqual(current[field], original[field])

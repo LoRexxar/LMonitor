@@ -8,16 +8,27 @@ from botend.services.spec_stats_snapshot import content_digest
 ALGORITHM_VERSION = 'raid-scope-v3-current-metadata'
 
 
-def raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, difficulty):
+def raid_fingerprints(scopes):
+    """Check one publication with request-local common dependencies.
+
+    Discard the context before returning: a later miss must recheck inputs.
+    """
+    context = {}
+    return [raid_fingerprint(*scope, _context=context) for scope in scopes]
+
+
+def raid_fingerprint(season_id, boss_id, boss_name, class_name, spec_name, difficulty, *, _context=None):
     """Validate exact current inputs without decoding cached result bodies."""
     rows = list(SpecRaidRanking.objects.filter(season_id=season_id, boss_id=boss_id,
         class_name=class_name, spec_name=spec_name, difficulty=difficulty).order_by('pk').values())
     keys = {tuple((row.get(field) or '').lower() for field in ('region', 'realm', 'character_name'))
             for row in rows}
-    profile_cache = {}
+    context = _context if _context is not None else {}
+    profile_cache = context.setdefault('profiles', {})
     profiles = stats._selected_player_profiles(keys, season_id, class_name, spec_name,
         ('gear_json', 'stats_json', 'race'), profile_cache) if rows else {}
-    dependencies = _metadata_dependencies([*rows, *profiles.values()], {}, class_name, spec_name) if rows else {}
+    dependencies = _metadata_dependencies([*rows, *profiles.values()], {}, class_name, spec_name,
+                                          context=context) if rows else {}
     fingerprint = content_digest({'algorithm': ALGORITHM_VERSION, 'name': boss_name,
         'rows': [{k: v for k, v in row.items() if k != 'last_updated'} for row in rows],
         'profiles': sorted(profiles.items()), 'metadata': dependencies})

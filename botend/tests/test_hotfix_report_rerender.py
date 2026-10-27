@@ -267,3 +267,26 @@ class HotfixReportRerenderTests(SimpleTestCase):
                 self.invoke(refresh_predecessors=True)
         self.assertEqual(self.full.read_text(encoding='utf-8'), 'old full')
         self.assertEqual(self.cls.read_text(encoding='utf-8'), 'old class')
+
+    def test_refresh_can_publish_only_new_client_baseline_without_forging_predecessor(self):
+        from contextlib import nullcontext
+        original = json.loads(self.row.source_facts_json)[0]
+        self.monitor._resolve_hotfix_facts.return_value = [original]
+        render_result = self.monitor._generate_hotfix_class_report.return_value
+        def render(*args, **kwargs):
+            kwargs['facts'][0]['client_baseline'] = {'ID': 99, 'Value': 10}
+            return render_result
+        self.monitor._generate_hotfix_class_report.side_effect = render
+        self.row.save.side_effect = None
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get', return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.select_for_update') as lock, \
+             patch('botend.management.commands.rerender_wow_hotfix_report.transaction.atomic', return_value=nullcontext()), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor', return_value=self.monitor):
+            lock.return_value.get.return_value = self.row
+            self.invoke(refresh_predecessors=True)
+        saved = json.loads(self.row.source_facts_json)[0]
+        self.assertEqual(saved['client_baseline'], {'ID': 99, 'Value': 10})
+        self.assertFalse(saved['before_verified'])
+        self.assertEqual(saved['source'], self.source)
+        self.assertEqual(saved['after'], original['after'])

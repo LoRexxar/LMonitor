@@ -221,16 +221,22 @@ def refresh_bound_characters(monitor, season, refreshed_identities=()):
                 guild = data.get('guild')
                 if isinstance(guild, dict):
                     player.guild_name = guild.get('name') or player.guild_name
+                personal_score = None
                 for scores in data.get('mythic_plus_scores_by_season', []):
                     if scores.get('season') == season.rio_season:
                         score = (scores.get('scores') or {}).get('all')
-                        if (player.rank is None and isinstance(score, (int, float))
+                        if (isinstance(score, (int, float))
                                 and not isinstance(score, bool) and math.isfinite(score) and score >= 0):
-                            player.score = score
+                            personal_score = score
                 player.last_updated = timezone.now()
                 player.save(update_fields=['gear_json', 'item_level', 'achievement_points', 'profile_url',
                     'avatar_url', 'race', 'faction', 'talent_build_code', 'talents_json',
-                    'guild_name', 'score', 'last_updated'])
+                    'guild_name', 'last_updated'])
+                # The short ranking scan can promote/update this row during HTTP.
+                # Never save its stale score; decide ownership at the actual write.
+                if personal_score is not None:
+                    PlayerSpecTopPlayer.objects.filter(pk=player.pk, rank__isnull=True).update(
+                        score=personal_score)
                 refreshed += 1
             # Stats have their own success state; one source failing must not
             # discard last-good facts from the other source.

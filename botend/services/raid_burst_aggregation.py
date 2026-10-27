@@ -87,6 +87,24 @@ def eligibility(raw, row, config):
             'self_pi_observed': bool(pi_sources)}, None
 
 
+def skill_event_sources(config):
+    """Mixed-source profiles publish per-skill provenance; cast-only blobs stay unchanged."""
+    auras = config.get('aura_applications', {})
+    if not auras:
+        return {}
+    return {
+        spell: {
+            'event_type': 'applybuff' if spell in auras else 'cast',
+            'ability_id': auras[spell] if spell in auras else int(spell),
+            'label': '光环生效' if spell in auras else '成功施法',
+            'description': ('仅统计本人对本人施加光环的 applybuff，表示确证进入形态，非主动施法；'
+                            '不从刷新、叠层、移除或初始光环推算激活。' if spell in auras else
+                            '仅统计本人成功 cast；替换施法编号按技能配置归并。'),
+        }
+        for spell in config['spells']
+    }
+
+
 def normalize(raw, row, rank, config):
     eligible, reason = eligibility(raw, row, config)
     if reason:
@@ -107,9 +125,22 @@ def normalize(raw, row, rank, config):
              and e.get('sourceID') == actor['id'] and e.get('fight') == fight['id']
              and start <= e.get('timestamp', -1) <= end]
     aliases = config.get('cast_aliases', {})
+    auras = config.get('aura_applications', {})
     times = {spell: sorted({round((e['timestamp'] - start) / 1000, 3) for e in casts
                             if aliases.get(str(e.get('abilityGameID')), str(e.get('abilityGameID'))) == spell})
-             for spell in config['spells']}
+             for spell in config['spells'] if spell not in auras}
+    # An explicitly configured aura is an alternative evidence contract, not a
+    # cast alias/fallback. Only a real self application proves entry into form.
+    if auras:
+        applications = [e for e in streams['buffs']['data']
+                        if e.get('type') == 'applybuff' and not e.get('fake')
+                        and all(type(e.get(field)) is int and e[field] == value
+                                for field, value in (('sourceID', actor['id']),
+                                                     ('targetID', actor['id']), ('fight', fight['id'])))
+                        and start <= e.get('timestamp', -1) <= end]
+        for spell, aura in auras.items():
+            times[spell] = sorted({round((e['timestamp'] - start) / 1000, 3)
+                                  for e in applications if e.get('abilityGameID') == aura})
     return {
         'rank': rank, 'player': {'name': actor['name'], 'realm': actor.get('server') or row['realm'],
                                  'region': row.get('region') or ''},
@@ -228,6 +259,9 @@ def build_scope(rows, scope, config, root, guard, client):
         'excluded_invalid': counts['invalid'], 'samples': samples,
         'groups': build_groups(samples, config['spells']),
     }
+    sources = skill_event_sources(config)
+    if sources:
+        payload['skill_sources'] = sources
     signature = digest(payload)
     with guard():
         write_json(directory / 'snapshots' / f'{signature}.json', payload)

@@ -36,14 +36,19 @@ class PortalVideoMonitor(BaseScan):
     def __init__(self, req, task):
         super().__init__(req, task)
         self.task = task
+        self.last_error_detail = ''
 
     def scan(self, url):
+        self.last_error_detail = ''
+        failed_targets = []
         targets = VideoMonitorTarget.objects.filter(is_active=True).all()
         for t in targets:
             try:
-                self.update_target(t)
+                if self.update_target(t) is False:
+                    failed_targets.append(t.pk)
                 time.sleep(1)
             except Exception as e:
+                failed_targets.append(t.pk)
                 logger.error(f"[PortalVideoMonitor] target error: {str(e)}")
                 try:
                     upsert_system_alert(
@@ -55,12 +60,14 @@ class PortalVideoMonitor(BaseScan):
                     )
                 except Exception:
                     pass
-        return True
+        if failed_targets:
+            self.last_error_detail = '视频来源未全部成功，目标 ID：' + ','.join(map(str, failed_targets))[:900] + '；详见来源告警。'
+        return not failed_targets
 
     def update_target(self, target):
         mid = _extract_mid(target.target_url)
         if not mid:
-            return
+            return False
 
         dynamic_api = f"https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/space?host_mid={mid}&offset=&features={BILIBILI_DYNAMIC_FEATURES}"
         domain = urlparse(dynamic_api).netloc
@@ -68,11 +75,11 @@ class PortalVideoMonitor(BaseScan):
 
         payload, fetch_error = self._fetch_bilibili_payload(dynamic_api, cookies, target.target_url, "dynamic")
         if self._payload_has_error(payload, fetch_error, domain, dynamic_api, "dynamic"):
-            return
+            return False
         videos = self._parse_dynamic_videos(payload)
 
         if not videos:
-            return
+            return True
 
         newest_bvid = None
         for item in videos:
@@ -103,6 +110,7 @@ class PortalVideoMonitor(BaseScan):
         if newest_bvid and newest_bvid != target.last_seen_bvid:
             target.last_seen_bvid = newest_bvid
             target.save(update_fields=["last_seen_bvid"])
+        return True
 
     def _get_bilibili_cookies(self, domain):
         cookies = ""

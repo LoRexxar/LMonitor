@@ -86,7 +86,19 @@ class PortalNewsView(View):
 
 class PortalSpecsView(View):
     def get(self, request):
-        return render(request, 'portal/specs.html')
+        from botend.constants.wow import CLASS_SPEC_MAP, CLASS_CN, CLASS_COLOR, SPEC_CN, SPEC_ICON
+        classes = [
+            {
+                'name': CLASS_CN[class_name],
+                'color': CLASS_COLOR[class_name],
+                'icon': f'https://render.worldofwarcraft.com/us/icons/56/classicon_{class_name.lower()}.jpg',
+                'key': class_name,
+                'specs': [{'key': spec, 'name': SPEC_CN[spec],
+                           'icon': SPEC_ICON[(class_name, spec)]} for spec in specs],
+            }
+            for class_name, specs in CLASS_SPEC_MAP.items()
+        ]
+        return render(request, 'portal/specs.html', {'classes': classes})
 
 
 class PortalMplusDpsRankingsView(View):

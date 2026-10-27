@@ -196,7 +196,7 @@ class WagoHotfixFactsTests(SimpleTestCase):
         self.assertEqual(previous_hotfix_row([old, other], source), other)
         self.assertIsNone(previous_hotfix_row([old, other], {**source, 'build': 70600}))
         identical = {**other, 'data': self.old}
-        self.assertEqual(previous_hotfix_row([old, identical], {**source, 'build': 70600}), identical)
+        self.assertIsNone(previous_hotfix_row([old, identical], {**source, 'build': 70600}))
         self.assertEqual(previous_hotfix_row([old, other], {**source, 'build': 70529}), old)
 
     def test_predecessor_does_not_skip_deleted_latest_push_or_use_future_push(self):
@@ -208,13 +208,14 @@ class WagoHotfixFactsTests(SimpleTestCase):
         self.assertIsNone(previous_hotfix_row([old, deleted, source], source))
         self.assertIsNone(previous_hotfix_row([{**old, 'push_id': 113266}], source))
 
-    def test_equivalent_legacy_ids_do_not_make_cross_build_history_ambiguous(self):
+    def test_equivalent_legacy_ids_do_not_authorize_cross_build_history(self):
         source = {'id': 3, 'push_id': 113265, 'locale': 'enUS', 'region_id': 3,
                   'table_name': 'SpellEffect', 'record_id': 1106904, 'build': 70575,
                   'status': 1, 'data': self.new}
         old = {**source, 'id': 1, 'push_id': 107263, 'build': 66709, 'data': [''] + self.old[1:]}
         modern = {**old, 'id': 2, 'build': 66838, 'data': self.old}
-        self.assertEqual(previous_hotfix_row([old, modern], source), modern)
+        self.assertIsNone(previous_hotfix_row([old, modern], source))
+        self.assertEqual(previous_hotfix_row([old, modern], {**source, 'build': 66838}), modern)
 
     def test_client_baseline_is_explicit_and_never_becomes_verified_hotfix_predecessor(self):
         fact = {'source': {'id': 1, 'table_name': 'SpellEffect', 'record_id': 1138787, 'push_id': 113265},
@@ -364,7 +365,7 @@ class WagoHotfixFactsTests(SimpleTestCase):
     def test_distinct_source_ids_for_same_record_are_never_silently_collapsed(self):
         rows = [
             {'id': sid, 'push_id': 111885, 'locale': 'enUS', 'region_id': 3,
-             'table_name': 'SpellEffect', 'record_id': 10, 'status': 1, 'data': [10]}
+             'table_name': 'SpellEffect', 'record_id': 10, 'build': 69587, 'status': 1, 'data': [10]}
             for sid in (91, 92)
         ]
         def fetch(url, **kwargs):
@@ -387,12 +388,11 @@ class Hotfix149LiveEvidenceTests(SimpleTestCase):
                 schema_for=lambda row: sample['schemas'].get(str(row['build'])),
                 previous_for=lambda row: previous_hotfix_row(history, row)))
         self.assertEqual(len(facts), 34)
-        self.assertEqual(sum(fact['before_verified'] for fact in facts), 28)
-        self.assertEqual(sum(fact['before_verified'] and not fact['changes'] for fact in facts), 8)
+        self.assertEqual(sum(fact['before_verified'] for fact in facts), 2)
+        self.assertEqual(sum(fact['before_verified'] and not fact['changes'] for fact in facts), 0)
         by_id = {fact['source']['record_id']: fact for fact in facts}
-        self.assertEqual(by_id[1123513]['changes'], [{'field': 'PvpMultiplier',
-            'before': '2.7039999961853', 'after': '2.1631999015808'}])
-        self.assertEqual(by_id[1315666]['changes'], [{'field': 'EffectBasePointsF', 'before': '-50', 'after': '-32'}])
+        self.assertFalse(by_id[1123513]['before_verified'])
+        self.assertFalse(by_id[1315666]['before_verified'])
         for fact in facts:
             if fact['source']['build'] == 70575 and fact['before_verified']:
                 baseline = sample['baselines_70575'][str(fact['source']['record_id'])][0]
@@ -407,5 +407,11 @@ class Hotfix149LiveEvidenceTests(SimpleTestCase):
         latest = [fact for fact in facts if fact['source']['build'] == 70575]
         projected = project_class_spell_changes(latest, is_class_spell=lambda *args: True)
         self.assertNotIn(137019, projected)
+        vampire = projected[433895]['diffs']['spelleffect'][0]
+        self.assertEqual(vampire['action'], 'baseline')
+        self.assertEqual(vampire['fields'], [{'field': 'PvpMultiplier',
+            'before': 2.70399999619, 'after': '2.1631999015808'}])
+        mistweaver = next(item for item in projected[428200]['diffs']['spelleffect'] if item['id'] == 1315666)
+        self.assertEqual(mistweaver['fields'], [{'field': 'EffectBasePointsF', 'before': -50, 'after': '-32'}])
         self.assertEqual(projected[443113]['diffs']['spelleffect'][0]['action'], 'baseline')
         self.assertTrue(next(item for item in projected[428200]['diffs']['spelleffect'] if item['id'] == 1364784)['meta']['BaselineMissing'])

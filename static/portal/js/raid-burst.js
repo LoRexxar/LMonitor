@@ -16,6 +16,11 @@
     }
     if (!payload) return;
     const names = payload.skill_names;
+    // Absent metadata means the historical, successful-cast-only contract.
+    const source = () => payload.skill_sources?.[spell] || {
+        event_type: 'cast', label: '成功施法',
+        description: '仅统计本人成功 cast；替换施法编号按技能配置归并。',
+    };
     spell = Object.keys(names)[0];
     for (const [key, label] of new Map(payload.samples.map((row) => [row.lust_group, row.lust_label]))) {
         const option = document.createElement('option');
@@ -91,7 +96,7 @@
                     ['DPS', Number.isFinite(row.dps) ? new Intl.NumberFormat('zh-CN', {maximumFractionDigits: 1}).format(row.dps) : '未记录'],
                     ['战斗时长', formatTime(row.duration)],
                     ['嗜血时间', row.lust_start === null ? '未记录' : `开怪后${formatTime(row.lust_start)}`],
-                    [names[spell], `${row.times[spell].length}次`],
+                    [names[spell], `${source().label} ${row.times[spell].length}次`],
                 ];
                 const list = element('dl', undefined, 'burst-tooltip-fields');
                 fields.forEach(([label, value]) => list.append(element('dt', label), element('dd', value)));
@@ -154,7 +159,7 @@
             viewBox: `0 0 1140 ${height}`, role: 'group',
             'aria-label': `${names[spell]}：${rows.length}份日志，${axis === 'lust' ? '从嗜血起算' : '从开怪起算'}，横轴为分:秒`,
         });
-        svg.append(svgElement('title', {}, `${names[spell]}真实施放时间轴`));
+        svg.append(svgElement('title', {}, `${names[spell]}${source().label}时间轴`));
         const line = (parent, x1, y1, x2, y2, stroke, width = 1) =>
             parent.append(svgElement('line', {x1, y1, x2, y2, stroke, 'stroke-width': width}));
         // 范围较长时减少刻度数量，避免分秒标签重叠。
@@ -191,7 +196,7 @@
             line(sampleGroup, x(row.duration - offset), y - 4, x(row.duration - offset), y + 4, '#64748b', 2);
             row.times[spell].forEach((time) => {
                 const circle = svgElement('circle', {cx: x(time - offset), cy: y, r: 3.5, fill: colors[spell] || '#2563eb'});
-                circle.append(svgElement('title', {}, `开怪后${formatTime(time)} · 嗜血${relativeTime(time - row.lust_start)}`));
+                circle.append(svgElement('title', {}, `${source().label} · 开怪后${formatTime(time)} · 嗜血${relativeTime(time - row.lust_start)}`));
                 sampleGroup.append(circle);
             });
         });
@@ -219,7 +224,7 @@
                     ? relativeTime(window.start) : `${relativeTime(window.start)}～${relativeTime(window.end)}`;
                 windows.append(element('span', `${names[spell]} ${label} · ${window.ranks.length}/${members.length}份`, 'burst-window'));
             }
-            if (!groups.length) windows.append(element('span', '嗜血附近未记录到此技能的施放。', 'burst-muted'));
+            if (!groups.length) windows.append(element('span', `嗜血附近未记录到此技能的${source().label}。`, 'burst-muted'));
             section.append(windows);
             const plans = published.plans.map((plan) => {
                 const matches = members.filter((row) => plan.ranks.includes(row.rank));
@@ -231,7 +236,7 @@
                 const row = element('div', undefined, 'burst-scheme');
                 const head = element('div');
                 head.append(element('div', `方案 ${index + 1} · ${plan.rows.length}份`, 'burst-scheme-title'));
-                head.append(element('div', `${plan.ranges.length}次 · ${formatTime(plan.reference.duration)}`, 'burst-muted'));
+                head.append(element('div', `${source().label} ${plan.ranges.length}次 · ${formatTime(plan.reference.duration)}`, 'burst-muted'));
                 bindSample(head, plan.reference, '参考样本');
                 const points = element('div', undefined, 'burst-points');
                 plan.ranges.forEach((window, i) => {
@@ -241,6 +246,13 @@
                 });
                 const link = element('a', '原始日志 ↗');
                 link.href = plan.reference.url;
+                if (source().event_type === 'applybuff') {
+                    const url = new URL(plan.reference.url);
+                    url.searchParams.set('type', 'auras');
+                    url.searchParams.set('ability', source().ability_id);
+                    url.searchParams.set('target', url.searchParams.get('source'));
+                    link.href = url.href;
+                }
                 link.target = '_blank';
                 link.rel = 'noopener noreferrer';
                 row.append(head, points, link);
@@ -253,6 +265,9 @@
 
     function render() {
         hideSample();
+        $('#timeline-title').textContent = `${source().label}时间轴`;
+        $('#skill-source').textContent = `${names[spell]} · ${source().label}：${source().description}`;
+        $('#event-legend').textContent = `圆点：${source().label}`;
         const minimum = readTime('#minimum');
         const maximum = readTime('#maximum');
         if ((minimum !== null && !Number.isFinite(minimum))

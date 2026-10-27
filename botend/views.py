@@ -23,6 +23,7 @@ from botend.backend_lifecycle import BackendLifecycle
 from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import (
+    ISOLATED_MONITOR_WORKERS,
     MONITOR_TASK_LEASE_SECONDS,
     start_isolated_monitor_worker,
     claim_next_monitor_task,
@@ -208,8 +209,10 @@ class LMonitorCoreBackend:
 
         logger.info("[LMonitor Main] Monitor Backend Start...now {} targets in monitor.".format(left_tasks))
 
-        # 单独领取耗时的数据更新，不消耗普通监控线程池的名额。
-        self._workers.append(start_isolated_monitor_worker(LMonitorCore(self.lifecycle).scan))
+        # 每种长任务一个串行 worker，不占普通池，也不共用一个长任务槽。
+        for task_name in ISOLATED_MONITOR_WORKERS:
+            self._workers.append(start_isolated_monitor_worker(
+                LMonitorCore(self.lifecycle).scan, task_name=task_name))
         from botend.services.gear_catalog_snapshot import start_catalog_snapshot_worker
         self._workers.append(start_catalog_snapshot_worker(lifecycle=self.lifecycle))
         from botend.services.journal_loot_snapshot import start_journal_loot_snapshot_worker

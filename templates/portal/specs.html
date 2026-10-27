@@ -21,55 +21,24 @@
                 <span class="text-xs text-slate-400 font-normal ml-2">点击专精图标查看 Top 20 人物榜 / M+ / 团本数据</span>
             </div>
         </div>
-        <div id="spec-class-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;"></div>
-    </main>
-
-    <script>
-    (function() {
-        const SPEC_ICON_BASE = "https://render.worldofwarcraft.com/us/icons/56/";
-
-        const classData = [
-            {en:"DeathKnight",cn:"死亡骑士",color:"#c41e3a",icon:"classicon_deathknight.jpg",specs:[{s:"Blood",cn:"鲜血",icon:"spell_deathknight_bloodpresence.jpg",role:"tank"},{s:"Frost",cn:"冰霜",icon:"spell_deathknight_frostpresence.jpg",role:"dps"},{s:"Unholy",cn:"邪恶",icon:"spell_deathknight_unholypresence.jpg",role:"dps"}]},
-            {en:"DemonHunter",cn:"恶魔猎手",color:"#a330c9",icon:"classicon_demonhunter.jpg",specs:[{s:"Havoc",cn:"浩劫",icon:"ability_demonhunter_specdps.jpg",role:"dps"},{s:"Vengeance",cn:"复仇",icon:"ability_demonhunter_spectank.jpg",role:"tank"}]},
-            {en:"Druid",cn:"德鲁伊",color:"#ff7c0a",icon:"classicon_druid.jpg",specs:[{s:"Balance",cn:"平衡",icon:"spell_nature_starfall.jpg",role:"dps"},{s:"Feral",cn:"野性",icon:"ability_druid_catform.jpg",role:"dps"},{s:"Guardian",cn:"守护",icon:"ability_racial_bearform.jpg",role:"tank"},{s:"Restoration",cn:"恢复",icon:"spell_nature_healingtouch.jpg",role:"healer"}]},
-            {en:"Hunter",cn:"猎人",color:"#aad372",icon:"classicon_hunter.jpg",specs:[{s:"BeastMastery",cn:"野兽控制",icon:"ability_hunter_bestialdiscipline.jpg",role:"dps"},{s:"Marksmanship",cn:"射击",icon:"ability_hunter_focusedaim.jpg",role:"dps"},{s:"Survival",cn:"生存",icon:"ability_hunter_camouflage.jpg",role:"dps"}]},
-            {en:"Mage",cn:"法师",color:"#3fc7eb",icon:"classicon_mage.jpg",specs:[{s:"Arcane",cn:"奥术",icon:"spell_holy_magicalsentry.jpg",role:"dps"},{s:"Fire",cn:"火焰",icon:"spell_fire_firebolt02.jpg",role:"dps"},{s:"Frost",cn:"冰霜",icon:"spell_frost_frostbolt02.jpg",role:"dps"}]},
-            {en:"Monk",cn:"武僧",color:"#00ff98",icon:"classicon_monk.jpg",specs:[{s:"Brewmaster",cn:"酒仙",icon:"monk_stance_drunkenox.jpg",role:"tank"},{s:"Mistweaver",cn:"织雾",icon:"monk_stance_wiseserpent.jpg",role:"healer"},{s:"Windwalker",cn:"踏风",icon:"monk_stance_whitetiger.jpg",role:"dps"}]},
-            {en:"Paladin",cn:"圣骑士",color:"#f58cba",icon:"classicon_paladin.jpg",specs:[{s:"Holy",cn:"神圣",icon:"spell_holy_holybolt.jpg",role:"healer"},{s:"Protection",cn:"防护",icon:"ability_paladin_shieldofthetemplar.jpg",role:"tank"},{s:"Retribution",cn:"惩戒",icon:"spell_holy_auraoflight.jpg",role:"dps"}]},
-            {en:"Priest",cn:"牧师",color:"#ffffff",icon:"classicon_priest.jpg",specs:[{s:"Discipline",cn:"戒律",icon:"spell_holy_powerwordshield.jpg",role:"healer"},{s:"Holy",cn:"神圣",icon:"spell_holy_guardianspirit.jpg",role:"healer"},{s:"Shadow",cn:"暗影",icon:"spell_shadow_shadowwordpain.jpg",role:"dps"}]},
-            {en:"Rogue",cn:"潜行者",color:"#fff569",icon:"classicon_rogue.jpg",specs:[{s:"Assassination",cn:"奇袭",icon:"ability_rogue_eviscerate.jpg",role:"dps"},{s:"Outlaw",cn:"狂徒",icon:"ability_rogue_waylay.jpg",role:"dps"},{s:"Subtlety",cn:"敏锐",icon:"ability_stealth.jpg",role:"dps"}]},
-            {en:"Shaman",cn:"萨满祭司",color:"#0070de",icon:"classicon_shaman.jpg",specs:[{s:"Elemental",cn:"元素",icon:"spell_nature_lightning.jpg",role:"dps"},{s:"Enhancement",cn:"增强",icon:"spell_shaman_improvedstormstrike.jpg",role:"dps"},{s:"Restoration",cn:"恢复",icon:"spell_nature_magicimmunity.jpg",role:"healer"}]},
-            {en:"Warlock",cn:"术士",color:"#8788ee",icon:"classicon_warlock.jpg",specs:[{s:"Affliction",cn:"痛苦",icon:"spell_shadow_deathcoil.jpg",role:"dps"},{s:"Demonology",cn:"恶魔学识",icon:"spell_shadow_metamorphosis.jpg",role:"dps"},{s:"Destruction",cn:"毁灭",icon:"spell_shadow_rainoffire.jpg",role:"dps"}]},
-            {en:"Warrior",cn:"战士",color:"#c69b6d",icon:"classicon_warrior.jpg",specs:[{s:"Arms",cn:"武器",icon:"ability_warrior_savageblow.jpg",role:"dps"},{s:"Fury",cn:"狂怒",icon:"ability_warrior_innerrage.jpg",role:"dps"},{s:"Protection",cn:"防护",icon:"ability_warrior_defensivestance.jpg",role:"tank"}]},
-            {en:"Evoker",cn:"唤魔师",color:"#33937f",icon:"classicon_evoker.jpg",specs:[{s:"Augmentation",cn:"增辉",icon:"classicon_evoker_augmentation.jpg",role:"dps"},{s:"Devastation",cn:"湮灭",icon:"classicon_evoker_devastation.jpg",role:"dps"},{s:"Preservation",cn:"恩护",icon:"classicon_evoker_preservation.jpg",role:"healer"}]},
-        ];
-
-        const roleColor = {tank:"#3b82f6",healer:"#22c55e",dps:"#ef4444"};
-
-        const container = document.getElementById("spec-class-grid");
-        let html = "";
-
-        classData.forEach(cls => {
-            const specsHtml = cls.specs.map(sp => {
-                const url = `/portal/spec/${cls.en}/${sp.s}/`;
-                const color = roleColor[sp.role] || "#6b7280";
-                return `<a href="${url}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px;border-radius:6px;text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='rgba(241,245,249,0.8)'" onmouseout="this.style.background=''" title="${cls.cn} · ${sp.cn}">
-                    <img src="${SPEC_ICON_BASE}${sp.icon}" alt="${sp.cn}" width="36" height="36" style="border-radius:6px;border:1px solid transparent;transition:border-color 0.15s" onmouseover="this.style.borderColor='#818cf8'" onmouseout="this.style.borderColor='transparent'" loading="lazy">
-                    <span style="font-size:11px;color:#475569;text-align:center;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%">${sp.cn}</span>
-                </a>`;
-            }).join("");
-
-            html += `<div class="portal-card" style="padding:12px;border-radius:10px;background:#fff;border:1px solid #e2e8f0;transition:box-shadow 0.15s" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'" onmouseout="this.style.boxShadow=''">
+        <div id="spec-class-grid" style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px;">
+            {% for cls in classes %}
+            <div class="portal-card" style="padding:12px;border-radius:10px;background:#fff;border:1px solid #e2e8f0;transition:box-shadow 0.15s" onmouseover="this.style.boxShadow='0 4px 12px rgba(0,0,0,0.08)'" onmouseout="this.style.boxShadow=''">
                 <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #f1f5f9">
-                    <img src="${SPEC_ICON_BASE}${cls.icon}" alt="${cls.cn}" width="24" height="24" style="border-radius:6px" loading="lazy">
-                    <span style="font-size:14px;font-weight:600;color:${cls.color}">${cls.cn}</span>
+                    <img src="{{ cls.icon }}" alt="{{ cls.name }}" width="24" height="24" style="border-radius:6px" loading="lazy">
+                    <span style="font-size:14px;font-weight:600;color:{{ cls.color }}">{{ cls.name }}</span>
                 </div>
-                <div style="display:flex;flex-wrap:wrap;gap:4px">${specsHtml}</div>
-            </div>`;
-        });
-
-        container.innerHTML = html;
-    })();
-    </script>
+                <div style="display:flex;flex-wrap:wrap;gap:4px">
+                    {% for spec in cls.specs %}
+                    <a href="{% url 'spec_detail_player' class_name=cls.key spec_name=spec.key %}" style="display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px;border-radius:6px;text-decoration:none;transition:background 0.15s" onmouseover="this.style.background='rgba(241,245,249,0.8)'" onmouseout="this.style.background=''" title="{{ cls.name }} · {{ spec.name }}">
+                        <img src="{{ spec.icon }}" alt="{{ spec.name }}" width="36" height="36" style="border-radius:6px;border:1px solid transparent;transition:border-color 0.15s" onmouseover="this.style.borderColor='#818cf8'" onmouseout="this.style.borderColor='transparent'" loading="lazy">
+                        <span style="font-size:11px;color:#475569;text-align:center;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;width:100%">{{ spec.name }}</span>
+                    </a>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endfor %}
+        </div>
+    </main>
 </body>
 </html>

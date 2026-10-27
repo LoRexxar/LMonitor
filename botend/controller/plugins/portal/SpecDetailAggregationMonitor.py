@@ -183,7 +183,7 @@ class SpecDetailAggregationMonitor(BaseScan):
         if not season.raid_encounters and not season.raid_zones:
             return
 
-        from botend.services.raid_aggregation import raid_stats, raid_fingerprint
+        from botend.services.raid_aggregation import raid_stats, raid_fingerprints
         from botend.services.spec_stats_snapshot import content_digest, reusable_projection
         from botend.services.stats_talent_dependencies import structure_token
         token = structure_token(class_name)
@@ -192,20 +192,24 @@ class SpecDetailAggregationMonitor(BaseScan):
                       if season.raid_zones else season.raid_encounters)
         prepared = {}
         checked = []
-        for difficulty in (5, 4):
-            for enc in encounters:
-                cn_name = RAID_BOSS_CN.get(enc['name'], enc['name'])
-                fingerprint = raid_fingerprint(season.id, enc['id'], cn_name,
-                                               class_name, spec_name, difficulty)
-                prepared[difficulty, enc['id']] = fingerprint
-                checked.append([difficulty, enc['id'], fingerprint])
+        scopes = [(season.id, enc['id'], RAID_BOSS_CN.get(enc['name'], enc['name']),
+                   class_name, spec_name, difficulty)
+                  for difficulty in (5, 4) for enc in encounters]
+        # With no published checkpoint there is nothing to short-circuit.
+        # Let each scope read its current inputs once in raid_stats instead of
+        # doing a speculative full fingerprint and immediately redoing it on miss.
+        if os.path.isfile(path):
+            for scope, fingerprint in zip(scopes, raid_fingerprints(scopes)):
+                difficulty, boss_id = scope[-1], scope[1]
+                prepared[difficulty, boss_id] = fingerprint
+                checked.append([difficulty, boss_id, fingerprint])
         def publication_fingerprint(scopes):
             return content_digest({'algorithm': 'raid-publication-v4-current-metadata', 'scopes': scopes,
                 'zones': season.raid_zones, 'encounters': season.raid_encounters})
-        required = [f'raid-{difficulty}-{boss}' for difficulty, boss, _ in checked]
+        required = [f'raid-{scope[-1]}-{scope[1]}' for scope in scopes]
         # Existing publication is the checkpoint. Prove its current input and
         # every detail body before decoding any per-boss work/talent catalog.
-        if reusable_projection(path, publication_fingerprint(checked), required) is not None:
+        if checked and reusable_projection(path, publication_fingerprint(checked), required) is not None:
             logger.info('[SpecDetailAggregation] %s/%s 团本整模块发布复用 %s/%s；跳过工作缓存展开',
                         class_name, spec_name, len(checked), len(checked))
             return
@@ -216,7 +220,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             nonlocal reused
             result, fingerprint, hit = raid_stats(
                 season.id, enc['id'], cn_name, class_name, spec_name, difficulty,
-                fingerprint=prepared[difficulty, enc['id']])
+                fingerprint=prepared.get((difficulty, enc['id'])))
             fingerprints.append([difficulty, enc['id'], fingerprint])
             reused += int(hit)
             return result

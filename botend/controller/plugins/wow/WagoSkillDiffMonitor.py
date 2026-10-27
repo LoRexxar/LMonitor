@@ -27,7 +27,7 @@ from botend.services.wago_db2.client import WagoDB2Client
 from botend.services.wago_db2.graph import WagoDB2GraphService
 from botend.services.wow_skill_report_metadata import database_spell_metadata, wowhead_spell_url as report_spell_url
 from botend.services.wago_hotfix_source import collect_hotfix_push_rows, collect_hotfix_record_history, collect_hotfix_build_rows, source_ids_sha256, HotfixSourceIncomplete
-from botend.services.wago_hotfix_facts import build_hotfix_facts, previous_hotfix_row, project_class_spell_changes
+from botend.services.wago_hotfix_facts import build_hotfix_facts, previous_hotfix_row, project_class_spell_changes, hotfix_record_identity
 from botend.services.wago_hotfix_reader_fields import FIELDS as HOTFIX_READER_FIELDS, display_hotfix_value, project_hotfix_columns, spell_misc_permission_brief
 
 try:
@@ -448,6 +448,7 @@ class WagoSkillDiffMonitor(BaseScan):
             try:
                 latest_push = self._fetch_latest_hotfix_push_id(
                     locale=hotfix_locale, region_id=region_id, current_build=current_build,
+                    after_push=last_push,
                 )
             except (HotfixSourceIncomplete, WagoDiffUnavailable) as exc:
                 logger.warning('[WagoSkillDiffMonitor] Hotfix discovery incomplete: %s', exc)
@@ -901,7 +902,7 @@ class WagoSkillDiffMonitor(BaseScan):
             return {}
         return obj if isinstance(obj, dict) else {}
 
-    def _fetch_latest_hotfix_push_id(self, *, locale='', region_id=0, current_build=''):
+    def _fetch_latest_hotfix_push_id(self, *, locale='', region_id=0, current_build='', after_push=0):
         if current_build:
             build_num = self._extract_build_number(current_build)
             if not build_num:
@@ -909,12 +910,13 @@ class WagoSkillDiffMonitor(BaseScan):
             # Wago's created_at sort is not unique: its wide search cannot be
             # completely paginated. These pages only supply an observed upper
             # candidate; every intervening push is collected separately below.
-            max_pages = max(1, min(200, int(getattr(settings, 'WAGO_HOTFIX_DISCOVERY_MAX_PAGES', 200) or 200)))
+            max_pages = max(1, min(200, int(getattr(settings, 'WAGO_HOTFIX_DISCOVERY_MAX_PAGES', 8) or 8)))
+            search = f'{locale} % {build_num}' if locale else build_num
             candidate = 0
             expected_total = None
             source_ids = {}
             for page in range(1, max_pages + 1):
-                url = 'https://wago.tools/hotfixes?' + urlencode({'search': build_num, 'page': page})
+                url = 'https://wago.tools/hotfixes?' + urlencode({'search': search, 'page': page})
                 props = self._extract_inertia_props(self._http_get_text(url, timeout=max(60, self.http_timeout)))
                 payload = props.get('hotfixes') if isinstance(props, dict) else None
                 try:
@@ -940,6 +942,11 @@ class WagoSkillDiffMonitor(BaseScan):
                             and str(row.get('locale') or '') == locale
                             and str(row.get('build') or '') == build_num):
                         candidate = max(candidate, self._to_int(row.get('push_id')))
+                # This is an observed candidate, not a complete/latest watermark.
+                # Once it advances the cursor, exact per-push collection supplies
+                # completeness. Do not let unrelated unstable history block it.
+                if candidate > after_push:
+                    return candidate
                 if page == last:
                     break
             if candidate <= 0:
@@ -1161,14 +1168,23 @@ class WagoSkillDiffMonitor(BaseScan):
             out.append(r)
         return out
 
-    def _fetch_hotfix_push_rows(self, push_id, *, region_id, locale):
+    def _fetch_hotfix_push_rows(self, push_id, *, region_id, locale, build_number=None):
+        checkpoints = getattr(self, '_hotfix_push_checkpoints', None)
+        proof = {}
         try:
-            return collect_hotfix_push_rows(
+            rows = collect_hotfix_push_rows(
                 self._http_get_text, self._extract_inertia_props, push_id,
-                region_id=region_id, locale=locale,
+                region_id=region_id, locale=locale, build_number=build_number,
                 max_pages=int(getattr(settings, 'WAGO_HOTFIX_PUSH_MAX_PAGES', 40) or 40),
                 timeout=max(60, self.http_timeout),
+                checkpoint=checkpoints.load(push_id) if checkpoints is not None else None,
+                proof=proof,
             )
+            if checkpoints is not None:
+                checkpoints.save(push_id, proof)
+                logger.info('[WagoSkillDiffMonitor] verified push=%s checkpoint_reused=%s source_total=%s',
+                            push_id, proof.get('reused', False), proof.get('total'))
+            return rows
         except HotfixSourceIncomplete as exc:
             raise WagoDiffUnavailable(str(exc)) from exc
 
@@ -1193,7 +1209,7 @@ class WagoSkillDiffMonitor(BaseScan):
         interval_history = {}
         if interval_only:
             for row in rows:
-                key = (int(row['region_id']), row['locale'], row['table_name'].lower(), int(row['record_id']))
+                key = hotfix_record_identity(row)
                 interval_history.setdefault(key, []).append(row)
 
         def schema_for(source):
@@ -1221,7 +1237,7 @@ class WagoSkillDiffMonitor(BaseScan):
             return schema_cache[key]
 
         def previous_for(source):
-            key = (int(source['region_id']), source['locale'], source['table_name'].lower(), int(source['record_id']))
+            key = hotfix_record_identity(source)
             if interval_only:
                 # 补报告优先使用完整区间内的前态；仅为技能表按需向前查找，
                 # 避免为道具、地图等无关记录启动大量历史请求。
@@ -1233,6 +1249,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     self._hotfix_history_cache[key] = collect_hotfix_record_history(
                         self._http_get_text, self._extract_inertia_props, key[3],
                         table_name=key[2], region_id=key[0], locale=key[1],
+                        build_number=int(key[4]),
                         max_pages=int(getattr(settings, 'WAGO_HOTFIX_HISTORY_MAX_PAGES', 40) or 40),
                         timeout=max(60, self.http_timeout),
                     )
@@ -1252,7 +1269,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     fact['before_source_build'] = self._full_hotfix_source_build(fact['before_source'], db2_build)
         return facts
 
-    def _collect_hotfix_interval_rows(self, from_push, to_push, *, region_id, locale):
+    def _collect_hotfix_interval_rows(self, from_push, to_push, *, region_id, locale, build_number=None):
         from_push, to_push = int(from_push), int(to_push)
         if to_push <= from_push:
             return []
@@ -1261,10 +1278,23 @@ class WagoSkillDiffMonitor(BaseScan):
             raise WagoDiffUnavailable(f'Hotfix push span limit: {from_push}→{to_push} > {max_span}')
         max_entries = max(1, int(getattr(settings, 'WAGO_HOTFIX_MAX_ENTRIES', 4000) or 4000))
         rows = []
-        for push_id in range(from_push + 1, to_push + 1):
-            rows.extend(self._fetch_hotfix_push_rows(push_id, region_id=region_id, locale=locale))
-            if len(rows) > max_entries:
-                raise WagoDiffUnavailable(f'Hotfix entry limit: {len(rows)} > {max_entries}')
+        from botend.services.wago_push_checkpoint import PushCheckpoints
+        previous = getattr(self, '_hotfix_push_checkpoints', None)
+        self._hotfix_push_checkpoints = PushCheckpoints(
+            from_push=from_push, to_push=to_push, region_id=region_id, locale=locale,
+            build_number=build_number,
+            max_pages=int(getattr(settings, 'WAGO_HOTFIX_PUSH_MAX_PAGES', 40) or 40),
+        )
+        try:
+            for push_id in range(from_push + 1, to_push + 1):
+                # The shared push cursor covers all builds; dropping old-build
+                # rows here would permanently skip facts when that cursor advances.
+                scope = {'build_number': build_number} if build_number is not None else {}
+                rows.extend(self._fetch_hotfix_push_rows(push_id, region_id=region_id, locale=locale, **scope))
+                if len(rows) > max_entries:
+                    raise WagoDiffUnavailable(f'Hotfix entry limit: {len(rows)} > {max_entries}')
+        finally:
+            self._hotfix_push_checkpoints = previous
         return sorted(rows, key=lambda row: (int(row['push_id']), int(row['id'])))
 
     def _load_hotfix_daily_state(self, branch, day_key):
@@ -2704,7 +2734,7 @@ class WagoSkillDiffMonitor(BaseScan):
 
         # 仅为职业效果中仍缺少前次热修的记录补充同版本基表对照。
         # 对照单独保存，不能改写 before_verified 或伪装成热修前态。
-        baseline_left = max(0, min(32, int(getattr(settings, 'WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS', 24) or 0)))
+        baseline_left = max(0, min(32, int(getattr(settings, 'WAGO_HOTFIX_FIELD_BASELINE_LOOKUPS', 32) or 0)))
         for fact in facts:
             source, after = fact.get('source') or {}, fact.get('after') or {}
             if (not baseline_left or fact.get('before_verified') or 'client_baseline' in fact
@@ -3075,7 +3105,7 @@ class WagoSkillDiffMonitor(BaseScan):
         table_stats = list(table_stats or [])
         by_table = by_table or {}
         fact_lookup = {
-            (int(f['source']['push_id']), str(f['source']['table_name']).lower(), int(f['source']['record_id']), str(f['source'].get('build') or '')): f
+            (int(f['source']['push_id']), hotfix_record_identity(f['source'])): f
             for f in (facts or []) if isinstance(f, dict) and isinstance(f.get('source'), dict)
         }
         if facts is not None:
@@ -3580,8 +3610,8 @@ class WagoSkillDiffMonitor(BaseScan):
             for raw_row in raw_rows:
                 rid = self._to_int((raw_row or {}).get('record_id') or 0)
                 pid = self._to_int((raw_row or {}).get('push_id') or to_push)
-                key = (pid, tkey(table_name), rid, str(raw_row.get('build') or ''))
-                identity = (pid, rid, str(raw_row.get('build') or '')) if facts is not None else rid
+                key = (pid, hotfix_record_identity(raw_row))
+                identity = key if facts is not None else rid
                 if rid <= 0 or identity in seen_rids:
                     continue
                 seen_rids.add(identity)
@@ -4043,11 +4073,11 @@ class WagoSkillDiffMonitor(BaseScan):
             for r in raw_rows:
                 rid = self._to_int((r or {}).get('record_id') or 0)
                 pid = self._to_int((r or {}).get('push_id') or to_push)
-                identity = (pid, rid, str(r.get('build') or '')) if facts is not None else rid
+                identity = (pid, hotfix_record_identity(r)) if facts is not None else rid
                 if rid <= 0 or identity in seen:
                     continue
                 seen.add(identity)
-                fact = fact_lookup.get((pid, key, rid, str(r.get('build') or '')))
+                fact = fact_lookup.get((pid, hotfix_record_identity(r)))
                 row = (fact.get('after') or {}) if fact is not None else fetch_row(t, rid)
                 summary = summarize_row(t, rid, row)
                 records.append({
@@ -5361,58 +5391,56 @@ class WagoSkillDiffMonitor(BaseScan):
         return m.get(branch, branch)
 
     def _fetch_changed_db2_tables(self, from_build, to_build):
-        url = f"https://wago.tools/builds-diff?to={to_build}&from={from_build}"
-        next_url = url
-        visited = set()
+        # Use the site's actual datatable filter, not ignored type/search params.
+        # Pagination links omit both the build interval and filter: reconstruct
+        # every request rather than accidentally resuming the all-assets scan.
+        query = {'from': from_build, 'to': to_build, 'filter[Type]': 'db2'}
         tables = set()
         seen_files = set()
-        expected_total = None
-        page = 1
-        while next_url:
-            if next_url in visited:
-                raise WagoDiffUnavailable(f'Wago builds-diff pagination loop for {from_build} -> {to_build}')
-            visited.add(next_url)
-            text = self._http_get_text(next_url)
-            if not text:
-                raise WagoDiffUnavailable(
-                    f'Wago builds-diff is not available for {from_build} -> {to_build}: {next_url}'
-                )
-            props = self._extract_inertia_props(text)
+        expected_metadata = None
+        max_pages = 64
+        for page in range(1, max_pages + 1):
+            url = 'https://wago.tools/builds-diff?' + urlencode({**query, 'page': page})
+            props = self._extract_inertia_props(self._http_get_text(url) or '')
+            filters = props.get('filters') or {}
+            if (props.get('fromVersion') != from_build or props.get('toVersion') != to_build
+                    or not isinstance(filters, dict) or filters.get('filter') != {'Type': 'db2'}):
+                raise WagoDiffUnavailable(f'Wago builds-diff incomplete identity/filter: {url}')
             payload = props.get('items') or {}
             if not isinstance(payload, dict) or not isinstance(payload.get('data'), list):
-                raise WagoDiffUnavailable(f'Wago builds-diff lacks paginated items: {next_url}')
+                raise WagoDiffUnavailable(f'Wago builds-diff lacks paginated items: {url}')
             try:
                 total = int(payload['total'])
                 current_page = int(payload['current_page'])
+                last_page = int(payload['last_page'])
+                per_page = int(payload['per_page'])
             except (KeyError, TypeError, ValueError):
-                raise WagoDiffUnavailable(f'Wago builds-diff lacks pagination metadata: {next_url}')
-            if current_page != page or (expected_total is not None and total != expected_total):
-                raise WagoDiffUnavailable(f'Wago builds-diff pagination changed for {from_build} -> {to_build}')
-            expected_total = total
+                raise WagoDiffUnavailable(f'Wago builds-diff lacks pagination metadata: {url}')
+            metadata = (total, last_page, per_page)
+            if (total < 0 or per_page < 1 or current_page != page or not page <= last_page <= max_pages
+                    or last_page != max(1, (total + per_page - 1) // per_page)
+                    or len(payload['data']) != min(per_page, max(0, total - (page - 1) * per_page))
+                    or bool(payload.get('next_page_url')) != (page < last_page)
+                    or (expected_metadata is not None and metadata != expected_metadata)):
+                raise WagoDiffUnavailable(f'Wago builds-diff incomplete/inconsistent pagination: {url}')
+            expected_metadata = metadata
             for it in payload['data']:
                 if not isinstance(it, dict):
-                    raise WagoDiffUnavailable(f'Wago builds-diff malformed item: {next_url}')
-                identity = (it.get('Type'), it.get('Filename'), it.get('FDID'), it.get('Action'))
+                    raise WagoDiffUnavailable(f'Wago builds-diff malformed item: {url}')
+                filename = it.get('Filename')
+                if (it.get('Type') != 'db2' or not isinstance(filename, str)
+                        or not re.fullmatch(r'dbfilesclient/[A-Za-z0-9_]+\.db2', filename, re.IGNORECASE)
+                        or self._to_int(it.get('FDID')) <= 0):
+                    raise WagoDiffUnavailable(f'Wago builds-diff invalid DB2 identity/filter: {url}')
+                identity = int(it['FDID'])
                 if identity in seen_files:
                     raise WagoDiffUnavailable(f'Wago builds-diff duplicate item: {identity}')
                 seen_files.add(identity)
-                if (it.get('Type') or '').strip() != 'db2':
-                    continue
-                filename = (it.get('Filename') or '').strip()
-                if not filename.lower().startswith('dbfilesclient/') or not filename.lower().endswith('.db2'):
-                    continue
-                table = filename.split('/')[-1][:-4]
-                if table:
-                    tables.add(table)
-            next_url = payload.get('next_page_url')
-            if next_url and next_url.startswith('/'):
-                next_url = "https://wago.tools" + next_url
-            if next_url and 'from=' not in next_url and 'to=' not in next_url:
-                sep = '&' if '?' in next_url else '?'
-                next_url = f"{next_url}{sep}from={from_build}&to={to_build}"
-            page += 1
-        if len(seen_files) != expected_total:
-            raise WagoDiffUnavailable(f'Wago builds-diff incomplete: {len(seen_files)}/{expected_total}')
+                tables.add(filename.split('/')[-1][:-4])
+            if page == last_page:
+                break
+        if len(seen_files) != total:
+            raise WagoDiffUnavailable(f'Wago builds-diff incomplete: {len(seen_files)}/{total}')
         return tables
 
     def _fetch_db2_diff_rows(self, table, from_build, to_build):

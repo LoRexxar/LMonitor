@@ -98,6 +98,7 @@ class Command(BaseCommand):
                 monitor = WagoSkillDiffMonitor(None, None)
                 monitor._hotfix_report_only = True
                 if refresh_predecessors:
+                    original_baselines = {int(fact['source']['id']): fact.get('client_baseline') for fact in facts}
                     missing = [fact for fact in facts if fact.get('after_verified') and not fact.get('before_verified')
                                and str(fact['source'].get('table_name') or '').lower().startswith('spell')]
                     recovered = monitor._resolve_hotfix_facts(
@@ -113,8 +114,6 @@ class Command(BaseCommand):
                             raise CommandError('补充旧值改变了原始来源或已核实的新值，保留原报告')
                         if updated.get('before_verified'):
                             replacements[int(original['source']['id'])] = {**original, **updated}
-                    if not replacements:
-                        raise CommandError('未找到可核实的新增旧值，保留原报告')
                     facts = [replacements.get(int(fact['source']['id']), fact) for fact in facts]
                 cls = None
                 if not full_only:
@@ -123,6 +122,14 @@ class Command(BaseCommand):
                         facts=facts, locale=row.locale, stage_for_publication=True,
                     )
                     staged.append(cls)
+                if refresh_predecessors:
+                    baseline_count = sum(
+                        fact.get('client_baseline') is not None
+                        and fact.get('client_baseline') != original_baselines[int(fact['source']['id'])]
+                        for fact in facts
+                    )
+                    if not replacements and not baseline_count:
+                        raise CommandError('未找到可核实的新增旧值或基表对照，保留原报告')
                 # content_md is already stored and is not being changed here.
                 # Re-render the same HTML generator directly, avoiding its
                 # separate, unused Markdown DB2 enrichment round-trip.
@@ -227,7 +234,7 @@ class Command(BaseCommand):
                     backup.unlink(missing_ok=True)
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
         self.stdout.write(self.style.SUCCESS(
-            (f'热修报告 #{row.pk} 已为 {len(replacements)} 条来源补齐旧值并更新报告；原始来源与采集游标保持不变'
+            (f'热修报告 #{row.pk} 已补齐 {len(replacements)} 条同版本旧值、{baseline_count} 条基表对照；原始来源与采集游标保持不变'
              if refresh_predecessors else
              f'Hotfix report #{row.pk} re-rendered from {expected_count} frozen sources; report facts and cursor unchanged')
         ))

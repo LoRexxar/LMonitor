@@ -26,6 +26,25 @@ class _Request:
 
 
 class PortalVideoMonitorTest(TestCase):
+    def test_scan_reports_source_failure_without_advancing_cursor(self):
+        target = self._target(last_seen_bvid='BV1existing')
+        monitor = PortalVideoMonitor(_Request([('web-dynamic', {
+            'code': -352, 'message': '-352',
+        })]), None)
+        self.assertFalse(monitor.scan(''))
+        self.assertIn(str(target.pk), monitor.last_error_detail)
+        target.refresh_from_db()
+        self.assertEqual(target.last_seen_bvid, 'BV1existing')
+        self.assertFalse(PortalVideo.objects.exists())
+
+    def test_scan_accepts_successful_empty_feed(self):
+        self._target()
+        monitor = PortalVideoMonitor(_Request([('web-dynamic', {
+            'code': 0, 'data': {'items': []},
+        })]), None)
+        self.assertTrue(monitor.scan(''))
+        self.assertEqual(monitor.last_error_detail, '')
+
     def _target(self, last_seen_bvid=None):
         return VideoMonitorTarget.objects.create(
             name="劳瑞就是LoRexxar",

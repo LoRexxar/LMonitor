@@ -294,7 +294,7 @@ class DungeonAggregationReuseTests(TestCase):
         csv_reads = [call.args[0] for call in opened.call_args_list
                      if str(call.args[0]).endswith('.csv')]
         self.assertEqual(csv_reads, [])
-        spell_queries = [q['sql'] for q in queries if 'FROM "wow_spell_snapshot"' in q['sql']]
+        spell_queries = [q['sql'].replace('`', '"') for q in queries if 'FROM "wow_spell_snapshot"' in q['sql'].replace('`', '"')]
         for query in spell_queries:
             self.assertNotIn('88888', query)
             self.assertNotIn('88889', query)
@@ -416,7 +416,7 @@ class DungeonAggregationReuseTests(TestCase):
         self.refresh_talent_display()
         with CaptureQueriesContext(connection) as queries:
             self.assertTrue(self.aggregate()['reused'])
-        spell_queries = [q['sql'] for q in queries if 'FROM "wow_spell_snapshot"' in q['sql']]
+        spell_queries = [q['sql'].replace('`', '"') for q in queries if 'FROM "wow_spell_snapshot"' in q['sql'].replace('`', '"')]
         self.assertTrue(spell_queries)
         self.assertLessEqual(len(spell_queries), 5)
         for query in spell_queries:
@@ -512,7 +512,8 @@ class DungeonAggregationReuseTests(TestCase):
             self.aggregate()
         self.assertEqual([row['id'] for row in hydrate.call_args_list[0].args[1]],
                          [row['id'] for row in original])
-        ranking_queries = [q['sql'] for q in queries if 'FROM "wow_spec_dungeon_ranking"' in q['sql']]
+        sql_rows = [q['sql'].replace('`', '"') for q in queries]
+        ranking_queries = [sql for sql in sql_rows if 'FROM "wow_spec_dungeon_ranking"' in sql]
         self.assertNotIn('gear_json', ranking_queries[0])
         self.assertIn(' IN ', ranking_queries[1])
         self.assertEqual(self.detail(1)['sample_size'], 100)
@@ -550,8 +551,9 @@ class DungeonAggregationReuseTests(TestCase):
             WowItemVariantSnapshot.objects.filter(pk=row.pk).update(metadata={'irrelevant': 'changed'})
         with CaptureQueriesContext(connection) as queries:
             self.assertTrue(self.aggregate()['reused'])
-        hydration = [q['sql'] for q in queries if 'FROM "wow_item_variant_snapshot"' in q['sql']
-                     and '"stats_json"' in q['sql']]
+        sql_rows = [q['sql'].replace('`', '"') for q in queries]
+        hydration = [sql for sql in sql_rows if 'FROM "wow_item_variant_snapshot"' in sql
+                     and '"stats_json"' in sql]
         self.assertEqual(len(hydration), 1)
         self.assertIn(' IN ', hydration[0])
         WowItemVariantSnapshot.objects.filter(pk=chosen.pk).update(stats_json={'crit': 321})

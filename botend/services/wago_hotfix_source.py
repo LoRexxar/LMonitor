@@ -78,7 +78,11 @@ def _search_rows(fetch_text, extract_props, query, *, max_pages, timeout, max_at
     raise HotfixSourceIncomplete(f'Hotfix duplicate/incomplete query={query}: unique={len(unique)} total={expected_total}')
 
 
-def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, push_id=None):
+def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, push_id=None, build_number=None):
+    # None explicitly means all builds, not a guessed/latest build. Pagination
+    # completeness is established before selecting this coordinate.
+    if build_number is not None and (not str(build_number).isdigit() or int(build_number) <= 0):
+        raise HotfixSourceIncomplete(f'Hotfix invalid requested build identity: {build_number}')
     selected = {}
     for row in rows:
         try:
@@ -99,8 +103,12 @@ def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, pus
             rid = pid = 0
         if not table or rid <= 0 or pid <= 0:
             raise HotfixSourceIncomplete(f'Hotfix incomplete region={region_id} locale={locale}: missing record identity')
-        # 同一推送会为多个客户端版本分别发布，版本也是物理记录身份的一部分。
-        key = (pid, table.lower(), rid, str(row.get('build') or ''))
+        build = row.get('build')
+        if not str(build).isdigit() or int(build) <= 0:
+            raise HotfixSourceIncomplete(f'Hotfix incomplete source ID={row.get("id")}: missing build identity')
+        if build_number is not None and int(build) != int(build_number):
+            continue
+        key = (pid, int(build), table.lower(), rid)
         previous = selected.get(key)
         if previous is not None:
             raise HotfixSourceIncomplete(
@@ -111,7 +119,8 @@ def _exact_rows(rows, *, region_id, locale, table_name=None, record_id=None, pus
     return sorted(selected.values(), key=lambda row: (int(row['push_id']), int(row['id'])))
 
 
-def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout, max_queries=512):
+def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout, max_queries=512,
+                         checkpoint=None, proof=None, max_pages=40):
     """Use Wago's record-ID prefix search when its page ordering repeats IDs.
 
     Each split must conserve the parent's total; leaves must fit on one page.
@@ -120,6 +129,7 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
     push_id = int(push_id)
     query_count = 0
     selected = {}
+    leaves = []
 
     def fetch_bounded(url, **kwargs):
         nonlocal query_count
@@ -129,6 +139,8 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
         return fetch_text(url, **kwargs)
 
     def store(rows, prefix, build_prefix=None):
+        if rows:
+            leaves.append({'prefix': prefix, 'build_prefix': build_prefix, 'rows': rows})
         for row in rows:
             source_id = 0
             try:
@@ -150,26 +162,29 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
                 raise HotfixSourceIncomplete(f'Hotfix prefix duplicate source ID={source_id}')
             selected[source_id] = row
 
-    def terminal_rows(prefix):
+    def search(query):
+        def verified_props(text):
+            props = extract_props(text)
+            filters = props.get('filters') or {} if isinstance(props, dict) else {}
+            if not isinstance(filters, dict) or filters.get('search') != query:
+                raise HotfixSourceIncomplete(f'Hotfix terminal search not applied query={query}')
+            return props
+        return _search_rows(fetch_bounded, verified_props, query, max_pages=max_pages,
+                            timeout=timeout, max_attempts=1)
+
+    def terminal_rows(prefix, remaining):
         # Wago trims a trailing space. Include the next token (build) to
         # select record_id == prefix, never the longer digit descendants.
         count = 0
         for digit in '0123456789':
-            query = f'{locale} {push_id} {prefix} {digit}'
-            def verified_props(text):
-                props = extract_props(text)
-                filters = props.get('filters') or {} if isinstance(props, dict) else {}
-                if not isinstance(filters, dict) or filters.get('search') != query:
-                    raise HotfixSourceIncomplete(f'Hotfix terminal search not applied query={query}')
-                return props
-            rows = _search_rows(fetch_bounded, verified_props, query, max_pages=40, timeout=timeout)
+            rows = search(f'{locale} {push_id} {prefix} {digit}')
             store(rows, prefix, build_prefix=digit)
             count += len(rows)
+            if count >= remaining:
+                break
         return count
 
-    def visit(prefix, depth):
-        if depth > 16:
-            raise HotfixSourceIncomplete(f'Hotfix prefix search limit push={push_id}')
+    def page_one(prefix):
         query = f'{locale} {push_id}' + (f' {prefix}' if prefix else '')
         url = 'https://wago.tools/hotfixes?' + urlencode({'search': query, 'page': 1})
         props = extract_props(fetch_bounded(url, timeout=timeout))
@@ -188,6 +203,13 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
         if (not isinstance(rows, list) or current != 1 or pages < 1 or per_page < 1
                 or total < 0 or len(rows) > per_page or total > pages * per_page):
             raise HotfixSourceIncomplete(f'Hotfix prefix inconsistent pagination query={query}')
+        return total, pages, rows
+
+    def visit(prefix, depth, first=None):
+        if depth > 16:
+            raise HotfixSourceIncomplete(f'Hotfix prefix search limit push={push_id}')
+        total, pages, rows = first if first is not None else page_one(prefix)
+        query = f'{locale} {push_id}' + (f' {prefix}' if prefix else '')
         if pages == 1 and len(rows) == total:
             store(rows, prefix)
             return total
@@ -201,44 +223,78 @@ def _partition_push_rows(fetch_text, extract_props, push_id, locale, *, timeout,
             if child_total >= total:
                 break
         if prefix and child_total < total:
-            child_total += terminal_rows(prefix)
+            child_total += terminal_rows(prefix, total - child_total)
         if child_total != total:
             raise HotfixSourceIncomplete(
                 f'Hotfix prefix totals differ query={query}: children={child_total} parent={total}'
             )
         return total
 
-    total = visit('', 0)
+    root = page_one('')
+    reused = False
+    # There is no upstream whole-push revision/immutability contract. A root
+    # page hash or TTL cannot validate unseen rows. Recheck every nonempty
+    # complete leaf against the live source, then conserve the live root total.
+    # This reuses the verified partition proof, skipping empty/internal probes;
+    # it deliberately does NOT promise zero-HTTP reuse of an old push.
+    if (isinstance(checkpoint, dict) and checkpoint.get('total') == root[0]
+            and root[1] > 1 and isinstance(checkpoint.get('leaves'), list)):
+        try:
+            for leaf in checkpoint['leaves']:
+                prefix, build_prefix = leaf['prefix'], leaf['build_prefix']
+                if (not isinstance(prefix, str) or not prefix.isascii() or not prefix.isdigit()
+                        or len(prefix) > 16 or (build_prefix is not None
+                        and build_prefix not in tuple('0123456789'))):
+                    raise HotfixSourceIncomplete('Hotfix checkpoint invalid prefix')
+                cached = leaf['rows']
+                if not isinstance(cached, list) or not cached:
+                    raise HotfixSourceIncomplete('Hotfix checkpoint invalid leaf')
+                if build_prefix is None:
+                    count, pages, fresh = page_one(prefix)
+                    if pages != 1 or len(fresh) != count:
+                        raise HotfixSourceIncomplete('Hotfix checkpoint leaf no longer complete')
+                else:
+                    fresh = search(f'{locale} {push_id} {prefix} {build_prefix}')
+                if sorted(fresh, key=lambda r: int(r['id'])) != sorted(cached, key=lambda r: int(r['id'])):
+                    raise HotfixSourceIncomplete('Hotfix checkpoint source changed')
+                store(cached, prefix, build_prefix)
+            if len(selected) != root[0]:
+                raise HotfixSourceIncomplete('Hotfix checkpoint root total changed')
+            reused = True
+        except (HotfixSourceIncomplete, KeyError, TypeError, ValueError):
+            # Discard the ENTIRE attempted proof, never combine old and new
+            # incomplete sets. Failed revalidation consumes the same budget.
+            selected.clear()
+            leaves.clear()
+    total = root[0] if reused else visit('', 0, root)
     if len(selected) != total:
         raise HotfixSourceIncomplete(f'Hotfix prefix unique IDs={len(selected)} total={total} push={push_id}')
+    if proof is not None:
+        proof.update(total=total, leaves=leaves, reused=reused)
     return [selected[source_id] for source_id in sorted(selected)]
 
 
-def collect_hotfix_push_rows(fetch_text, extract_props, push_id, *, region_id, locale, max_pages=40, timeout=60):
-    query = f'{locale} {int(push_id)}'
-
-    def verified_props(text):
-        props = extract_props(text)
-        filters = props.get('filters') or {} if isinstance(props, dict) else {}
-        if not isinstance(filters, dict) or filters.get('search') != query:
-            raise HotfixSourceIncomplete(f'Hotfix push search not applied query={query}')
-        return props
-
-    try:
-        rows = _search_rows(fetch_text, verified_props, query, max_pages=max_pages, timeout=timeout)
-    except HotfixSourceIncomplete:
-        rows = _partition_push_rows(fetch_text, extract_props, push_id, locale, timeout=timeout)
-    return _exact_rows(rows, region_id=region_id, locale=locale, push_id=push_id)
+def collect_hotfix_push_rows(fetch_text, extract_props, push_id, *, region_id, locale, build_number=None,
+                             max_pages=40, timeout=60, checkpoint=None, proof=None):
+    # Avoid three doomed pagination sweeps on Wago's unstable ordering. The
+    # first root page is also the single-page fast path; larger pushes split
+    # immediately under the existing parent/child and unique-ID conservation.
+    candidate = {}
+    rows = _partition_push_rows(fetch_text, extract_props, push_id, locale, timeout=timeout,
+                                max_pages=max_pages, checkpoint=checkpoint, proof=candidate)
+    selected = _exact_rows(rows, region_id=region_id, locale=locale, push_id=push_id, build_number=build_number)
+    if proof is not None:
+        proof.update(candidate)
+    return selected
 
 
-def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table_name, region_id, locale, max_pages=40, timeout=60):
+def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table_name, region_id, locale, build_number=None, max_pages=40, timeout=60):
     rows = _search_rows(fetch_text, extract_props, str(int(record_id)), max_pages=max_pages, timeout=timeout)
-    return _exact_rows(rows, region_id=region_id, locale=locale, table_name=table_name, record_id=record_id)
+    return _exact_rows(rows, region_id=region_id, locale=locale, table_name=table_name, record_id=record_id, build_number=build_number)
 
 
 def collect_hotfix_build_rows(fetch_text, extract_props, build_number, *, region_id, locale, max_pages=200, timeout=60):
     """Discover a build's latest regional push only after its search is exhaustive."""
     build_number = int(build_number)
     rows = _search_rows(fetch_text, extract_props, str(build_number), max_pages=max_pages, timeout=timeout)
-    selected = _exact_rows(rows, region_id=region_id, locale=locale)
-    return [row for row in selected if str(row.get('build') or '') == str(build_number)]
+    return _exact_rows(rows, region_id=region_id, locale=locale, build_number=build_number)

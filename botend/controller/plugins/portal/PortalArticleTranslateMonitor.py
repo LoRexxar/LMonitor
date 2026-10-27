@@ -2,11 +2,13 @@ import json
 import re
 import time
 import html
+from datetime import timedelta
 from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
 from django.db.models import Q
+from django.utils import timezone
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import WowArticle
@@ -33,7 +35,11 @@ class PortalArticleTranslateMonitor(BaseScan):
             Q(content_cn__isnull=True) | Q(content_cn='')
         )
 
-        articles = WowArticle.objects.filter(query).order_by('-publish_time')[:10]
+        # Filter before LIMIT so rejected newest articles do not monopolize
+        # every run. Persist the bounded cooldown across backend restarts.
+        has_content = Q(content__isnull=False) & ~Q(content='')
+        eligible = has_content | Q(content_fetch_retry_at__isnull=True) | Q(content_fetch_retry_at__lte=timezone.now())
+        articles = WowArticle.objects.filter(query & eligible).order_by('-publish_time', '-pk')[:10]
 
         fetched_count = 0
         translated_count = 0
@@ -48,16 +54,17 @@ class PortalArticleTranslateMonitor(BaseScan):
                     )
                     content = blocks_to_plain_text(blocks)
                     if not content:
-                        content = self._fetch_content(
-                            article.url,
-                            article.source,
-                            reference_text=article.content or article.description or "",
-                            reference_title=article.title or "",
+                        # _fetch_content_blocks already tries structured and
+                        # plaintext extraction on the same response. Repeating
+                        # it cannot turn rejected content into a trusted body.
+                        WowArticle.objects.filter(pk=article.pk, url=article.url).update(
+                            content_fetch_retry_at=timezone.now() + timedelta(hours=1),
                         )
-                        blocks = plain_text_to_blocks(content)
+                        continue
                     if content:
                         article.content = content
-                        update_fields = ["content"]
+                        article.content_fetch_retry_at = None
+                        update_fields = ["content", "content_fetch_retry_at"]
                         if blocks and not (article.content_blocks or "").strip():
                             article.content_blocks = dumps_blocks(blocks)
                             update_fields.append("content_blocks")

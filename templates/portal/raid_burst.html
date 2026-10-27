@@ -57,15 +57,16 @@
         </section>
         <section class="burst-panel">
             <div class="burst-title">
-                <h2>真实施放时间轴</h2>
+                <h2 id="timeline-title">技能事件时间轴</h2>
                 <div class="burst-tabs" aria-label="选择技能">
                     {% for spell_id, name in raid_burst_payload.skill_names.items %}
                     <button type="button" data-spell="{{ spell_id }}" aria-pressed="{% if forloop.first %}true{% else %}false{% endif %}">{{ name }}</button>
                     {% endfor %}
                 </div>
             </div>
+            <p id="skill-source" class="burst-muted" role="status"></p>
             <div id="chart" class="burst-chart"></div>
-            <p class="burst-muted">悬停样本行可查看玩家和DPS，也支持点击或键盘聚焦。圆点：施放技能；菱形：阶段转换；橙线：嗜血持续时间；末端竖线：击杀。横轴为分:秒。</p>
+            <p class="burst-muted">悬停样本行可查看玩家和DPS，也支持点击或键盘聚焦。<span id="event-legend">圆点：技能事件</span>；菱形：阶段转换；橙线：嗜血持续时间；末端竖线：击杀。横轴为分:秒。</p>
         </section>
         <section class="burst-panel">
             <h2>不同的爆发选择</h2>
@@ -77,9 +78,9 @@
         {% else %}
         <section class="burst-panel"><p id="coverage">{% if raid_burst_back_url %}本首领当前专精与难度暂无已生成的战斗统计，需通过独立手动任务生成；每日自动更新已关闭。{% else %}请从职业团本聚合的具体首领详情页进入战斗统计。{% endif %}</p></section>
         {% endif %}
-        <p class="burst-muted">按当前专精标注主动爆发与关键技能，仅统计玩家本人实际施放。治疗和坦克专精同时包含主要治疗、减伤技能；样本仍来自团本 DPS 排名，不代表治疗量或承伤排名。</p>
+        <p class="burst-muted">按当前专精标注爆发与关键技能，默认统计本人成功施法；显式配置的形态技能统计本人光环生效，来源口径随技能展示，不等同于主动施法。治疗和坦克专精同时包含主要治疗、减伤技能；样本仍来自团本 DPS 排名，不代表治疗量或承伤排名。</p>
     </main>
     {{ raid_burst_payload|json_script:"raid-burst-data" }}
-    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261024_external_pi" defer></script>
+    <script src="{% static 'portal/js/raid-burst.js' %}?v=20261027_event_sources" defer></script>
 </body>
 </html>

@@ -63,39 +63,41 @@ def decode_hotfix_row(payload, schema_row: Mapping, *, record_id: int):
     return result if valid else None
 
 
+def hotfix_record_identity(row):
+    """Build is part of a physical record's scope, never a tie breaker."""
+    return (
+        str(row.get('region_id') or ''), str(row.get('locale') or ''),
+        str(row.get('table_name') or '').lower(), str(row.get('record_id') or ''),
+        str(row.get('build') or ''),
+    )
+
+
 def previous_hotfix_row(rows, target):
-    """Return the last unambiguous source row in the same exact record scope."""
-    def identity(row):
-        return (
-            str(row.get('region_id') or ''), str(row.get('locale') or ''),
-            str(row.get('table_name') or '').lower(), str(row.get('record_id') or ''),
-        )
+    """Return the last unambiguous source row in the same exact build scope.
+
+    A different build is not a verified predecessor, even with an older push.
+    Cross-build migration needs separate proven lineage, not numeric proximity.
+    """
 
     scoped = [row for row in rows if isinstance(row, dict)
-              and identity(row) == identity(target)
-              and int(row.get('push_id') or 0) < int(target.get('push_id') or 0)
-              and (not target.get('build') or not row.get('build')
-                   or int(row['build']) <= int(target['build']))]
+              and hotfix_record_identity(row) == hotfix_record_identity(target)
+              and int(row.get('push_id') or 0) < int(target.get('push_id') or 0)]
     if not scoped:
         return None
     latest_push = max(int(row.get('push_id') or 0) for row in scoped)
     latest = [row for row in scoped if int(row.get('push_id') or 0) == latest_push]
-    exact_build = [row for row in latest if str(row.get('build') or '') == str(target.get('build') or '')]
-    if exact_build:
-        latest = exact_build
     def comparable_payload(row):
         data = row.get('data')
         if isinstance(data, list) and data and data[0] == '':
             return [int(row['record_id']), *data[1:]]
         return data
-    # 同一推送多个版本的值一致时可选择最新适用版本，并用它自己的结构解码。
-    # 不同版本给出相互矛盾的值时，不能随意选取一个作为前态。
+    # 同一版本的旧格式空 ID 可归一化；相互矛盾的来源仍然拒绝。
     if not latest or not isinstance(latest[0].get('data'), list) or any(
         comparable_payload(row) != comparable_payload(latest[0])
         or row.get('status') != latest[0].get('status') for row in latest
     ):
         return None
-    return max(latest, key=lambda row: (int(row.get('build') or 0), int(row.get('id') or 0)))
+    return latest[0]
 
 
 def previous_hotfix_payload(rows, target):

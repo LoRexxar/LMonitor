@@ -1536,7 +1536,7 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
              patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.WowHotfixReport.objects.update_or_create', return_value=(saved_row, True)) as reports:
             existing.return_value.first.return_value = None
             self.assertTrue(monitor._scan_hotfix_if_needed(state, 'wow', '12.1.0.69933'))
-        latest.assert_called_once_with(locale='enUS', region_id=1, current_build='12.1.0.69933')
+        latest.assert_called_once_with(locale='enUS', region_id=1, current_build='12.1.0.69933', after_push=112181)
         collect.assert_called_once_with(112181, 112185, region_id=1, locale='enUS')
         resolve.assert_called_once_with([source], db2_build='12.1.0.69933', interval_only=False, recover_spell_history=False)
         self.assertIs(full_writer.call_args.kwargs['facts'], class_writer.call_args.kwargs['facts'])
@@ -1584,26 +1584,32 @@ class WagoSkillDiffMonitorCursorTests(SimpleTestCase):
     def test_hotfix_push_collection_verifies_pages_and_region_before_reporting(self):
         monitor = WagoSkillDiffMonitor(None, SimpleNamespace())
 
-        def inertia(page, rows, *, total=3, last_page=2):
-            payload = {'props': {'filters': {'search': 'enUS 112185'}, 'hotfixes': {
+        def inertia(page, rows, *, total=3, last_page=2, search='enUS 112185'):
+            payload = {'props': {'filters': {'search': search}, 'hotfixes': {
                 'total': total, 'current_page': page, 'last_page': last_page,
                 'per_page': 2, 'data': rows,
             }}}
             return '<div data-page="' + html.escape(json.dumps(payload), quote=True) + '"></div>'
 
         us = {'id': 101, 'push_id': 112185, 'region_id': 1, 'locale': 'enUS',
-              'table_name': 'SpellEffect', 'record_id': 1106904, 'status': 1,
+              'table_name': 'SpellEffect', 'record_id': 1106904, 'status': 1, 'build': 69933,
               'data': [1106904, '10.451600074768']}
         eu = {**us, 'id': 102, 'region_id': 3}
-        another = {**us, 'id': 103, 'push_id': 112181}
+        another = {**us, 'id': 103, 'record_id': 2106904}
 
         def page_for(url, **kwargs):
-            self.assertIn('search=enUS+112185', url)
-            return inertia(2, [another]) if 'page=2' in url else inertia(1, [us, eu])
+            from urllib.parse import parse_qs, urlsplit
+            query = parse_qs(urlsplit(url).query)['search'][0]
+            self.assertTrue(query.startswith('enUS 112185'))
+            tokens = query.split()
+            prefix = tokens[2] if len(tokens) > 2 else ''
+            matched = [r for r in (us, eu, another) if str(r['record_id']).startswith(prefix)]
+            return inertia(1, matched[:2], total=len(matched),
+                           last_page=max(1, (len(matched) + 1) // 2), search=query)
 
         with patch.object(monitor, '_http_get_text', side_effect=page_for):
             rows = monitor._fetch_hotfix_push_rows(112185, region_id=1, locale='enUS')
-        self.assertEqual(rows, [us])
+        self.assertEqual(rows, [us, another])
         with patch.object(monitor, '_http_get_text', side_effect=lambda url, **kwargs: inertia(1, [us, eu])):
             with self.assertRaisesRegex(WagoDiffUnavailable, 'Hotfix.*incomplete'):
                 monitor._fetch_hotfix_push_rows(112185, region_id=1, locale='enUS')
@@ -2119,7 +2125,7 @@ class HotfixPredecessorRecoveryTests(SimpleTestCase):
         source = {'id': 2, 'push_id': 113265, 'region_id': 3, 'locale': 'enUS',
                   'table_name': 'SpellEffect', 'record_id': 7, 'build': 70575,
                   'status': 1, 'data': [7, '2.1631999015808']}
-        old = {**source, 'id': 1, 'push_id': 112179, 'build': 69933,
+        old = {**source, 'id': 1, 'push_id': 112179, 'build': 70575,
                'data': [7, '2.7039999961853']}
         with patch('botend.controller.plugins.wow.WagoSkillDiffMonitor.collect_hotfix_record_history',
                    return_value=[old, source]) as history:
@@ -2128,7 +2134,7 @@ class HotfixPredecessorRecoveryTests(SimpleTestCase):
         history.assert_called_once()
         self.assertTrue(facts[0]['before_verified'])
         self.assertEqual(facts[0]['before_source']['id'], 1)
-        self.assertEqual(facts[0]['before_source_build'], '12.1.5.69933')
+        self.assertEqual(facts[0]['before_source_build'], '12.1.5.70575')
         self.assertEqual(facts[0]['changes'], [
             {'field': 'Value', 'before': '2.7039999961853', 'after': '2.1631999015808'}])
 

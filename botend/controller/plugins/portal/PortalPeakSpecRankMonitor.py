@@ -24,7 +24,8 @@ class PortalPeakSpecRankMonitor(BaseScan):
             return self._scan(url) if acquired else False
 
     def _scan(self, url):
-        # Share the activity collector's 429 stop state across every spec in this batch.
+        started = time.monotonic()
+        # Reuse the local-only player reconciler across specs.
         self._player_monitor = None
         season = self._resolve_season()
         if not season:
@@ -50,6 +51,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
                 refreshed += 1
             time.sleep(0.2)
 
+        publish_started = time.monotonic()
         try:
             if refreshed:
                 publish_rankings('peak', season=season, region=region,
@@ -70,6 +72,9 @@ class PortalPeakSpecRankMonitor(BaseScan):
                 self.task.save()
             except Exception:
                 pass
+        logger.info(f"[PortalPeakSpecRankMonitor] phase=short_publish refreshed={refreshed} ok={ok} "
+                    f"seconds={time.monotonic() - publish_started:.3f} "
+                    f"total_seconds={time.monotonic() - started:.3f}")
         return ok
 
     def _resolve_season(self):
@@ -77,6 +82,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
         return (season.rio_season or "").strip() if season else ""
 
     def _fetch_and_upsert(self, *, season, region, class_slug, spec_slug):
+        started = time.monotonic()
         api = "https://raider.io/api/mythic-plus/rankings/specs"
         def fetch_page(page):
             last_status = None
@@ -163,6 +169,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
             )
             return False
 
+        fetched = time.monotonic()
         self._persist_rank_snapshot(
             season=season,
             region=region,
@@ -171,6 +178,7 @@ class PortalPeakSpecRankMonitor(BaseScan):
             rows=top_rows,
         )
 
+        persisted = time.monotonic()
         canonical_identity = canonical_class_spec(class_slug, spec_slug)
         if canonical_identity:
             try:
@@ -190,6 +198,9 @@ class PortalPeakSpecRankMonitor(BaseScan):
                     f"[PortalPeakSpecRankMonitor] player preload failed: "
                     f"{class_slug}/{spec_slug} err={exc}"
                 )
+        logger.info(f"[PortalPeakSpecRankMonitor] phase=short_spec {class_slug}/{spec_slug} "
+                    f"fetch_seconds={fetched - started:.3f} rank_write_seconds={persisted - fetched:.3f} "
+                    f"local_projection_seconds={time.monotonic() - persisted:.3f}")
         return True
 
     @staticmethod
