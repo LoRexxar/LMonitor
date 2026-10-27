@@ -292,13 +292,12 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
             )
         query = query.filter(context)
     if source_text is not None:
-        from botend.services.wow_news_glossary_service import _extract_name_candidates
+        from botend.services.wow_news_glossary_service import _extract_name_candidates, _name_candidate_queries
         candidates = _extract_name_candidates(source_text)
         candidates.update(name_candidates)
-        selection = Q(name_kind__in=['talent', 'phrase', 'macro']) | Q(name__in=candidates)
+        selection = Q(name_kind__in=['talent', 'phrase', 'macro'])
         for kind in ('spell', 'item'):
             selection |= Q(name_kind=kind, reference_id__in=reference_ids.get(kind, set()))
-        query = query.filter(selection)
     elif has_reference_filter:
         # 显式引用只加载与 (kind, ID) 对应的行；不把当前专精的全部天赋扩进候选集。
         selection = Q(pk__in=[])
@@ -320,9 +319,19 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
     query = query.annotate(_current_source=Case(When(talent_version=version, then=Value(0)), default=Value(1), output_field=IntegerField()))
     order_fields = ['_current_source', 'localization_only']
     order_fields.append('id')
-    for obj in query.only('id','name','name_zh','icon','localization_evidence','localization_only','name_kind',
+    query = query.only('id','name','name_zh','icon','localization_evidence','localization_only','name_kind',
             'reference_id','reference_aliases','talent_id','node_id','spell_id','display_spell_id','tree_type','class_name','spec_name',
-            'description','description_zh').order_by(*order_fields):
+            'description','description_zh').order_by(*order_fields)
+    if source_text is not None:
+        # Load unconditional kinds/explicit IDs once, then exhaust name batches.
+        # Restore global source precedence: batch order must not choose a winner.
+        objects = {obj.pk: obj for obj in query.filter(selection)}
+        for batch in _name_candidate_queries(query.exclude(selection), candidates):
+            objects.update((obj.pk, obj) for obj in batch)
+        objects = sorted(objects.values(), key=lambda obj: (obj._current_source, obj.localization_only, obj.pk))
+    else:
+        objects = query
+    for obj in objects:
         identity = obj.reference_id if obj.localization_only else obj.node_id or obj.talent_id or obj.spell_id
         if identity:
             records.append(_record(obj, obj.name_kind, game_version, identity))
