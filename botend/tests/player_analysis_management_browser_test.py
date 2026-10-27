@@ -35,7 +35,7 @@ def main():
         <div class="dashboard-shell"><nav><ul>
         <li class="nav-item" data-section="dashboard-home"><a href="?">首页</a></li>
         <li class="nav-item" data-section="player-analyses"><a href="?section=player-analyses">角色分析管理</a></li>
-        </ul></nav><main class="main-content"><section class="content-section active" id="dashboard-home">首页</section>''' + panel + '''</main></div></body></html>'''
+        </ul></nav><main class="main-content"><section class="content-section active" id="dashboard-home" data-loaded="true">首页</section>''' + panel + '''</main></div></body></html>'''
     fixture = {'id': 7, 'revision': 1, 'player_id': 42,
                'player': {'id': 42, 'character_name': '真实角色测试名字' * 8, 'region': 'cn', 'realm': '测试服务器',
                           'class_name': 'Mage', 'spec_name': 'Fire', 'class_label': '法师', 'spec_label': '火焰',
@@ -49,7 +49,10 @@ def main():
                       'result_json': {'fixture': True}, 'evidence_json': {}}, 'effective': {}}
     from botend.tests.test_player_analysis_presentation import publication, TEXT
     from botend.services.player_analysis_management import frozen_ai
-    fixture['ai'] = frozen_ai(publication())
+    from botend.tests.test_player_observation_resolution import label_publication
+    fixture['ai'] = frozen_ai(label_publication())
+    fixture['tags'] += [{'label': f'额外标签{i}'} for i in range(8)]
+    fixture['assessments'] = [{'label': f'排除标签{i}', 'level': 'excluded', 'scope': '仅在详情展示的完整排除范围'} for i in range(5)]
     assert fixture['ai']['validation_status'] == 'valid'
     projection = fixture['ai']['rendered_investigation']
     calls = []
@@ -106,13 +109,20 @@ def main():
         text = listing.inner_text()
         assert '法师 火焰' in text and '至暗之夜第1赛季' in text
         assert not any(value in text for value in ('Mage', 'Fire', '赛季 3', '综合简述', '冻结结论'))
-        assert listing.locator('.pa-list-tag').all_text_contents() == ['组队模式 · 五人固定车队 · 置信度：低', '人工标签 · <script>不执行</script>']
+        assert listing.locator('.pa-list-tag').all_text_contents() == ['组队模式 · 五人固定车队 · 低', '人工标签 · <script>不执行</script>']
+        assert listing.locator('[data-action="more-tags"]').inner_text() == '+8'
+        assert '已排除 5 项' in listing.inner_text()
+        assert '仅在详情展示的完整排除范围' not in listing.inner_text()
         assert listing.locator('script').count() == 0
         tag_filter = page.locator('.pa-filters [data-field="tag"]')
         assert tag_filter.locator('option').all_text_contents() == ['全部', '组队模式', '人工标签', '其他页标签']
-        tag_filter.select_option('组队模式')
         with page.expect_response(lambda r: '/player-analyses/?' in r.url):
-            page.locator('.pa-filters button[type="submit"]').click()
+            tag_filter.select_option('组队模式')
+        before_search = len(list_queries)
+        with page.expect_response(lambda r: '/player-analyses/?' in r.url):
+            page.locator('.pa-filters [name="q"]').fill('阿诺')
+        assert len(list_queries) == before_search + 1
+        assert list_queries[-1]['q'] == ['阿诺']
         with page.expect_response(lambda r: '/player-analyses/?' in r.url):
             listing.locator('[data-action="next"]').click()
         page.get_by_text('暂无标签', exact=True).wait_for()
@@ -128,11 +138,22 @@ def main():
                 assert page.evaluate('document.documentElement.scrollWidth <= innerWidth'), (width, theme)
                 assert listing.evaluate('(n) => n.scrollWidth <= n.clientWidth'), (width, theme)
                 assert listing.locator('.pa-list-tag').first.is_visible()
-        page.locator('[data-action="open"]').click()
+                assert listing.locator('.pa-list-row').bounding_box()['height'] <= (80 if width == 1440 else 120)
+                if os.environ.get('PLAYER_ANALYSIS_SCREENSHOTS'):
+                    output = Path(os.environ['PLAYER_ANALYSIS_SCREENSHOTS'])
+                    output.mkdir(parents=True, exist_ok=True)
+                    page.screenshot(path=str(output / f'角色管理-{width}-{theme}.png'))
+        page.locator('[data-action="more-tags"]').click()
         page.locator('.pa-detail h2').wait_for()
         assert TEXT in page.locator('.pa-detail').inner_text()
         assert page.locator('.pa-detail script').count() == 0
-        investigation = page.locator('.pa-investigation')
+        reviews = page.locator('[data-label-reviews]')
+        assert reviews.locator('[data-label-review]').count() == 7
+        reviews.locator('[data-label-review="being_carried"] summary').click()
+        assert '反向 3 场' in reviews.inner_text()
+        assert '来源无法判定' in reviews.inner_text()
+        assert reviews.locator('script,img,iframe,[onerror]').count() == 0
+        investigation = page.locator('[data-investigation]')
         assert investigation.locator('[data-investigation-hypothesis]').count() == len(projection['hypotheses'])
         assert TEXT in investigation.inner_text()
         for hypothesis in projection['hypotheses']:
@@ -162,6 +183,9 @@ def main():
                 assert box['width'] == (width if width == 390 else 800), box
                 assert page.locator('.pa-detail').evaluate('(n) => n.scrollWidth <= n.clientWidth'), (width, theme)
                 assert page.locator('[role="dialog"]').count() == 1
+                if os.environ.get('PLAYER_ANALYSIS_SCREENSHOTS'):
+                    page.locator('.pa-detail').evaluate('(node) => {node.scrollTop = 0;}')
+                    page.screenshot(path=str(Path(os.environ['PLAYER_ANALYSIS_SCREENSHOTS']) / f'逐标签核验-{width}-{theme}.png'))
         page.locator('.pa-edit-form [data-field="review_status"]').select_option('approved')
         page.locator('[data-action="save"]').click()
         try:

@@ -129,7 +129,7 @@ class PlayerAnalysisManagementTests(TestCase):
             self.assertNotIn('gear_json', sql)
             # JSON path extraction is allowed; selecting the full frozen blob is not.
             self.assertNotRegex(sql, r'(?:SELECT\s+|,\s*)["`]wow_player_observation_analysis["`]\.["`]evidence_json["`](?:\s*,|\s+FROM)')
-        self.assertLessEqual(len(selects), 3)
+        self.assertLessEqual(len(selects), 4)
         self.assertEqual(service.list_analyses({'q': str(row.pk)})['total'], 1)
         self.assertEqual(service.list_analyses({'q': 'test-realm'})['total'], 1)
         self.assertEqual(service.list_characters({'q': 'Member'})['items'][0]['id'], self.player.pk)
@@ -235,7 +235,13 @@ class PlayerAnalysisManagementTests(TestCase):
         PlayerObservationAnalysis.objects.bulk_create(rows)
         with CaptureQueriesContext(connection) as captured:
             result = service.list_analyses({'tag': 'Case标签', 'page_size': '1'})
-        self.assertEqual(len(captured), 3)  # Two bounded tag batches plus one page; no per-row identity queries.
+        self.assertEqual(len(captured), 5)  # 首次菜单两批；版本计数、分页计数、当前页各一次。
+        with CaptureQueriesContext(connection) as paging:
+            service.list_analyses({'tag': 'Case标签', 'page_size': '1', 'include_tag_options': '0'})
+        self.assertEqual(len(paging), 2)  # 翻页只有数据库计数与当前页，不扫描全表标签。
+        with CaptureQueriesContext(connection) as cached:
+            service.list_analyses({'tag': 'Case标签', 'page_size': '1'})
+        self.assertEqual(len(cached), 3)  # 菜单命中缓存，不重读全量标签。
         self.assertEqual(result['total'], 1)
         self.assertEqual(result['items'][0]['id'], rows[0].pk)
         self.assertEqual(result['items'][0]['tags'], [{'label': 'Case标签', 'value': 'true'}])
@@ -248,6 +254,20 @@ class PlayerAnalysisManagementTests(TestCase):
         self.assertEqual(local['total'], 1)
         self.assertEqual(local['tag_options'], [])
         self.assertEqual(local['items'][0]['source_kind'], 'local_deterministic')
+
+    def test_scoped_exclusion_is_visible_separately_from_positive_tags(self):
+        detail = self.create()
+        grade = {'level': 'excluded', 'label': '已排除（本轮样本）', 'confidence': '高',
+                 'scope': '仅限本轮三个已验证场次'}
+        PlayerObservationAnalysis.objects.filter(pk=detail['id']).update(manual_json={},
+            evidence_json={'metrics': {'behavior_review': {'evidence_strengths': {'carrying': grade}}}})
+        listing = service.list_analyses({'include_tag_options': '0'})
+        self.assertEqual(listing['items'][0]['tags'], [])
+        assessment = listing['items'][0]['assessments'][0]
+        self.assertEqual(assessment['strength_label'], grade['label'])
+        self.assertEqual(assessment['confidence'], '高')
+        PlayerObservationAnalysis.objects.filter(pk=detail['id']).update(manual_json=self.manual)
+        self.assertEqual(service.list_analyses({'include_tag_options': '0'})['items'][0]['assessments'], [])
 
     def test_manual_projection_outside_top20_and_whole_record_hide(self):
         from botend.services.player_observation import project_player_observation

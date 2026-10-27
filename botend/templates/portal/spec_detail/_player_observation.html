@@ -36,6 +36,22 @@
             </details>
             {% endif %}
         {% else %}
+            {% if observation.label_reviews %}
+            <details class="player-observation__details" data-label-reviews>
+                <summary>查看全部标签的核验进度</summary>
+                {% for item in observation.label_reviews %}
+                <div class="player-observation__note" data-label-review="{{ item.code }}">
+                    <strong>{{ item.label }} · {{ item.strength.label }}</strong>
+                    <p>{{ item.scope }}</p>
+                    <p>支持 {{ item.supported_run_ids|length }} 场 · 反向 {{ item.excluded_run_ids|length }} 场 · 未决 {{ item.unknown_run_ids|length }} 场</p>
+                    {% if item.reason %}<p>{{ item.reason }}</p>{% endif %}
+                    {% for question in item.questions %}<p>补证：{{ question.reason }} {{ question.expected_change }}</p>{% endfor %}
+                    {% if item.evidence %}<ul>{% for evidence in item.evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}</ul>{% endif %}
+                    {% if item.counter_evidence %}<ul>{% for evidence in item.counter_evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}</ul>{% endif %}
+                </div>
+                {% endfor %}
+            </details>
+            {% endif %}
             {% if observation.investigation.triggered %}
             <div data-player-investigation>
                 {% if observation.investigation.schema_version == 9 %}

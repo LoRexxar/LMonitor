@@ -9,9 +9,10 @@ import json
 from urllib.parse import urlsplit
 
 from django.core.exceptions import ValidationError
+from django.core.cache import cache
 from django.core.validators import URLValidator
 from django.db import IntegrityError, transaction
-from django.db.models import BooleanField, Case, Func, JSONField, OuterRef, Q, Subquery, Value, When
+from django.db.models import BooleanField, Case, Count, Func, JSONField, Max, OuterRef, Q, Subquery, Value, When
 from django.db.models.fields.json import KeyTransform
 from django.utils import timezone
 
@@ -160,7 +161,7 @@ def frozen_ai(row):
         InvalidResult, _validate_frozen_publication, _project_frozen_investigation,
     )
     audit = {'result_json': row.result_json, 'evidence_json': row.evidence_json}
-    empty = {'tags': [], 'conclusion': '', 'evidence': [], 'rendered_investigation': None}
+    empty = {'tags': [], 'conclusion': '', 'evidence': [], 'rendered_investigation': None, 'label_reviews': []}
     if not row.result_json:
         return {**audit, **empty, 'validation_status': 'missing'}
     try:
@@ -183,9 +184,11 @@ def frozen_ai(row):
             'reason': label.get('reason_options', {}).get(item.get('reason_id'), ''),
             'evidence': [refs[key] for key in item.get('evidence_ids', []) if key in refs]})
     option = evidence.get('conclusion_options', {}).get(result.get('conclusion_id'), {})
+    from botend.services.player_observation_resolution import render_label_reviews
     return {'tags': tags, 'conclusion': option.get('text', '') if isinstance(option, dict) else '',
             'evidence': list(refs.values()), **audit,
-            'validation_status': 'valid', 'rendered_investigation': rendered}
+            'validation_status': 'valid', 'rendered_investigation': rendered,
+            'label_reviews': render_label_reviews(evidence)}
 
 
 def _detail(row):
@@ -215,9 +218,9 @@ def _page(params):
     return values[0], min(values[1], 50)
 
 
-def _paginate(query, params, render):
+def _paginate(query, params, render, *, total=None):
     page, page_size = _page(params)
-    total = query.count()
+    total = query.count() if total is None else total
     start = (page - 1) * page_size
     return {'items': [render(row) for row in query[start:start + page_size]],
             'total': total, 'page': page, 'page_size': page_size,
@@ -265,6 +268,36 @@ def _effective_tags(has_manual, manual_labels, manual_values, labels, observatio
     return [tag for tag in tags if isinstance(tag['label'], str) and tag['label'].strip() and len(tag['label']) <= 200]
 
 
+class _MatchesTag(Func):
+    """在数据库内匹配生效标签，保留人工覆盖与大小写精确匹配。"""
+    output_field = BooleanField()
+
+    def __init__(self, tag):
+        super().__init__('manual_json', 'evidence_json', 'result_json', Value(tag))
+
+    def _parts(self, compiler):
+        return [compiler.compile(value) for value in self.source_expressions]
+
+    def as_sqlite(self, compiler, connection, **extra_context):
+        (manual, _), (evidence, _), (result, _), (tag, params) = self._parts(compiler)
+        return (f"CASE WHEN {manual} != '{{}}' THEN EXISTS (SELECT 1 FROM JSON_EACH({manual}, '$.tags') t "
+                f"WHERE JSON_EXTRACT(t.value, '$.label') = {tag} COLLATE BINARY) ELSE EXISTS "
+                f"(SELECT 1 FROM JSON_EACH({result}, '$.observations') o WHERE COALESCE("
+                f"(SELECT JSON_EXTRACT(l.value, '$.label') FROM JSON_EACH({evidence}, '$.eligible_labels') l "
+                "WHERE JSON_EXTRACT(l.value, '$.code') = JSON_EXTRACT(o.value, '$.code') LIMIT 1), "
+                f"JSON_EXTRACT(o.value, '$.code')) = {tag} COLLATE BINARY) END", params * 2)
+
+    def as_mysql(self, compiler, connection, **extra_context):
+        (manual, _), (evidence, _), (result, _), (tag, params) = self._parts(compiler)
+        return (f"CASE WHEN {manual} != JSON_OBJECT() THEN EXISTS (SELECT 1 FROM JSON_TABLE({manual}, "
+                "'$.tags[*]' COLUMNS(label VARCHAR(200) PATH '$.label')) t "
+                f"WHERE BINARY t.label = BINARY {tag}) ELSE EXISTS (SELECT 1 FROM JSON_TABLE({result}, "
+                "'$.observations[*]' COLUMNS(code VARCHAR(200) PATH '$.code')) o "
+                f"LEFT JOIN JSON_TABLE({evidence}, '$.eligible_labels[*]' COLUMNS("
+                "code VARCHAR(200) PATH '$.code', label VARCHAR(200) PATH '$.label')) l "
+                f"ON BINARY l.code = BINARY o.code WHERE BINARY COALESCE(l.label, o.code) = BINARY {tag}) END", params * 2)
+
+
 def list_analyses(params):
     # Deliberately do NOT call _detail/frozen_ai/build_evidence on list pages.
     page, page_size = _page(params)
@@ -273,6 +306,7 @@ def list_analyses(params):
         summary_has_manual=Case(When(manual_json={}, then=Value(False)), default=Value(True), output_field=BooleanField()),
         summary_manual_labels=_ManualTagColumn('label'),
         summary_manual_values=_ManualTagColumn('value'),
+        summary_strengths=KeyTransform('evidence_strengths', KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json'))),
         summary_labels=KeyTransform('eligible_labels', 'evidence_json'),
         summary_observations=KeyTransform('observations', 'result_json'))
     q = _text(params.get('q', ''), 'q', 200).strip()
@@ -298,36 +332,46 @@ def list_analyses(params):
     if visibility:
         query = query.filter(is_published=visibility == 'published')
 
-    # A tag census must cover every matching row, not just the requested page.
-    # Keyset batches bound memory even with MySQL's client-buffered cursors; only
-    # light JSON subfields cross the wire, and at most page_size IDs are retained.
-    candidates = query.order_by('-id').values('id', 'summary_has_manual',
-        'summary_manual_labels', 'summary_labels', 'summary_observations')
-    options, page_ids = set(), []
-    total, start, before = 0, (page - 1) * page_size, None
-    while True:
-        batch = list((candidates.filter(pk__lt=before) if before is not None else candidates)[:200])
-        for row in batch:
-            labels = {item['label'] for item in _effective_tags(row['summary_has_manual'],
-                row['summary_manual_labels'], [], row['summary_labels'], row['summary_observations'])}
-            options.update(labels)
-            if not tag or tag in labels:
-                if start <= total < start + page_size:
-                    page_ids.append(row['id'])
-                total += 1
-        if len(batch) < 200:
-            break
-        before = batch[-1]['id']
+    # 标签菜单与分页分离；同一筛选条件翻页不再扫描全部 JSON。
+    options = None
+    total = None
+    if params.get('include_tag_options', '1') != '0':
+        signature = query.aggregate(count=Count('pk'), last_id=Max('pk'), updated=Max('updated_at'))
+        if not tag:
+            total = signature['count']
+        key_data = [q, *[params.get(k, '') for k in ('status', 'review_status', 'source', 'visibility')], signature]
+        key = 'player-analysis-tags:' + hashlib.sha256(json.dumps(key_data, default=str, ensure_ascii=False).encode()).hexdigest()
+        options = cache.get(key)
+        if options is None:
+            labels, before = set(), None
+            candidates = query.order_by('-id').values('id', 'summary_has_manual',
+                'summary_manual_labels', 'summary_labels', 'summary_observations')
+            while True:
+                batch = list((candidates.filter(pk__lt=before) if before is not None else candidates)[:200])
+                for row in batch:
+                    labels.update(item['label'] for item in _effective_tags(row['summary_has_manual'],
+                        row['summary_manual_labels'], [], row['summary_labels'], row['summary_observations']))
+                if len(batch) < 200:
+                    break
+                before = batch[-1]['id']
+            options = sorted(labels)
+            cache.set(key, options, 60)
+    if tag:
+        query = query.annotate(matches_tag=_MatchesTag(tag)).filter(matches_tag=True)
 
     def summary(row):
+        from botend.services.player_observation_resolution import LABELS
         tags = _effective_tags(row.summary_has_manual, row.summary_manual_labels,
             row.summary_manual_values, row.summary_labels, row.summary_observations)
-        return {**_common(row), 'tags': tags}
+        strengths = row.summary_strengths if isinstance(row.summary_strengths, dict) else {}
+        assessments = [] if row.summary_has_manual else [
+            {**strength, 'code': code, 'label': LABELS[code], 'strength_label': strength['label']}
+            for code, strength in strengths.items() if code in LABELS
+            and isinstance(strength, dict) and strength.get('level') in ('excluded', 'unverifiable')]
+        return {**_common(row), 'tags': tags, 'assessments': assessments}
 
-    return {'items': [summary(row) for row in query.filter(pk__in=page_ids).order_by('-id')],
-            'total': total, 'page': page, 'page_size': page_size,
-            'total_pages': (total + page_size - 1) // page_size,
-            'tag_options': sorted(options)}  # Stable Unicode ordering, independent of DB collation.
+    return {**_paginate(query.order_by('-id'), params, summary, total=total),
+            **({'tag_options': options} if options is not None else {})}
 
 
 def list_characters(params):

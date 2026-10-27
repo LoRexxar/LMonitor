@@ -3,7 +3,6 @@
 GET is read-only (expired jobs are projected failed). POST/worker persist expiry.
 Control metadata never replaces evidence or editorial content. No automatic retry.
 """
-import fcntl
 import os
 import subprocess
 import sys
@@ -111,6 +110,7 @@ def _protection(row):
 
 @contextmanager
 def admission_lock():
+    import fcntl  # 文件锁仅在工作进程操作时载入，管理页读取不依赖平台锁。
     # Serialize short enqueue transactions across web processes on this host.
     # The worker does not hold this lock during network/AI calls.
     root = Path(settings.BASE_DIR) / 'var' / 'player-observation-locks'
@@ -197,6 +197,7 @@ def phase(pk, token, name):
 
 @contextmanager
 def character_lock(activity):
+    import fcntl
     root = Path(settings.BASE_DIR) / 'var' / 'player-observation-locks'
     root.mkdir(parents=True, exist_ok=True)
     with (root / f'{activity.season_id}-{activity.identity_digest}.lock').open('a') as handle:

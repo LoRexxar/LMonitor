@@ -9,7 +9,7 @@ async function dashboard(search='') {
     const dom = createDOM(`<meta name="csrf-token" content="test-token"><ul>
       <li class="nav-item" data-section="dashboard-home"><a href="?">首页</a></li>
       <li class="nav-item" data-section="player-analyses"><a href="?section=player-analyses">角色分析</a></li></ul>
-      <section id="dashboard-home" class="content-section active"></section>
+      <section id="dashboard-home" class="content-section active" data-loaded="true"></section>
       <section id="player-analyses" class="content-section" style="display:none"><div id="player-analysis-app"></div></section>`,
       {url:'https://example.com/dashboard/'+search,runScripts:'outside-only'});
     await new Promise(resolve=>dom.window.addEventListener('load',resolve,{once:true}));

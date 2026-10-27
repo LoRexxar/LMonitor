@@ -93,7 +93,10 @@ def build_contract(evidence):
         _require(isinstance(plan.get(field, ''), str), 'invalid_' + field)
     # Reuse the existing menu priority and assessment rules, not a forked table.
     # Calling it on a plan-only projection also supports already compact captures.
-    projection = compact_ai_input({'metrics': {'investigation': deepcopy(plan)}})
+    menu_metrics = {'investigation': deepcopy(plan)}
+    if metrics.get('behavior_review', {}).get('label_reviews'):
+        menu_metrics['behavior_review'] = metrics['behavior_review']
+    projection = compact_ai_input({'metrics': menu_metrics})
     templates = projection['metrics']['investigation']['response_templates']
     menu = []
     required = []
@@ -119,6 +122,13 @@ def build_contract(evidence):
             if (item['evidence_strength'] and item['evidence_strength']['level'] == 'strong'
                     and item['support_ids'] and not item['counter_ids']):
                 item['assessment_options'] = ['supported']
+            if (item['evidence_strength'] and item['evidence_strength']['level'] == 'excluded'
+                    and item['counter_ids'] and not item['support_ids']):
+                item['assessment_options'] = ['weakened']
+                if item['id'] not in required:
+                    required.append(item['id'])
+            if item['evidence_strength'] and item['evidence_strength']['level'] == 'unverifiable':
+                item['assessment_options'] = ['unknown']
     return {'schema_version': version, 'confidence': '分项评估' if version == 9 else '低',
             'hypotheses': menu, 'required_hypothesis_ids': required,
             'next_question_ids': list(questions),
@@ -204,6 +214,8 @@ def render_investigation(value, evidence):
         emphasized = [_fact(refs[eid]) for eid in item['unknown_ids']]
         label = ASSESSMENT_LABELS[item['assessment']]
         strength = grades.get(BEHAVIOR_HYPOTHESES.get(item['id'])) if graded else None
+        if strength and strength['level'] == 'excluded' and item['assessment'] == 'weakened':
+            label = strength['label']
         explanation = ([f"比较判断：{label}；行为证据：{strength['label']}。"] if strength else
                        [f'比较判断：{label}（待核实的解释）。'] if graded else
                        [f'比较判断：{label}（低置信；不是事实定论）。'])

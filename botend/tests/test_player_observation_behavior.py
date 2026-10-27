@@ -49,7 +49,7 @@ class BehaviorReviewTests(TestCase):
         self.assertFalse(out['supported'])
         self.assertEqual(set(out), {'version', 'triggered', 'structure', 'evidence', 'supported',
                                     'witnesses', 'resilience', 'questions', 'limitations',
-                                    'evidence_strengths', 'strength_rules', 'context_unknowns'})
+                                    'evidence_strengths', 'strength_rules', 'context_unknowns', 'label_reviews'})
         json.dumps(out)
 
     def test_single_subject_protection_and_fixed_five_do_not_establish_four_plus_one(self):
@@ -88,7 +88,7 @@ class BehaviorReviewTests(TestCase):
         self.records(self.keys[0], 23, all_dungeons=True)
         out = self.build()
         self.assertNotIn('carrying', out['supported'])
-        self.assertEqual(out['questions'], [])
+        self.assertFalse(any('carrying' in q.get('label_codes', []) for q in out['questions']))
         self.records(self.keys[4], 21)
         self.records(self.keys[0], 23, all_dungeons=True, when=self.now-timedelta(hours=1))
         self.assertNotIn('carrying', self.build()['supported'])
@@ -205,7 +205,7 @@ class BehaviorReviewTests(TestCase):
         old = self.args['scores'][self.keys[0]].pop()
         self.current_snapshot(self.keys[4])
         out = self.build()
-        self.assertEqual(out['questions'], [])
+        self.assertFalse(any(q['purpose'] == 'resilience_gap' for q in out['questions']))
         hist = dict(fetched_at=self.now.isoformat(), source_url='https://raider.io/api/characters/mythic-plus-runs',
             ui=dict(season='season-mn-2', characterId=77, role='all', mode='scored', affixes='all', date='all', dungeonId=8),
             runs=[dict(run_id=old['keystone_run_id'], dungeon_id=8, level=23, score=530,
@@ -215,7 +215,7 @@ class BehaviorReviewTests(TestCase):
             with self.subTest(extra=extra):
                 out = self.build(histories={self.keys[0]: {8: hist | extra}})
                 self.assertNotIn('carrying', out['supported'])
-                self.assertEqual(out['questions'], [])
+                self.assertFalse(any(q['purpose'] == 'resilience_gap' for q in out['questions']))
                 self.assertEqual(out['resilience']['events'][0]['members'][self.keys[0]]['state'], 'unknown')
         out = self.build(histories={self.keys[0]: {8: hist}})
         self.assertNotIn('carrying', out['supported'])

@@ -28,10 +28,34 @@ import django
 django.setup()
 from botend.tests.test_player_analysis_presentation import publication,portal
 from botend.services.player_analysis_management import frozen_ai
-ai=frozen_ai(publication(${version}))
-print(json.dumps({'ai': ai, 'html': portal(ai['rendered_investigation'])},ensure_ascii=False))
+from botend.tests.test_player_observation_resolution import label_publication
+from django.template.loader import render_to_string
+ai=frozen_ai(label_publication() if ${version} == 9 else publication(${version}))
+html = render_to_string('portal/spec_detail/_player_observation.html', {'observation': dict(status='ready', source_kind='ai', has_supported_judgements=True, label_reviews=ai['label_reviews'], investigation=ai['rendered_investigation'])}) if ${version} == 9 else portal(ai['rendered_investigation'])
+print(json.dumps({'ai': ai, 'html': html},ensure_ascii=False))
 `],{cwd:path.resolve(__dirname,'../..'),encoding:'utf8',timeout:30000}));
 }
+test('七类标签通过冻结校验后在管理页与公开页一致显示',async()=>{
+    const {ai,html}=backend(9);
+    assert.equal(ai.validation_status,'valid');
+    const f=await setup(row=>{row.ai=ai;row.prompt_version=9;});
+    const dom=createDOM(html);
+    try {
+        for(const doc of [f.doc,dom.window.document]){
+            const view=doc.querySelector('[data-label-reviews]');
+            assert.equal(view.querySelectorAll('[data-label-review]').length,7);
+            assert.match(view.textContent,/来源无法判定/);
+            assert.match(view.textContent,/反向 3 场/);
+            assert.equal(view.querySelectorAll('script,img,iframe,[onerror]').length,0);
+            for(const item of ai.label_reviews){
+                const card=view.querySelector(`[data-label-review="${item.code}"]`);
+                assert.ok(card.textContent.includes(item.scope));
+                for(const evidence of [...item.evidence,...item.counter_evidence])assert.ok(card.textContent.includes(evidence.text));
+            }
+        }
+        assert.ok(f.calls.every(([,opt])=>opt.method==='GET'));
+    }finally{dom.window.close();f.close();}
+});
 for(const version of [7,8])test(`v${version} real frozen projection → management and Portal DOM, escaped exactly once`,async()=>{
     const {ai,html}=backend(version);
     assert.equal(ai.validation_status,'valid');

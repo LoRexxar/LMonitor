@@ -47,7 +47,20 @@
       const item = node("li", `spec-module-row${ranked ? "" : " spec-module-row--fact"}${description.className ? ` ${description.className}` : ""}`);
       const copy = node(description.detail_url ? "a" : "span", "spec-module-copy");
       if (description.detail_url) copy.href = description.detail_url;
-      copy.append(node("strong", "", description.title), node("small", "", description.detail));
+      const title = node("span", "spec-module-title");
+      title.append(node("strong", "", description.title));
+      const badges = asArray(description.badges).filter(badge => badge?.confidence === "高" && typeof badge.label === "string" && badge.label);
+      if (badges.length) {
+        const group = node("span", "spec-player-badges");
+        group.setAttribute("aria-label", "高置信度角色标签");
+        badges.forEach(badge => {
+          const chip = node("span", "spec-player-badge", badge.label);
+          chip.title = `高置信度 · ${badge.scope || "仅限近期公开样本"} · 查看角色详情了解依据`;
+          group.append(chip);
+        });
+        title.append(group);
+      }
+      copy.append(title, node("small", "", description.detail));
       if (description.audit) {
         const audit = node("details", "spec-module-audit");
         audit.append(node("summary", "", "查看冻结配置"), node("small", "", description.audit));
@@ -91,6 +104,7 @@
       ].filter(Boolean).join(" · "),
       metric: `${metric(value(player, ["score", "rating"]))} M+ 评分`,
       detail_url: value(player, ["detail_url"], ""),
+      badges: player.observation_badges,
     }));
   }
 
