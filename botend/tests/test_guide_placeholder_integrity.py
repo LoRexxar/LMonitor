@@ -76,6 +76,30 @@ class GuidePlaceholderIntegrityTests(TestCase):
                     cached.refresh_from_db()
                     self.assertEqual(cached.translated, text)
 
+    def test_entity_encoded_tokens_cannot_escape_cache_or_generation_checks(self):
+        for token in ('⟦WOWTERM&#95;00002⟫', '⟦WOWTERM&#x5f;00002⟫', '⟦WOWTERM&amp;#95;00002⟫'):
+            source = '<p>Build carefully.</p>'
+            key = fingerprint(['guide-v1', '12.1.5', source, {}])
+            for cache_key in (key, 'historical-key'):
+                with self.subTest(token=token, path=cache_key):
+                    ClassGuideTranslation.objects.all().delete()
+                    text = '<p>认真配装。' + token + '</p>'
+                    cached = ClassGuideTranslation.objects.create(key=cache_key, source=source, translated=text)
+                    out, failed = translate_blocks([{'id':'p', 'type':'html', 'html':source}], '12.1.5', service=OfflineService())
+                    self.assertTrue(failed)
+                    self.assertEqual(out[0]['html'], source)
+                    cached.refresh_from_db()
+                    self.assertEqual(cached.translated, text)
+            with self.subTest(token=token, path='generated'):
+                ClassGuideTranslation.objects.all().delete()
+                source = 'Build Mythic+'
+                service = ReplayService(lambda text: text.replace('Build', '配装') + token)
+                out, failed = translate_blocks([{'id':'p', 'type':'html', 'html':source}], '12.1.5', service=service)
+                self.assertTrue(failed)
+                self.assertEqual(out[0]['html'], source)
+                self.assertIsNone(translate_fragment_nodes(source, '12.1.5', self.glossary, service))
+                self.assertFalse(ClassGuideTranslation.objects.exists())
+
     def test_node_cache_rejects_leaks_but_reuses_clean(self):
         source = 'Build carefully.'
         key = hashlib.sha256(json.dumps(['guide-node-v1', '12.1.5', source, {}], ensure_ascii=False, sort_keys=True).encode()).hexdigest()

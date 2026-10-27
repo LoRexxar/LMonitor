@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from collections import Counter
 from dataclasses import dataclass
+from html import unescape
 import re
 from typing import Dict, Iterable, Sequence, Set, Tuple
 
@@ -141,8 +142,15 @@ def _name_candidate_queries(query, candidates):
 
 
 def has_wowterm_placeholder(text: str) -> bool:
-    """Reserved namespace check independent of bracket shape or numeric width."""
-    return 'WOWTERM_' in (text or '').upper()
+    """Check a decoded copy; never alter stored source or translation text."""
+    text = text or ''
+    while True:
+        if 'WOWTERM_' in text.upper():
+            return True
+        decoded = unescape(text)
+        if decoded == text:
+            return False
+        text = decoded
 
 
 @dataclass(frozen=True)
