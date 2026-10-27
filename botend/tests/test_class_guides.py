@@ -516,6 +516,40 @@ class GuideFlowTests(TestCase):
         self.assertEqual(result[0]['data']['code'], '/cast 腐蚀术')
         self.assertEqual(resolve_references(result, '12.1')['[[spell:1300877]]']['name'], '腐化')
 
+    def test_long_guide_macro_operands_survive_prose_candidate_cap(self):
+        # Actual Maxroll macro b-123-1-25; unrelated long prose must not hide it.
+        create_name(game_version='12.1', kind='spell', object_id=234153,
+                    name_en='Drain Life', name_zh='吸取生命')
+        create_name(game_version='12.1', kind='spell', object_id=89766,
+                    name_en='Axe Toss', name_zh='巨斧投掷')
+        create_name(game_version='12.1', kind='spell', object_id=474062,
+                    name_en='Axe Toss', name_zh='利斧投掷')
+        noise = '\n'.join('/run print("Noise' + chr(65 + i // 26) + chr(65 + i % 26) + '")'
+                          for i in range(510))
+        code = '#showtooltip\n/cast [@mouseover,exists] Drain Life;Drain Life'
+        blocks = [
+            {'id':'noise', 'type':'code', 'data':{'code':noise}},
+            # Keep explicit-reference branch selection, without selecting Drain Life by ID.
+            {'id':'ref', 'type':'html', 'html':'<p>[[spell:172]]</p>'},
+            {'id':'late', 'type':'code', 'data':{'code':code}},
+            {'id':'ambiguous', 'type':'code', 'data':{'code':'/cast [@focus] Axe Toss'}},
+        ]
+        class NoProvider:
+            def available(self):
+                return False
+        result, failed = translate_blocks(blocks, '12.1', service=NoProvider())
+        self.assertEqual(result[0]['data']['code'], noise)
+        self.assertEqual(result[2]['data']['code'],
+                         '#showtooltip\n/cast [@mouseover,exists] 吸取生命;吸取生命')
+        self.assertEqual(result[3]['data']['code'], '/cast [@focus] Axe Toss')
+        self.assertEqual([(row['id'], row['field']) for row in failed], [('ambiguous', 'code')])
+        # Prove Axe Toss was found but rejected for conflict, not still truncated.
+        WowTalentNodeMetadata.all_objects.filter(localization_only=True, name_kind='spell',
+                                                 reference_id=474062).delete()
+        resolved, failed = translate_blocks(blocks, '12.1', service=NoProvider())
+        self.assertEqual(resolved[3]['data']['code'], '/cast [@focus] 巨斧投掷')
+        self.assertEqual(failed, [])
+
     def test_manual_content_survives_source_update_and_default_editor(self):
         self.guide.refresh_from_db()
         manual = save_article(self.guide.id, '人工中文攻略', [{'id': 'intro', 'type': 'html', 'html': '<p>人工内容</p>'}], expected_updated_at=ClassGuide.objects.get(pk=self.guide.pk).updated_at)

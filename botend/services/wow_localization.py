@@ -229,7 +229,7 @@ def _record(obj, kind, version, object_id):
         tree_type=obj.tree_type)
 
 
-def names_for(game_version, class_name='', spec_name='', registry=apps, using='default', *, reference_ids=None, source_text=None):
+def names_for(game_version, class_name='', spec_name='', registry=apps, using='default', *, reference_ids=None, source_text=None, name_candidates=()):
     """所有类型同表读取；名称资料与真实节点按标志区分。"""
     if reference_ids is None and source_text is not None:
         refs = re.findall(r'\[\[(spell|talent|item):(\d+)', source_text)
@@ -294,6 +294,7 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
     if source_text is not None:
         from botend.services.wow_news_glossary_service import _extract_name_candidates
         candidates = _extract_name_candidates(source_text)
+        candidates.update(name_candidates)
         selection = Q(name_kind__in=['talent', 'phrase', 'macro']) | Q(name__in=candidates)
         for kind in ('spell', 'item'):
             selection |= Q(name_kind=kind, reference_id__in=reference_ids.get(kind, set()))
