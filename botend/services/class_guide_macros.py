@@ -35,7 +35,7 @@ def macro_block_references(blocks):
     """Scope source tokens to structural sections and preceding explanations.
 
     Introductory references remain local to that section. Later explanations
-    apply to the next code block only. Headings and sibling containers reset
+    apply to the next uninterrupted run of code blocks. Headings and sibling containers reset
     scope; descendant or later references never leak backwards into a macro.
     """
     from botend.services.class_guide_content import REF_RE
@@ -48,12 +48,19 @@ def macro_block_references(blocks):
 
     def visit(rows, initial=()):
         intro, adjacent, seen_code = list(initial), [], False
+        run_refs = None
         for block in rows:
             own = refs(block)
+            if block['type'] != 'code':
+                run_refs = None
             if block['type'] in ('heading', 'separator') or re.search(r'<h[2-6]\b', block.get('html', ''), re.I):
                 intro, adjacent, seen_code = own, [], False
+                run_refs = None
             elif block['type'] == 'code':
-                result[block['id']] = own or intro + adjacent
+                if run_refs is None:
+                    run_refs = intro + adjacent
+                # Share the explanation, not a preceding code's own override.
+                result[block['id']] = own or list(run_refs)
                 adjacent, seen_code = [], True
             elif block.get('children'):
                 # A new structural subsection owns its own introduction.

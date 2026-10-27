@@ -135,12 +135,17 @@ class MaxrollMacroIdentityTests(TestCase):
             {'id': 'before', 'type': 'code', 'data': {'code': '/cast Axe Toss'}},
             {'id': 'later', 'type': 'html', 'html': '[[spell:474062]]'},
             {'id': 'after', 'type': 'code', 'data': {'code': '/cast Axe Toss'}},
+            {'id': 'shared', 'type': 'code', 'data': {'code': '/cast Axe Toss'}},
+            {'id': 'shared-third', 'type': 'code', 'data': {'code': '/cast Axe Toss'}},
+            {'id': 'interruption', 'type': 'html', 'html': '<p>New explanation without identity.</p>'},
             {'id': 'not-adjacent', 'type': 'code', 'data': {'code': '/cast Axe Toss'}},
         ]
         blocks, failed = self.translate([own] + flat)
         self.assertEqual(blocks['own-code']['data']['code'], '/cast 巨斧投掷')
         self.assertEqual(blocks['first']['data']['code'], '/cast 巨斧投掷')
         self.assertEqual(blocks['after']['data']['code'], '/cast 利斧投掷')
+        self.assertEqual(blocks['shared']['data']['code'], '/cast 利斧投掷')
+        self.assertEqual(blocks['shared-third']['data']['code'], '/cast 利斧投掷')
         self.assertEqual({row['id'] for row in failed}, {'before', 'not-adjacent'})
 
     def test_dependency_budget_rejects_instead_of_truncating_and_no_persistent_cache(self):
@@ -244,10 +249,24 @@ class MaxrollMacroIdentityTests(TestCase):
                 row = {k: v for k, v in raw.items() if k not in ('id', 'talent_version_id')}
                 WowTalentNodeMetadata.all_objects.create(talent_version=self.version, **row)
             refs = macro_block_references(guide['blocks'])
+            # This older fixture predates shared code runs. Its first code's
+            # frozen explanation is the oracle for each uninterrupted run.
+            expected_refs = {r['id']: r['source_refs'] for r in guide['macro_replay']}
+            def share_run(rows):
+                first = None
+                for block in rows:
+                    if block['type'] == 'code':
+                        if first is None:
+                            first = block['id']
+                        expected_refs[block['id']] = expected_refs[first]
+                    else:
+                        first = None
+                    share_run(block.get('children', []))
+            share_run(guide['blocks'])
             for replay in guide['macro_replay']:
                 total += 1
                 local = refs[replay['id']]
-                self.assertEqual(local, replay['source_refs'])
+                self.assertEqual(local, expected_refs[replay['id']])
                 context = macro_identity_context(local, self.version)
                 decisions = resolve_macro_operands(macro_operands(replay['source_code']), context, local)
                 for old in replay['decisions']:
@@ -305,6 +324,96 @@ class MaxrollMacroIdentityTests(TestCase):
         self.assertEqual(blocks['typed-code']['data']['code'], '/cast 巨斧投掷\n/equip 物品名\n/use Axe Toss\n/use item:89766')
         self.assertEqual(failed[0]['operands'][0]['status'], 'ambiguous_identity')
         self.assertEqual(failed[0]['operands'][0]['candidate_identities'], [('item', 89766), ('spell', 89766)])
+
+    def test_consecutive_scope_preserves_types_and_stops_at_structural_boundaries(self):
+        from botend.services.class_guide_macros import macro_block_references
+        code = lambda key: {'id': key, 'type': 'code', 'data': {'code': '/cast Example'}}
+        prefix = [code('earlier'), {'id': 'explanation', 'type': 'html',
+                  'html': '[[talent:700]] [[item:700]] [[spell:700]]'}]
+        expected = [{'kind': kind, 'object_id': 700, 'source_block': 'explanation'}
+                    for kind in ('talent', 'item', 'spell')]
+        for boundary in ({'id': 'break', 'type': 'html', 'html': '<p>Another explanation</p>'},
+                         {'id': 'break', 'type': 'heading', 'title': 'Next'},
+                         {'id': 'break', 'type': 'separator'},
+                         {'id': 'break', 'type': 'details', 'children': [code('sibling')]}):
+            with self.subTest(boundary=boundary['type']):
+                rows = prefix + [code('one'), code('two'), code('three'), boundary,
+                                 code('after'), {'id': 'later', 'type': 'html', 'html': '[[spell:999]]'}]
+                scoped = macro_block_references(rows)
+                self.assertEqual(scoped['earlier'], [])
+                for key in ('one', 'two', 'three'):
+                    self.assertEqual(scoped[key], expected)
+                self.assertEqual(scoped['after'], [])
+                if 'sibling' in scoped:
+                    self.assertEqual(scoped['sibling'], [])
+        own = code('own')
+        own['html'] = '[[spell:999]]'
+        scoped = macro_block_references(prefix + [own, code('next')])
+        self.assertEqual(scoped['own'], [{'kind': 'spell', 'object_id': 999, 'source_block': 'own'}])
+        self.assertEqual(scoped['next'], expected)
+
+    def test_frozen_structural_scope_replay(self):
+        """Five real representatives by default; full frozen 43 via env, offline ORM."""
+        import os
+        from collections import Counter
+        from botend.models import WowItemSnapshot
+        from botend.services.class_guide_macros import (
+            macro_block_references, macro_operands, resolve_macro_operands, localize_macro)
+        from botend.services.wow_localization import macro_identity_context
+        path = os.environ.get('MAXROLL_SCOPE_REPLAY_INPUT')
+        frozen = json.loads(Path(path).read_text()) if path else json.loads(
+            (Path(__file__).parent / 'fixtures/maxroll_macro_scope.json').read_text())['guides']
+        targets = {(144, 'b-109-3-7'): 361469, (144, 'b-109-3-8'): 355913,
+                   (145, 'b-105-3-7'): 361469, (145, 'b-105-3-8'): 355913}
+        counts, old_counts, changes, ledger = Counter(), Counter(), [], []
+        for guide in frozen:
+            WowSpellSnapshot.objects.all().delete()
+            WowTalentNodeMetadata.all_objects.all().delete()
+            WowItemSnapshot.objects.all().delete()
+            WowSpellSnapshot.objects.bulk_create([WowSpellSnapshot(**r) for r in guide['snapshots']])
+            for raw in guide['raw_talents']:
+                row = {k: v for k, v in raw.items() if k not in ('id', 'talent_version_id')}
+                WowTalentNodeMetadata.all_objects.create(talent_version=self.version, **row)
+            # Item facts in this capture are part of each original context.
+            items = {}
+            for replay in guide['macro_replay']:
+                items.update(replay.get('context', {}).get('items', {}))
+            for sid, item in items.items():
+                WowItemSnapshot.objects.create(item_id=int(sid), name=item['name'], name_zh=item['name_zh'])
+            refs = macro_block_references(guide['blocks'])
+            for replay in guide['macro_replay']:
+                key = (guide['guide_id'], replay['id'])
+                local = refs[replay['id']]
+                context = macro_identity_context(local, self.version)
+                decisions = resolve_macro_operands(macro_operands(replay['source_code']), context, local)
+                output, missing = localize_macro(replay['source_code'], {}, resolve=lambda value, kind:
+                    decisions.get((kind, value.casefold()), {}).get('name_zh'))
+                for old in replay['decisions']:
+                    new = decisions[(old['kind'], old['operand'].casefold())]
+                    old_counts[old['status']] += 1
+                    counts[new['status']] += 1
+                    entry = {'guide_id': key[0], 'block_id': key[1], 'old': old, 'new': new,
+                             'output': output, 'missing': missing}
+                    ledger.append(entry)
+                    if old['status'] != new['status']:
+                        changes.append(entry)
+                    with self.subTest(guide=key[0], block=key[1], operand=old['operand']):
+                        if key in targets:
+                            self.assertEqual(new['status'], 'resolved')
+                            self.assertEqual(new['identity'], ('spell', targets[key]))
+                        else:
+                            # Preserve every non-target decision, including true ambiguities,
+                            # invalid Entry relationships and mixed-build context issues.
+                            for field in ('status', 'candidate_ids', 'issues', 'identity', 'name_zh'):
+                                self.assertEqual(json.dumps(new.get(field), sort_keys=True),
+                                                 json.dumps(old.get(field), sort_keys=True), field)
+        self.assertEqual(len(changes), 4)
+        report = {'guides': len(frozen), 'before': old_counts, 'after': counts,
+                  'changes': changes, 'decisions': ledger}
+        destination = os.environ.get('MAXROLL_SCOPE_REPLAY_OUTPUT')
+        if destination:
+            Path(destination).write_text(json.dumps(report, ensure_ascii=False, indent=2))
+        print('SCOPE_REPLAY=' + json.dumps({k: v for k, v in report.items() if k != 'decisions'}, ensure_ascii=False))
 
     def test_exact_normal_macro_and_non_spell_operands_preserve_syntax(self):
         code = ('#showtooltip Axe Toss\n/cast [known:Axe Toss,noknown:Spell Lock] !Axe Toss; Spell Lock\n'
