@@ -20,8 +20,11 @@ from botend.services.class_guide_markdown import blocks_to_markdown, compile_mar
 from botend.services.wow_news_glossary_service import WowNewsGlossary, ProtectedText
 from botend.services.class_guide_translation import translate_fragment_nodes
 from botend.services.class_guide_glossary import GuideGlossary
-from botend.services.wow_localization import effective_names
-from botend.services.class_guide_macros import localize_macro, macro_source_repairs, macro_name_map
+from botend.services.wow_localization import effective_names, macro_reference_version, macro_spell_context
+from botend.services.class_guide_macros import (
+    localize_macro, macro_source_repairs, macro_operands,
+    macro_block_references, resolve_macro_operands,
+)
 
 
 class ArticleConflict(ValueError):
@@ -127,14 +130,14 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
     result = copy.deepcopy(blocks)
     glossary = build_guide_glossary(blocks, game_version)
     pending, failed = [], []
-    # 宏参数复用实际本地化语法提取，不受前文自然术语的候选上限影响。
-    # 仍传完整来源以保留原显式引用/分支选择，名称冲突仍由 macro_name_map 拒绝。
-    macro_candidates = {name for block in walk_blocks(blocks)
-                        if block['type'] == 'code'
-                        for name in localize_macro(block.get('data', {}).get('code', ''), {})[1]}
-    macro_names = macro_name_map((r['kind'], r['name_en'], r['name_zh']) for r in effective_names(
-        game_version, source_text='\n'.join(str(b) for b in walk_blocks(blocks)),
-        name_candidates=macro_candidates))
+    # Keep every candidate and its identity for audit, not as a global macro map.
+    operands = {b['id']: macro_operands(b.get('data', {}).get('code', ''))
+                for b in walk_blocks(blocks) if b['type'] == 'code'}
+    source_text = '\n'.join(str(b) for b in walk_blocks(blocks))
+    macro_rows = effective_names(game_version, source_text=source_text,
+        name_candidates={name for values in operands.values() for _, name in values})
+    macro_version = macro_reference_version(game_version, source_text)
+    macro_refs = macro_block_references(blocks)
     # 保护协议或术语范围调整后，复用结构和官方术语仍然吻合的旧译文。
     source_values = {b.get(field, '') for b in walk_blocks(result) for field in ('title', 'html')} - {''}
     prior_by_source = defaultdict(list)
@@ -142,10 +145,18 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
         prior_by_source[cached.source].append(cached.translated)
     for block in walk_blocks(result):
         if block['type'] == 'code' and block.get('data', {}).get('code'):
-            code, missing = localize_macro(block['data']['code'], macro_names)
+            source_code = block['data']['code']
+            refs = macro_refs.get(block['id'], [])
+            context = macro_spell_context({r['object_id'] for r in refs if r['kind'] == 'spell'}, macro_version)
+            decisions = resolve_macro_operands(operands[block['id']], context, refs, macro_rows)
+            code, missing = localize_macro(source_code, {}, resolve=lambda value, kind:
+                decisions[(kind, value.casefold())].get('name_zh'))
             block['data']['code'] = code
             if missing:
-                failed.append({'id':block['id'], 'field':'code', 'reason':'宏技能名称缺少中文对照：' + '、'.join(missing), 'source_text':code})
+                unresolved = [d for d in decisions.values() if d['status'] != 'resolved']
+                failed.append({'id': block['id'], 'field': 'code',
+                    'reason': '宏身份未确认：' + '、'.join(d['operand'] + ' (' + d['status'] + ')' for d in unresolved),
+                    'source_text': source_code, 'operands': unresolved})
         for field in ('title', 'html'):
             value = block.get(field, '')
             if not value or not re.search(r'[A-Za-z]{2}', re.sub(r'<[^>]*>|\[\[.*?\]\]', '', value)):

@@ -338,6 +338,80 @@ def names_for(game_version, class_name='', spec_name='', registry=apps, using='d
     return records
 
 
+def macro_reference_version(game_version, source_text, registry=apps, using='default'):
+    """Match names_for's branch selection, including documents without tokens."""
+    if game_version in ('retail', 'ptr', 'beta'):
+        return version_for(game_version, registry, using)
+    if re.search(r'\[\[(?:spell|talent|item):\d+', source_text):
+        return current_reference_version(registry, using)
+    return version_for(game_version, registry, using)
+
+
+def macro_spell_context(spell_ids, version, *, registry=apps, using='default'):
+    """Read exact local anchors and their direct spellname edges, never names.
+
+    Deliberately not a generic template/alias graph: spelldesc and conditions
+    do not establish cast identity. A deeper spellname dependency is unsupported
+    (including cycles), so an incomplete context can never certify uniqueness.
+    The dependency budget rejects the context; it never truncates candidates.
+    """
+    roots = sorted(set(spell_ids))
+    result = {'rows': {}, 'edges': [], 'issues': [], 'branch': '', 'roots': roots}
+    if not roots:
+        return result
+    if not version or version.branch not in ('retail', 'ptr'):
+        result['issues'].append({'reason': 'missing_branch'})
+        return result
+    branches = _spell_snapshot_branches(version)
+    model = registry.get_model('botend', 'WowSpellSnapshot')
+
+    def load(ids):
+        rows = {}
+        ids = sorted(ids)
+        # Batch SQL parameters, not the complete set of requested identities.
+        for start in range(0, len(ids), 200):
+            for row in model._base_manager.using(using).filter(
+                branch__in=branches, locale='zhCN', spell_id__in=ids[start:start + 200],
+            ).values('spell_id', 'branch', 'snapshot_build', 'name', 'name_zh',
+                     'description', 'aura_description'):
+                prior = rows.get(row['spell_id'])
+                if prior is None or branches.index(row['branch']) < branches.index(prior['branch']):
+                    rows[row['spell_id']] = row
+        return rows
+
+    def name_edges(row):
+        return {int(sid) for sid in re.findall(r'\$@spellname(\d+)\b',
+                    row['description'] + '\n' + row['aura_description'])}
+
+    rows = load(roots)
+    dependencies = set()
+    for sid in roots:
+        row = rows.get(sid)
+        if row is None:
+            result['issues'].append({'reason': 'missing_anchor', 'spell_id': sid})
+            continue
+        for target in sorted(name_edges(row)):
+            result['edges'].append({'from': sid, 'to': target, 'relation': 'spellname',
+                                    'branch': row['branch'], 'snapshot_build': row['snapshot_build']})
+            dependencies.add(target)
+    if len(dependencies) > 256:
+        result['issues'].append({'reason': 'dependency_budget', 'spell_ids': sorted(dependencies)})
+    else:
+        rows.update(load(dependencies - rows.keys()))
+        for edge in result['edges']:
+            target = rows.get(edge['to'])
+            if target is None:
+                result['issues'].append({'reason': 'missing_dependency', 'spell_id': edge['to']})
+            elif (not edge['snapshot_build'] or
+                  (target['branch'], target['snapshot_build']) != (edge['branch'], edge['snapshot_build'])):
+                result['issues'].append({'reason': 'inconsistent_dependency_source', 'spell_id': edge['to']})
+            elif name_edges(target):
+                result['issues'].append({'reason': 'unsupported_dependency_depth', 'spell_id': edge['to']})
+    result['rows'] = rows
+    result['branch'] = version.branch
+    return result
+
+
 def effective_names(game_version, **kwargs):
     """导出和翻译保留来源编号，但不在数据库复制对应名称。"""
     result = {}
