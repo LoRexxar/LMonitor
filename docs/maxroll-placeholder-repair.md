@@ -7,7 +7,9 @@
 - `ProtectedText.is_intact` 保持合法 token 的精确多重集合校验，并拒绝合法 token 之外的 `WOWTERM_` 保留命名空间（不依赖括号形状或数字宽度）。
 - 整块精确 key、同 source 历史缓存、文本节点缓存均拒绝带残留的旧译文；继续走原有正常缓存复用、逐节点恢复或失败补译路径。
 - 新译文、确定性本地还原和节点最终重组均检查还原后的残留，不通过删除 token 或猜词强行修复。
-- 坏缓存不删除、不覆盖。现有 `get_or_create` 保留其原始证据；本次新生成且通过校验的结果可供当前翻译返回，但不会自动覆盖同 key 坏行。因此在人工修复缓存前，后续任务可能再次需要补译，不能声称已完成缓存治理。
+- 坏缓存不删除、不覆盖。正常缓存继续使用原 `guide-v1` / `guide-node-v1` key 和既有历史复用规则；仅在原 key 行被拒绝时，用 `SHA256(JSON(['guide-cache-repair-v1', 原key, 完整source]))` 保存有效修复译文。原 key 已绑定游戏版本、protected text 和完整 replacements；修复读写共享同一身份与门禁，不使用随机 key、不全量升级版本。
+- 整块的历史复用、本地还原、节点缓存重组、新翻译、节点 fallback，以及节点新翻译这六条缓存写入路径统一经过 `GuideTranslationCache.store`；精确读与修复读均检查 source、占位符残留、引用次数、必需术语，整块额外核标签序列。保留原模型/schema，无文件审计双写。
+- 唯一 key 的 `get_or_create` 处理并发插入，回读并校验已有赢家，返回赢家而不是丢弃成功结果；原行无效才尝试确定性修复槽。修复槽也有污染或身份冲突时明确失败，保留双方证据，不假报成功。此机制不提供模型调用 single-flight：首次同时冷启动仍可能各调用一次，但已持久化后的后续调用不再付费。
 
 ## 离线证据
 
@@ -18,6 +20,8 @@
 - 修复前同目标 RED：6 tests，13 个失败子断言，无执行错误，`/tmp/placeholder-red.log`。
 - 修复后同目标 GREEN：6 tests 通过，`/tmp/placeholder-green.log`。
 - 补充可补译但保留坏行证据正例，并运行既有缓存/引用/节点 fallback/损坏拒绝用例：最终 10 tests 全通过，`/tmp/placeholder-green-final.log`。
+- 持久化补丁 RED：8 tests 中 2 failures，分别证明整块成功译文未落库、节点第二次重复调用；`/tmp/maxroll-cache-red.log`。修正节点 fixture 时保留其现有 JSON 空格序列化，不能误用整块 fingerprint。
+- 持久化补丁 GREEN：同模块加既有三条缓存/节点/拒绝回归共 14 tests 全通过，`/tmp/maxroll-cache-green.log`。覆盖六条写入路径、整块与节点第二次零 provider 调用、正常与历史缓存复用、原坏行保留、失败不写、source/terms 冲突拒绝，以及真实 ORM 上确定性交错插入的赢家复用。并发测试不是 MySQL 多线程压测。
 
 复验命令：
 

@@ -107,6 +107,105 @@ class GuidePlaceholderIntegrityTests(TestCase):
         self.assertEqual(out[0]['html'], '配装 大秘境')
         cached.refresh_from_db()
         self.assertEqual(cached.translated, bad)
+        self.assertEqual(ClassGuideTranslation.objects.filter(source=source, translated='配装 大秘境').count(), 1)
+        with patch.object(service, 'send_message', side_effect=AssertionError('Repeated provider call')):
+            again, failed = translate_blocks([{'id':'p','type':'html','html':source}], '12.1.5', service=service)
+        self.assertFalse(failed)
+        self.assertEqual(again, out)
+
+    def test_bad_node_cache_repair_is_persisted_and_reused(self):
+        source = 'Build Mythic+'
+        protected = self.glossary.protect(source)
+        key = hashlib.sha256(json.dumps(['guide-node-v1', '12.1.5', protected.text, protected.replacements], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+        cached = ClassGuideTranslation.objects.create(key=key, source=source, translated='配装 WOWTERM_001')
+        service = ReplayService(lambda text: text.replace('Build', '配装'))
+        self.assertEqual(translate_fragment_nodes(source, '12.1.5', self.glossary, service), '配装 大秘境')
+        cached.refresh_from_db()
+        self.assertEqual(cached.translated, '配装 WOWTERM_001')
+        with patch.object(service, 'send_message', side_effect=AssertionError('Repeated provider call')):
+            self.assertEqual(translate_fragment_nodes(source, '12.1.5', self.glossary, service), '配装 大秘境')
+        self.assertEqual(ClassGuideTranslation.objects.count(), 2)
+
+    def test_all_block_recovery_writes_persist_without_changing_bad_rows(self):
+        for path in ('historical', 'local', 'nodes', 'fallback'):
+            with self.subTest(path=path):
+                ClassGuideTranslation.objects.all().delete()
+                source = 'Mythic+' if path == 'local' else '<p>Build Mythic+</p>'
+                protected = protect_guide_text(source, self.glossary)
+                key = fingerprint(['guide-v1', '12.1.5', protected.text, protected.replacements])
+                bad = ClassGuideTranslation.objects.create(key=key, source=source, translated='WOWTERM_001')
+                expected = '大秘境' if path == 'local' else '<p>配装 大秘境</p>'
+                if path == 'historical':
+                    ClassGuideTranslation.objects.create(key='historical', source=source, translated=expected)
+                if path == 'nodes':
+                    node = self.glossary.protect('Build Mythic+')
+                    node_key = hashlib.sha256(json.dumps(['guide-node-v1', '12.1.5', node.text, node.replacements], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
+                    ClassGuideTranslation.objects.create(key=node_key, source='Build Mythic+', translated='配装 大秘境')
+                service = ReplayService(lambda text: '' if 'HTML' in text else text.replace('Build', '配装')) if path == 'fallback' else OfflineService()
+                blocks = [{'id':'p', 'type':'html', 'html':source}]
+                out, failed = translate_blocks(blocks, '12.1.5', service=service)
+                self.assertFalse(failed)
+                self.assertEqual(out[0]['html'], expected)
+                bad.refresh_from_db()
+                self.assertEqual(bad.translated, 'WOWTERM_001')
+                from botend.services.class_guide_translation_cache import GuideTranslationCache
+                cache = GuideTranslationCache(key, source, protected)
+                self.assertEqual(ClassGuideTranslation.objects.get(key=cache.repair_key).translated, expected)
+                again, failed = translate_blocks(blocks, '12.1.5', service=OfflineService())
+                self.assertFalse(failed)
+                self.assertEqual(again, out)
+
+    def test_repair_insert_race_validates_winner_and_preserves_evidence(self):
+        from botend.services.class_guide_translation_cache import GuideTranslationCache
+        source = 'Build Mythic+'
+        protected = protect_guide_text(source, self.glossary)
+        key = fingerprint(['guide-v1', '12.1.5', protected.text, protected.replacements])
+        cache = GuideTranslationCache(key, source, protected)
+        bad = ClassGuideTranslation.objects.create(key=key, source=source, translated='WOWTERM_001')
+        self.assertIsNone(cache.get())
+        original = ClassGuideTranslation.objects.get_or_create
+        def interleave(**kwargs):
+            if kwargs['key'] == cache.repair_key:
+                ClassGuideTranslation.objects.create(key=cache.repair_key, source=source, translated='谨慎配装 大秘境')
+            return original(**kwargs)
+        with patch.object(ClassGuideTranslation.objects, 'get_or_create', side_effect=interleave):
+            self.assertEqual(cache.store('配装 大秘境'), '谨慎配装 大秘境')
+        self.assertEqual(cache.get(), '谨慎配装 大秘境')
+        self.assertEqual(ClassGuideTranslation.objects.count(), 2)
+        bad.refresh_from_db()
+        self.assertEqual(bad.translated, 'WOWTERM_001')
+        for source_value, translated in ((source, 'WOWTERM_002'), ('different source', '配装 大秘境'), (source, '配装 错误术语')):
+            ClassGuideTranslation.objects.filter(key=cache.repair_key).update(source=source_value, translated=translated)
+            self.assertIsNone(cache.get())
+            with self.assertRaises(ValueError):
+                cache.store('配装 大秘境')
+            self.assertEqual(ClassGuideTranslation.objects.get(key=cache.repair_key).translated, translated)
+        with self.assertRaises(ValueError):
+            cache.store('WOWTERM_003')
+        ClassGuideTranslation.objects.filter(key=cache.repair_key).update(source=source, translated='配装 大秘境')
+        changed_protected = ProtectedText(protected.text, {token: '新术语' for token in protected.replacements})
+        changed_key = fingerprint(['guide-v1', '12.1.5', changed_protected.text, changed_protected.replacements])
+        changed = GuideTranslationCache(changed_key, source, changed_protected)
+        self.assertIsNone(changed.get())
+        self.assertNotEqual(cache.repair_key, changed.repair_key)
+
+    def test_failed_repair_keeps_only_original_evidence(self):
+        source = 'Build Mythic+'
+        for nodes in (False, True):
+            with self.subTest(nodes=nodes):
+                ClassGuideTranslation.objects.all().delete()
+                protected = self.glossary.protect(source) if nodes else protect_guide_text(source, self.glossary)
+                identity = ['guide-node-v1' if nodes else 'guide-v1', '12.1.5', protected.text, protected.replacements]
+                key = hashlib.sha256(json.dumps(identity, ensure_ascii=False, sort_keys=True).encode()).hexdigest() if nodes else fingerprint(identity)
+                ClassGuideTranslation.objects.create(key=key, source=source, translated='WOWTERM_001')
+                before = list(ClassGuideTranslation.objects.values())
+                service = ReplayService(lambda text: text + 'WOWTERM_999')
+                if nodes:
+                    self.assertIsNone(translate_fragment_nodes(source, '12.1.5', self.glossary, service))
+                else:
+                    _, failed = translate_blocks([{'id':'p', 'type':'html', 'html':source}], '12.1.5', service=service)
+                    self.assertTrue(failed)
+                self.assertEqual(list(ClassGuideTranslation.objects.values()), before)
 
     def test_restore_residual_is_rejected_in_generated_and_local_paths(self):
         # Fault injection at the restoration boundary, not a mocked acceptance result.

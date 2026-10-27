@@ -7,7 +7,7 @@ from collections import Counter
 
 from bs4 import BeautifulSoup, NavigableString
 
-from botend.guide_models import ClassGuideTranslation
+from botend.services.class_guide_translation_cache import GuideTranslationCache
 from botend.services.class_guide_content import REF_RE
 from botend.services.wow_news_glossary_service import has_wowterm_placeholder
 
@@ -32,9 +32,10 @@ def translate_fragment_nodes(value, game_version, glossary, service, progress=No
             continue
         protected = glossary.protect(source)
         key = hashlib.sha256(json.dumps(['guide-node-v1', game_version, protected.text, protected.replacements], ensure_ascii=False, sort_keys=True).encode()).hexdigest()
-        cached = ClassGuideTranslation.objects.filter(key=key).first()
-        if cached and not has_wowterm_placeholder(cached.translated):
-            node.replace_with(NavigableString(cached.translated)); continue
+        cache = GuideTranslationCache(key, source, protected, markup=False)
+        cached = cache.get()
+        if cached is not None:
+            node.replace_with(NavigableString(cached)); continue
         remaining = re.sub(r'⟦WOWTERM_\d+⟧|\[\[.*?\]\]', '', protected.text)
         if not re.search(r'[A-Za-z]{2}', remaining):
             restored = glossary.restore(protected.text, protected.replacements)
@@ -52,7 +53,7 @@ def translate_fragment_nodes(value, game_version, glossary, service, progress=No
             mapping[placeholder] = match[0]
             return placeholder
         packed = REF_RE.sub(token, protected.text)
-        pending.append((node, source, protected, key, mapping, packed))
+        pending.append((node, source, protected, cache, mapping, packed))
     if cache_only:
         return None if pending or has_wowterm_placeholder(str(soup)) else str(soup)
     failed = False
@@ -83,7 +84,7 @@ def translate_fragment_nodes(value, game_version, glossary, service, progress=No
                 continue
             retry = []
             for item, text in zip(unresolved, answers):
-                node, source, protected, key, mapping, _ = item
+                node, source, protected, cache, mapping, _ = item
                 if not isinstance(text, str) or Counter(re.findall(r'⟪REF\d+⟫', text)) != Counter(mapping.keys()):
                     retry.append(item); continue
                 for token, reference in mapping.items():
@@ -94,8 +95,7 @@ def translate_fragment_nodes(value, game_version, glossary, service, progress=No
                 prefix = re.match(r'^\s*', source)[0]
                 suffix = re.search(r'\s*$', source)[0]
                 restored = prefix + restored.strip() + suffix
-                ClassGuideTranslation.objects.get_or_create(key=key, defaults={'source': source, 'translated': restored})
-                node.replace_with(NavigableString(restored))
+                node.replace_with(NavigableString(cache.store(restored)))
             unresolved = retry
             if progress:
                 progress()
