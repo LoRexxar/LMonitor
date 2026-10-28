@@ -86,7 +86,21 @@ class HotfixMetadataRegressionTests(SimpleTestCase):
         row = SimpleNamespace(branch='wow', created_at=datetime(2026, 10, 24, 1, 52, 44, tzinfo=timezone.utc),
                               updated_at=datetime(2026, 10, 27, 10, 49, 20, tzinfo=timezone.utc))
         with self.settings(TIME_ZONE='UTC'):
-            html = render_to_string('portal/wow_skill_diff_report.html', {'report': row, 'is_hotfix': True})
+            html = render_to_string('portal/wow_skill_diff_report.html', {
+                'report': row, 'is_hotfix': True, 'html_exists': True,
+                'report_file_url': '/portal/reports/report149.html',
+            })
+        from bs4 import BeautifulSoup
+        from urllib.parse import urlsplit, parse_qs
+        doc = BeautifulSoup(html, 'html.parser')
+        link_node = doc.select_one('.wow-skill-diff-standalone-link')
+        script_node = doc.select_one('script[src*="wow-skill-report-metadata.js"]')
+        assert link_node is not None and script_node is not None
+        link = urlsplit(str(link_node['href']))
+        script = str(script_node['src'])
+        self.assertEqual(link.path, '/portal/reports/report149.html')
+        self.assertEqual(parse_qs(link.query)['v'], parse_qs(urlsplit(script).query)['v'])
+        self.assertEqual(parse_qs(link.query)['updated'], [str(int(row.updated_at.timestamp()))])
         self.assertIn('<b>首次生成</b>2026-10-24 01:52:44', html)
         self.assertIn('<b>最近重建</b>2026-10-27 10:49:20', html)
         self.assertEqual(row.created_at.day, 24)

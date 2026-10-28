@@ -40,7 +40,7 @@
                     </div>
                 </div>
                 {% if html_exists %}
-                    <a class="wow-skill-diff-standalone-link" href="{{ report_file_url }}" target="_blank" rel="noopener noreferrer">打开独立报告</a>
+                    <a class="wow-skill-diff-standalone-link" href="{{ report_file_url }}?v=hotfix_relation_display_v2&amp;updated={{ report.updated_at|date:'U' }}" target="_blank" rel="noopener noreferrer">打开独立报告</a>
                 {% endif %}
             </header>
             {% if is_hotfix and report.class_unresolved_count %}
