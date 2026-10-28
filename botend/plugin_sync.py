@@ -168,10 +168,13 @@ def _locked_monitor_tasks_and_scopes(claim_time):
     # Every claimant locks the small configuration table in the same order.
     # Include disabled rows: their in-flight leases still protect the scope.
     rows = list(MonitorTask.objects.select_for_update().order_by('id'))
-    owners = set(MonitorTaskLease.objects.select_for_update().filter(
+    leases = dict(MonitorTaskLease.objects.select_for_update().filter(
         task_id__in=[r.pk for r in rows], expires_at__gt=claim_time,
-    ).values_list('task_id', flat=True))
-    return rows, {monitor_scope_key(row) for row in rows if row.pk in owners}
+    ).values_list('task_id', 'is_manual'))
+    active_scopes = {monitor_scope_key(row) for row in rows if row.pk in leases}
+    automatic_scopes = {monitor_scope_key(row) for row in rows
+                        if row.pk in leases and not leases[row.pk]}
+    return rows, active_scopes, automatic_scopes
 
 
 def _night_lane_scopes(rows):
@@ -208,15 +211,16 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
         # Lock the parent task rows in a stable order.  All claimers use this
         # parent-row mutex, so creating or replacing the separate lease row is
         # serialized without exposing lease fields to long-lived plugin models.
-        rows, active_scopes = _locked_monitor_tasks_and_scopes(claim_time)
+        rows, active_scopes, automatic_scopes = _locked_monitor_tasks_and_scopes(claim_time)
         canonical = {}
         for row in rows:
             if row.is_active and is_task_runnable(row):
                 canonical.setdefault(monitor_scope_key(row), row)
         lane_scopes = _night_lane_scopes(rows)
         due_tasks = [row for row in canonical.values()
-                     if monitor_task_due_at(row, now=claim_time) is not None]
-        lane_head = None if lane_scopes & active_scopes else _night_lane_head(
+                     if monitor_scope_key(row) not in active_scopes
+                     and monitor_task_due_at(row, now=claim_time) is not None]
+        lane_head = None if lane_scopes & automatic_scopes else _night_lane_head(
             [row for row in due_tasks if monitor_scope_key(row) in lane_scopes])
         # Choose the global lane head BEFORE applying worker-specific routing.
         runnable_tasks = [row for row in due_tasks
@@ -236,6 +240,7 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
                 task_id=task.id,
                 defaults={
                     'owner': owner,
+                    'is_manual': False,
                     'claimed_at': claim_time,
                     'expires_at': expires_at,
                 },
@@ -250,22 +255,19 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
 
 
 def claim_monitor_task(task_id, now=None, *, lease_owner=None, lease_seconds=None):
-    """手动执行指定任务，绕过到期时间和开关，但复用统一执行锁。"""
+    """手动执行绕过到期、开关和跨任务夜间串行，保留同 scope 租约互斥。"""
     claim_time = now or timezone.now()
     owner = str(lease_owner or uuid4().hex)
     ttl_seconds = _monitor_task_lease_ttl(lease_seconds)
     with transaction.atomic():
-        rows, active_scopes = _locked_monitor_tasks_and_scopes(claim_time)
+        rows, active_scopes, automatic_scopes = _locked_monitor_tasks_and_scopes(claim_time)
         task = next((row for row in rows if row.pk == task_id), None)
         if task is None:
             return None
         if monitor_scope_key(task) in active_scopes:
             return None
-        lane_scopes = _night_lane_scopes(rows)
-        if monitor_scope_key(task) in lane_scopes and lane_scopes & active_scopes:
-            return None
         MonitorTaskLease.objects.update_or_create(task_id=task_id, defaults={
-            'owner': owner, 'claimed_at': claim_time,
+            'owner': owner, 'claimed_at': claim_time, 'is_manual': True,
             'expires_at': claim_time + timedelta(seconds=ttl_seconds),
         })
         task.last_scan_time = claim_time
