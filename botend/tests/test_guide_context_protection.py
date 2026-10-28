@@ -133,6 +133,21 @@ class GuideContextProtectionTests(TestCase):
                 self.assertEqual(translate_fragment_nodes(source, '12.1.5', glossary, OfflineService(), cache_only=True), good)
                 old_row.refresh_from_db()
                 self.assertEqual(old_row.translated, bad)
+                # Source-only whole-HTML history must use the same visible
+                # text context as protect_guide_text, not match across tags.
+                html_source = '<p>' + source + '</p>'
+                old_html = protect_guide_text(html_source, old_glossary)
+                old_whole = ClassGuideTranslation.objects.create(
+                    key=fingerprint(['guide-v1', '12.1.5', old_html.text, old_html.replacements]),
+                    source=html_source, translated='<p>' + bad + '</p>',
+                )
+                blocks = [{'id': 'context', 'type': 'html', 'html': html_source, 'children': []}]
+                with patch('botend.services.class_guide_service.build_guide_glossary', return_value=glossary):
+                    out, failed = translate_blocks(blocks, '12.1.5', service=OfflineService())
+                    self.assertFalse(failed)
+                    self.assertEqual(out[0]['html'], '<p>' + good + '</p>')
+                old_whole.refresh_from_db()
+                self.assertEqual(old_whole.translated, '<p>' + bad + '</p>')
 
     def test_aoe_default_is_effect_neutral_and_preserves_central_priority(self):
         glossary = self.glossary()

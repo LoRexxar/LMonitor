@@ -39,13 +39,18 @@ class GuideGlossary(WowNewsGlossary):
         ))
 
     def needs_new_translation(self, value):
+        if not value or not self._pattern:
+            return False
         # Exact keys already bind protected text + replacements. Historical
         # source-only reuse must not revive a removed skill mapping or the old
         # AoE default: "范围" is a substring of the incorrect "范围伤害".
+        # Match the same visible text pieces as protect_guide_text. Inspecting
+        # raw HTML would hide clause starts / standalone labels behind tags.
+        pieces = re.split(r'(<[^>]*>|\[\[.*?\]\])', value)
         return bool(self._pattern and any(
             self.contextual_match(match) or (
                 match[0].casefold() == 'aoe' and self._terms_by_key['aoe'] == '范围'
-            ) for match in self._pattern.finditer(value)))
+            ) for piece in pieces[::2] for match in self._pattern.finditer(piece)))
 
     def protect(self, text):
         if not text or not self._pattern:
