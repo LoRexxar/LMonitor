@@ -11,7 +11,7 @@ import unicodedata
 import uuid
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -22,7 +22,7 @@ from botend.services.player_raiderio_activity import player_identity
 from botend.services.player_observation_progression import current_record, _date
 from botend.services.player_observation_ai import compact_ai_input
 from botend.services.player_observation_investigation import build_investigation, _fresh
-from botend.services.raiderio_run_roster import run_reference, validate_details
+from botend.services.raiderio_run_roster import run_reference, validate_details, _snapshot_json, _row_snapshot
 
 from core.glm import GLMClient
 
@@ -1103,7 +1103,13 @@ def _validate_publication(raw, evidence, *, publication_version, require_investi
     return result
 
 
-def _fail(pk, token, code):
+def _fail(pk, token, code, *, expected_snapshot=None):
+    if expected_snapshot is not None:
+        with transaction.atomic():
+            row = PlayerObservationAnalysis.objects.select_for_update().filter(pk=pk).first()
+            if row is None or row.lease_token != token or _row_snapshot(row) != expected_snapshot:
+                return {'status': 'cas_finalize_mismatch', 'analysis_id': pk}
+            return _fail(pk, token, code)
     PlayerObservationAnalysis.objects.filter(pk=pk, lease_token=token).update(status='error', last_error=code,
         lease_token='', lease_expires_at=None, next_attempt_at=timezone.now()+BACKOFF)
     return {'status': code, 'analysis_id': pk}
@@ -1384,8 +1390,29 @@ def _has_investigation(evidence):
     return bool(evidence.get('metrics', {}).get('investigation', {}).get('triggered'))
 
 
-def generate_observation(player, force=False, engine=None, *, skip_uninformative=False, recheck_token=None):
-    """Manual generation; force does not steal leases or bypass failure backoff."""
+def generate_observation(player, force=False, engine=None, *, skip_uninformative=False, recheck_token=None,
+                         expected_snapshot=None, expected_absent=False):
+    """Manual generation; optional full-row CAS for explicitly approved maintenance.
+
+    Pass a complete ORM values() snapshot (datetime ISO strings also accepted),
+    or expected_absent=True. Guarded calls require autocommit and never adopt an
+    intervening row or overwrite drift, including on failure. Defaults preserve
+    the ordinary UI/recheck contract. No transaction spans the engine call.
+    """
+    guarded = expected_snapshot is not None or expected_absent is not False
+    approved_snapshot = claim_snapshot = None
+    if guarded:
+        if not transaction.get_autocommit() or transaction.get_connection().in_atomic_block:
+            return {'status': 'cas_requires_autocommit', 'ai_called': False}
+        fields = {f.attname for f in PlayerObservationAnalysis._meta.concrete_fields}
+        if (type(expected_absent) is not bool or (expected_absent and expected_snapshot is not None)
+                or (not expected_absent and (not isinstance(expected_snapshot, dict) or set(expected_snapshot) != fields))):
+            return {'status': 'cas_claim_mismatch', 'ai_called': False}
+        if not expected_absent:
+            try:
+                approved_snapshot = _snapshot_json(expected_snapshot)
+            except (TypeError, ValueError):
+                return {'status': 'cas_claim_mismatch', 'ai_called': False}
     evidence = build_evidence(player)
     if not evidence or (not skip_uninformative and not evidence['eligible_labels']):
         return {'status': 'unavailable', 'ai_called': False}
@@ -1397,8 +1424,31 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
         audit['skip_reason'] = 'no_supported_judgement'
     now, token = timezone.now(), uuid.uuid4().hex
     with transaction.atomic():
-        row, _ = PlayerObservationAnalysis.objects.get_or_create(activity_id=evidence['activity_id'])
-        row = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
+        if guarded:
+            if expected_absent:
+                # Same short parent lock as create_analysis; the unique INSERT
+                # also fences non-cooperating creators. Never adopt their row.
+                RaiderIOCharacterActivity.objects.select_for_update().get(pk=evidence['activity_id'])
+                try:
+                    with transaction.atomic():
+                        row = PlayerObservationAnalysis.objects.create(activity_id=evidence['activity_id'])
+                except IntegrityError:
+                    if PlayerObservationAnalysis.objects.filter(activity_id=evidence['activity_id']).exists():
+                        return {'status': 'cas_claim_mismatch', **audit}
+                    raise
+            else:
+                row = PlayerObservationAnalysis.objects.select_for_update().filter(activity_id=evidence['activity_id']).first()
+                if row is None or _row_snapshot(row) != approved_snapshot:
+                    return {'status': 'cas_claim_mismatch', **audit}
+            if row.manual_json or not row.is_published or row.review_status == 'rejected':
+                return {'status': 'cas_editorial_protected', 'analysis_id': row.pk, **audit}
+            if row.lease_token and row.lease_expires_at and row.lease_expires_at > now:
+                return {'status': 'busy', 'analysis_id': row.pk, **audit}
+            if row.next_attempt_at and row.next_attempt_at > now:
+                return {'status': 'backoff', 'analysis_id': row.pk, **audit}
+        else:
+            row, _ = PlayerObservationAnalysis.objects.get_or_create(activity_id=evidence['activity_id'])
+            row = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
         if row.player_id is None:
             # Link only an exact, persisted same-season identity. Never rebind a
             # representative based on a name or overwrite any editorial state.
@@ -1427,6 +1477,15 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
             lease_token=token, lease_expires_at=now+LEASE_TTL, last_attempt_at=now, status='pending')
         if not acquired:
             return {'status': 'busy', 'analysis_id': row.pk, **audit}
+        if guarded:
+            row.refresh_from_db()
+            claim_snapshot = _row_snapshot(row)
+
+    def fail(code):
+        if guarded:
+            return _fail(row.pk, token, code, expected_snapshot=claim_snapshot)
+        return _fail(row.pk, token, code)
+
     if local_empty:
         # This is a deterministic negative publication, not a model response.
         result = {'observations': [], 'conclusion_id': 'public_sample', 'metadata': LOCAL_EMPTY_METADATA}
@@ -1439,30 +1498,33 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
             raw = engine.send_message(json.dumps(_generation_input(evidence), ensure_ascii=False),
                 max_tokens=3600 if _has_investigation(evidence) else 1800, thinking_type='disabled')
         except Exception:
-            return {**_fail(row.pk, token, 'engine_error'), **audit}
+            return {**fail('engine_error'), **audit}
         if raw is None or raw == '':
-            return {**_fail(row.pk, token, 'engine_empty'), **audit}
+            return {**fail('engine_empty'), **audit}
         try:
             result = _validate_publication(raw, evidence, publication_version=PROMPT_VERSION, require_investigation=True)
         except InvalidResult as error:
-            return {**_fail(row.pk, token, str(error)), **audit}
+            return {**fail(str(error)), **audit}
     with transaction.atomic():
-        locked = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
-        if locked.lease_token != token:
+        locked = (PlayerObservationAnalysis.objects.select_for_update().filter(pk=row.pk).first()
+                  if guarded else PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk))
+        if guarded and (locked is None or _row_snapshot(locked) != claim_snapshot):
+            return {'status': 'cas_finalize_mismatch', 'analysis_id': row.pk, **audit}
+        if locked is None or locked.lease_token != token:
             return {'status': 'superseded', 'analysis_id': row.pk, **audit}
         if not locked.lease_expires_at or locked.lease_expires_at <= timezone.now():
-            return {**_fail(row.pk, token, 'lease_expired'), **audit}
+            return {**fail('lease_expired'), **audit}
         current = build_evidence(player)
         if recheck_token:
             from botend.services.player_analysis_recheck import validate_publication, Blocked
             try:
                 validate_publication(locked, recheck_token, current)
             except Blocked:
-                return {**_fail(row.pk, token, 'recheck_invalidated'), **audit}
+                return {**fail('recheck_invalidated'), **audit}
         if current and current['source_failed']:
-            return {**_fail(row.pk, token, 'source_failed'), **audit}
+            return {**fail('source_failed'), **audit}
         if not current or current['evidence_hash'] != evidence['evidence_hash']:
-            return {**_fail(row.pk, token, 'evidence_changed'), **audit}
+            return {**fail('evidence_changed'), **audit}
         updated = PlayerObservationAnalysis.objects.filter(pk=row.pk, lease_token=token, lease_expires_at__gt=timezone.now()).update(
             evidence_hash=current['evidence_hash'], evidence_json=current, result_json=result, prompt_version=PROMPT_VERSION,
             status='ready', generated_at=timezone.now(), lease_token='', lease_expires_at=None, next_attempt_at=None, last_error='',
