@@ -1,7 +1,8 @@
 """Question-only scored history. Partial observations, never a current score source."""
+import json
 import math
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import urlencode
 
 import requests
@@ -141,7 +142,24 @@ def history_cache(character, season, dungeon_id, *, required_after=None):
     return result
 
 
-def _write(row, did, entry, season):
+class _NonTargetHistoryChange(Exception):
+    pass
+
+
+def _snapshot_json(values):
+    # DjangoJSONEncoder truncates datetime microseconds; exact JSON also keeps
+    # bool/int differences and array ordering significant.
+    return json.dumps({k: v.isoformat() if isinstance(v, datetime) else v
+                       for k, v in values.items()}, sort_keys=True,
+                      ensure_ascii=False, separators=(',', ':'), allow_nan=False)
+
+
+def _row_snapshot(row):
+    return _snapshot_json({f.attname: getattr(row, f.attname)
+                           for f in row._meta.concrete_fields})
+
+
+def _write(row, did, entry, season, *, preserve_non_target=False):
     # Called only with a freshly locked row; never overwrite concurrent raid/profile modules.
     entries = row.payload_json.get(MODULE, {})
     entries = {k: v for k, v in entries.items() if isinstance(v, dict)
@@ -151,19 +169,57 @@ def _write(row, did, entry, season):
         keep = sorted((k for k in entries if k != str(did)),
                       key=lambda k: entries[k].get('fetched_at') or '', reverse=True)[:MAX_DUNGEONS-1]
         entries = {k: entries[k] for k in [str(did), *keep]}
+    if preserve_non_target:
+        original = row.payload_json.get(MODULE, {})
+        if _snapshot_json({k: v for k, v in original.items() if k != str(did)}) != _snapshot_json(
+                {k: v for k, v in entries.items() if k != str(did)}):
+            raise _NonTargetHistoryChange
     row.payload_json = {**row.payload_json, MODULE: entries}
     row.save(update_fields=['payload_json'])
 
 
-def collect_history(batch, character, season, dungeon_id, *, required_after=None):
+def collect_history(batch, character, season, dungeon_id, *, required_after=None,
+                    expected_snapshot=None):
+    """Optionally fence maintenance to a complete ORM values() row.
+
+    Datetimes accept native values or exact isoformat strings with microseconds.
+    None retains the ordinary contract. Guarded calls require autocommit so row
+    locks cannot span HTTP. Finalize drift leaves the entire row/lease untouched;
+    a refusal is not permission to clear the lease or retry the request.
+    """
     expected = scope(season.rio_season, character['character_id'], dungeon_id)
-    result = history_cache(character, season, dungeon_id, required_after=required_after)
+    guarded = expected_snapshot is not None
+    result = ({'identity_digest': activity_identity_digest(**character['identity']),
+               'character_id': character['character_id'], 'dungeon_id': dungeon_id,
+               'kind': 'scored_history', 'status': 'pending'} if guarded else
+              history_cache(character, season, dungeon_id, required_after=required_after))
+    if guarded:
+        if not transaction.get_autocommit() or transaction.get_connection().in_atomic_block:
+            return {**result, 'status': 'cas_requires_autocommit'}
+        fields = {f.attname for f in RaiderIOCharacterActivity._meta.concrete_fields}
+        if (not isinstance(expected_snapshot, dict) or set(expected_snapshot) != fields
+                or type(expected_snapshot['id']) is not int):
+            return {**result, 'status': 'cas_claim_mismatch'}
+        approved_id = expected_snapshot['id']
+        try:
+            approved_snapshot = _snapshot_json(expected_snapshot)
+        except (TypeError, ValueError):
+            return {**result, 'status': 'cas_claim_mismatch'}
     token = uuid.uuid4().hex
     try:
         with transaction.atomic():
-            row, _ = RaiderIOCharacterActivity.objects.get_or_create(season=season,
-                identity_digest=result['identity_digest'], defaults=character['identity'])
-            row = RaiderIOCharacterActivity.objects.select_for_update(nowait=True).get(pk=row.pk)
+            if guarded:
+                # Missing approved rows must never create a replacement.
+                row = RaiderIOCharacterActivity.objects.select_for_update(nowait=True).filter(
+                    pk=approved_id, season=season,
+                    identity_digest=result['identity_digest']).first()
+                if row is None or _row_snapshot(row) != approved_snapshot:
+                    return {**result, 'status': 'cas_claim_mismatch'}
+                result['activity_id'] = row.pk
+            else:
+                row, _ = RaiderIOCharacterActivity.objects.get_or_create(season=season,
+                    identity_digest=result['identity_digest'], defaults=character['identity'])
+                row = RaiderIOCharacterActivity.objects.select_for_update(nowait=True).get(pk=row.pk)
             now = timezone.now()
             if row.next_attempt_at and row.next_attempt_at > now and row.status in ('fetching', 'error'):
                 return {**result, 'status': 'busy' if row.status == 'fetching' else 'backoff'}
@@ -177,7 +233,11 @@ def collect_history(batch, character, season, dungeon_id, *, required_after=None
                 return {**result, 'status': 'budget_exhausted'}
             entry.update(ui=expected, lease_token=token, status='fetching',
                          next_attempt_at=(now + timedelta(minutes=2)).isoformat())
-            _write(row, dungeon_id, entry, season.rio_season)
+            _write(row, dungeon_id, entry, season.rio_season, preserve_non_target=guarded)
+            if guarded:
+                # _write refused collateral filtering/trimming before save.
+                # Only the target's legal claim changes enter this baseline.
+                claimed_snapshot = _row_snapshot(row)
         error, facts, retry = '', None, timedelta(minutes=30)
         try:
             response = batch.get(URL, params=expected, headers={'User-Agent': 'Mozilla/5.0'})
@@ -204,7 +264,12 @@ def collect_history(batch, character, season, dungeon_id, *, required_after=None
         except requests.RequestException:
             error = 'transport_error'
         with transaction.atomic():
-            row = RaiderIOCharacterActivity.objects.select_for_update().get(pk=row.pk)
+            if guarded:
+                row = RaiderIOCharacterActivity.objects.select_for_update().filter(pk=row.pk).first()
+                if row is None or _row_snapshot(row) != claimed_snapshot:
+                    return {**result, 'status': 'cas_finalize_mismatch'}
+            else:
+                row = RaiderIOCharacterActivity.objects.select_for_update().get(pk=row.pk)
             latest = row.payload_json.get(MODULE, {}).get(str(dungeon_id), {})
             if latest.get('lease_token') != token:
                 return {**result, 'status': 'superseded'}
@@ -218,7 +283,9 @@ def collect_history(batch, character, season, dungeon_id, *, required_after=None
             else:
                 entry = {**facts, 'fetched_at': stamp.isoformat(), 'status': 'ready'}
             entry.pop('lease_token', None)
-            _write(row, dungeon_id, entry, season.rio_season)
+            _write(row, dungeon_id, entry, season.rio_season, preserve_non_target=guarded)
         return {**result, 'status': error or 'ready', 'fetched_at': entry.get('fetched_at')}
+    except _NonTargetHistoryChange:
+        return {**result, 'status': 'cas_non_target_change'}
     except DatabaseError:
         return {**result, 'status': 'database_busy_or_error'}
