@@ -1,14 +1,15 @@
 """Central minimal run facts, bounded collection, and network-free roster projection."""
+import json
 import re
 import threading
 import time
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from urllib.parse import unquote, urlsplit
 
 import requests
 from django.conf import settings
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -166,6 +167,18 @@ def validate_details(data, run, rio_season):
             'runPrivacyMode': 'public', 'deleted_at': None, 'roster': members}
 
 
+def _snapshot_json(values):
+    # Exact full-row encoding: retain microseconds and bool/int distinctions.
+    return json.dumps({k: v.isoformat() if isinstance(v, datetime) else v
+                       for k, v in values.items()}, sort_keys=True,
+                      ensure_ascii=False, separators=(',', ':'), allow_nan=False)
+
+
+def _row_snapshot(row):
+    return _snapshot_json({f.attname: getattr(row, f.attname)
+                           for f in row._meta.concrete_fields})
+
+
 class RosterCollector:
     """Each instance is one batch; force never bypasses a lease or batch stop."""
     def __init__(self, transport=None, proxies=None, stop_event=None):
@@ -188,7 +201,15 @@ class RosterCollector:
         if self.session:
             self.session.close()
 
-    def refresh(self, run, rio_season, *, force=False):
+    def refresh(self, run, rio_season, *, force=False, expected_snapshot=None,
+                expected_absent=False):
+        """Opt-in full-row CAS; defaults retain the ordinary collector contract.
+
+        Supply a complete values() row (datetimes native or exact isoformat), or
+        expected_absent=True, never both. Guarded calls require autocommit and
+        never bypass future backoff/TTL, even with force. Finalize/stop drift
+        leaves the whole row and lease untouched; refusal is not retry permission.
+        """
         if self.stopped:
             return {'status': 'batch_stopped'}
         try:
@@ -196,23 +217,61 @@ class RosterCollector:
         except (ValueError, TypeError):
             return {'status': 'invalid_reference'}
         result = {'run_id': run_id}
+        guarded = expected_snapshot is not None or expected_absent is not False
+        if guarded:
+            if not transaction.get_autocommit() or transaction.get_connection().in_atomic_block:
+                return {**result, 'status': 'cas_requires_autocommit'}
+            fields = {f.attname for f in RaiderIORunRoster._meta.concrete_fields}
+            if (type(expected_absent) is not bool
+                    or (expected_absent and expected_snapshot is not None)):
+                return {**result, 'status': 'cas_claim_mismatch'}
+            if not expected_absent:
+                if not isinstance(expected_snapshot, dict) or set(expected_snapshot) != fields:
+                    return {**result, 'status': 'cas_claim_mismatch'}
+                try:
+                    approved_snapshot = _snapshot_json(expected_snapshot)
+                except (TypeError, ValueError):
+                    return {**result, 'status': 'cas_claim_mismatch'}
         now, token = timezone.now(), uuid.uuid4().hex
         with transaction.atomic():
-            row, _ = RaiderIORunRoster.objects.get_or_create(rio_season=rio_season, run_id=run_id)
-            row = RaiderIORunRoster.objects.select_for_update().get(pk=row.pk)
+            if expected_absent:
+                # INSERT under the existing unique constraint, never adopt a
+                # competing creator's row as our own newly claimed row.
+                try:
+                    with transaction.atomic():
+                        row = RaiderIORunRoster.objects.create(rio_season=rio_season, run_id=run_id)
+                except IntegrityError:
+                    return {**result, 'status': 'cas_claim_mismatch'}
+            elif guarded:
+                row = RaiderIORunRoster.objects.select_for_update().filter(
+                    rio_season=rio_season, run_id=run_id).first()
+                if row is None or _row_snapshot(row) != approved_snapshot:
+                    return {**result, 'status': 'cas_claim_mismatch'}
+            else:
+                row, _ = RaiderIORunRoster.objects.get_or_create(rio_season=rio_season, run_id=run_id)
+                row = RaiderIORunRoster.objects.select_for_update().get(pk=row.pk)
             if row.next_attempt_at and row.next_attempt_at > now:
                 if row.status == 'fetching':
                     return {**result, 'status': 'busy'}
-                if not force:
+                if guarded or not force:
                     return {**result, 'status': 'fresh' if row.status == 'ready' else 'backoff'}
             previous = {field: getattr(row, field) for field in ('status', 'last_attempt_at', 'next_attempt_at', 'lease_token')}
             row.status, row.lease_token = 'fetching', token
             row.last_attempt_at, row.next_attempt_at = now, now + timedelta(minutes=2)
             row.save(update_fields=['status', 'lease_token', 'last_attempt_at', 'next_attempt_at'])
+            if guarded:
+                claimed_snapshot = _row_snapshot(row)
         error, facts, retry = '', None, None
         try:
             if not _pace(self.stop_event):
-                RaiderIORunRoster.objects.filter(pk=row.pk, lease_token=token).update(**previous)
+                if guarded:
+                    with transaction.atomic():
+                        current = RaiderIORunRoster.objects.select_for_update().filter(pk=row.pk).first()
+                        if current is None or _row_snapshot(current) != claimed_snapshot:
+                            return {**result, 'status': 'cas_finalize_mismatch'}
+                        RaiderIORunRoster.objects.filter(pk=row.pk).update(**previous)
+                else:
+                    RaiderIORunRoster.objects.filter(pk=row.pk, lease_token=token).update(**previous)
                 return {**result, 'status': 'batch_stopped'}
             response = self.transport('https://raider.io/api/v1/mythic-plus/run-details',
                 params={'season': rio_season, 'id': run_id}, timeout=25,
@@ -232,7 +291,12 @@ class RosterCollector:
         except requests.RequestException:
             error = 'transport_error'
         with transaction.atomic():
-            row = RaiderIORunRoster.objects.select_for_update().get(pk=row.pk)
+            if guarded:
+                row = RaiderIORunRoster.objects.select_for_update().filter(pk=row.pk).first()
+                if row is None or _row_snapshot(row) != claimed_snapshot:
+                    return {**result, 'status': 'cas_finalize_mismatch'}
+            else:
+                row = RaiderIORunRoster.objects.select_for_update().get(pk=row.pk)
             if row.lease_token != token or row.status != 'fetching':
                 return {**result, 'status': 'superseded'}
             stamp = timezone.now()
