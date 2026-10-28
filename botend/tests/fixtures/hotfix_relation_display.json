@@ -1,0 +1,92 @@
+{
+  "source": "Report149 independently read after rebuild 2026-10-28; Spell428076 push113265 builds70529/70575",
+  "html": "<article class=\"spell\" id=\"spell-428076\"><div class=\"spell-head\">\n<span aria-hidden=\"true\" class=\"spell-icon-fallback\">神</span>\n<div class=\"spell-head-main\">\n<div class=\"spell-title-row\"><span class=\"spell-title\">神圣圣骑士</span><span class=\"spell-id mono\">#428076</span><a class=\"subtle\" href=\"https://www.wowhead.com/spell=428076\" rel=\"noopener noreferrer\" target=\"_blank\">Wowhead</a></div>\n</div></div><div class=\"impact-block\"><div class=\"impact-block-title\">本次热修来源事实（已核实变化 / 基表对照 / 前态未核实的观察值）</div><div class=\"impact-list\">\n<div class=\"impact-row\" data-effect-index=\"0\" data-source-build=\"12.1.5.70575\" data-source-push=\"113265\"><div><span class=\"impact-label\">技能效果 / spelleffect 效果(#0)</span><span class=\"impact-evidence\">SpellEffect.ID 1108026 · Hotfix push 113265 · 来源 build 12.1.5.70575 · 同版本客户端基表 → 本次热修（非前次热修值） · 效果(#0)</span></div><div class=\"fact-values\">基础数值F / EffectBasePointsF：<span class=\"del\">-41</span> → <span class=\"ins\">-38</span></div></div>\n<div class=\"impact-row\" data-effect-index=\"1\" data-source-build=\"12.1.5.70575\" data-source-push=\"113265\"><div><span class=\"impact-label\">技能效果 / spelleffect 效果(#1)</span><span class=\"impact-evidence\">SpellEffect.ID 1108027 · Hotfix push 113265 · 来源 build 12.1.5.70575 · 同版本客户端基表 → 本次热修（非前次热修值） · 效果(#1)</span></div><div class=\"fact-values\">基础数值F / EffectBasePointsF：<span class=\"del\">-41</span> → <span class=\"ins\">-38</span></div></div>\n<div class=\"impact-row\" data-effect-index=\"0\" data-source-build=\"12.1.5.70529\" data-source-push=\"113265\"><div><span class=\"impact-label\">技能效果 / spelleffect 效果(#0)</span><span class=\"impact-evidence\">SpellEffect.ID 1108026 · Hotfix push 113265 · 来源 build 12.1.5.70529 · 同版本客户端基表 → 本次热修（非前次热修值） · 效果(#0)</span></div><div class=\"fact-values\">基础数值F / EffectBasePointsF：<span class=\"del\">-41</span> → <span class=\"ins\">-38</span></div></div>\n<div class=\"impact-row\" data-effect-index=\"1\" data-source-build=\"12.1.5.70529\" data-source-push=\"113265\"><div><span class=\"impact-label\">技能效果 / spelleffect 效果(#1)</span><span class=\"impact-evidence\">SpellEffect.ID 1108027 · Hotfix push 113265 · 来源 build 12.1.5.70529 · 同版本客户端基表 → 本次热修（非前次热修值） · 效果(#1)</span></div><div class=\"fact-values\">基础数值F / EffectBasePointsF：<span class=\"del\">-41</span> → <span class=\"ins\">-38</span></div></div>\n</div></div></article>",
+  "metadata": {
+    "spells": {
+      "428076": {
+        "id": 428076,
+        "name": "神圣圣骑士",
+        "url": "https://www.wowhead.com/spell=428076",
+        "icon_source": "",
+        "icon_fallback_url": "",
+        "icon_url": "",
+        "effects": [
+          {
+            "index": 0,
+            "aura": 647,
+            "mask": [
+              0,
+              16448,
+              67108864,
+              0
+            ],
+            "relation": "class_mask",
+            "push_id": 113265,
+            "spell_ids": [],
+            "truncated": false,
+            "resolved": false,
+            "targets": [],
+            "source_build": "12.1.5.70529"
+          },
+          {
+            "index": 1,
+            "aura": 647,
+            "mask": [
+              0,
+              16384,
+              0,
+              0
+            ],
+            "relation": "class_mask",
+            "push_id": 113265,
+            "spell_ids": [],
+            "truncated": false,
+            "resolved": false,
+            "targets": [],
+            "source_build": "12.1.5.70529"
+          },
+          {
+            "index": 0,
+            "aura": 647,
+            "mask": [
+              0,
+              16448,
+              67108864,
+              0
+            ],
+            "relation": "class_mask",
+            "push_id": 113265,
+            "spell_ids": [],
+            "truncated": false,
+            "resolved": false,
+            "targets": [],
+            "source_build": "12.1.5.70575"
+          },
+          {
+            "index": 1,
+            "aura": 647,
+            "mask": [
+              0,
+              16384,
+              0,
+              0
+            ],
+            "relation": "class_mask",
+            "push_id": 113265,
+            "spell_ids": [],
+            "truncated": false,
+            "resolved": false,
+            "targets": [],
+            "source_build": "12.1.5.70575"
+          }
+        ],
+        "source_builds": [
+          "12.1.5.70529",
+          "12.1.5.70575"
+        ],
+        "direct_indices": []
+      }
+    },
+    "unresolved_count": 293
+  }
+}
