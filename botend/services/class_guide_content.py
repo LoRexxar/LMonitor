@@ -4,6 +4,7 @@ import copy
 import html
 import re
 from urllib.parse import urlparse
+from html.parser import HTMLParser
 
 from bs4 import BeautifulSoup, NavigableString
 
@@ -30,8 +31,120 @@ def safe_url(value, image=False):
     return ''
 
 
+def _normalize_legacy_references(value, references):
+    """Edit only paired typed text ranges, never flatten the surrounding DOM.
+
+    Keep raw offsets until parsing is done: entity-escaped examples are not
+    source control syntax. Only plain emphasis boundaries may join text runs.
+    """
+    inline = {'strong', 'b', 'em', 'i', 'u', 's', 'mark', 'span'}
+    pair = re.compile(r'\[wow-(spell|item|trait)\s+id=([1-9][0-9]*)(?::([A-Za-z0-9_-]+))?\]([^\[\]\\]+)\[/wow-\1\]')
+    controls = re.compile(r'\[(/?)wow-[^\[\]]*\]')
+    edits, escaped = [], {}
+    marker = '__guide_literal_bracket__'
+    while marker in value:
+        marker += '_'
+    lines = [0] + [m.end() for m in re.finditer('\n', value)]
+
+    class Parser(HTMLParser):
+        def __init__(self):
+            super().__init__(convert_charrefs=False)
+            self.run, self.stack = [], []
+
+        def source_offset(self):
+            line, column = self.getpos()
+            return lines[line - 1] + column
+
+        def flush(self):
+            text = ''.join(s for _, s in self.run)
+            opening, depth = 0, 0
+            for control in controls.finditer(text):
+                if not control[1]:
+                    if depth == 0:
+                        opening = control.start()
+                    depth += 1
+                    continue
+                if not depth:
+                    continue
+                depth -= 1
+                if depth:
+                    continue
+                end = control.end()
+                match = pair.fullmatch(text[opening:end])
+                if (not match or (opening and text[opening - 1] in '[\\')
+                        or text[end:end + 1] == ']'):
+                    continue
+                kind = {'spell': 'spell', 'item': 'item', 'trait': 'talent'}[match[1]]
+                token = '[[{}:{}{}]]'.format(kind, match[2], '@' + match[3] if match[3] else '')
+                anchor = opening + match.start(4)
+                position = 0
+                for offset, part in self.run:
+                    left, right = max(opening, position), min(end, position + len(part))
+                    if left < right:
+                        edits.append((offset + left - position, offset + right - position,
+                                      token if left <= anchor < right else ''))
+                    position += len(part)
+                if references is not None:
+                    references[token] = {'kind': kind, 'id': int(match[2]),
+                                         'source_name': match[4].strip(), 'variant': match[3] or ''}
+            self.run = []
+
+        def handle_data(self, data):
+            if not any(blocked for _, blocked in self.stack):
+                self.run.append((self.source_offset(), data))
+
+        def handle_starttag(self, tag, attrs):
+            pure = tag in inline and not attrs
+            if not pure:
+                self.flush()
+            # Existing typed HTML spans (including merged-source repairs) are
+            # handled by clean_html's established path, not this text parser.
+            blocked = tag in {'a', 'pre', 'code', 'script', 'style', 'iframe', 'object', 'svg', 'form', 'button'} or tag in inline and not pure
+            if tag not in {'br', 'hr', 'img', 'input', 'meta', 'link', 'wbr', 'source', 'area', 'base', 'embed', 'param', 'track', 'col'}:
+                self.stack.append((tag, blocked))
+
+        def handle_endtag(self, tag):
+            if not self.stack or self.stack[-1][0] != tag:
+                self.flush()
+                return
+            _, blocked = self.stack.pop()
+            if tag not in inline or blocked:
+                self.flush()
+
+        def handle_startendtag(self, tag, attrs):
+            self.flush()
+
+        def handle_entityref(self, name):
+            self.entity('&' + name + ';')
+
+        def handle_charref(self, name):
+            self.entity('&#' + name + ';')
+
+        def entity(self, entity):
+            self.flush()
+            if html.unescape(entity) in {'[', ']'} and value.startswith(entity, self.source_offset()):
+                key = marker + str(len(escaped)) + '__'
+                escaped[key] = entity
+                edits.append((self.source_offset(), self.source_offset() + len(entity), key))
+
+        def handle_comment(self, data):
+            self.flush()
+
+        def handle_decl(self, decl):
+            self.flush()
+
+    parser = Parser()
+    parser.feed(value)
+    parser.close()
+    parser.flush()
+    for start, end, replacement in sorted(edits, reverse=True):
+        value = value[:start] + replacement + value[end:]
+    return value, escaped
+
+
 def clean_html(value, references=None):
-    soup = BeautifulSoup(str(value or ''), 'html.parser', preserve_whitespace_tags={'pre', 'code'})
+    value, escaped = _normalize_legacy_references(str(value or ''), references)
+    soup = BeautifulSoup(value, 'html.parser', preserve_whitespace_tags={'pre', 'code'})
     for tag in list(soup.find_all(['script', 'style', 'iframe', 'object', 'embed', 'svg', 'form', 'button', 'input'])):
         tag.decompose()
     for tag in list(soup.find_all(True)):
@@ -105,7 +218,10 @@ def clean_html(value, references=None):
         start, end = offsets[id(children[0])][0], offsets[id(children[-1])][1]
         if any(0 < boundary < len(visible) and re.fullmatch(r'[A-Za-z]{2}', visible[boundary-1:boundary+1]) for boundary in (start, end)):
             tag.unwrap()
-    return str(soup).strip()
+    result = str(soup).strip()
+    for marker, entity in escaped.items():
+        result = result.replace(marker, entity)
+    return result
 
 
 def walk_blocks(blocks):
