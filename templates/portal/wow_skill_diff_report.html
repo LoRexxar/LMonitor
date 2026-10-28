@@ -33,7 +33,10 @@
                         {% endif %}
                         {% endif %}
                         <span><b>服务器</b>{{ server_title }}</span>
-                        <span><b>生成时间</b>{{ report.created_at|date:"Y-m-d H:i:s" }}</span>
+                        <span><b>首次生成</b>{{ report.created_at|date:"Y-m-d H:i:s" }}</span>
+                        {% if is_hotfix and report.updated_at %}
+                            <span><b>最近重建</b>{{ report.updated_at|date:"Y-m-d H:i:s" }}</span>
+                        {% endif %}
                     </div>
                 </div>
                 {% if html_exists %}

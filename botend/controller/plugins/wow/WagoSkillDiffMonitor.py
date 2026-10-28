@@ -6207,6 +6207,7 @@ class WagoSkillDiffMonitor(BaseScan):
                     continue
             if table_key == 'spelleffect':
                 keep = {
+                    'EffectAttributes',
                     'EffectIndex',
                     'Effect',
                     'EffectAura',

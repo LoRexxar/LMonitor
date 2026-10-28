@@ -60,7 +60,13 @@ class HotfixHistoryReuseTests(SimpleTestCase):
         self.mode = 'incomplete'
         facts = self.resolve()
         self.assertTrue(all(not f['before_verified'] for f in facts))
-        self.assertEqual(len(self.calls), 6)
+        queries = [parse_qs(urlsplit(url).query)['search'][0] for url in self.calls]
+        self.assertEqual(queries, ['7'] * 6 + [
+            '7 70575 spell', '7 70529 spell',
+            '7 70575 spellname', '7 70529 spellname',
+        ])
+        # Each failed narrow proof is reused across region/locale consumers;
+        # mismatched fixture rows must not become a successful empty history.
         self.mode = 'complete'
         self.calls.clear()
         facts = self.resolve()
