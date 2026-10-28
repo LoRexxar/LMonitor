@@ -116,7 +116,8 @@ def build_guide_glossary(blocks, game_version):
         # 攻略正文中的资料片名不能被冒险指南里的同名首领覆盖。
         WowNewsGlossary.from_trusted_pairs([('Midnight', '至暗之夜')]),
         WowNewsGlossary.from_trusted_pairs((r['name_en'], r['name_zh']) for r in scoped),
-        WowNewsGlossary.from_trusted_pairs([('Raid', '团队副本'), ('Mythic+', '大秘境'), ('AoE', '范围伤害'), ('BiS', '最佳配装')]),
+        # AoE describes area, not effect type: healing/control/damage follow it.
+        WowNewsGlossary.from_trusted_pairs([('Raid', '团队副本'), ('Mythic+', '大秘境'), ('AoE', '范围'), ('BiS', '最佳配装')]),
         WowNewsGlossary.from_builtin_terms(),
         WowNewsGlossary.from_pairs((r['name_en'], r['name_zh']) for r in rows if r['kind'] == 'talent'),
         WowNewsGlossary.from_current_spell_metadata(source_text),
