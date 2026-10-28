@@ -99,6 +99,41 @@ class GuideContextProtectionTests(TestCase):
         news = WowNewsGlossary.from_trusted_pairs([('Stagger', '醉拳')])
         self.assertIn('醉拳', news.restore(news.protect(ordinary[0]).text, news.protect(ordinary[0]).replacements))
 
+    def test_generic_labels_and_change_prose_do_not_force_entity_names(self):
+        glossary = GuideGlossary.from_trusted_pairs([
+            ('General', '将军'), ('General Storm', '风暴将军'), ('Changed', '已更改'),
+        ])
+        for source in ('General', ' General ', 'Changed from the class tree to be '):
+            with self.subTest(prose=source):
+                self.assertEqual(glossary.protect(source).text, source)
+                self.assertTrue(glossary.needs_new_translation(source))
+        for source, expected in (
+            ('General Storm', '风暴将军'), ('General attacks the tank.', '将军 attacks the tank.'),
+            ('Changed', '已更改'), ('Use Changed now.', 'Use 已更改 now.'),
+        ):
+            with self.subTest(entity=source):
+                protected = glossary.protect(source)
+                self.assertEqual(glossary.restore(protected.text, protected.replacements), expected)
+        html = '<ul><li>General<ul><li>Use [[spell:1294933]].</li></ul></li></ul>'
+        protected = protect_guide_text(html, glossary)
+        self.assertEqual(protected.text, html)
+        # Real cache consumer: old same-source cache must not restore the wrong
+        # entity interpretation; reviewed new-key cache remains reusable.
+        for source, bad, good in (
+            ('General', '将军', '通用'),
+            ('Changed from the class tree to be ', '已更改 从职业树中改为 ', '从职业天赋树改为'),
+        ):
+            with self.subTest(cache=source):
+                old_glossary = WowNewsGlossary.from_trusted_pairs([('General', '将军'), ('Changed', '已更改')])
+                old = old_glossary.protect(source)
+                old_row = ClassGuideTranslation.objects.create(key=self.node_key('12.1.5', old), source=source, translated=bad)
+                self.assertIsNone(translate_fragment_nodes(source, '12.1.5', glossary, OfflineService(), cache_only=True))
+                new = glossary.protect(source)
+                ClassGuideTranslation.objects.create(key=self.node_key('12.1.5', new), source=source, translated=good)
+                self.assertEqual(translate_fragment_nodes(source, '12.1.5', glossary, OfflineService(), cache_only=True), good)
+                old_row.refresh_from_db()
+                self.assertEqual(old_row.translated, bad)
+
     def test_aoe_default_is_effect_neutral_and_preserves_central_priority(self):
         glossary = self.glossary()
         for source in ('AoE healing', 'AoE damage', 'AoE control', 'aoe healing', 'AOE damage'):

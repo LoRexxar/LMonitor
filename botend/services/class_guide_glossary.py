@@ -13,6 +13,18 @@ class GuideGlossary(WowNewsGlossary):
         value = match[0]
         if self.contextual_word(value):
             return True
+        # A generic section label has no entity identity. Keep prose free for
+        # translation; explicit references are protected separately upstream.
+        # Do not match titled entities ("General Storm") or narrative mentions.
+        if value == 'General' and match.string.strip() == value:
+            return True
+        # Patch notes use "Changed from/to ..." as a past-tense verb. The
+        # standalone label/name and non-clause mentions remain protected.
+        if value == 'Changed' and re.search(r'(?:^|[.!?;:\n])\s*$', match.string[:match.start()]) and re.match(
+            r'\s+(?:from|to|into)\s+(?:the|a|an|your|our|their)\s+[a-z]+\b',
+            match.string[match.end():],
+        ):
+            return True
         # A capitalized word is not sufficient entity evidence: instructions
         # also capitalize verbs. A following determiner + lowercase word is
         # a direct-object cue ("Heal the tank"). Require an instruction/clause
