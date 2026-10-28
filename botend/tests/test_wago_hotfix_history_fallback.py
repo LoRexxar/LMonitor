@@ -122,6 +122,32 @@ class HotfixHistoryFallbackTests(TestCase):
             (f'104655 {build} spellcategories', page)
             for build in (70575, 70529) for page in (1, 2)])
 
+    def test_table_prefix_search_collision_is_filtered_after_complete_pagination(self):
+        # Live Wago search for "1327777 70575 spell" also returns SpellName.
+        # Its search_text proves the substring match; it is not a Spell source.
+        query = '104655 70575 spell'
+        spell = {**self.rows[0], 'table_name': 'Spell'}
+        name = {**self.rows[1], 'table_name': 'SpellName', 'region_id': 3,
+                'search_text': f'enus 102 {query}name [104655,"name"]'}
+        broad_fetch = self.fetch
+        def fetch(url, **kwargs):
+            params = parse_qs(urlsplit(url).query)
+            if params['search'][0] == '104655':
+                return broad_fetch(url, **kwargs)
+            page = int(params['page'][0])
+            self.calls.append((params['search'][0], page))
+            return {'filters': {'search': query}, 'hotfixes': dict(
+                total=2, current_page=page, last_page=2, per_page=1,
+                data=[name if page == 1 else spell])}
+        self.fetch = fetch
+        self.assertEqual(self.collect(table_name='Spell'), [spell])
+        self.assertEqual(self.calls, [('104655', 1), (query, 1), (query, 2)])
+        # A table-prefix collision alone cannot attest an unrelated response.
+        self.cache.clear()
+        name['search_text'] = 'unrelated search'
+        with self.assertRaisesRegex(HotfixSourceIncomplete, 'identity'):
+            self.collect(table_name='Spell')
+
     def test_scope_conflict_is_not_a_reason_to_fallback(self):
         rows = [self.rows[0], {**self.rows[0], 'id': 9}]
         def fetch(url, **kwargs):

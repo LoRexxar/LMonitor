@@ -313,9 +313,19 @@ def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table
                 if isinstance(data, list):
                     for row in data:
                         try:
+                            row_table = row['table_name'].lower()
+                            expected_table = table_name.lower()
+                            # Wago searches substrings: "spell" also matches
+                            # "spellname". Validate that collision against the
+                            # returned search_text, then let _exact_rows discard
+                            # it only AFTER all pages pass the completeness proof.
+                            table_matches = row_table == expected_table or (
+                                row_table.startswith(expected_table)
+                                and isinstance(row.get('search_text'), str)
+                                and query in row['search_text'].lower())
                             matches = (int(row['record_id']) == int(record_id)
                                        and int(row['build']) == int(build_number)
-                                       and row['table_name'].lower() == table_name.lower())
+                                       and table_matches)
                         except (KeyError, TypeError, ValueError, AttributeError):
                             matches = False
                         if not matches:
