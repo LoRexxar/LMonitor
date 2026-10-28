@@ -1,0 +1,268 @@
+{
+  "provenance": {
+    "frozen": "lmonitor-maxroll-terminal7/macro/complete.json",
+    "central": "lmonitor-maxroll-final-macro-audit/central-read.json"
+  },
+  "snapshots": [
+    {
+      "spell_id": 328774,
+      "branch": "wow",
+      "locale": "zhCN",
+      "snapshot_build": "12.1.0.69404",
+      "name": "Amplify Curse",
+      "name_zh": "诅咒增幅",
+      "description": "你在$d内施放的下一个疲劳诅咒、语言诅咒或虚弱诅咒得到强化。\n\n$@spellname334275\n使目标的移动速度额外降低$s3%。\n\n$@spellname1714\n使施法时间额外延长$<cast>%。\n\n$@spellname702\n敌人无法爆击。",
+      "aura_description": "下一个语言诅咒、疲劳诅咒或者虚弱诅咒得到强化。"
+    },
+    {
+      "aura_description": "以恶魔语念出咒语，使施法时间延长$w1%。",
+      "branch": "wow",
+      "description": "强迫目标使用恶魔语，使其所有法术的施放时间延长30%，持续1分钟。诅咒：对于一个目标，每个术士只能施加一种诅咒。",
+      "locale": "zhCN",
+      "name": "Curse of Tongues",
+      "name_zh": "语言诅咒",
+      "snapshot_build": "12.1.0.69404",
+      "spell_id": 1714
+    },
+    {
+      "aura_description": "",
+      "branch": "wow",
+      "description": "使目标的移动速度降低$s1%，持续$d。\n\n|cFF8282FF诅咒：对于一个目标，每个术士只能施加一种诅咒。|r",
+      "locale": "zhCN",
+      "name": "Curse of Exhaustion",
+      "name_zh": "疲劳诅咒",
+      "snapshot_build": "12.1.0.69404",
+      "spell_id": 334275
+    },
+    {
+      "aura_description": "攻击间隔延长$w1%。$?e1[爆击几率降低$w2%。][]",
+      "branch": "wow",
+      "description": "使敌人的攻击间隔延长$s1%，持续$d。$?s103112[\n\n|CFFE55BB0灵魂燃烧：你的虚弱诅咒会影响你目标周围半径$104222A码范围内的所有敌人。|R][]\n\n|cFF8282FF诅咒：对于一个目标，每个术士只能施加一种诅咒。|r",
+      "locale": "zhCN",
+      "name": "Curse of Weakness",
+      "name_zh": "虚弱诅咒",
+      "snapshot_build": "12.1.0.69404",
+      "spell_id": 702
+    }
+  ],
+  "targets": [
+    {
+      "guide_id": 122,
+      "block_id": "b-121-1-14",
+      "code": "#showtooltip Curse of Weakness\n/cast [known:328774] Amplify Curse\n/cast [@mouseover, exists, harm, nodead] Curse of Weakness; Curse of Weakness",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 316099,
+          "source_block": "b-121-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 316099,
+          "source_block": "b-121-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 702,
+          "source_block": "b-121-1-12"
+        },
+        {
+          "kind": "spell",
+          "object_id": 328774,
+          "source_block": "b-121-1-12"
+        },
+        {
+          "kind": "spell",
+          "object_id": 702,
+          "source_block": "b-121-1-12"
+        }
+      ]
+    },
+    {
+      "guide_id": 122,
+      "block_id": "b-121-1-18",
+      "code": "#showtooltip Curse of Tongues\n/cast [known:328774] Amplify Curse\n/cast [@mouseover, exists, harm, nodead] Curse of Tongues; Curse of Tongues",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 316099,
+          "source_block": "b-121-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 316099,
+          "source_block": "b-121-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 1714,
+          "source_block": "b-121-1-16"
+        },
+        {
+          "kind": "spell",
+          "object_id": 328774,
+          "source_block": "b-121-1-16"
+        },
+        {
+          "kind": "spell",
+          "object_id": 1714,
+          "source_block": "b-121-1-16"
+        }
+      ]
+    },
+    {
+      "guide_id": 122,
+      "block_id": "b-121-1-22",
+      "code": "#showtooltip Curse of Exhaustion\n/cast [known:328774] Amplify Curse\n/cast [@mouseover, exists, harm, nodead] Curse of Exhaustion;[@target] Curse of Exhaustion",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 316099,
+          "source_block": "b-121-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 316099,
+          "source_block": "b-121-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 334275,
+          "source_block": "b-121-1-20"
+        },
+        {
+          "kind": "spell",
+          "object_id": 328774,
+          "source_block": "b-121-1-20"
+        },
+        {
+          "kind": "spell",
+          "object_id": 29539,
+          "source_block": "b-121-1-20"
+        }
+      ]
+    },
+    {
+      "guide_id": 142,
+      "block_id": "b-112-1-10",
+      "code": "#showtooltip Curse of Weakness\n/cast [known:328774] Amplify Curse\n/cast [@mouseover, exists, harm, nodead] Curse of Weakness; Curse of Weakness",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 348,
+          "source_block": "b-112-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 348,
+          "source_block": "b-112-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 702,
+          "source_block": "b-112-1-8"
+        }
+      ]
+    },
+    {
+      "guide_id": 142,
+      "block_id": "b-112-1-14",
+      "code": "#showtooltip Curse of Tongues\n/cast [known:328774] Amplify Curse\n/cast [@mouseover, exists, harm, nodead] Curse of Tongues; Curse of Tongues",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 348,
+          "source_block": "b-112-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 348,
+          "source_block": "b-112-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 1714,
+          "source_block": "b-112-1-12"
+        },
+        {
+          "kind": "spell",
+          "object_id": 1714,
+          "source_block": "b-112-1-12"
+        }
+      ]
+    },
+    {
+      "guide_id": 143,
+      "block_id": "b-110-1-10",
+      "code": "#showtooltip Curse of Weakness\n/cast [known:328774] Amplify Curse\n/cast [@mouseover, exists, harm, nodead] Curse of Weakness; Curse of Weakness",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 348,
+          "source_block": "b-110-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 348,
+          "source_block": "b-110-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 702,
+          "source_block": "b-110-1-8"
+        }
+      ]
+    },
+    {
+      "guide_id": 143,
+      "block_id": "b-110-1-14",
+      "code": "#showtooltip Curse of Tongues\n/cast [known:328774] Amplify Curse\n/cast [@mouseover, exists, harm, nodead] Curse of Tongues; Curse of Tongues",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 348,
+          "source_block": "b-110-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 348,
+          "source_block": "b-110-1-0"
+        },
+        {
+          "kind": "spell",
+          "object_id": 1714,
+          "source_block": "b-110-1-12"
+        },
+        {
+          "kind": "spell",
+          "object_id": 1714,
+          "source_block": "b-110-1-12"
+        }
+      ]
+    },
+    {
+      "guide_id": 190,
+      "block_id": "b-100-2-8",
+      "code": "#showtooltip\n/stopmacro [channeling:Void Torrent]\n/cast [known:Void Torrent] Void Torrent",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 121536,
+          "source_block": "b-100-2-0"
+        }
+      ]
+    },
+    {
+      "guide_id": 191,
+      "block_id": "b-96-2-8",
+      "code": "#showtooltip\n/stopmacro [channeling:Void Torrent]\n/cast [known:Void Torrent] Void Torrent",
+      "refs": [
+        {
+          "kind": "spell",
+          "object_id": 121536,
+          "source_block": "b-96-2-0"
+        }
+      ]
+    }
+  ]
+}

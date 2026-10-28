@@ -24,7 +24,7 @@ from botend.services.class_guide_glossary import GuideGlossary
 from botend.services.wow_localization import effective_names, macro_reference_version, macro_identity_context
 from botend.services.class_guide_macros import (
     localize_macro, macro_source_repairs, macro_operands,
-    macro_block_references, resolve_macro_operands,
+    macro_block_references, localize_macro_identities,
 )
 
 
@@ -150,9 +150,8 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
             source_code = block['data']['code']
             refs = macro_refs.get(block['id'], [])
             context = macro_identity_context(refs, macro_version)
-            decisions = resolve_macro_operands(operands[block['id']], context, refs, macro_rows)
-            code, missing = localize_macro(source_code, {}, resolve=lambda value, kind:
-                decisions[(kind, value.casefold())].get('name_zh'))
+            code, missing, decisions = localize_macro_identities(source_code, context, refs, macro_rows,
+                load_context=lambda local_refs: macro_identity_context(local_refs, macro_version))
             block['data']['code'] = code
             if missing:
                 unresolved = [d for d in decisions.values() if d['status'] != 'resolved']

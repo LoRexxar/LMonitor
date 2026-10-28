@@ -136,6 +136,38 @@ def resolve_macro_operands(operands, context, source_refs, unscoped_rows=()):
     return decisions
 
 
+def localize_macro_identities(code, context, source_refs, unscoped_rows=(), *, load_context):
+    """Resolve occurrences, not a block-wide name map, for numeric conditions.
+
+    Only the verified single-condition /cast form supplies an ID anchor, and
+    only when that exact ID's English name matches its own cast operand. This
+    is identity evidence, not evidence that the player has learned the spell.
+    Keep ordinary context conflicts and dependency checks; never promote this
+    line's ID (or its dependency names) into other lines or operands.
+    """
+    output, missing, decisions = [], set(), {}
+    for line_number, line in enumerate(code.splitlines(keepends=True), 1):
+        operands = macro_operands(line)
+        local = resolve_macro_operands(operands, context, source_refs, unscoped_rows)
+        anchor = re.fullmatch(r'\s*/cast\s+\[known:([1-9][0-9]*)\]\s+([^\r\n]+?)\s*', line, re.I)
+        if anchor:
+            sid, operand = int(anchor[1]), anchor[2].strip().removeprefix('!')
+            key = ('spell', operand.casefold())
+            if key in local and local[key]['status'] != 'resolved':
+                refs = list(source_refs) + [{'kind': 'spell', 'object_id': sid,
+                    'source_line': line_number, 'relation': 'numeric_known_cast'}]
+                anchored = load_context(refs)
+                row = anchored['rows'].get(sid)
+                if row and row['name'].casefold() == operand.casefold():
+                    local[key] = resolve_macro_operands([('spell', operand)], anchored, refs, unscoped_rows)[key]
+        translated, absent = localize_macro(line, {}, resolve=lambda value, kind:
+            local[(kind, value.casefold())].get('name_zh'))
+        output.append(translated)
+        missing.update(absent)
+        decisions.update({(line_number, kind, name): decision for (kind, name), decision in local.items()})
+    return ''.join(output), sorted(missing), decisions
+
+
 def localize_macro(code, names, *, resolve=None):
     code = re.sub(r'\bstance\[:(\d+)\]', r'[stance:\1]', code)
     code = re.sub(r'(?mi)^(\s*)(?:/show\s+tooltip|showtooltip|#showtooltips)\b', r'\1#showtooltip', code)
@@ -156,7 +188,7 @@ def localize_macro(code, names, *, resolve=None):
         return value
     def conditions(match):
         text = match[0]
-        return re.sub(r'\b(known|noknown):([^,\]]+)', lambda m:m[1] + ':' + '/'.join(name(v) for v in m[2].split('/')), text)
+        return re.sub(r'\b(known|noknown|channeling|nochanneling):([^,\]]+)', lambda m:m[1] + ':' + '/'.join(name(v) for v in m[2].split('/')), text, flags=re.I)
     result = []
     for raw in code.splitlines(keepends=True):
         line = raw.rstrip('\r\n')
@@ -164,7 +196,7 @@ def localize_macro(code, names, *, resolve=None):
         whisper = re.match(r'^(\s*/(?:w|whisper)\s+\S+\s+)(.+)$', line, re.I)
         if whisper:
             result.append((line if resolve is not None else whisper[1] + name(whisper[2])) + ending); continue
-        match = re.match(r'^(\s*(?:/(cast|use|castsequence|castrandom|equip|cancelaura|petautocaston|petautocastoff|petautocasttoggle|target|tar|targetexact)|#show(?:tooltip|icon)?))(\s+)(.*)$', line, re.I)
+        match = re.match(r'^(\s*(?:/(cast|use|castsequence|castrandom|equip|cancelaura|petautocaston|petautocastoff|petautocasttoggle|target|tar|targetexact|stopmacro)|#show(?:tooltip|icon)?))(\s+)(.*)$', line, re.I)
         if not match:
             result.append(line + ending); continue
         command = (match[2] or '').lower()
@@ -172,6 +204,9 @@ def localize_macro(code, names, *, resolve=None):
             result.append(line + ending); continue
         kind = 'item' if command == 'equip' else ('spell_or_item' if command == 'use' or not command else 'spell')
         args = re.sub(r'\[[^\]]*\]', conditions, match[4])
+        if command == 'stopmacro':
+            result.append(match[1] + match[3] + args + ending)
+            continue
         pieces = re.split(r'(\[[^\]]*\]|\breset=[^\s]+\s*|;)', args)
         for index, piece in enumerate(pieces):
             if not piece or piece.startswith('[') or piece.startswith('reset=') or piece == ';':
