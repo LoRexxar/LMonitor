@@ -33,6 +33,22 @@ class ScopeResolutionTests(unittest.TestCase):
                 'class_family':4, 'method':'dbc.effect_affects_spells',
                 'affected_spells':[{'spell_id':1},{'spell_id':2}], **kwargs}
 
+    def test_reviewed_document_rejects_draft_facts(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'facts.json'
+            path.write_text(json.dumps({'revision': module.REVIEWED_REVISION,
+                                        'draft': True, 'effects': {}}))
+            module.ScopeResolver.reviewed_document.cache_clear()
+            try:
+                with patch.object(module, 'REVIEWED_SCOPE_FACTS', path):
+                    with self.assertRaisesRegex(ValueError, '草稿'):
+                        module.ScopeResolver.reviewed_document()
+            finally:
+                module.ScopeResolver.reviewed_document.cache_clear()
+
     def test_common_selector_precedes_concrete_group(self):
         self.r.local_groups=[(1,{1,2})]
         for name in ('任意天赋','只有一个技能','全部伤害'):
@@ -66,7 +82,30 @@ class ScopeResolutionTests(unittest.TestCase):
 
     def test_version_change_invalidates_reviewed_mask(self):
         self.r.revision='different'
-        self.assertIsNone(self.r.resolve(self.effect(),[],'已解析技能应用关系'))
+        self.assertEqual(self.r.resolve(self.effect(),[],'已解析技能应用关系')[0], '待确认')
+
+    def test_migration_candidates_cannot_fall_back_to_partial_local(self):
+        self.r.revision = 'f' * 40  # Deliberately not an approved source revision.
+        self.r.damage = {1, 2, 3}
+        self.r.damage_families = {4: {1, 2, 3}, 100: {1, 2, 3}}
+        self.r.reviewed_facts = module.ScopeResolver.reviewed_facts
+        old_id = int(next(iter(self.r.reviewed_facts())))
+        cases = [
+            self.effect(effect_id=old_id, class_family=100, flags=[1,0,0,0]),
+            self.effect(effect_id=999999999),
+            self.effect(effect_id=999999999, flags=[0,0,0,16777216]),
+            self.effect(effect_id=999999999, flags=[128,0,0,0]),
+        ]
+        for effect in cases:
+            with self.subTest(effect=effect):
+                decision, _, evidence = self.r.resolve(effect, [], '已解析技能应用关系')
+                self.assertEqual(decision, '待确认')
+                self.assertTrue(evidence['禁止后备分类'])
+                self.assertEqual(evidence['旧复核版本'], module.REVIEWED_REVISION)
+                self.assertEqual(evidence['当前事实']['affected'], [1,2])
+                self.assertEqual(evidence['当前事实']['registered'], [])
+                self.assertEqual(evidence['当前事实']['damage'], [])
+                self.assertEqual(evidence['当前事实']['effect_id'], effect['effect_id'])
 
     def test_large_set_alone_does_not_prove_global(self):
         e=self.effect(class_family=100,flags=[1,0,0,0],affected_spells=[{'spell_id':i} for i in range(100)])

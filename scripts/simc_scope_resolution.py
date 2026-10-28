@@ -21,8 +21,8 @@ COMMON_SELECTORS = {
     107: (0, 65536, '恶魔猎手通用伤害技能'),
     224: (0, 1, '唤魔师通用伤害技能'),
 }
-REVIEWED_REVISION = '1d3897ef4adefc8e47a43989eed81b6618ce7bef'
-REVIEWED_SCOPE_FACTS = Path(__file__).with_name('simc_scope_reviewed_1d3897.json')
+REVIEWED_REVISION = '30c4b061f2103132a34952d80c963303b82bf368'
+REVIEWED_SCOPE_FACTS = Path(__file__).with_name('simc_scope_reviewed_30c4b06.json')
 LOCAL_SELECTORS = {
     (224, (4096, 0, 0, 0)): {
         'ids': {362969, 1265872}, 'label': '碧蓝打击与碧蓝横扫',
@@ -95,6 +95,8 @@ class ScopeResolver:
     @lru_cache(maxsize=1)
     def reviewed_document():
         facts = json.loads(REVIEWED_SCOPE_FACTS.read_text(encoding='utf-8'))
+        if facts.get('draft') or facts.get('compile_contract_allowed') is False:
+            raise ValueError('作用域草稿不可作为已复核事实加载')
         if facts['revision'] != REVIEWED_REVISION:
             raise ValueError('复核签名与解析器 revision 不一致')
         return facts
@@ -118,16 +120,7 @@ class ScopeResolver:
         expected = self.reviewed_facts().get(str(e['effect_id']))
         if expected is None:
             raise ValueError('新增未复核选择器效果：' + str(e['effect_id']))
-        actual = {key: e.get(key) for key in (
-            'effect_id', 'source_spell_id', 'effect_index', 'class_family',
-            'type', 'subtype', 'misc1', 'misc2', 'method', 'flags',
-            'base_value', 'mastery_coefficient', 'mastery_scaled')}
-        actual.update(
-            affected=sorted({s['spell_id'] for s in e['affected_spells']}),
-            registered=sorted({b['target_spell_id'] for b in bindings if b.get('target_spell_id')}),
-            damage=sorted({sid for b in bindings for sid in b.get('传递到的伤害技能', []) if sid}),
-            layers_fields=[list(pair) for pair in sorted({(b['layer'], b['field']) for b in bindings})],
-        )
+        actual = self.scope_facts(e, bindings)
         for key, value in actual.items():
             if value != expected[key]:
                 raise ValueError(f'已复核效果 {e["effect_id"]} {key} 身份/集合漂移')
@@ -140,6 +133,21 @@ class ScopeResolver:
                     category.get('category') != '守护者'):
                 raise ValueError('已复核混合条件类别的间接路径不完整')
         return expected['decision']
+
+    @staticmethod
+    def scope_facts(e, bindings):
+        """同一字段投影用于严格门禁和草稿；输出事实不代表批准复用。"""
+        actual = {key: e.get(key) for key in (
+            'effect_id', 'source_spell_id', 'effect_index', 'class_family',
+            'type', 'subtype', 'misc1', 'misc2', 'method', 'flags',
+            'base_value', 'mastery_coefficient', 'mastery_scaled')}
+        actual.update(
+            affected=sorted({s['spell_id'] for s in e['affected_spells']}),
+            registered=sorted({b['target_spell_id'] for b in bindings if b.get('target_spell_id')}),
+            damage=sorted({sid for b in bindings for sid in b.get('传递到的伤害技能', []) if sid}),
+            layers_fields=[list(pair) for pair in sorted({(b['layer'], b['field']) for b in bindings})],
+        )
+        return actual
 
     @staticmethod
     def reviewed_selector_candidate(e):
@@ -223,6 +231,21 @@ class ScopeResolver:
                 self.colors[row[3]].add(row[0])
 
     def resolve(self, e, bindings, scope, reads=()):
+        # 历史效果身份漂移或同类新增选择器必须重新审查；任何后备分类都不能接管。
+        old_fact = self.reviewed_facts().get(str(e['effect_id']))
+        selector_candidate = self.reviewed_selector_candidate(e)
+        if self.revision != REVIEWED_REVISION and (old_fact is not None or selector_candidate):
+            actual = self.scope_facts(e, bindings)
+            return '待确认', '旧复核不适用于当前 revision；须逐项复核完整事实与源码，禁止后备规则改判。', {
+                '依据版本': self.revision, '判定路径': '跨版本复核候选', '禁止后备分类': True,
+                '旧复核版本': REVIEWED_REVISION,
+                '旧复核文件摘要': hashlib.sha256(REVIEWED_SCOPE_FACTS.read_bytes()).hexdigest(),
+                '命中旧效果': old_fact is not None, '命中已知选择器': selector_candidate,
+                '旧复核事实': old_fact, '当前事实': actual,
+                '事实差异字段': [key for key, value in actual.items()
+                                if old_fact is None or value != old_fact.get(key)],
+                '待审事项': '完整事实等值、选择器源码及间接路径复核；字段相等也不是跨版本批准',
+            }
         reviewed_decision = None
         if self.revision == REVIEWED_REVISION and (
                 str(e['effect_id']) in self.reviewed_facts() or self.reviewed_selector_candidate(e)):

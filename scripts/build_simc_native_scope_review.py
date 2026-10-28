@@ -11,7 +11,7 @@ from build_simc_global_damage_review import CLASSES, KEYS, SPEC_LABELS
 from audit_simc_global_damage_initialization import SPECS
 from simc_native_scope_evidence import (index_native_reads, binding_has_damage, relation_has_damage, structural_scope,
                                       validate_native_payload, native_damage_bindings)
-from simc_scope_resolution import ScopeResolver
+from simc_scope_resolution import ScopeResolver, REVIEWED_REVISION
 from simc_cpp_scope import classify_reads, read_scope, non_damage_read, referenced_dbc_scope
 from simc_native_scope_evidence import source_class, CLASS_FILES
 from botend.constants.wow import SPEC_IDENTITY_MAP
@@ -146,17 +146,66 @@ def review_decision(scope):
     return '待确认', reasons.get(scope, '现有证据尚不足以决定保留或剔除。')
 
 
+def resolve_component_scope(resolver, source, effect, native, code):
+    """迁移待审是终止性门禁，不允许手写/引用 DBC 后备分类吞掉。"""
+    scope, basis = structural_scope(effect, native)
+    decision, reason = review_decision(scope)
+    resolution = resolver.resolve(effect, native, scope, code)
+    evidence = {}
+    if resolution:
+        decision, reason, evidence = resolution
+    if decision == '待确认' and not evidence.get('禁止后备分类'):
+        code_resolution = classify_reads(source, code)
+        if code_resolution:
+            decision, reason, sites = code_resolution
+            evidence = {'判定路径': '原生手写范围', '源码': sites}
+        else:
+            referenced = referenced_dbc_scope(resolver, effect, code)
+            if referenced:
+                decision, reason, evidence = referenced
+    return scope, basis, decision, reason, canonical_scope_evidence(evidence)
+
+
+def write_review(result, output, *, draft=False):
+    """草稿独立命名，完整保留候选和未决；即使零未决也不是正式契约输入。"""
+    unresolved = [{'法术ID': row['法术ID'], '效果ID': part['效果ID'], '名称': row['名称']}
+                  for row in result['条目'] for part in row['分量'] if part['处理结论'] == '待确认']
+    if not draft:
+        if unresolved:
+            raise ValueError('仍有未完成的作用域，拒绝生成正式复核：' + json.dumps(unresolved, ensure_ascii=False))
+        if result['源码提交'] != REVIEWED_REVISION:
+            raise ValueError('未复核的 revision，拒绝生成正式复核；仅可使用 --draft 输出待审证据')
+        if result.get('draft') is True or result.get('review_status') == 'draft' or result.get('compile_contract_allowed') is False:
+            raise ValueError('草稿不能转写为正式复核')
+    else:
+        result = {**result, 'draft': True, 'review_status': 'draft', 'compile_contract_allowed': False,
+                  '待确认清单': unresolved, '标题': '【草稿·不可编译契约】' + result['标题'],
+                  '说明': '仅供迁移复核，不可用于 compile_contract；零未决也不表示批准。' + result['说明']}
+    suffix = '.draft' if draft else ''
+    output.with_suffix(suffix + '.json').write_text(json.dumps(result, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
+    payload = json.dumps(result, ensure_ascii=False).replace('<', '\\u003c')
+    html = (Path(__file__).parent / 'templates/simc_scope_review.html').read_text(encoding='utf-8')
+    output.with_suffix(suffix + '.html').write_text(html.replace('__DATA__', payload), encoding='utf-8')
+    output.with_suffix(suffix + '.md').write_text(
+        '# ' + result['标题'] + '\n\n' + result['判断依据'] + '\n\n' + result['说明'] + '\n\n'
+        + '\n'.join(f'- {k}：{v}' for k, v in result['数量'].items()) + '\n', encoding='utf-8')
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--native',type=Path,required=True)
     p.add_argument('--source',type=Path,required=True)
     p.add_argument('--names',type=Path,required=True)
     p.add_argument('--output',type=Path,required=True)
+    p.add_argument('--draft', action='store_true',
+                   help='输出独立 .draft.json/html/md，保留所有未决；不可编译契约或合并正式复核')
     p.add_argument('--frozen-input-dir',type=Path,required=True,
                    help='明确的原始 base/talents 输入根目录，必须属于项目当前目录')
     p.add_argument('--merge-target-review',type=Path,help='保留同版既有复核，仅补充本次实际观察的自身来源目标减益')
     p.add_argument('--merge-conditional-review',type=Path,help='保留同版复核，补充原生条件回调关联的自身状态')
     args=p.parse_args()
+    if args.draft and (args.merge_target_review or args.merge_conditional_review):
+        p.error('--draft 不能与正式复核合并选项一起使用')
     manifest=json.loads((args.native/'manifest.json').read_text(encoding='utf-8'))
     current_revision=subprocess.check_output(['git','-C',str(args.source),'rev-parse','HEAD'],text=True).strip()
     if current_revision!=manifest['源码提交']:
@@ -247,22 +296,7 @@ def main():
             entry=groups.setdefault(key,{k:v for k,v in b.items() if k not in ('配置','entity')})
             entry.setdefault('配置',[]).append(b['配置'])
         native=list(groups.values())
-        scope,basis=structural_scope(e,native)
-        decision,reason=review_decision(scope)
-        resolution=resolver.resolve(e,native,scope,code)
-        scope_evidence={}
-        if resolution:
-            decision,reason,scope_evidence=resolution
-        if decision == '待确认':
-            code_resolution=classify_reads(args.source,code)
-            if code_resolution:
-                decision,reason,sites=code_resolution
-                scope_evidence={'判定路径':'原生手写范围','源码':sites}
-            else:
-                referenced=referenced_dbc_scope(resolver,e,code)
-                if referenced:
-                    decision,reason,scope_evidence=referenced
-        scope_evidence=canonical_scope_evidence(scope_evidence)
+        scope,basis,decision,reason,scope_evidence=resolve_component_scope(resolver,args.source,e,native,code)
         dbc_ids={s['spell_id'] for s in e['affected_spells']}
         native_ids={sid for b in native for sid in b.get('传递到的伤害技能',[]) if sid}
         code_ids=set(scope_evidence.get('完整DBC集合',[])) | set(scope_evidence.get('伤害技能',[]))
@@ -277,9 +311,10 @@ def main():
                     shorter=re.sub(r'_(?:base|tick|damage|dmg|attack)$','',token)
                     if shorter==token:break
                     token=shorter
-        if decision == '待确认' and native_ids - dbc_ids:
+        if decision == '待确认' and native_ids - dbc_ids and not scope_evidence.get('禁止后备分类'):
             reason='SimC 存在 DBC 集合以外的伤害关联，需核实附加技能、效果传递或手写分支的完整范围。'
-        gap = ('代码扩展范围尚未核实' if native_ids-dbc_ids else
+        gap = ('跨版本复核尚未完成' if scope_evidence.get('禁止后备分类') else
+               '代码扩展范围尚未核实' if native_ids-dbc_ids else
                '选择器的技能集合或类别含义尚未核实' if dbc_ids else
                '伤害来源或手写作用范围尚未核实') if decision == '待确认' else ''
         return {'效果编号':e['effect_index'],'效果ID':e['effect_id'],'源法术ID':e['source_spell_id'],
@@ -345,7 +380,7 @@ def main():
                 for r in rows for c in r['分量'] if c['处理结论']=='待确认'
                 and (not args.merge_target_review or r['类型']=='目标减益')
                 and (not args.merge_conditional_review or any(b['layer']=='conditional_action_registry' for c in r['分量'] for b in c['原生实际应用']))]
-    if unresolved:
+    if unresolved and not args.draft:
         raise ValueError('仍有未完成的作用域，拒绝将待确认清单覆盖结果表：'+json.dumps(unresolved,ensure_ascii=False))
     result={'标题':'天赋与 Buff：保留还是剔除','判断依据':'DBC 效果选择器、原生实际应用的技能字段、手写伤害函数中的读取。描述不参与分类。',
         '说明':coverage+'本表按部分技能保留、公共或整类伤害剔除的规则生成。DBC 掩码和标签直接解析完整集合；手写效果沿具体技能实现、开关及引用的其他 DBC 效果判定。没有人工局部记录不影响保留。原生关系表示初始化登记，不等于实战触发；DBC 集合包含未启用或历史变体。结论限定当前源码、DBC 和导出目录，不是全职业归一化伤害数值已经完成的声明。',
@@ -357,6 +392,10 @@ def main():
         '分类规则摘要':{file:hashlib.sha256((Path(__file__).parent/file).read_bytes()).hexdigest()
                          for file in ('simc_scope_resolution.py','simc_scope_skill_sets.json','simc_cpp_scope.py')},
         '导出失败':[r for r in manifest['结果'] if r['退出码']],'公共应用源码':common,'条目':rows}
+    if args.draft:
+        result['旧复核DBC缺失效果'] = [
+            fact for eid, fact in sorted(resolver.reviewed_facts().items(), key=lambda item: int(item[0]))
+            if int(eid) not in resolver.effects]
     if args.merge_target_review or args.merge_conditional_review:
         previous=json.loads((args.merge_target_review or args.merge_conditional_review).read_text(encoding='utf-8'))
         if any(previous[key]!=result[key] for key in ('源码提交','客户端版本')):
@@ -375,11 +414,7 @@ def main():
         previous['处理统计']=dict(Counter(c['处理结论'] for r in previous['条目'] for c in r['分量']))
         previous['范围统计']=dict(Counter(c['范围判定'] for r in previous['条目'] for c in r['分量']))
         result=previous
-    args.output.with_suffix('.json').write_text(json.dumps(result,ensure_ascii=False,indent=2)+'\n',encoding='utf-8')
-    payload=json.dumps(result,ensure_ascii=False).replace('<','\\u003c')
-    html=(Path(__file__).parent/'templates/simc_scope_review.html').read_text(encoding='utf-8')
-    args.output.with_suffix('.html').write_text(html.replace('__DATA__',payload),encoding='utf-8')
-    args.output.with_suffix('.md').write_text('# '+result['标题']+'\n\n'+result['判断依据']+'\n\n'+result['说明']+'\n\n'+'\n'.join(f'- {k}：{v}' for k,v in result['数量'].items())+'\n',encoding='utf-8')
+    write_review(result, args.output, draft=args.draft)
     print(result['数量'],result['范围统计'])
 
 

@@ -7,17 +7,20 @@ from pathlib import Path
 import re
 import subprocess
 
-from scripts.build_simc_specialization_scope import BUILD, classify_component, specialization_token
+from scripts.build_simc_specialization_scope import (
+    BUILD, SupplementAffectedScope, classify_component, legacy_projection,
+    local_damage_component, specialization_token,
+)
 from scripts.simc_scope_resolution import REVIEWED_REVISION, load_dbc
 from botend.constants.wow import SPEC_IDENTITY_MAP
 from scripts.build_simc_global_damage_review import KEYS, SPEC_LABELS
 
 # 哑光环没有静态技能选择器；以下身份逐项来自当前版本公共动作实现。
 MANUAL = {
-    362980: ('engine/class_modules/sc_evoker.cpp', 'affected_by_giantkiller', 'cache.mastery_value() * std::max( 0.3, t->health_percentage() / 100 )', '目标血量伤害加成', '目标满血时；随目标血量降低，最低为所列加成的30%'),
-    343690: ('engine/class_modules/priest/sc_priest.cpp', 'priest_t::shadow_weaving_multiplier', 'dots * cache.mastery_value()', '暗影伤害', '每个符合暗影交织条件的持续伤害；按实际数量叠加'),
-    77220: ('engine/class_modules/warlock/sc_warlock_actions.cpp', 'destruction() && affected_by.chaotic_energies', 'chaotic_energies_rng * p()->cache.mastery_value()', '毁灭伤害随机加成', '每次取精通加成的50%至100%；相关天赋可提高下限'),
-    115636: ('engine/class_modules/monk/sc_monk.cpp', 'p()->baseline.windwalker.mastery->effectN( 1 )', 'mastery_parse_entry( base_t::ta_multiplier_effects )', '连击伤害', '触发连击时'),
+    362980: ('engine/class_modules/sc_evoker.cpp', 'affected_by_giantkiller', 'cache.mastery_value() * std::max( 0.3, t->health_percentage() / 100 )', '目标血量伤害加成', '受动作精通标记限制；主路径全额需 Tyranny 与 Dragonrage，部分派生动作仅需 Tyranny。非全额按目标血量，常规路径最低30%，light_of_creation 无此下限；残余伤害按原生路径避免重复乘算'),
+    343690: ('engine/class_modules/priest/sc_priest.cpp', 'priest_t::shadow_weaving_multiplier', 'dots * cache.mastery_value()', '暗影伤害', '受动作精通标记限制；Voidform 自动按3层并叠加 Madness Weaving 权重，否则按已生效或当前施放的相关持续伤害及原生权重计算'),
+    77220: ('engine/class_modules/warlock/sc_warlock_actions.cpp', 'destruction() && affected_by.chaotic_energies', 'chaotic_energies_rng * p()->cache.mastery_value()', '毁灭伤害随机加成', '仅受影响的毁灭动作；常规随机取精通加成的50%至100%，特定动作可由 Chaos Incarnate 提高下限；normalize 分支取对应区间均值'),
+    115636: ('engine/class_modules/monk/sc_monk.cpp', 'p()->baseline.windwalker.mastery->effectN( 1 )', 'mastery_parse_entry( base_t::ta_multiplier_effects )', '连击伤害', '须精通效果有效、动作启用 ww_mastery 且 combo_strikes 增益有效；首次或更换可连击动作触发，重复可连击动作结束连击'),
 }
 
 
@@ -26,6 +29,8 @@ def collect_review(source):
     if revision != REVIEWED_REVISION or f'"{BUILD}"' not in (source/'engine/dbc/generated/client_data_version.inc').read_text():
         raise ValueError('精通复核的源码或客户端版本不匹配。')
     spells, effects = load_dbc(source)
+    legacy = legacy_projection(revision, BUILD)
+    scope = SupplementAffectedScope(source, spells, legacy=legacy)
     identities = re.findall(r'\{\s*(\d+),\s*(\d+)\s*\}', (source/'engine/dbc/generated/mastery_spells.inc').read_text())
     if len(identities) != 40 or len({int(s) for s, _ in identities}) != 40:
         raise ValueError('精通专精目录不完整或重复。')
@@ -46,14 +51,15 @@ def collect_review(source):
                     raise ValueError(f'手写精通实现漂移：{sid}')
                 proof = {'文件':file, '摘要':hashlib.sha256(code.encode()).hexdigest(),
                          '入口':marker, '计算':calculation, '条件':condition}
-            affected = sorted(s['_id'] for s in spells.values() if s['_class_flags_family'] == family and
-                              any(a & b for a,b in zip(s['_class_flags'], e['_class_flags'])))
+            affected = scope.affected(e)
             parts.append({'效果ID':e['_id'], '效果编号':e['_index']+1,
                           '类型':e['_type'], '子类型':e['_subtype'], '参数':e['_misc_value'],
                           '选择位':e['_class_flags'], '基础值':e['_base_value'],
                           '精通系数':e['_sp_coeff'] / 100, '完整DBC集合':affected,
                           '处理':'剔除公共分量' if category else '保持原样', '类别':category,
                           '手写证据':proof})
+            if not legacy:
+                parts[-1]['参数二'] = e['_misc_value_2']
         rows.append({'专精ID':spec, '专精':specialization_token(spec),
                      '职业':SPEC_IDENTITY_MAP[spec][0].lower(), '法术ID':sid,
                      '名称':spell['_name'], '职业族':family, '分量':parts})
@@ -63,6 +69,8 @@ def collect_review(source):
 
 
 def extend_contract(contract, review):
+    if review.get('draft'):
+        raise ValueError('精通草稿不可编入正式导出器契约。')
     if f'"{review["源码提交"]}"' not in contract or f'"{review["客户端版本"]}"' not in contract:
         raise ValueError('精通复核与基础契约版本不一致。')
     if 'mastery_aura:' in contract:raise ValueError('拒绝重复应用精通补充。')
@@ -71,7 +79,8 @@ def extend_contract(contract, review):
     for row in review['条目']:
         parts = [p for p in row['分量'] if p['处理'] == '剔除公共分量']
         if not parts:continue
-        local = [p for p in row['分量'] if p not in parts and p['完整DBC集合'] and p['子类型'] in (107,108) and p['参数'] in (0,22,7,15)]
+        local = [p for p in row['分量'] if p not in parts and local_damage_component(
+            p, legacy=legacy_projection(review['源码提交'], review['客户端版本']))]
         def identity(p):return {'spell_id':row['法术ID'], 'effect_index':p['效果编号'], 'effect_id':p['效果ID']}
         details=[]
         first=row['分量'][0]['精通系数']

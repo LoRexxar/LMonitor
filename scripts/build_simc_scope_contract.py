@@ -74,6 +74,8 @@ def local_skill_bindings(row):
 
 
 def compile_contract(review):
+    if review.get('draft'):
+        raise ValueError('作用域草稿不可编译为正式导出器契约。')
     effects, parents, buffs = {}, set(), {}
     for row in review['条目']:
         for component in row['分量']:

@@ -96,7 +96,7 @@ def classify_reads(source, reads):
             if re.search(r'\bbool\s+'+re.escape(flag)+r'\s*=\s*true\b', clean_cpp(text)):
                 return '应剔除', '原生通用伤害基类默认对技能启用该伤害分量。', sites
             matches=list(re.finditer(r'\baffected_by\.'+re.escape(flag)+r'(?:\.\w+)?\s*=\s*([^;]+);', text))
-            enabled=[m for m in matches if m[1].strip()!='false']
+            enabled=[m for m in matches if constant_flag(m[1]) is not False]
             if not enabled:
                 return None
             for match in enabled:
@@ -113,10 +113,92 @@ def classify_reads(source, reads):
     return '保留', '原生通用函数由具体技能中的开关或限定技能包装器启用，属于部分技能效果。', sites+assignment_sites
 
 
+def constant_flag(value):
+    """Only literal boolean/integer writes have a known truth value."""
+    value = value.strip()
+    cast = re.fullmatch(r'as<uint8_t>\(\s*(\d+)\s*\)', value)
+    if cast:
+        value = cast[1]
+    if value in ('true', 'false'):
+        return value == 'true'
+    return bool(int(value)) if value.isdigit() else None
+
+
+def whole_spell_scope(resolver, text, units, flag, scope, read):
+    """Bounded whole-spell borrowing; conditional overrides remain source facts.
+
+    This models the helper's 271/537 branches, NOT affected_by_all. Never
+    promote these semantic candidates into native registration/damage facts.
+    """
+    from scripts.build_simc_specialization_scope import SupplementAffectedScope
+    clean = clean_cpp(text)
+    assignments = list(re.finditer(r'\baffected_by\.' + re.escape(flag) +
+                                  r'\s*=\s*([^;]+);', clean))
+    owned = [m for m in assignments if enclosing_type(text, m.start()) and
+             enclosing_type(text, m.start())[2] == scope['类型']]
+    if len(owned) != 1:
+        return None
+    assignment = owned[0]
+    call = re.fullmatch(r'parse_damage_affecting_aura\(\s*this\s*,\s*'
+                        r'(?:\w+\(\)|\w+)->(\w+(?:\.\w+)+)\s*\)', assignment[1].strip())
+    if not call:
+        return None
+    bindings, ids = [], set()
+    for file, unit in units:
+        for m in re.finditer(r'\b' + re.escape(call[1]) + r'\s*=\s*([^;]+);', clean_cpp(unit)):
+            # Accept one conditional numeric binding with an explicit nil arm.
+            value = re.fullmatch(r'(?:(.+?)\?\s*)?find_spell\(\s*(\d+)\s*\)'
+                                 r'(?:\s*:\s*spell_data_t::(?:nil|not_found)\(\s*\))?', m[1].strip())
+            if not value or bool(value[1]) != (':' in m[1]):
+                return None
+            ids.add(int(value[2]))
+            bindings.append({'文件':str(file.relative_to(resolver.source)),
+                             '行':unit[:m.start()].count('\n')+1,
+                             '代码':unit[m.start():m.end()], '条件':value[1]})
+    if len(ids) != 1:
+        return None
+    sid = ids.pop()
+    selectors = resolver.by_spell.get(sid, [])
+    if not selectors or sid not in resolver.spells:
+        return None
+    labels = SupplementAffectedScope(resolver.source, resolver.spells).labels
+    members, parts = set(), []
+    for e in selectors:
+        if e['_type'] != 6 or e['_subtype'] not in (271, 537, 107, 218):
+            continue  # The native helper ignores other aura subtypes.
+        if e['_subtype'] not in (271, 537) or (e['_base_value'] == 0 and e['_sp_coeff'] == 0):
+            return None
+        family = resolver.spells[sid]['_class_flags_family']
+        selected = ({i for i,s in resolver.spells.items() if s['_class_flags_family'] == family
+                     and any(a & b for a,b in zip(s['_class_flags'], e['_class_flags']))}
+                    if e['_subtype'] == 271 else set(labels[e['_misc_value']]))
+        members.update(selected)
+        parts.append({'引用效果':e['_index']+1, '子类型':e['_subtype'], '完整DBC集合':sorted(selected)})
+    if not members:
+        return None
+    overrides = []
+    for m in re.finditer(r'\baffected_by\.'+re.escape(flag)+r'\.(direct|tick)\s*=\s*([^;]+);', clean):
+        owner = enclosing_type(text, m.start())
+        enabled = constant_flag(m[2])
+        if owner is None or enabled is None:
+            return None
+        # Keep enclosing constructor and gates verbatim; do not evaluate bugs,
+        # infer action identity by names, or flatten conditional writes to true.
+        overrides.append({'类型':owner[2], '父类':owner[3], 'component':m[1],
+                          'enabled':enabled, '文件':read['文件'],
+                          '行':text[:m.start()].count('\n')+1,
+                          '构造上下文':text[owner[0]:m.end()]})
+    return {'borrowed_spell_id':sid, 'borrowed_members':sorted(members),
+            'selectors':parts, 'bindings':bindings, 'component_overrides':overrides,
+            '消费者':scope, '赋值':text[assignment.start():assignment.end()],
+            '集合语义':'条件启用前的借用选择资格；构造覆盖保留为条件源码，非原生登记/伤害集合'}
+
+
 def referenced_dbc_scope(resolver, effect, reads):
     """追踪通用伤害函数开关借用的其他 DBC 效果，不按来源天赋 ID 设置结论。"""
     from simc_native_scope_evidence import source_class
     targets, sites, mastery = set(), [], False
+    borrowed = []
     scopes = [(r,read_scope(resolver.source,r)) for r in reads if r.get('伤害函数')]
     for read, scope in scopes:
         if not scope or not generic_action(scope):
@@ -130,6 +212,14 @@ def referenced_dbc_scope(resolver, effect, reads):
         units=[(p,p.read_text(encoding='utf-8')) for p in (resolver.source/'engine/class_modules').rglob('*')
                if p.suffix in ('.cpp','.hpp') and source_class(p)==cid]
         for flag in flags:
+            if re.search(r'affected_by\.'+re.escape(flag)+r'\s*=\s*parse_damage_affecting_aura\(', clean_cpp(text)):
+                semantic = whole_spell_scope(resolver, text, units, flag, scope, read)
+                if semantic is None:
+                    return None
+                if semantic not in borrowed:
+                    borrowed.append(semantic)
+                targets.update(semantic['borrowed_members'])
+                continue
             for match in re.finditer(r'affected_by\.'+re.escape(flag)+r'\s*=\s*([^;]+);',text):
                 refs=re.findall(r'(\w+(?:\.\w+)+)->effectN\(\s*(\d+)\s*\)',match[1])
                 for symbol, index in refs:
@@ -163,5 +253,9 @@ def referenced_dbc_scope(resolver, effect, reads):
     if targets:
         decision='应剔除' if mastery else '保留'
         reason='原生通用伤害函数借用精通的整类伤害范围。' if mastery else '原生函数借用的 DBC 选择器限定部分技能，已追踪到完整技能集合。'
-        return decision,reason,{'判定路径':'原生开关引用DBC','源码':sites,'完整DBC集合':sorted(targets)}
+        evidence = {'判定路径':'原生开关引用DBC','源码':sites,'完整DBC集合':sorted(targets)}
+        if borrowed:
+            evidence['semantic_scope'] = {'borrowed_paths':borrowed,
+                'component_overrides':borrowed[0]['component_overrides']}
+        return decision,reason,evidence
     return None
