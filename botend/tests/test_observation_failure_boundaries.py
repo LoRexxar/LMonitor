@@ -86,6 +86,7 @@ class TransportLocalGuideTests(SimpleTestCase):
             self.assertEqual(schema['type'], 'integer')
             self.assertEqual(schema['value'], 9)
             self.assertIn('无引号', schema['instruction'])
+            self.assertEqual(len(plan['selection_guide']), len(contract['hypotheses']))
             for guide, menu in zip(plan['selection_guide'], contract['hypotheses']):
                 for field in ('support_ids', 'unknown_ids', 'counter_ids'):
                     local = guide[field]
@@ -94,11 +95,13 @@ class TransportLocalGuideTests(SimpleTestCase):
                     self.assertEqual([c['id'] for c in local['candidates']], menu[field])
                 self.assertIn('label_reviews', guide['counter_ids']['instruction'])
                 self.assertIn('[]', guide['counter_ids']['instruction'])
-            questions = {q['id']: q for q in plan['questions']}
+            self.assertNotIn('questions', plan)
+            questions = {q['id']: q for q in plan['non_output_background']['questions']}
             qguide = plan['next_question_guide']
             self.assertEqual(qguide['max_items'], 3)
             self.assertEqual(qguide['candidates'], [{'id': qid, 'reason': questions[qid]['reason']} for qid in contract['next_question_ids']])
-            self.assertIn('behavior_review.questions', qguide['instruction'])
+            self.assertEqual(qguide['candidate_count'], len(contract['next_question_ids']))
+            self.assertIn('behavior_review.non_output_background.questions', qguide['instruction'])
             self.assertIn('禁止重组', qguide['instruction'])
             candidate = {'schema_version': 9, 'confidence': contract['confidence'], 'next_question_ids': contract['next_question_ids'][:3],
                 'hypotheses': [{'id': h['id'], 'assessment': 'possible', 'support_ids': h['support_ids'][:3],

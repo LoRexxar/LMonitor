@@ -416,6 +416,7 @@ def _build(context):
     elif counts['timed'] is not None and counts['timed'] > 0:
         add('timed_experience', '限时经历', '高', f"赛季汇总已知限时 {counts['timed']} 场；本次样本未提供可确认的最高限时。", [])
     rosters, roster_refs, members, specs, spec_refs, known_ids = {}, [], {}, set(), set(), set()
+    subject_absent_rosters = {}
     source_failed = bool(activity.last_error)
     for row in RaiderIORunRoster.objects.filter(rio_season=season.rio_season, run_id__in=runs).only('run_id', 'payload_json', 'roster_visible', 'fetched_at', 'last_error', 'status'):
         known_ids.add(row.run_id)
@@ -427,10 +428,16 @@ def _build(context):
             if not clean:
                 continue
             keyed = [(_member_identity(member), member) for member in clean['roster']]
-            if len({key for key, _ in keyed}) != 5 or sum(key == activity.identity_digest for key, _ in keyed) != 1:
+            if len({key for key, _ in keyed}) != 5:
                 continue
             ids = [member['character'].get('id') for _, member in keyed]
             if len([value for value in ids if value is not None]) != len(set(value for value in ids if value is not None)):
+                continue
+            if not any(key == activity.identity_digest for key, _ in keyed):
+                # Positive, complete roster evidence of absence, not a missing
+                # history sample. Keep it separate from current score sources.
+                subject_absent_rosters[row.run_id] = {
+                    'run_id': row.run_id, 'fetched_at': _stamp(row.fetched_at), 'digest': _hash(clean)}
                 continue
         except (ValueError, TypeError, KeyError):
             continue
@@ -552,6 +559,8 @@ def _build(context):
         limitations.append('缺少五名成员完整且新鲜的同副本计分记录，无法比较；未知不视为零。')
     if len(rosters) < len(runs):
         limitations.append('部分阵容不可见、缺失或身份无法确认，未纳入组队观察。')
+    if subject_absent_rosters:
+        limitations.append('部分来源关联成绩的完整阵容中未见当前主体；这些best仍可作当前成绩背景，但不作本人于该时点完成的证明。缺失阵容不等于缺席；独立计分与历史来源另行校验。')
     module_times = activity.module_fetched_at or {}
     investigation = build_investigation(subject=activity.identity_digest,
         best=best if _fresh(module_times.get('mythic_plus_best_runs') or activity.fetched_at, now) else [],
@@ -563,7 +572,8 @@ def _build(context):
         rio_season=season.rio_season, now=now)
     from botend.services.player_observation_behavior import build_behavior_review
     behavior = build_behavior_review(subject=activity.identity_digest,
-        best=best if _fresh(module_times.get('mythic_plus_best_runs') or activity.fetched_at, now) else [],
+        best=[run for run in best if run_reference(run, season.rio_season) not in subject_absent_rosters]
+            if _fresh(module_times.get('mythic_plus_best_runs') or activity.fetched_at, now) else [],
         recent=recent, runs=runs,
         rosters={rid: (clean, keyed) for rid, (clean, keyed) in rosters.items()
                  if all(members[key] is not None for key, _ in keyed)},
@@ -622,6 +632,11 @@ def _build(context):
             'scores': sorted(score_refs, key=lambda r: r['activity_id']),
             'histories': sorted(history_refs, key=lambda r: (r['activity_id'], r['dungeon_id']))},
         'source_failed': source_failed}
+    if subject_absent_rosters:
+        # Bind the exclusion to the exact canonical facts, including runs not
+        # admitted to the behavioral roster/frequency denominator.
+        result['source_stamps']['subject_absent_rosters'] = [
+            subject_absent_rosters[rid] for rid in sorted(subject_absent_rosters)]
     if investigation['triggered']:
         result['metrics']['investigation'] = investigation
     result['judgements'], conclusion = _judgements(result)
@@ -1336,10 +1351,19 @@ def _generation_input(evidence):
             'max_items': contract['limits']['next_question_ids_max'],
             'candidate_count': len(contract['next_question_ids']),
             'instruction': '只从以下合同菜单选择0至3个完整ID，逐字复制，禁止重组、缩短或修正digest。'
-                           'behavior_review.questions只是原始背景，不是可输出菜单。',
+                           'behavior_review.non_output_background.questions只是原始背景，不是可输出菜单。',
             'candidates': [{'id': ref, 'reason': questions[ref]['reason']}
                            for ref in contract['next_question_ids']],
         }
+        # Keep legacy plan rows and per-label diagnostics as readable background,
+        # not peer output menus. Move only after deriving the unchanged contract;
+        # compact_ai_input also serves the contract builder and must stay intact.
+        for block, fields in (
+                (plan, ('hypotheses', 'questions')),
+                (data['metrics'].get('behavior_review', {}), ('questions', 'label_reviews'))):
+            background = {field: block.pop(field) for field in fields if field in block}
+            if background:
+                block['non_output_background'] = background
     return data
 
 
