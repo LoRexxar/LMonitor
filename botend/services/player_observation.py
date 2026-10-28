@@ -1317,9 +1317,29 @@ def _generation_input(evidence):
             {'id': hypothesis['id'], **{
                 field: {
                     'operation': 'copy_all' if field == 'counter_ids' else 'select_up_to_3',
+                    'max_items': contract['limits'][field + '_max'],
+                    'candidate_count': len(hypothesis[field]),
+                    'instruction': (
+                        '完整复制本假设此字段的全部候选；候选为空必须输出[]。'
+                        'label_reviews的逐场反证不等于本假设合同反证权限，禁止跨域加入。'
+                        if field == 'counter_ids' else
+                        '只从本假设此字段选择0至3条，不要复制超过3条的完整候选表；不得跨假设或极性。'),
                     'candidates': [{'id': ref, 'text': facts[ref]} for ref in hypothesis[field]],
                 } for field in ('support_ids', 'counter_ids', 'unknown_ids')
             }} for hypothesis in contract['hypotheses']]
+        plan['schema_version_guide'] = {
+            'type': 'integer', 'value': contract['schema_version'],
+            'instruction': 'schema_version必须使用JSON整数（无引号），不是字符串；协议版本元数据不是自由数字事实断言。'}
+        questions = {question['id']: question for question in plan['questions']}
+        plan['next_question_guide'] = {
+            'operation': 'select_up_to_3',
+            'max_items': contract['limits']['next_question_ids_max'],
+            'candidate_count': len(contract['next_question_ids']),
+            'instruction': '只从以下合同菜单选择0至3个完整ID，逐字复制，禁止重组、缩短或修正digest。'
+                           'behavior_review.questions只是原始背景，不是可输出菜单。',
+            'candidates': [{'id': ref, 'reason': questions[ref]['reason']}
+                           for ref in contract['next_question_ids']],
+        }
     return data
 
 

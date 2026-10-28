@@ -208,13 +208,17 @@ Session, existing proxy settings, 25s timeout, no redirects or automatic retry.
     def scored(self, character, season, force):
         identity, character_id = character['identity'], character['character_id']
         digest = activity_identity_digest(**identity)
-        row, _ = RaiderIOCharacterActivity.objects.get_or_create(
-            season=season, identity_digest=digest, defaults=identity)
-        result = {'activity_id': row.pk, 'identity_digest': digest, 'character_id': character_id}
+        result = {'identity_digest': digest, 'character_id': character_id}
+        phase, request_start = 'ensure_activity', self.requests
         # The schema deliberately has no scored lease fields. A NOWAIT row lock
         # serializes this independent snapshot without changing activity status,
         # timestamps, failure counters, or payload. Held for ONE bounded request.
         try:
+            # Creation can wait on a unique/FK lock before NOWAIT is reached.
+            row, _ = RaiderIOCharacterActivity.objects.get_or_create(
+                season=season, identity_digest=digest, defaults=identity)
+            result['activity_id'] = row.pk
+            phase = 'lock_activity'
             with transaction.atomic():
                 row = RaiderIOCharacterActivity.objects.select_for_update(nowait=True).get(pk=row.pk)
                 now = timezone.now()
@@ -228,6 +232,7 @@ Session, existing proxy settings, 25s timeout, no redirects or automatic retry.
                     else:
                         return {**result, 'status': 'fresh', 'fetched_at': row.scored_runs_fetched_at.isoformat()}
                 try:
+                    phase = 'fetch_scored'
                     response = self.get(SCORED_URL, params=_scope(season.rio_season, character_id),
                                         headers={'User-Agent': 'Mozilla/5.0'})
                     if response.status_code != 200:
@@ -238,11 +243,19 @@ Session, existing proxy settings, 25s timeout, no redirects or automatic retry.
                 except requests.RequestException:
                     return {**result, 'status': 'transport_error'}
                 stamp = timezone.now()
+                phase = 'save_scored'
                 RaiderIOCharacterActivity.objects.filter(pk=row.pk).update(
                     scored_runs_json=facts, scored_runs_fetched_at=stamp)
                 return {**result, 'status': 'ready', 'fetched_at': stamp.isoformat()}
-        except DatabaseError:
-            return {**result, 'status': 'database_busy_or_error'}
+        except DatabaseError as exc:
+            errno = exc.args[0] if exc.args else None
+            # Only identified MySQL contention is deferred. Unknown DB failures
+            # must remain hard errors, not silently become retryable source gaps.
+            if type(errno) is not int or (errno != 1205 and not (errno == 3572 and phase == 'lock_activity')):
+                raise
+            return {**result, 'status': 'busy', 'phase': phase, 'mysql_errno': errno,
+                    # This scored request only; earlier sources may have sent HTTP.
+                    'http_sent': self.requests > request_start}
 
 
 def _visible_facts(row, run, rio_season):
