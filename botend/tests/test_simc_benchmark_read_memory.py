@@ -316,6 +316,39 @@ class BenchmarkReadMemoryTests(TestCase):
             finally:
                 SimcTask.objects.filter(pk=tasks[0].pk).update(source_task_id=None)
 
+    def test_coverage_batches_disjoint_executions_and_borrows_only_readonly_rules(self):
+        for index, coordinate in enumerate(self.plan['cases']):
+            execution = SimcBenchmarkExecution.objects.create(
+                panel=self.panel, config_hash=f'{index:064x}', status='success',
+            )
+            task = self.task(coordinate, coordinate['candidates'])
+            case = SimcBenchmarkCase.objects.create(
+                execution=execution, task=task, status='success',
+                spec_key=coordinate['spec_key'], scenario_key=coordinate['scenario_key'],
+                profile_key=coordinate['profile_key'], coordinate_hash=service._coordinate_input_identity(coordinate),
+            )
+            for candidate in coordinate['candidates']:
+                SimcBenchmarkResult.objects.create(case=case, candidate_key=candidate['candidate_key'], dps=1000)
+        with CaptureQueriesContext(connection) as queries:
+            result = service.summarize_panel_coverage_counts([self.panel])[self.panel.pk]
+        self.assertEqual(result['available_results'], 50)
+        reads = [q for q in queries if re.search(r'FROM ["`]simc_task["`]', q['sql'])]
+        self.assertEqual(len(reads), 2)
+        item = SimcBenchmarkCandidate.objects.get(panel=self.panel)
+        item.params['gear_swap']['slot'] = 'back'
+        item.save(update_fields=['params'])
+        WowItemSnapshot.objects.filter(item_id=123).update(inventory_type=16, item_subclass_id=1)
+        owned = build_execution_plan(self.panel, validate_for_execution=False, lock=False)
+        shared = build_execution_plan(self.panel, validate_for_execution=False, lock=False, copy_candidates=False)
+        self.assertEqual(shared, owned)
+        rules = [c['candidate_params']['equipment_effect_policy']['rules']
+                 for c in shared['cases'][0]['candidates'] if 'equipment_effect_policy' in c['candidate_params']]
+        self.assertEqual(len(rules), 2)
+        self.assertIs(rules[0], rules[1])
+        owned_rules = [c['candidate_params']['equipment_effect_policy']['rules']
+                       for c in owned['cases'][0]['candidates'] if 'equipment_effect_policy' in c['candidate_params']]
+        self.assertIsNot(owned_rules[0], owned_rules[1])
+
     def test_readonly_plan_shares_candidates_without_changing_execution_ownership(self):
         shared = build_execution_plan(
             self.panel, validate_for_execution=False, lock=False, copy_candidates=False,

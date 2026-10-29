@@ -1932,7 +1932,7 @@ def _reusable_result_counts_for_plans(panels, plans):
 
     reusable = {panel_id: {} for panel_id in panel_ids}
     coordinate_cache = {}
-    pending_rows, pending_tasks = [], {}
+    pending_rows, pending_tasks, pending_identities = [], {}, set()
 
     def flush():
         if not pending_rows:
@@ -1973,15 +1973,9 @@ def _reusable_result_counts_for_plans(panels, plans):
                 reusable[panel_id].setdefault((coordinate, candidate), row['case__execution_id'])
         pending_rows.clear()
         pending_tasks.clear()
+        pending_identities.clear()
 
-    last_execution = None
     for row in results:
-        # Resolve newer batches before considering older Task manifests. Keep
-        # the established execution/case/result winner ordering unchanged.
-        execution_id = row['case__execution_id']
-        if execution_id != last_execution:
-            flush()
-            last_execution = execution_id
         panel_id = row['case__execution__panel_id']
         task_id = row['case__task_id']
         case_key = (task_id, row['case__spec_key'], row['case__scenario_key'], row['case__profile_key'])
@@ -1998,6 +1992,11 @@ def _reusable_result_counts_for_plans(panels, plans):
             })
         coordinate = coordinate_cache[case_key]
         expected = wanted.get((panel_id, coordinate), {}).get(row['candidate_key'])
+        # Disjoint identities can share a batch across executions. Resolve a
+        # pending newer winner before reading an older copy of that identity.
+        identity = (panel_id, coordinate, expected)
+        if identity in pending_identities:
+            flush()
         if expected is None or (coordinate, expected) in reusable[panel_id]:
             continue
         if task_id not in pending_tasks and len(pending_tasks) == 20:
@@ -2006,6 +2005,7 @@ def _reusable_result_counts_for_plans(panels, plans):
                 continue
         pending_rows.append((row, coordinate, expected))
         pending_tasks.setdefault(task_id, set()).add(row['candidate_key'])
+        pending_identities.add(identity)
     flush()
 
     for panel_id, plan in plans.items():
@@ -2015,7 +2015,7 @@ def _reusable_result_counts_for_plans(panels, plans):
             coordinate_identity = _coordinate_input_identity(coordinate)
             for candidate in coordinate['candidates']:
                 source_execution_id = reusable[panel_id].get((
-                    coordinate_identity, _candidate_input_identity(candidate),
+                    coordinate_identity, wanted[(panel_id, coordinate_identity)][candidate['candidate_key']],
                 ))
                 if source_execution_id is None:
                     continue
