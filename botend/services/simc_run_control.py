@@ -815,7 +815,19 @@ def _finalize_task(task, now):
         latest = max(run.round_number for run in runs)
         current = [run for run in runs if run.round_number == latest]
         if all(run.status == 'completed' for run in current):
-            advancement = advance_attribute_search(task.pk, expected_started_at=task.started_at)
+            try:
+                advancement = advance_attribute_search(task.pk, expected_started_at=task.started_at)
+            except ValueError as exc:
+                # The measured Run and its report are valid even if the next
+                # search round cannot be planned. Persist that domain failure
+                # instead of rolling back completion into an endless lease retry.
+                task.current_status = 3
+                task.completed_at = now
+                task.error_detail = f'属性寻优推进失败：{exc}'[:8000]
+                task.save(update_fields=[
+                    'current_status', 'completed_at', 'error_detail', 'modified_time',
+                ])
+                return
             if advancement.get('appended') or advancement.get('awaiting'):
                 task.current_status = 1
                 task.completed_at = None

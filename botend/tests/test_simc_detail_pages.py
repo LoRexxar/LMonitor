@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from django.contrib.auth.models import User
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.urls import reverse
 
 from botend.models import (
@@ -65,6 +65,117 @@ class SimcDetailPageRoutingTests(TestCase):
         self.client.force_login(self.other)
         self.assertEqual(self.client.get(reverse('simc_task_detail_page', args=[self.task.id])).status_code, 200)
         self.assertEqual(self.client.get(reverse('simc_task_detail_page', args=[self.comparison_task.id])).status_code, 200)
+
+
+class SimcAttributeDetailRenderingTests(SimpleTestCase):
+    def test_failed_attribute_detail_shows_safe_errors_and_terminal_measurements(self):
+        import subprocess
+
+        script = r'''
+const assert = require('node:assert/strict'), fs = require('node:fs'), vm = require('node:vm');
+const source = fs.readFileSync(process.argv[1], 'utf8');
+const ratings = {crit: 1000, haste: 2000, mastery: 3000, versatility: 4000};
+const measured = {id: 7, label: '已完成测量', dps: 123456, round: 1, step: 100, ratings,
+  report_url: '/report/7'};
+const taskError = 'Agent 租约过期 <task> & "安全摘要"';
+const runError = '候选失败 <img src=x onerror=alert(1)> & \'原因\'';
+const taskEscaped = 'Agent 租约过期 &lt;task&gt; &amp; &quot;安全摘要&quot;';
+const runEscaped = '候选失败 &lt;img src=x onerror=alert(1)&gt; &amp; &#39;原因&#39;';
+const fixture = () => ({mode: 'attribute_sweep', status: 3, status_label: '失败',
+  task_error_summary: taskError, error_detail: 'RAW_TASK_SECRET',
+  attribute_report: {converged: false, current_round: 2, rounds_completed: 1, step: 100,
+    stop_reason: 'awaiting_current_round', initial_ratings: ratings,
+    recommendation: measured, candidates: [measured], search_path: [measured]},
+  runs: [{id: 7, round_number: 1, status: 'completed', result_summary: {dps: 123456}},
+    {id: 8, round_number: 2, candidate_label: '失败候选', status: 'failed',
+      error_summary: runError, error_detail: 'RAW_RUN_SECRET'}]});
+async function render(row) {
+  const root = {dataset: {simcDetailId: '12977'}, innerHTML: '', querySelector: () => null};
+  const context = {document: {getElementById: id => id === 'simc-detail-root' ? root : null,
+      addEventListener() {}},
+    fetch: async url => {assert.equal(url, '/api/simc-workbench/tasks/12977/');
+      return {ok: true, json: async () => ({success: true, data: row})};}};
+  vm.runInNewContext(source, context, {filename: 'simc-detail.js'});
+  await new Promise(resolve => setImmediate(resolve));
+  assert(root.innerHTML.includes('ATTRIBUTE OPTIMIZATION'), 'real attribute dispatch must render');
+  assert(!/RAW_TASK_SECRET|RAW_RUN_SECRET|<task>|<img/.test(root.innerHTML));
+  return root.innerHTML;
+}
+function section(html, marker) {
+  const index = html.indexOf(marker);
+  assert(index >= 0, `missing section ${marker}`);
+  return html.slice(index, html.indexOf('</section>', index));
+}
+(async () => {
+  const failed = await render(fixture());
+  const header = failed.slice(0, failed.indexOf('grid attribute-task-grid'));
+  assert(header.includes(taskEscaped), 'task safe summary visible near header');
+  assert(header.includes(runEscaped), 'different run cause must not be replaced by task cause');
+  assert(section(failed, 'attribute-current-round-table').includes(runEscaped), 'failed candidate has safe reason');
+  assert(failed.includes('任务失败，搜索未完成'));
+  assert(!/当前搜索仍在执行|第 2 轮执行中|轮尚未结束|本轮尚未结束|后续仍可能变化|正在完成|才会开始/.test(failed));
+  assert(section(failed, 'attribute-final-result').includes('当前最佳结果'));
+  assert(section(failed, 'attribute-final-result').includes('href="/report/7"'));
+  assert(section(failed, 'attribute-ranking-table').includes('123,456'));
+  assert(!failed.includes('最终推荐结果'));
+
+  for (const cause of ['task-only', 'run-only', 'no-summary', 'older-round']) {
+    const row = fixture();
+    if (cause === 'task-only' || cause === 'no-summary') row.runs[1].error_summary = '';
+    if (cause === 'run-only' || cause === 'no-summary') row.task_error_summary = '';
+    if (cause === 'older-round') row.runs[1].round_number = 1;
+    const html = await render(row);
+    const top = html.slice(0, html.indexOf('grid attribute-task-grid'));
+    if (cause === 'task-only') assert(top.includes(taskEscaped));
+    if (cause === 'run-only' || cause === 'older-round') assert(top.includes(runEscaped));
+    if (cause === 'no-summary') assert(top.includes('任务失败，搜索未完成'));
+  }
+
+  const row = fixture();
+  row.attribute_report.converged = true;
+  row.attribute_report.final_result = measured;
+  row.attribute_report.stop_reason = 'awaiting_marginal_gains';
+  row.attribute_report.marginal_gain_status = 'pending';
+  let html = await render(row);
+  assert(html.includes('最终推荐结果'), 'failed marginal stage retains converged search fact');
+  assert(html.includes('任务失败，边际收益测量未完成'));
+  assert(!/正在测量|正在完成|当前搜索仍在执行/.test(html));
+  row.attribute_report.marginal_gains = [{stat: 'crit', amount: 20, dps: 123556, dps_gain: 100, gain_percent: 0.081}];
+  row.runs.push({id: 9, round_number: 2, status: 'running'});
+  html = await render(row);
+  assert(section(html, 'marginal-gain-table').includes('123,556'), 'completed marginal measurement retained');
+  assert(section(html, 'attribute-current-round-table').includes('未完成（任务已失败）'));
+  assert(!html.includes('执行中'));
+  row.attribute_report.marginal_gains = [];
+
+  row.status = 1;
+  row.status_label = '执行中';
+  row.task_error_summary = '';
+  row.runs = row.runs.slice(0, 1);
+  html = await render(row);
+  assert(html.includes('正在完成 12 个边际收益 Run'));
+  row.attribute_report.converged = false;
+  row.attribute_report.stop_reason = 'awaiting_current_round';
+  html = await render(row);
+  assert(html.includes('第 2 轮执行中'));
+  assert(html.includes('当前搜索仍在执行'));
+  row.status = 2;
+  row.status_label = '完成';
+  row.attribute_report.converged = true;
+  row.attribute_report.stop_reason = 'local_optimum_20_pairwise';
+  row.attribute_report.marginal_gain_status = 'completed';
+  html = await render(row);
+  assert(html.includes('最终推荐结果'));
+  assert(!html.includes('任务失败'));
+  console.log('PASS attribute detail: safe task/run errors, terminal failure, measured results, active/completed states');
+})().catch(error => {console.error(error); process.exitCode = 1;});
+'''
+        result = subprocess.run(
+            ['node', '-e', script, str(ROOT / 'static/dashboard/js/simc-detail.js')],
+            capture_output=True, text=True, timeout=20,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        print(result.stdout.strip())
 
 
 class SimcDetailPageFrontendContractTests(TestCase):

@@ -152,6 +152,8 @@
   function renderAttributeTask(row) {
     const attribute = row.attribute_report || {};
     const searchConverged = attribute.converged === true || Number(row.status) === 2;
+    const taskFailed = Number(row.status) === 3;
+    const failureState = searchConverged ? '任务失败，边际收益测量未完成' : '任务失败，搜索未完成';
     const finalResult = searchConverged
       ? (attribute.final_result || attribute.recommendation || null)
       : (attribute.recommendation || null);
@@ -161,6 +163,14 @@
     const searchPath = Array.isArray(attribute.search_path) ? attribute.search_path : [];
     const candidates = Array.isArray(attribute.candidates) ? [...attribute.candidates] : [];
     const runs = Array.isArray(row.runs) ? row.runs : [];
+    const failureDetails = [
+      String(row.task_error_summary || '').trim() ? `<div><b>任务：</b>${value(row.task_error_summary)}</div>` : '',
+      ...runs.filter(run => run.status === 'failed' && String(run.error_summary || '').trim())
+        .map(run => `<div><b>${value(run.candidate_label, `Run #${run.id}`)}：</b>${value(run.error_summary)}</div>`),
+    ].filter(Boolean).join('');
+    const failureNotice = taskFailed || failureDetails
+      ? `<div class="analysis-warning"><b>${taskFailed ? failureState : '候选执行失败'}</b><div>${failureDetails || '未提供安全错误摘要。'}</div></div>`
+      : '';
     const stats = [
       {key: 'crit', legacyKey: 'crit_rating', label: '暴击'},
       {key: 'haste', legacyKey: 'haste_rating', label: '急速'},
@@ -184,7 +194,7 @@
       .map(item => Number(item)).filter(Number.isFinite);
     const stepText = configuredSteps.length ? configuredSteps.join(' → ') : number(attribute.step);
     const rawStopReason = String(attribute.stop_reason || '');
-    const stopReason = ({
+    const stopReason = taskFailed ? failureState : ({
       local_optimum_20_pairwise: '20 点精细邻域已收敛',
       local_optimum_50_pairwise: '50 点两两邻域已收敛（历史任务）',
       refining_step: '当前精度无显著提升，继续缩小步长',
@@ -225,7 +235,7 @@
       const ratings = summary.attribute_ratings || {};
       const dps = run.result_summary?.dps;
       const runState = String(run.status || 'pending');
-      return `<tr><td><b>${value(run.candidate_label, `Run #${run.id}`)}</b></td><td><span class="pill ${statusKey(runState)}">${value(runStatusLabels[runState], runState)}</span></td>${statCells(ratings)}<td class="right">${Number.isFinite(Number(dps)) ? `<b>${number(dps)}</b>` : '—'}</td></tr>`;
+      return `<tr><td><b>${value(run.candidate_label, `Run #${run.id}`)}</b></td><td><span class="pill ${statusKey(runState)}">${value(taskFailed && ['pending', 'running'].includes(runState) ? '未完成（任务已失败）' : runStatusLabels[runState], runState)}</span>${runState === 'failed' && String(run.error_summary || '').trim() ? `<div class="muted">${value(run.error_summary)}</div>` : ''}</td>${statCells(ratings)}<td class="right">${Number.isFinite(Number(dps)) ? `<b>${number(dps)}</b>` : '—'}</td></tr>`;
     }).join('');
     const initialStats = stats.map(stat => `<div><dt>${stat.label}</dt><dd>${number(rating(initialRatings, stat))}</dd></div>`).join('');
     const marginalGains = Array.isArray(attribute.marginal_gains) ? [...attribute.marginal_gains] : [];
@@ -244,21 +254,30 @@
       const gain = Number(item.dps_gain);
       return `<tr class="${groupStart ? 'marginal-group-start' : ''}"><td>${groupStart ? `<b>${value(stat?.label, item.stat)}</b>` : ''}</td><td class="right"><b>+${number(item.amount)}</b></td><td class="right">${number(item.dps)}</td><td class="right delta ${gain > 0 ? 'positive' : gain < 0 ? 'negative' : ''}">${signed(item.dps_gain)}</td><td class="right delta ${gain > 0 ? 'positive' : gain < 0 ? 'negative' : ''}">${marginalPercent(item.gain_percent)}</td></tr>`;
     }).join('');
-    const marginalEmpty = !searchConverged
-      ? '搜索尚未收敛，完成当前邻域后才会开始边际收益测量。'
-      : attribute.marginal_gain_status === 'pending'
-        ? '最优解已固定，正在完成 12 个边际收益 Run。'
-        : '此任务没有边际收益结果。';
+    const marginalEmpty = taskFailed
+      ? `${failureState}；未完成的测量不作为结果。`
+      : !searchConverged
+        ? '搜索尚未收敛，完成当前邻域后才会开始边际收益测量。'
+        : attribute.marginal_gain_status === 'pending'
+          ? '最优解已固定，正在完成 12 个边际收益 Run。'
+          : '此任务没有边际收益结果。';
     const marginalBaselineDps = attribute.marginal_gain_baseline_dps ?? finalResult?.dps;
     const marginalDescription = searchConverged
       ? `固定最优四属性与其他全部模拟条件，仅额外增加一个属性；提升值和百分比均相对固定最优点 ${number(marginalBaselineDps)} DPS。`
-      : '当前搜索仍在执行；收敛后才会固定最优点并追加 12 个边际收益 Run。';
+      : taskFailed ? '任务失败，搜索未完成；未固定最优点，不提供最终边际收益结论。'
+        : '当前搜索仍在执行；收敛后才会固定最优点并追加 12 个边际收益 Run。';
+    const resultDescription = taskFailed
+      ? `${failureState}；${searchConverged ? '保留已收敛的推荐与已完成测量。' : '这里只保留已完成 Run 中的最佳测量值，不是最终推荐。'}`
+      : searchConverged
+        ? `以任务持久化结论为准，并精确绑定产生该结论的 Run #${value(finalResult?.id)}。`
+        : `第 ${number(attribute.current_round)} 轮尚未结束；这里只展示当前已完成 Run 中的最佳测量值，后续仍可能变化。`;
 
     return `<section class="hero attribute-hero"><div class="report-kicker">ATTRIBUTE OPTIMIZATION</div><div class="hero-status"><span class="pill">任务${statusClass(row)}</span><span class="pill">${number(progress)}% 完成</span><span class="pill">${number(runs.length)} 个候选 Run</span></div><div class="hero-primary-column"><h1>${value(row.name, `任务 #${objectId}`)}</h1><div class="hero-resource-stack" aria-label="模拟资源"><div class="hero-resource-line"><span>APL</span><b>${value(row.apl_name, '未命名')}</b></div><div class="hero-resource-line"><span>Profile</span><b>${value(row.profile_name, '未命名')}</b></div></div></div><div class="hero-meta"><span class="pill">搜索精度 ${value(stepText)} · 当前 ${number(attribute.step)}</span><span class="pill">${stopReason}</span><span class="pill">更新 ${value(row.updated_at)}</span></div></section>
+      ${failureNotice}
       <div class="grid attribute-task-grid">
-        <section class="card wide attribute-report attribute-final-result"><div class="report-kicker">${searchConverged ? 'FINAL RESULT' : 'LIVE BEST'}</div><div class="attribute-final-heading"><div><h2>${resultHeading}</h2><p>${searchConverged ? `以任务持久化结论为准，并精确绑定产生该结论的 Run #${value(finalResult?.id)}。` : `第 ${number(attribute.current_round)} 轮尚未结束；这里只展示当前已完成 Run 中的最佳测量值，后续仍可能变化。`}</p></div><div class="attribute-final-dps"><span>${searchConverged ? '推荐' : '当前最佳'} DPS</span><b>${number(finalResult?.dps)}</b><em class="${finalDelta > 0 ? 'positive' : finalDelta < 0 ? 'negative' : ''}">${Number.isFinite(finalDelta) ? `${signed(finalDelta)} vs 初始轮` : '等待完整结果'}</em></div></div><div class="attribute-grid">${finalResult ? finalStatCards : '<p class="muted">当前尚无已完成候选。</p>'}</div><div class="attribute-final-footer"><span><b>${stopReason}</b> · 完成 ${number(attribute.rounds_completed)} 轮搜索</span>${finalReportAction}</div></section>
+        <section class="card wide attribute-report attribute-final-result"><div class="report-kicker">${searchConverged ? 'FINAL RESULT' : 'LIVE BEST'}</div><div class="attribute-final-heading"><div><h2>${resultHeading}</h2><p>${resultDescription}</p></div><div class="attribute-final-dps"><span>${searchConverged ? '推荐' : '当前最佳'} DPS</span><b>${number(finalResult?.dps)}</b><em class="${finalDelta > 0 ? 'positive' : finalDelta < 0 ? 'negative' : ''}">${Number.isFinite(finalDelta) ? `${signed(finalDelta)} vs 初始轮` : '等待完整结果'}</em></div></div><div class="attribute-grid">${finalResult ? finalStatCards : '<p class="muted">当前尚无已完成候选。</p>'}</div><div class="attribute-final-footer"><span><b>${stopReason}</b> · 完成 ${number(attribute.rounds_completed)} 轮搜索</span>${finalReportAction}</div></section>
         ${card('收敛后边际收益', `<p class="muted">${marginalDescription}</p><div class="table-scroll"><table class="marginal-gain-table"><thead><tr><th>属性</th><th class="right">额外属性</th><th class="right">绝对 DPS</th><th class="right">DPS 提升</th><th class="right">提升百分比</th></tr></thead><tbody>${marginalRows || `<tr><td colspan="5" class="empty">${marginalEmpty}</td></tr>`}</tbody></table></div>`, true)}
-        ${card('当前轮候选', `<p class="muted">第 ${number(attribute.current_round)} 轮的全部 Run，包括已完成、执行中和等待中的候选；尚未完成的候选不会提前参与排名。</p><div class="table-scroll"><table class="attribute-current-round-table"><thead><tr><th>候选</th><th>状态</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">DPS</th></tr></thead><tbody>${currentRoundRows || '<tr><td colspan="7" class="empty">当前轮尚未创建候选 Run</td></tr>'}</tbody></table></div>`, true)}
+        ${card('当前轮候选', `<p class="muted">第 ${number(attribute.current_round)} 轮的全部 Run；仅已完成候选参与排名，失败候选展示安全错误摘要。</p><div class="table-scroll"><table class="attribute-current-round-table"><thead><tr><th>候选</th><th>状态</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">DPS</th></tr></thead><tbody>${currentRoundRows || '<tr><td colspan="7" class="empty">当前轮尚未创建候选 Run</td></tr>'}</tbody></table></div>`, true)}
         ${card('搜索轨迹', `<p class="muted">每一行是该轮搜索的中心点和权威步长；系统在当前精度无显著提升时按 ${value(stepText)} 逐步缩小步长。</p><div class="table-scroll"><table class="attribute-path-table"><thead><tr><th>轮次</th><th class="right">步长</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">中心 DPS</th></tr></thead><tbody>${trailRows || '<tr><td colspan="7" class="empty">首轮中心点尚未完成</td></tr>'}</tbody></table></div>`, true)}
         ${card('候选测量排名', `<p class="muted">展示全部已完成候选的真实测量值；${searchConverged ? '最终推荐由任务持久化结论标记' : '当前最佳仅代表已完成测量，搜索收敛前不是最终结论'}，不以页面临时重算替代。</p><div class="table-scroll"><table class="ranking-table attribute-ranking-table"><thead><tr><th>排名</th><th>候选</th><th class="right">轮次</th><th class="right">步长</th>${stats.map(stat => `<th class="right">${stat.label}</th>`).join('')}<th class="right">DPS</th></tr></thead><tbody>${candidateRows || '<tr><td colspan="9" class="empty">暂无已完成候选</td></tr>'}</tbody></table></div>`, true)}
         ${card('寻优口径', `<dl>${initialStats}<div><dt>总绿字</dt><dd>${number(attribute.total_rating)}</dd></div><div><dt>搜索精度</dt><dd>${value(stepText)}（当前 ${number(attribute.step)}）</dd></div><div><dt>完成轮次</dt><dd>${number(attribute.rounds_completed)}</dd></div><div><dt>任务进度</dt><dd>成功 ${number(succeeded)} · 运行 ${number(running)} · 等待 ${number(pending)} · 失败 ${number(failed)}</dd></div></dl><details><summary>结论口径</summary>只展示属性寻优搜索路径、候选测量值与最终推荐；技能、Buff、施放序列等单次 SimC 原始分析不参与本页结论。</details>`, true)}

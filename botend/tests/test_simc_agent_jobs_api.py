@@ -813,6 +813,36 @@ class SimcAgentJobAPITests(TestCase):
         self.assertEqual(second['sequence'], 2)
         self.assertIn('execute', second['input'])
 
+    def test_attribute_advancement_error_preserves_completion_and_fails_task(self):
+        from botend.services.simc_attribute_search import attribute_variants
+
+        ratings = dict.fromkeys(('crit', 'haste', 'mastery', 'versatility'), 0)
+        label, values, is_base, search = attribute_variants(ratings)[0]
+        task = self.task(mode='attribute_sweep', candidates=[{
+            'candidate_key': 'candidate-0', 'candidate_label': label,
+            'candidate_params': {
+                'candidate_type': 'attribute_ratings', 'attribute_ratings': values,
+                'is_base': is_base, 'search': search,
+            },
+        }])
+        job = self.claim().json()
+        response = self.complete(job)
+        self.assertEqual(response.status_code, 200, response.content)
+        task.refresh_from_db()
+        run = task.simulation_runs.get()
+        self.assertEqual(task.current_status, 3)
+        self.assertEqual(task.error_detail,
+                         '属性寻优推进失败：当前属性搜索轮次没有足够完成结果')
+        self.assertIsNotNone(task.completed_at)
+        self.assertEqual(run.status, 'completed')
+        self.assertEqual(run.result_summary['dps'], 1234.0)
+        self.assertEqual(SimcTaskArtifact.objects.filter(run=run).count(), 1)
+        self.assertEqual(self.complete(job).status_code, 200)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+        self.assertEqual(self.claim().status_code, 204)
+        self.assertFalse(SimcTask.objects.filter(source_task=task).exists())
+
     def test_attribute_agent_finalization_preserves_converged_recommendation(self):
         from botend.services.simc_attribute_search import attribute_variants
         from botend.services.simc_run_control import _finalize_task
