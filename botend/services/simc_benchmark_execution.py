@@ -619,14 +619,104 @@ class _CandidateSubset(Func):
         return sql, (*candidate_params, *candidate_params, *key_params)
 
 
+def _load_cached_candidate_identity_rows(task_ids, *, cache, include_ancestors, candidate_keys):
+    from itertools import islice
+    from django.db.models.fields.json import KeyTransform
+    from botend.services import simc_benchmark_identity_cache as derived
+
+    rows = cache if cache is not None else {}
+    candidates = KeyTransform('candidates', KeyTransform('request_manifest', 'mode_params'))
+    pending = {pk: set(candidate_keys.get(pk, ())) for pk in task_ids}
+    visited = {}
+    while pending:
+        batch = {}
+        for pk in list(islice(pending, 20)):
+            keys = pending.pop(pk) - visited.get(pk, set())
+            if keys:
+                batch[pk] = keys
+                visited.setdefault(pk, set()).update(keys)
+        if not batch:
+            continue
+        # Read live provenance and content identity, never the candidate body.
+        metadata = SimcTask.objects.filter(pk__in=batch).order_by().annotate(
+            fingerprint=derived.CandidateFingerprint(candidates),
+        ).values('id', 'source_task_id', 'fingerprint')
+        metadata = {row['id']: row for row in metadata}
+        needed = {}
+        for pk, keys in batch.items():
+            meta = metadata.get(pk)
+            saved = derived.load(pk, meta['fingerprint']) if meta else None
+            previous = rows.get(pk)
+            rows[pk] = {'source_task_id': meta['source_task_id'] if meta else None,
+                        'identities': dict(saved['identities']) if saved else {},
+                        '_queried_keys': set(saved['queried_keys']) if saved else set(),
+                        '_fingerprint': meta['fingerprint'] if meta else None}
+            if previous and previous.get('_fingerprint') == rows[pk]['_fingerprint']:
+                rows[pk]['identities'].update(previous['identities'])
+                rows[pk]['_queried_keys'].update(previous.get('_queried_keys', ()))
+            if saved and saved['complete']:
+                rows[pk]['_queried_keys'].update(keys)
+            unknown = keys - rows[pk]['_queried_keys']
+            if meta and unknown:
+                needed[pk] = unknown
+            elif not meta:
+                rows[pk]['_queried_keys'].update(keys)
+        if needed:
+            keys_case = Case(*[
+                When(pk=pk, then=Value(sorted(keys), output_field=JSONField()))
+                for pk, keys in needed.items()
+            ], default=Value([], output_field=JSONField()), output_field=JSONField())
+            loaded = SimcTask.objects.filter(pk__in=needed).order_by().annotate(
+                frozen_candidates=_CandidateSubset(candidates, keys_case),
+                fingerprint=derived.CandidateFingerprint(candidates),
+            ).values('id', 'source_task_id', 'fingerprint', 'frozen_candidates')
+            found = set()
+            for row in loaded:
+                pk = row['id']
+                found.add(pk)
+                # The body and fingerprint come from the SAME SQL statement.
+                # A concurrent edit must not poison the prior content address.
+                if row['fingerprint'] != metadata[pk]['fingerprint']:
+                    # Re-read all requested keys against the new content.
+                    fresh = _load_task_candidate_identity_rows(
+                        [pk], cache=None, include_ancestors=False,
+                        candidate_keys={pk: batch[pk]},
+                    )
+                    rows[pk] = fresh[pk]
+                    continue
+                payload = [entry['candidate'] for entry in sorted(
+                    row['frozen_candidates'], key=lambda entry: entry['position'])]
+                identities = _candidate_identities_from_candidates(payload)
+                rows[pk]['identities'].update(identities)
+                rows[pk]['_queried_keys'].update(needed[pk])
+                rows[pk]['source_task_id'] = row['source_task_id']
+                derived.store(pk, row['fingerprint'], identities, needed[pk])
+            for pk in needed.keys() - found:
+                rows[pk] = {'source_task_id': None, 'identities': {},
+                            '_queried_keys': set(batch[pk])}
+        if include_ancestors:
+            for pk, keys in batch.items():
+                row = rows[pk]
+                missing = keys - row['identities'].keys()
+                if missing and row['source_task_id']:
+                    pending.setdefault(row['source_task_id'], set()).update(missing)
+    return rows
+
+
 def _load_task_candidate_identity_rows(
-        task_ids, *, cache=None, include_ancestors=True, candidate_keys=None):
+        task_ids, *, cache=None, include_ancestors=True, candidate_keys=None,
+        derived_cache=False):
     """Return frozen identities in reads of at most 20 Tasks.
 
     The default retains the full-read two-field schema. With per-Task keys, SQL
     hydrates only matching candidates and the cache tracks queried keys, including
     misses. Further batches merge identities without rereading known keys.
     """
+    if derived_cache and candidate_keys is not None:
+        return _load_cached_candidate_identity_rows(
+            task_ids, cache=cache, include_ancestors=include_ancestors,
+            candidate_keys=candidate_keys,
+        )
     from itertools import islice
     from django.db.models.fields.json import KeyTransform
 
@@ -690,13 +780,21 @@ def _load_task_candidate_identity_rows(
         batch = list(islice(pending, 20))
         pending.difference_update(batch)
         attempted.update(batch)
+        annotations = {'frozen_candidates': frozen_candidates}
+        fields = ['id', 'source_task_id', 'frozen_candidates']
+        if derived_cache:
+            from botend.services import simc_benchmark_identity_cache as derived
+            annotations['fingerprint'] = derived.CandidateFingerprint(frozen_candidates)
+            fields.append('fingerprint')
         loaded = SimcTask.objects.filter(pk__in=batch).order_by().annotate(
-            frozen_candidates=frozen_candidates,
-        ).values('id', 'source_task_id', 'frozen_candidates')
+            **annotations,
+        ).values(*fields)
         # Remember missing ancestors as well, without inventing identities.
         rows.update((task_id, {'source_task_id': None, 'identities': {}}) for task_id in batch)
         for row in loaded:
             identities = _candidate_identities_from_candidates(row.pop('frozen_candidates'))
+            if derived_cache:
+                derived.store(row['id'], row['fingerprint'], identities, identities, complete=True)
             source_id = row['source_task_id']
             rows[row['id']] = {'source_task_id': source_id, 'identities': identities}
             if include_ancestors and source_id and source_id not in attempted:
@@ -1934,7 +2032,7 @@ def _reusable_result_counts_for_plans(panels, plans):
             if current_id not in tasks or key not in tasks[current_id].get('_queried_keys', {key}):
                 _load_task_candidate_identity_rows(
                     [current_id], cache=tasks, include_ancestors=False,
-                    candidate_keys={current_id: {key}},
+                    candidate_keys={current_id: {key}}, derived_cache=True,
                 )
             task = tasks.get(current_id)
             if task is None:
@@ -1955,7 +2053,7 @@ def _reusable_result_counts_for_plans(panels, plans):
             return
         _load_task_candidate_identity_rows(
             tuple(pending_tasks), cache=tasks, include_ancestors=False,
-            candidate_keys=pending_tasks,
+            candidate_keys=pending_tasks, derived_cache=True,
         )
         # Retry manifests may omit inherited keys. Load only ancestors that
         # supply those keys, in bounded batches rather than one query per row.
@@ -1980,7 +2078,7 @@ def _reusable_result_counts_for_plans(panels, plans):
                 batch = missing_ids[start:start + 20]
                 _load_task_candidate_identity_rows(
                     batch, cache=tasks, include_ancestors=False,
-                    candidate_keys={task_id: missing[task_id] for task_id in batch},
+                    candidate_keys={task_id: missing[task_id] for task_id in batch}, derived_cache=True,
                 )
         for row, coordinate, expected in pending_rows:
             panel_id = row['case__execution__panel_id']

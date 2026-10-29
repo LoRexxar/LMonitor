@@ -36,6 +36,13 @@ from botend.services.simc_benchmark_execution import create_execution
 
 class BenchmarkReadMemoryTests(TestCase):
     def setUp(self):
+        from tempfile import TemporaryDirectory
+        from django.test import override_settings
+        self.identity_cache_dir = TemporaryDirectory()
+        self.addCleanup(self.identity_cache_dir.cleanup)
+        settings = override_settings(SIMC_BENCHMARK_IDENTITY_CACHE_ROOT=self.identity_cache_dir.name)
+        settings.enable()
+        self.addCleanup(settings.disable)
         self.backend = SimcBackendBinary.objects.create(identifier='read-memory', name='Test')
         self.apl = SimcApl.objects.create(name='APL', spec='warrior_fury', content='actions=/auto_attack', owner_user_id=1)
         self.template = SimcContentTemplate.objects.create(name='Template', spec='warrior_fury', content='iterations=1000', owner_user_id=1)
@@ -63,6 +70,81 @@ class BenchmarkReadMemoryTests(TestCase):
                 for candidate in candidates:
                     SimcBenchmarkResult.objects.create(case=case, candidate_key=candidate['candidate_key'], dps=1000)
 
+    def test_content_addressed_identity_cache_real_orm(self):
+        from pathlib import Path
+        coordinate = self.plan['cases'][0]
+        baseline, item = deepcopy(coordinate['candidates'])
+        task = self.task(coordinate, [baseline, item])
+
+        def load(keys):
+            return service._load_task_candidate_identity_rows(
+                [task.pk], include_ancestors=False,
+                candidate_keys={task.pk: set(keys)}, derived_cache=True,
+            )[task.pk]
+
+        first = load([baseline['candidate_key'], 'absent'])
+        with patch.object(service, '_candidate_identities_from_candidates',
+                          wraps=service._candidate_identities_from_candidates) as decode, \
+                CaptureQueriesContext(connection) as queries:
+            self.assertEqual(load([baseline['candidate_key'], 'absent']), first)
+        self.assertEqual(decode.call_count, 0)
+        self.assertEqual(len(queries), 1)
+        self.assertNotIn('json_each', queries[0]['sql'].lower())
+        extended = load([item['candidate_key'], 'absent-two'])
+        self.assertEqual(extended['_queried_keys'], {
+            baseline['candidate_key'], item['candidate_key'], 'absent', 'absent-two',
+        })
+        self.assertEqual(extended['identities'], service._candidate_identities_from_candidates([baseline, item]))
+        # Same pk and unchanged updated_at cannot mask a changed frozen input.
+        item['candidate_params']['changed'] = 'new input'
+        SimcTask.objects.filter(pk=task.pk).update(
+            mode_params={'request_manifest': {'candidates': [baseline, item]}},
+        )
+        changed = load([item['candidate_key']])
+        self.assertNotEqual(changed['identities'][item['candidate_key']],
+                            extended['identities'][item['candidate_key']])
+        self.assertEqual(changed['identities'][item['candidate_key']], service._candidate_input_identity(item))
+        # Provenance is live metadata, never part of the immutable payload.
+        SimcTask.objects.filter(pk=task.pk).update(source_task_id=self.task_ids[0])
+        self.assertEqual(load([item['candidate_key']])['source_task_id'], self.task_ids[0])
+        for path in Path(self.identity_cache_dir.name).glob('*.json'):
+            path.write_text('{broken')
+        with patch.object(service, '_candidate_identities_from_candidates',
+                          wraps=service._candidate_identities_from_candidates) as decode:
+            self.assertEqual(load([item['candidate_key']])['identities'], changed['identities'])
+        self.assertEqual(decode.call_count, 1)
+        # A full read publishes complete, including every unlisted negative.
+        full = service._load_task_candidate_identity_rows(
+            [task.pk], include_ancestors=False, derived_cache=True,
+        )
+        self.assertEqual(set(full[task.pk]), {'source_task_id', 'identities'})
+        with patch.object(service, '_candidate_identities_from_candidates',
+                          wraps=service._candidate_identities_from_candidates) as decode:
+            self.assertNotIn('never-listed', load(['never-listed'])['identities'])
+        self.assertEqual(decode.call_count, 0)
+        # An unwritable cache must still return real SQL-derived identities.
+        blocked = Path(self.identity_cache_dir.name) / 'file-not-directory'
+        blocked.write_text('blocked')
+        with self.settings(SIMC_BENCHMARK_IDENTITY_CACHE_ROOT=str(blocked)):
+            self.assertEqual(load([item['candidate_key']])['identities'], changed['identities'])
+
+    def test_cached_coverage_counts_equal_uncached_and_skip_history_hashes(self):
+        cold = service.summarize_panel_coverage_counts([self.panel])[self.panel.pk]
+        with patch.object(service, '_candidate_identities_from_candidates',
+                          wraps=service._candidate_identities_from_candidates) as decode:
+            warm = service.summarize_panel_coverage_counts([self.panel])[self.panel.pk]
+        self.assertEqual(warm, cold)
+        self.assertEqual(warm['available_results'], 50)
+        self.assertEqual(decode.call_count, 0)
+        original = service._load_task_candidate_identity_rows
+
+        def uncached(*args, **kwargs):
+            kwargs['derived_cache'] = False
+            return original(*args, **kwargs)
+
+        with patch.object(service, '_load_task_candidate_identity_rows', side_effect=uncached):
+            self.assertEqual(service.summarize_panel_coverage_counts([self.panel])[self.panel.pk], cold)
+
     def task(self, coordinate, candidates, source=None):
         return SimcTask.objects.create(user_id=1, name='Frozen', simc_profile_id=self.profile.pk, mode='comparison', profile=self.profile, apl=self.apl, template=self.template, backend=self.backend, simulation_params=coordinate['simulation_params'], source_task=source, mode_params={'large_unused': 'z' * 100000, 'request_manifest': {'candidates': candidates, 'large_unused': 'w' * 100000}})
 
@@ -76,7 +158,11 @@ class BenchmarkReadMemoryTests(TestCase):
             ids = re.search(r'["`]id["`] IN \(([^)]+)\)', sql)
             self.assertIsNotNone(ids, sql)
             self.assertLessEqual(len(ids.group(1).split(',')), 20, sql)
-        self.assertLessEqual(len(reads), 5, reads)
+        # Cold reads add one bounded fingerprint query per body batch.
+        body_reads = [sql for sql in reads if 'frozen_candidates' in sql]
+        metadata_reads = [sql for sql in reads if 'frozen_candidates' not in sql]
+        self.assertLessEqual(len(body_reads), 5, body_reads)
+        self.assertLessEqual(len(metadata_reads), 5, metadata_reads)
 
     def test_summary_reads_bounded_candidates_and_scalar_snapshot_counts(self):
         with CaptureQueriesContext(connection) as queries:
@@ -188,7 +274,7 @@ class BenchmarkReadMemoryTests(TestCase):
         # older Results are visited after the current candidates were matched.
         read_ids = []
         for query in queries:
-            if re.search(r'FROM ["`]simc_task["`]', query['sql']):
+            if re.search(r'FROM ["`]simc_task["`]', query['sql']) and 'frozen_candidates' in query['sql']:
                 ids = re.search(r'["`]id["`] IN \(([^)]+)\)', query['sql'])
                 self.assertIsNotNone(ids, query['sql'])
                 read_ids.extend(int(value.strip()) for value in ids.group(1).split(','))
@@ -333,7 +419,8 @@ class BenchmarkReadMemoryTests(TestCase):
             result = service.summarize_panel_coverage_counts([self.panel])[self.panel.pk]
         self.assertEqual(result['available_results'], 50)
         reads = [q for q in queries if re.search(r'FROM ["`]simc_task["`]', q['sql'])]
-        self.assertEqual(len(reads), 2)
+        self.assertEqual(len(reads), 4)
+        self.assertEqual(sum('frozen_candidates' in q['sql'] for q in reads), 2)
         item = SimcBenchmarkCandidate.objects.get(panel=self.panel)
         item.params['gear_swap']['slot'] = 'back'
         item.save(update_fields=['params'])
