@@ -1,5 +1,6 @@
 from copy import deepcopy
 import re
+from unittest.mock import patch
 from django.db import connection
 from django.test import TestCase
 from django.test.utils import CaptureQueriesContext
@@ -90,6 +91,113 @@ class BenchmarkReadMemoryTests(TestCase):
         self.panel.save(update_fields=['aggregate_baseline_execution'])
         explicit = service.summarize_panel_coverage_counts([self.panel])[self.panel.pk]
         self.assertEqual((explicit['aggregate_baseline_execution_id'], explicit['candidate_runs'], explicit['plan_delta_runs']), (self.retry.pk, 25, 25))
+
+    def test_coverage_loads_only_latest_matching_tasks_not_historical_manifests(self):
+        # Large candidate arrays, not just unused manifest fields, caused the
+        # production regression. None of these older identities are needed once
+        # every current coordinate/candidate has a newer matching Result.
+        historical = SimcTask.objects.get(pk=self.task_ids[0])
+        params = historical.mode_params
+        params['request_manifest']['candidates'].extend([
+            {'candidate_key': f'retired-{index}', 'candidate_params': {'input': 'x' * 1000}}
+            for index in range(1000)
+        ])
+        historical.mode_params = params
+        historical.save(update_fields=['mode_params'])
+        latest = SimcBenchmarkExecution.objects.create(
+            panel=self.panel, config_hash='c' * 64, status='success',
+            config_snapshot={'case_count': 25, 'run_count': 50},
+        )
+        latest_ids = set()
+        for coordinate in self.plan['cases']:
+            task = self.task(coordinate, coordinate['candidates'])
+            latest_ids.add(task.pk)
+            case = SimcBenchmarkCase.objects.create(
+                execution=latest, task=task, status='success',
+                spec_key=coordinate['spec_key'], scenario_key=coordinate['scenario_key'],
+                profile_key=coordinate['profile_key'],
+                coordinate_hash=service._coordinate_input_identity(coordinate),
+            )
+            for candidate in coordinate['candidates']:
+                SimcBenchmarkResult.objects.create(
+                    case=case, candidate_key=candidate['candidate_key'], dps=1200,
+                )
+        with patch.object(service, '_load_task_candidate_identity_rows',
+                          wraps=service._load_task_candidate_identity_rows) as loader, \
+                CaptureQueriesContext(connection) as queries:
+            summary = service.summarize_panel_coverage_counts([self.panel])[self.panel.pk]
+        self.assertEqual(summary, {
+            'aggregate_baseline_execution_id': latest.pk, 'coordinates': 25,
+            'candidate_runs': 50, 'current_plan_runs': 50, 'plan_delta_runs': 0,
+            'available_results': 50, 'missing_results': 0,
+            'source_executions': [{'execution_id': latest.pk, 'results': 50}],
+        })
+        requested = [task_id for call in loader.call_args_list for task_id in call.args[0]]
+        self.assertEqual(set(requested), latest_ids)
+        self.assertEqual(len(requested), len(latest_ids))
+        self.assertTrue(all(len(call.args[0]) <= 20 for call in loader.call_args_list))
+        self.assert_compact_task_reads(queries)
+
+    def test_coverage_falls_back_only_for_unmatched_candidates_and_inherits_source(self):
+        coordinate = self.plan['cases'][0]
+        changed = deepcopy(coordinate['candidates'][-1])
+        changed['candidate_params']['unused_identity_field'] = 'newer-but-different'
+        latest = SimcBenchmarkExecution.objects.create(
+            panel=self.panel, config_hash='d' * 64, status='success',
+            config_snapshot={'case_count': 1, 'run_count': 1},
+        )
+        task = self.task(coordinate, [changed])
+        case = SimcBenchmarkCase.objects.create(
+            execution=latest, task=task, status='success',
+            spec_key=coordinate['spec_key'], scenario_key=coordinate['scenario_key'],
+            profile_key=coordinate['profile_key'],
+            coordinate_hash=service._coordinate_input_identity(coordinate),
+        )
+        SimcBenchmarkResult.objects.create(
+            case=case, candidate_key=changed['candidate_key'], dps=1400,
+        )
+        with patch.object(service, '_load_task_candidate_identity_rows',
+                          wraps=service._load_task_candidate_identity_rows) as loader, \
+                CaptureQueriesContext(connection) as queries:
+            summary = service.summarize_panel_coverage_counts([self.panel])[self.panel.pk]
+        # Each retry freezes only the item candidate; its baseline must come
+        # from source_task, and its own item identity must override the source.
+        self.assertEqual(summary, {
+            'aggregate_baseline_execution_id': self.base.pk, 'coordinates': 25,
+            'candidate_runs': 50, 'current_plan_runs': 50, 'plan_delta_runs': 0,
+            'available_results': 50, 'missing_results': 0,
+            'source_executions': [{'execution_id': self.retry.pk, 'results': 50}],
+        })
+        requested = [task_id for call in loader.call_args_list for task_id in call.args[0]]
+        ancestors = set(SimcTask.objects.filter(pk__in=self.task_ids).values_list(
+            'source_task_id', flat=True,
+        ))
+        expected = set(self.task_ids) | {task.pk} | ancestors
+        self.assertEqual(set(requested), expected)
+        self.assertEqual(len(requested), len(expected))
+        self.assertTrue(all(len(call.args[0]) <= 20 for call in loader.call_args_list))
+        # Ancestors are needed once through provenance, never again when their
+        # older Results are visited after the current candidates were matched.
+        read_ids = []
+        for query in queries:
+            if re.search(r'FROM ["`]simc_task["`]', query['sql']):
+                ids = re.search(r'["`]id["`] IN \(([^)]+)\)', query['sql'])
+                self.assertIsNotNone(ids, query['sql'])
+                read_ids.extend(int(value.strip()) for value in ids.group(1).split(','))
+        self.assertEqual(set(read_ids), expected)
+        self.assertEqual(len(read_ids), len(set(read_ids)))
+
+    def test_readonly_plan_shares_candidates_without_changing_execution_ownership(self):
+        shared = build_execution_plan(
+            self.panel, validate_for_execution=False, lock=False, copy_candidates=False,
+        )
+        self.assertEqual(shared, self.plan)
+        self.assertIs(shared['cases'][0]['candidates'], shared['cases'][1]['candidates'])
+        self.assertIsNot(self.plan['cases'][0]['candidates'], self.plan['cases'][1]['candidates'])
+        original = deepcopy(shared)
+        counts = service._reusable_result_counts_for_plans([self.panel], {self.panel.pk: shared})
+        self.assertEqual(counts[self.panel.pk]['available'], 50)
+        self.assertEqual(shared, original)
 
     def test_identity_loader_has_compact_schema_complete_chain_and_cycle_safety(self):
         loader = getattr(service, '_load_task_candidate_identity_rows', None)

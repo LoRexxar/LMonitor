@@ -553,19 +553,20 @@ def _task_candidate_identities(task):
     return _candidate_identities_from_candidates(candidates)
 
 
-def _load_task_candidate_identity_rows(task_ids):
+def _load_task_candidate_identity_rows(task_ids, *, cache=None, include_ancestors=True):
     """Return {id: {source_task_id, identities: {candidate_key: hash}}}.
 
-    Include all available provenance ancestors, without retaining Task models or
+    By default include all provenance ancestors, without retaining Task models or
     decoded manifests. Each SQL read hydrates at most 20 candidate arrays, even
     with buffered database drivers; missing ancestors and cycles terminate safely.
+    Read-only coverage can supply a request cache and resolve ancestors lazily.
     """
     from itertools import islice
     from django.db.models.fields.json import KeyTransform
 
-    rows = {}
-    pending = set(task_ids)
-    attempted = set()
+    rows = cache if cache is not None else {}
+    pending = set(task_ids) - rows.keys()
+    attempted = set(rows)
     while pending:
         batch = list(islice(pending, 20))
         pending.difference_update(batch)
@@ -575,11 +576,13 @@ def _load_task_candidate_identity_rows(task_ids):
                 'candidates', KeyTransform('request_manifest', 'mode_params'),
             ),
         ).values('id', 'source_task_id', 'frozen_candidates')
+        # Remember missing ancestors as well, without inventing identities.
+        rows.update((task_id, {'source_task_id': None, 'identities': {}}) for task_id in batch)
         for row in loaded:
             identities = _candidate_identities_from_candidates(row.pop('frozen_candidates'))
             source_id = row['source_task_id']
             rows[row['id']] = {'source_task_id': source_id, 'identities': identities}
-            if source_id and source_id not in attempted:
+            if include_ancestors and source_id and source_id not in attempted:
                 pending.add(source_id)
     return rows
 
@@ -1786,46 +1789,116 @@ def _reusable_result_counts_for_plans(panels, plans):
         'case__task__template_id', 'case__task__backend_id',
         'case__task__simulation_params',
     ).order_by('-case__execution_id', '-case_id', '-id'))
-    task_ids = {row['case__task_id'] for row in results}
-    tasks = _load_task_candidate_identity_rows(task_ids)
-
+    # Build the wanted surface first. Old results are metadata until they can
+    # still fill a current input identity; never decode every historical Task.
+    wanted = {}
+    candidate_lists = {}
+    for panel_id, plan in plans.items():
+        for coordinate in plan['cases']:
+            candidates = coordinate['candidates']
+            candidates_key = id(candidates)
+            if candidates_key not in candidate_lists:
+                candidate_lists[candidates_key] = {
+                    candidate['candidate_key']: _candidate_input_identity(candidate)
+                    for candidate in candidates
+                }
+            wanted[(panel_id, _coordinate_input_identity(coordinate))] = candidate_lists[candidates_key]
+    tasks = {}
     identity_cache = {}
 
-    def candidate_identities(task_id):
-        if task_id in identity_cache:
-            return identity_cache[task_id]
-        chain = []
+    def candidate_identity(task_id, key):
+        cache_key = (task_id, key)
+        if cache_key in identity_cache:
+            return identity_cache[cache_key]
         current_id = task_id
         seen = set()
         while current_id and current_id not in seen:
             seen.add(current_id)
+            if current_id not in tasks:
+                _load_task_candidate_identity_rows(
+                    [current_id], cache=tasks, include_ancestors=False,
+                )
             task = tasks.get(current_id)
             if task is None:
                 break
-            chain.append(task)
+            if key in task['identities']:
+                identity_cache[cache_key] = task['identities'][key]
+                return identity_cache[cache_key]
             current_id = task['source_task_id']
-        identities = {}
-        for task in reversed(chain):
-            identities.update(task['identities'])
-        identity_cache[task_id] = identities
-        return identities
+        identity_cache[cache_key] = None
+        return None
 
     reusable = {panel_id: {} for panel_id in panel_ids}
+    coordinate_cache = {}
+    pending_rows, pending_tasks = [], set()
+
+    def flush():
+        if not pending_rows:
+            return
+        _load_task_candidate_identity_rows(tuple(pending_tasks), cache=tasks, include_ancestors=False)
+        # Retry manifests may omit inherited keys. Load only ancestors that
+        # supply those keys, in bounded batches rather than one query per row.
+        while True:
+            missing = set()
+            for row, _, _ in pending_rows:
+                current_id, seen = row['case__task_id'], set()
+                while current_id and current_id not in seen:
+                    seen.add(current_id)
+                    if current_id not in tasks:
+                        missing.add(current_id)
+                        break
+                    task = tasks[current_id]
+                    if row['candidate_key'] in task['identities']:
+                        break
+                    current_id = task['source_task_id']
+            if not missing:
+                break
+            missing = list(missing)
+            for start in range(0, len(missing), 20):
+                _load_task_candidate_identity_rows(
+                    missing[start:start + 20], cache=tasks, include_ancestors=False,
+                )
+        for row, coordinate, expected in pending_rows:
+            panel_id = row['case__execution__panel_id']
+            candidate = candidate_identity(row['case__task_id'], row['candidate_key'])
+            if candidate == expected:
+                reusable[panel_id].setdefault((coordinate, candidate), row['case__execution_id'])
+        pending_rows.clear()
+        pending_tasks.clear()
+
+    last_execution = None
     for row in results:
+        # Resolve newer batches before considering older Task manifests. Keep
+        # the established execution/case/result winner ordering unchanged.
+        execution_id = row['case__execution_id']
+        if execution_id != last_execution:
+            flush()
+            last_execution = execution_id
         panel_id = row['case__execution__panel_id']
-        coordinate = _coordinate_input_identity({
-            'spec_key': row['case__spec_key'],
-            'scenario_key': row['case__scenario_key'],
-            'profile_key': row['case__profile_key'],
-            'profile_id': row['case__task__profile_id'],
-            'apl_id': row['case__task__apl_id'],
-            'template_id': row['case__task__template_id'],
-            'backend_id': row['case__task__backend_id'],
-            'simulation_params': row['case__task__simulation_params'] or {},
-        })
-        candidate = candidate_identities(row['case__task_id']).get(row['candidate_key'])
-        if candidate:
-            reusable[panel_id].setdefault((coordinate, candidate), row['case__execution_id'])
+        task_id = row['case__task_id']
+        case_key = (task_id, row['case__spec_key'], row['case__scenario_key'], row['case__profile_key'])
+        if case_key not in coordinate_cache:
+            coordinate_cache[case_key] = _coordinate_input_identity({
+                'spec_key': row['case__spec_key'],
+                'scenario_key': row['case__scenario_key'],
+                'profile_key': row['case__profile_key'],
+                'profile_id': row['case__task__profile_id'],
+                'apl_id': row['case__task__apl_id'],
+                'template_id': row['case__task__template_id'],
+                'backend_id': row['case__task__backend_id'],
+                'simulation_params': row['case__task__simulation_params'] or {},
+            })
+        coordinate = coordinate_cache[case_key]
+        expected = wanted.get((panel_id, coordinate), {}).get(row['candidate_key'])
+        if expected is None or (coordinate, expected) in reusable[panel_id]:
+            continue
+        if task_id not in pending_tasks and len(pending_tasks) == 20:
+            flush()
+            if (coordinate, expected) in reusable[panel_id]:
+                continue
+        pending_rows.append((row, coordinate, expected))
+        pending_tasks.add(task_id)
+    flush()
 
     for panel_id, plan in plans.items():
         available = 0
@@ -1872,7 +1945,7 @@ def summarize_panel_coverage_counts(panels):
     for panel in panels:
         try:
             plans[panel.pk] = build_execution_plan(
-                panel, validate_for_execution=False, lock=False,
+                panel, validate_for_execution=False, lock=False, copy_candidates=False,
             )
         except ValidationError:
             continue

@@ -1363,11 +1363,13 @@ def _locked_panel_snapshot_queryset():
 
 
 @transaction.atomic
-def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
+def build_execution_plan(panel, validate_for_execution=True, *, lock=True, copy_candidates=True):
     """Build a deterministic plan from one freshly queried DB snapshot.
 
     ``lock=False`` is the optimistic preflight view used before expensive binary
     validation. The default remains the historical locked planning contract.
+    ``copy_candidates=False`` is only for read-only consumers: coordinates of
+    the same spec borrow the same frozen candidate list and must not mutate it.
     """
     queryset = (_locked_panel_snapshot_queryset() if lock
                 else _panel_snapshot_queryset(enabled_only=True))
@@ -1485,7 +1487,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                     'apl_id': effective_apl.pk,
                     'template_id': spec.template_id, 'backend_id': spec.backend_id,
                     'simulation_params': simulation_params,
-                    'candidates': deepcopy(case_candidates),
+                    'candidates': deepcopy(case_candidates) if copy_candidates else case_candidates,
                     'resources': _resource_display_snapshot(spec, selected, effective_apl),
                 })
     case_count = len(cases)
