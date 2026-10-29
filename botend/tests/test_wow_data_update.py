@@ -144,7 +144,7 @@ class IncrementalUpdateTests(TestCase):
     def candidate(self, bundle, branch, build, heartbeat):
         node = WowTalentNodeMetadata(class_name='Warrior', spec_name='Fury', tree_type='spec',
             node_id=10, spell_id=20, name_zh='新天赋', description_zh='新描述', icon='spell_02', source='db2_backfill')
-        return SimpleNamespace(label='新天赋版本', major_version='12.1.0', current_build=build,
+        return SimpleNamespace(branch=branch, label='新天赋版本', major_version='.'.join(build.split('.')[:3]), current_build=build,
             source_dir=bundle['dump_dir'], granted_entries_json={'build': build, 'specs': {}}, _prepared_nodes=[node])
 
     def run_update(self, branches=('retail',)):
@@ -515,6 +515,45 @@ class IncrementalUpdateTests(TestCase):
         retail = enrich_loot_specializations([{'item_id': 123}], 'retail')[0]
         self.assertEqual(ptr['eligible_specs'], ['Paladin:Holy'])
         self.assertFalse(retail['eligible_specs'])
+
+    def test_three_slots_cross_release_updates_and_stale_source(self):
+        from botend.wow.talents.versioning import TalentVersionResolver
+        ensure_default_talent_versions(WowTalentVersion)
+        ids = dict(WowTalentVersion.objects.filter(key__in=update.BRANCHES).values_list('key', 'pk'))
+        for branch, build in [('retail', '12.2.0.80000'), ('ptr', '12.3.0.81000'),
+                              ('beta', '13.0.0.90000'), ('retail', '13.0.0.90001'),
+                              ('retail', '12.9.0.90002')]:
+            with self.subTest(branch=branch, build=build):
+                before = dict(WowTalentVersion.objects.exclude(key=branch).values_list('key', 'current_build'))
+                self.source.discover.return_value = build
+                self.run_update((branch,))
+                self.assertEqual(WowTalentVersion.objects.get(key=branch).current_build, build)
+                self.assertEqual(dict(WowTalentVersion.objects.exclude(key=branch).values_list('key', 'current_build')), before)
+        self.assertEqual(dict(WowTalentVersion.objects.filter(key__in=update.BRANCHES).values_list('key', 'pk')), ids)
+        self.assertEqual([v.key for v in TalentVersionResolver.list_active()], ['retail', 'ptr', 'beta'])
+        self.assertEqual(TalentVersionResolver.resolve('beta').branch, 'beta')
+        self.assertEqual(TalentVersionResolver.resolve().key, 'retail')
+        ensure_default_talent_versions(WowTalentVersion)
+        ensure_default_talent_versions(WowTalentVersion)
+        self.assertEqual(WowTalentVersion.objects.get(key='retail').current_build, '12.9.0.90002')
+        self.source.discover.return_value = OLD
+        self.source.prepare.reset_mock()
+        with self.assertRaisesMessage(ValueError, '旧构建'):
+            self.run_update()
+        self.source.prepare.assert_not_called()
+        self.assertEqual(WowTalentVersion.objects.get(key='retail').current_build, '12.9.0.90002')
+
+    def test_mismatched_candidate_branch_fails_without_publication(self):
+        def wrong(*args):
+            version = self.candidate(*args)
+            version.branch = 'beta'
+            return version
+        update.prepare_talent_version.side_effect = wrong
+        with self.assertRaisesMessage(ValueError, '分支'):
+            self.run_update()
+        self.talent.refresh_from_db()
+        self.assertEqual(self.talent.current_build, OLD)
+        self.assertEqual(WowDataUpdateState.objects.get(branch='retail').revision, 0)
 
     def test_beta_is_separate_from_retail_and_ptr(self):
         self.run_update(('beta',))

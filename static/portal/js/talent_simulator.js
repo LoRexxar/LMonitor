@@ -39,7 +39,7 @@
     };
 
     const state = {
-        versionKey: new URLSearchParams(location.search).get('version') || page.dataset.defaultVersion || versionsPayload[0]?.key || '',
+        versionKey: new URLSearchParams(location.search).get('version') || page.dataset.defaultVersion || 'retail',
         className: page.dataset.initialClass || 'DeathKnight',
         specName: page.dataset.initialSpec || 'Blood',
         buildCode: new URLSearchParams(location.search).get('code') || '',
@@ -88,7 +88,7 @@
 
     function initSelects() {
         if (els.versionSelect) {
-            els.versionSelect.innerHTML = versionsPayload.map(item => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label || item.key)}${item.branch === 'ptr' ? '（测试）' : ''}</option>`).join('');
+            els.versionSelect.innerHTML = versionsPayload.map(item => `<option value="${escapeHtml(item.key)}">${escapeHtml(({retail: '正式服', ptr: 'PTR', beta: 'Beta'})[item.branch] || item.label || item.key)}</option>`).join('');
             els.versionSelect.value = state.versionKey;
             els.versionSelect.addEventListener('change', () => {
                 state.versionKey = els.versionSelect.value;
@@ -176,6 +176,10 @@
         state.treeLoading = false;
         els.resetBtn.disabled = false;
         state.payload = data;
+        if (data.talent_version?.key) {
+            state.versionKey = data.talent_version.key;
+            if (els.versionSelect) els.versionSelect.value = state.versionKey;
+        }
         if (data.class_name && data.spec_name) {
             state.className = data.class_name;
             state.specName = data.spec_name;
