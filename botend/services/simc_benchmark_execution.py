@@ -553,11 +553,25 @@ def _task_candidate_identities(task):
     return _candidate_identities_from_candidates(candidates)
 
 
+class _CandidateSubsetJSONField(JSONField):
+    """Decode MySQL's compressed JSON transport without changing stored data."""
+
+    def from_db_value(self, value, expression, connection):
+        if value is not None and connection.vendor == 'mysql':
+            import zlib
+            value = bytes(value)
+            payload = zlib.decompress(value[4:])
+            if len(payload) != int.from_bytes(value[:4], 'little'):
+                raise ValueError('Invalid compressed candidate JSON length')
+            value = payload.decode('utf-8')
+        return super().from_db_value(value, expression, connection)
+
+
 class _CandidateSubset(Func):
     """Filter a frozen array before JSON hydration; retain duplicate positions."""
 
     arity = 2
-    output_field = JSONField()
+    output_field = _CandidateSubsetJSONField()
 
     def as_mysql(self, compiler, connection, **extra_context):
         candidates, candidate_params = compiler.compile(self.source_expressions[0])
@@ -580,7 +594,9 @@ class _CandidateSubset(Func):
                     subset_candidate.candidate, '$.candidate_key'
                 ))
         )"""
-        return sql, (*candidate_params, *candidate_params, *key_params)
+        # The immutable rule payload repeats heavily between candidates. Keep
+        # the filtered JSON byte-for-byte while avoiding large DB wire reads.
+        return f'COMPRESS({sql})', (*candidate_params, *candidate_params, *key_params)
 
     def as_sqlite(self, compiler, connection, **extra_context):
         candidates, candidate_params = compiler.compile(self.source_expressions[0])
