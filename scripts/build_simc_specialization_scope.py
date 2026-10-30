@@ -15,7 +15,7 @@ from scripts.simc_scope_resolution import (
 from botend.constants.wow import SPEC_IDENTITY_MAP
 from scripts.build_simc_global_damage_review import KEYS, SPEC_LABELS
 
-BUILD = '12.1.0.69814'
+BUILD = '12.1.5.70575'
 # 固有光环身份来自该版 specialization_spells；名称只用于展示，不用于分类。
 AURAS = {
     71:137049,72:137050,73:137048,65:137029,66:137028,70:137027,
@@ -33,6 +33,75 @@ EXTRA_SELECTORS = {
     10: [(1, 16384, '圣骑士通用伤害技能'), (0, 134217728, '圣骑士精通适用伤害类别')],
     107: [(2, 64, '复仇专精通用伤害技能')],
 }
+
+
+# Historical reviews are immutable flags-only projections, not current DBC facts.
+LEGACY_PROJECTION = ('1d3897ef4adefc8e47a43989eed81b6618ce7bef', '12.1.0.69814')
+
+
+def legacy_projection(revision, build):
+    return (revision, build) == LEGACY_PROJECTION
+
+
+class SupplementAffectedScope:
+    """Match the native DBC selector dispatch, shared by both supplements.
+
+    107/108 retain family flags; 218/219/320 use misc2 labels. 271/537
+    use spell_data_t::affected_by_all (flags OR label OR category).
+    Selection does not imply that a modifier changes damage.
+    """
+    def __init__(self, source, spells, legacy=False):
+        self.spells, self.legacy = spells, legacy
+        self.labels = defaultdict(set)
+        if legacy:
+            return
+        header = (source / 'engine/dbc/spell_data.hpp').read_text(encoding='utf-8')
+        body = header.split('struct spelllabel_data_t\n{', 1)[1].split('unsigned id_spell()', 1)[0]
+        fields = re.findall(r'\b(_\w+)\s*;', re.sub(r'//[^\n]*', '', body))
+        if set(fields) != {'_id_spell', '_label'}:
+            raise ValueError('DBC label 结构漂移')
+        active = found = False
+        for line in (source / 'engine/dbc/generated/sc_spell_data.inc').read_text(encoding='utf-8').splitlines():
+            if re.match(r'static (?:constexpr std::array<spelllabel_data_t,|spelllabel_data_t )', line):
+                active = found = True
+            elif active and line.startswith('}'):
+                break
+            elif active and line.startswith('  {'):
+                values = aggregate(line)
+                if len(values) != len(fields):
+                    raise ValueError('DBC label 数据与同版声明不匹配')
+                row = dict(zip(fields, values))
+                self.labels[row['_label']].add(row['_id_spell'])
+        if not found:
+            raise ValueError('DBC label 表缺失')
+
+    def affected(self, effect):
+        family = self.spells[effect['_spell_id']]['_class_flags_family']
+        subtype = effect['_subtype']
+        def flags():
+            return {s['_id'] for s in self.spells.values()
+                    if s['_class_flags_family'] == family and any(
+                        a & b for a, b in zip(s['_class_flags'], effect['_class_flags']))}
+        if self.legacy or subtype in (107, 108, 220, 416, 417):
+            return sorted(flags())
+        if subtype in (218, 219, 320):
+            return sorted(self.labels[effect['_misc_value_2']])
+        if subtype in (271, 537):
+            # affected_by_label uses misc1 for 537, misc2 for 271.
+            label = effect['_misc_value'] if subtype == 537 else effect['_misc_value_2']
+            category = effect['_misc_value']
+            return sorted(flags() | self.labels[label] | {
+                s['_id'] for s in self.spells.values()
+                if category > 0 and s['_category'] == category})
+        return []
+
+
+def local_damage_component(part, legacy=False):
+    # 218 is percent; 219 is flat (P_EFFECT_N is not a damage multiplier).
+    # 320 is hasted GCD, not damage. Duration/tick-time must never leak here.
+    subtypes = (107, 108) if legacy else (107, 108, 218, 219)
+    return (part['子类型'] in subtypes and part['参数'] in (0, 22, 7, 15)
+            and bool(part['完整DBC集合']))
 
 
 def specialization_token(spec_id):
@@ -65,6 +134,7 @@ def collect_review(source):
     if revision != REVIEWED_REVISION or f'"{BUILD}"' not in build_text:
         raise ValueError('专精补充复核的源码版本或客户端版本不匹配。')
     spells, effects = load_dbc(source)
+    scope = SupplementAffectedScope(source, spells, legacy=legacy_projection(revision, BUILD))
     by_spell = defaultdict(list)
     for effect in effects.values():
         by_spell[effect['_spell_id']].append(effect)
@@ -83,9 +153,7 @@ def collect_review(source):
         parts = []
         for effect in sorted(by_spell[sid], key=lambda e:e['_index']):
             category = classify_component(family, effect)
-            affected = sorted(s['_id'] for s in spells.values()
-                              if s['_class_flags_family'] == family and any(
-                                  a & b for a, b in zip(s['_class_flags'], effect['_class_flags'])))
+            affected = scope.affected(effect)
             parts.append({
                 '效果ID':effect['_id'], '效果编号':effect['_index']+1,
                 '类型':effect['_type'], '子类型':effect['_subtype'],
@@ -104,6 +172,8 @@ def collect_review(source):
 
 def extend_contract(contract, review):
     """合并逐效果事实和专精展示信息，摘要同时覆盖原契约与本次复核。"""
+    if review.get('draft'):
+        raise ValueError('专精草稿不可编入正式导出器契约。')
     if (f'"{review["源码提交"]}"' not in contract or
             f'"{review["客户端版本"]}"' not in contract):
         raise ValueError('基础契约与专精复核版本不一致。')
@@ -116,8 +186,8 @@ def extend_contract(contract, review):
         parts = [p for p in row['分量'] if p['处理'] == '剔除公共分量']
         if not parts:
             continue
-        local = [p for p in row['分量'] if p not in parts and p['子类型'] in (107,108)
-                 and p['参数'] in (0,22,7,15) and p['完整DBC集合']]
+        local = [p for p in row['分量'] if p not in parts and local_damage_component(
+            p, legacy=legacy_projection(review['源码提交'], review['客户端版本']))]
         def identity(part):
             return {'spell_id':row['法术ID'], 'effect_index':part['效果编号'], 'effect_id':part['效果ID']}
         for part in parts:

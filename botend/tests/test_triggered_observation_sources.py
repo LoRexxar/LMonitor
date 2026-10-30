@@ -185,7 +185,9 @@ class TriggeredSourcesTests(TestCase):
             run = copy.deepcopy(self.run)
             run['url'] = run['url'].replace('/123-', f'/{rid}-')
             runs.append(run)
-        self.activity.payload_json = {'mythic_plus_best_runs': runs, 'mythic_plus_recent_runs': runs}
+        # Keep the extra references outside the recent behavior sample: three
+        # or more recent runs legitimately trigger structural roster questions.
+        self.activity.payload_json = {'mythic_plus_best_runs': runs, 'mythic_plus_recent_runs': [self.run]}
         self.activity.save()
         result = self.collect(data)
         self.assertEqual(result['basic_api_requests'], 0)

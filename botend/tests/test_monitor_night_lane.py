@@ -44,7 +44,11 @@ class NightLaneTests(TestCase):
         first = claim_next_monitor_task(now=self.now, lease_owner='normal')
         self.assertEqual(first.pk, season.pk)
         self.assertIsNone(claim_next_monitor_task(now=self.now, task_names=[data.name]))
-        self.assertIsNone(claim_monitor_task(player.pk, now=self.now))
+        manual = claim_monitor_task(player.pk, now=self.now, lease_owner='external-owner')
+        self.assertEqual(manual.pk, player.pk)
+        self.assertEqual(MonitorTaskLease.objects.get(task=player).owner, 'external-owner')
+        self.assertTrue(release_monitor_task_lease(player.pk, 'external-owner'))
+        MonitorTask.objects.filter(pk=player.pk).update(last_scan_time=self.now-timedelta(days=1))
         self.assertTrue(release_monitor_task_lease(first.pk, 'normal'))
         self.assertIsNone(claim_next_monitor_task(now=self.now))
         second = claim_next_monitor_task(now=self.now, task_names=[data.name], lease_owner='isolated')
@@ -63,18 +67,65 @@ class NightLaneTests(TestCase):
         MonitorTaskLease.objects.create(task=alias, owner='old',
             claimed_at=self.now-timedelta(hours=2), expires_at=self.now+timedelta(hours=9))
         self.assertIsNone(claim_next_monitor_task(now=self.now))
-        self.assertIsNone(claim_monitor_task(player.pk, now=self.now))
+        self.assertIsNotNone(claim_monitor_task(player.pk, now=self.now))
         self.assertEqual(MonitorTaskLease.objects.get(task=alias).owner, 'old')
 
-    def test_manual_bypasses_switch_and_due_but_not_lane(self):
+    def test_old_claimer_insert_uses_database_default(self):
+        from django.db import connection
+        task = self.task('MaxrollClassGuideMonitor')
+        # An already loaded old worker omits the new column entirely.
+        with connection.cursor() as cursor:
+            cursor.execute(
+                'INSERT INTO botend_monitortasklease (task_id, owner, claimed_at, expires_at) '
+                'VALUES (%s, %s, %s, %s)',
+                [task.pk, 'legacy-owner',
+                 connection.ops.adapt_datetimefield_value(self.now),
+                 connection.ops.adapt_datetimefield_value(self.now + timedelta(minutes=10))],
+            )
+        lease = MonitorTaskLease.objects.get(task=task)
+        self.assertFalse(lease.is_manual)
+        self.assertEqual(lease.owner, 'legacy-owner')
+
+    def test_manual_bypasses_switch_due_and_cross_scope_lane(self):
         first = self.task('MaxrollClassGuideMonitor')
         second = self.task('WowDailyReportMonitor')
         MonitorTask.objects.filter(pk=first.pk).update(is_active=False, last_scan_time=self.now)
         self.assertIsNotNone(claim_monitor_task(first.pk, now=self.now, lease_owner='manual'))
-        self.assertIsNone(claim_monitor_task(second.pk, now=self.now))
+        self.assertIsNotNone(claim_monitor_task(second.pk, now=self.now))
+        self.assertIsNone(claim_monitor_task(first.pk, now=self.now))
         fast = self.task('PortalPeakSpecRankMonitor')
         self.assertEqual(claim_next_monitor_task(now=self.now, task_names={fast.name}).pk, fast.pk)
         self.assertFalse(release_monitor_task_lease(first.pk, 'wrong'))
+
+    def test_manual_head_does_not_block_auto_and_auto_stays_serial(self):
+        season = self.task('SpecDetailSeasonMonitor')
+        data = self.task('WowDataVersionMonitor')
+        player = self.task('SpecDetailPlayerMonitor')
+        manual = claim_monitor_task(season.pk, now=self.now, lease_owner='external:token', lease_seconds=60)
+        self.assertTrue(MonitorTaskLease.objects.get(task=season).is_manual)
+        # Even if the manually occupied head is due, another automatic scope runs.
+        MonitorTask.objects.filter(pk=season.pk).update(last_scan_time=self.now-timedelta(days=1))
+        auto = claim_next_monitor_task(now=self.now, task_names=[data.name], lease_owner='auto')
+        self.assertEqual(auto.pk, data.pk)
+        self.assertFalse(MonitorTaskLease.objects.get(task=data).is_manual)
+        self.assertIsNone(claim_next_monitor_task(now=self.now, task_names=[player.name]))
+        self.assertIsNone(claim_monitor_task(data.pk, now=self.now))
+        alias = self.task('manual alias')
+        MonitorTask.objects.filter(pk=alias.pk).update(type=season.type)
+        self.assertIsNone(claim_monitor_task(alias.pk, now=self.now))
+        from botend.plugin_sync import renew_monitor_task_lease
+        self.assertFalse(renew_monitor_task_lease(season.pk, 'wrong', now=self.now))
+        self.assertTrue(renew_monitor_task_lease(season.pk, 'external:token', now=self.now, lease_seconds=60))
+        replacement = claim_next_monitor_task(now=self.now+timedelta(seconds=61), lease_owner='replacement', lease_seconds=60)
+        # Auto data still owns the lane; expiry of manual never evicts that lease.
+        self.assertIsNone(replacement)
+        manual2 = claim_monitor_task(season.pk, now=self.now+timedelta(seconds=61), lease_owner='new')
+        self.assertIsNotNone(manual2)
+        self.assertFalse(release_monitor_task_lease(season.pk, 'external:token'))
+        from botend.models import MonitorTaskLeaseLost
+        with self.assertRaises(MonitorTaskLeaseLost):
+            manual.save(update_fields=['flag'])
+        self.assertEqual(MonitorTaskLease.objects.get(task=data).owner, 'auto')
 
     def test_midnight_defaults_and_long_cycle_retry(self):
         for name in ('WowDataVersionMonitor', 'MaxrollClassGuideMonitor', 'WowDailyReportMonitor'):
@@ -124,7 +175,7 @@ class NightLaneTests(TestCase):
             release_monitor_task_lease(data.pk, 'data')
             MonitorTaskLease.objects.create(task=season, owner='other-env',
                 claimed_at=self.now, expires_at=self.now+timedelta(hours=1))
-            self.assertIsNone(claim_monitor_task(data.pk, now=self.now))
+            self.assertIsNotNone(claim_monitor_task(data.pk, now=self.now))
 
 
 from concurrent.futures import ThreadPoolExecutor
@@ -136,7 +187,7 @@ from django.test import TransactionTestCase
 
 @skipUnless(connection.vendor == 'mysql', 'Requires real MySQL row locks; SQLite is not concurrency evidence')
 class NightLaneConcurrentClaimsTests(TransactionTestCase):
-    def test_independent_connections_normal_isolated_and_manual_share_one_lane(self):
+    def test_independent_connections_manual_bypasses_automatic_lane(self):
         MonitorTask.objects.all().delete()
         now = datetime(2026, 10, 21, 0, 1, tzinfo=ZoneInfo('Asia/Shanghai'))
         values = dict(target='', is_active=True, last_scan_time=now-timedelta(days=1))
@@ -160,9 +211,11 @@ class NightLaneConcurrentClaimsTests(TransactionTestCase):
 
         with ThreadPoolExecutor(max_workers=3) as pool:
             results = list(pool.map(claim, ('normal', 'isolated', 'manual')))
-        self.assertEqual(sum(pk is not None for pk in results), 1)
+        self.assertEqual(results, [season.pk, None, player.pk])
         self.assertIsNone(results[1])  # isolated worker never bypasses global head
-        self.assertEqual(MonitorTaskLease.objects.count(), 1)
+        self.assertEqual(MonitorTaskLease.objects.count(), 2)
+        self.assertIsNone(claim_next_monitor_task(now=now, task_names=[data.name]))
+        self.assertIsNone(claim_monitor_task(season.pk, now=now))
         fast = MonitorTask.objects.create(name='PortalPeakSpecRankMonitor', type=904, **values)
         self.assertEqual(claim_next_monitor_task(now=now, task_names={fast.name}).pk, fast.pk)
-        self.assertEqual(MonitorTaskLease.objects.count(), 2)
+        self.assertEqual(MonitorTaskLease.objects.count(), 3)

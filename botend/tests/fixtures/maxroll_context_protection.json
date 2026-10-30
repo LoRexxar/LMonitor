@@ -1,0 +1,55 @@
+{
+  "provenance": {
+    "source": "/home/ubuntu/lmonitor-maxroll-nodeplan/manifest.json",
+    "sha256": "98959bba1dbdaf780037fdc7881575774c5ea1d5cf0a4d324c6afe6dbedc4ac6",
+    "note": "Exact frozen source nodes and old protection; not model responses."
+  },
+  "nodes": [
+    {
+      "key": "698dca127e5381b9eded707722cf4573002683a77f577631c01b304799a0d04b",
+      "source": "A Magic DoT on 2 players. Triggers [[spell:1310599]] on expiration. Stagger the dispel to avoid getting to 2 stacks.",
+      "protected": "A Magic DoT on 2 players. Triggers [[spell:1310599]] on expiration. ⟦WOWTERM_001⟧ the dispel to avoid getting to 2 stacks.",
+      "replacements": {
+        "⟦WOWTERM_001⟧": "醉拳"
+      },
+      "game_version": "12.1.5",
+      "occurrences": [
+        {
+          "guide_id": 186,
+          "block": "b-63-6-9",
+          "index": 33,
+          "parent": "li",
+          "block_source_sha256": "e220ba0e32c7ac6bae06d475fd5f90d2dd4ad0fa652a0c1f5d75dbc7ab603342"
+        }
+      ],
+      "packed": "A Magic DoT on 2 players. Triggers ⟪REF0000⟫ on expiration. ⟦WOWTERM_001⟧ the dispel to avoid getting to 2 stacks.",
+      "reference_mapping": {
+        "⟪REF0000⟫": "[[spell:1310599]]"
+      }
+    },
+    {
+      "key": "b8fb072107ea09328c63ad2745630ac2c77b0364194bd4e26def70210561066f",
+      "source": "Cast [[spell:1064]] if in [[spell:114052]] for AoE healing.",
+      "protected": "⟦WOWTERM_001⟧ [[spell:1064]] if in [[spell:114052]] for ⟦WOWTERM_002⟧ healing.",
+      "replacements": {
+        "⟦WOWTERM_001⟧": "施放",
+        "⟦WOWTERM_002⟧": "范围伤害"
+      },
+      "game_version": "12.1.5",
+      "occurrences": [
+        {
+          "guide_id": 187,
+          "block": "b-31",
+          "index": 7,
+          "parent": "li",
+          "block_source_sha256": "37f46284046a039093d6e3fcb9fd768f472002beb4d25df1c449950c5e4a95f3"
+        }
+      ],
+      "packed": "⟦WOWTERM_001⟧ ⟪REF0000⟫ if in ⟪REF0001⟫ for ⟦WOWTERM_002⟧ healing.",
+      "reference_mapping": {
+        "⟪REF0000⟫": "[[spell:1064]]",
+        "⟪REF0001⟫": "[[spell:114052]]"
+      }
+    }
+  ]
+}

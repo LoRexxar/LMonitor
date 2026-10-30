@@ -1004,16 +1004,23 @@ def _is_placeholder_hero_subtree_name(name):
     )
 
 
-def _hero_subtree_name_from_table(subtree_id, *, branch='retail'):
-    """英雄树名称只从当前分支中央节点读取，不再访问无分支的旧表。"""
+def _hero_subtree_name_from_table(subtree_id, *, branch='retail', class_name='', spec_name=''):
+    """Prefer the canonical subtree catalog; unknown IDs require scoped DB evidence."""
     if not subtree_id:
         return ''
+    canonical_name = hero_subtree_name_by_id(subtree_id)
+    if canonical_name:
+        if (class_name or spec_name) and canonical_name not in spec_hero_subtree_names(class_name, spec_name):
+            return ''
+        return hero_subtree_name_zh(canonical_name)
     try:
         version = TalentVersionResolver.resolve(version_key=branch)
     except ValueError:
         return ''
     rows = WowTalentNodeMetadata.objects.filter(talent_version=version,
         tree_type='hero_anchor', db2_subtree_id=subtree_id).order_by('pk')
+    if class_name or spec_name:
+        rows = rows.filter(class_name=class_name, spec_name=spec_name)
     names = {hero_subtree_name_zh(row.name_zh or row.name) or row.name_zh or row.name for row in rows}
     names = {name for name in names if not _is_placeholder_hero_subtree_name(name)}
     if len(names) == 1:
@@ -1030,24 +1037,9 @@ def _stats_talent_version_filter():
 
 
 def _hero_subtree_display_title(class_name, spec_name, subtree_id, hero_index=None):
-    canonical_name = hero_subtree_name_by_id(subtree_id)
-    if canonical_name and canonical_name in spec_hero_subtree_names(class_name, spec_name):
-        return hero_subtree_name_zh(canonical_name)
-    title = _hero_subtree_name_from_table(subtree_id)
-    if title:
-        return title
-    if subtree_id:
-        anchor = WowTalentNodeMetadata.objects.filter(
-            class_name=class_name or '',
-            spec_name=spec_name or '',
-            tree_type='hero_anchor',
-            db2_subtree_id=subtree_id,
-            **_stats_talent_version_filter(),
-        ).exclude(name='').values('name', 'name_zh').first()
-        if anchor:
-            anchor_name = anchor.get('name') or ''
-            return hero_subtree_name_zh(anchor.get('name_zh') or anchor_name) or anchor_name or _talent_tree_render_title('hero', hero_index)
-    return _talent_tree_render_title('hero', hero_index)
+    return _hero_subtree_name_from_table(
+        subtree_id, class_name=class_name, spec_name=spec_name,
+    ) or _talent_tree_render_title('hero', hero_index)
 
 
 def _hero_subtree_sort_key(subtree_key, nodes):

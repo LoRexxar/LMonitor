@@ -199,6 +199,7 @@ class MonitorTaskLease(models.Model):
         related_name='execution_lease',
     )
     owner = models.CharField(max_length=64)
+    is_manual = models.BooleanField(default=False, db_default=False)
     expires_at = models.DateTimeField(db_index=True)
     claimed_at = models.DateTimeField(default=timezone.now)
 

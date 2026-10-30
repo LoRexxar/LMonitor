@@ -142,22 +142,108 @@ class Command(BaseCommand):
         binary_path = str(cfg.get('simc_path') or os.path.join(build_dir, 'simc'))
         return source_dir, build_dir, binary_path
 
-    def _patchset_digest(self):
+    def _patch_compatibility(self, patch_dir, revision=None):
+        """Select reviewed replay images without rewriting historical patches."""
+        patch_dir = Path(patch_dir)
+        compatibility = patch_dir / 'compatibility'
+        if not compatibility.exists():
+            return {}
+        if revision is None:
+            result = subprocess.run(
+                ['git', 'rev-parse', 'HEAD'], cwd=self.simc_source_dir,
+                capture_output=True, text=True, timeout=30,
+            )
+            if result.returncode:
+                raise CommandError('SimC 补丁兼容清单无法读取源码 revision')
+            revision = result.stdout.strip()
+        if not isinstance(revision, str) or not re.fullmatch(r'[0-9a-f]{40}', revision):
+            raise CommandError('SimC 补丁兼容清单要求完整源码 revision')
+        directory = compatibility / revision
+        manifest_path = directory / 'manifest.json'
+        if not manifest_path.exists():
+            return {}
+        try:
+            if (compatibility.is_symlink() or directory.is_symlink()
+                    or manifest_path.is_symlink()):
+                raise ValueError('清单不能使用符号链接')
+            manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+            if (not isinstance(manifest, dict) or type(manifest.get('schema_version')) is not int
+                    or manifest['schema_version'] != 1 or manifest.get('revision') != revision
+                    or not isinstance(manifest.get('patches'), list) or not manifest['patches']):
+                raise ValueError('清单结构或 revision 不匹配')
+            header = subprocess.run(
+                ['git', 'show', f'{revision}:engine/dbc/generated/client_data_version.inc'],
+                cwd=self.simc_source_dir, capture_output=True, text=True, timeout=30,
+            )
+            build = re.search(r'^#define CLIENT_DATA_WOW_VERSION "([0-9.]+)"$',
+                              header.stdout, re.MULTILINE)
+            if header.returncode or not build or manifest.get('game_build') != build.group(1):
+                raise ValueError('清单 game build 与源码不匹配')
+            overrides = {}
+            for entry in manifest['patches']:
+                if not isinstance(entry, dict):
+                    raise ValueError('补丁条目结构无效')
+                name, replacement = entry.get('original_name'), entry.get('replacement')
+                for value in (name, replacement):
+                    if (not isinstance(value, str) or not value.endswith('.patch')
+                            or '/' in value or '\\' in value or value in {'.', '..'}):
+                        raise ValueError('补丁路径必须是当前目录内文件名')
+                if name in overrides:
+                    raise ValueError('重复补丁替代')
+                original_path, replacement_path = patch_dir / name, directory / replacement
+                if original_path.is_symlink() or replacement_path.is_symlink():
+                    raise ValueError('补丁不能使用符号链接')
+                original, adapted = original_path.read_bytes(), replacement_path.read_bytes()
+                if hashlib.sha256(original).hexdigest() != entry.get('original_sha256'):
+                    raise ValueError(f'历史补丁摘要不匹配: {name}')
+                if hashlib.sha256(adapted).hexdigest() != entry.get('replacement_sha256'):
+                    raise ValueError(f'兼容补丁摘要不匹配: {name}')
+                overrides[name] = adapted
+            appended = manifest.get('append_patches', [])
+            if not isinstance(appended, list):
+                raise ValueError('追加补丁清单结构无效')
+            last_name = max((p.name for p in patch_dir.glob('*.patch')), default='')
+            for entry in appended:
+                if not isinstance(entry, dict):
+                    raise ValueError('追加补丁条目结构无效')
+                name, filename = entry.get('name'), entry.get('path')
+                for value in (name, filename):
+                    if (not isinstance(value, str) or not value.endswith('.patch')
+                            or '/' in value or '\\' in value):
+                        raise ValueError('追加补丁路径必须是当前目录内文件名')
+                if name <= last_name or name in overrides or (patch_dir / name).exists():
+                    raise ValueError('版本专用补丁必须追加且不能覆盖现有补丁')
+                path = directory / filename
+                if path.is_symlink():
+                    raise ValueError('追加补丁不能使用符号链接')
+                content = path.read_bytes()
+                if hashlib.sha256(content).hexdigest() != entry.get('sha256'):
+                    raise ValueError('追加补丁摘要不匹配')
+                overrides[name] = content
+                last_name = name
+            return overrides
+        except (OSError, ValueError, TypeError) as exc:
+            raise CommandError(f'SimC 补丁兼容清单校验失败: {exc}') from exc
+
+    def _patchset_digest(self, revision=None):
         cfg = getattr(settings, 'SIMC_CONFIG', {}) or {}
         patch_dir = Path(str(
             cfg.get('simc_patch_dir') or os.path.join(settings.BASE_DIR, 'simc_patches')
         ))
+        overrides = self._patch_compatibility(patch_dir, revision)
         digest = hashlib.sha256()
-        for patch_path in sorted(patch_dir.glob('*.patch')):
-            digest.update(patch_path.name.encode('utf-8'))
+        names = {p.name for p in patch_dir.glob('*.patch')} | set(overrides)
+        for name in sorted(names):
+            content = overrides[name] if name in overrides else (patch_dir / name).read_bytes()
+            digest.update(name.encode('utf-8'))
             digest.update(b'\\0')
-            digest.update(patch_path.read_bytes())
+            digest.update(content)
             digest.update(b'\\0')
         return digest.hexdigest()
 
     def _candidate_paths(self, revision):
         root = Path(settings.BASE_DIR) / '.cache' / 'simc-candidates'
-        label = f'{revision}-{self._patchset_digest()[:16]}'
+        label = f'{revision}-{self._patchset_digest(revision)[:16]}'
         artifact_root = root / label
         return str(artifact_root / 'source'), str(artifact_root / 'build-cli')
 
@@ -1017,12 +1103,13 @@ class Command(BaseCommand):
                             pass
                     os.close(parent_fd)
 
+        overrides = self._patch_compatibility(patch_dir)
         patch_entries = []
         touched_paths = set()
-        for patch_name in sorted(name for name in os.listdir(patch_dir) if name.endswith('.patch')):
-            patch_path = os.path.join(patch_dir, patch_name)
-            with open(patch_path, 'rb') as patch_file:
-                patch_content = patch_file.read()
+        patch_names = {name for name in os.listdir(patch_dir) if name.endswith('.patch')} | set(overrides)
+        for patch_name in sorted(patch_names):
+            patch_content = (overrides[patch_name] if patch_name in overrides
+                             else (Path(patch_dir) / patch_name).read_bytes())
             digest = hashlib.sha256(patch_content)
             if re.search(br'(?m)^\+\+\+ /dev/null(?:\t[^\r\n]*)?\r?$', patch_content):
                 self._fail(

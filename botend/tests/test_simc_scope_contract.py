@@ -43,6 +43,24 @@ class ScopeContractTests(unittest.TestCase):
         return {'源码提交':'a'*40,'客户端版本':'12.1.0.69587','条目':[
             {'类型':'自身Buff','法术ID':31884,'分量':[part(1,'应剔除'),part(12,'保留')]}]}
 
+    def test_supplement_drafts_cannot_be_appended_to_a_contract(self):
+        from scripts.build_simc_specialization_scope import extend_contract as specialization
+        from scripts.build_simc_mastery_scope import extend_contract as mastery
+        base = self.review()
+        contract = render_contract(base, 'b' * 64)
+        review = {**base, '条目': [], 'draft': True}
+        for extend in (specialization, mastery):
+            with self.subTest(layer=extend.__module__):
+                self.assertIsInstance(extend(contract, {**review, 'draft': False}), str)
+                with self.assertRaisesRegex(ValueError, '草稿'):
+                    extend(contract, review)
+
+    def test_draft_cannot_be_compiled_even_with_resolved_components(self):
+        review = self.review()
+        review['draft'] = True
+        with self.assertRaisesRegex(ValueError, '草稿'):
+            compile_contract(review)
+
     def test_mixed_buff_keeps_local_component(self):
         effects, _, buffs = compile_contract(self.review())
         self.assertTrue(effects[(31884,1)][2])
@@ -143,8 +161,8 @@ class ReviewedScopeIdentityTests(unittest.TestCase):
         self.assertTrue(hasattr(ScopeResolver, 'enforce_reviewed_scope'),
                         '正式复核目前没有 fail-closed exact-set 门禁')
         import json
-        self.audit = json.loads((Path(__file__).resolve().parents[2] /
-                                 'scripts/simc_scope_reviewed_1d3897.json').read_text())
+        from scripts.simc_scope_resolution import REVIEWED_SCOPE_FACTS
+        self.audit = json.loads(REVIEWED_SCOPE_FACTS.read_text())
         self.resolver = ScopeResolver.__new__(ScopeResolver)
         self.resolver.revision = self.audit['revision']
         self.resolver.reviewed_build = self.audit['build']

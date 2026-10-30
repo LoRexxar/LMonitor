@@ -98,9 +98,11 @@ class CentralSpellDisplayTests(TestCase):
     def test_hero_parser_keeps_explicit_branch(self):
         parser = Mock(return_value={'talent_render_model': {'trees': [{'tree_type': 'hero', 'nodes': [
             {'tree_type': 'hero', 'db2_subtree_id': 1, 'selected': True}]}]}})
+        resolver = Mock(return_value='验证英雄树')
         resolve_hero_talent_names('验证字符串', 'warrior_fury', use_ptr=True,
-                                 build_api_view=parser, hero_name_resolver=lambda _: '验证英雄树')
+                                 build_api_view=parser, hero_name_resolver=resolver)
         self.assertEqual(parser.call_args.kwargs['version_key'], 'ptr')
+        resolver.assert_called_once_with(1, branch='ptr', class_name='Warrior', spec_name='Fury')
 
     def test_probe_only_reads_selected_branch(self):
         from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService

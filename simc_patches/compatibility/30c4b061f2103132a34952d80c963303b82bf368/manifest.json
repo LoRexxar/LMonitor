@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "revision": "30c4b061f2103132a34952d80c963303b82bf368",
+  "game_build": "12.1.5.70575",
+  "patches": [
+    {
+      "original_name": "0065-trace-native-damage-multipliers.patch",
+      "original_sha256": "2dfb67a51269f7561369c038a73e8995d70892170b9c1aaa8ad4fd3122b75e6c",
+      "replacement": "0065-30c4b06-compatible.patch",
+      "replacement_sha256": "f4a41d3ad9bf7e14dfe64c884538d0a0cf5606bbe59b5bbc90004fa956f431ef"
+    },
+    {
+      "original_name": "0067-trace-snapshot-damage-layers.patch",
+      "original_sha256": "46f252bac319a118ab64ea03beca605078f02a9b71be893b67f7d62ced36da31",
+      "replacement": "0067-30c4b06-compatible.patch",
+      "replacement_sha256": "31cdd518019da6420e7da4d874c81323e64aa782d96059a9dd38a4adb53f959e"
+    },
+    {
+      "original_name": "0068-preserve-handwritten-factor-provenance.patch",
+      "original_sha256": "20f54573abc55dcf2df7a8add68440f554b32b7a1b129d21a9283249c4c8216d",
+      "replacement": "0068-30c4b06-compatible.patch",
+      "replacement_sha256": "8006be490c9a0b01f3f318345e8875e8f35a47bb5ba43e1e5c6fa1fd0fadf9cc"
+    }
+  ],
+  "append_patches": [
+    {
+      "name": "0071-coiled-fangstone-tracing-types.patch",
+      "path": "0071-coiled-fangstone-tracing-types.patch",
+      "sha256": "8bbde86431ff588784dd9bd184c9ee7bac07595cdfc3ff68b24d6045c50b4491"
+    },
+    {
+      "name": "0072-raw-scope-audit-catalog.patch",
+      "path": "0072-raw-scope-audit-catalog.patch",
+      "sha256": "11165df41d5a47c6b6f3286385632ab5eb3c4fd8aa8f3006853a742dd35cd6d9"
+    },
+    {
+      "name": "0073-reviewed-scope-30c4b06.patch",
+      "path": "0073-reviewed-scope-30c4b06.patch",
+      "sha256": "ef59818a53d908d803d0fc92f0dfee5f1ccc9be5d2ce66a2d087dc278a6965b1"
+    }
+  ]
+}

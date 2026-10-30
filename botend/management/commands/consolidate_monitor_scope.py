@@ -20,7 +20,7 @@ class Command(BaseCommand):
         keep_id = options['keep_id']; ids = set(options['disable_id'])
         if keep_id in ids or not ids:
             raise CommandError('保留和停用范围必须独立且非空')
-        rows, active = _locked_monitor_tasks_and_scopes(timezone.now())
+        rows, active, _automatic = _locked_monitor_tasks_and_scopes(timezone.now())
         by_id = {row.pk: row for row in rows}
         if any(pk not in by_id for pk in ids | {keep_id}):
             raise CommandError('配置不存在')

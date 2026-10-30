@@ -234,6 +234,47 @@ class HotfixReportRerenderTests(SimpleTestCase):
         self.assertNotIn('hotfix_push_id', self.row.save.call_args.kwargs['update_fields'])
         self.assertEqual(self.monitor._generate_hotfix_class_report.call_args.kwargs['facts'], [updated])
 
+    def test_refresh_recovers_legacy_verified_predecessor_provenance(self):
+        from contextlib import nullcontext
+        original = json.loads(self.row.source_facts_json)[0]
+        original.update(before_verified=True, before={'ID': '99', 'Value': '10'})
+        self.row.source_facts_json = json.dumps([original])
+        before_source = {**self.source, 'id': 90, 'push_id': 111800, 'data': [99, '10']}
+        updated = {**original, 'before_source': before_source,
+                   'before_source_build': self.row.build_str}
+        self.monitor._resolve_hotfix_facts.return_value = [updated]
+        self.row.save.side_effect = None
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get', return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.select_for_update') as lock, \
+             patch('botend.management.commands.rerender_wow_hotfix_report.transaction.atomic', return_value=nullcontext()), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor', return_value=self.monitor):
+            lock.return_value.get.return_value = self.row
+            self.invoke(refresh_predecessors=True)
+        self.monitor._resolve_hotfix_facts.assert_called_once_with([self.source], db2_build=self.row.build_str)
+        saved = json.loads(self.row.source_facts_json)[0]
+        self.assertEqual(saved['before_source'], before_source)
+        self.assertEqual(saved['before_source_build'], self.row.build_str)
+        self.assertEqual(saved['before'], original['before'])
+        self.assertEqual(saved['after'], original['after'])
+
+    def test_refresh_legacy_predecessor_drift_preserves_original(self):
+        original = json.loads(self.row.source_facts_json)[0]
+        original.update(before_verified=True, before={'ID': '99', 'Value': '10'})
+        self.row.source_facts_json = json.dumps([original])
+        updated = {**original, 'before': {'ID': '99', 'Value': '11'},
+                   'before_source': {**self.source, 'id': 90, 'push_id': 111800}}
+        self.monitor._resolve_hotfix_facts.return_value = [updated]
+        with override_settings(BASE_DIR=str(self.root)), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WowHotfixReport.objects.get', return_value=self.row), \
+             patch('botend.management.commands.rerender_wow_hotfix_report.WagoSkillDiffMonitor', return_value=self.monitor):
+            with self.assertRaisesRegex(CommandError, '旧值'):
+                self.invoke(refresh_predecessors=True)
+        self.monitor._generate_hotfix_class_report.assert_not_called()
+        self.assertEqual(self.full.read_text(), 'old full')
+        self.assertEqual(self.cls.read_text(), 'old class')
+        self.row.save.assert_not_called()
+
     def test_refresh_predecessors_rejects_new_value_drift_and_keeps_original_files(self):
         updated = {**json.loads(self.row.source_facts_json)[0], 'after': {'ID': '99', 'Value': '999'},
                    'before_verified': True}

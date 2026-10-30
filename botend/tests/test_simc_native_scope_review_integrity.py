@@ -1,6 +1,8 @@
 """Native scope review must reject incomplete or misidentified audit evidence."""
 import copy
 import hashlib
+import json
+from unittest.mock import patch
 import sys
 import tempfile
 from pathlib import Path
@@ -10,6 +12,7 @@ from botend.constants.wow import SPEC_IDENTITY_MAP
 SCRIPT_DIR = str(Path(__file__).resolve().parents[2] / 'scripts')
 sys.path.insert(0, SCRIPT_DIR)
 try:
+    import build_simc_native_scope_review as builder
     from audit_simc_global_damage_initialization import SPECS
     from build_simc_native_scope_review import (
         canonical_scope_evidence, validate_native_actor_identity,
@@ -35,6 +38,55 @@ class NativeScopeReviewIntegrityTests(SimpleTestCase):
         left = {'判定路径': '原生手写范围', '源码': [first, second]}
         right = {'判定路径': '原生手写范围', '源码': [second, first]}
         self.assertEqual(canonical_scope_evidence(left), canonical_scope_evidence(right))
+
+    def test_migration_pending_cannot_be_overridden_by_handwritten_fallback(self):
+        resolver = builder.ScopeResolver.__new__(builder.ScopeResolver)
+        resolver.revision = self.REVISION
+        effect = {'effect_id': 999999999, 'type': 6, 'subtype': 108,
+                  'misc1': 0, 'misc2': 0, 'flags': [512,0,0,0],
+                  'class_family': 4, 'method': 'dbc.effect_affects_spells',
+                  'affected_spells': [{'spell_id': 1}]}
+        with patch.object(builder, 'classify_reads', return_value=('保留', 'fallback', [])) as fallback:
+            _, _, decision, _, evidence = builder.resolve_component_scope(
+                resolver, self.input_root, effect, [], [])
+        self.assertEqual(decision, '待确认')
+        self.assertTrue(evidence['禁止后备分类'])
+        fallback.assert_not_called()
+
+    def test_draft_is_complete_separate_and_never_formal(self):
+        row = {'类型': '天赋', '名称': 'test', '法术ID': 10, '分量': [
+            {'效果ID': 20, '处理结论': '待确认', 'DBC': {'effect_id': 20}},
+            {'效果ID': 21, '处理结论': '保留', 'DBC': {'effect_id': 21}},
+        ]}
+        review = {'标题': 'test', '判断依据': 'evidence', '说明': 'coverage',
+                  '源码提交': self.REVISION, '条目': [row], '数量': {'天赋': 1}}
+        output = self.input_root / 'review'
+        output.with_suffix('.json').write_text('frozen formal', encoding='utf-8')
+        builder.write_review(review, output, draft=True)
+        draft = json.loads(output.with_suffix('.draft.json').read_text(encoding='utf-8'))
+        self.assertIs(draft['draft'], True)
+        self.assertEqual(draft['review_status'], 'draft')
+        self.assertIs(draft['compile_contract_allowed'], False)
+        self.assertEqual(draft['条目'], review['条目'])
+        self.assertEqual(draft['待确认清单'], [{'法术ID': 10, '效果ID': 20, '名称': 'test'}])
+        self.assertEqual(output.with_suffix('.json').read_text(), 'frozen formal')
+        self.assertTrue(output.with_suffix('.draft.html').is_file())
+        with self.assertRaisesRegex(ValueError, '未完成'):
+            builder.write_review(review, output)
+        resolved = copy.deepcopy(review)
+        resolved['条目'][0]['分量'][0]['处理结论'] = '保留'
+        with self.assertRaisesRegex(ValueError, '未复核.*revision'):
+            builder.write_review(resolved, output)
+        builder.write_review(resolved, self.input_root / 'resolved', draft=True)
+        resolved_draft = json.loads((self.input_root / 'resolved.draft.json').read_text())
+        self.assertIs(resolved_draft['draft'], True)
+        self.assertIs(resolved_draft['compile_contract_allowed'], False)
+        resolved['源码提交'] = builder.REVIEWED_REVISION
+        builder.write_review(resolved, self.input_root / 'formal')
+        self.assertNotIn('draft', json.loads((self.input_root / 'formal.json').read_text()))
+        resolved['draft'] = True
+        with self.assertRaisesRegex(ValueError, '草稿'):
+            builder.write_review(resolved, output)
 
     def audit(self):
         runs = []

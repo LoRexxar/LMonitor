@@ -1,8 +1,9 @@
 """Manual and frozen-AI presentation: publication gating, escaping, and audit fidelity."""
 from html.parser import HTMLParser
 from types import SimpleNamespace
+from django.contrib.auth import get_user_model
 from django.template.loader import render_to_string
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 import json
 from copy import deepcopy
 from pathlib import Path
@@ -23,7 +24,7 @@ class Markup(HTMLParser):
         self.elements.append((tag, dict(attrs)))
 
 
-class PlayerAnalysisManagementUITests(SimpleTestCase):
+class PlayerAnalysisManagementUITests(TestCase):
     def render_observation(self, **changes):
         observation = {'status': 'ready', 'source_kind': 'manual', 'is_published': True,
                        'review_status': 'approved', 'has_supported_judgements': False,
@@ -71,7 +72,8 @@ class PlayerAnalysisManagementUITests(SimpleTestCase):
 
     def test_dashboard_superuser_panel_and_spa_navigation(self):
         for superuser in (False, True):
-            user = SimpleNamespace(is_superuser=superuser, is_staff=True, username='test')
+            user = get_user_model().objects.create_user(
+                username=f'test-{superuser}', is_superuser=superuser, is_staff=True)
             html = render_to_string('dashboard/index.html', {
                 'user': user, 'request': SimpleNamespace(user=user), 'csrf_token': 'ui-csrf', 'page_name': 'dashboard'})
             elements = Markup(html).elements

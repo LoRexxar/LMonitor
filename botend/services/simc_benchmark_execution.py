@@ -14,7 +14,7 @@ from datetime import timezone as datetime_timezone
 
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Func, JSONField, Prefetch, Q
+from django.db.models import Case, Count, Func, JSONField, Prefetch, Q, Value, When
 from django.utils import timezone
 
 from botend.constants.hero_talents import (
@@ -553,33 +553,251 @@ def _task_candidate_identities(task):
     return _candidate_identities_from_candidates(candidates)
 
 
-def _load_task_candidate_identity_rows(task_ids):
-    """Return {id: {source_task_id, identities: {candidate_key: hash}}}.
+class _CandidateSubsetJSONField(JSONField):
+    """Decode MySQL's compressed JSON transport without changing stored data."""
 
-    Include all available provenance ancestors, without retaining Task models or
-    decoded manifests. Each SQL read hydrates at most 20 candidate arrays, even
-    with buffered database drivers; missing ancestors and cycles terminate safely.
+    def from_db_value(self, value, expression, connection):
+        if value is not None and connection.vendor == 'mysql':
+            import zlib
+            value = bytes(value)
+            payload = zlib.decompress(value[4:])
+            if len(payload) != int.from_bytes(value[:4], 'little'):
+                raise ValueError('Invalid compressed candidate JSON length')
+            value = payload.decode('utf-8')
+        return super().from_db_value(value, expression, connection)
+
+
+class _CandidateSubset(Func):
+    """Filter a frozen array before JSON hydration; retain duplicate positions."""
+
+    arity = 2
+    output_field = _CandidateSubsetJSONField()
+
+    def as_mysql(self, compiler, connection, **extra_context):
+        candidates, candidate_params = compiler.compile(self.source_expressions[0])
+        keys, key_params = compiler.compile(self.source_expressions[1])
+        sql = f"""(
+            SELECT COALESCE(JSON_ARRAYAGG(JSON_OBJECT(
+                'position', subset_candidate.position,
+                'candidate', subset_candidate.candidate
+            )), JSON_ARRAY())
+            FROM JSON_TABLE(
+                CASE WHEN JSON_TYPE({candidates}) = 'ARRAY'
+                    THEN {candidates} ELSE JSON_ARRAY() END,
+                '$[*]' COLUMNS(position FOR ORDINALITY, candidate JSON PATH '$')
+            ) AS subset_candidate
+            WHERE JSON_TYPE(subset_candidate.candidate) = 'OBJECT'
+                AND JSON_TYPE(JSON_EXTRACT(
+                    subset_candidate.candidate, '$.candidate_key'
+                )) = 'STRING'
+                AND JSON_CONTAINS({keys}, JSON_EXTRACT(
+                    subset_candidate.candidate, '$.candidate_key'
+                ))
+        )"""
+        # The immutable rule payload repeats heavily between candidates. Keep
+        # the filtered JSON byte-for-byte while avoiding large DB wire reads.
+        return f'COMPRESS({sql})', (*candidate_params, *candidate_params, *key_params)
+
+    def as_sqlite(self, compiler, connection, **extra_context):
+        candidates, candidate_params = compiler.compile(self.source_expressions[0])
+        keys, key_params = compiler.compile(self.source_expressions[1])
+        # KeyTransform unquotes scalar strings on SQLite. JSON_QUOTE preserves
+        # array subtypes but keeps strings (including JSON-looking ones) scalar.
+        candidates = f'JSON_QUOTE({candidates})'
+        candidate = "CASE WHEN subset_candidate.type = 'object' THEN subset_candidate.value ELSE '{}' END"
+        sql = f"""(
+            SELECT json_group_array(json_object(
+                'position', subset_candidate.key, 'candidate', json({candidate})
+            ))
+            FROM json_each(CASE WHEN json_type({candidates}) = 'array'
+                THEN {candidates} ELSE '[]' END) AS subset_candidate
+            WHERE json_type({candidate}, '$.candidate_key') = 'text'
+                AND json_extract({candidate}, '$.candidate_key') IN (
+                    SELECT value FROM json_each({keys})
+                )
+        )"""
+        return sql, (*candidate_params, *candidate_params, *key_params)
+
+
+def _load_cached_candidate_identity_rows(task_ids, *, cache, include_ancestors, candidate_keys):
+    from itertools import islice
+    from django.db.models.fields.json import KeyTransform
+    from botend.services import simc_benchmark_identity_cache as derived
+
+    rows = cache if cache is not None else {}
+    candidates = KeyTransform('candidates', KeyTransform('request_manifest', 'mode_params'))
+    pending = {pk: set(candidate_keys.get(pk, ())) for pk in task_ids}
+    visited = {}
+    while pending:
+        batch = {}
+        for pk in list(islice(pending, 20)):
+            keys = pending.pop(pk) - visited.get(pk, set())
+            if keys:
+                batch[pk] = keys
+                visited.setdefault(pk, set()).update(keys)
+        if not batch:
+            continue
+        # Read live provenance and content identity, never the candidate body.
+        metadata = SimcTask.objects.filter(pk__in=batch).order_by().annotate(
+            fingerprint=derived.CandidateFingerprint(candidates),
+        ).values('id', 'source_task_id', 'fingerprint')
+        metadata = {row['id']: row for row in metadata}
+        needed = {}
+        for pk, keys in batch.items():
+            meta = metadata.get(pk)
+            saved = derived.load(pk, meta['fingerprint']) if meta else None
+            previous = rows.get(pk)
+            rows[pk] = {'source_task_id': meta['source_task_id'] if meta else None,
+                        'identities': dict(saved['identities']) if saved else {},
+                        '_queried_keys': set(saved['queried_keys']) if saved else set(),
+                        '_fingerprint': meta['fingerprint'] if meta else None}
+            if previous and previous.get('_fingerprint') == rows[pk]['_fingerprint']:
+                rows[pk]['identities'].update(previous['identities'])
+                rows[pk]['_queried_keys'].update(previous.get('_queried_keys', ()))
+            if saved and saved['complete']:
+                rows[pk]['_queried_keys'].update(keys)
+            unknown = keys - rows[pk]['_queried_keys']
+            if meta and unknown:
+                needed[pk] = unknown
+            elif not meta:
+                rows[pk]['_queried_keys'].update(keys)
+        if needed:
+            keys_case = Case(*[
+                When(pk=pk, then=Value(sorted(keys), output_field=JSONField()))
+                for pk, keys in needed.items()
+            ], default=Value([], output_field=JSONField()), output_field=JSONField())
+            loaded = SimcTask.objects.filter(pk__in=needed).order_by().annotate(
+                frozen_candidates=_CandidateSubset(candidates, keys_case),
+                fingerprint=derived.CandidateFingerprint(candidates),
+            ).values('id', 'source_task_id', 'fingerprint', 'frozen_candidates')
+            found = set()
+            for row in loaded:
+                pk = row['id']
+                found.add(pk)
+                # The body and fingerprint come from the SAME SQL statement.
+                # A concurrent edit must not poison the prior content address.
+                if row['fingerprint'] != metadata[pk]['fingerprint']:
+                    # Re-read all requested keys against the new content.
+                    fresh = _load_task_candidate_identity_rows(
+                        [pk], cache=None, include_ancestors=False,
+                        candidate_keys={pk: batch[pk]},
+                    )
+                    rows[pk] = fresh[pk]
+                    continue
+                payload = [entry['candidate'] for entry in sorted(
+                    row['frozen_candidates'], key=lambda entry: entry['position'])]
+                identities = _candidate_identities_from_candidates(payload)
+                rows[pk]['identities'].update(identities)
+                rows[pk]['_queried_keys'].update(needed[pk])
+                rows[pk]['source_task_id'] = row['source_task_id']
+                derived.store(pk, row['fingerprint'], identities, needed[pk])
+            for pk in needed.keys() - found:
+                rows[pk] = {'source_task_id': None, 'identities': {},
+                            '_queried_keys': set(batch[pk])}
+        if include_ancestors:
+            for pk, keys in batch.items():
+                row = rows[pk]
+                missing = keys - row['identities'].keys()
+                if missing and row['source_task_id']:
+                    pending.setdefault(row['source_task_id'], set()).update(missing)
+    return rows
+
+
+def _load_task_candidate_identity_rows(
+        task_ids, *, cache=None, include_ancestors=True, candidate_keys=None,
+        derived_cache=False):
+    """Return frozen identities in reads of at most 20 Tasks.
+
+    The default retains the full-read two-field schema. With per-Task keys, SQL
+    hydrates only matching candidates and the cache tracks queried keys, including
+    misses. Further batches merge identities without rereading known keys.
     """
+    if derived_cache and candidate_keys is not None:
+        return _load_cached_candidate_identity_rows(
+            task_ids, cache=cache, include_ancestors=include_ancestors,
+            candidate_keys=candidate_keys,
+        )
     from itertools import islice
     from django.db.models.fields.json import KeyTransform
 
-    rows = {}
-    pending = set(task_ids)
-    attempted = set()
+    rows = cache if cache is not None else {}
+    frozen_candidates = KeyTransform(
+        'candidates', KeyTransform('request_manifest', 'mode_params'),
+    )
+    if candidate_keys is not None:
+        pending = {task_id: set(candidate_keys.get(task_id, ())) for task_id in task_ids}
+        visited = {}
+        while pending:
+            batch = {}
+            for task_id in list(islice(pending, 20)):
+                keys = pending.pop(task_id) - visited.get(task_id, set())
+                if keys:
+                    batch[task_id] = keys
+                    visited.setdefault(task_id, set()).update(keys)
+            needed = {}
+            for task_id, keys in batch.items():
+                cached = rows.get(task_id)
+                # No marker means a legacy/full read, which knows every key.
+                unknown = keys - cached.get('_queried_keys', keys) if cached is not None else keys
+                if unknown:
+                    needed[task_id] = unknown
+            if needed:
+                keys_case = Case(*[
+                    When(pk=task_id, then=Value(sorted(keys), output_field=JSONField()))
+                    for task_id, keys in needed.items()
+                ], default=Value([], output_field=JSONField()), output_field=JSONField())
+                loaded = list(SimcTask.objects.filter(pk__in=needed).order_by().annotate(
+                    frozen_candidates=_CandidateSubset(frozen_candidates, keys_case),
+                ).values('id', 'source_task_id', 'frozen_candidates'))
+                # Missing Tasks are negative cached too, with no invented source.
+                for task_id, keys in needed.items():
+                    cached = rows.setdefault(task_id, {
+                        'source_task_id': None, 'identities': {}, '_queried_keys': set(),
+                    })
+                    cached['_queried_keys'].update(keys)
+                for row in loaded:
+                    cached = rows[row['id']]
+                    # JSON_ARRAYAGG has no ordering guarantee. Last duplicate in
+                    # the original array wins, exactly like the full-read path.
+                    candidates = [entry['candidate'] for entry in sorted(
+                        row['frozen_candidates'], key=lambda entry: entry['position'],
+                    )]
+                    cached['identities'].update(_candidate_identities_from_candidates(candidates))
+                    cached['source_task_id'] = row['source_task_id']
+            if include_ancestors:
+                for task_id, keys in batch.items():
+                    cached = rows[task_id]
+                    source_id = cached['source_task_id']
+                    missing = keys - cached['identities'].keys()
+                    if source_id and missing:
+                        pending.setdefault(source_id, set()).update(missing)
+        return rows
+
+    pending = {task_id for task_id in task_ids
+               if task_id not in rows or '_queried_keys' in rows[task_id]}
+    attempted = {task_id for task_id, row in rows.items() if '_queried_keys' not in row}
     while pending:
         batch = list(islice(pending, 20))
         pending.difference_update(batch)
         attempted.update(batch)
+        annotations = {'frozen_candidates': frozen_candidates}
+        fields = ['id', 'source_task_id', 'frozen_candidates']
+        if derived_cache:
+            from botend.services import simc_benchmark_identity_cache as derived
+            annotations['fingerprint'] = derived.CandidateFingerprint(frozen_candidates)
+            fields.append('fingerprint')
         loaded = SimcTask.objects.filter(pk__in=batch).order_by().annotate(
-            frozen_candidates=KeyTransform(
-                'candidates', KeyTransform('request_manifest', 'mode_params'),
-            ),
-        ).values('id', 'source_task_id', 'frozen_candidates')
+            **annotations,
+        ).values(*fields)
+        # Remember missing ancestors as well, without inventing identities.
+        rows.update((task_id, {'source_task_id': None, 'identities': {}}) for task_id in batch)
         for row in loaded:
             identities = _candidate_identities_from_candidates(row.pop('frozen_candidates'))
+            if derived_cache:
+                derived.store(row['id'], row['fingerprint'], identities, identities, complete=True)
             source_id = row['source_task_id']
             rows[row['id']] = {'source_task_id': source_id, 'identities': identities}
-            if source_id and source_id not in attempted:
+            if include_ancestors and source_id and source_id not in attempted:
                 pending.add(source_id)
     return rows
 
@@ -1786,46 +2004,123 @@ def _reusable_result_counts_for_plans(panels, plans):
         'case__task__template_id', 'case__task__backend_id',
         'case__task__simulation_params',
     ).order_by('-case__execution_id', '-case_id', '-id'))
-    task_ids = {row['case__task_id'] for row in results}
-    tasks = _load_task_candidate_identity_rows(task_ids)
-
+    # Build the wanted surface first. Old results are metadata until they can
+    # still fill a current input identity; never decode every historical Task.
+    wanted = {}
+    candidate_lists = {}
+    for panel_id, plan in plans.items():
+        for coordinate in plan['cases']:
+            candidates = coordinate['candidates']
+            candidates_key = id(candidates)
+            if candidates_key not in candidate_lists:
+                candidate_lists[candidates_key] = {
+                    candidate['candidate_key']: _candidate_input_identity(candidate)
+                    for candidate in candidates
+                }
+            wanted[(panel_id, _coordinate_input_identity(coordinate))] = candidate_lists[candidates_key]
+    tasks = {}
     identity_cache = {}
 
-    def candidate_identities(task_id):
-        if task_id in identity_cache:
-            return identity_cache[task_id]
-        chain = []
+    def candidate_identity(task_id, key):
+        cache_key = (task_id, key)
+        if cache_key in identity_cache:
+            return identity_cache[cache_key]
         current_id = task_id
         seen = set()
         while current_id and current_id not in seen:
             seen.add(current_id)
+            if current_id not in tasks or key not in tasks[current_id].get('_queried_keys', {key}):
+                _load_task_candidate_identity_rows(
+                    [current_id], cache=tasks, include_ancestors=False,
+                    candidate_keys={current_id: {key}}, derived_cache=True,
+                )
             task = tasks.get(current_id)
             if task is None:
                 break
-            chain.append(task)
+            if key in task['identities']:
+                identity_cache[cache_key] = task['identities'][key]
+                return identity_cache[cache_key]
             current_id = task['source_task_id']
-        identities = {}
-        for task in reversed(chain):
-            identities.update(task['identities'])
-        identity_cache[task_id] = identities
-        return identities
+        identity_cache[cache_key] = None
+        return None
 
     reusable = {panel_id: {} for panel_id in panel_ids}
+    coordinate_cache = {}
+    pending_rows, pending_tasks, pending_identities = [], {}, set()
+
+    def flush():
+        if not pending_rows:
+            return
+        _load_task_candidate_identity_rows(
+            tuple(pending_tasks), cache=tasks, include_ancestors=False,
+            candidate_keys=pending_tasks, derived_cache=True,
+        )
+        # Retry manifests may omit inherited keys. Load only ancestors that
+        # supply those keys, in bounded batches rather than one query per row.
+        while True:
+            missing = {}
+            for row, _, _ in pending_rows:
+                current_id, seen = row['case__task_id'], set()
+                key = row['candidate_key']
+                while current_id and current_id not in seen:
+                    seen.add(current_id)
+                    if current_id not in tasks or key not in tasks[current_id].get('_queried_keys', {key}):
+                        missing.setdefault(current_id, set()).add(key)
+                        break
+                    task = tasks[current_id]
+                    if key in task['identities']:
+                        break
+                    current_id = task['source_task_id']
+            if not missing:
+                break
+            missing_ids = list(missing)
+            for start in range(0, len(missing_ids), 20):
+                batch = missing_ids[start:start + 20]
+                _load_task_candidate_identity_rows(
+                    batch, cache=tasks, include_ancestors=False,
+                    candidate_keys={task_id: missing[task_id] for task_id in batch}, derived_cache=True,
+                )
+        for row, coordinate, expected in pending_rows:
+            panel_id = row['case__execution__panel_id']
+            candidate = candidate_identity(row['case__task_id'], row['candidate_key'])
+            if candidate == expected:
+                reusable[panel_id].setdefault((coordinate, candidate), row['case__execution_id'])
+        pending_rows.clear()
+        pending_tasks.clear()
+        pending_identities.clear()
+
     for row in results:
         panel_id = row['case__execution__panel_id']
-        coordinate = _coordinate_input_identity({
-            'spec_key': row['case__spec_key'],
-            'scenario_key': row['case__scenario_key'],
-            'profile_key': row['case__profile_key'],
-            'profile_id': row['case__task__profile_id'],
-            'apl_id': row['case__task__apl_id'],
-            'template_id': row['case__task__template_id'],
-            'backend_id': row['case__task__backend_id'],
-            'simulation_params': row['case__task__simulation_params'] or {},
-        })
-        candidate = candidate_identities(row['case__task_id']).get(row['candidate_key'])
-        if candidate:
-            reusable[panel_id].setdefault((coordinate, candidate), row['case__execution_id'])
+        task_id = row['case__task_id']
+        case_key = (task_id, row['case__spec_key'], row['case__scenario_key'], row['case__profile_key'])
+        if case_key not in coordinate_cache:
+            coordinate_cache[case_key] = _coordinate_input_identity({
+                'spec_key': row['case__spec_key'],
+                'scenario_key': row['case__scenario_key'],
+                'profile_key': row['case__profile_key'],
+                'profile_id': row['case__task__profile_id'],
+                'apl_id': row['case__task__apl_id'],
+                'template_id': row['case__task__template_id'],
+                'backend_id': row['case__task__backend_id'],
+                'simulation_params': row['case__task__simulation_params'] or {},
+            })
+        coordinate = coordinate_cache[case_key]
+        expected = wanted.get((panel_id, coordinate), {}).get(row['candidate_key'])
+        # Disjoint identities can share a batch across executions. Resolve a
+        # pending newer winner before reading an older copy of that identity.
+        identity = (panel_id, coordinate, expected)
+        if identity in pending_identities:
+            flush()
+        if expected is None or (coordinate, expected) in reusable[panel_id]:
+            continue
+        if task_id not in pending_tasks and len(pending_tasks) == 20:
+            flush()
+            if (coordinate, expected) in reusable[panel_id]:
+                continue
+        pending_rows.append((row, coordinate, expected))
+        pending_tasks.setdefault(task_id, set()).add(row['candidate_key'])
+        pending_identities.add(identity)
+    flush()
 
     for panel_id, plan in plans.items():
         available = 0
@@ -1834,7 +2129,7 @@ def _reusable_result_counts_for_plans(panels, plans):
             coordinate_identity = _coordinate_input_identity(coordinate)
             for candidate in coordinate['candidates']:
                 source_execution_id = reusable[panel_id].get((
-                    coordinate_identity, _candidate_input_identity(candidate),
+                    coordinate_identity, wanted[(panel_id, coordinate_identity)][candidate['candidate_key']],
                 ))
                 if source_execution_id is None:
                     continue
@@ -1872,7 +2167,7 @@ def summarize_panel_coverage_counts(panels):
     for panel in panels:
         try:
             plans[panel.pk] = build_execution_plan(
-                panel, validate_for_execution=False, lock=False,
+                panel, validate_for_execution=False, lock=False, copy_candidates=False,
             )
         except ValidationError:
             continue

@@ -32,11 +32,11 @@ def macro_source_repairs(code):
 
 
 def macro_block_references(blocks):
-    """Scope source tokens to structural sections and preceding explanations.
+    """Keep structural preambles separate from next-code-run explanations.
 
-    Introductory references remain local to that section. Later explanations
-    apply to the next code block only. Headings and sibling containers reset
-    scope; descendant or later references never leak backwards into a macro.
+    Ordinary sibling prose, including the first macro explanation, is consumed
+    by the next uninterrupted code run. Only structural owner/heading anchors
+    and the verified Maxroll leading-quote template form persistent intro.
     """
     from botend.services.class_guide_content import REF_RE
 
@@ -44,25 +44,44 @@ def macro_block_references(blocks):
         return [{'kind': kind, 'object_id': int(sid), 'source_block': block['id']}
                 for kind, sid, _ in REF_RE.findall(block.get('title', '') + '\n' + block.get('html', ''))]
 
+    def has_maxroll_preamble(owner, rows):
+        if not owner or owner.get('type') != 'details' or owner.get('source_type') != 'advgb/accordion-item':
+            return False
+        if len(rows) < 3:
+            return False
+        quote, explanation, first_code = rows[:3]
+        # core/quote alone does not imply section-wide identity: require the
+        # verified accordion prefix and a separate first-macro explanation.
+        return (quote.get('type') == 'html' and quote.get('source_type') == 'core/quote'
+                and not quote.get('children')
+                and re.fullmatch(r'\s*<blockquote\b[^>]*>.*</blockquote>\s*', quote.get('html', ''), re.S | re.I)
+                and explanation.get('type') == 'html' and explanation.get('source_type') == 'core/paragraph'
+                and not explanation.get('children') and first_code.get('type') == 'code')
+
     result = {}
 
-    def visit(rows, initial=()):
-        intro, adjacent, seen_code = list(initial), [], False
-        for block in rows:
+    def visit(rows, initial=(), owner=None):
+        intro, adjacent, run_refs = list(initial), [], None
+        has_preamble = has_maxroll_preamble(owner, rows)
+        for index, block in enumerate(rows):
             own = refs(block)
+            if block['type'] != 'code':
+                run_refs = None
             if block['type'] in ('heading', 'separator') or re.search(r'<h[2-6]\b', block.get('html', ''), re.I):
-                intro, adjacent, seen_code = own, [], False
+                intro, adjacent = own, []
             elif block['type'] == 'code':
-                result[block['id']] = own or intro + adjacent
-                adjacent, seen_code = [], True
-            elif block.get('children'):
-                # A new structural subsection owns its own introduction.
-                visit(block['children'], own)
-                intro, adjacent, seen_code = [], [], False
-            elif seen_code:
-                adjacent.extend(own)
-            else:
+                if run_refs is None:
+                    run_refs = intro + adjacent
+                # Share the explanation, not a preceding code's own override.
+                result[block['id']] = own or list(run_refs)
+                adjacent = []
+            elif block.get('children') or block['type'] in ('details', 'accordion', 'tabs', 'tab', 'columns', 'column', 'group'):
+                visit(block.get('children', []), own, block)
+                intro, adjacent = [], []
+            elif index == 0 and has_preamble:
                 intro.extend(own)
+            else:
+                adjacent.extend(own)
     visit(blocks)
     return result
 
@@ -81,33 +100,72 @@ def resolve_macro_operands(operands, context, source_refs, unscoped_rows=()):
     decisions = {}
     for kind, operand in operands:
         key = operand.casefold()
-        candidates = {sid: row for sid, row in context['rows'].items()
+        candidates = {('spell', sid): row for sid, row in context['rows'].items()
                       if kind in ('spell', 'spell_or_item') and row['name'].casefold() == key}
+        if kind in ('item', 'spell_or_item'):
+            candidates.update({('item', sid): row for sid, row in context.get('items', {}).items()
+                               if row['name'].casefold() == key})
+        issues = (list(context['issues']) if kind != 'item' else [])
+        if kind != 'spell':
+            issues += context.get('item_issues', [])
         decision = {'operand': operand, 'kind': kind, 'status': 'missing_identity',
-                    'candidate_ids': sorted(candidates), 'source_refs': source_refs,
+                    'candidate_ids': sorted({sid for _, sid in candidates}),
+                    'candidate_identities': sorted(candidates), 'source_refs': source_refs,
                     'unscoped_candidates': sorted({(r['kind'], r['object_id']) for r in unscoped_rows
                         if r['kind'] in ('spell', 'talent', 'item') and r['name_en'].casefold() == key}),
-                    'issues': context['issues']}
-        # Named items/talent-entry anchors need their own proven namespace
-        # projection. Do not mistake a same-name spell for an item in /use.
-        if kind == 'item' or (kind == 'spell_or_item' and any(r['kind'] == 'item' for r in source_refs)):
-            decision['status'] = 'incomplete_context'
-            decision['issues'] = context['issues'] + [{'reason': 'unsupported_item_identity'}]
-        elif context['issues']:
-            decision['status'] = 'incomplete_context'
-        elif len(candidates) > 1:
+                    'issues': issues}
+        if len(candidates) > 1:
             decision['status'] = 'ambiguous_identity'
+        elif issues:
+            decision['status'] = 'incomplete_context'
         elif candidates:
-            sid, row = next(iter(candidates.items()))
-            decision.update(identity=('spell', sid), branch=row['branch'],
-                            snapshot_build=row['snapshot_build'],
-                            relations=[edge for edge in context['edges'] if edge['to'] == sid])
+            identity, row = next(iter(candidates.items()))
+            entity_kind, sid = identity
+            decision.update(identity=identity,
+                            relations=[edge for edge in context['edges'] if edge['to'] == sid
+                                       and edge.get('to_kind', 'spell') == entity_kind])
+            if entity_kind == 'spell':
+                decision.update(branch=row['branch'], snapshot_build=row['snapshot_build'])
+            else:
+                decision['source'] = 'WowItemSnapshot'
             if not re.search(r'[\u3400-\u9fff]', row['name_zh']):
                 decision['status'] = 'missing_zh'
             else:
                 decision.update(status='resolved', name_zh=row['name_zh'])
         decisions[(kind, key)] = decision
     return decisions
+
+
+def localize_macro_identities(code, context, source_refs, unscoped_rows=(), *, load_context):
+    """Resolve occurrences, not a block-wide name map, for numeric conditions.
+
+    Only the verified single-condition /cast form supplies an ID anchor, and
+    only when that exact ID's English name matches its own cast operand. This
+    is identity evidence, not evidence that the player has learned the spell.
+    Keep ordinary context conflicts and dependency checks; never promote this
+    line's ID (or its dependency names) into other lines or operands.
+    """
+    output, missing, decisions = [], set(), {}
+    for line_number, line in enumerate(code.splitlines(keepends=True), 1):
+        operands = macro_operands(line)
+        local = resolve_macro_operands(operands, context, source_refs, unscoped_rows)
+        anchor = re.fullmatch(r'\s*/cast\s+\[known:([1-9][0-9]*)\]\s+([^\r\n]+?)\s*', line, re.I)
+        if anchor:
+            sid, operand = int(anchor[1]), anchor[2].strip().removeprefix('!')
+            key = ('spell', operand.casefold())
+            if key in local and local[key]['status'] != 'resolved':
+                refs = list(source_refs) + [{'kind': 'spell', 'object_id': sid,
+                    'source_line': line_number, 'relation': 'numeric_known_cast'}]
+                anchored = load_context(refs)
+                row = anchored['rows'].get(sid)
+                if row and row['name'].casefold() == operand.casefold():
+                    local[key] = resolve_macro_operands([('spell', operand)], anchored, refs, unscoped_rows)[key]
+        translated, absent = localize_macro(line, {}, resolve=lambda value, kind:
+            local[(kind, value.casefold())].get('name_zh'))
+        output.append(translated)
+        missing.update(absent)
+        decisions.update({(line_number, kind, name): decision for (kind, name), decision in local.items()})
+    return ''.join(output), sorted(missing), decisions
 
 
 def localize_macro(code, names, *, resolve=None):
@@ -130,7 +188,7 @@ def localize_macro(code, names, *, resolve=None):
         return value
     def conditions(match):
         text = match[0]
-        return re.sub(r'\b(known|noknown):([^,\]]+)', lambda m:m[1] + ':' + '/'.join(name(v) for v in m[2].split('/')), text)
+        return re.sub(r'\b(known|noknown|channeling|nochanneling):([^,\]]+)', lambda m:m[1] + ':' + '/'.join(name(v) for v in m[2].split('/')), text, flags=re.I)
     result = []
     for raw in code.splitlines(keepends=True):
         line = raw.rstrip('\r\n')
@@ -138,7 +196,7 @@ def localize_macro(code, names, *, resolve=None):
         whisper = re.match(r'^(\s*/(?:w|whisper)\s+\S+\s+)(.+)$', line, re.I)
         if whisper:
             result.append((line if resolve is not None else whisper[1] + name(whisper[2])) + ending); continue
-        match = re.match(r'^(\s*(?:/(cast|use|castsequence|castrandom|equip|cancelaura|petautocaston|petautocastoff|petautocasttoggle|target|tar|targetexact)|#show(?:tooltip|icon)?))(\s+)(.*)$', line, re.I)
+        match = re.match(r'^(\s*(?:/(cast|use|castsequence|castrandom|equip|cancelaura|petautocaston|petautocastoff|petautocasttoggle|target|tar|targetexact|stopmacro)|#show(?:tooltip|icon)?))(\s+)(.*)$', line, re.I)
         if not match:
             result.append(line + ending); continue
         command = (match[2] or '').lower()
@@ -146,6 +204,9 @@ def localize_macro(code, names, *, resolve=None):
             result.append(line + ending); continue
         kind = 'item' if command == 'equip' else ('spell_or_item' if command == 'use' or not command else 'spell')
         args = re.sub(r'\[[^\]]*\]', conditions, match[4])
+        if command == 'stopmacro':
+            result.append(match[1] + match[3] + args + ending)
+            continue
         pieces = re.split(r'(\[[^\]]*\]|\breset=[^\s]+\s*|;)', args)
         for index, piece in enumerate(pieces):
             if not piece or piece.startswith('[') or piece.startswith('reset=') or piece == ';':

@@ -124,6 +124,25 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[2]/'scripts'))
 
 
 class CppScopeTests(unittest.TestCase):
+    def test_whole_spell_bindings_fail_closed_and_zero_cast_is_disabled(self):
+        from types import SimpleNamespace
+        from scripts.simc_cpp_scope import constant_flag, whole_spell_scope
+        self.assertIs(constant_flag('as<uint8_t>( 0 )'), False)
+        self.assertIs(constant_flag('as<uint8_t>( 2 )'), True)
+        self.assertIsNone(constant_flag('condition'))
+        text = '''struct action_t : Base {
+          action_t() { affected_by.some_flag = parse_damage_affecting_aura( this, p->spell.selector ); }
+        };'''
+        source = Path('/fixture')
+        resolver = SimpleNamespace(source=source)
+        for binding in ('spell.selector = condition ? find_spell(12) : find_spell(13);',
+                        'spell.selector = unknown();',
+                        'spell.selector = find_spell(12); spell.selector = find_spell(13);',
+                        ''):
+            with self.subTest(binding=binding):
+                self.assertIsNone(whole_spell_scope(resolver, text,
+                    [(source/'module.cpp', binding)], 'some_flag', {'类型':'action_t'}, {'文件':'module.cpp'}))
+
     def test_template_parameter_is_not_enclosing_action(self):
         text='template<class Base>\nstruct spell_action_t : public Base { double action_multiplier() { return 1; } };'
         self.assertEqual([s[2] for s in class_spans(text)],['spell_action_t'])

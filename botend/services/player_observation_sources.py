@@ -208,13 +208,17 @@ Session, existing proxy settings, 25s timeout, no redirects or automatic retry.
     def scored(self, character, season, force):
         identity, character_id = character['identity'], character['character_id']
         digest = activity_identity_digest(**identity)
-        row, _ = RaiderIOCharacterActivity.objects.get_or_create(
-            season=season, identity_digest=digest, defaults=identity)
-        result = {'activity_id': row.pk, 'identity_digest': digest, 'character_id': character_id}
+        result = {'identity_digest': digest, 'character_id': character_id}
+        phase, request_start = 'ensure_activity', self.requests
         # The schema deliberately has no scored lease fields. A NOWAIT row lock
         # serializes this independent snapshot without changing activity status,
         # timestamps, failure counters, or payload. Held for ONE bounded request.
         try:
+            # Creation can wait on a unique/FK lock before NOWAIT is reached.
+            row, _ = RaiderIOCharacterActivity.objects.get_or_create(
+                season=season, identity_digest=digest, defaults=identity)
+            result['activity_id'] = row.pk
+            phase = 'lock_activity'
             with transaction.atomic():
                 row = RaiderIOCharacterActivity.objects.select_for_update(nowait=True).get(pk=row.pk)
                 now = timezone.now()
@@ -228,6 +232,7 @@ Session, existing proxy settings, 25s timeout, no redirects or automatic retry.
                     else:
                         return {**result, 'status': 'fresh', 'fetched_at': row.scored_runs_fetched_at.isoformat()}
                 try:
+                    phase = 'fetch_scored'
                     response = self.get(SCORED_URL, params=_scope(season.rio_season, character_id),
                                         headers={'User-Agent': 'Mozilla/5.0'})
                     if response.status_code != 200:
@@ -238,11 +243,19 @@ Session, existing proxy settings, 25s timeout, no redirects or automatic retry.
                 except requests.RequestException:
                     return {**result, 'status': 'transport_error'}
                 stamp = timezone.now()
+                phase = 'save_scored'
                 RaiderIOCharacterActivity.objects.filter(pk=row.pk).update(
                     scored_runs_json=facts, scored_runs_fetched_at=stamp)
                 return {**result, 'status': 'ready', 'fetched_at': stamp.isoformat()}
-        except DatabaseError:
-            return {**result, 'status': 'database_busy_or_error'}
+        except DatabaseError as exc:
+            errno = exc.args[0] if exc.args else None
+            # Only identified MySQL contention is deferred. Unknown DB failures
+            # must remain hard errors, not silently become retryable source gaps.
+            if type(errno) is not int or (errno != 1205 and not (errno == 3572 and phase == 'lock_activity')):
+                raise
+            return {**result, 'status': 'busy', 'phase': phase, 'mysql_errno': errno,
+                    # This scored request only; earlier sources may have sent HTTP.
+                    'http_sent': self.requests > request_start}
 
 
 def _visible_facts(row, run, rio_season):
@@ -506,7 +519,7 @@ def _followup_plan(evidence, activity, entries, characters, states, scores, rio_
     return list(dict.fromkeys(_request_key(q) for q in planned)), (planned[0]['purpose'] if planned else 'verify_guest_gain')
 
 
-def _finish_investigation(before, after, entries, characters, states, scores, attempts, result, rio_season):
+def _finish_investigation(before, after, entries, characters, states, scores, attempts, result, rio_season, *, execution_scopes=None):
     """A completed bounded check is not proof that every hypothesis is resolved."""
     initial = before['metrics']['investigation']
     current = (after or {}).get('metrics', {}).get('investigation') or initial
@@ -518,9 +531,11 @@ def _finish_investigation(before, after, entries, characters, states, scores, at
     outcomes_by_id = {q['id']: q for q in _question_outcomes(
         initial, entries, characters, states, scores, rio_season)}
     changed = [q for q in current.get('questions', []) if q != questions.get(q['id'])]
-    attempted_questions = [state['question'] for state in attempts.values()]
-    outcomes_by_id.update({q['id']: q for q in _question_outcomes(
-        {**current, 'questions': attempted_questions}, entries, characters, states, scores, rio_season)})
+    for key, attempt in attempts.items():
+        plan, scoped_entries, scoped_characters = (execution_scopes or {}).get(key, (initial, entries, characters))
+        outcomes_by_id.update({q['id']: q for q in _question_outcomes(
+            {**plan, 'questions': [attempt['question']]}, scoped_entries, scoped_characters,
+            {**states, key: attempt}, scores, rio_season)})
     outcomes_by_id.update({q['id']: q for q in _question_outcomes(
         {**current, 'questions': changed}, entries, characters, states, scores, rio_season)})
     outcomes = list(outcomes_by_id.values())
@@ -529,8 +544,9 @@ def _finish_investigation(before, after, entries, characters, states, scores, at
     confirmed_runs = (set(review.get('witnesses', {}).get('carrying', []))
                       if review.get('supported', {}).get('carrying') else set())
     for item in outcomes:
-        if _request_key(item) in attempts:
-            item['request_status'] = attempts[_request_key(item)]['status']
+        attempt = attempts.get(_request_key(item))
+        if attempt and all(item.get(k) == v for k, v in attempt['question'].items() if k in item):
+            item['request_status'] = attempt['status']
         elif item['id'] not in active and item['status'] == 'budget_pending':
             item['status'] = 'not_needed'
         if (item['purpose'] == 'verify_guest_gain' and item['status'] == 'observed_partial'
@@ -566,6 +582,107 @@ def _finish_investigation(before, after, entries, characters, states, scores, at
         'bounded_complete': stop not in ('rate_limited', 'source_failed'), 'stop_reason': stop}
     result['followup_triggered'] = triggered
     result['followup_budget_reason'] = stop if triggered else 'not_needed'
+
+
+def _sync_execution_domain(activity, season, entries, characters, states, scores, result, max_characters):
+    """Re-read canonical facts after collection; admission is bounded, not re-sorted."""
+    from botend.services.player_observation_questions import observed_runs
+    # This round's JSON-safe ledger outlives temporary roster/lease invisibility.
+    # `characters` is only the currently executable subset; slots are never freed.
+    admissions = result.setdefault('character_admissions', {
+        key: character['character_id'] for key, character in characters.items()})
+    activity.refresh_from_db()
+    _, recent, runs, conflicts, invalid = observed_runs(activity, season.rio_season)
+    result['invalid_references'] = max(result.get('invalid_references', 0), invalid + len(conflicts))
+    # Retain earlier execution references, but validate every payload again.
+    refs = {run_reference(run, season.rio_season): run for run, _ in entries}
+    refs.update(runs)
+    rows = {row.run_id: row for row in RaiderIORunRoster.objects.filter(
+        rio_season=season.rio_season, run_id__in=refs)}
+    run_states = {item['run_id']: item for item in result['runs']}
+    refreshed = []
+    for rid, run in refs.items():
+        row = rows.get(rid)
+        fact = _visible_facts(row, run, season.rio_season)
+        protected = bool(row and row.next_attempt_at and row.next_attempt_at > timezone.now()
+                         and (row.status != 'ready' or row.last_error))
+        if protected:
+            status = 'busy' if row.status == 'fetching' else 'backoff'
+        elif row and (row.status == 'error' or row.last_error):
+            status = 'error'
+        elif row and row.roster_visible and not fact:
+            status = 'invalid_payload'
+        elif fact and all('id' in m['character'] for m in fact['roster']):
+            status = 'fresh'
+        else:
+            status = 'budget_exhausted'
+        if rid not in run_states:
+            state = {'run_id': rid, 'status': status}
+            result['runs'].append(state)
+            run_states[rid] = state
+        elif run_states[rid]['status'] != 'not_needed' and (
+                status in ('busy', 'backoff', 'error', 'invalid_payload') or (
+                status == 'budget_exhausted' and run_states[rid]['status'] in ('ready', 'fresh'))):
+            run_states[rid]['status'] = status
+        if fact and status != 'busy' and rid not in conflicts:
+            refreshed.append((run, fact))
+    entries[:] = refreshed
+    facts = [fact for _, fact in entries]
+    discovered, conflicts = _characters(facts, activity.identity_digest)
+    result['identity_conflicts'] = max(result.get('identity_conflicts', 0), conflicts)
+    verified = {activity_identity_digest(**c['identity']): c for c in discovered}
+    admitted_uids = {uid: key for key, uid in admissions.items()}
+    for key, character in verified.items():
+        uid = character['character_id']
+        if ((key in admissions and admissions[key] != uid)
+                or (uid in admitted_uids and admitted_uids[uid] != key)):
+            result['identity_conflicts'] = max(1, result['identity_conflicts'])
+    # Existing admissions cannot be displaced by a newly discovered lower digest.
+    for key in list(characters):
+        if key not in verified or characters[key]['character_id'] != verified[key]['character_id']:
+            if key in verified:
+                result['identity_conflicts'] = max(1, result['identity_conflicts'])
+            characters.pop(key)
+            scores.pop(key, None)
+            for target in list(states):
+                if target == key or isinstance(target, tuple) and target[0] == key:
+                    states.pop(target)
+    for key, character in verified.items():
+        if key not in characters and not result['identity_conflicts']:
+            if key in admissions or len(admissions) < max_characters:
+                admissions.setdefault(key, character['character_id'])
+                characters[key] = character
+        if key in characters:
+            states[key], score = _score_cache(character, season)
+            scores.pop(key, None)
+            if score is not None:
+                scores[key] = score
+    result.update(rosters_visible=len(facts), characters_discovered=len(discovered),
+                  characters_truncated=(len(admissions) >= max_characters
+                                        and any(key not in admissions for key in verified)),
+                  members_without_identity=sum('id' not in m['character'] or not _profile_url(m['character'])
+                                               for fact in facts for m in fact['roster']),
+                  subject_character_id=verified.get(activity.identity_digest, {}).get('character_id'))
+    return {run_reference(run, season.rio_season) for run in recent}
+
+
+def _refresh_history_states(evidence, entries, characters, states, season):
+    """A shared request key must cover the latest of *all* its current questions."""
+    from botend.services.player_observation_history import history_cache
+    times = {run_reference(run, season.rio_season): parse_datetime(fact['completed_at'])
+             for run, fact in entries}
+    required = {}
+    for q in ((evidence or {}).get('metrics', {}).get('investigation') or {}).get('questions', []):
+        target = _request_key(q) if isinstance(q, dict) else None
+        if not isinstance(target, tuple) or target[0] not in characters:
+            continue
+        ids = q.get('run_ids')
+        dates = [times[rid] for rid in ids if type(rid) is int and rid in times] if isinstance(ids, list) else []
+        previous = required.get(target)
+        required[target] = max([*dates, *([previous] if previous else [])], default=None)
+    for target, after in required.items():
+        states[target] = history_cache(characters[target[0]], season, target[1], required_after=after)
+    return required
 
 
 def _progressive_sources(primary, season, activity, digest, batch, result,
@@ -643,38 +760,23 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
                   subject_character_id=next((c['character_id'] for c in discovered
                                              if activity_identity_digest(**c['identity']) == digest), None))
     characters = {activity_identity_digest(**c['identity']): c for c in discovered[:max_characters]}
+    result['character_admissions'] = {key: c['character_id'] for key, c in characters.items()}
     states, scores = {}, {}
-    for key, character in characters.items():
-        states[key], score = _score_cache(character, season)
-        if score is not None:
-            scores[key] = score
     start = batch.requests
     if not batch.stop_event.is_set():
         from botend.services.player_observation import build_evidence
+        recent_ids = _sync_execution_domain(activity, season, entries, characters, states, scores, result, max_characters)
         before = _merge_behavior_questions(build_evidence(primary), recent_ids)
         result['source_failed'] = bool((before or {}).get('source_failed'))
-        from botend.services.player_observation_history import history_cache, collect_history
-        completion_times = {run_reference(run, season.rio_season): parse_datetime(fact['completed_at'])
-                            for run, fact in entries}
-
-        def required_after(question):
-            ids = question.get('run_ids')
-            dates = [completion_times[rid] for rid in ids if type(rid) is int and rid in completion_times] if isinstance(ids, list) else []
-            return max(dates) if dates else None
-
-        for q in ((before or {}).get('metrics', {}).get('investigation') or {}).get('questions', []):
-            if not isinstance(q, dict):
-                continue
-            key, did = q.get('identity_digest'), q.get('dungeon_id')
-            if q.get('kind') == 'scored_history' and isinstance(key, str) and key in characters and type(did) is int and did > 0:
-                states[(key, did)] = history_cache(characters[key], season, did, required_after=required_after(q))
+        from botend.services.player_observation_history import collect_history
+        required = _refresh_history_states(before, entries, characters, states, season)
         investigation = (before or {}).get('metrics', {}).get('investigation')
         allowed_questions = {q['id'] for q in (investigation or {}).get('questions', [])}
         preferred = [qid for qid in _preferred_question_ids(activity, before) if qid in allowed_questions]
         planned, reason = _followup_plan(before, activity, entries, characters, states, scores, season.rio_season,
                                         preferred_question_ids=preferred)
         result['followup_preferred_question_ids'] = preferred
-        attempts = {}
+        attempts, execution_scopes = {}, {}
         current = before
         result.update(followup_triggered=bool(planned), followup_reason=reason,
                       followup_budget_reason='needed' if planned else 'not_needed')
@@ -696,6 +798,7 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
                         {**current_plan, 'questions': [q]}, entries, characters, states, scores, season.rio_season))), None)
             if not question or question.get('purpose') not in (*PURPOSES, 'verify_guest_gain', 'verify_core_history'):
                 break
+            execution_scopes[key] = (current_plan, list(entries), dict(characters))
             request_start = batch.requests
             if question['kind'] == 'scored_runs':
                 states[key] = batch.scored(characters[key], season, False)
@@ -703,15 +806,14 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
                 if score is not None:
                     scores[key] = score
             else:
-                states[key] = collect_history(batch, characters[key[0]], season, key[1], required_after=required_after(question))
+                states[key] = collect_history(batch, characters[key[0]], season, key[1], required_after=required.get(key))
             attempts[key] = {**states[key], 'api_requests': batch.requests - request_start,
                              'question': question}
             # 每次补证后重算，不执行已解决或已失效的旧问题。
-            current = _merge_behavior_questions(build_evidence(primary), recent_ids)
-            for q in ((current or {}).get('metrics', {}).get('investigation') or {}).get('questions', []):
-                target = _request_key(q)
-                if isinstance(target, tuple) and target[0] in characters:
-                    states[target] = history_cache(characters[target[0]], season, target[1], required_after=required_after(q))
+            rebuilt = build_evidence(primary)
+            recent_ids = _sync_execution_domain(activity, season, entries, characters, states, scores, result, max_characters)
+            current = _merge_behavior_questions(rebuilt, recent_ids)
+            required = _refresh_history_states(current, entries, characters, states, season)
             planned, reason = _followup_plan(current, activity, entries, characters, states, scores,
                 season.rio_season, preferred_question_ids=())
         result['followup_api_requests'] = batch.requests - start
@@ -723,7 +825,7 @@ def _progressive_sources(primary, season, activity, digest, batch, result,
             # Rebuild from the just-published central snapshots, never infer the
             # answer from HTTP success or mutate the original evidence in place.
             _finish_investigation(before, current, entries, characters, states, scores,
-                                  attempts, result, season.rio_season)
+                                  attempts, result, season.rio_season, execution_scopes=execution_scopes)
     result['characters'] = list(states.values())
     if batch.rate_limited:
         result['status'] = 'rate_limited'

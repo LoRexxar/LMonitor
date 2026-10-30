@@ -1135,7 +1135,7 @@ def _freeze_equipment_rules():
     return rules
 
 
-def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=None, class_name=''):
+def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=None, class_name='', copy_shared=True):
     from simc_equipment_control import SLOTS, ALIASES, candidate_swaps, control_key
     from botend.services.wow_item_effect_activation_store import (
         item_activation_facts, freeze_equipment_activation,
@@ -1208,13 +1208,16 @@ def _freeze_case_candidates(spec_key, applicable, rules=None, *, eligibility=Non
             candidate['candidate_label'] = f'{candidate["candidate_label"]}（固定 {context}；{changed} 条件增量）'[:200]
         else:
             params = freeze_equipment_activation(params, activation_facts)
-            params['equipment_effect_policy'] = {'version': 2, 'target_slots': slots, 'rules': deepcopy(rules)}
+            params['equipment_effect_policy'] = {
+                'version': 2, 'target_slots': slots,
+                'rules': deepcopy(rules) if copy_shared else rules,
+            }
         candidate['candidate_params'] = params
         key = control_key(candidate['candidate_key'])
         if any(row['candidate_key'] == key for row in candidates):
             _error('候选标识与系统生成的无特效对照冲突')
         params['effect_baseline_key'] = key
-        control = deepcopy(candidate)
+        control = deepcopy(candidate, None if copy_shared else {id(rules): rules})
         control['candidate_key'] = key
         control_label = '保留固定上下文的对照' if conditional else '无特效对照'
         control['candidate_label'] = f'{candidate["candidate_label"]}（{control_label}）'[:200]
@@ -1363,11 +1366,13 @@ def _locked_panel_snapshot_queryset():
 
 
 @transaction.atomic
-def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
+def build_execution_plan(panel, validate_for_execution=True, *, lock=True, copy_candidates=True):
     """Build a deterministic plan from one freshly queried DB snapshot.
 
     ``lock=False`` is the optimistic preflight view used before expensive binary
     validation. The default remains the historical locked planning contract.
+    ``copy_candidates=False`` is only for read-only consumers: coordinates of
+    the same spec borrow the same frozen candidate list and must not mutate it.
     """
     queryset = (_locked_panel_snapshot_queryset() if lock
                 else _panel_snapshot_queryset(enabled_only=True))
@@ -1442,7 +1447,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
             excluded_candidates.extend({'spec_key': spec.spec_key, **item} for item in excluded)
             case_candidates = _freeze_case_candidates(
                 spec.spec_key, applicable, equipment_policy_rules,
-                eligibility=eligibility, class_name=spec.class_name,
+                eligibility=eligibility, class_name=spec.class_name, copy_shared=copy_candidates,
             )
         for scenario in scenarios:
             for selected in profiles:
@@ -1485,7 +1490,7 @@ def build_execution_plan(panel, validate_for_execution=True, *, lock=True):
                     'apl_id': effective_apl.pk,
                     'template_id': spec.template_id, 'backend_id': spec.backend_id,
                     'simulation_params': simulation_params,
-                    'candidates': deepcopy(case_candidates),
+                    'candidates': deepcopy(case_candidates) if copy_candidates else case_candidates,
                     'resources': _resource_display_snapshot(spec, selected, effective_apl),
                 })
     case_count = len(cases)

@@ -21,10 +21,10 @@ from botend.services.wow_news_glossary_service import WowNewsGlossary, Protected
 from botend.services.class_guide_translation import translate_fragment_nodes
 from botend.services.class_guide_translation_cache import GuideTranslationCache
 from botend.services.class_guide_glossary import GuideGlossary
-from botend.services.wow_localization import effective_names, macro_reference_version, macro_spell_context
+from botend.services.wow_localization import effective_names, macro_reference_version, macro_identity_context
 from botend.services.class_guide_macros import (
     localize_macro, macro_source_repairs, macro_operands,
-    macro_block_references, resolve_macro_operands,
+    macro_block_references, localize_macro_identities,
 )
 
 
@@ -116,7 +116,8 @@ def build_guide_glossary(blocks, game_version):
         # 攻略正文中的资料片名不能被冒险指南里的同名首领覆盖。
         WowNewsGlossary.from_trusted_pairs([('Midnight', '至暗之夜')]),
         WowNewsGlossary.from_trusted_pairs((r['name_en'], r['name_zh']) for r in scoped),
-        WowNewsGlossary.from_trusted_pairs([('Raid', '团队副本'), ('Mythic+', '大秘境'), ('AoE', '范围伤害'), ('BiS', '最佳配装')]),
+        # AoE describes area, not effect type: healing/control/damage follow it.
+        WowNewsGlossary.from_trusted_pairs([('Raid', '团队副本'), ('Mythic+', '大秘境'), ('AoE', '范围'), ('BiS', '最佳配装')]),
         WowNewsGlossary.from_builtin_terms(),
         WowNewsGlossary.from_pairs((r['name_en'], r['name_zh']) for r in rows if r['kind'] == 'talent'),
         WowNewsGlossary.from_current_spell_metadata(source_text),
@@ -148,10 +149,9 @@ def translate_blocks(blocks, game_version, *, service=None, progress=None):
         if block['type'] == 'code' and block.get('data', {}).get('code'):
             source_code = block['data']['code']
             refs = macro_refs.get(block['id'], [])
-            context = macro_spell_context({r['object_id'] for r in refs if r['kind'] == 'spell'}, macro_version)
-            decisions = resolve_macro_operands(operands[block['id']], context, refs, macro_rows)
-            code, missing = localize_macro(source_code, {}, resolve=lambda value, kind:
-                decisions[(kind, value.casefold())].get('name_zh'))
+            context = macro_identity_context(refs, macro_version)
+            code, missing, decisions = localize_macro_identities(source_code, context, refs, macro_rows,
+                load_context=lambda local_refs: macro_identity_context(local_refs, macro_version))
             block['data']['code'] = code
             if missing:
                 unresolved = [d for d in decisions.values() if d['status'] != 'resolved']
@@ -408,8 +408,10 @@ def _sync_guides(*, task, heartbeat, translate, cache_dir, limit, log, workers, 
                     record(future.result())
         heartbeat()
         run.status = 'partial' if any(r['status'] in {'failed', 'translation_partial'} for r in run.results) else ('limited' if limit and len(urls) > limit else 'completed')
-    except Exception as exc:
-        run.status, run.error = 'failed', str(exc)[:2000]
+    except BaseException as exc:
+        # Interrupts must terminate the durable batch too. Keep the original
+        # signal propagating, including when final heartbeat detects lease loss.
+        run.status, run.error = 'failed', (str(exc) or type(exc).__name__)[:2000]
         raise
     finally:
         run.finished_at = timezone.now()

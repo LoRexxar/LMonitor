@@ -166,16 +166,27 @@ def item_payload(item):
 class UpdateSource:
     def discover(self, branch):
         source = CurrentGearCatalogSource()
-        product = BRANCHES[branch][0]
-        response = source._get('https://wago.tools/builds', params={'product': product})
-        rows = inertia(response.text)['builds']['data']
-        builds = [row['version'] for row in rows if row.get('product') == product]
-        if not builds:
+        products = ('wowt', 'wowxptr') if branch == 'ptr' else (BRANCHES[branch][0],)
+        # The builds page ignores ?product= and only returns 25 mixed rows.
+        # This authoritative index supplies the latest build for every product.
+        latest = source._get_json('https://wago.tools/api/builds/latest')
+        rows = []
+        for product in products:
+            row = latest.get(product)
+            if row is None:
+                continue
+            if row.get('product') != product:
+                raise ValueError('Wago 构建产品身份不匹配')
+            build_number(row.get('version'))
+            rows.append(row)
+        if not rows:
             raise ValueError(f'{branch} 没有可用构建')
-        build = max(builds, key=build_number)
+        selected = max(rows, key=lambda row: build_number(row['version'])[-1])
+        build = selected['version']
         catalog = source._get_json(f'https://www.raidbots.com/static/data/{BRANCHES[branch][1]}/metadata.json')
         # 新增采集字段时，即使上游构建未变，也在下一正常周期补齐一次。
-        return {'build': build, 'catalog_build': str(catalog.get('wowBuild') or catalog.get('wow_build') or ''),
+        return {'build': build, 'product': selected['product'],
+                'catalog_build': str(catalog.get('wowBuild') or catalog.get('wow_build') or ''),
                 'data_schema': 'loot-specializations-2'}
 
     @protect_sources
@@ -560,6 +571,16 @@ def validate_talents(version):
 def publish(bundle, version, state, run, task):
     assert_lease(task)
     state = WowDataUpdateState.objects.select_for_update().get(pk=state.pk)
+    if version.branch != run.branch or state.branch != run.branch:
+        raise ValueError('天赋候选分支不匹配，拒绝串服发布')
+    if version.current_build != run.build:
+        raise ValueError('天赋候选构建与本次来源不匹配')
+    target = WowTalentVersion.objects.select_for_update().filter(key=run.branch).first()
+    if target and target.branch != run.branch:
+        raise ValueError('天赋稳定槽位分支不匹配')
+    for current_build in (state.published_build, target.current_build if target else ''):
+        if current_build and build_number(run.build)[-1] < build_number(current_build)[-1]:
+            raise ValueError('拒绝旧构建覆盖当前分支')
     season = SeasonMeta.objects.select_for_update().get(pk=bundle['season_id'])
     if season.gear_batch_key != bundle['previous_batch']:
         raise ValueError('准备期间当前目录已变化，下轮重新准备')
@@ -643,7 +664,6 @@ def publish(bundle, version, state, run, task):
                     if ref.get(key) not in ('', None):
                         display[key] = ref[key]
             item.save(update_fields=['metadata'])
-    target = WowTalentVersion.objects.select_for_update().filter(key=run.branch).first()
     source_history = retained_sources(version.source_dir, target.source_dir if target else '', state.report)
     if target is None:
         target = WowTalentVersion.objects.create(key=run.branch, branch=run.branch)
@@ -758,6 +778,10 @@ def sync_game_data(*, monitor_task=None, branches=None, source=None):
                 build = observation['build'] if isinstance(observation, dict) else observation
                 fingerprint = json.dumps(observation, sort_keys=True) if isinstance(observation, dict) else build
                 build_number(build)
+                current = WowTalentVersion.objects.filter(key=branch, branch=branch).first()
+                for current_build in (state.published_build, current.current_build if current else ''):
+                    if current_build and build_number(build)[-1] < build_number(current_build)[-1]:
+                        raise ValueError('拒绝旧构建覆盖当前分支')
                 with transaction.atomic():
                     assert_lease(task)
                     state.observed_build, state.checked_at = build, timezone.now()

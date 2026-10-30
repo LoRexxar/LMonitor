@@ -1,7 +1,8 @@
 """Trusted publication versions, actual ORM generation and frozen reads."""
 import copy
 import json
-from unittest.mock import Mock
+from datetime import datetime, timezone as datetime_timezone
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from botend.tests import test_player_observation as fixtures
@@ -10,7 +11,12 @@ from botend.models import PlayerObservationAnalysis
 
 
 class PublicationVersionTests(TestCase):
-    setUp = fixtures.PlayerObservationTests.setUp
+    def setUp(self):
+        # Version validation needs an investigation, not an aged-out empty sample.
+        self.enterContext(patch('django.utils.timezone.now',
+            return_value=datetime(2026, 10, 11, 12, tzinfo=datetime_timezone.utc)))
+        fixtures.PlayerObservationTests.setUp(self)
+
     evidence = fixtures.PlayerObservationTests.evidence
 
     def current(self):
@@ -24,6 +30,7 @@ class PublicationVersionTests(TestCase):
 
     def legacy(self):
         evidence = self.evidence()
+        self.assertTrue(evidence['metrics'].get('investigation', {}).get('triggered'))
         evidence['prompt_version'] = 7
         evidence['evidence_hash'] = service._hash({k: v for k, v in evidence.items()
             if k not in ('evidence_hash', 'source_failed')})
@@ -133,6 +140,7 @@ class PublicationVersionTests(TestCase):
             return json.dumps(result)
         engine = Mock(send_message=Mock(side_effect=respond))
         self.assertEqual(service.generate_observation(self.player, engine=engine)['status'], 'ready')
+        engine.send_message.assert_called_once()
         row = PlayerObservationAnalysis.objects.get()
         self.assertEqual(row.prompt_version, 9)
         self.assertNotIn('response_contract', row.evidence_json['metrics']['investigation'])

@@ -1,0 +1,118 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -2486,6 +2486,68 @@
+   out << ']';
+ }
+ 
++// Independent unreviewed evidence: no scope contract, actors, or normalization.
++// Identity comes from compiled git/DBC metadata, never caller-supplied labels.
++void export_skill_damage_raw_scope_catalog( sim_t& sim )
++{
++  if ( !sim.skill_damage_revision.empty() || !sim.skill_damage_game_build.empty() )
++    throw std::runtime_error( "Raw scope catalog does not accept revision/build overrides" );
++  const std::string revision = git_info::revision();
++  if ( !git_info::available() || revision.size() < 7 || revision.size() > 40 ||
++       !std::all_of( revision.begin(), revision.end(),
++                     []( unsigned char c ) { return std::isxdigit( c ); } ) )
++    throw std::runtime_error( "Raw scope catalog requires compiled git revision metadata" );
++  std::ofstream out( sim.skill_damage_raw_scope_export_file, std::ios::binary | std::ios::trunc );
++  if ( !out ) throw std::runtime_error( "Unable to open raw scope catalog" );
++  out << "{\"raw_catalog_schema\":1,\"catalog_kind\":\"raw_dbc_scope_evidence\","
++         "\"draft\":true,\"review_status\":\"unreviewed\",\"compile_contract_allowed\":false,"
++         "\"normalized\":false,\"simc_revision\":";
++  apl_metadata_json_string( out, revision );
++  out << ",\"binary_revision\":"; apl_metadata_json_string( out, revision );
++  out << ",\"game_build\":"; apl_metadata_json_string( out, dbc::client_data_version_str( sim.dbc->ptr ) );
++  out << ",\"ptr\":" << ( sim.dbc->ptr ? "true" : "false" );
++  out << ",\"talent_catalog\":[";
++  bool first_trait = true;
++  for ( const auto& trait : trait_data_t::data( sim.dbc->ptr ) )
++  {
++    const auto* spell = dbc::find_spell( &sim, trait.id_spell );
++    if ( !first_trait ) out << ',';
++    first_trait = false;
++    out << "{\"trait_entry_id\":" << trait.id_trait_node_entry << ",\"class_id\":" << trait.id_class
++        << ",\"tree_index\":" << trait.tree_index << ",\"spell_id\":" << trait.id_spell
++        << ",\"max_ranks\":" << trait.max_ranks << ",\"subtree_id\":" << trait.id_sub_tree << ",\"name\":";
++    apl_metadata_json_string( out, trait.name );
++    out << ",\"spec_ids\":[";
++    bool fs = true;
++    for ( auto spec : trait.id_spec ) if ( spec ) { if ( !fs ) out << ','; fs = false; out << spec; }
++    out << "],\"passive\":" << ( spell && spell->flags( spell_attribute::SX_PASSIVE ) ? "true" : "false" );
++    const auto& txt = sim.dbc->spell_text( trait.id_spell );
++    out << ",\"description\":"; apl_metadata_json_string( out, txt.desc() ? txt.desc() : "" );
++    out << ",\"tooltip\":"; apl_metadata_json_string( out, txt.tooltip() ? txt.tooltip() : "" );
++    out << ",\"effects\":[";
++    bool fe = true;
++    if ( spell ) for ( const auto& effect : spell->effects() )
++    {
++      if ( !fe ) out << ','; fe = false;
++      out << "{\"index\":" << effect.index() + 1 << ",\"id\":" << effect.id()
++          << ",\"type\":" << effect.type() << ",\"subtype\":" << effect.subtype()
++          << ",\"misc1\":" << effect.misc_value1() << ",\"misc2\":" << effect.misc_value2()
++          << ",\"value\":" << effect.base_value() << ",\"trigger\":" << effect.trigger_spell_id()
++          << ",\"flags\":[";
++      for ( unsigned i = 0; i < NUM_CLASS_FAMILY_FLAGS; ++i ) { if ( i ) out << ','; out << effect.class_flags( i ); }
++      out << "]}";
++    }
++    out << "],\"dbc_scope_effects\":[";
++    bool fr=true;
++    if(spell) for(const auto& effect:spell->effects()) if(effect.id())
++    { if(!fr) out << ','; fr=false; skill_damage_write_dbc_relation(out,*sim.dbc,effect); }
++    out << "]}";
++  }
++  out << "]}\n";
++  out.flush();
++  if ( !out ) throw std::runtime_error( "Unable to write raw scope catalog" );
++}
++
+ // 全 DBC 目录模式不创建 actor、不初始化技能，也不运行伤害探针。
+ void export_skill_damage_scope_catalog( sim_t& sim )
+ {
+@@ -3237,6 +3299,17 @@
+       std::throw_with_nested( std::runtime_error( "Setup failure" ) );
+     }
+ 
++    if ( !skill_damage_raw_scope_export_file.empty() )
++    {
++      // A raw request must never shadow a gated production export request.
++      if ( !skill_damage_scope_export_file.empty() || !skill_damage_export_file.empty() ||
++           !skill_damage_evidence_export_file.empty() || !apl_metadata_export_file.empty() ||
++           !player_list.empty() )
++        throw std::runtime_error( "Raw scope catalog must run alone without actors or other exports" );
++      export_skill_damage_raw_scope_catalog( *this );
++      return 0;
++    }
++
+     if ( !skill_damage_scope_export_file.empty() )
+     {
+       skill_damage_validate_scope_contract(*this);
+--- a/engine/sim/sim.cpp
++++ b/engine/sim/sim.cpp
+@@ -3878,6 +3878,7 @@
+   add_option( opt_string( "apl_metadata_game_build", apl_metadata_game_build ) );
+   add_option( opt_string( "skill_damage_export", skill_damage_export_file ) );
+   add_option( opt_string( "skill_damage_scope_export", skill_damage_scope_export_file ) );
++  add_option( opt_string( "skill_damage_raw_scope_export", skill_damage_raw_scope_export_file ) );
+   add_option( opt_string( "skill_damage_evidence_export", skill_damage_evidence_export_file ) );
+   add_option( opt_string( "skill_damage_revision", skill_damage_revision ) );
+   add_option( opt_string( "skill_damage_game_build", skill_damage_game_build ) );
+@@ -4371,7 +4372,7 @@
+   }
+ 
+   if ( player_list.empty() && spell_query == nullptr && !display_bonus_ids && display_build <= 1 &&
+-       skill_damage_scope_export_file.empty() )
++       skill_damage_scope_export_file.empty() && skill_damage_raw_scope_export_file.empty() )
+   {
+     fmt::print( "Nothing to sim! " );
+     canceled = true;
+--- a/engine/sim/sim.hpp
++++ b/engine/sim/sim.hpp
+@@ -96,6 +96,7 @@
+   // Runtime skill damage probe mode. Actors initialize, but no simulation executes.
+   std::string skill_damage_export_file;
+   std::string skill_damage_scope_export_file;
++  std::string skill_damage_raw_scope_export_file;
+   std::string skill_damage_evidence_export_file;
+   std::string skill_damage_revision;
+   std::string skill_damage_game_build;

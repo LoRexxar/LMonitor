@@ -11,7 +11,7 @@ import unicodedata
 import uuid
 from datetime import timedelta
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.utils import timezone
 
@@ -22,7 +22,7 @@ from botend.services.player_raiderio_activity import player_identity
 from botend.services.player_observation_progression import current_record, _date
 from botend.services.player_observation_ai import compact_ai_input
 from botend.services.player_observation_investigation import build_investigation, _fresh
-from botend.services.raiderio_run_roster import run_reference, validate_details
+from botend.services.raiderio_run_roster import run_reference, validate_details, _snapshot_json, _row_snapshot
 
 from core.glm import GLMClient
 
@@ -416,6 +416,7 @@ def _build(context):
     elif counts['timed'] is not None and counts['timed'] > 0:
         add('timed_experience', '限时经历', '高', f"赛季汇总已知限时 {counts['timed']} 场；本次样本未提供可确认的最高限时。", [])
     rosters, roster_refs, members, specs, spec_refs, known_ids = {}, [], {}, set(), set(), set()
+    subject_absent_rosters = {}
     source_failed = bool(activity.last_error)
     for row in RaiderIORunRoster.objects.filter(rio_season=season.rio_season, run_id__in=runs).only('run_id', 'payload_json', 'roster_visible', 'fetched_at', 'last_error', 'status'):
         known_ids.add(row.run_id)
@@ -427,10 +428,16 @@ def _build(context):
             if not clean:
                 continue
             keyed = [(_member_identity(member), member) for member in clean['roster']]
-            if len({key for key, _ in keyed}) != 5 or sum(key == activity.identity_digest for key, _ in keyed) != 1:
+            if len({key for key, _ in keyed}) != 5:
                 continue
             ids = [member['character'].get('id') for _, member in keyed]
             if len([value for value in ids if value is not None]) != len(set(value for value in ids if value is not None)):
+                continue
+            if not any(key == activity.identity_digest for key, _ in keyed):
+                # Positive, complete roster evidence of absence, not a missing
+                # history sample. Keep it separate from current score sources.
+                subject_absent_rosters[row.run_id] = {
+                    'run_id': row.run_id, 'fetched_at': _stamp(row.fetched_at), 'digest': _hash(clean)}
                 continue
         except (ValueError, TypeError, KeyError):
             continue
@@ -552,6 +559,8 @@ def _build(context):
         limitations.append('缺少五名成员完整且新鲜的同副本计分记录，无法比较；未知不视为零。')
     if len(rosters) < len(runs):
         limitations.append('部分阵容不可见、缺失或身份无法确认，未纳入组队观察。')
+    if subject_absent_rosters:
+        limitations.append('部分来源关联成绩的完整阵容中未见当前主体；这些best仍可作当前成绩背景，但不作本人于该时点完成的证明。缺失阵容不等于缺席；独立计分与历史来源另行校验。')
     module_times = activity.module_fetched_at or {}
     investigation = build_investigation(subject=activity.identity_digest,
         best=best if _fresh(module_times.get('mythic_plus_best_runs') or activity.fetched_at, now) else [],
@@ -563,7 +572,8 @@ def _build(context):
         rio_season=season.rio_season, now=now)
     from botend.services.player_observation_behavior import build_behavior_review
     behavior = build_behavior_review(subject=activity.identity_digest,
-        best=best if _fresh(module_times.get('mythic_plus_best_runs') or activity.fetched_at, now) else [],
+        best=[run for run in best if run_reference(run, season.rio_season) not in subject_absent_rosters]
+            if _fresh(module_times.get('mythic_plus_best_runs') or activity.fetched_at, now) else [],
         recent=recent, runs=runs,
         rosters={rid: (clean, keyed) for rid, (clean, keyed) in rosters.items()
                  if all(members[key] is not None for key, _ in keyed)},
@@ -622,6 +632,11 @@ def _build(context):
             'scores': sorted(score_refs, key=lambda r: r['activity_id']),
             'histories': sorted(history_refs, key=lambda r: (r['activity_id'], r['dungeon_id']))},
         'source_failed': source_failed}
+    if subject_absent_rosters:
+        # Bind the exclusion to the exact canonical facts, including runs not
+        # admitted to the behavioral roster/frequency denominator.
+        result['source_stamps']['subject_absent_rosters'] = [
+            subject_absent_rosters[rid] for rid in sorted(subject_absent_rosters)]
     if investigation['triggered']:
         result['metrics']['investigation'] = investigation
     result['judgements'], conclusion = _judgements(result)
@@ -1088,7 +1103,13 @@ def _validate_publication(raw, evidence, *, publication_version, require_investi
     return result
 
 
-def _fail(pk, token, code):
+def _fail(pk, token, code, *, expected_snapshot=None):
+    if expected_snapshot is not None:
+        with transaction.atomic():
+            row = PlayerObservationAnalysis.objects.select_for_update().filter(pk=pk).first()
+            if row is None or row.lease_token != token or _row_snapshot(row) != expected_snapshot:
+                return {'status': 'cas_finalize_mismatch', 'analysis_id': pk}
+            return _fail(pk, token, code)
     PlayerObservationAnalysis.objects.filter(pk=pk, lease_token=token).update(status='error', last_error=code,
         lease_token='', lease_expires_at=None, next_attempt_at=timezone.now()+BACKOFF)
     return {'status': code, 'analysis_id': pk}
@@ -1317,9 +1338,38 @@ def _generation_input(evidence):
             {'id': hypothesis['id'], **{
                 field: {
                     'operation': 'copy_all' if field == 'counter_ids' else 'select_up_to_3',
+                    'max_items': contract['limits'][field + '_max'],
+                    'candidate_count': len(hypothesis[field]),
+                    'instruction': (
+                        '完整复制本假设此字段的全部候选；候选为空必须输出[]。'
+                        'label_reviews的逐场反证不等于本假设合同反证权限，禁止跨域加入。'
+                        if field == 'counter_ids' else
+                        '只从本假设此字段选择0至3条，不要复制超过3条的完整候选表；不得跨假设或极性。'),
                     'candidates': [{'id': ref, 'text': facts[ref]} for ref in hypothesis[field]],
                 } for field in ('support_ids', 'counter_ids', 'unknown_ids')
             }} for hypothesis in contract['hypotheses']]
+        plan['schema_version_guide'] = {
+            'type': 'integer', 'value': contract['schema_version'],
+            'instruction': 'schema_version必须使用JSON整数（无引号），不是字符串；协议版本元数据不是自由数字事实断言。'}
+        questions = {question['id']: question for question in plan['questions']}
+        plan['next_question_guide'] = {
+            'operation': 'select_up_to_3',
+            'max_items': contract['limits']['next_question_ids_max'],
+            'candidate_count': len(contract['next_question_ids']),
+            'instruction': '只从以下合同菜单选择0至3个完整ID，逐字复制，禁止重组、缩短或修正digest。'
+                           'behavior_review.non_output_background.questions只是原始背景，不是可输出菜单。',
+            'candidates': [{'id': ref, 'reason': questions[ref]['reason']}
+                           for ref in contract['next_question_ids']],
+        }
+        # Keep legacy plan rows and per-label diagnostics as readable background,
+        # not peer output menus. Move only after deriving the unchanged contract;
+        # compact_ai_input also serves the contract builder and must stay intact.
+        for block, fields in (
+                (plan, ('hypotheses', 'questions')),
+                (data['metrics'].get('behavior_review', {}), ('questions', 'label_reviews'))):
+            background = {field: block.pop(field) for field in fields if field in block}
+            if background:
+                block['non_output_background'] = background
     return data
 
 
@@ -1340,8 +1390,29 @@ def _has_investigation(evidence):
     return bool(evidence.get('metrics', {}).get('investigation', {}).get('triggered'))
 
 
-def generate_observation(player, force=False, engine=None, *, skip_uninformative=False, recheck_token=None):
-    """Manual generation; force does not steal leases or bypass failure backoff."""
+def generate_observation(player, force=False, engine=None, *, skip_uninformative=False, recheck_token=None,
+                         expected_snapshot=None, expected_absent=False):
+    """Manual generation; optional full-row CAS for explicitly approved maintenance.
+
+    Pass a complete ORM values() snapshot (datetime ISO strings also accepted),
+    or expected_absent=True. Guarded calls require autocommit and never adopt an
+    intervening row or overwrite drift, including on failure. Defaults preserve
+    the ordinary UI/recheck contract. No transaction spans the engine call.
+    """
+    guarded = expected_snapshot is not None or expected_absent is not False
+    approved_snapshot = claim_snapshot = None
+    if guarded:
+        if not transaction.get_autocommit() or transaction.get_connection().in_atomic_block:
+            return {'status': 'cas_requires_autocommit', 'ai_called': False}
+        fields = {f.attname for f in PlayerObservationAnalysis._meta.concrete_fields}
+        if (type(expected_absent) is not bool or (expected_absent and expected_snapshot is not None)
+                or (not expected_absent and (not isinstance(expected_snapshot, dict) or set(expected_snapshot) != fields))):
+            return {'status': 'cas_claim_mismatch', 'ai_called': False}
+        if not expected_absent:
+            try:
+                approved_snapshot = _snapshot_json(expected_snapshot)
+            except (TypeError, ValueError):
+                return {'status': 'cas_claim_mismatch', 'ai_called': False}
     evidence = build_evidence(player)
     if not evidence or (not skip_uninformative and not evidence['eligible_labels']):
         return {'status': 'unavailable', 'ai_called': False}
@@ -1353,8 +1424,31 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
         audit['skip_reason'] = 'no_supported_judgement'
     now, token = timezone.now(), uuid.uuid4().hex
     with transaction.atomic():
-        row, _ = PlayerObservationAnalysis.objects.get_or_create(activity_id=evidence['activity_id'])
-        row = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
+        if guarded:
+            if expected_absent:
+                # Same short parent lock as create_analysis; the unique INSERT
+                # also fences non-cooperating creators. Never adopt their row.
+                RaiderIOCharacterActivity.objects.select_for_update().get(pk=evidence['activity_id'])
+                try:
+                    with transaction.atomic():
+                        row = PlayerObservationAnalysis.objects.create(activity_id=evidence['activity_id'])
+                except IntegrityError:
+                    if PlayerObservationAnalysis.objects.filter(activity_id=evidence['activity_id']).exists():
+                        return {'status': 'cas_claim_mismatch', **audit}
+                    raise
+            else:
+                row = PlayerObservationAnalysis.objects.select_for_update().filter(activity_id=evidence['activity_id']).first()
+                if row is None or _row_snapshot(row) != approved_snapshot:
+                    return {'status': 'cas_claim_mismatch', **audit}
+            if row.manual_json or not row.is_published or row.review_status == 'rejected':
+                return {'status': 'cas_editorial_protected', 'analysis_id': row.pk, **audit}
+            if row.lease_token and row.lease_expires_at and row.lease_expires_at > now:
+                return {'status': 'busy', 'analysis_id': row.pk, **audit}
+            if row.next_attempt_at and row.next_attempt_at > now:
+                return {'status': 'backoff', 'analysis_id': row.pk, **audit}
+        else:
+            row, _ = PlayerObservationAnalysis.objects.get_or_create(activity_id=evidence['activity_id'])
+            row = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
         if row.player_id is None:
             # Link only an exact, persisted same-season identity. Never rebind a
             # representative based on a name or overwrite any editorial state.
@@ -1383,6 +1477,15 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
             lease_token=token, lease_expires_at=now+LEASE_TTL, last_attempt_at=now, status='pending')
         if not acquired:
             return {'status': 'busy', 'analysis_id': row.pk, **audit}
+        if guarded:
+            row.refresh_from_db()
+            claim_snapshot = _row_snapshot(row)
+
+    def fail(code):
+        if guarded:
+            return _fail(row.pk, token, code, expected_snapshot=claim_snapshot)
+        return _fail(row.pk, token, code)
+
     if local_empty:
         # This is a deterministic negative publication, not a model response.
         result = {'observations': [], 'conclusion_id': 'public_sample', 'metadata': LOCAL_EMPTY_METADATA}
@@ -1395,30 +1498,33 @@ def generate_observation(player, force=False, engine=None, *, skip_uninformative
             raw = engine.send_message(json.dumps(_generation_input(evidence), ensure_ascii=False),
                 max_tokens=3600 if _has_investigation(evidence) else 1800, thinking_type='disabled')
         except Exception:
-            return {**_fail(row.pk, token, 'engine_error'), **audit}
+            return {**fail('engine_error'), **audit}
         if raw is None or raw == '':
-            return {**_fail(row.pk, token, 'engine_empty'), **audit}
+            return {**fail('engine_empty'), **audit}
         try:
             result = _validate_publication(raw, evidence, publication_version=PROMPT_VERSION, require_investigation=True)
         except InvalidResult as error:
-            return {**_fail(row.pk, token, str(error)), **audit}
+            return {**fail(str(error)), **audit}
     with transaction.atomic():
-        locked = PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk)
-        if locked.lease_token != token:
+        locked = (PlayerObservationAnalysis.objects.select_for_update().filter(pk=row.pk).first()
+                  if guarded else PlayerObservationAnalysis.objects.select_for_update().get(pk=row.pk))
+        if guarded and (locked is None or _row_snapshot(locked) != claim_snapshot):
+            return {'status': 'cas_finalize_mismatch', 'analysis_id': row.pk, **audit}
+        if locked is None or locked.lease_token != token:
             return {'status': 'superseded', 'analysis_id': row.pk, **audit}
         if not locked.lease_expires_at or locked.lease_expires_at <= timezone.now():
-            return {**_fail(row.pk, token, 'lease_expired'), **audit}
+            return {**fail('lease_expired'), **audit}
         current = build_evidence(player)
         if recheck_token:
             from botend.services.player_analysis_recheck import validate_publication, Blocked
             try:
                 validate_publication(locked, recheck_token, current)
             except Blocked:
-                return {**_fail(row.pk, token, 'recheck_invalidated'), **audit}
+                return {**fail('recheck_invalidated'), **audit}
         if current and current['source_failed']:
-            return {**_fail(row.pk, token, 'source_failed'), **audit}
+            return {**fail('source_failed'), **audit}
         if not current or current['evidence_hash'] != evidence['evidence_hash']:
-            return {**_fail(row.pk, token, 'evidence_changed'), **audit}
+            return {**fail('evidence_changed'), **audit}
         updated = PlayerObservationAnalysis.objects.filter(pk=row.pk, lease_token=token, lease_expires_at__gt=timezone.now()).update(
             evidence_hash=current['evidence_hash'], evidence_json=current, result_json=result, prompt_version=PROMPT_VERSION,
             status='ready', generated_at=timezone.now(), lease_token='', lease_expires_at=None, next_attempt_at=None, last_error='',

@@ -288,8 +288,72 @@ def collect_hotfix_push_rows(fetch_text, extract_props, push_id, *, region_id, l
     return selected
 
 
-def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table_name, region_id, locale, build_number=None, max_pages=40, timeout=60):
-    rows = _search_rows(fetch_text, extract_props, str(int(record_id)), max_pages=max_pages, timeout=timeout)
+def collect_hotfix_record_history(fetch_text, extract_props, record_id, *, table_name, region_id, locale, build_number=None, max_pages=40, timeout=60, search_cache=None):
+    # Caller owns a single resolution's cache, never a persistent page cache.
+    # Preserve the reusable broad search fast path. Only a failed completeness
+    # proof may fall back to the live-verified record/build/table search.
+    def search(query, *, narrow=False):
+        key = ('https://wago.tools/hotfixes', query, max_pages, timeout)
+        cached = search_cache.get(key) if search_cache is not None else None
+        if cached is not None:
+            if cached[0] == 'incomplete':
+                raise HotfixSourceIncomplete(cached[1])
+            if cached[0] == 'transport_error':
+                raise OSError(cached[1])
+            return cached[1]
+
+        def verified_props(text):
+            props = extract_props(text)
+            if narrow:
+                filters = props.get('filters') if isinstance(props, dict) else None
+                if not isinstance(filters, dict) or filters.get('search') != query:
+                    raise HotfixSourceIncomplete(f'Hotfix history search not applied query={query}')
+                payload = props.get('hotfixes')
+                data = payload.get('data') if isinstance(payload, dict) else None
+                if isinstance(data, list):
+                    for row in data:
+                        try:
+                            row_table = row['table_name'].lower()
+                            expected_table = table_name.lower()
+                            # Wago searches substrings: "spell" also matches
+                            # "spellname". Validate that collision against the
+                            # returned search_text, then let _exact_rows discard
+                            # it only AFTER all pages pass the completeness proof.
+                            table_matches = row_table == expected_table or (
+                                row_table.startswith(expected_table)
+                                and isinstance(row.get('search_text'), str)
+                                and query in row['search_text'].lower())
+                            matches = (int(row['record_id']) == int(record_id)
+                                       and int(row['build']) == int(build_number)
+                                       and table_matches)
+                        except (KeyError, TypeError, ValueError, AttributeError):
+                            matches = False
+                        if not matches:
+                            raise HotfixSourceIncomplete(f'Hotfix history row identity mismatch query={query}')
+            return props
+
+        try:
+            rows = _search_rows(fetch_text, verified_props, query, max_pages=max_pages, timeout=timeout)
+        except (HotfixSourceIncomplete, OSError) as exc:
+            if search_cache is not None:
+                # Do not turn a cached transport failure into an incomplete
+                # proof that would authorize a different source query.
+                state = 'incomplete' if isinstance(exc, HotfixSourceIncomplete) else 'transport_error'
+                search_cache[key] = (state, str(exc))
+            raise
+        if search_cache is not None:
+            search_cache[key] = ('complete', rows)
+        return rows
+
+    try:
+        rows = search(str(int(record_id)))
+    except HotfixSourceIncomplete:
+        if build_number is None:
+            raise
+        _exact_rows([], region_id=region_id, locale=locale, build_number=build_number)
+        query = f'{int(record_id)} {int(build_number)} {table_name.lower()}'
+        rows = search(query, narrow=True)
+    # Scope conflicts do not poison the complete search for other coordinates.
     return _exact_rows(rows, region_id=region_id, locale=locale, table_name=table_name, record_id=record_id, build_number=build_number)
 
 

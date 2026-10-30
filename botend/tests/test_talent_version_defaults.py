@@ -14,7 +14,8 @@ class TalentVersionDefaultsTests(TestCase):
         WowTalentVersion.objects.all().delete()
         legacy = WowTalentVersion.objects.create(
             key='ptr-12.1.0', label='正式服 12.1.0', branch='retail',
-            major_version='12.1.0', is_active=True,
+            major_version='12.1.0', is_active=True, status='active',
+            is_default_simulator=True, is_default_player_tree=True, is_default_stats=True,
         )
 
         ensure_default_talent_versions(WowTalentVersion)
@@ -33,15 +34,17 @@ class TalentVersionDefaultsTests(TestCase):
         self.assertTrue(retail.is_default_stats)
         self.assertEqual(retail.status, 'active')
 
-        self.assertEqual(ptr.label, '测试服 12.1.5（待同步）')
+        self.assertEqual(ptr.label, 'PTR')
         self.assertEqual(ptr.branch, 'ptr')
-        self.assertEqual(ptr.major_version, '12.1.5')
+        self.assertEqual(ptr.major_version, '')
         self.assertFalse(ptr.is_active)
         self.assertFalse(ptr.is_default_simulator)
         self.assertFalse(ptr.is_default_player_tree)
         self.assertFalse(ptr.is_default_stats)
 
         self.assertFalse(WowTalentVersion.objects.filter(key='ptr-12.1.0').exists())
+        self.assertEqual(TalentVersionResolver.resolve('ptr-12.1.0'), retail)
+        self.assertEqual(TalentVersionResolver.resolve('retail-12.0.7'), retail)
         self.assertEqual(
             TalentVersionResolver.get_default(TalentVersionResolver.USAGE_SIMULATOR),
             retail,
@@ -50,6 +53,82 @@ class TalentVersionDefaultsTests(TestCase):
             {version.key for version in TalentVersionResolver.list_active()},
             {'retail'},
         )
+
+    def test_empty_slots_stay_inactive_and_existing_provenance_never_rewinds(self):
+        WowTalentVersion.objects.all().delete()
+        ensure_default_talent_versions(WowTalentVersion)
+        self.assertEqual(set(WowTalentVersion.objects.values_list('key', flat=True)), {'retail', 'ptr', 'beta'})
+        self.assertEqual(TalentVersionResolver.list_active(), [])
+        self.assertIsNone(TalentVersionResolver.resolve())
+        retail = WowTalentVersion.objects.get(key='retail')
+        retail.major_version, retail.source_dir = '14.2.0', '/real/source'
+        retail.save()
+        before = list(WowTalentVersion.objects.order_by('pk').values())
+        ensure_default_talent_versions(WowTalentVersion)
+        ensure_default_talent_versions(WowTalentVersion)
+        self.assertEqual(list(WowTalentVersion.objects.order_by('pk').values()), before)
+
+    def test_legacy_links_map_by_branch_and_never_resurrect_inactive_slot(self):
+        ensure_default_talent_versions(WowTalentVersion)
+        old = WowTalentVersion.objects.create(key='beta-13.0', branch='beta', is_active=True, status='active')
+        beta = WowTalentVersion.objects.get(key='beta')
+        with self.assertRaises(ValueError):
+            TalentVersionResolver.resolve(old.key)
+        beta.is_active, beta.status = True, 'active'
+        beta.save()
+        self.assertEqual(TalentVersionResolver.resolve(old.key), beta)
+        self.assertNotIn(old, TalentVersionResolver.list_active())
+        self.assertEqual(TalentVersionResolver.resolve(old.key, allow_inactive=True), old)
+
+    def test_slot_migration_preserves_historical_rows_and_node_foreign_keys(self):
+        from django.db.migrations.loader import MigrationLoader
+        apps = MigrationLoader(connection).project_state([('botend', '0260_monitor_task_lease_is_manual')]).apps
+        Version = apps.get_model('botend', 'WowTalentVersion')
+        Version.objects.all().delete()
+        old = Version.objects.create(key='beta-13.0', branch='beta', status='active', is_active=True,
+                                     current_build='13.0.0.90000')
+        node = WowTalentNodeMetadata.objects.create(talent_version_id=old.pk, node_id=987001)
+        historical = Version.objects.create(key='beta-12.0', branch='beta', is_active=False)
+        migration = importlib.import_module('botend.migrations.0261_talent_server_slots')
+        for _ in range(2):
+            migration.ensure_server_slots(apps, SimpleNamespace(connection=connection))
+        self.assertEqual(Version.objects.get(key='beta').pk, old.pk)
+        node.refresh_from_db()
+        self.assertEqual(node.talent_version_id, old.pk)
+        self.assertTrue(Version.objects.filter(pk=historical.pk).exists())
+        self.assertEqual(set(Version.objects.filter(key__in=['retail', 'ptr', 'beta']).values_list('key', flat=True)), {'retail', 'ptr', 'beta'})
+
+    def test_slot_migration_rehomes_populated_tree_without_deleting_empty_slot(self):
+        from django.db.migrations.loader import MigrationLoader
+        apps = MigrationLoader(connection).project_state([('botend', '0260_monitor_task_lease_is_manual')]).apps
+        Version = apps.get_model('botend', 'WowTalentVersion')
+        Version.objects.all().delete()
+        empty = Version.objects.create(key='beta', branch='beta', is_active=False, status='draft')
+        real = Version.objects.create(key='beta-13.0', branch='beta', is_active=True, status='active',
+                                      current_build='13.0.0.90000')
+        node = WowTalentNodeMetadata.objects.create(talent_version_id=real.pk, node_id=987002)
+        migration = importlib.import_module('botend.migrations.0261_talent_server_slots')
+        for _ in range(2):
+            migration.ensure_server_slots(apps, SimpleNamespace(connection=connection))
+        self.assertEqual(TalentVersionResolver.resolve('beta').pk, real.pk)
+        self.assertEqual(TalentVersionResolver.resolve('beta-13.0').pk, real.pk)
+        node.refresh_from_db()
+        self.assertEqual(node.talent_version_id, real.pk)
+        self.assertTrue(Version.objects.filter(pk=empty.pk, is_active=False).exists())
+
+    def test_slot_migration_refuses_two_populated_active_trees_without_changes(self):
+        from django.db.migrations.loader import MigrationLoader
+        apps = MigrationLoader(connection).project_state([('botend', '0260_monitor_task_lease_is_manual')]).apps
+        Version = apps.get_model('botend', 'WowTalentVersion')
+        Version.objects.all().delete()
+        for key, build, node_id in (('retail', '12.0.0.80000', 987003), ('retail-13.0', '13.0.0.90000', 987004)):
+            row = Version.objects.create(key=key, branch='retail', is_active=True, status='active', current_build=build)
+            WowTalentNodeMetadata.objects.create(talent_version_id=row.pk, node_id=node_id)
+        before = list(Version.objects.order_by('pk').values())
+        migration = importlib.import_module('botend.migrations.0261_talent_server_slots')
+        with self.assertRaisesRegex(ValueError, 'Conflicting populated talent trees'):
+            migration.ensure_server_slots(apps, SimpleNamespace(connection=connection))
+        self.assertEqual(list(Version.objects.order_by('pk').values()), before)
 
     def test_data_migration_preserves_current_tree_and_rehomes_live_historical_refs(self):
         WowTalentVersion.objects.all().delete()

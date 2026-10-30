@@ -1,7 +1,7 @@
 # Midnight daily monitor lane
 
 All times are Asia/Shanghai. The existing scheduler, not a new cron/executor,
-serializes these tasks starting at 00:00:
+serializes automatic executions of these tasks starting at 00:00:
 
 1. SpecDetailSeasonMonitor
 2. WowDataVersionMonitor (existing isolated worker)
@@ -13,9 +13,9 @@ serializes these tasks starting at 00:00:
 8. SpecDetailAggregationMonitor
 
 This is an ordered runnable queue, not fixed-hour spacing. No 07:00 cutoff or
-running-task cancellation exists. Leases must complete/release/expire before
-another lane task can claim. Existing heartbeat and exact-owner fencing remain.
-No schema migration is needed: claimers already lock the complete small
+running-task cancellation exists. Automatic leases must complete/release/expire before
+another automatic lane task can claim. Existing heartbeat and exact-owner fencing remain.
+Migration 0260 adds `MonitorTaskLease.is_manual` (default false). Claimers lock the complete small
 MonitorTask configuration table in primary-key order, then MonitorTaskLease,
 then SeasonMeta/cycle. Lane decisions are inside that same short transaction;
 network/aggregation work remains outside it. Deployment does not clear leases,
@@ -23,9 +23,12 @@ cycles, error state or backoff.
 
 Worker task_names filters apply AFTER determining the global lane head. A
 normal worker cannot skip the WowData head, nor can the isolated worker jump
-past the season task. Manual claims still bypass due-time/enable switches, but
-cannot bypass the lane mutex. Disabled/environment-ineligible rows with live
-leases still protect the lane. Legacy duplicate labels inherit lane membership
+past the season task. Manual claims bypass due-time/enable switches and cross-scope lane ordering.
+Different-scope manual/manual and manual/automatic executions may overlap.
+All live leases still enforce exact-scope deduplication; only automatic leases
+occupy the automatic lane. Disabled/environment-ineligible automatic leases
+still protect the lane. Manual occupancy is excluded before choosing the runnable
+automatic head, while worker routing remains after global head selection. Legacy duplicate labels inherit lane membership
 from their exact (type,target,env_limit) scope; existing scope canonicalization
 is retained. Distinct non-lane targets/environments are not merged.
 
@@ -58,10 +61,24 @@ it behind hours of player/WCL processing would defeat late-source refreshes.
 It is not pulled forward to midnight. This does not guarantee spare executor
 threads; the lane adds no executor capacity.
 
+## Migration and worker handoff
+
+0260 preserves existing lease rows, owners and expiry; historical leases become
+`is_manual=false` conservatively. New claims explicitly write true/false even
+when replacing an expired lease. No owner prefix is inferred or rewritten.
+Heartbeat, release and stale-owner fencing retain their original semantics.
+Both Python default and persistent database default are false, so old binaries
+can INSERT while omitting the new column during deployment. Existing workers
+may finish normally; deployment does not require draining unrelated tasks or
+clearing leases. Old code still uses the conservative lane policy: switch a
+manual runner to the new code at its safe command boundary before resuming.
+Rollback code can use the retained additive column; reverse the migration only
+after new claimers are stopped, since reversal removes the origin flag.
+
 ## Local verification boundary
 
 `botend.tests.test_monitor_night_lane` exercises real ORM rows, lease owners,
-worker routing, manual mutex, disabled aliases, environment gates, old cycles,
+worker routing, manual concurrency, same-scope mutex, disabled aliases, environment gates, old cycles,
 retry and early-ready publication. Its TransactionTestCase uses three threads
 with independent DB connections and a barrier for normal/isolated/manual claims.
 That test requires MySQL row locks and explicitly skips on SQLite; SQLite is

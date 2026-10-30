@@ -99,7 +99,12 @@ class Command(BaseCommand):
                 monitor._hotfix_report_only = True
                 if refresh_predecessors:
                     original_baselines = {int(fact['source']['id']): fact.get('client_baseline') for fact in facts}
-                    missing = [fact for fact in facts if fact.get('after_verified') and not fact.get('before_verified')
+                    # Older successful rows stored values without their predecessor
+                    # source. They must be re-proven too, not skipped forever by
+                    # before_verified (the metadata reader requires provenance).
+                    missing = [fact for fact in facts if fact.get('after_verified')
+                               and (not fact.get('before_verified') or not fact.get('before_source')
+                                    or not fact.get('before_source_build'))
                                and str(fact['source'].get('table_name') or '').lower().startswith('spell')]
                     recovered = monitor._resolve_hotfix_facts(
                         [fact['source'] for fact in missing], db2_build=row.build_str,
@@ -112,6 +117,12 @@ class Command(BaseCommand):
                                 or not updated.get('after_verified')
                                 or updated.get('after') != original.get('after')):
                             raise CommandError('补充旧值改变了原始来源或已核实的新值，保留原报告')
+                        if original.get('before_verified') and (
+                                not updated.get('before_verified')
+                                or not updated.get('before_source')
+                                or not updated.get('before_source_build')
+                                or updated.get('before') != original.get('before')):
+                            raise CommandError('旧值来源未能重新核实或旧值发生漂移，保留原报告')
                         if updated.get('before_verified'):
                             replacements[int(original['source']['id'])] = {**original, **updated}
                     facts = [replacements.get(int(fact['source']['id']), fact) for fact in facts]

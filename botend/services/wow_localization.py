@@ -405,11 +405,63 @@ def macro_spell_context(spell_ids, version, *, registry=apps, using='default'):
             elif (not edge['snapshot_build'] or
                   (target['branch'], target['snapshot_build']) != (edge['branch'], edge['snapshot_build'])):
                 result['issues'].append({'reason': 'inconsistent_dependency_source', 'spell_id': edge['to']})
-            elif name_edges(target):
+            elif name_edges(target) and not (
+                    edge['from'] == edge['to'] and name_edges(target) == {edge['to']}):
                 result['issues'].append({'reason': 'unsupported_dependency_depth', 'spell_id': edge['to']})
     result['rows'] = rows
     result['branch'] = version.branch
     return result
+
+
+def macro_identity_context(source_refs, version, *, registry=apps, using='default'):
+    """Project typed local Entry/item anchors without borrowing same-number IDs.
+
+    Current Entry relations and exact-ID snapshot names have independent source
+    builds. Keep both: an older name snapshot is not a current-build template.
+    """
+    roots = {r['object_id'] for r in source_refs if r['kind'] == 'spell'}
+    projections, issues = [], []
+    talent_refs = [r for r in source_refs if r['kind'] == 'talent']
+    if talent_refs:
+        model = registry.get_model('botend', 'WowTalentNodeMetadata')
+        native = model._base_manager.using(using).filter(
+            talent_version=version, localization_only=False, is_current=True, name_kind='talent')
+        for ref in talent_refs:
+            entry = ref['object_id']
+            # Same priority as the central explicit-reference resolver. Neither
+            # TraitNode.ID nor Spell.ID belongs to the Entry namespace.
+            matches = list(native.filter(reference_id=entry)) or list(native.filter(node_id=entry))
+            if not matches:
+                if connections[using].features.supports_json_field_contains:
+                    matches = list(native.filter(reference_aliases__contains=[entry]))
+                else:
+                    matches = [row for row in native if entry in (row.reference_aliases or [])]
+            pairs = {(row.spell_id, row.display_spell_id) for row in matches}
+            if (not version or not version.is_active or len(pairs) != 1 or
+                    not next(iter(pairs), (0, 0))[0] or
+                    next(iter(pairs), (0, 0))[0] != next(iter(pairs), (0, 0))[1]):
+                issues.append({'reason': 'unproven_talent_relation', 'entry_id': entry})
+                continue
+            sid = next(iter(pairs))[0]
+            roots.add(sid)
+            projections.append({'from': entry, 'to': sid, 'from_kind': 'talent', 'to_kind': 'spell',
+                'entry_id': entry, 'relation': 'talent_entry_spell', 'source_block': ref.get('source_block'),
+                'talent_version': version.key, 'talent_branch': version.branch,
+                'talent_build': version.current_build})
+    context = macro_spell_context(roots, version, registry=registry, using=using)
+    context['issues'].extend(issues)
+    context['edges'].extend(projections)
+    context['items'], context['item_issues'] = {}, []
+    item_ids = sorted({r['object_id'] for r in source_refs if r['kind'] == 'item'})
+    model = registry.get_model('botend', 'WowItemSnapshot')
+    for start in range(0, len(item_ids), 200):
+        for row in model._base_manager.using(using).filter(item_id__in=item_ids[start:start + 200]).values(
+                'item_id', 'name', 'name_zh'):
+            context['items'][row['item_id']] = row
+    for sid in item_ids:
+        if sid not in context['items']:
+            context['item_issues'].append({'reason': 'missing_item_anchor', 'item_id': sid})
+    return context
 
 
 def effective_names(game_version, **kwargs):

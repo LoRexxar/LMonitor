@@ -33,11 +33,14 @@
                         {% endif %}
                         {% endif %}
                         <span><b>服务器</b>{{ server_title }}</span>
-                        <span><b>生成时间</b>{{ report.created_at|date:"Y-m-d H:i:s" }}</span>
+                        <span><b>首次生成</b>{{ report.created_at|date:"Y-m-d H:i:s" }}</span>
+                        {% if is_hotfix and report.updated_at %}
+                            <span><b>最近重建</b>{{ report.updated_at|date:"Y-m-d H:i:s" }}</span>
+                        {% endif %}
                     </div>
                 </div>
                 {% if html_exists %}
-                    <a class="wow-skill-diff-standalone-link" href="{{ report_file_url }}" target="_blank" rel="noopener noreferrer">打开独立报告</a>
+                    <a class="wow-skill-diff-standalone-link" href="{{ report_file_url }}?v=hotfix_relation_display_v2&amp;updated={{ report.updated_at|date:'U' }}" target="_blank" rel="noopener noreferrer">打开独立报告</a>
                 {% endif %}
             </header>
             {% if is_hotfix and report.class_unresolved_count %}
@@ -62,6 +65,6 @@
         </main>
     </div>
     <script src="{% static 'portal/js/wow-skill-diff-report.js' %}?v=20260831_impact_v1"></script>
-    <script src="{% static 'portal/js/wow-skill-report-metadata.js' %}?v=hotfix_facts_no_duplicate_evidence"></script>
+    <script src="{% static 'portal/js/wow-skill-report-metadata.js' %}?v=hotfix_relation_display_v2"></script>
 </body>
 </html>

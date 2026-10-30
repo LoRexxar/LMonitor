@@ -67,24 +67,27 @@ def resolve_hero_talent_names(
             version_key=branch,
         )
         trees = (payload.get('talent_render_model') or {}).get('trees') or []
-        resolver = hero_name_resolver or (lambda sid: _hero_subtree_name_from_table(sid, branch=branch))
-        names = []
+        resolver = hero_name_resolver or _hero_subtree_name_from_table
+        subtree_ids = set()
         for tree in trees:
             if tree.get('tree_type') != 'hero':
                 continue
-            subtree_ids = {
+            subtree_ids.update(
                 int(node.get('db2_subtree_id'))
                 for node in (tree.get('nodes') or [])
                 if node.get('tree_type') == 'hero'
                 and node.get('db2_subtree_id') is not None
                 and (node.get('selected') is True or int(node.get('points') or 0) > 0)
-            }
-            for subtree_id in sorted(subtree_ids):
-                name = resolver(subtree_id)
-                if name and name not in names:
-                    names.append(name)
-        if not names:
+            )
+        if not subtree_ids:
             raise HeroTalentAnalysisError('无法获取英雄天赋树：未解析到已选择的英雄天赋')
+        names = []
+        for subtree_id in sorted(subtree_ids):
+            name = resolver(subtree_id, branch=branch, class_name=class_name, spec_name=spec_name)
+            if not name:
+                raise HeroTalentAnalysisError(f'无法获取英雄天赋树：已选择的英雄天赋名称缺失或专精不匹配（subtree_id={subtree_id}）')
+            if name not in names:
+                names.append(name)
         return names
     except HeroTalentAnalysisError:
         raise

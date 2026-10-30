@@ -1,0 +1,32 @@
+diff --git a/engine/player/unique_gear_midnight.cpp b/engine/player/unique_gear_midnight.cpp
+index 1f5a257..d999483 100644
+--- a/engine/player/unique_gear_midnight.cpp
++++ b/engine/player/unique_gear_midnight.cpp
+@@ -5012,22 +5012,22 @@ void coiled_fangstone( special_effect_t& effect )
+     // Damage is split and scaled as if the primary target were hit twice, i.e. the usual split + 30%
+     // per additional target formula evaluated for n_targets + 1. This means single target damage, deals
+     // significantly reduced dmg compared to the tooltip.
+-    double composite_aoe_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_aoe_multiplier( const action_state_t* s ) const override
+     {
+       auto n = s->n_targets + 1;
+ 
+       return generic_aoe_proc_t::composite_aoe_multiplier( s )
+-              * ( 1.0 + 0.3 * std::min( n - 1, max_scaling_targets ) ) / n;
++              * native_damage_factor( ( 1.0 + 0.3 * std::min( n - 1, max_scaling_targets ) ) ) / native_damage_factor( n );
+     }
+ 
+     // Each bite deals 10% more damage than the first (1.0/1.1/1.2), but the third bite only applies
+     // its bonus to the first target hit; all other targets take unmodified damage.
+-    double composite_da_multiplier( const action_state_t* s ) const override
++    damage_multiplier_t composite_da_multiplier( const action_state_t* s ) const override
+     {
+-      double m = generic_aoe_proc_t::composite_da_multiplier( s );
++      damage_multiplier_t m = generic_aoe_proc_t::composite_da_multiplier( s );
+ 
+       if ( bite_index < 2 || s->chain_target == 0 )
+-        m *= 1.0 + ramp * bite_index;
++        m *= native_damage_factor( 1.0 + ramp * bite_index );
+ 
+       return m;
+     }

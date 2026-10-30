@@ -336,6 +336,92 @@ class ReferenceBatchAPIViewTests(TestCase):
         self.assertEqual(len(neighbors), 12)
         self.assertTrue(all(sum(ratings.values()) == 10000 for ratings in neighbors))
 
+    def test_addon_attribute_search_only_uses_complete_explicit_ratings(self):
+        baseline = (
+            'warrior="Addon"\nlevel=90\nrace=orc\nspec=fury\ntalents=BASE\n'
+            'food=hearty_feast\n'
+            'head=,id=212048,bonus_id=6652/13668\nneck=,id=212049\n'
+            'shoulders=,id=212050\nback=,id=212051\nchest=,id=212052\n'
+            'wrists=,id=212053\nhands=,id=212054\nwaist=,id=212055\n'
+            'legs=,id=212056\nfeet=,id=212057\nfinger1=,id=212058\n'
+            'finger2=,id=212059\ntrinket1=,id=212060\ntrinket2=,id=212061\n'
+            'main_hand=,id=222222\noff_hand=,id=222223'
+        )
+        ratings = {'crit': 1000, 'haste': 2000, 'mastery': 3000, 'versatility': 4000}
+        cases = [
+            ('missing', {}, None),
+            ('partial', {'gear_crit': 1000, 'gear_haste_rating': 2000}, None),
+            ('complete', {f'gear_{key}': value for key, value in ratings.items()}, ratings),
+            ('rating_aliases_with_zero', {
+                f'gear_{key}_rating': value for key, value in {**ratings, 'crit': 0}.items()
+            }, {**ratings, 'crit': 0}),
+        ]
+        for label, fields, expected_ratings in cases:
+            with self.subTest(label=label):
+                addon = baseline + ''.join(f'\n{key}={value}' for key, value in fields.items())
+                response = self.client.post('/api/simc-task/comparison/', data=json.dumps({
+                    'kind': 'attribute_variants', 'name': f'Addon attributes {label}',
+                    'spec': 'warrior_fury',
+                    'player_source': {'type': 'simc_addon', 'simc_code': addon},
+                    'attribute_step': 100, 'base_template_id': self.template.id,
+                    'selected_apl_id': self.apl.id, 'talent_string_id': self.talent.id,
+                    'fight_style': 'Patchwerk', 'time': 240, 'target_count': 2,
+                    'extra_options': ['force_current_tier_4pc'],
+                    'profile_overrides': {'potion': 'tempered_potion'},
+                }), content_type='application/json')
+                self.assertEqual(response.status_code, 200, response.content)
+                payload = response.json()
+                self.assertTrue(payload['success'], payload)
+                task = SimcTask.objects.select_related(
+                    'profile_version', 'template_version', 'apl_version', 'talent_version',
+                ).get(pk=payload['data']['task_id'])
+                frozen = task.mode_params['initial_candidates']
+                self.assertEqual(task.mode, 'attribute_sweep')
+                self.assertEqual(task.simulation_runs.count(), 0)
+                # Talents are frozen in their independent resource, not duplicated in the player block.
+                self.assertEqual(task.profile_version.payload['player_equipment'], addon.replace('talents=BASE\n', ''))
+                self.assertEqual(task.talent_version.payload['talent'], 'BASE')
+                self.assertEqual(task.apl_version.payload['content'], self.apl.content)
+                self.assertEqual(task.template_version.payload['content'], self.template.content)
+                self.assertEqual(task.simulation_params['max_time'], 240)
+                self.assertEqual(task.simulation_params['desired_targets'], 2)
+                self.assertEqual(task.simulation_params['extra_options'], ['force_current_tier_4pc'])
+                self.assertEqual(task.simulation_params['profile_overrides'], {'potion': 'tempered_potion'})
+                self.assertTrue(all(
+                    task.profile_version.payload[f'gear_{stat}'] is None for stat in ratings
+                ))
+                if expected_ratings is None:
+                    self.assertEqual(task.profile_version.payload['player_config_mode'], 'manual_equipment')
+                    self.assertEqual(len(frozen), 1)
+                    self.assertEqual(frozen[0]['candidate_key'], 'round-1-baseline-probe')
+                    params = frozen[0]['candidate_params']
+                    self.assertEqual(params['candidate_type'], 'attribute_baseline_probe')
+                    self.assertNotIn('attribute_ratings', params)
+                    self.assertEqual(params['search']['baseline_source'], 'simc_report_gear_amount')
+                    self.assertEqual(params['search']['step'], 100)
+                else:
+                    self.assertEqual(task.profile_version.payload['player_config_mode'], 'attribute_only')
+                    self.assertEqual(len(frozen), 1 + 3 * sum(v >= 100 for v in expected_ratings.values()))
+                    self.assertEqual(frozen[0]['candidate_params']['attribute_ratings'], expected_ratings)
+                    self.assertTrue(all(row['candidate_params']['candidate_type'] == 'attribute_ratings' for row in frozen))
+                initialize_task_runs(task)
+                self.assertEqual(
+                    list(task.simulation_runs.order_by('sequence').values_list('candidate_params', flat=True)),
+                    [row['candidate_params'] for row in frozen],
+                )
+
+    def test_attribute_advance_failure_summary_keeps_a_finite_allowlist(self):
+        from botend.dashboard.api import SimcWorkbenchAPIView
+
+        for message in (
+            '属性寻优推进失败',
+            '属性寻优推进失败：当前属性搜索轮次没有足够完成结果',
+        ):
+            self.assertEqual(SimcWorkbenchAPIView._safe_run_error_summary(message), message)
+        self.assertEqual(SimcWorkbenchAPIView._safe_run_error_summary(
+            '属性寻优推进失败：private profile /tmp/secret.simc',
+        ), '任务执行失败')
+
     def test_attribute_continuation_reuses_exact_resource_versions_without_ext(self):
         profile = SimcProfile.objects.create(
             user_id=self.user.id,

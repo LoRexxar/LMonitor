@@ -2555,16 +2555,22 @@ class SimcComparisonTaskAPIView(View):
                     if source_spec != target_spec or (source_class and source_class != target_class):
                         raise ValueError('SimC 代码专精与目标专精不一致')
                     raw_fields = parsed.get('raw_fields') or {}
-                    attribute_baseline_values = {
-                        stat: self._int(
-                            raw_fields.get(f'gear_{stat}', raw_fields.get(f'gear_{stat}_rating', 0)),
-                            stat,
-                        )
-                        for stat in self.ATTRIBUTE_STATS
-                    }
+                    explicit_ratings = {}
+                    for stat in self.ATTRIBUTE_STATS:
+                        value = raw_fields.get(f'gear_{stat}', raw_fields.get(f'gear_{stat}_rating'))
+                        if value is not None:
+                            explicit_ratings[stat] = self._int(value, stat)
+                    # An Addon export normally supplies equipped items, not gear_*
+                    # totals. Missing ratings are unknown, never zero: discover the
+                    # full baseline through the existing equipment report probe.
+                    if len(explicit_ratings) == len(self.ATTRIBUTE_STATS):
+                        attribute_baseline_values = explicit_ratings
                     profile_fields = {
                         'name': f'本次 SimC 导入 · {target_spec}', 'spec': target_spec,
-                        'player_config_mode': 'attribute_only', 'player_equipment': baseline,
+                        'player_config_mode': (
+                            'attribute_only' if attribute_baseline_values is not None else 'manual_equipment'
+                        ),
+                        'player_equipment': baseline,
                     }
                 elif source_type == 'battlenet':
                     preflight = fetch_battlenet_character_preflight(
@@ -6748,6 +6754,8 @@ class SimcWorkbenchAPIView(View):
                 'Worker 心跳超时',
                 'Worker 心跳超时，执行已中断；已复制 Task 重试',
                 'SimC后端不可用: production',
+                '属性寻优推进失败',
+                '属性寻优推进失败：当前属性搜索轮次没有足够完成结果',
             )
             if scheduler_message in allowed_scheduler_messages or re.fullmatch(
                 r'Worker 重试次数上限（\d+）', scheduler_message,

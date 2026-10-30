@@ -263,14 +263,17 @@ def build_hotfix_report_spell_metadata(html_text, branch, facts, *, resolve_remo
                 index = int(after['EffectIndex'])
             except (KeyError, TypeError, ValueError):
                 raise ValueError(f'Hotfix SpellEffect {source.get("record_id")} has no effect index')
-            if index not in entries[spell_id]['indices']:
-                continue
         build = str(fact.get('source_build') or '')
         if not re.fullmatch(r'\d+\.\d+\.\d+\.\d+', build):
             raise ValueError(f'Hotfix source build is unverified for {table} {source.get("record_id")}')
         subset = grouped.setdefault(build, {})
         subset.setdefault(spell_id, {'name': entries[spell_id]['name'], 'indices': set()})
         if index is not None:
+            # A verified source still identifies this spell/build when the
+            # report has no rendered effect marker (e.g. non-numeric changes).
+            # Only explicitly reported indices may contribute effect metadata.
+            if index not in entries[spell_id]['indices']:
+                continue
             subset[spell_id]['indices'].add(index)
             effect_rows.setdefault(build, {}).setdefault(spell_id, []).append({
                 **after, '__source_push': source.get('push_id'),

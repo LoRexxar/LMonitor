@@ -88,10 +88,23 @@
           if (image) { head.querySelector('.spell-icon')?.remove(); head.prepend(image); }
           return;
         }
+        const targets = displayTargets(effects.flatMap(effect => effect.targets));
+        if (effects.some(effect => !effect.targets.length || effect.truncated)) {
+          complete = false;
+          const notice = document.createElement('div');
+          notice.className = 'spell-adjustment-source spell-relation-status';
+          notice.textContent = targets.length
+            ? '部分受影响技能尚未核实；下方保留完整的字段变化。'
+            : '受影响技能尚未核实；下方展示该调整记录已核实的字段变化。';
+          titleRow.after(notice);
+        }
+        // Empty relationships are not display groups. Keep the source title,
+        // identity and visible facts instead of repeating one placeholder per
+        // effect/build or presenting an unresolved target as the spell name.
+        if (!targets.length) return;
         head.querySelector('.spell-icon')?.remove();
         const sourceName = title.textContent;
-        const targets = displayTargets(effects.flatMap(effect => effect.targets));
-        title.textContent = targets.length ? targets.map(target => target.name).join('、') : `${sourceName}：关联技能待解析`;
+        title.textContent = targets.map(target => target.name).join('、');
         const source = document.createElement('div');
         source.className = 'spell-adjustment-source';
         source.textContent = `改动来源：${sourceName} #${id}`;
@@ -102,6 +115,7 @@
         let previousGroup = source;
         let copiedFacts = 0;
         effects.forEach(effect => {
+          if (!effect.targets.length) return;
           const group = document.createElement('div');
           group.className = 'spell-affected-skills';
           const label = document.createElement('span');
@@ -122,7 +136,6 @@
             targetLink.append(document.createTextNode(target.name));
             group.append(targetLink);
           });
-          if (!effect.targets.length) group.append(document.createTextNode('关联技能待解析'));
           const factRows = Array.from(article.querySelectorAll('.impact-block .impact-row[data-effect-index]')).filter(row =>
             row.dataset.effectIndex === String(effect.index) &&
             (!effect.source_build || row.dataset.sourceBuild === effect.source_build) &&
@@ -136,14 +149,7 @@
             evidenceRows.forEach(row => facts.append(row.cloneNode(true)));
             group.append(facts);
             copiedFacts++;
-          } else if (evidenceRows.length) {
-            // With unresolved targets the original fact block stays visible.
-            // Cloning it here rendered the same Hotfix evidence twice.
-            const reference = document.createElement('div');
-            reference.className = 'spell-effect-change';
-            reference.textContent = '字段事实见本卡片下方热修来源记录（不重复列出）';
-            group.append(reference);
-          } else {
+          } else if (!evidenceRows.length) {
             const unavailable = document.createElement('div');
             unavailable.className = 'spell-effect-change';
             unavailable.textContent = '该历史报告未保存本效果的逐项字段值';
