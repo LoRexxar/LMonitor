@@ -7,6 +7,7 @@ from django.test import RequestFactory, TestCase
 
 from botend.dashboard.api import SimcSkillDamageSnapshotAPIView
 from botend.models import SimcSkillDamageSnapshot, SimcSkillDamageSnapshotActor
+from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
 
 
 class SkillDamageDisplayReadModelTests(TestCase):
@@ -46,7 +47,8 @@ class SkillDamageDisplayReadModelTests(TestCase):
         }
         frozen = copy.deepcopy(actor)
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='a' * 40, game_build='12.1.0.69814', schema_revision=44,
+            simc_revision='a' * 40, game_build='12.1.0.69814',
+            schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
             status='succeeded', generated_spec_count=1, generated_action_count=2,
             payload={'payload_format': 'skill_damage_product_v1', 'storage_format': 'per_spec_actor_rows_v1',
                      'wire_schema_revision': 1, 'total_spec_count': 1},
@@ -63,7 +65,8 @@ class SkillDamageDisplayReadModelTests(TestCase):
             result = json.loads(b''.join(response.streaming_content))['data']['snapshot']
         finally:
             response.close()
-        self.assertEqual(result['identity']['schema_revision'], 44)
+        self.assertEqual(result['identity']['schema_revision'],
+                         SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION)
         output = result['actors'][0]
         self.assertEqual(len(output['global_skill_effects']), 1)
         self.assertTrue(output['global_skill_effects'][0]['effect_details'])
@@ -101,7 +104,8 @@ class SkillDamageDisplayReadModelTests(TestCase):
                  ]}}]}
         frozen = copy.deepcopy(actor)
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='b' * 40, game_build=build, schema_revision=45,
+            simc_revision='b' * 40, game_build=build,
+            schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
             status='succeeded', generated_spec_count=1, generated_action_count=1,
             payload={'payload_format': 'skill_damage_product_v1',
                      'storage_format': 'per_spec_actor_rows_v1', 'wire_schema_revision': 1,

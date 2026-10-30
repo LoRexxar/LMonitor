@@ -32,6 +32,7 @@ from botend.services.simc_skill_activation_context import (
     materialize_activation_pair,
 )
 from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
+from botend.services.simc_skill_snapshot_storage import SkillSnapshotActorStorage
 from botend.services.simc_skill_factor_sources import (
     formula_factor_rows, validate_excluded_sources, validate_factor_sources,
 )
@@ -4293,6 +4294,16 @@ class SimcSkillDamageSnapshotService:
         self.backend = backend or SimcBackendBinary.objects.filter(identifier='production').first()
 
     @classmethod
+    def _has_complete_actor_storage(cls, candidate, total_spec_count):
+        return (
+            type(total_spec_count) is int and total_spec_count > 0
+            and candidate.generated_spec_count == total_spec_count
+            and candidate.actor_rows.count() == total_spec_count
+            and all(SkillSnapshotActorStorage.is_complete(row) for row in
+                    candidate.actor_rows.only('id', 'payload_storage'))
+        )
+
+    @classmethod
     def _is_complete_wire_snapshot(cls, candidate):
         payload = candidate.payload or {}
         wire_revision = payload.get('wire_schema_revision')
@@ -4318,8 +4329,7 @@ class SimcSkillDamageSnapshotService:
             and isinstance(total_spec_count, int)
             and not isinstance(total_spec_count, bool)
             and total_spec_count > 0
-            and candidate.generated_spec_count == total_spec_count
-            and candidate.actor_rows.count() == total_spec_count
+            and cls._has_complete_actor_storage(candidate, total_spec_count)
         )
 
     @classmethod
@@ -5848,7 +5858,7 @@ class SimcSkillDamageSnapshotService:
                 if not isinstance(actor, dict):
                     raise ValueError(f'旧技能伤害断点 actor[{ordinal}] 无效')
                 profile_identity = profile_identity_rows[ordinal]
-                SimcSkillDamageSnapshotActor.objects.create(
+                SkillSnapshotActorStorage.create_actor(
                     snapshot_id=self.snapshot.pk,
                     ordinal=ordinal,
                     class_name=profile_identity[0],
@@ -5868,6 +5878,7 @@ class SimcSkillDamageSnapshotService:
     def _materialize_snapshot_payload_and_metrics(snapshot):
         payload = dict(snapshot.payload or {})
         rows = list(snapshot.actor_rows.order_by('ordinal', 'id').values(
+            'id', 'payload_storage',
             'class_name', 'specialization', 'actor_payload', 'unresolved_payload',
             'raw_action_count', 'display_action_count',
         ))
@@ -5880,13 +5891,13 @@ class SimcSkillDamageSnapshotService:
         raw_action_count = 0
         completed_profile_identities = []
         for row in rows:
-            actors.append(row['actor_payload'])
+            actors.append(SkillSnapshotActorStorage.read_document(row, 'actor_payload'))
             raw_action_count += int(row['raw_action_count'] or 0)
             display_action_count += int(row['display_action_count'] or 0)
             completed_profile_identities.append([
                 row['class_name'], row['specialization'],
             ])
-            for unresolved_row in row['unresolved_payload'] or []:
+            for unresolved_row in SkillSnapshotActorStorage.read_document(row, 'unresolved_payload') or []:
                 key = json.dumps(unresolved_row, ensure_ascii=False, sort_keys=True)
                 if key not in unresolved_keys:
                     unresolved_keys.add(key)
@@ -5936,7 +5947,7 @@ class SimcSkillDamageSnapshotService:
                                        unresolved, raw_action_count,
                                        generated_spec_count, generated_action_count):
         with transaction.atomic():
-            SimcSkillDamageSnapshotActor.objects.create(
+            SkillSnapshotActorStorage.create_actor(
                 snapshot_id=self.snapshot.pk,
                 ordinal=ordinal,
                 class_name=profile_identity[0],
@@ -5964,7 +5975,8 @@ class SimcSkillDamageSnapshotService:
         )
         try:
             profiles = self._profiles()
-            total_spec_count = len(profiles) if hasattr(profiles, '__len__') else 0
+            total_is_known = hasattr(profiles, '__len__')
+            total_spec_count = len(profiles) if total_is_known else 0
             profile_identity_rows = (
                 [
                     canonical_simc_profile_identity(
@@ -5981,9 +5993,12 @@ class SimcSkillDamageSnapshotService:
             ).get(pk=self.snapshot.pk)
             persisted_rows = list(
                 self.snapshot.actor_rows.order_by('ordinal', 'id').values(
+                    'id', 'payload_storage',
                     'ordinal', 'class_name', 'specialization', 'raw_action_count',
                 )
             )
+            if any(not SkillSnapshotActorStorage.is_complete(row) for row in persisted_rows):
+                raise ValueError('技能伤害断点包含不完整分片，拒绝跳过或覆盖已有结果。')
             if not persisted_rows and int(persisted_counts['generated_spec_count'] or 0) > 0:
                 self._convert_legacy_partial_to_actor_rows(
                     profile_identity_rows,
@@ -6062,6 +6077,15 @@ class SimcSkillDamageSnapshotService:
                     generated_action_count=raw_action_count,
                 )
                 del actor, profile_unresolved
+            # No success/last-good publication until every document is durable.
+            if not total_is_known:
+                total_spec_count = len(completed_identities)
+                SimcSkillDamageSnapshot.objects.filter(pk=self.snapshot.pk).update(
+                    payload=self._storage_payload(total_spec_count=total_spec_count),
+                )
+            ready_snapshot = SimcSkillDamageSnapshot.objects.get(pk=self.snapshot.pk)
+            if not self._has_complete_actor_storage(ready_snapshot, total_spec_count):
+                raise RuntimeError('技能伤害快照分片不完整，拒绝发布成功状态。')
             self._set_progress_specialization(
                 '',
                 status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,

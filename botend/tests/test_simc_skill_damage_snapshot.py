@@ -189,6 +189,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         with mock.patch.object(service, '_profiles', return_value=[]), \
              mock.patch.object(service, '_is_complete_wire_snapshot', return_value=True), \
+             mock.patch.object(service, '_has_complete_actor_storage', return_value=True), \
              mock.patch.object(service, 'prune_obsolete_snapshots') as prune:
             service.generate(materialize_result=False)
 
@@ -207,6 +208,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         with mock.patch.object(service, '_profiles', return_value=[]), \
              mock.patch.object(service, '_is_complete_wire_snapshot', return_value=True), \
+             mock.patch.object(service, '_has_complete_actor_storage', return_value=True), \
              mock.patch.object(service, 'prune_obsolete_snapshots', side_effect=delete_snapshot):
             result = service.generate(materialize_result=True)
 
@@ -223,6 +225,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         with mock.patch.object(service, '_profiles', return_value=[]), \
              mock.patch.object(service, '_is_complete_wire_snapshot', return_value=True), \
+             mock.patch.object(service, '_has_complete_actor_storage', return_value=True), \
              mock.patch.object(
                  service, 'prune_obsolete_snapshots', side_effect=RuntimeError('cleanup failed'),
              ), mock.patch(

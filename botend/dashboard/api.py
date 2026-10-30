@@ -66,6 +66,7 @@ from botend.services.simc_composer import SimcComposer, validate_simulation_opti
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService, reviewed_global_display_effects
 from botend.services.simc_skill_source_context import attach_skill_damage_source_context
 from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
+from botend.services.simc_skill_snapshot_storage import SkillSnapshotActorStorage
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_hero_talents import resolve_hero_talent_names
 from botend.services.simc_consumables import simc_consumable_option
@@ -8326,13 +8327,13 @@ class SimcSkillDamageSnapshotAPIView(View):
         if actor_ids is not None:
             actor_queryset = actor_queryset.filter(id__in=actor_ids)
         actor_rows = list(actor_queryset.values(
-            'id', 'class_name', 'specialization', 'unresolved_payload',
+            'id', 'class_name', 'specialization', 'unresolved_payload', 'payload_storage',
             'raw_action_count', 'display_action_count',
         ))
         unresolved = []
         unresolved_keys = set()
         for row in actor_rows:
-            for unresolved_row in row['unresolved_payload'] or []:
+            for unresolved_row in SkillSnapshotActorStorage.read_document(row, 'unresolved_payload') or []:
                 key = json.dumps(unresolved_row, ensure_ascii=False, sort_keys=True)
                 if key not in unresolved_keys:
                     unresolved_keys.add(key)
@@ -8423,9 +8424,11 @@ class SimcSkillDamageSnapshotAPIView(View):
             for index, actor_id in enumerate(actor_ids):
                 if index:
                     write_chunk(b', ')
-                actor = display_snapshot.actor_rows.filter(
+                actor_row = display_snapshot.actor_rows.filter(
                     pk=actor_id,
-                ).values_list('actor_payload', flat=True).get()
+                ).values('id', 'actor_payload', 'payload_storage').get()
+                actor = SkillSnapshotActorStorage.read_document(actor_row, 'actor_payload')
+                del actor_row
                 # Project this response-owned copy; stored product facts remain frozen.
                 if isinstance(actor.get('reviewed_global_effects'), list):
                     actor['global_skill_effects'] = reviewed_global_display_effects(actor)

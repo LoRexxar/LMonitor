@@ -1940,6 +1940,7 @@ class SimcSkillDamageSnapshotActor(models.Model):
     specialization = models.CharField(max_length=64)
     actor_payload = models.JSONField(default=dict)
     unresolved_payload = models.JSONField(default=list, blank=True)
+    payload_storage = models.JSONField(default=dict, db_default={}, blank=True)
     raw_action_count = models.PositiveIntegerField(default=0)
     display_action_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1958,6 +1959,35 @@ class SimcSkillDamageSnapshotActor(models.Model):
             ),
         ]
 
+
+
+class SimcSkillDamageSnapshotPart(models.Model):
+    """Bounded, ordered JSON text belonging to one snapshot actor document."""
+
+    actor = models.ForeignKey(
+        SimcSkillDamageSnapshotActor,
+        on_delete=models.CASCADE,
+        related_name='payload_parts',
+    )
+    document = models.CharField(
+        max_length=32,
+        choices=[
+            ('actor_payload', 'Actor payload'),
+            ('unresolved_payload', 'Unresolved payload'),
+        ],
+    )
+    ordinal = models.PositiveIntegerField()
+    text = models.TextField()
+
+    class Meta:
+        db_table = 'simc_skill_damage_snapshot_part'
+        ordering = ['document', 'ordinal']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['actor', 'document', 'ordinal'],
+                name='simc_skill_actor_doc_part_uniq',
+            ),
+        ]
 
 
 class SimcBackendBinary(models.Model):
