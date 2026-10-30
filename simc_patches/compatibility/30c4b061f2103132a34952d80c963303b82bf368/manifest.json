@@ -37,6 +37,11 @@
       "name": "0073-reviewed-scope-30c4b06.patch",
       "path": "0073-reviewed-scope-30c4b06.patch",
       "sha256": "ef59818a53d908d803d0fc92f0dfee5f1ccc9be5d2ce66a2d087dc278a6965b1"
+    },
+    {
+      "name": "0074-semantic-selectors-30c4b06.patch",
+      "path": "0074-semantic-selectors-30c4b06.patch",
+      "sha256": "2b06575301b7e7b937d4bf42630224d879d437a1267dc75e33c5103255f91550"
     }
   ]
 }

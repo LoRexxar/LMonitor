@@ -43,3 +43,11 @@ Evidence directory: `/home/ubuntu/lmonitor-simc-latest-20261028/patch-audit/`
 
 Pre-0072 candidate Git tree: `1ed3bc1b98ba5284a3c51cb111635be3d4721ad2`.
 Source SHA256 (algorithm in evidence): `25e77c3cbd266d6419f07237607aef707bc615fb1ee2584b67a5dae76b492d6c`.
+
+## 技能归一化结构修复追加说明
+
+通用补丁 `0071-base-semantic-scope-and-state-lattice.patch` 增加效果语义规则、专精触发归属及状态组合规划；名称必须排在本目录的首个版本尾补丁之前，保证新建候选能通过严格追加顺序检查。已有候选的补丁账本仍保持原有顺序，新补丁只追加到已有前缀之后。
+
+`0074-semantic-selectors-30c4b06.patch` 将生成的公共选择器规则绑定到本目录已经复核的版本。公共选择器位集合与原版一致；新的物理分量、专精和精通事实由前面的 `0073` 提供，不改写其审查结论，不放开其他版本的校验。正式伤害导出协议升级到 27，产品数据版本升级到 51。
+
+上线时需要对这条完整候选链重新编译，并重新生成技能快照。旧的二进制和旧数据不能作为新版表验收结果。

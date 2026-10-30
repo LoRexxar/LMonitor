@@ -1,0 +1,11 @@
+diff --git a/engine/skill_damage_semantic_rules.inc b/engine/skill_damage_semantic_rules.inc
+--- a/engine/skill_damage_semantic_rules.inc
++++ b/engine/skill_damage_semantic_rules.inc
+@@ -1,6 +1,6 @@
+ // 由 build_simc_semantic_rules.py 生成；选择器有版本约束，不包含技能白名单。
+ #pragma once
+-constexpr const char* skill_damage_selector_revision = "1d3897ef4adefc8e47a43989eed81b6618ce7bef";
++constexpr const char* skill_damage_selector_revision = "30c4b061f2103132a34952d80c963303b82bf368";
+ struct skill_damage_semantic_selector_t { unsigned family, word, mask; };
+ constexpr skill_damage_semantic_selector_t skill_damage_semantic_selectors[] = {
+   {3, 0, 8u},

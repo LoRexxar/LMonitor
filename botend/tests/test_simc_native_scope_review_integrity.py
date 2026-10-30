@@ -185,7 +185,7 @@ class NativeScopeReviewIntegrityTests(SimpleTestCase):
 
     def test_successful_payload_must_contain_the_exact_spec_actor(self):
         manifest, _ = self.audit()
-        row = next(r for r in manifest['结果'] if r['输入'].endswith('/warrior_fury.simc'))
+        row = next(r for r in manifest['结果'] if Path(r['输入']).name == 'warrior_fury.simc')
         valid = {'actors': [{'class': 'warrior', 'spec': 'Fury Warrior'}]}
         validate_native_actor_identity(row, valid)
         helper = {'class': 'player_simplified', 'spec': 'Unknown',
