@@ -49,7 +49,8 @@ class ReferenceConditionContextTests(TestCase):
         self.assertEqual(context['traits'][1], {'trait_entry_id': 40})
         result = project_skill_damage_product_payload({'actors': [{'actions': [row]}]})
         output = result['actors'][0]['actions'][0]
-        self.assertEqual(output['variant']['reference_context'], context)
+        self.assertNotIn('reference_context', output['variant'])
+        self.assertNotIn('related_talents', output['variant'])
         self.assertAlmostEqual(output['product']['noncrit_damage'], 148.5)
         self.assertEqual(item, frozen)
 

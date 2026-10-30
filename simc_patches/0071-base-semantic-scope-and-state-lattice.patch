@@ -1,0 +1,519 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -36,6 +36,8 @@
+ #include "util/io.hpp"
+ 
+ #include "skill_damage_scope_contract.inc"
++#include "skill_damage_scope_semantics.hpp"
++#include "rapidjson/document.h"
+ 
+ #include <array>
+ #include <locale>
+@@ -1314,6 +1316,8 @@
+ {
+   if ( sim.skill_damage_revision != skill_damage_scope_revision || sim.skill_damage_game_build != skill_damage_scope_build )
+     throw std::runtime_error("Skill damage scope contract version mismatch");
++  if (sim.skill_damage_revision != skill_damage_selector_revision)
++    throw std::runtime_error("Skill damage selector version mismatch");
+   for ( const auto& fact : skill_damage_scope_effects )
+   {
+     const auto* spell = dbc::find_spell(&sim, fact.spell);
+@@ -1335,14 +1339,16 @@
+   const int family = as<int>(buff->data().class_family());
+   if ( family && family != dbc::get_class_spell_family(player.type) ) return nullptr;
+   const auto* fact = skill_damage_reviewed_buff(buff->data().id());
+-  return fact && fact->global ? "reviewed_dbc_native_effect_scope" : nullptr;
++  if (fact && fact->global) return "reviewed_dbc_native_effect_scope";
++  return skill_damage_semantic_global_spell(*player.dbc,buff->data().id())
++    ? "dbc_semantic_effect_scope" : nullptr;
+ }
+ 
+ bool skill_damage_excluded_global_buff( const player_t& player, const buff_t* buff, bool target )
+ {
+   if ( !skill_damage_global_buff_basis(player, buff, target) ) return false;
+   // 混合状态保留开关和局部分量；只将全局 DBC 分量归零。
+-  return !skill_damage_reviewed_buff(buff->data().id())->local;
++  return !skill_damage_semantic_mixed_spell(*player.dbc,buff->data().id());
+ }
+ 
+ // 分类以作用范围为准；装备、血量、伤害学校与持续伤害都是条件，不是排除理由。
+@@ -1572,20 +1578,31 @@
+   return result;
+ }
+ 
+-std::set<unsigned> skill_damage_declared_damage_indices( const dbc_t&, const spell_data_t& spell )
+-{
+-  std::set<unsigned> result;
+-  for ( const auto& fact : skill_damage_scope_effects )
+-    if ( fact.spell == spell.id() && fact.global ) result.insert(fact.index);
+-  return result;
++std::set<unsigned> skill_damage_declared_damage_indices( const dbc_t& dbc, const spell_data_t& spell )
++{
++  const auto found=skill_damage_global_components(dbc).find(spell.id());
++  return found==skill_damage_global_components(dbc).end() ? std::set<unsigned>{} : found->second;
+ }
+ 
+ // 沿 DBC 的值引用和触发边追踪真正承载增伤的法术，不按父天赋名称建白名单。
+-std::map<unsigned, std::set<unsigned>> skill_damage_talent_damage_components( const sim_t&, const spell_data_t& spell )
++std::map<unsigned, std::set<unsigned>> skill_damage_talent_damage_components( const sim_t& sim, const spell_data_t& spell )
+ {
+   std::map<unsigned, std::set<unsigned>> result;
+   for ( const auto& fact : skill_damage_scope_parents )
+     if ( fact.parent == spell.id() ) result[fact.spell].insert(fact.index);
++  // 沿结构化触发边闭包；不从名字、当前伤害或未绑定的描述猜测作用域。
++  std::vector<unsigned> pending{spell.id()};
++  std::set<unsigned> visited;
++  while (!pending.empty())
++  {
++    const auto id=pending.back(); pending.pop_back();
++    if (!visited.insert(id).second) continue;
++    const auto* current=dbc::find_spell(&sim,id);
++    if (!current || !current->ok()) continue;
++    const auto indices=skill_damage_declared_damage_indices(*sim.dbc,*current);
++    if (!indices.empty()) result[id].insert(indices.begin(),indices.end());
++    for (const auto& effect:current->effects()) if (effect.trigger_spell_id()) pending.push_back(effect.trigger_spell_id());
++  }
+   return result;
+ }
+ 
+@@ -1645,9 +1662,14 @@
+   if ( !player->is_player() ) return;
+   const auto family = dbc::get_class_spell_family(player->type);
+   // 所有本职业已复核分量都在初始化前处理，包含非天赋父节点的自身 Buff。
+-  for ( const auto& fact : skill_damage_scope_effects )
++  for ( const auto& fact : skill_damage_effect_scope(*player->dbc) )
+     if ( fact.global && (fact.shared || fact.family == static_cast<unsigned>(family)) )
+       player->exclude_skill_damage_effect(dbc::find_spell(player->sim, fact.spell)->effectN(fact.index));
++  // 值与触发闭包可能跨越 DBC family（例如共享光环）；与读回共用同一来源闭包。
++  for(const auto& selected:player->player_traits)
++    if(const auto* trait=trait_data_t::find(std::get<1>(selected),player->is_ptr()))
++      for(const auto& [id,indices]:skill_damage_talent_damage_components(*player->sim,*dbc::find_spell(player->sim,trait->id_spell)))
++        for(auto index:indices) player->exclude_skill_damage_effect(dbc::find_spell(player->sim,id)->effectN(index));
+ }
+ 
+ // 直接使用 SimC 的 DBC 索引，不通过描述推断作用技能。
+@@ -2022,6 +2044,22 @@
+ // 尊重模块已经关闭的状态；同职业的其他专精天赋不能因共享 buff 对象而生效。
+ bool skill_damage_available_buff( const player_t& player, const buff_t& buff )
+ {
++  // 冻结的作用域目录同时持有来源专精。原生模块预建对象不等于当前专精可施加。
++  static const auto owners=[] {
++    std::map<unsigned,std::set<std::string>> result;
++    for(const auto& fact:skill_damage_scope_display)
++    {
++      rapidjson::Document data; data.Parse(fact.json);
++      if(data.HasParseError() || !data.HasMember("source_spell_ids"))
++        throw std::runtime_error("Invalid frozen scope owner catalog");
++      for(const auto& id:data["source_spell_ids"].GetArray())
++        result[id.GetUint()].insert(fact.specialization);
++    }
++    return result;
++  }();
++  const auto owner=owners.find(buff.data().id());
++  if(owner!=owners.end() && !owner->second.count("") &&
++     !owner->second.count(util::tokenize_fn(dbc::specialization_string(player.specialization())))) return false;
+   // 其他职业的公共外部 buff 也会以接收者为 source 创建，不能据此认定可以自身施加。
+   const int family = as<int>(buff.data().class_family());
+   if ( family && family != dbc::get_class_spell_family(player.type) ) return false;
+@@ -2034,7 +2072,8 @@
+   for ( const auto& trait : trait_data_t::data( player.is_ptr() ) )
+   {
+     if ( trait.id_class != static_cast<unsigned>( util::class_id( player.type ) ) ) continue;
+-    if ( trait.id_spell != buff.data().id() && util::tokenize_fn( trait.name ) != buff.name_str ) continue;
++    if ( !skill_damage_trigger_closure(*player.dbc,trait.id_spell).count(buff.data().id()) &&
++         util::tokenize_fn( trait.name ) != buff.name_str ) continue;
+     talent_owned = true;
+     for ( const auto& selected : player.player_traits )
+       if ( std::get<1>( selected ) == trait.id_trait_node_entry && std::get<2>( selected ) > 0 ) return availability[ &buff ] = true;
+@@ -2364,19 +2403,24 @@
+       } ) )
+     return true;
+ 
+-  // Class modules also create background/triggered actions which are not
+-  // directly addressable through action_names_from_spell_id(). Spell class
+-  // family is the native DBC ownership fact: it includes those class actions,
+-  // while excluding racial/profession/item spells (family 0) and recipient-side
+-  // support actions created for a different class.
+-  const unsigned reporting_family = reporting_root->data().class_family();
+-  if ( !reporting_family ) return false;
+-  return std::any_of(
+-      candidate_it->second.begin(), candidate_it->second.end(),
+-      [ &player, reporting_family ]( const skill_damage_dbc_candidate_t& candidate ) {
+-        const auto* spell = player.find_spell( candidate.spell_id );
+-        return spell && spell->ok() && spell->class_family() == reporting_family;
+-      } );
++  // 当前专精技能书、已选择天赋及其原生动作边构成归属证明；同职业不构成证明。
++  std::set<const action_t*> visited;
++  std::vector<const action_t*> pending;
++  for (const auto& candidate:candidate_it->second)
++  {
++    if (skill_damage_trigger_closure(*player.dbc,candidate.spell_id).count(reporting_root->data().id())) return true;
++    for (auto* a:candidate.actions) pending.push_back(a);
++  }
++  while (!pending.empty())
++  {
++    const auto* a=pending.back(); pending.pop_back();
++    if (!a || !visited.insert(a).second) continue;
++    if (a==reporting_root) return true;
++    for (auto* child:a->child_action) pending.push_back(child);
++    for (const auto& child:a->cast_child_action) pending.push_back(child.first);
++    for (const auto* child:{a->execute_action,a->impact_action,a->tick_action}) if(child) pending.push_back(child);
++  }
++  return false;
+ }
+ 
+ struct skill_damage_selected_trait_effect_t
+@@ -2462,7 +2506,7 @@
+     apl_metadata_json_string( out, buff->data().name_cstr() );
+     out << ",\"available\":" << ( skill_damage_available_buff( player, *buff ) ? "true" : "false" );
+     out << ",\"scope_basis\":"; apl_metadata_json_string( out, skill_damage_global_buff_basis( player, buff, target ) );
+-    out << ",\"partial_state\":" << (skill_damage_reviewed_buff(buff->data().id())->local ? "true" : "false");
++    out << ",\"partial_state\":" << (skill_damage_semantic_mixed_spell(*player.dbc,buff->data().id()) ? "true" : "false");
+     out << ",\"evidence\":\"precomputed_global_damage_scope\",\"excluded_before_probe\":true,\"dbc_base_multiplier\":";
+     double percent = -1.0;
+     bool ambiguous = false;
+@@ -2491,7 +2535,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":26,\"simc_revision\":";
++  out << "{\"schema_version\":27,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2597,6 +2641,61 @@
+   if ( !out ) throw std::runtime_error( "Unable to write skill damage scope catalog" );
+ }
+ 
++// 新效果自动进入同一份展示目录。只补结构化规则新增的物理分量，不复制复核目录。
++void write_skill_damage_semantic_scope(std::ostream& out,player_t& player,bool& first)
++{
++  std::set<std::pair<unsigned,unsigned>> reviewed;
++  for(const auto& fact:skill_damage_scope_effects) if(fact.global) reviewed.emplace(fact.spell,fact.index);
++  std::map<unsigned,unsigned> sources;
++  const auto spec=static_cast<unsigned>(player.specialization());
++  for(const auto& trait:trait_data_t::data(player.is_ptr()))
++  {
++    if(trait.id_class!=static_cast<unsigned>(util::class_id(player.type))) continue;
++    bool restricted=false, matches=false;
++    for(auto id:trait.id_spec) { restricted|=id!=0; matches|=id==spec; }
++    if(restricted && !matches) continue;
++    for(auto id:skill_damage_trigger_closure(*player.dbc,trait.id_spell)) sources.emplace(id,trait.id_trait_node_entry);
++  }
++  for(auto id:skill_damage_catalog(player).spells) sources.emplace(id,0);
++  for(auto* buff:player.buff_list)
++    if(buff->source==&player && buff->player==&player && skill_damage_available_buff(player,*buff)) sources[buff->data().id()]=0;
++  if(player.target) for(auto* buff:player.target->buff_list)
++    if(buff->source==&player && skill_damage_available_buff(player,*buff)) sources[buff->data().id()]=0;
++  for(const auto& [id,trait]:sources)
++  {
++    const auto* spell=spell_data_t::find(id,player.is_ptr());
++    if(spell->class_family()!=static_cast<unsigned>(dbc::get_class_spell_family(player.type))) continue;
++    std::vector<const spelleffect_data_t*> effects;
++    for(const auto& e:spell->effects())
++      if(e.id() && skill_damage_global_components(*player.dbc).count(id) &&
++         skill_damage_global_components(*player.dbc).at(id).count(e.index()+1) &&
++         !reviewed.count({id,e.index()+1})) effects.push_back(&e);
++    if(effects.empty()) continue;
++    if(!first) out<<','; first=false;
++    out<<"{\"effect_id\":\"semantic_scope:"<<id<<"\",\"source_type\":\"reviewed_scope\",\"source_kind\":\""<<(trait?"talent":"buff")<<"\",\"source_name\":";
++    apl_metadata_json_string(out,spell->name_cstr());
++    if(trait) out<<",\"trait_entry_id\":"<<trait;
++    out<<",\"source_spell_ids\":["<<id<<"],\"source_class\":";
++    apl_metadata_json_string(out,util::player_type_string(player.type));
++    out<<",\"specializations\":[";
++    apl_metadata_json_string(out,util::tokenize_fn(dbc::specialization_string(player.specialization())));
++    out<<"],\"scope_evidence\":\"dbc_semantic_effect_scope\",\"excluded_before_probe\":true,\"partial_state\":"
++       <<(skill_damage_semantic_mixed_spell(*player.dbc,id)?"true":"false")
++       <<",\"lower_skill_policy\":\"exclude_global_keep_explicit_local\",\"projections\":[],\"global_components\":[";
++    bool component_first=true;
++    for(const auto* e:effects)
++    { if(!component_first) out<<','; component_first=false;
++      out<<"{\"spell_id\":"<<id<<",\"effect_index\":"<<e->index()+1<<",\"effect_id\":"<<e->id()<<'}'; }
++    out<<"],\"effect_details\":["; component_first=true;
++    for(const auto* e:effects)
++    { if(!component_first) out<<','; component_first=false;
++      out<<"{\"source_spell_id\":"<<id<<",\"effect_index\":"<<e->index()+1<<",\"base_value\":"<<e->base_value()
++         <<",\"value_kind\":\"percent\",\"evidence\":\"dbc_native\",\"conditional\":false,\"label\":";
++      apl_metadata_json_string(out,e->subtype()==A_MOD_ALL_CRIT_CHANCE?"公共暴击率":e->subtype()==A_HASTE_ALL?"公共急速":"公共效果分量"); out<<'}'; }
++    out<<"]}";
++  }
++}
++
+ void export_skill_damage( sim_t& sim )
+ {
+   // 仅缓存本次导出的静态 DBC 事实，不跨版本或跨运行复用指针。
+@@ -2618,7 +2717,7 @@
+   const std::string temporary = target + ".tmp." + std::to_string( static_cast<long long>( getpid() ) );
+   std::ofstream out( temporary, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open temporary skill damage export file" );
+-  out << "{\"schema_version\":26,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
++  out << "{\"schema_version\":27,\"simc_revision\":"; apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"normalization_basis\":{\"attack_power\":100,\"spell_power\":100,"
+          "\"crit_percent\":20,\"mastery_percent\":50,\"versatility_percent\":0}";
+@@ -2649,11 +2748,12 @@
+       if ((fact.shared || fact.family == static_cast<unsigned>(dbc::get_class_spell_family(player->type))) &&
+           (!fact.specialization[ 0 ] || player_spec == fact.specialization))
+       { if (!first_reviewed) out << ','; first_reviewed=false; out << fact.json; }
++    write_skill_damage_semantic_scope(out,*player,first_reviewed);
+     out << ']';
+     out << ",\"scope_contract_sha256\":"; apl_metadata_json_string(out, skill_damage_scope_sha256);
+     out << ",\"normalized_scope_effects\":[";
+     bool first_scope = true;
+-    for ( const auto& fact : skill_damage_scope_effects )
++    for ( const auto& fact : skill_damage_effect_scope(*player->dbc) )
+     {
+       if (!fact.global || (!fact.shared && fact.family != static_cast<unsigned>(dbc::get_class_spell_family(player->type)))) continue;
+       const auto& actual = dbc::find_spell(player, fact.spell)->effectN(fact.index);
+@@ -2820,6 +2920,8 @@
+       return key;
+     };
+     std::map<const action_t*, std::vector<validated_scenario_t>> cast_scenarios;
++    std::map<const action_t*,std::pair<size_t,size_t>> cast_state_coverage;
++    std::map<const action_t*,bool> cast_stack_exhaustive;
+     const auto validate_cast = [&]( const action_t* root ) {
+       std::map<std::string, conditions_t> candidates;
+       // 先探测全部分量，确保延迟建立的目标状态也参与候选枚举。
+@@ -2844,12 +2946,99 @@
+         }
+         return found->second.at( targets );
+       };
++      // APL 只描述循环决策，不能充当状态组合目录。先由原生快照及 DBC 选择器
++      // 找出本次施法的状态维度，再计算这些维度的完整笛卡尔积（含关闭状态）。
++      std::map<std::string,conditions_t> dimensions;
++      for(const auto& [key,candidate]:candidates)
++      {
++        if(candidate.size()!=1) continue;
++        bool relevant=false, resolved=true;
++        for(int count:{1,2,5,10,20})
++        {
++          double base=probe({},count), value=probe(candidate,count);
++          resolved &= std::isfinite(base) && std::isfinite(value);
++          relevant |= std::isfinite(base) && std::isfinite(value) && skill_damage_final_changed(base,value);
++        }
++        if(!resolved) continue;
++        const auto& condition=candidate.front();
++        const auto* original=spell_data_t::find(condition.buff->data().id(),player->is_ptr());
++        for(const auto& e:original->effects())
++        {
++          const auto globals=skill_damage_global_components(*player->dbc).find(original->id());
++          if(globals!=skill_damage_global_components(*player->dbc).end() && globals->second.count(e.index()+1)) continue;
++          if(!skill_damage_damage_aura(e,condition.scope==skill_damage_condition_scope_e::TARGET)) continue;
++          for(const auto* component:cast_actions[root]) relevant |= component->data().affected_by(e);
++        }
++        if(relevant) dimensions[condition.token].push_back(condition);
++      }
++      std::vector<conditions_t> combinations(1);
++      bool exhaustive=true;
++      for(const auto& [token,choices]:dimensions)
++      {
++        std::vector<conditions_t> next=combinations;
++        for(const auto& prefix:combinations) for(const auto& choice:choices)
++        {
++          bool conflict=false;
++          for(const auto& previous:prefix)
++          {
++            if(previous.buff==choice.buff) conflict=true;
++            const auto shape=[](const buff_t* b) {
++              for(const auto& e:b->data().effects()) if(e.subtype()==A_MOD_SHAPESHIFT) return true;
++              return false;
++            };
++            if(previous.scope==choice.scope && shape(previous.buff) && shape(choice.buff)) conflict=true;
++          }
++          if(conflict) continue;
++          if(next.size()>=65536) { exhaustive=false; break; }
++          auto combined=prefix; combined.push_back(choice); next.push_back(std::move(combined));
++        }
++        combinations=std::move(next);
++        if(!exhaustive) break;
++      }
++      if(!exhaustive)
++      {
++        // 表格只发布明确层数的实算点。大状态空间保留所有状态集合的首层/满层，
++        // 再覆盖全部单状态层数和双状态层数组合；覆盖元数据明确禁止声称全层数穷举。
++        combinations.assign(1,{});
++        for(bool maximum:{false,true})
++        {
++          std::vector<conditions_t> presence(1);
++          for(const auto& [token,choices]:dimensions)
++          {
++            auto next=presence;
++            for(const auto& prefix:presence)
++            { auto c=prefix; c.push_back(maximum?choices.back():choices.front()); next.push_back(std::move(c)); }
++            if(next.size()>65536) throw std::length_error("Skill damage presence lattice exceeds limit; incomplete export refused");
++            presence=std::move(next);
++          }
++          combinations.insert(combinations.end(),presence.begin(),presence.end());
++        }
++        for(auto left=dimensions.begin();left!=dimensions.end();++left)
++          for(const auto& a:left->second)
++          {
++            combinations.push_back({a});
++            for(auto right=std::next(left);right!=dimensions.end();++right)
++              for(const auto& b:right->second) combinations.push_back({a,b});
++          }
++      }
++      candidates.clear();
++      for(const auto& combination:combinations) if(!combination.empty())
++      {
++        unsigned forms=0;
++        for(const auto& c:combination) if(c.scope==skill_damage_condition_scope_e::SELF)
++          for(const auto& e:c.buff->data().effects()) if(e.subtype()==A_MOD_SHAPESHIFT) { ++forms; break; }
++        if(forms>1) continue;
++        candidates.emplace(condition_key(combination),combination);
++      }
++      cast_state_coverage[root]={dimensions.size(),candidates.size()};
++      cast_stack_exhaustive[root]=exhaustive;
+       std::map<std::string, validated_scenario_t> validated;
+       for ( const auto& [key, candidate] : candidates )
+         for ( int targets : {1, 2, 5, 10, 20} )
+         {
+           const auto base = probe( {}, targets );
+           const auto current = probe( candidate, targets );
++          if (!std::isfinite(base) || !std::isfinite(current)) continue;
+           if ( std::isfinite( base ) && std::isfinite( current ) && !skill_damage_final_changed( base, current ) ) continue;
+           auto minimal = skill_damage_minimal_conditions( candidate, targets, probe );
+           if ( minimal.empty() ) continue;
+@@ -2926,6 +3115,11 @@
+       out << ",\"weapon_multiplier\":" << action->weapon_multiplier;
+       out << ",\"requires_weapon_data\":" << ( requires_weapon_data ? "true" : "false" ) << '}';
+       out << ",\"baseline\":"; write_skill_damage_amount( out, baseline );
++      const auto coverage_counts=cast_state_coverage[reporting_root];
++      out << ",\"state_coverage\":{\"planner\":\"native_effect_state_lattice\",\"dimensions\":"<<coverage_counts.first
++          <<",\"evaluated_combinations\":"<<coverage_counts.second<<",\"complete_for_declared_dimensions\":"
++          <<(unsupported_probe || !baseline.unresolved_reason.empty() || !cast_stack_exhaustive[reporting_root]?"false":"true")
++          <<",\"stack_coverage\":\""<<(cast_stack_exhaustive[reporting_root]?"exhaustive":"all_pairs_and_min_max_presence")<<"\"}";
+       out << ",\"scenarios\":[";
+       bool first_scenario = true;
+       for ( const auto& scenario : scenarios )
+diff --git a/engine/skill_damage_scope_semantics.hpp b/engine/skill_damage_scope_semantics.hpp
+new file mode 100644
+--- /dev/null
++++ b/engine/skill_damage_scope_semantics.hpp
+@@ -0,0 +1,94 @@
++// 所有消费者共享同一份分量闭包；结果不依赖当前动作数量、数值比例或本地化名称。
++#pragma once
++#include "skill_damage_semantic_rules.inc"
++#include <map>
++#include <set>
++#include <vector>
++
++inline bool skill_damage_unrestricted_result(const spelleffect_data_t& e)
++{
++  if (e.type() != E_APPLY_AURA && e.type() != E_APPLY_AREA_AURA_PARTY &&
++      e.type() != E_APPLY_AURA_PLAYER_AND_PET) return false;
++  for (unsigned i=0; i<NUM_CLASS_FAMILY_FLAGS; ++i) if (e.class_flags(i)) return false;
++  switch (e.subtype())
++  {
++    case A_MOD_DAMAGE_PERCENT_DONE: case A_MOD_ALL_CRIT_CHANCE:
++    case A_HASTE_ALL: case A_MOD_CRIT_DAMAGE_MULTIPLIER:
++    case A_MOD_CRIT_PERCENT: case A_MOD_SPELL_CRIT_CHANCE: case A_MOD_SPELL_CRIT_CHANCE_SCHOOL:
++      return true;
++    default: return false;
++  }
++}
++
++inline bool skill_damage_public_selector(const spelleffect_data_t& e)
++{
++  if (e.type() != E_APPLY_AURA) return false;
++  if (e.subtype() != A_ADD_PCT_MODIFIER && e.subtype() != A_ADD_FLAT_MODIFIER &&
++      e.subtype() != A_MOD_DAMAGE_FROM_CASTER_SPELLS) return false;
++  if (e.misc_value1()!=P_GENERIC && e.misc_value1()!=P_TICK_DAMAGE &&
++      e.misc_value1()!=P_CRIT && e.misc_value1()!=P_CRIT_BONUS) return false;
++  for (const auto& selector: skill_damage_semantic_selectors)
++    if (e.spell()->class_family()==selector.family && (e.class_flags(selector.word)&selector.mask)) return true;
++  // 同版复核的组合选择器，缺少任一位都不能扩大为公共作用域。
++  return e.spell()->class_family()==10 && (e.class_flags(1)&16384) && (e.class_flags(2)&2);
++}
++
++inline const std::vector<skill_damage_scope_effect_t>& skill_damage_effect_scope(const dbc_t& dbc)
++{
++  static std::map<bool,std::vector<skill_damage_scope_effect_t>> cache;
++  auto found=cache.find(dbc.ptr);
++  if (found!=cache.end()) return found->second;
++  std::map<std::pair<unsigned,unsigned>,skill_damage_scope_effect_t> facts;
++  for (const auto& fact: skill_damage_scope_effects) facts[{fact.spell,fact.index}]=fact;
++  for (const auto& spell: spell_data_t::data(dbc.ptr))
++    if (spell.class_family())
++    for (const auto& e: spell.effects())
++    {
++      const bool unrestricted=skill_damage_unrestricted_result(e);
++      const auto key=std::make_pair(spell.id(),e.index()+1);
++      if (!unrestricted && (!skill_damage_public_selector(e) || facts.count(key))) continue;
++      facts[key]={spell.id(), e.index()+1, e.id(), spell.class_family(), true, false};
++    }
++  auto& result=cache[dbc.ptr];
++  for (const auto& [key,fact]:facts) result.push_back(fact);
++  return result;
++}
++
++// 沿结构化触发关系追溯来源，不根据名称或同职业关系授予专精归属。
++inline std::set<unsigned> skill_damage_trigger_closure(const dbc_t& dbc, unsigned root)
++{
++  std::set<unsigned> seen;
++  std::vector<unsigned> pending{root};
++  while (!pending.empty())
++  {
++    unsigned id=pending.back(); pending.pop_back();
++    if (!id || !seen.insert(id).second) continue;
++    for (const auto& e:spell_data_t::find(id,dbc.ptr)->effects())
++      if (e.trigger_spell_id()) pending.push_back(e.trigger_spell_id());
++  }
++  return seen;
++}
++
++inline const std::map<unsigned,std::set<unsigned>>& skill_damage_global_components(const dbc_t& dbc)
++{
++  static std::map<bool,std::map<unsigned,std::set<unsigned>>> cache;
++  auto found=cache.find(dbc.ptr);
++  if (found!=cache.end()) return found->second;
++  auto& result=cache[dbc.ptr];
++  for (const auto& fact:skill_damage_effect_scope(dbc)) if (fact.global) result[fact.spell].insert(fact.index);
++  return result;
++}
++
++inline bool skill_damage_semantic_global_spell(const dbc_t& dbc,unsigned spell)
++{ return skill_damage_global_components(dbc).count(spell)!=0; }
++
++inline bool skill_damage_semantic_mixed_spell(const dbc_t& dbc,unsigned spell)
++{
++  for (const auto& fact:skill_damage_scope_buffs) if (fact.spell==spell && fact.local) return true;
++  const auto found=skill_damage_global_components(dbc).find(spell);
++  if (found==skill_damage_global_components(dbc).end()) return false;
++  // 保留状态开关；未归一化的分量可能是资源、治疗或局部触发条件，不能删掉整个Buff。
++  for (const auto& e:spell_data_t::find(spell,dbc.ptr)->effects())
++    if (e.type()!=E_NONE && !found->second.count(e.index()+1)) return true;
++  return false;
++}
+diff --git a/engine/skill_damage_semantic_rules.inc b/engine/skill_damage_semantic_rules.inc
+new file mode 100644
+--- /dev/null
++++ b/engine/skill_damage_semantic_rules.inc
+@@ -0,0 +1,25 @@
++// 由 build_simc_semantic_rules.py 生成；选择器有版本约束，不包含技能白名单。
++#pragma once
++constexpr const char* skill_damage_selector_revision = "1d3897ef4adefc8e47a43989eed81b6618ce7bef";
++struct skill_damage_semantic_selector_t { unsigned family, word, mask; };
++constexpr skill_damage_semantic_selector_t skill_damage_semantic_selectors[] = {
++  {3, 0, 8u},
++  {4, 0, 512u},
++  {4, 3, 16777216u},
++  {5, 1, 131072u},
++  {6, 2, 256u},
++  {7, 0, 262144u},
++  {7, 2, 8192u},
++  {7, 3, 4u},
++  {8, 3, 134217728u},
++  {9, 0, 1u},
++  {9, 3, 1024u},
++  {11, 1, 128u},
++  {11, 3, 1073741824u},
++  {15, 1, 2048u},
++  {15, 3, 16777216u},
++  {53, 3, 128u},
++  {107, 0, 65536u},
++  {107, 2, 2147483648u},
++  {224, 0, 1u},
++};

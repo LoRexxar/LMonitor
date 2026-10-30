@@ -6280,21 +6280,22 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         );
         const fallbackTalentLabel = talentName.endsWith('天赋') ? talentName : `${talentName}天赋`;
         const variantLabel = conditionLabel || (talentName === '基础技能' ? talentName : `点出${fallbackTalentLabel}`);
-        const context = variant.activation_context || {};
-        const contextLabel = String(context.display_label || '').replace('（前置天赋固定）', '');
-        const contextHtml = contextLabel
-            ? `<div class="mt-1 text-xs text-stone-600"><span${renderSimcTooltipAttrs(contextLabel, context.description || '')}>${escapeHtml(contextLabel)}</span></div>` : '';
-        const reference = variant.reference_context || {};
-        const referenceTraits = Array.isArray(reference.traits) ? reference.traits : [];
-        const referenceEntries = reference.source === 'native_reference_selection'
-            && Array.isArray(reference.trait_entry_ids) ? reference.trait_entry_ids : [];
-        const referenceNames = referenceEntries.map(entry => {
-            const trait = referenceTraits.find(item => item && item.trait_entry_id === entry) || {};
-            return trait.name_zh || trait.name || `TraitEntry ${entry}`;
-        });
-        const referenceHtml = referenceNames.length
-            ? `<div class="mt-1 text-xs text-stone-600">固定参考天赋：${escapeHtml(referenceNames.join('、'))}</div>` : '';
-        const variantCell = `<div class="text-xs text-amber-800">${renderSimcConditionDescription(variantLabel, variant)}</div>${contextHtml}${referenceHtml}`;
+        const skillIds = new Set([action.spell_id, action.reporting_root_spell_id,
+            ...(action.components || []).map(part => part.spell_id)].filter(id => Number.isInteger(id) && id > 0));
+        const related = Array.isArray(variant.related_talents) ? variant.related_talents : [];
+        const namesByKind = kind => [...new Set(related.filter(trait => trait && Array.isArray(trait.evidence)
+            && trait.evidence.some(proof => proof.kind === kind && skillIds.has(proof.skill_spell_id)))
+            .map(trait => trait.name_zh || trait.name || `TraitEntry ${trait.trait_entry_id}`))];
+        const unlockNames = namesByKind('native_action_unlock');
+        const modifierNames = namesByKind('native_modifier').filter(name => !unlockNames.includes(name));
+        const contextHtml = unlockNames.length
+            ? `<div class="mt-1 text-xs text-stone-600">技能解锁：${escapeHtml(unlockNames.join('、'))}</div>` : '';
+        const referenceHtml = modifierNames.length
+            ? `<div class="mt-1 text-xs text-stone-600">相关前置天赋：${escapeHtml(modifierNames.join('、'))}</div>` : '';
+        const coverage = action.state_coverage || {};
+        const coverageHtml = coverage.stack_coverage === 'all_pairs_and_min_max_presence'
+            ? '<div class="mt-1 text-xs text-stone-600">组合覆盖：全部双状态层数，以及多状态同时首层、同时满层；其余多状态层数组合未穷举。</div>' : '';
+        const variantCell = `<div class="text-xs text-amber-800">${renderSimcConditionDescription(variantLabel, variant)}</div>${contextHtml}${referenceHtml}${coverageHtml}`;
         const normalizedBase = product.normalized_base_damage;
         const finalDamage = selectedFinalDamage;
         let baseDamageCell = '<span class="text-stone-500">DBC 未解析</span>';

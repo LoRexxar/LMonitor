@@ -1,4 +1,5 @@
 import copy
+from .simc_skill_talent_links import collect_skill_talent_links, merge_skill_talent_links, apply_skill_talent_links
 import json
 import math
 import os
@@ -2686,6 +2687,7 @@ def _declared_global_state_name(actor, identity):
 
 
 _GLOBAL_SCOPE_BASES = frozenset({
+    'dbc_semantic_effect_scope',
     'reviewed_dbc_native_effect_scope',
     'dbc_unrestricted_damage_aura', 'native_player_effect_registry',
     'dbc_damage_scope_declaration', 'native_player_multiplier_damage_schools', 'dbc_linked_global_damage_effect',
@@ -2715,7 +2717,7 @@ def _validate_global_scope_catalog(actor):
             classified[key] = (row['scope_basis'], row['available'])
     declared = {}
     for row in actor['global_damage_states']:
-        if row.get('scope_basis') == 'reviewed_dbc_native_effect_scope':
+        if row.get('scope_basis') in {'reviewed_dbc_native_effect_scope', 'dbc_semantic_effect_scope'}:
             if type(row.get('partial_state')) is not bool:
                 raise ValueError('已复核作用域缺少混合分量标记。')
         elif row.get('partial_state') is True:
@@ -3192,7 +3194,20 @@ def single_talent_reference_entry(entry, selected_by_entry):
 
 
 def flatten_single_talent_damage_variants(base_high, base_low, variants, *, global_effects=None):
-    """Flatten every independently exported SimC fact without recalculating damage."""
+    """展开独立导出的施法事实，复用数值与状态元数据索引，不重算伤害。"""
+    # 一次投影内的原始动作不变。组合增加后，逐行重建状态索引会退化为平方复杂度。
+    scenario_indexes = {}
+
+    def indexed_scenarios(action):
+        key = id(action)
+        if key not in scenario_indexes:
+            amounts = _scenario_amounts(action)
+            metadata = {}
+            for scenario in (action or {}).get('scenarios') or []:
+                if isinstance(scenario, dict):
+                    metadata.setdefault(_scenario_identity(scenario), scenario)
+            scenario_indexes[key] = (action, amounts, metadata)
+        return scenario_indexes[key][1]
     variants = _reiterable_variants(variants)
     declared_state_identities = {
         (condition.get('scope'), condition.get('spell_id'))
@@ -3319,12 +3334,12 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
             and state.get('scope') == scope and state.get('spell_id') == spell_id
             and state.get('partial_state') is True
             and state.get('excluded_before_probe') is True
-            and state.get('scope_basis') == 'reviewed_dbc_native_effect_scope'
+            and state.get('scope_basis') in {'reviewed_dbc_native_effect_scope', 'dbc_semantic_effect_scope'}
             for state in actor.get('global_damage_states') or []
         ):
             return False
         baseline = action.get('baseline')
-        singleton = _scenario_amounts(action).get((identity,))
+        singleton = indexed_scenarios(action).get((identity,))
         return (
             _amount_state(baseline)[0] == 'resolved'
             and _amount_state(singleton)[0] == 'resolved'
@@ -3447,8 +3462,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 final_component['runtime_factor_layers'] = factor_layers
         row['scenarios'] = []
         if scenario_tokens:
-            native_scenario = next((scenario for scenario in action.get('scenarios') or []
-                                    if _scenario_identity(scenario) == scenario_identity), {})
+            indexed_scenarios(action)
+            native_scenario = scenario_indexes[id(action)][2].get(scenario_identity, {})
             if 'affected_target_counts' in native_scenario:
                 row['affected_target_counts'] = list(native_scenario['affected_target_counts'])
         reference_state = _amount_state(comparison)
@@ -3551,8 +3566,8 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 comparison=low_amount,
             )
 
-        high_scenarios = _scenario_amounts(high_action)
-        low_scenarios = _scenario_amounts(low_action)
+        high_scenarios = indexed_scenarios(high_action)
+        low_scenarios = indexed_scenarios(low_action)
         for tokens, amount in high_scenarios.items():
             if (
                 _amount_state(amount)[0] == 'resolved'
@@ -3582,6 +3597,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     cast_sources.clear()
     actor_context.clear()
     for item in variants:
+        scenario_indexes.clear()
         talent = item.get('talent') or {}
         active_activation_context = item.get('activation_context')
         # Absolute damage still contains the fixed reference configuration.
@@ -3649,10 +3665,10 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                     talent_owns_derived_action(high_action, base_high_action, talent),
                 ))
 
-            base_high_scenarios = _scenario_amounts(base_high_action)
-            high_scenarios = _scenario_amounts(high_action)
-            base_low_scenarios = _scenario_amounts(base_low_action)
-            low_scenarios = _scenario_amounts(low_action)
+            base_high_scenarios = indexed_scenarios(base_high_action)
+            high_scenarios = indexed_scenarios(high_action)
+            base_low_scenarios = indexed_scenarios(base_low_action)
+            low_scenarios = indexed_scenarios(low_action)
 
             for tokens, amount in high_scenarios.items():
                 reference = base_high_scenarios.get(tokens, base_high_amount)
@@ -4055,6 +4071,8 @@ def project_skill_damage_product_payload(payload):
                     group['affected_target_counts'] = sorted(set(group['affected_target_counts'])
                                                              | set(action['affected_target_counts']))
                 weighted_base = normalized_base * count
+                merge_skill_talent_links(group.setdefault('_row_talent_links', []),
+                                         collect_skill_talent_links(action, component_name=component_name))
                 weighted_final = final_damage * count
                 weighted_hit = hit_damage * count
                 weighted_crit = crit_damage * count
@@ -4190,6 +4208,8 @@ def project_skill_damage_product_payload(payload):
                     for key, value in target_damage.items()
                 }
             rows.append(group)
+        for row in rows:
+            apply_skill_talent_links(row, row.pop('_row_talent_links', []))
         rows = _compact_equivalent_damage_states(rows)
         # 施法前提不参与增伤差分、分量补全或无效 Buff 裁剪；最终展示时再合入条件。
         for row in rows:
@@ -4246,8 +4266,9 @@ def project_global_skill_effects_for_display(payload):
 class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
-    EXPORTER_SCHEMA_REVISION = 26
-    DATASET_SCHEMA_REVISION = 49
+    EXPORTER_SCHEMA_REVISION = 27
+    DATASET_SCHEMA_REVISION = 51
+    MIN_DISPLAY_SCHEMA_REVISION = 51
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
     WIRE_SCHEMA_REVISION = 1
@@ -4306,7 +4327,7 @@ class SimcSkillDamageSnapshotService:
         """Return the newest immutable success that the current Dashboard can decode."""
         candidates = SimcSkillDamageSnapshot.objects.filter(
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
-            schema_revision__gte=cls.LEGACY_WIRE_V1_MIN_DATASET_REVISION,
+            schema_revision__gte=cls.MIN_DISPLAY_SCHEMA_REVISION,
             schema_revision__lte=cls.DATASET_SCHEMA_REVISION,
             payload__payload_format=cls.PAYLOAD_FORMAT,
         ).order_by('-completed_at', '-id')

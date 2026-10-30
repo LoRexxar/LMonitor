@@ -335,7 +335,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
 
         self.assertIsNone(SimcSkillDamageSnapshotService.latest_display_snapshot())
 
-    def test_latest_display_snapshot_accepts_implicit_wire_v1_for_r20_through_r22(self):
+    def test_latest_display_snapshot_rejects_pre_semantic_generator_snapshots(self):
         for schema_revision in (20, 21, 22):
             with self.subTest(schema_revision=schema_revision):
                 snapshot = SimcSkillDamageSnapshot.objects.create(
@@ -361,10 +361,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                     display_action_count=0,
                 )
 
-                self.assertEqual(
-                    SimcSkillDamageSnapshotService.latest_display_snapshot().pk,
-                    snapshot.pk,
-                )
+                self.assertIsNone(SimcSkillDamageSnapshotService.latest_display_snapshot())
                 snapshot.delete()
 
     def test_latest_display_snapshot_rejects_incomplete_legacy_success(self):
@@ -3557,12 +3554,12 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             actor_payload={'class': 'warrior', 'specialization': 'fury', 'actions': []},
             unresolved_payload=[], raw_action_count=0, display_action_count=0,
         )
-        self.assertEqual(SimcSkillDamageSnapshotService.latest_display_snapshot().pk, old.pk)
+        self.assertIsNone(SimcSkillDamageSnapshotService.latest_display_snapshot())
         service = SimcSkillDamageSnapshotService.create_for_current_backend(claim=True)
         self.assertEqual(service.snapshot.schema_revision, SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION)
         self.assertNotEqual(service.snapshot.pk, old.pk)
         self.assertEqual(service.snapshot.status, SimcSkillDamageSnapshot.STATUS_RUNNING)
-        self.assertEqual(SimcSkillDamageSnapshotService.latest_display_snapshot().pk, old.pk)
+        self.assertIsNone(SimcSkillDamageSnapshotService.latest_display_snapshot())
 
     def test_existing_schema_thirteen_snapshot_creates_new_schema_eighteen_identity(self):
         backend, _ = SimcBackendBinary.objects.update_or_create(
@@ -5194,7 +5191,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
     def test_get_returns_frozen_schema_eighteen_product_without_reprojection(self):
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=22,
+            simc_revision='d' * 40, game_build='12.1.0.69299', schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             generated_spec_count=1,
             payload={
@@ -5239,7 +5236,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         snapshot = SimcSkillDamageSnapshot.objects.create(
             simc_revision='8' * 40,
             game_build='12.1.0.69300',
-            schema_revision=22,
+            schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             generated_spec_count=2,
             generated_action_count=2,
@@ -5446,13 +5443,11 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         request.user = self.user
 
         response = SimcSkillDamageSnapshotAPIView.as_view()(request)
-        body = json.loads(b''.join(response.streaming_content))
+        body = json.loads(response.content)
 
-        self.assertEqual(body['data']['snapshot']['id'], previous.pk)
-        self.assertEqual(body['data']['snapshot']['identity']['schema_revision'], 21)
+        self.assertIsNone(body['data']['snapshot'])
         self.assertEqual(body['data']['job']['id'], running.pk)
         self.assertEqual(body['data']['job']['status'], SimcSkillDamageSnapshot.STATUS_RUNNING)
-        self.assertIn('previous-published-action', str(body['data']['snapshot']['actors']))
 
     def test_get_localizes_skill_identity_and_left_cell_only_shows_name_and_spell_id(self):
         version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults={'is_active': True, 'status': 'active'})
@@ -5481,7 +5476,7 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
         from botend.services.wow_spell_display import sync_spell_display
         sync_spell_display(branch='retail', apply=True)
         snapshot = SimcSkillDamageSnapshot.objects.create(
-            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=22,
+            simc_revision='e' * 40, game_build='12.1.0.69300', schema_revision=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
             status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
             generated_spec_count=1,
             payload=localize_skill_damage_payload(project_skill_damage_product_payload({'actors': [{

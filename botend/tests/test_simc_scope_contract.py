@@ -15,7 +15,7 @@ class ScopeContractTests(unittest.TestCase):
         )
         patch = patch_path.read_text(encoding='utf-8')
         self.assertEqual(
-            hashlib.sha256(patch_path.read_bytes()).hexdigest(),
+            hashlib.sha256(patch.replace('\r\n', '\n').encode('utf-8')).hexdigest(),
             'aae132fd139f9fa3023ef65d0cf8b3892db373069c971b57ac01dd866fd1f2d9',
         )
         self.assertIn('skill_damage_scope_revision = "ac0f3a3c7ff9e521137c0ca1760d548330c697f3";', patch)

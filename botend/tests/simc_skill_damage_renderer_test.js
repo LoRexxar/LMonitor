@@ -252,6 +252,9 @@ console.log('不同来源 proc 保留全部行并渲染转义后的后端来源�
 payload.actors[0].actions[0].variant.activation_context = {
     display_label:'技能解锁：肆意放纵（前置天赋固定）', description:'固定天赋前提：<已核对>',
 };
+assert.doesNotMatch(render(), /技能解锁：肆意放纵|固定天赋前提/);
+payload.actors[0].actions[0].variant.related_talents = [{trait_entry_id:119139,name_zh:'肆意放纵',
+    evidence:[{kind:'native_action_unlock',skill_spell_id:payload.actors[0].actions[0].spell_id}]}];
 assert.match(render(), /技能解锁：肆意放纵/);
 assert.doesNotMatch(render(), /前置天赋固定/);
 payload.actors[0].global_skill_effects = [{display_name:'测试全局效果',
@@ -262,7 +265,7 @@ const conciseGlobalHtml = element('simc-skill-damage-global-modifiers').innerHTM
 assert.doesNotMatch(conciseGlobalHtml, /职业初始化前排除|作用域分类|倍率随天赋等级变化|列出影响全技能|不重复叠乘/);
 assert.match(conciseGlobalHtml, /仅战斗中/);
 assert.match(conciseGlobalHtml, /直接伤害 \+15\.00%/);
-assert.match(render(), /固定天赋前提：&lt;已核对>/);
+assert.doesNotMatch(render(), /固定天赋前提：/);
 
 // 唯一 effects 由服务端负责；类别效果保留单位和条件，不另画同值 projection。
 payload.actors[0].global_skill_effects = [{display_name:'类别效果',

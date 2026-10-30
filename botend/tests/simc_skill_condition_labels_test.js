@@ -31,5 +31,12 @@ assert.equal(render({}), '基础技能');
 assert.equal(render({...talent, talent_name_zh: '<已选天赋>'}), '点出&lt;已选天赋>天赋');
 const referenceContext = {source: 'native_reference_selection', trait_entry_ids: [30, 40],
     traits: [{trait_entry_id: 30, name_zh: '固定前置'}, {trait_entry_id: 40}]};
-assert.match(render({...talent, reference_context: referenceContext}), /固定参考天赋：固定前置、TraitEntry 40/);
+assert.equal(render({...talent, reference_context: referenceContext}), '点出已选天赋');
+assert.doesNotMatch(element('simc-skill-damage-body').innerHTML, /固定前置|TraitEntry 40|查看计算参考配置/);
+assert.doesNotMatch(element('simc-skill-damage-body').innerHTML, /固定参考天赋：/);
+const links = [{trait_entry_id:30,name_zh:'相关前置',evidence:[{kind:'native_modifier',skill_spell_id:123}]},
+    {trait_entry_id:40,name_zh:'别的技能前置',evidence:[{kind:'native_action_unlock',skill_spell_id:999}]}];
+const text = render({...talent, related_talents:links, reference_context:referenceContext});
+assert.match(text, /相关前置天赋：相关前置/);
+assert.doesNotMatch(text, /别的技能前置|固定前置|TraitEntry 40/);
 console.log('条件列保留天赋、血量与Buff，不重复标签、不修改公式、正确转义。');
