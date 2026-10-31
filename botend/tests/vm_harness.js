@@ -33,6 +33,7 @@ function skillRenderer() {
     const target = {dataset:{targetCount:'1'}, getAttribute:()=> 'true'};
     const context = vm.createContext({document:{getElementById:element, querySelectorAll:()=>[target]},
         escapeHtml:value=>String(value).replaceAll('&','&amp;').replaceAll('"','&quot;').replaceAll('<','&lt;')});
+    vm.runInContext(readSource('static/dashboard/js/simc_skill_query.js'), context);
     vm.runInContext(betweenMarkers(readSource('static/dashboard/js/main.js'),
         'function renderSimcSkillIdentity(', 'function initSimcSkillDamagePanel('), context);
     return {context, element, elements, target};

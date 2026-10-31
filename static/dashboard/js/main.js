@@ -5893,51 +5893,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         const prefix = signed && value > 0 ? '+' : '';
         return `${prefix}${value.toFixed(2)}%`;
     };
-    const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = [], preserveRuntimeCondition = false) => {
-        const condition = String(runtimeCondition || '').trim();
-        const tokens = [...(Array.isArray(scenarioTokens) ? scenarioTokens : []),
-            ...runtimeConditions.map(item => item && item.token).filter(Boolean)];
-        const name = String(talentName || '').trim();
-        // Legacy scenario markers are rendered below from localized state facts.
-        const parts = condition && !/^启用 (?:buff|debuff)\.[a-z0-9_]+$/.test(condition)
-            && (preserveRuntimeCondition || !condition.startsWith('启用 ')) ? [condition] : [];
-        const talentLabel = name.endsWith('天赋') ? name : `${name}天赋`;
-        // Talent selection and runtime state are independent conditions.
-        // A health/Buff label must not suppress the talent whose formula this is.
-        const selectedTalent = `点出${talentLabel}`;
-        if (name && name !== '基础技能' && !preserveRuntimeCondition
-            && !parts.some(part => part.includes(selectedTalent))) {
-            parts.unshift(selectedTalent);
-        } else if (!parts.length && tokens.length && name && name !== '基础技能') {
-            parts.push(selectedTalent);
-        }
-        [...new Set(tokens.map(token => String(token || '').trim()).filter(Boolean))].forEach(token => {
-            const separatorIndex = token.indexOf('.');
-            const scope = separatorIndex >= 0 ? token.slice(0, separatorIndex) : '';
-            const stateToken = separatorIndex >= 0 ? token.slice(separatorIndex + 1) : token;
-            if (!stateToken) return;
-            const metadata = runtimeConditions.find(item => item && item.token === token) || {};
-            const stateName = metadata.display_name || metadata.name_zh || metadata.name || stateToken;
-            const owner = scope === 'debuff' ? '目标' : '自身';
-            const stacks = Number(metadata.stacks);
-            const stackLabel = Number.isInteger(stacks) && stacks > 1 ? `（${stacks}层）` : '';
-            const stateLabel = `${stateName}${stackLabel}`;
-            if (stackLabel) {
-                const escapePattern = value => String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-                const statePattern = new RegExp(`(${owner}存在\\s*)(?:${escapePattern(stateName)}|${escapePattern(stateToken)})(\\s*效果)`, 'g');
-                parts.forEach((part, index) => { parts[index] = part.replace(statePattern, `$1${stateLabel}$2`); });
-            }
-            // 兼容服务端已写入状态说明的快照，不能重复追加同一个 Buff。
-            const compact = parts.join('，').replace(/\s+/g, '');
-            if (!compact.includes(`${owner}存在${stateLabel}效果`)
-                && !compact.includes(`${owner}存在${stateName}效果`)
-                && !compact.includes(`${owner}存在${stateToken}效果`)) {
-                parts.push(`${owner}存在 ${stateLabel} 效果时`);
-            }
-        });
-        if (condition.includes('35%') && !parts.some(part => part.includes('35%'))) parts.push('血量低于35%');
-        return parts.join('，');
-    };
+    const renderSimcTalentProbeCondition = SimcSkillQuery.renderSimcTalentProbeCondition;
     const body = document.getElementById('simc-skill-damage-body');
     const identityEl = document.getElementById('simc-skill-damage-identity');
     const unresolvedEl = document.getElementById('simc-skill-damage-unresolved');
@@ -5985,6 +5941,14 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     } else {
         unresolvedEl.innerHTML = '';
         unresolvedEl.classList.add('hidden');
+    }
+    if (!unresolved.length && snapshot && (snapshot.unresolved_reference || (snapshot.actor_page && snapshot.actor_page.unresolved))) {
+        const reference = snapshot.unresolved_reference || snapshot.actor_page.unresolved;
+        const count = reference.count == null ? '总数未随分页提供' : `${reference.count}项`;
+        const href = `/api/simc-skill-damage/?${new URLSearchParams({view: 'unresolved_fragment',
+            snapshot_id: String(reference.snapshot_id || snapshot.id), actor_id: String(reference.actor_id || ''), offset: '0', fragment_limit: '16384'})}`;
+        unresolvedEl.innerHTML = `未解析明细独立存储（${escapeHtml(count)}）；分页列表不代表完整覆盖。<a class="ml-2 underline" target="_blank" rel="noopener" href="${escapeHtml(href)}">查看有界原始片段</a>`;
+        unresolvedEl.classList.remove('hidden');
     }
     const actors = snapshot && Array.isArray(snapshot.actors)
         ? snapshot.actors.filter(item => item && typeof item === 'object')
@@ -6138,70 +6102,28 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         globalModifiersEl.classList.remove('hidden');
     }
 
+    const actorPage = snapshot && snapshot.actor_page;
+    const queryOptions = {hero_tree_id: selectedHeroTree, target_count: targetCount,
+        sort: sortMode, direction: sortDirection, q: searchInput.value};
+    const facets = SimcSkillQuery.createFacets();
     const candidateRows = [];
-    const talentConditions = new Map();
-    const buffConditions = new Map();
-    const talentConditionDescriptions = new Map();
-    const buffConditionDescriptions = new Map();
-    selectedActors.forEach(actor => {
-        const actions = Array.isArray(actor.actions)
-            ? actor.actions.filter(item => item && typeof item === 'object' && item.player_skill !== false)
-            : [];
-        actions.forEach(action => {
-            const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
-            // 使用导出器按完整施法验证的目标数，条件选项与伤害行保持一致。
-            if (Array.isArray(action.affected_target_counts)
-                && !action.affected_target_counts.some(count => String(count) === targetCount)) return;
-            // DB2 uses 0 for ordinary class/spec talents, not a hero tree.
-            if (variant.hero_subtree_id != null && Number(variant.hero_subtree_id) !== 0
-                && String(variant.hero_subtree_id) !== selectedHeroTree) return;
-            const heroSubtreeIds = Array.isArray(action.hero_subtree_ids) ? action.hero_subtree_ids : [];
-            if (heroSubtreeIds.length && !heroSubtreeIds.some(id => String(id) === selectedHeroTree)) return;
-
-            const conditionKeys = [];
-            if (variant.talent_id != null && Number(variant.talent_id) > 0) {
-                const conditionKey = `talent:${variant.talent_id}`;
-                const talentLabel = variant.talent_name_zh || variant.talent_name || `天赋 ${variant.talent_id}`;
-                conditionKeys.push(conditionKey);
-                if (!talentConditions.has(conditionKey)) talentConditions.set(conditionKey, String(talentLabel));
-                const talentDescription = variant.talent_description_zh || variant.talent_description || '';
-                if (talentDescription && !talentConditionDescriptions.has(conditionKey)) {
-                    talentConditionDescriptions.set(conditionKey, talentDescription);
-                }
-            }
-            const runtimeConditions = Array.isArray(variant.runtime_conditions)
-                ? variant.runtime_conditions.filter(condition => condition && typeof condition === 'object')
-                : [];
-            runtimeConditions.forEach(condition => {
-                const scope = String(condition.scope || '');
-                const spellId = Number(condition.spell_id);
-                const token = String(condition.token || '').trim();
-                const stacksValue = Number(condition.stacks);
-                const stacks = Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1;
-                if (!token && !(Number.isInteger(spellId) && spellId > 0)) return;
-                const stackValues = Array.isArray(condition.stack_values) ? condition.stack_values : [];
-                const conditionKey = `state:${JSON.stringify([
-                    token,
-                    scope,
-                    Number.isInteger(spellId) && spellId > 0 ? spellId : 0,
-                    stacks, stackValues,
-                ])}`;
-                const fallbackToken = token.includes('.') ? token.slice(token.indexOf('.') + 1) : token;
-                const conditionName = condition.name_zh || condition.name || fallbackToken || spellId;
-                const stackLabel = stackValues.length > 1
-                    ? `（${stackValues.join('/')}层等伤害）`
-                    : (stacks > 1 ? `（${stacks}层）` : '');
-                const conditionLabel = `${['target', 'debuff'].includes(scope) ? '目标' : '自身'}：${conditionName}${stackLabel}`;
-                if (!conditionKeys.includes(conditionKey)) conditionKeys.push(conditionKey);
-                if (!buffConditions.has(conditionKey)) buffConditions.set(conditionKey, String(conditionLabel));
-                const conditionDescription = condition.description_zh || condition.description || '';
-                if (conditionDescription && !buffConditionDescriptions.has(conditionKey)) {
-                    buffConditionDescriptions.set(conditionKey, conditionDescription);
-                }
-            });
-            candidateRows.push({action, variant, rowConditionKeys: conditionKeys});
+    if (actorPage) {
+        const cohort = actorPage.facets || {};
+        (cohort.talents || []).forEach(item => {
+            facets.talentConditions.set(item.key, item.label);
+            facets.talentConditionDescriptions.set(item.key, item.description || '');
         });
-    });
+        (cohort.buffs || []).forEach(item => {
+            facets.buffConditions.set(item.key, item.label);
+            facets.buffConditionDescriptions.set(item.key, item.description || '');
+        });
+    } else {
+        selectedActors.forEach(actor => (Array.isArray(actor.actions) ? actor.actions : []).forEach(action => {
+            const candidate = SimcSkillQuery.scanCandidate(action, queryOptions, facets);
+            if (candidate) candidateRows.push(candidate);
+        }));
+    }
+    const {talentConditions, buffConditions, talentConditionDescriptions, buffConditionDescriptions} = facets;
 
     const panel = document.getElementById('simc-skill-damage-panel');
     const filterState = panel && panel.__simcSkillDamageFilterState;
@@ -6221,40 +6143,16 @@ function renderSimcSkillDamageSnapshot(snapshot) {
         || '<span class="text-xs text-stone-500">当前列表没有 Buff 条件</span>';
     if (talentConditions.size || buffConditions.size) conditionFilters.classList.remove('hidden');
 
-    const query = String(searchInput.value || '').trim().toLowerCase();
-    const rows = [];
-    const excludedFilterKeys = excludedConditionKeys;
-    candidateRows.forEach(({action, rowConditionKeys}) => {
-        const variant = action.variant && typeof action.variant === 'object' ? action.variant : {};
-        const conditionLabel = renderSimcTalentProbeCondition(variant.runtime_condition, variant.scenario_tokens,
-            variant.talent_name_zh || variant.talent_name, Array.isArray(variant.runtime_conditions) ? variant.runtime_conditions : []);
-        const haystack = `${action.display_name || ''} ${action.name || ''} ${action.spell_id || ''} ${variant.talent_name || ''} ${variant.talent_name_zh || ''} ${conditionLabel}`.toLowerCase();
-        if (query && !haystack.includes(query)) return;
-        if (rowConditionKeys.some(key => excludedFilterKeys.has(key))) return;
-        const product = action.product && typeof action.product === 'object' ? action.product : {};
-        const damageByTarget = product.final_normalized_damage_by_target;
-        const selectedFinalDamage = targetCount === '1'
-            ? product.final_normalized_damage
-            : (damageByTarget && typeof damageByTarget === 'object' ? damageByTarget[targetCount] : null);
-        const finalSortValue = hasFiniteSimcSkillDamageNumber(selectedFinalDamage)
-            ? selectedFinalDamage
-            : Number.NEGATIVE_INFINITY;
-        rows.push({action, product, selectedFinalDamage, finalSortValue, sourceIndex: rows.length});
-    });
-    rows.sort((left, right) => {
-        const leftName = String(left.action.display_name || left.action.name || '');
-        const rightName = String(right.action.display_name || right.action.name || '');
-        const nameDelta = leftName.localeCompare(rightName, 'zh-CN', {numeric: true, sensitivity: 'base'});
-        if (sortMode === 'name' && nameDelta) {
-            return sortDirection === 'asc' ? nameDelta : -nameDelta;
-        }
-        if (sortMode === 'final') {
-            const damageDelta = left.finalSortValue - right.finalSortValue;
-            if (damageDelta) return sortDirection === 'asc' ? damageDelta : -damageDelta;
-        }
-        if (nameDelta) return nameDelta;
-        return left.sourceIndex - right.sourceIndex;
-    });
+    // Paged rows are already globally filtered and ordered by the same JS
+    // authority. Never re-filter a page or derive facets from its subset.
+    const rows = actorPage
+        ? selectedActors.flatMap(actor => Array.isArray(actor.actions) ? actor.actions : []).map((action, index) => (
+            SimcSkillQuery.matchCandidate({action, rowConditionKeys: []},
+                {...queryOptions, q: '', exclude: []}, (actorPage.source_ordinals || [])[index] ?? index)
+        ))
+        : candidateRows.map((candidate, index) => (
+            SimcSkillQuery.matchCandidate(candidate, {...queryOptions, exclude: excludedConditionKeys}, index)
+        )).filter(Boolean).sort((left, right) => SimcSkillQuery.compareRows(left, right, queryOptions));
     body.innerHTML = rows.length ? rows.map(({action, product, selectedFinalDamage}) => {
         let skillMeta = renderSimcSkillIdentity(action);
         const castParts = Array.isArray(action.components) ? action.components : [];
@@ -6473,6 +6371,120 @@ function initSimcSkillDamagePanel() {
     const excludedConditionKeysByScope = new Map();
     panel.__simcSkillDamageFilterState = {excludedConditionKeysByScope};
     let currentSnapshot = null;
+    let pageController = null;
+    let pageGeneration = 0;
+    let indexGeneration = 0;
+    let searchTimer = null;
+    let pageCursors = [null];
+    let pageNumber = 0;
+    const previousPageButton = document.getElementById('simc-skill-damage-page-prev');
+    const nextPageButton = document.getElementById('simc-skill-damage-page-next');
+    const pageStatus = document.getElementById('simc-skill-damage-page-status');
+    const pageControls = document.getElementById('simc-skill-damage-pagination');
+    const invalidatePage = () => {
+        pageGeneration += 1;
+        if (pageController) pageController.abort();
+        pageController = null;
+        clearTimeout(searchTimer);
+        searchTimer = null;
+    };
+    const setPageLoading = () => {
+        document.getElementById('simc-skill-damage-body').innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">正在扫描快照并加载技能页，较大专精可能需要几十秒…</td></tr>';
+        pageControls.classList.remove('hidden');
+        pageStatus.textContent = '加载中…';
+        previousPageButton.disabled = true;
+        nextPageButton.disabled = true;
+    };
+    const waitForReaderSlot = (delay, signal) => new Promise((resolve, reject) => {
+        if (signal.aborted) {
+            reject(new DOMException('Aborted', 'AbortError'));
+            return;
+        }
+        const onAbort = () => {
+            clearTimeout(timer);
+            reject(new DOMException('Aborted', 'AbortError'));
+        };
+        const timer = setTimeout(() => {
+            signal.removeEventListener('abort', onAbort);
+            resolve();
+        }, delay);
+        signal.addEventListener('abort', onAbort, {once: true});
+    });
+    const loadSelectedPage = async ({reset = true, index = 0} = {}) => {
+        invalidatePage();
+        const generation = pageGeneration;
+        if (reset) { pageCursors = [null]; index = 0; }
+        const actorIndex = currentSnapshot && currentSnapshot.actor_index || [];
+        const actor = actorIndex.find(item => `${item.class_name || item.class || ''}:${item.specialization || item.spec || ''}` === specSelect.value);
+        if (!actor || !heroTreeSelect.value || !currentSnapshot.id) {
+            pageControls.classList.add('hidden');
+            renderSimcSkillDamageSnapshot(currentSnapshot);
+            return;
+        }
+        const scopeKey = `${specSelect.value}:${heroTreeSelect.value}`;
+        const sort = nameSortButton.dataset.active === 'true' ? 'name' : 'final';
+        const sortButton = sort === 'name' ? nameSortButton : finalSortButton;
+        const targetTab = targetTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
+        const params = new URLSearchParams({view: 'actor_page', snapshot_id: String(currentSnapshot.id),
+            actor_id: String(actor.id), hero_tree_id: heroTreeSelect.value,
+            target_count: targetTab ? targetTab.dataset.targetCount : '1', sort,
+            direction: sortButton.dataset.direction === 'asc' ? 'asc' : 'desc',
+            q: searchInput.value.trim(), exclude: JSON.stringify(Array.from(excludedConditionKeysByScope.get(scopeKey) || [])), limit: '50'});
+        if (pageCursors[index]) params.set('cursor', pageCursors[index]);
+        const controller = new AbortController();
+        pageController = controller;
+        setPageLoading();
+        try {
+            let response, payload;
+            // HTTP abort cannot stop an existing server scan. Retry only slot
+            // contention, with the same frozen query/generation/signal. The
+            // 319s cumulative wait covers the existing 300s worker deadline
+            // plus cleanup; it does not extend that server resource deadline.
+            const readerBusyRetryLimit = 42;
+            for (let busyRetries = 0; ; busyRetries += 1) {
+                response = await fetch(`/api/simc-skill-damage/?${params}`, {method: 'GET', signal: controller.signal});
+                payload = await response.json();
+                if (generation !== pageGeneration || controller.signal.aborted) return;
+                if (response.status !== 503 || payload.code !== 'reader_busy' || busyRetries >= readerBusyRetryLimit) break;
+                pageStatus.textContent = '快照读取槽忙，正在等待并自动重试…';
+                await waitForReaderSlot(Math.min(1000 * 2 ** busyRetries, 8000), controller.signal);
+            }
+            if (generation !== pageGeneration) return;
+            if (!response.ok || !payload.success) {
+                const error = new Error(payload.error || '加载技能分页失败');
+                if (payload.worker_error && Number.isSafeInteger(payload.worker_error.source_ordinal)) {
+                    error.sourceOrdinal = payload.worker_error.source_ordinal;
+                    const fragment = new URLSearchParams({view: 'actor_fragment', snapshot_id: params.get('snapshot_id'),
+                        actor_id: params.get('actor_id'), source_ordinal: String(error.sourceOrdinal), offset: '0', fragment_limit: '16384'});
+                    error.fragmentHref = `/api/simc-skill-damage/?${fragment}`;
+                }
+                throw error;
+            }
+            const loaded = payload.data && payload.data.snapshot;
+            if (!loaded || !loaded.actor_page) throw new Error('技能分页响应缺少分页信息');
+            currentSnapshot = {...currentSnapshot, ...loaded, actor_index: actorIndex};
+            pageNumber = index;
+            pageCursors = pageCursors.slice(0, index + 1);
+            const page = loaded.actor_page.page;
+            if (page.has_more && !page.next_cursor) throw new Error('技能分页响应缺少后续游标');
+            if (page.has_more) pageCursors[index + 1] = page.next_cursor;
+            renderSimcSkillDamageSnapshot(currentSnapshot);
+            const counts = loaded.actor_page.counts;
+            pageStatus.textContent = `第 ${index + 1} 页 · 本页 ${page.returned} 行 · 匹配 ${counts.matched} / 条件范围 ${counts.scope_candidates} / 存储 ${counts.stored_actions} 行`;
+            previousPageButton.disabled = index === 0;
+            nextPageButton.disabled = !page.has_more;
+        } catch (error) {
+            if (generation !== pageGeneration || error.name === 'AbortError') return;
+            const detail = error.fragmentHref
+                ? `（原始序号 ${error.sourceOrdinal}）<a class="ml-2 underline" target="_blank" rel="noopener" href="${escapeHtml(error.fragmentHref)}">查看有界原始片段</a>` : '';
+            document.getElementById('simc-skill-damage-body').innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-red-700">${escapeHtml(error.message)}${detail}</td></tr>`;
+            pageStatus.textContent = '分页加载失败；可调整条件或刷新重试';
+            showMessage(error.message, 'error');
+        }
+    };
+    const requestPage = () => loadSelectedPage();
+    previousPageButton.addEventListener('click', () => loadSelectedPage({reset: false, index: pageNumber - 1}));
+    nextPageButton.addEventListener('click', () => loadSelectedPage({reset: false, index: pageNumber + 1}));
     let pollTimer = null;
     let pollInFlight = false;
 
@@ -6523,13 +6535,18 @@ function initSimcSkillDamagePanel() {
     };
 
     const loadFullSnapshot = async ({managePolling = true} = {}) => {
+        invalidatePage();
+        const generation = ++indexGeneration;
         const response = await fetch('/api/simc-skill-damage/?index=1', { method: 'GET' });
         const payload = await response.json();
+        if (generation !== indexGeneration) return;
         if (!response.ok || !payload.success) throw new Error(payload.error || '加载技能伤害快照失败');
         const data = payload.data || {};
+        if (!currentSnapshot || !data.snapshot || currentSnapshot.id !== data.snapshot.id) excludedConditionKeysByScope.clear();
         currentSnapshot = data.snapshot || null;
         renderSimcSkillDamageSnapshot(currentSnapshot);
         const running = renderStatus(data);
+        await requestPage();
         if (managePolling) {
             if (running) schedulePoll();
             else stopPolling();
@@ -6577,7 +6594,7 @@ function initSimcSkillDamagePanel() {
         else excludedConditionKeys.add(conditionKey);
         if (excludedConditionKeys.size) excludedConditionKeysByScope.set(filterScopeKey, excludedConditionKeys);
         else excludedConditionKeysByScope.delete(filterScopeKey);
-        renderSimcSkillDamageSnapshot(currentSnapshot);
+        requestPage();
     });
     targetTabs.forEach(tab => tab.addEventListener('click', () => {
         targetTabs.forEach(candidate => {
@@ -6590,34 +6607,26 @@ function initSimcSkillDamagePanel() {
             candidate.classList.toggle('bg-white', !active);
             candidate.classList.toggle('text-stone-700', !active);
         });
-        renderSimcSkillDamageSnapshot(currentSnapshot);
+        requestPage();
     }));
-    let actorLoadToken = 0;
-    const loadSelectedActor = async () => {
-        const selectedKey = specSelect.value;
-        const index = currentSnapshot && Array.isArray(currentSnapshot.actor_index)
-            ? currentSnapshot.actor_index : [];
-        const indexedActor = index.find(actor => (
-            `${actor.class_name || actor.class || ''}:${actor.specialization || actor.spec || ''}` === selectedKey
-        ));
-        if (!indexedActor || !indexedActor.id) return;
-        const token = ++actorLoadToken;
-        const response = await fetch(`/api/simc-skill-damage/?actor_id=${encodeURIComponent(indexedActor.id)}`, {method: 'GET'});
-        const payload = await response.json();
-        if (token !== actorLoadToken) return;
-        if (!response.ok || !payload.success) throw new Error(payload.error || '加载专精技能数据失败');
-        const loaded = payload.data && payload.data.snapshot;
-        if (!loaded) return;
-        currentSnapshot = {...loaded, actor_index: index};
-        renderSimcSkillDamageSnapshot(currentSnapshot);
-    };
     specSelect.addEventListener('change', () => {
+        invalidatePage();
         heroTreeSelect.value = '';
+        if (currentSnapshot) currentSnapshot = {...currentSnapshot, actors: [], actor_page: null};
+        pageControls.classList.add('hidden');
         renderSimcSkillDamageSnapshot(currentSnapshot);
-        loadSelectedActor().catch(error => showMessage(error.message, 'error'));
     });
-    heroTreeSelect.addEventListener('change', () => renderSimcSkillDamageSnapshot(currentSnapshot));
-    searchInput.addEventListener('input', () => renderSimcSkillDamageSnapshot(currentSnapshot));
+    heroTreeSelect.addEventListener('change', () => {
+        if (currentSnapshot) currentSnapshot = {...currentSnapshot, actors: [], actor_page: null};
+        renderSimcSkillDamageSnapshot(currentSnapshot);
+        requestPage();
+    });
+    searchInput.addEventListener('input', () => {
+        invalidatePage();
+        if (!specSelect.value || !heroTreeSelect.value) return;
+        setPageLoading();
+        searchTimer = setTimeout(requestPage, 250);
+    });
     nameSortButton.addEventListener('click', () => {
         const alreadyActive = nameSortButton.dataset.active === 'true';
         nameSortButton.dataset.active = 'true';
@@ -6625,7 +6634,7 @@ function initSimcSkillDamagePanel() {
         nameSortButton.dataset.direction = alreadyActive && nameSortButton.dataset.direction === 'asc'
             ? 'desc'
             : 'asc';
-        renderSimcSkillDamageSnapshot(currentSnapshot);
+        requestPage();
     });
     finalSortButton.addEventListener('click', () => {
         const alreadyActive = finalSortButton.dataset.active === 'true';
@@ -6634,7 +6643,7 @@ function initSimcSkillDamagePanel() {
         finalSortButton.dataset.direction = alreadyActive && finalSortButton.dataset.direction === 'desc'
             ? 'asc'
             : 'desc';
-        renderSimcSkillDamageSnapshot(currentSnapshot);
+        requestPage();
     });
     generateBtn.addEventListener('click', async () => {
         generateBtn.disabled = true;

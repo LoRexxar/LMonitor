@@ -1,0 +1,7 @@
+# Dev-only real-browser UI regression (no production npm dependency).
+# python3 -m venv .venv-simc-ui
+# .venv-simc-ui/bin/python -m pip install -r requirements-simc-ui-test.txt
+# .venv-simc-ui/bin/python -m playwright install chromium
+# SIMC_UI_PYTHON=$PWD/.venv-simc-ui/bin/python node --test botend/tests/simc_skill_page_ui_test.js
+# Or run .venv-simc-ui/bin/python botend/tests/simc_skill_page_ui_browser.py directly.
+playwright==1.62.0

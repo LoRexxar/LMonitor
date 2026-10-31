@@ -553,7 +553,8 @@
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20261030_simc_talent_links"></script>
+<script src="{% static 'dashboard/js/simc_skill_query.js' %}?v=20261031_actor_page"></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20261031_actor_page"></script>
     {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_shared_localization">
     <script src="{% static 'dashboard/js/guide_management.js' %}?v=20260909_tag_disclaimers" defer></script>
@@ -1984,6 +1985,11 @@
                                     <p class="mt-2 text-xs text-stone-500">默认全部展示；取消勾选后，所有包含该天赋或 Buff 条件的伤害行都会隐藏。</p>
                                     <div id="simc-skill-damage-filter-talents" data-filter-panel="talents" class="mt-3 flex flex-wrap gap-2"></div>
                                     <div id="simc-skill-damage-filter-buffs" data-filter-panel="buffs" class="mt-3 hidden flex flex-wrap gap-2"></div>
+                                </div>
+                                <div id="simc-skill-damage-pagination" class="mt-4 hidden flex flex-wrap items-center gap-3" aria-live="polite">
+                                    <button id="simc-skill-damage-page-prev" type="button" disabled class="rounded border border-stone-300 px-3 py-2 text-sm disabled:opacity-40">上一页</button>
+                                    <span id="simc-skill-damage-page-status" class="text-sm text-stone-600"></span>
+                                    <button id="simc-skill-damage-page-next" type="button" disabled class="rounded border border-stone-300 px-3 py-2 text-sm disabled:opacity-40">下一页</button>
                                 </div>
                                 <div id="simc-skill-damage-target-tabs" class="mt-4 flex flex-wrap gap-2" role="tablist" aria-label="目标数量">
                                     <button type="button" role="tab" aria-selected="true" data-target-count="1" class="simc-skill-damage-target-tab rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white">1目标</button>

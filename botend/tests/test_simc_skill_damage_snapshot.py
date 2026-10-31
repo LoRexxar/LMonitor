@@ -5585,6 +5585,30 @@ class SimcSkillDamageSnapshotAPITests(TestCase):
 
 
 class SimcSkillDamageDashboardContractTests(TestCase):
+    def _skill_query_function(self, name):
+        """Inspect the shared authority, not an unrelated occurrence in main.js."""
+        source = Path('static/dashboard/js/simc_skill_query.js').read_text(encoding='utf-8')
+        boundaries = {
+            'renderSimcTalentProbeCondition': (
+                '    const renderSimcTalentProbeCondition = (', '\nfunction createFacets() {',
+            ),
+            'scanCandidate': ('function scanCandidate(', '\nfunction matchCandidate('),
+            'matchCandidate': ('function matchCandidate(', '\nfunction compareRows('),
+            'compareRows': ('function compareRows(', '\nfunction cursorFor('),
+        }
+        start, end = boundaries[name]
+        self.assertEqual(source.count(start), 1)
+        self.assertEqual(source.count(end), 1)
+        self.assertLess(source.index(start), source.index(end))
+        exports = source.rsplit('\nreturn {', 1)[1].split('};', 1)[0].split(',')
+        self.assertIn(name, exports)
+        template = Path('templates/dashboard/index.html').read_text(encoding='utf-8')
+        self.assertLess(
+            template.index("'dashboard/js/simc_skill_query.js'"),
+            template.index("'dashboard/js/main.js'"),
+        )
+        return source[source.index(start):source.index(end)]
+
     def test_skill_damage_status_supports_a_missing_current_job(self):
         script = Path('static/dashboard/js/main.js').read_text(encoding='utf-8')
         initializer = script.split('function initSimcSkillDamagePanel() {', 1)[1].split(
@@ -5605,7 +5629,13 @@ class SimcSkillDamageDashboardContractTests(TestCase):
 
         self.assertIn('id="simc-skill-damage-sort-name"', template)
         self.assertIn('aria-sort="none"', template)
-        self.assertIn("localeCompare(rightName, 'zh-CN'", renderer)
+        comparator = self._skill_query_function('compareRows')
+        condition_formatter = self._skill_query_function('renderSimcTalentProbeCondition')
+        self.assertIn('SimcSkillQuery.compareRows(left, right, queryOptions)', renderer)
+        self.assertIn(
+            'const renderSimcTalentProbeCondition = SimcSkillQuery.renderSimcTalentProbeCondition;', renderer,
+        )
+        self.assertIn("localeCompare(rightName, 'zh-CN'", comparator)
         self.assertIn('const formulaGroups = new Map()', renderer)
         self.assertIn('component.runtime_factors', renderer)
         self.assertNotIn('formulaBaseLabels', renderer)
@@ -5615,14 +5645,16 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         # in simc_skill_damage_renderer_test.js; accumulator names are not a contract.
         self.assertIn(
             'const renderSimcTalentProbeCondition = (runtimeCondition, scenarioTokens, talentName, runtimeConditions = [],',
-            renderer,
+            condition_formatter,
         )
-        self.assertIn('`点出${talentLabel}`', renderer)
-        self.assertIn("scope === 'debuff' ? '目标' : '自身'", renderer)
-        self.assertIn('`${owner}存在 ${stateLabel} 效果时`', renderer)
-        self.assertIn('const stateLabel = `${stateName}${stackLabel}`', renderer)
-        self.assertIn("'血量低于35%'", renderer)
+        self.assertIn('`点出${talentLabel}`', condition_formatter)
+        self.assertIn("scope === 'debuff' ? '目标' : '自身'", condition_formatter)
+        self.assertIn('`${owner}存在 ${stateLabel} 效果时`', condition_formatter)
+        self.assertIn('const stateLabel = `${stateName}${stackLabel}`', condition_formatter)
+        self.assertIn("'血量低于35%'", condition_formatter)
+        self.assertNotIn('目标生命值低于 35%', condition_formatter)
         self.assertNotIn('目标生命值低于 35%', renderer)
+        self.assertNotIn('「${name}」', condition_formatter)
         self.assertNotIn('「${name}」', renderer)
         self.assertNotIn('分量 ${index + 1}', renderer)
         self.assertNotIn('合并 ${action.component_count} 个施法分量', renderer)
@@ -5669,17 +5701,30 @@ class SimcSkillDamageDashboardContractTests(TestCase):
             template.index('id="simc-skill-damage-target-tabs"'),
             template.index('class="simc-skill-damage-table'),
         )
-        self.assertIn('variant.talent_id', renderer)
-        self.assertIn('variant.runtime_conditions', renderer)
-        self.assertIn("`talent:${variant.talent_id}`", renderer)
-        self.assertIn('`state:${JSON.stringify([', renderer)
-        self.assertIn("String(condition.scope || '')", renderer)
-        self.assertIn('Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1', renderer)
-        self.assertIn('condition.stack_values', renderer)
-        self.assertIn('层等伤害', renderer)
-        self.assertIn('rowConditionKeys.some(key => excludedFilterKeys.has(key))', renderer)
+        scanner = self._skill_query_function('scanCandidate')
+        matcher = self._skill_query_function('matchCandidate')
+        self.assertIn('SimcSkillQuery.createFacets()', renderer)
+        self.assertIn('SimcSkillQuery.scanCandidate(action, queryOptions, facets)', renderer)
+        self.assertIn(
+            'SimcSkillQuery.matchCandidate(candidate, {...queryOptions, exclude: excludedConditionKeys}, index)',
+            renderer,
+        )
+        self.assertIn('variant.talent_id', scanner)
+        self.assertIn('variant.runtime_conditions', scanner)
+        self.assertIn("`talent:${variant.talent_id}`", scanner)
+        self.assertIn('`state:${JSON.stringify([', scanner)
+        self.assertIn("String(condition.scope || '')", scanner)
+        self.assertIn('Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1', scanner)
+        self.assertIn('condition.stack_values', scanner)
+        self.assertIn('层等伤害', scanner)
+        self.assertIn('rowConditionKeys.some(key => excludedFilterKeys.has(key))', matcher)
         self.assertIn("excludedConditionKeys.has(conditionKey) ? '' : ' checked'", renderer)
-        self.assertLess(renderer.index('const candidateRows = []'), renderer.index('const query ='))
+        # Facets must see every spec/hero/target candidate before text/exclusion filtering.
+        self.assertLess(renderer.index('SimcSkillQuery.scanCandidate('), renderer.index('SimcSkillQuery.matchCandidate('))
+        self.assertNotIn('options.q', scanner)
+        self.assertNotIn('options.exclude', scanner)
+        self.assertIn("String(options.q || '').trim().toLowerCase()", matcher)
+        self.assertIn('if (query && !haystack.includes(query)) return null;', matcher)
         self.assertIn('excludedConditionKeysByScope', initializer)
         self.assertIn("filterTabs.forEach(tab => tab.addEventListener('click'", initializer)
         self.assertIn("conditionFilters.addEventListener('change'", initializer)
@@ -5693,10 +5738,12 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertNotIn('globalEffectDisplayKey', renderer)
         self.assertNotIn('globalEffectDisplayPriority', renderer)
         self.assertIn('effect.effect_details', renderer)
-        self.assertIn("String(condition.token || '').trim()", renderer)
-        self.assertIn("String(condition.scope || '')", renderer)
-        self.assertIn('Number.isInteger(spellId) && spellId > 0 ? spellId : 0', renderer)
-        self.assertIn('Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1', renderer)
+        scanner = self._skill_query_function('scanCandidate')
+        self.assertIn('SimcSkillQuery.scanCandidate(action, queryOptions, facets)', renderer)
+        self.assertIn("String(condition.token || '').trim()", scanner)
+        self.assertIn("String(condition.scope || '')", scanner)
+        self.assertIn('Number.isInteger(spellId) && spellId > 0 ? spellId : 0', scanner)
+        self.assertIn('Number.isInteger(stacksValue) && stacksValue > 0 ? stacksValue : 1', scanner)
         self.assertIn("`${name}（${stackLabels.join('，')}）`", renderer)
         self.assertNotIn(".filter(effect => effect.source_type === 'specialization_passive')", renderer)
         self.assertIn('? actor.global_skill_effects', renderer)
@@ -5769,7 +5816,15 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         for target_count in ('1', '2', '5', '10', '20'):
             self.assertIn(f'data-target-count="{target_count}"', template)
         self.assertIn(".simc-skill-damage-target-tab", script)
-        self.assertIn("product.final_normalized_damage_by_target", renderer)
+        scanner = self._skill_query_function('scanCandidate')
+        matcher = self._skill_query_function('matchCandidate')
+        comparator = self._skill_query_function('compareRows')
+        self.assertIn('SimcSkillQuery.scanCandidate(action, queryOptions, facets)', renderer)
+        self.assertIn('SimcSkillQuery.matchCandidate(candidate, {...queryOptions, exclude: excludedConditionKeys}, index)', renderer)
+        self.assertIn('SimcSkillQuery.compareRows(left, right, queryOptions)', renderer)
+        self.assertIn('hero_tree_id: selectedHeroTree, target_count: targetCount', renderer)
+        self.assertIn('sort: sortMode, direction: sortDirection, q: searchInput.value', renderer)
+        self.assertIn("product.final_normalized_damage_by_target", matcher)
         self.assertIn("component.final_damage_by_target", renderer)
         self.assertIn("多目标", renderer)
         self.assertIn('请选择专精', template)
@@ -5780,8 +5835,9 @@ class SimcSkillDamageDashboardContractTests(TestCase):
         self.assertNotIn('技能实际暴击率', template)
         self.assertIn('selectedHeroTree', renderer)
         self.assertIn('hero_talent_trees', renderer)
-        self.assertIn('variant.hero_subtree_id', renderer)
-        self.assertIn('action.hero_subtree_ids', renderer)
+        self.assertIn('variant.hero_subtree_id', scanner)
+        self.assertIn('action.hero_subtree_ids', scanner)
+        self.assertIn('action.affected_target_counts', scanner)
         self.assertIn('variant.runtime_condition', renderer)
         self.assertIn('variant.talent_name_zh', renderer)
         self.assertNotIn(
@@ -5792,14 +5848,18 @@ class SimcSkillDamageDashboardContractTests(TestCase):
             renderer.index('const candidateRows = [];'):
             renderer.index("const panel = document.getElementById('simc-skill-damage-panel');")
         ]
-        self.assertIn('actions.forEach(action => {', condition_derivation)
+        self.assertIn('(Array.isArray(actor.actions) ? actor.actions : []).forEach(action => {', condition_derivation)
+        self.assertIn('SimcSkillQuery.scanCandidate(action, queryOptions, facets)', condition_derivation)
         self.assertNotIn('global_skill_effects', condition_derivation)
         self.assertNotIn('globalEffects.forEach', condition_derivation)
+        self.assertNotIn('global_skill_effects', scanner)
+        self.assertNotIn('globalEffects.forEach', scanner)
         self.assertIn("const sortMode = nameSortButton.dataset.active === 'true' ? 'name' : 'final';", renderer)
-        self.assertIn("if (sortMode === 'final')", renderer)
+        self.assertIn("if (sortMode === 'final')", comparator)
         self.assertIn("finalSortButton.dataset.active = 'true';", script)
         self.assertIn('sortDirection', renderer)
-        self.assertIn('finalSortValue', renderer)
+        self.assertIn('finalSortValue', matcher)
+        self.assertIn('finalSortValue', comparator)
         self.assertNotIn('全部专精', renderer)
         self.assertNotIn("component === 'direct' ? 'Direct' : 'Tick'", renderer)
         self.assertNotIn('font-bold uppercase text-stone-500', renderer)

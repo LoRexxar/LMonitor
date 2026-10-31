@@ -67,6 +67,9 @@ from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService, re
 from botend.services.simc_skill_source_context import attach_skill_damage_source_context
 from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
 from botend.services.simc_skill_snapshot_storage import SkillSnapshotActorStorage
+from botend.services.simc_skill_actor_page import (
+    ActorPageService, ActorPageError, normalize_query, RESPONSE_BYTES,
+)
 from botend.wow.talents.service import TalentBuildCodeService
 from botend.services.simc_hero_talents import resolve_hero_talent_names
 from botend.services.simc_consumables import simc_consumable_option
@@ -8326,6 +8329,30 @@ class SimcSkillDamageSnapshotAPIView(View):
         actor_queryset = display_snapshot.actor_rows.order_by('ordinal', 'id')
         if actor_ids is not None:
             actor_queryset = actor_queryset.filter(id__in=actor_ids)
+        # Inspect manifests/SQL lengths BEFORE selecting either JSON document.
+        # Legacy complete materialization is intentionally limited even below
+        # the unchanged 512MiB transport cap; clients must select actor_page.
+        from django.db.models.functions import Cast, Length
+        estimates = actor_queryset.annotate(
+            actor_chars=Length(Cast('actor_payload', models.TextField())),
+            unresolved_chars=Length(Cast('unresolved_payload', models.TextField())),
+        ).values('id', 'payload_storage', 'actor_chars', 'unresolved_chars')
+        estimated_bytes = 0
+        try:
+            for item in estimates:
+                documents = SkillSnapshotActorStorage._manifest(item)
+                for document, length_key in (('actor_payload', 'actor_chars'),
+                                              ('unresolved_payload', 'unresolved_chars')):
+                    estimated_bytes += (documents[document]['bytes'] if document in documents
+                                        else int(item[length_key] or 0) * 6)
+                if estimated_bytes > min(cls._RESPONSE_SPOOL_MAX_BYTES, 16 * 1024 * 1024):
+                    return JsonResponse({'success': False,
+                        'error': '完整快照超过安全展示上限，请使用技能分页视图',
+                        'code': 'snapshot_requires_paging',
+                        'paged_view': {'view': 'actor_page', 'snapshot_id': display_snapshot.pk,
+                                       'actor_ids': actor_ids}}, status=413)
+        except (ValueError, TypeError):
+            return JsonResponse({'success': False, 'error': '技能快照存储清单无效'}, status=503)
         actor_rows = list(actor_queryset.values(
             'id', 'class_name', 'specialization', 'unresolved_payload', 'payload_storage',
             'raw_action_count', 'display_action_count',
@@ -8383,11 +8410,8 @@ class SimcSkillDamageSnapshotAPIView(View):
                 'can_generate': can_generate,
             },
         }
-        encoded = json.dumps(envelope, cls=DjangoJSONEncoder)
-        encoded_placeholder = json.dumps(actor_placeholder, cls=DjangoJSONEncoder)
-        if encoded.count(encoded_placeholder) != 1:
-            raise RuntimeError('技能伤害流式响应 actor 占位符无效')
-        prefix, suffix = encoded.split(encoded_placeholder, 1)
+        encoder = DjangoJSONEncoder()
+        encoded_placeholder = encoder.encode(actor_placeholder)
         actor_ids = [row['id'] for row in actor_rows]
         if not cls._RESPONSE_SPOOL_SLOTS.acquire(blocking=False):
             return JsonResponse({
@@ -8402,43 +8426,53 @@ class SimcSkillDamageSnapshotAPIView(View):
                 raw_spool, cls._RESPONSE_SPOOL_SLOTS.release,
             )
             written_bytes = 0
+            next_disk_check = 0
 
             def write_chunk(chunk):
-                nonlocal written_bytes
+                nonlocal written_bytes, next_disk_check
                 projected_bytes = written_bytes + len(chunk)
                 if projected_bytes > cls._RESPONSE_SPOOL_MAX_BYTES:
                     raise RuntimeError('技能伤害快照响应超过安全大小上限')
-                if hasattr(os, 'statvfs'):
-                    filesystem = os.statvfs(tempfile.gettempdir())
-                    free_bytes = filesystem.f_bavail * filesystem.f_frsize
-                else:
-                    from shutil import disk_usage
-                    free_bytes = disk_usage(tempfile.gettempdir()).free
-                if free_bytes - len(chunk) < cls._RESPONSE_SPOOL_MIN_FREE_BYTES:
-                    raise RuntimeError('技能伤害快照响应临时磁盘余量不足')
+                if projected_bytes >= next_disk_check:
+                    if hasattr(os, 'statvfs'):
+                        filesystem = os.statvfs(tempfile.gettempdir())
+                        free_bytes = filesystem.f_bavail * filesystem.f_frsize
+                    else:
+                        from shutil import disk_usage
+                        free_bytes = disk_usage(tempfile.gettempdir()).free
+                    if free_bytes - max(len(chunk), 1024 * 1024) < cls._RESPONSE_SPOOL_MIN_FREE_BYTES:
+                        raise RuntimeError('技能伤害快照响应临时磁盘余量不足')
+                    next_disk_check = projected_bytes + 1024 * 1024
                 managed_spool.write(chunk)
                 written_bytes = projected_bytes
 
-            write_chunk(prefix.encode('utf-8'))
-            write_chunk(b'[')
-            for index, actor_id in enumerate(actor_ids):
-                if index:
-                    write_chunk(b', ')
-                actor_row = display_snapshot.actor_rows.filter(
-                    pk=actor_id,
-                ).values('id', 'actor_payload', 'payload_storage').get()
-                actor = SkillSnapshotActorStorage.read_document(actor_row, 'actor_payload')
-                del actor_row
-                # Project this response-owned copy; stored product facts remain frozen.
-                if isinstance(actor.get('reviewed_global_effects'), list):
-                    actor['global_skill_effects'] = reviewed_global_display_effects(actor)
-                attach_skill_damage_source_context(actor)
-                attach_skill_damage_descriptions(actor, game_build=display_snapshot.game_build,
-                    branch=(display_snapshot.payload.get('identity') or {}).get('data_branch', 'retail'))
-                write_chunk(json.dumps(actor, cls=DjangoJSONEncoder).encode('utf-8'))
-                del actor
-            write_chunk(b']')
-            write_chunk(suffix.encode('utf-8'))
+            placeholders = 0
+            for token in encoder.iterencode(envelope):
+                if token != encoded_placeholder:
+                    write_chunk(token.encode('utf-8'))
+                    continue
+                placeholders += 1
+                write_chunk(b'[')
+                for index, actor_id in enumerate(actor_ids):
+                    if index:
+                        write_chunk(b', ')
+                    actor_row = display_snapshot.actor_rows.filter(
+                        pk=actor_id,
+                    ).values('id', 'actor_payload', 'payload_storage').get()
+                    actor = SkillSnapshotActorStorage.read_document(actor_row, 'actor_payload')
+                    del actor_row
+                    # Project only this bounded response-owned copy.
+                    if isinstance(actor.get('reviewed_global_effects'), list):
+                        actor['global_skill_effects'] = reviewed_global_display_effects(actor)
+                    attach_skill_damage_source_context(actor)
+                    attach_skill_damage_descriptions(actor, game_build=display_snapshot.game_build,
+                        branch=(display_snapshot.payload.get('identity') or {}).get('data_branch', 'retail'))
+                    for actor_token in encoder.iterencode(actor):
+                        write_chunk(actor_token.encode('utf-8'))
+                    del actor
+                write_chunk(b']')
+            if placeholders != 1:
+                raise RuntimeError('技能伤害流式响应 actor 占位符无效')
             managed_spool.seek(0)
             return FileResponse(managed_spool, content_type='application/json')
         except Exception:
@@ -8455,8 +8489,89 @@ class SimcSkillDamageSnapshotAPIView(View):
                 'message': '技能伤害快照暂时不可用，请稍后重试',
             }, status=503)
 
-    @transaction.atomic
+    def _actor_page_response(self, request):
+        """Pinned immutable membership, with no lock spanning the central scan."""
+        try:
+            try:
+                snapshot_id = int(request.GET['snapshot_id'])
+                actor_id = int(request.GET['actor_id'])
+                if snapshot_id <= 0 or actor_id <= 0:
+                    raise ValueError('Invalid identity')
+            except (KeyError, TypeError, ValueError):
+                raise ActorPageError('分页需要有效 snapshot_id 和 actor_id', code='invalid_query', status=400)
+            snapshot = SimcSkillDamageSnapshot.objects.filter(pk=snapshot_id,
+                status=SimcSkillDamageSnapshot.STATUS_SUCCEEDED,
+                schema_revision__gte=SimcSkillDamageSnapshotService.MIN_DISPLAY_SCHEMA_REVISION,
+                schema_revision__lte=SimcSkillDamageSnapshotService.DATASET_SCHEMA_REVISION,
+                payload__payload_format=SimcSkillDamageSnapshotService.PAYLOAD_FORMAT,
+                payload__storage_format=SimcSkillDamageSnapshotService.STORAGE_FORMAT).first()
+            if snapshot is None:
+                raise ActorPageError('已发布技能快照不存在', code='snapshot_not_found', status=404)
+            if not SimcSkillDamageSnapshotService._is_complete_wire_snapshot(snapshot):
+                raise ActorPageError('已发布技能快照存储不完整', code='snapshot_incomplete')
+            fields = ['id', 'actor_payload', 'payload_storage', 'raw_action_count',
+                      'display_action_count', 'class_name', 'specialization']
+            if request.GET.get('view') == 'unresolved_fragment':
+                fields.append('unresolved_payload')
+            row = snapshot.actor_rows.filter(pk=actor_id).values(*fields).first()
+            if row is None:
+                raise ActorPageError('技能专精不存在', code='actor_not_found', status=404)
+            service = ActorPageService(row, snapshot)
+            view = request.GET.get('view')
+            if view in {'actor_fragment', 'actor_header_fragment', 'unresolved_fragment'}:
+                try:
+                    ordinal = int(request.GET.get('source_ordinal', 0))
+                    offset = int(request.GET.get('offset', 0))
+                    limit = int(request.GET.get('fragment_limit', 16384))
+                    if ordinal < 0 or offset < 0 or not 1 <= limit <= 16384:
+                        raise ValueError('Fragment bounds')
+                except (TypeError, ValueError):
+                    raise ActorPageError('原始片段范围无效', code='invalid_query', status=400)
+                field = request.GET.get('field') if view == 'actor_header_fragment' else None
+                if view == 'actor_header_fragment' and (
+                        not isinstance(field, str) or not field or len(field) > 4096 or field == 'actions'):
+                    raise ActorPageError('需要精确的原始页头字段', code='invalid_query', status=400)
+                fragment = service.fragment(ordinal=ordinal, offset=offset, limit=limit,
+                    document='unresolved_payload' if view == 'unresolved_fragment' else 'actor_payload',
+                    field=field)
+                return JsonResponse({'success': True, 'data': {'fragment': fragment}})
+            actor, metadata = service.page(normalize_query(request.GET), request.GET.get('cursor', ''))
+            if isinstance(actor.get('reviewed_global_effects'), list):
+                actor['global_skill_effects'] = reviewed_global_display_effects(actor)
+            attach_skill_damage_descriptions(actor, game_build=snapshot.game_build,
+                branch=(snapshot.payload.get('identity') or {}).get('data_branch', 'retail'))
+            payload = dict(snapshot.payload or {})
+            payload.pop('storage_format', None)
+            payload.pop('wire_schema_revision', None)
+            payload.update({'actors': [actor], 'actor_page': metadata, 'unresolved': [],
+                'identity': {'simc_revision': snapshot.simc_revision, 'game_build': snapshot.game_build,
+                             'schema_revision': snapshot.schema_revision},
+                'id': snapshot.pk, 'status': snapshot.status, 'completed_at': _fmt_dt(snapshot.completed_at),
+                'spec_count': snapshot.generated_spec_count, 'action_count': snapshot.generated_action_count,
+                'display_action_count': row['display_action_count'], 'raw_action_count': row['raw_action_count']})
+            envelope = {'success': True, 'data': {'snapshot': payload,
+                'snapshot_unavailable_reason': None, 'job': self._summary_job_data(self._summary_job()),
+                'can_generate': bool(request.user.is_staff)}}
+            # Never build an unbounded dumps string, including post-query labels.
+            output = bytearray()
+            for token in DjangoJSONEncoder(ensure_ascii=False, separators=(',', ':')).iterencode(envelope):
+                encoded = token.encode('utf-8')
+                if len(output) + len(encoded) > RESPONSE_BYTES:
+                    raise ActorPageError('技能页展示资料超过安全字节上限', code='page_too_large', status=413)
+                output.extend(encoded)
+            return HttpResponse(bytes(output), content_type='application/json')
+        except ActorPageError as exc:
+            return JsonResponse({'success': False, 'error': str(exc), 'code': exc.code,
+                **exc.details, 'paged_view': {'view': 'actor_page',
+                    'snapshot_id': request.GET.get('snapshot_id'), 'actor_id': request.GET.get('actor_id')}},
+                status=exc.status)
+        except (ValueError, TypeError):
+            logger.exception('[Skill damage] invalid bounded page data')
+            return JsonResponse({'success': False, 'error': '技能快照数据暂时不可用'}, status=503)
+
     def get(self, request):
+        if request.GET.get('view') in {'actor_page', 'actor_fragment', 'actor_header_fragment', 'unresolved_fragment'}:
+            return self._actor_page_response(request)
         if request.GET.get('summary') == '1':
             return JsonResponse({
                 'success': True,
@@ -8465,7 +8580,7 @@ class SimcSkillDamageSnapshotAPIView(View):
                     'can_generate': bool(request.user.is_staff),
                 },
             })
-        latest = SimcSkillDamageSnapshotService.latest_display_snapshot(lock=True)
+        latest = SimcSkillDamageSnapshotService.latest_display_snapshot(lock=False)
         legacy_latest_exists = (
             latest is None
             and SimcSkillDamageSnapshot.objects.filter(
