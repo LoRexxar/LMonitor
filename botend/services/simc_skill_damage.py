@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import zlib
+from collections.abc import Sequence
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
@@ -3414,6 +3415,7 @@ def single_talent_reference_entry(entry, selected_by_entry):
 
 def flatten_single_talent_damage_variants(
     base_high, base_low, variants, *, global_effects=None, compact_cast_rows=False,
+    stream_cast_rows=False,
 ):
     """展开独立导出的施法事实，复用数值与状态元数据索引，不重算伤害。"""
     # 一次投影内的原始动作不变。组合增加后，逐行重建状态索引会退化为平方复杂度。
@@ -3998,8 +4000,10 @@ def flatten_single_talent_damage_variants(
         item = None
     rows = complete_cast_damage_components(
         [], {}, grouped=cast_groups, compact_cast_rows=compact_cast_rows,
+        stream_cast_rows=stream_cast_rows,
     )
-    attach_runtime_product_metrics({'actions': rows})
+    if not (compact_cast_rows and stream_cast_rows):
+        attach_runtime_product_metrics({'actions': rows})
     return rows
 
 
@@ -4024,9 +4028,57 @@ def _unpack_cast_row(row):
     return row
 
 
+class _ReplayableCastRows(Sequence):
+    """Private packed rows; every read decodes anew, with no decoded cache.
+
+    Append accepts complete, metric-enriched rows. Slots may only be cleared by
+    the owned projector; this is deliberately not a list or a public wire type.
+    """
+
+    def __init__(self):
+        self._rows = []
+
+    def append(self, row):
+        self._rows.append(_pack_cast_row(row))
+
+    def __len__(self):
+        return len(self._rows)
+
+    def __getitem__(self, index):
+        if isinstance(index, slice):
+            return [self[i] for i in range(*index.indices(len(self)))]
+        return _unpack_cast_row(self._rows[index])
+
+    def __setitem__(self, index, value):
+        if value is not None or isinstance(index, slice):
+            raise TypeError('Packed cast rows only support clearing individual slots')
+        self._rows[index] = None
+
+    def __iter__(self):
+        return _ReplayableCastRowIterator(self)
+
+
+class _ReplayableCastRowIterator:
+    """Do not retain the previous decoded row across iterator advances."""
+
+    def __init__(self, rows):
+        self.rows = rows
+        self.index = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.index >= len(self.rows):
+            raise StopIteration
+        index = self.index
+        self.index += 1
+        return self.rows[index]
+
+
 def complete_cast_damage_components(
     rows, cast_sources, *, grouped=None, finalize=True, scenario_lookup=None,
-    compact_cast_rows=False,
+    compact_cast_rows=False, stream_cast_rows=False,
 ):
     """Complete each pair now; retain only rows, never its source actor.
 
@@ -4079,6 +4131,23 @@ def complete_cast_damage_components(
             existing.add(_action_identity(action))
     if not finalize:
         return []
+    if compact_cast_rows and stream_cast_rows:
+        output = _ReplayableCastRows()
+        for state in grouped.values():
+            # Only identities survive this pass. Late originals suppress the
+            # first source's children without hydrating the whole group.
+            existing = {_action_identity(_unpack_cast_row(stored)) for stored in state['rows']}
+            for kind in ('rows', 'children'):
+                for index, stored in enumerate(state[kind]):
+                    row = _unpack_cast_row(stored)
+                    if kind == 'rows' or _action_identity(row) not in existing:
+                        attach_runtime_product_metrics({'actions': [row]})
+                        output.append(row)
+                    state[kind][index] = None
+                    del row
+            state.clear()
+        grouped.clear()
+        return output
     output = []
     for state in grouped.values():
         originals = [_unpack_cast_row(row) for row in state['rows']]
@@ -5969,6 +6038,7 @@ class SimcSkillDamageSnapshotService:
                 _ActivationContextVariants(variants, valid_context_pairs, actor_spool),
                 global_effects=global_effects,
                 compact_cast_rows=True,
+                stream_cast_rows=True,
             )
             raw_action_count = len(actor.get('actions') or [])
             profile_payload = project_skill_damage_product_payload({
