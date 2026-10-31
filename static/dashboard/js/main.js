@@ -5945,7 +5945,7 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     if (!unresolved.length && snapshot && (snapshot.unresolved_reference || (snapshot.actor_page && snapshot.actor_page.unresolved))) {
         const reference = snapshot.unresolved_reference || snapshot.actor_page.unresolved;
         const count = reference.count == null ? '总数未随分页提供' : `${reference.count}项`;
-        const href = `/api/simc-skill-damage/?${new URLSearchParams({view: 'unresolved_fragment',
+        const href = `/api/simc-skill-damage/?${new URLSearchParams({view: 'unresolved_fragment', stream: '1',
             snapshot_id: String(reference.snapshot_id || snapshot.id), actor_id: String(reference.actor_id || ''), offset: '0', fragment_limit: '16384'})}`;
         unresolvedEl.innerHTML = `未解析明细独立存储（${escapeHtml(count)}）；分页列表不代表完整覆盖。<a class="ml-2 underline" target="_blank" rel="noopener" href="${escapeHtml(href)}">查看有界原始片段</a>`;
         unresolvedEl.classList.remove('hidden');
@@ -6425,7 +6425,7 @@ function initSimcSkillDamagePanel() {
         const sort = nameSortButton.dataset.active === 'true' ? 'name' : 'final';
         const sortButton = sort === 'name' ? nameSortButton : finalSortButton;
         const targetTab = targetTabs.find(tab => tab.getAttribute('aria-selected') === 'true');
-        const params = new URLSearchParams({view: 'actor_page', snapshot_id: String(currentSnapshot.id),
+        const params = new URLSearchParams({view: 'actor_page', stream: '1', snapshot_id: String(currentSnapshot.id),
             actor_id: String(actor.id), hero_tree_id: heroTreeSelect.value,
             target_count: targetTab ? targetTab.dataset.targetCount : '1', sort,
             direction: sortButton.dataset.direction === 'asc' ? 'asc' : 'desc',
@@ -6454,7 +6454,7 @@ function initSimcSkillDamagePanel() {
                 const error = new Error(payload.error || '加载技能分页失败');
                 if (payload.worker_error && Number.isSafeInteger(payload.worker_error.source_ordinal)) {
                     error.sourceOrdinal = payload.worker_error.source_ordinal;
-                    const fragment = new URLSearchParams({view: 'actor_fragment', snapshot_id: params.get('snapshot_id'),
+                    const fragment = new URLSearchParams({view: 'actor_fragment', stream: '1', snapshot_id: params.get('snapshot_id'),
                         actor_id: params.get('actor_id'), source_ordinal: String(error.sourceOrdinal), offset: '0', fragment_limit: '16384'});
                     error.fragmentHref = `/api/simc-skill-damage/?${fragment}`;
                 }

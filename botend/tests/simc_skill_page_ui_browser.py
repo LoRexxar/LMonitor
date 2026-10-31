@@ -295,7 +295,7 @@ class SkillPageDOM(unittest.TestCase):
     def test_controls_complete_facets_server_order_and_page_replacement(self):
         self.start()
         params = self.params()
-        for key, value in {'view': 'actor_page', 'snapshot_id': '52', 'actor_id': '471',
+        for key, value in {'view': 'actor_page', 'stream': '1', 'snapshot_id': '52', 'actor_id': '471',
                            'hero_tree_id': '60', 'target_count': '1', 'limit': '50'}.items():
             self.assertEqual(params[key], value)
         self.assertIn('加载', self.el('body').inner_text())
@@ -351,6 +351,7 @@ class SkillPageDOM(unittest.TestCase):
         self.assertIn('总数未随分页提供', self.el('unresolved').inner_text())
         params = parse_qs(urlparse(self.el('unresolved').locator('a').get_attribute('href')).query)
         self.assertEqual(params['view'], ['unresolved_fragment'])
+        self.assertEqual(params['stream'], ['1'])
         self.assertEqual(params['fragment_limit'], ['16384'])
         self.el('sort-name').click()
         self.await_requests(3)
@@ -360,7 +361,7 @@ class SkillPageDOM(unittest.TestCase):
         self.page.wait_for_timeout(30)
         self.assertIn('原始序号 123', self.el('body').inner_text())
         params = parse_qs(urlparse(self.el('body').locator('a').get_attribute('href')).query)
-        for key, value in {'view': 'actor_fragment', 'source_ordinal': '123',
+        for key, value in {'view': 'actor_fragment', 'stream': '1', 'source_ordinal': '123',
                            'snapshot_id': '52', 'actor_id': '471', 'fragment_limit': '16384'}.items():
             self.assertEqual(params[key], [value])
         self.page.clock.run_for(120000)

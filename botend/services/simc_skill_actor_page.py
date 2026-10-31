@@ -10,6 +10,7 @@ import json
 import re
 import subprocess
 import threading
+from contextlib import contextmanager
 from pathlib import Path
 
 from django.conf import settings
@@ -41,15 +42,77 @@ class ActorPageError(ValueError):
         self.code, self.status, self.details = code, status, details
 
 
+class ActorReadControl:
+    """Request-scoped cooperative cancellation; absent on the legacy path."""
+    _local = threading.local()
+
+    def __init__(self):
+        self.cancel_event = threading.Event()
+        self.admitted_event = threading.Event()
+        self._lock = threading.Lock()
+        self._interrupts = set()
+
+    @classmethod
+    def current(cls):
+        return getattr(cls._local, 'control', None)
+
+    @contextmanager
+    def activate(self):
+        previous = self.current()
+        self._local.control = self
+        try:
+            yield self
+        finally:
+            self._local.control = previous
+
+    def check(self):
+        if self.cancel_event.is_set():
+            raise ActorPageError('技能读取已取消', code='read_cancelled')
+
+    def admit(self):
+        self.check()
+        self.admitted_event.set()
+
+    def register(self, callback):
+        with self._lock:
+            self._interrupts.add(callback)
+            if self.cancel_event.is_set():
+                callback()
+
+    def unregister(self, callback):
+        with self._lock:
+            self._interrupts.discard(callback)
+
+    def cancel(self):
+        with self._lock:
+            self.cancel_event.set()
+            for callback in self._interrupts:
+                callback()
+
+
+def _check_cancel():
+    control = ActorReadControl.current()
+    if control is not None:
+        control.check()
+
+
+def _admit_read():
+    control = ActorReadControl.current()
+    if control is not None:
+        control.admit()
+
+
 class _TextStream:
     def __init__(self, chunks):
         self.chunks, self.text, self.pos = iter(chunks), '', 0
         self.digest = hashlib.sha256()
 
     def ready(self):
+        _check_cancel()
         while self.pos == len(self.text):
             try:
                 self.text = next(self.chunks)
+                _check_cancel()
             except StopIteration:
                 return False
             if not isinstance(self.text, str):
@@ -365,6 +428,9 @@ class NodeQueryRunner:
         script = Path(settings.BASE_DIR) / 'scripts/simc_skill_page_query.cjs'
         self.process = subprocess.Popen(['/usr/bin/node', '--max-old-space-size=128', str(script)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+        self.control = ActorReadControl.current()
+        if self.control is not None:
+            self.control.register(self.interrupt)
         self.output, self.errors, self.overflow = bytearray(), bytearray(), False
         self.timer = threading.Timer(300, self.process.kill)
         self.timer.daemon = True
@@ -392,11 +458,13 @@ class NodeQueryRunner:
             raise
 
     def send(self, frame):
+        _check_cancel()
         # Exactly one bounded action, never the document. Batch JSON tokens to
         # avoid a syscall per field on the many-small-row production dataset.
         data = _ENCODER.encode(frame).encode('utf-8') + b'\n'
         view = memoryview(data)
         while view:
+            _check_cancel()
             try:
                 count = self.process.stdin.write(view[:65536])
             except BrokenPipeError:
@@ -445,8 +513,10 @@ class NodeQueryRunner:
         raise ActorPageError('技能查询进程失败或超过资源上限', code='query_worker_failed')
 
     def finish(self):
+        _check_cancel()
         self.process.stdin.close()
         code = self.process.wait(timeout=310)
+        _check_cancel()
         for thread in self.threads:
             thread.join(timeout=5)
         if code or self.overflow:
@@ -456,10 +526,19 @@ class NodeQueryRunner:
             self._translate_worker_error(result['error'])
         return result
 
+    def interrupt(self):
+        # Killing only the child unblocks pipe writes/wait in its owning thread.
+        try:
+            if self.process.poll() is None:
+                self.process.kill()
+        except ProcessLookupError:
+            pass
+
     def close(self):
+        if self.control is not None:
+            self.control.unregister(self.interrupt)
         self.timer.cancel()
-        if self.process.poll() is None:
-            self.process.kill()
+        self.interrupt()
         self.process.wait()
         for pipe in (self.process.stdin, self.process.stdout, self.process.stderr):
             if pipe and not pipe.closed:
@@ -528,11 +607,13 @@ class ActorPageService:
                     after = decoded['after']
                 except (signing.BadSignature, ValueError, KeyError, TypeError):
                     raise ActorPageError('分页游标与当前快照或筛选不匹配', code='invalid_cursor', status=400)
+            _admit_read()
             parser = ActorDocumentParser(Store.iterate_json_document(self.row, 'actor_payload'))
             presentation = _QueryPresentation(self.row, self.snapshot)
             runner = self.runner_factory({**query, 'after': after})
             def feed():
                 for ordinal, action in enumerate(parser.actions()):
+                    _check_cancel()
                     presentation.apply(action)
                     runner.send({'type': 'action', 'ordinal': ordinal, 'action': action})
                     yield action
@@ -540,6 +621,7 @@ class ActorPageService:
             result = runner.finish()
             if parser.document_sha256 != document_sha256:
                 raise ValueError('Actor digest changed')
+            _check_cancel()
             self._verify_membership(manifest)
             actions, ordinals = result['actions'], result['source_ordinals']
             if (not isinstance(actions, list) or len(actions) > query['limit']
@@ -570,9 +652,11 @@ class ActorPageService:
         except (ValueError, TypeError, KeyError, OSError, subprocess.SubprocessError) as exc:
             raise ActorPageError('技能快照数据或查询进程暂时不可用') from exc
         finally:
-            if runner is not None:
-                runner.close()
-            _SCAN_SLOTS.release()
+            try:
+                if runner is not None:
+                    runner.close()
+            finally:
+                _SCAN_SLOTS.release()
 
     def fragment(self, *, ordinal, offset, limit, document='actor_payload', field=None):
         if not _SCAN_SLOTS.acquire(blocking=False):
@@ -580,6 +664,7 @@ class ActorPageService:
         try:
             manifest = self.row['payload_storage']
             Store._manifest(self.row)
+            _admit_read()
             chunks = Store.iterate_json_document(self.row, document)
             if document == 'actor_payload':
                 parser = ActorDocumentParser(chunks,
@@ -595,6 +680,7 @@ class ActorPageService:
             else:
                 digest_obj, pieces, length = hashlib.sha256(), [], 0
                 for text in chunks:
+                    _check_cancel()
                     digest_obj.update(text.encode('utf-8'))
                     left, right = max(0, offset-length), min(len(text), offset+limit-length)
                     if right > left:
@@ -603,6 +689,7 @@ class ActorPageService:
                 digest = digest_obj.hexdigest()
                 result = {'text': ''.join(pieces), 'total_characters': length,
                     'next_offset': min(offset+limit, length) if offset+limit < length else None}
+            _check_cancel()
             self._verify_membership(manifest, document)
             if field is not None:
                 result['field'] = field

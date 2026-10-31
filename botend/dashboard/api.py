@@ -8489,8 +8489,15 @@ class SimcSkillDamageSnapshotAPIView(View):
                 'message': '技能伤害快照暂时不可用，请稍后重试',
             }, status=503)
 
-    def _actor_page_response(self, request):
+    def _actor_page_response(self, request, *, allow_stream=True, can_generate=None):
         """Pinned immutable membership, with no lock spanning the central scan."""
+        if can_generate is None:
+            # Resolve lazy auth on the request thread, not a worker DB connection.
+            can_generate = bool(request.user.is_staff)
+        if allow_stream and request.GET.get('stream') == '1':
+            from botend.services.simc_skill_actor_stream import actor_json_stream
+            return actor_json_stream(lambda: self._actor_page_response(
+                request, allow_stream=False, can_generate=can_generate))
         try:
             try:
                 snapshot_id = int(request.GET['snapshot_id'])
@@ -8551,7 +8558,7 @@ class SimcSkillDamageSnapshotAPIView(View):
                 'display_action_count': row['display_action_count'], 'raw_action_count': row['raw_action_count']})
             envelope = {'success': True, 'data': {'snapshot': payload,
                 'snapshot_unavailable_reason': None, 'job': self._summary_job_data(self._summary_job()),
-                'can_generate': bool(request.user.is_staff)}}
+                'can_generate': can_generate}}
             # Never build an unbounded dumps string, including post-query labels.
             output = bytearray()
             for token in DjangoJSONEncoder(ensure_ascii=False, separators=(',', ':')).iterencode(envelope):
