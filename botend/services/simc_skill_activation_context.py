@@ -87,6 +87,37 @@ def validate_activation_pair(reference, selected, target_entry):
         )
 
 
+def _validate_activation_selection(pair, before, after, previous_selection):
+    if before is None or after is None:
+        raise ValueError('Missing activation-context paired actor.')
+    validate_activation_pair(before, after, pair['talent'].node_id)
+    before_ids = set(before.get('selected_trait_ids') or [])
+    after_ids = set(after.get('selected_trait_ids') or [])
+    fixed = set(pair['activation_context']['trait_entry_ids'])
+    if not fixed <= before_ids or not fixed <= after_ids:
+        raise ValueError('Activation context missing from runtime selection.')
+    for key, actual in (('expected_reference_trait_entry_ids', before_ids),
+                        ('expected_selected_trait_entry_ids', after_ids)):
+        if key in pair and actual != set(pair[key]):
+            raise ValueError(f'Activation runtime selection mismatch: {key}, '
+                             f'expected={pair[key]}, actual={sorted(actual)}.')
+    selection = (before_ids, after_ids)
+    if previous_selection is not None and selection != previous_selection:
+        raise ValueError('Activation fixed selection differs between target-health probes.')
+    return selection
+
+
+def validate_activation_context_selection(pair, load_identity):
+    """Validate actual selection facts without materializing unrelated scenarios."""
+    previous_selection = None
+    for health in (100, 34):
+        before = load_identity(health, pair['reference_name'])
+        after = load_identity(health, pair['selected_name'])
+        previous_selection = _validate_activation_selection(
+            pair, before, after, previous_selection,
+        )
+
+
 def materialize_activation_pair(pair, load_actor):
     """Load one bounded high/low pair, enforce marginality, retain only C roots.
 
@@ -102,27 +133,11 @@ def materialize_activation_pair(pair, load_actor):
             'name', 'name_zh', 'description', 'description_zh')},
     }, 'activation_context': pair['activation_context']}
     allowed = set(pair['activation_context']['action_spell_ids'])
-    fixed = set(pair['activation_context']['trait_entry_ids'])
     high_selection = None
     for health, suffix in ((100, 'high'), (34, 'low')):
         before = load_actor(health, pair['reference_name'])
         after = load_actor(health, pair['selected_name'])
-        if before is None or after is None:
-            raise ValueError('Missing activation-context paired actor.')
-        validate_activation_pair(before, after, talent.node_id)
-        before_ids = set(before.get('selected_trait_ids') or [])
-        after_ids = set(after.get('selected_trait_ids') or [])
-        if not fixed <= before_ids or not fixed <= after_ids:
-            raise ValueError('Activation context missing from runtime selection.')
-        for key, actual in (('expected_reference_trait_entry_ids', before_ids),
-                            ('expected_selected_trait_entry_ids', after_ids)):
-            if key in pair and actual != set(pair[key]):
-                raise ValueError(f'Activation runtime selection mismatch: {key}, '
-                                 f'expected={pair[key]}, actual={sorted(actual)}.')
-        selection = (before_ids, after_ids)
-        if high_selection is not None and selection != high_selection:
-            raise ValueError('Activation fixed selection differs between target-health probes.')
-        high_selection = selection
+        high_selection = _validate_activation_selection(pair, before, after, high_selection)
         for actor, key, effectiveness in (
                 (before, 'reference_' + suffix, 'inactive'), (after, suffix, 'active')):
             result[key] = {**actor, 'talent_effectiveness': effectiveness,

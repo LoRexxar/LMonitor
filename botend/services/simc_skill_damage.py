@@ -1,4 +1,5 @@
 import copy
+import hashlib
 from .simc_skill_talent_links import collect_skill_talent_links, merge_skill_talent_links, apply_skill_talent_links
 import json
 import math
@@ -27,9 +28,10 @@ from botend.models import (
     WowTalentNodeMetadata,
 )
 from botend.services.simc_composer import SimcComposer
+from botend.services.simc_json_stream import iter_json_text
 from botend.services.simc_skill_activation_context import (
     discover_replacement_candidates, plan_activation_context_pairs,
-    materialize_activation_pair,
+    materialize_activation_pair, validate_activation_context_selection,
 )
 from botend.services.simc_skill_descriptions import attach_skill_damage_descriptions
 from botend.services.simc_skill_snapshot_storage import SkillSnapshotActorStorage
@@ -532,12 +534,20 @@ def prune_global_damage_talents(talents, scaffold_talents, talent_prerequisites,
 
 
 class _CanonicalActorSpool:
-    """Keep exporter actor graphs on disk until one bounded consumer needs them."""
+    """Own immutable private JSON files until one bounded consumer needs them.
+
+    Published files are read-only for this spool's lifetime; content identities
+    describe the complete UTF-8 bytes written, not a selection/metadata subset.
+    """
 
     def __init__(self, root):
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._paths = {}
+        self._content_id = {}
+        self._identities = {}
+        self._action_metadata = {}
+        self._state_metadata = {}
 
     def store_many(self, target_health, actors):
         actor_map = {
@@ -556,17 +566,54 @@ class _CanonicalActorSpool:
             ordinal = len(self._paths)
             path = self.root / f'{ordinal:04d}.json'
             temporary_path = self.root / f'{ordinal:04d}.json.tmp'
+            digest = hashlib.sha256()
+            byte_count = 0
             with temporary_path.open('w', encoding='utf-8') as handle:
-                json.dump(
-                    actor, handle, ensure_ascii=False,
-                    separators=(',', ':'),
-                )
+                for text in iter_json_text(actor):
+                    handle.write(text)
+                    encoded = text.encode('utf-8')
+                    digest.update(encoded)
+                    byte_count += len(encoded)
             os.replace(temporary_path, path)
             self._paths[key] = path
+            self._content_id[key] = (byte_count, digest.hexdigest())
+            self._identities[key] = {
+                field: copy.deepcopy(actor[field])
+                for field in ('selected_trait_ids',) if field in actor
+            }
+            self._state_metadata[key] = {
+                field: copy.deepcopy(actor[field])
+                for field in ('name', 'class', 'spec', 'specialization',
+                              'global_damage_policy', 'global_damage_states',
+                              'reviewed_global_effects') if field in actor
+            }
+            # Exporter facts, not inferred ownership: never retain action or
+            # scenario graphs for the hero-ownership inventory pass.
+            self._action_metadata[key] = {
+                'name': name,
+                'actions': [{
+                    **{field: copy.deepcopy(action[field]) for field in (
+                        'token', 'spell_id', 'reporting_root_token',
+                        'reporting_root_spell_id', 'supported', 'player_skill',
+                    ) if field in action},
+                    **({'selected_trait_effects': [{
+                        field: copy.deepcopy(effect[field]) for field in (
+                            'trait_entry_id', 'source_spell_id', 'effect_index',
+                        ) if field in effect
+                    } for effect in action.get('selected_trait_effects') or []
+                       if isinstance(effect, dict)]}
+                       if 'selected_trait_effects' in action else {}),
+                } for action in actor.get('actions') or [] if isinstance(action, dict)],
+            }
         return set(actor_map)
 
     def has(self, target_health, canonical_name):
         return (target_health, canonical_name) in self._paths
+
+    def content_identity(self, target_health, canonical_name):
+        """Complete stored byte count/SHA, or None when no source is present."""
+        key = (target_health, canonical_name)
+        return self._content_id.get(key) if key in self._paths else None
 
     def load(self, target_health, canonical_name):
         path = self._paths.get((target_health, canonical_name))
@@ -577,6 +624,29 @@ class _CanonicalActorSpool:
         if not isinstance(actor, dict):
             raise ValueError('canonical actor 临时文件不是对象。')
         return actor
+
+    def load_identity(self, target_health, canonical_name):
+        """Selection facts frozen from the actual export, never its action graph."""
+        key = (target_health, canonical_name)
+        if key not in self._paths:
+            return None
+        return copy.deepcopy(self._identities[key])
+
+    def load_state_metadata(self, target_health, canonical_name):
+        """Detached declared state facts; never decode or retain action graphs."""
+        key = (target_health, canonical_name)
+        if key not in self._paths:
+            return None
+        return copy.deepcopy(self._state_metadata[key])
+
+    def load_action_metadata(self, target_health, canonical_name):
+        """Detached identity/ownership facts, with no damage or scenario values."""
+        key = (target_health, canonical_name)
+        if key not in self._paths:
+            return None
+        # Share the selection source with activation-context prevalidation.
+        return {**copy.deepcopy(self._action_metadata[key]),
+                **self.load_identity(target_health, canonical_name)}
 
 
 class _SpoolBackedTalentVariants:
@@ -595,14 +665,35 @@ class _SpoolBackedTalentVariants:
             for trait in config.get('selected_talents') or []
         }
 
-    def _load_logical_actor(self, target_health, logical_name, cache):
+    def _load_logical_actor(self, target_health, logical_name, cache, load_actor,
+                            content_cache=None):
         alias = self.aliases.get(logical_name)
         if alias is None:
             return None
         canonical_name = alias['canonical_name']
         cache_key = (target_health, canonical_name)
         if cache_key not in cache:
-            cache[cache_key] = self.actor_spool.load(target_health, canonical_name)
+            content_identity = getattr(self.actor_spool, 'content_identity', None)
+            content_id = (
+                content_identity(target_health, canonical_name)
+                if (content_cache is not None and load_actor == self.actor_spool.load
+                    and callable(content_identity)) else None
+            )
+            if content_id is not None and content_id in content_cache:
+                # Health roles need distinct action identities: flatten selects
+                # the native reference context using `source_action is high`.
+                # Only nested exporter facts are borrowed, strictly read-only.
+                source = content_cache[content_id]
+                cache[cache_key] = {
+                    **source,
+                    **({'actions': [dict(action) if isinstance(action, dict) else action
+                                    for action in source['actions']]}
+                       if isinstance(source.get('actions'), list) else {}),
+                }
+            else:
+                cache[cache_key] = load_actor(target_health, canonical_name)
+                if content_id is not None and cache[cache_key] is not None:
+                    content_cache[content_id] = cache[cache_key]
         canonical_actor = cache[cache_key]
         if canonical_actor is None:
             return None
@@ -613,46 +704,105 @@ class _SpoolBackedTalentVariants:
         }
 
     def __iter__(self):
+        return self._iter_variants(self.actor_spool.load)
+
+    def iter_metadata(self):
+        """Same logical presence/alias checks and talent wire, without graphs."""
+        return self._iter_variants(getattr(
+            self.actor_spool, 'load_identity', self.actor_spool.load,
+        ))
+
+    def iter_action_metadata(self):
+        return self._iter_variants(getattr(
+            self.actor_spool, 'load_action_metadata', self.actor_spool.load,
+        ))
+
+    def _load_full_item(self, item):
+        """Reload the complete pair, never combine headers and damage graphs."""
+        cache = {}
+        content_cache = {}
+        actors = {}
+        try:
+            for key, health in (('high', 100), ('low', 34),
+                                ('reference_high', 100), ('reference_low', 34)):
+                logical_actor = item[key]
+                actors[key] = (
+                    self._load_logical_actor(
+                        health, logical_actor['name'], cache, self.actor_spool.load,
+                        content_cache,
+                    ) if logical_actor is not None else None
+                )
+            return {**item, **actors}
+        finally:
+            cache.clear()
+            content_cache.clear()
+
+    def iter_filtered(self, predicate):
+        """Validate every logical row before filtering its talent metadata."""
+        for item in self.iter_metadata():
+            if predicate(item['talent']):
+                yield self._load_full_item(item)
+
+    def iter_state_metadata(self):
+        load_state = getattr(self.actor_spool, 'load_state_metadata', None)
+        if not callable(load_state):
+            yield from self
+            return
+        for item in self._iter_variants(load_state):
+            if all(isinstance(item[key], dict)
+                   and item[key].get('global_damage_policy') == 'exclude_before_probe'
+                   for key in ('high', 'low', 'reference_high', 'reference_low')):
+                yield item
+            else:
+                yield self._load_full_item(item)
+
+    def _iter_variants(self, load_actor):
         for talent in self.talents:
             identity = f'{talent.pk}_trait_{talent.node_id}'
             actor_name = f'skill_damage_talent_{identity}'
             reference_name = f'skill_damage_reference_{identity}'
             cache = {}
-            high_actor = self._load_logical_actor(100, actor_name, cache)
-            low_actor = self._load_logical_actor(34, actor_name, cache)
-            reference_high = self._load_logical_actor(100, reference_name, cache)
-            reference_low = self._load_logical_actor(34, reference_name, cache)
-            if not high_actor and not low_actor:
-                continue
-            if (high_actor and not reference_high) or (low_actor and not reference_low):
-                raise ValueError(
-                    f'{self.profile.spec} 天赋 {talent.node_id} 缺少对应前置 runtime actor。'
+            content_cache = {}
+            try:
+                high_actor = self._load_logical_actor(100, actor_name, cache, load_actor, content_cache)
+                low_actor = self._load_logical_actor(34, actor_name, cache, load_actor, content_cache)
+                reference_high = self._load_logical_actor(100, reference_name, cache, load_actor, content_cache)
+                reference_low = self._load_logical_actor(34, reference_name, cache, load_actor, content_cache)
+                if not high_actor and not low_actor:
+                    continue
+                if (high_actor and not reference_high) or (low_actor and not reference_low):
+                    raise ValueError(
+                        f'{self.profile.spec} 天赋 {talent.node_id} 缺少对应前置 runtime actor。'
+                    )
+                hero_subtree_id = (
+                    talent.db2_subtree_id
+                    if str(talent.tree_type or '').lower() == 'hero'
+                    else None
                 )
-            hero_subtree_id = (
-                talent.db2_subtree_id
-                if str(talent.tree_type or '').lower() == 'hero'
-                else None
-            )
-            hero_subtree_name = hero_subtree_name_by_id(hero_subtree_id)
-            yield {
-                'talent': {
-                    'id': talent.pk,
-                    'node_id': talent.node_id,
-                    'tree_type': talent.tree_type,
-                    'hero_subtree_id': hero_subtree_id,
-                    'hero_subtree_name': hero_subtree_name,
-                    'hero_subtree_name_zh': hero_subtree_name_zh(hero_subtree_name),
-                    'name': talent.name,
-                    'name_zh': talent.name_zh,
-                    'description': talent.description,
-                    'description_zh': talent.description_zh,
-                },
-                'reference_high': reference_high,
-                'reference_low': reference_low,
-                'reference_traits': list(self.reference_traits.values()),
-                'high': high_actor,
-                'low': low_actor,
-            }
+                hero_subtree_name = hero_subtree_name_by_id(hero_subtree_id)
+                yield {
+                    'talent': {
+                        'id': talent.pk,
+                        'node_id': talent.node_id,
+                        'tree_type': talent.tree_type,
+                        'hero_subtree_id': hero_subtree_id,
+                        'hero_subtree_name': hero_subtree_name,
+                        'hero_subtree_name_zh': hero_subtree_name_zh(hero_subtree_name),
+                        'name': talent.name,
+                        'name_zh': talent.name_zh,
+                        'description': talent.description,
+                        'description_zh': talent.description_zh,
+                    },
+                    'reference_high': reference_high,
+                    'reference_low': reference_low,
+                    'reference_traits': list(self.reference_traits.values()),
+                    'high': high_actor,
+                    'low': low_actor,
+                }
+            finally:
+                cache.clear()
+                content_cache.clear()
+                high_actor = low_actor = reference_high = reference_low = None
 
 
 class _ActivationContextVariants:
@@ -665,6 +815,40 @@ class _ActivationContextVariants:
         yield from self.ordinary
         for pair in self.pairs:
             yield materialize_activation_pair(pair, self.spool.load)
+
+    def iter_metadata(self):
+        yield from _variant_metadata(self.ordinary)
+        for pair in self.pairs:
+            # Reuse the exact talent conversion and shared selection validator.
+            yield materialize_activation_pair(pair, self.spool.load_identity)
+
+    def iter_action_metadata(self):
+        yield from _variant_action_metadata(self.ordinary)
+        for pair in self.pairs:
+            # The materializer still enforces the identical root allowlist.
+            yield materialize_activation_pair(pair, self.spool.load_action_metadata)
+
+
+def _variant_metadata(variants):
+    iterator = getattr(variants, 'iter_metadata', None)
+    return iterator() if callable(iterator) else iter(variants)
+
+
+def _variant_state_metadata(variants):
+    iterator = getattr(variants, 'iter_state_metadata', None)
+    return iterator() if callable(iterator) else iter(variants)
+
+
+def _variant_action_metadata(variants):
+    iterator = getattr(variants, 'iter_action_metadata', None)
+    return iterator() if callable(iterator) else iter(variants)
+
+
+def _filtered_variants(variants, predicate):
+    iterator = getattr(variants, 'iter_filtered', None)
+    if callable(iterator):
+        return iterator(predicate)
+    return (item for item in variants if predicate(item.get('talent') or {}))
 
 
 def _reiterable_variants(variants):
@@ -1065,12 +1249,16 @@ def _paired_effect_changed(high_reference, high_current, low_reference, low_curr
     )
 
 
-def _scenario_amounts(action):
+def _scenario_amounts(action, *, metadata=None):
     amounts = {}
     for scenario in ((action or {}).get('scenarios') or []):
         if not isinstance(scenario, dict):
             continue
         identity = _scenario_identity(scenario)
+        if metadata is not None:
+            # Both indexes retain the same identity object, including the empty
+            # metadata identity that is deliberately absent from amounts.
+            metadata.setdefault(identity, scenario)
         if not identity:
             continue
         amount = scenario.get('values') or scenario.get('amount')
@@ -1265,10 +1453,11 @@ def _global_evidence_action_pair(reference_actor, selected_actor):
     )
 
 
-def _scenario_token_universe(actor):
+def _scenario_token_universe(actor, *, scenario_lookup=None):
+    scenario_lookup = scenario_lookup or _scenario_amounts
     tokens = set()
     for action in (_player_skill_actions(actor) or {}).values():
-        tokens.update(_scenario_amounts(action))
+        tokens.update(scenario_lookup(action))
     return tokens
 
 
@@ -1276,8 +1465,20 @@ def _canonical_runtime_state_token(value):
     return re.sub(r'[^a-z0-9]+', '_', str(value or '').lower()).strip('_')
 
 
+def _initialized_action_tokens(actor):
+    tokens = set()
+    for action in ((actor or {}).get('actions') or []):
+        if not isinstance(action, dict):
+            continue
+        for field in ('token', 'action_token', 'name'):
+            token = _canonical_runtime_state_token(action.get(field))
+            if token:
+                tokens.add(token)
+    return tokens
+
+
 def _scenario_is_selected_only_action_state(
-    reference_actor, selected_actor, scenario_tokens,
+    reference_actor, selected_actor, scenario_tokens, *, action_token_lookup=None,
 ):
     display_tokens = _scenario_identity_tokens(scenario_tokens)
     if len(display_tokens) != 1:
@@ -1290,19 +1491,9 @@ def _scenario_is_selected_only_action_state(
     if not state_token:
         return False
 
-    def initialized_action_tokens(actor):
-        tokens = set()
-        for action in ((actor or {}).get('actions') or []):
-            if not isinstance(action, dict):
-                continue
-            for field in ('token', 'action_token', 'name'):
-                token = _canonical_runtime_state_token(action.get(field))
-                if token:
-                    tokens.add(token)
-        return tokens
-
-    reference_tokens = initialized_action_tokens(reference_actor)
-    selected_tokens = initialized_action_tokens(selected_actor)
+    action_token_lookup = action_token_lookup or _initialized_action_tokens
+    reference_tokens = action_token_lookup(reference_actor)
+    selected_tokens = action_token_lookup(selected_actor)
     return state_token in selected_tokens - reference_tokens
 
 
@@ -1550,7 +1741,9 @@ def _scenario_marginal_amount_is_explained(
 def _runtime_layer_scenario_candidate(
     reference_actor, selected_actor, scenario_tokens,
     *, reference_scenario_available=True, allow_reduction=False,
+    scenario_lookup=None,
 ):
+    scenario_lookup = scenario_lookup or _scenario_amounts
     action_pair = _global_evidence_action_pair(reference_actor, selected_actor)
     if action_pair is None:
         return None
@@ -1577,12 +1770,12 @@ def _runtime_layer_scenario_candidate(
         reference_baseline = reference_action.get('baseline')
         selected_baseline = selected_action.get('baseline')
         reference_scenario = (
-            _scenario_amounts(reference_action).get(
+            scenario_lookup(reference_action).get(
                 scenario_tokens, reference_baseline,
             )
             if reference_scenario_available else reference_baseline
         )
-        selected_scenario = _scenario_amounts(selected_action).get(scenario_tokens)
+        selected_scenario = scenario_lookup(selected_action).get(scenario_tokens)
         if selected_scenario is None:
             continue
         reference_changes = _action_runtime_layer_changes(
@@ -1666,12 +1859,12 @@ def _runtime_layer_scenario_candidate(
         reference_baseline = reference_action.get('baseline')
         selected_baseline = selected_action.get('baseline')
         reference_scenario = (
-            _scenario_amounts(reference_action).get(
+            scenario_lookup(reference_action).get(
                 scenario_tokens, reference_baseline,
             )
             if reference_scenario_available else reference_baseline
         )
-        selected_scenario = _scenario_amounts(selected_action).get(scenario_tokens)
+        selected_scenario = scenario_lookup(selected_action).get(scenario_tokens)
         if selected_scenario is None:
             continue
         if not _scenario_marginal_amount_is_explained(
@@ -1700,7 +1893,10 @@ def _runtime_layer_scenario_candidate(
     }
 
 
-def _scenario_has_target_marginal_change(reference_actor, selected_actor, scenario_tokens):
+def _scenario_has_target_marginal_change(
+    reference_actor, selected_actor, scenario_tokens, *, scenario_lookup=None,
+):
+    scenario_lookup = scenario_lookup or _scenario_amounts
     action_pair = _global_evidence_action_pair(reference_actor, selected_actor)
     if action_pair is None:
         return True
@@ -1709,11 +1905,11 @@ def _scenario_has_target_marginal_change(reference_actor, selected_actor, scenar
         reference_action = reference_actions[identity]
         amounts = (
             reference_action.get('baseline'),
-            _scenario_amounts(reference_action).get(
+            scenario_lookup(reference_action).get(
                 scenario_tokens, reference_action.get('baseline'),
             ),
             selected_action.get('baseline'),
-            _scenario_amounts(selected_action).get(scenario_tokens),
+            scenario_lookup(selected_action).get(scenario_tokens),
         )
         if amounts[-1] is None:
             continue
@@ -1780,25 +1976,45 @@ def _selected_scenario_changes_damage(selected_actor, scenario_tokens):
 
 
 def _runtime_layer_candidates(reference_actor, selected_actor):
+    # Lazy, actor-pair-local indexes preserve validation/early-return order and
+    # must not retain any raw actor graph after this classification returns.
+    scenario_indexes = {}
+    action_token_indexes = {}
+
+    def indexed_scenarios(action):
+        key = id(action)
+        if key not in scenario_indexes:
+            scenario_indexes[key] = (action, _scenario_amounts(action))
+        return scenario_indexes[key][1]
+
+    def indexed_action_tokens(actor):
+        key = id(actor)
+        if key not in action_token_indexes:
+            action_token_indexes[key] = (actor, _initialized_action_tokens(actor))
+        return action_token_indexes[key][1]
+
     candidates = {}
     passive = _runtime_layer_candidate(reference_actor, selected_actor, ())
     if passive is not None:
         candidates[()] = passive
 
-    selected_tokens = _scenario_token_universe(selected_actor)
+    selected_tokens = _scenario_token_universe(selected_actor, scenario_lookup=indexed_scenarios)
     rejected_marginal_tokens = []
     for tokens in selected_tokens:
         selected_only_action_state = _scenario_is_selected_only_action_state(
             reference_actor, selected_actor, tokens,
+            action_token_lookup=indexed_action_tokens,
         )
         candidate = _runtime_layer_scenario_candidate(
             reference_actor, selected_actor, tokens,
             reference_scenario_available=not selected_only_action_state,
+            scenario_lookup=indexed_scenarios,
         )
         if candidate is not None:
             candidates[tokens] = candidate
         elif _scenario_has_target_marginal_change(
             reference_actor, selected_actor, tokens,
+            scenario_lookup=indexed_scenarios,
         ):
             rejected_marginal_tokens.append(tokens)
     if rejected_marginal_tokens:
@@ -1860,20 +2076,19 @@ def classify_global_damage_modifiers(variants):
     """Classify text-declared all-damage effects using cross-skill runtime layers."""
     variants = _reiterable_variants(variants)
     talent_id_counts = {}
-    for item in variants:
+    for item in _variant_metadata(variants):
         talent_id = (item.get('talent') or {}).get('id') if isinstance(item, dict) else None
         if isinstance(talent_id, int) and not isinstance(talent_id, bool) and talent_id > 0:
             talent_id_counts[talent_id] = talent_id_counts.get(talent_id, 0) + 1
     item = None
 
     modifiers = []
-    for item in variants:
+    for item in _filtered_variants(variants, lambda talent: (
+        talent_id_counts.get(talent.get('id')) == 1
+        and _talent_declares_all_damage_modifier(talent)
+    )):
         talent = item.get('talent') or {}
         talent_id = talent.get('id')
-        if talent_id_counts.get(talent_id) != 1:
-            continue
-        if not _talent_declares_all_damage_modifier(talent):
-            continue
         actors = (
             item.get('reference_high'), item.get('high'),
             item.get('reference_low'), item.get('low'),
@@ -2899,7 +3114,7 @@ def classify_global_skill_effects(base_high, base_low, variants):
 
     def iter_state_sources():
         yield base_high, base_low, None, {}, {}
-        for item in variants:
+        for item in _variant_state_metadata(variants):
             if not isinstance(item, dict):
                 continue
             yield (
@@ -3028,16 +3243,17 @@ def classify_global_skill_effects(base_high, base_low, variants):
     for modifier in classify_global_damage_modifiers(variants):
         talent_damage_modifiers.setdefault(modifier['talent_id'], []).append(modifier)
     talent_id_counts = {}
-    for item in variants or []:
+    for item in _variant_metadata(variants):
         talent_id = (item.get('talent') or {}).get('id')
         if isinstance(talent_id, int) and not isinstance(talent_id, bool) and talent_id > 0:
             talent_id_counts[talent_id] = talent_id_counts.get(talent_id, 0) + 1
     item = None
-    for item in variants or []:
+    for item in _filtered_variants(variants, lambda talent: (
+        talent_id_counts.get(talent.get('id')) == 1
+        and _talent_declares_all_damage_modifier(talent)
+    )):
         talent = item.get('talent') or {}
         talent_id = talent.get('id')
-        if talent_id_counts.get(talent_id) != 1 or not _talent_declares_all_damage_modifier(talent):
-            continue
         source = {
             'talent_id': talent_id,
             'talent_name': str(talent.get('name') or ''),
@@ -3198,15 +3414,30 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     """展开独立导出的施法事实，复用数值与状态元数据索引，不重算伤害。"""
     # 一次投影内的原始动作不变。组合增加后，逐行重建状态索引会退化为平方复杂度。
     scenario_indexes = {}
+    shared_scenario_indexes = {}
 
     def indexed_scenarios(action):
         key = id(action)
         if key not in scenario_indexes:
-            amounts = _scenario_amounts(action)
-            metadata = {}
-            for scenario in (action or {}).get('scenarios') or []:
-                if isinstance(scenario, dict):
-                    metadata.setdefault(_scenario_identity(scenario), scenario)
+            scenarios = (action or {}).get('scenarios')
+            if isinstance(scenarios, list):
+                shared = shared_scenario_indexes.get(id(scenarios))
+                if shared is None:
+                    metadata = {}
+                    amounts = _scenario_amounts(action, metadata=metadata)
+                    # Retain the actual read-only list to fence object-id reuse.
+                    shared_scenario_indexes[id(scenarios)] = (scenarios, amounts, metadata)
+                else:
+                    _, amounts, metadata = shared
+            else:
+                # Preserve legacy iterable consumption, notably exhausted
+                # generators whose second (metadata) pass used to be empty.
+                amounts = _scenario_amounts(action)
+                metadata = {}
+                for scenario in scenarios or []:
+                    if isinstance(scenario, dict):
+                        metadata.setdefault(_scenario_identity(scenario), scenario)
+            # Role shells still need their own entry for append_row's id lookup.
             scenario_indexes[key] = (action, amounts, metadata)
         return scenario_indexes[key][1]
     variants = _reiterable_variants(variants)
@@ -3242,7 +3473,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
     actor_context = {id(action):actor for actor in (base_high,base_low)
                      for action in actor.get('actions') or []}
     hero_subtree_by_trait_entry = {}
-    for item in variants:
+    for item in _variant_metadata(variants):
         talent = (item or {}).get('talent') or {}
         subtree_id = talent.get('hero_subtree_id')
         trait_entry_id = talent.get('node_id')
@@ -3259,7 +3490,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
 
     effect_actions = {}
     effect_has_player_skill = set()
-    for item in variants:
+    for item in _variant_action_metadata(variants):
         for actor_key in ('high', 'low'):
             for action in ((item.get(actor_key) or {}).get('actions') or []):
                 if not isinstance(action, dict) or action.get('supported') is not True:
@@ -3593,12 +3824,16 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                 )
 
     cast_groups = {}
-    complete_cast_damage_components(rows, cast_sources, grouped=cast_groups, finalize=False)
+    complete_cast_damage_components(
+        rows, cast_sources, grouped=cast_groups, finalize=False,
+        scenario_lookup=indexed_scenarios,
+    )
     rows = []
     cast_sources.clear()
     actor_context.clear()
+    scenario_indexes.clear()
+    shared_scenario_indexes.clear()
     for item in variants:
-        scenario_indexes.clear()
         talent = item.get('talent') or {}
         active_activation_context = item.get('activation_context')
         # Absolute damage still contains the fixed reference configuration.
@@ -3735,23 +3970,42 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
                                        else reference_low_context),
                 )
         # Materialize cast children while this pair's actors are still live.
-        complete_cast_damage_components(rows, cast_sources, grouped=cast_groups, finalize=False)
+        complete_cast_damage_components(
+            rows, cast_sources, grouped=cast_groups, finalize=False,
+            scenario_lookup=indexed_scenarios,
+        )
         rows = []
         cast_sources.clear()
         actor_context.clear()
+        # Drop only our indexes/maps and borrowed references. Output rows and
+        # first-source cast children are already detached; do not mutate actors.
+        scenario_indexes.clear()
+        shared_scenario_indexes.clear()
+        reference_high_actions.clear()
+        reference_low_actions.clear()
+        high_actions.clear()
+        low_actions.clear()
+        high_action = low_action = base_high_action = base_low_action = None
+        high_amount = low_amount = base_high_amount = base_low_amount = None
+        high_scenarios = low_scenarios = base_high_scenarios = base_low_scenarios = None
+        source_action = amount = comparison = projection_reference = None
+        reference = low_reference = high_current = high_reference = candidates = None
         item = None
     rows = complete_cast_damage_components([], {}, grouped=cast_groups)
     attach_runtime_product_metrics({'actions': rows})
     return rows
 
 
-def complete_cast_damage_components(rows, cast_sources, *, grouped=None, finalize=True):
+def complete_cast_damage_components(
+    rows, cast_sources, *, grouped=None, finalize=True, scenario_lookup=None,
+):
     """Complete each pair now; retain only rows, never its source actor.
 
     Ownership groups can recur (ordinary duplicate contexts included). Keep the
     first source's projected children separately until all original rows arrive,
     preserving global group order and allowing later originals to suppress them.
     """
+    scenario_lookup = scenario_lookup or _scenario_amounts
     def root(action):
         if action.get('reporting_root_component') is not True:
             return _action_identity(action)
@@ -3778,7 +4032,7 @@ def complete_cast_damage_components(rows, cast_sources, *, grouped=None, finaliz
         for action in source.get('actions') or []:
             if root(action) != identity or _action_identity(action) in existing or action.get('supported') is not True:
                 continue
-            amount = _scenario_amounts(action).get(scenario,action.get('baseline')) if scenario else action.get('baseline')
+            amount = scenario_lookup(action).get(scenario,action.get('baseline')) if scenario else action.get('baseline')
             if _amount_state(amount)[0] != 'resolved':
                 continue
             added = copy.deepcopy({key:value for key,value in action.items() if key not in {'baseline','scenarios'}})
@@ -5580,7 +5834,7 @@ class SimcSkillDamageSnapshotService:
             valid_context_pairs = []
             for pair in context_plan['pairs']:
                 try:
-                    materialize_activation_pair(pair, actor_spool.load)
+                    validate_activation_context_selection(pair, actor_spool.load_identity)
                 except ValueError as exc:
                     high_unresolved.append({
                         'class': str(profile.class_name),
