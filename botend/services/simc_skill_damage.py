@@ -9,6 +9,7 @@ import signal
 import subprocess
 import sys
 import tempfile
+import zlib
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 
@@ -118,9 +119,9 @@ def _action_variant_ownership_key(action):
         )
     }))
     return (
-        json.dumps({key:value for key,value in variant.items()
+        zlib.compress(json.dumps({key:value for key,value in variant.items()
                     if key not in {'reference_available','reference_unavailable_reason'}},
-                   ensure_ascii=False, sort_keys=True, separators=(',', ':')),
+                   ensure_ascii=False, sort_keys=True, separators=(',', ':')).encode('utf-8', 'surrogatepass'), 1),
         hero_subtree_ids,
     )
 
@@ -135,9 +136,9 @@ def _single_top_name(rows, rank):
     return next(iter(names)) if len(names) == 1 else ''
 
 
-def localize_skill_damage_payload(payload):
-    """将中文名称及数据库说明写入生成结果。"""
-    result = copy.deepcopy(payload or {})
+def localize_skill_damage_payload(payload, *, take_ownership=False):
+    """Localize a borrowed copy, or mutate an explicitly transferred payload."""
+    result = (payload if payload is not None else {}) if take_ownership else copy.deepcopy(payload or {})
     actors = [row for row in (result.get('actors') or []) if isinstance(row, dict)]
     spell_ids = {
         spell_id
@@ -4189,9 +4190,32 @@ def _compact_equivalent_damage_states(rows):
     return output
 
 
-def project_skill_damage_product_payload(payload):
-    """Return one display row per proven SimC reporting-root cast."""
-    result = copy.deepcopy(payload or {})
+class _consume_owned_action_rows:
+    """Consume list slots in order without caching even the last returned row."""
+
+    def __init__(self, actions):
+        self.actions = actions
+        self.index = 0
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self.index >= len(self.actions):
+            raise StopIteration
+        row = self.actions[self.index]
+        self.actions[self.index] = None
+        self.index += 1
+        return row
+
+
+def project_skill_damage_product_payload(payload, *, take_ownership=False):
+    """Project a borrowed copy, or consume an exclusively owned payload in place.
+
+    Ownership transfer invalidates the raw actions list, including on failure.
+    Callers must not retain borrowed references to the transferred graph.
+    """
+    result = (payload if payload is not None else {}) if take_ownership else copy.deepcopy(payload or {})
     display_count = 0
     required = (
         'current_talent_damage', 'crit_damage', 'crit_multiplier',
@@ -4235,7 +4259,12 @@ def project_skill_damage_product_payload(payload):
             if value['hands'] == {'main', 'off'}
         }
 
-        for action in actor.get('actions') or []:
+        # Passive normalization and paired-hand discovery require the complete
+        # raw list above. Only this final raw-action pass may consume its slots.
+        action_rows = actor.get('actions') or []
+        if take_ownership:
+            action_rows = _consume_owned_action_rows(action_rows)
+        for action in action_rows:
             if not isinstance(action, dict) or action.get('supported') is not True:
                 continue
             baseline = action.get('baseline')
@@ -4447,6 +4476,8 @@ def project_skill_damage_product_payload(payload):
                 if weighted_target_damage is not None:
                     formula_component['final_damage_by_target'] = weighted_target_damage
                 group['product']['formula_components'].append(formula_component)
+        # Do not retain the final raw row during the remaining product passes.
+        action = baseline = component = product = None
         rows = []
         for group in groups.values():
             if group['component_count'] <= 0:
@@ -5723,12 +5754,16 @@ class SimcSkillDamageSnapshotService:
             ]['canonical_name']]['selected_talents']
             for t in talents
         }
+        # Match each consumer's actual facts to the spool's optional light
+        # loaders; legacy providers may still expose only the full loader.
+        load_action_metadata = getattr(spool, 'load_action_metadata', spool.load)
+        load_identity = getattr(spool, 'load_identity', spool.load)
         contexts = {}
         for entry in sorted({c['trait_entry_id'] for c in candidates}):
             talent = by_entry[entry]
             logical = f'skill_damage_talent_{talent.pk}_trait_{entry}'
             name = ordinary['aliases'][logical]['canonical_name']
-            actor = spool.load(100, name)
+            actor = load_action_metadata(100, name)
             if actor is not None:
                 # Candidate readiness needs only roots/selected identities, not
                 # retention of the full exported action/scenario graph.
@@ -5739,12 +5774,12 @@ class SimcSkillDamageSnapshotService:
                                           for a in actor.get('actions') or []]},
                 }
         from .simc_skill_activation_context import prove_hero_anchor_selectors
-        baseline = (spool.load(100, 'skill_damage_base') or {}).get('selected_trait_ids') or []
-        baseline_low = (spool.load(34, 'skill_damage_base') or {}).get('selected_trait_ids') or []
+        baseline = (load_identity(100, 'skill_damage_base') or {}).get('selected_trait_ids') or []
+        baseline_low = (load_identity(34, 'skill_damage_base') or {}).get('selected_trait_ids') or []
         if set(baseline) != set(baseline_low):
             raise ValueError('Ordinary baseline selection differs between target-health probes.')
         hero_anchor_selectors = prove_hero_anchor_selectors(
-            ordinary['actors'], spool.load, implicit_nodes, baseline,
+            ordinary['actors'], load_identity, implicit_nodes, baseline,
         )
         return plan_activation_context_pairs(
             talents, candidates=candidates, contexts=contexts,
@@ -5876,7 +5911,9 @@ class SimcSkillDamageSnapshotService:
                         base_high, effect, class_name=_scope_name_key(base_high.get('class')),
                     )
                 ]
-            all_global_effects = [*static_global_effects, *global_effects]
+            # Catalog entries are borrowed; own metadata before enriching and
+            # transferring this actor to the destructive projection/localizer.
+            all_global_effects = copy.deepcopy([*static_global_effects, *global_effects])
             for effect in all_global_effects:
                 if not isinstance(effect, dict):
                     continue
@@ -5903,9 +5940,9 @@ class SimcSkillDamageSnapshotService:
                 'preset': dict(self.FIXED_PRESET),
                 'actors': [actor],
                 'unresolved': [],
-            })
+            }, take_ownership=True)
             profile_payload['payload_format'] = 'skill_damage_product_v1'
-            profile_payload = localize_skill_damage_payload(profile_payload)
+            profile_payload = localize_skill_damage_payload(profile_payload, take_ownership=True)
             product_actor = profile_payload['actors'][0]
         return (
             product_actor,

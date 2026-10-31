@@ -3979,11 +3979,11 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                  ), \
                  mock.patch(
                      'botend.services.simc_skill_damage.project_skill_damage_product_payload',
-                     side_effect=copy.deepcopy,
+                     side_effect=lambda payload, *, take_ownership=False: copy.deepcopy(payload),
                  ), \
                  mock.patch(
                      'botend.services.simc_skill_damage.localize_skill_damage_payload',
-                     side_effect=copy.deepcopy,
+                     side_effect=lambda payload, *, take_ownership=False: copy.deepcopy(payload),
                  ):
                 return service._generate_profile_product_actor(profile)
 

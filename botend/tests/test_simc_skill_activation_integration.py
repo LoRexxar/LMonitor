@@ -68,8 +68,8 @@ class ActivationIntegrationTests(TestCase):
             stack.enter_context(mock.patch.object(service, '_run_profile_export', side_effect=export))
             classifier = stack.enter_context(mock.patch.object(damage, 'classify_global_skill_effects', side_effect=classify))
             flattener = stack.enter_context(mock.patch.object(damage, 'flatten_single_talent_damage_variants', side_effect=flatten))
-            stack.enter_context(mock.patch.object(damage, 'project_skill_damage_product_payload', side_effect=lambda p:p))
-            stack.enter_context(mock.patch.object(damage, 'localize_skill_damage_payload', side_effect=lambda p:p))
+            stack.enter_context(mock.patch.object(damage, 'project_skill_damage_product_payload', side_effect=lambda p, *, take_ownership=False:p))
+            stack.enter_context(mock.patch.object(damage, 'localize_skill_damage_payload', side_effect=lambda p, *, take_ownership=False:p))
             _, unresolved, _ = service._generate_profile_product_actor(profile)
             self.assertEqual(len(unresolved), 1 if corrupt else 0)
             if corrupt:
