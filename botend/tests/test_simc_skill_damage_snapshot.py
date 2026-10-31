@@ -3952,7 +3952,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
                 return {'actors': actors, 'unresolved': unresolved}
 
             def flatten_fixture(
-                _base_high, _base_low, variants, *, global_effects=None,
+                _base_high, _base_low, variants, *, global_effects=None, compact_cast_rows=False,
             ):
                 return [{
                     'token': f"talent_{item['talent']['id']}",

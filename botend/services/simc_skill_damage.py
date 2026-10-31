@@ -4,6 +4,7 @@ from .simc_skill_talent_links import collect_skill_talent_links, merge_skill_tal
 import json
 import math
 import os
+import pickle
 import re
 import signal
 import subprocess
@@ -3411,7 +3412,9 @@ def single_talent_reference_entry(entry, selected_by_entry):
     return None
 
 
-def flatten_single_talent_damage_variants(base_high, base_low, variants, *, global_effects=None):
+def flatten_single_talent_damage_variants(
+    base_high, base_low, variants, *, global_effects=None, compact_cast_rows=False,
+):
     """展开独立导出的施法事实，复用数值与状态元数据索引，不重算伤害。"""
     # 一次投影内的原始动作不变。组合增加后，逐行重建状态索引会退化为平方复杂度。
     scenario_indexes = {}
@@ -3974,6 +3977,7 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         complete_cast_damage_components(
             rows, cast_sources, grouped=cast_groups, finalize=False,
             scenario_lookup=indexed_scenarios,
+            compact_cast_rows=compact_cast_rows,
         )
         rows = []
         cast_sources.clear()
@@ -3992,13 +3996,37 @@ def flatten_single_talent_damage_variants(base_high, base_low, variants, *, glob
         source_action = amount = comparison = projection_reference = None
         reference = low_reference = high_current = high_reference = candidates = None
         item = None
-    rows = complete_cast_damage_components([], {}, grouped=cast_groups)
+    rows = complete_cast_damage_components(
+        [], {}, grouped=cast_groups, compact_cast_rows=compact_cast_rows,
+    )
     attach_runtime_product_metrics({'actions': rows})
     return rows
 
 
+class _PackedCastRow:
+    """Private, trusted in-memory storage only; never a public row or wire value."""
+
+    __slots__ = ('data',)
+
+    def __init__(self, row):
+        # Pickle preserves tuple/key/number types and lone Unicode surrogates.
+        # No file or external byte input is accepted by this internal codec.
+        self.data = zlib.compress(pickle.dumps(row, protocol=5), level=1)
+
+
+def _pack_cast_row(row):
+    return _PackedCastRow(row)
+
+
+def _unpack_cast_row(row):
+    if isinstance(row, _PackedCastRow):
+        return pickle.loads(zlib.decompress(row.data))
+    return row
+
+
 def complete_cast_damage_components(
     rows, cast_sources, *, grouped=None, finalize=True, scenario_lookup=None,
+    compact_cast_rows=False,
 ):
     """Complete each pair now; retain only rows, never its source actor.
 
@@ -4020,15 +4048,17 @@ def complete_cast_damage_components(
     for key, group in current.items():
         identity, _ = key
         state = grouped.setdefault(key, {'rows': [], 'children': [], 'source_found': False})
-        state['rows'].extend(group)
+        state['rows'].extend(
+            (_pack_cast_row(row) for row in group) if compact_cast_rows else group
+        )
         if state['source_found']:
             continue
         source = next((cast_sources.get(id(row)) for row in group if cast_sources.get(id(row))),None)
         if source is None:
             continue
         state['source_found'] = True
-        template = state['rows'][0]
-        existing = {_action_identity(row) for row in state['rows']}
+        template = _unpack_cast_row(state['rows'][0])
+        existing = {_action_identity(_unpack_cast_row(row)) for row in state['rows']}
         scenario = _scenario_identity({'buffs':template.get('variant',{}).get('runtime_conditions',[])})
         for action in source.get('actions') or []:
             if root(action) != identity or _action_identity(action) in existing or action.get('supported') is not True:
@@ -4045,15 +4075,25 @@ def complete_cast_damage_components(
             if template.get('hero_subtree_ids'):
                 added['hero_subtree_ids'] = list(template['hero_subtree_ids'])
             added['cast_component_unchanged'] = True
-            state['children'].append(added)
+            state['children'].append(_pack_cast_row(added) if compact_cast_rows else added)
             existing.add(_action_identity(action))
     if not finalize:
         return []
     output = []
     for state in grouped.values():
-        output.extend(state['rows'])
-        existing = {_action_identity(row) for row in state['rows']}
-        output.extend(row for row in state['children'] if _action_identity(row) not in existing)
+        originals = [_unpack_cast_row(row) for row in state['rows']]
+        output.extend(originals)
+        existing = {_action_identity(row) for row in originals}
+        for stored in state['children']:
+            row = _unpack_cast_row(stored)
+            if _action_identity(row) not in existing:
+                output.append(row)
+        if compact_cast_rows:
+            # Release compressed storage progressively as output grows. At this
+            # boundary no source actor for the preceding pairs remains alive.
+            state.clear()
+    if compact_cast_rows:
+        grouped.clear()
     return output
 
 
@@ -5928,6 +5968,7 @@ class SimcSkillDamageSnapshotService:
                 base_high, base_low,
                 _ActivationContextVariants(variants, valid_context_pairs, actor_spool),
                 global_effects=global_effects,
+                compact_cast_rows=True,
             )
             raw_action_count = len(actor.get('actions') or [])
             profile_payload = project_skill_damage_product_payload({
