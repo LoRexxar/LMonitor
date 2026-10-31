@@ -14,6 +14,7 @@ from botend.services.simc_heavy_job_lock import (
     acquire_simc_heavy_job_lock,
 )
 from botend.services.simc_skill_damage import SimcSkillDamageSnapshotService
+from botend.services.simc_profile_product_io import write_profile_product
 
 
 class Command(BaseCommand):
@@ -56,10 +57,7 @@ class Command(BaseCommand):
                 if profile is None:
                     raise CommandError('profile 不存在')
                 result = service._generate_profile_product_actor(profile)
-                Path(output).write_text(
-                    json.dumps(result, ensure_ascii=False, separators=(',', ':')),
-                    encoding='utf-8',
-                )
+                write_profile_product(output, result)
                 return
 
             lock_path = Path(tempfile.gettempdir()) / f'lmonitor-skill-snapshot-{snapshot.pk}.lock'

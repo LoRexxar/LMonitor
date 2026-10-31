@@ -32,6 +32,7 @@ from botend.models import (
 )
 from botend.services.simc_composer import SimcComposer
 from botend.services.simc_json_stream import iter_json_text
+from botend.services.simc_profile_product_io import read_profile_product
 from botend.services.simc_skill_activation_context import (
     discover_replacement_candidates, plan_activation_context_pairs,
     materialize_activation_pair, validate_activation_context_selection,
@@ -3417,7 +3418,13 @@ def flatten_single_talent_damage_variants(
     base_high, base_low, variants, *, global_effects=None, compact_cast_rows=False,
     stream_cast_rows=False,
 ):
-    """展开独立导出的施法事实，复用数值与状态元数据索引，不重算伤害。"""
+    """展开独立导出的施法事实，复用数值与状态元数据索引，不重算伤害。
+
+    compact_cast_rows is a generation-only optimization for JSON-origin actor
+    trees. It is not a general deepcopy replacement for arbitrary Python graphs
+    with mutable aliases across metadata and amount fields. The default path
+    retains deepcopy isolation for borrowed inputs.
+    """
     # 一次投影内的原始动作不变。组合增加后，逐行重建状态索引会退化为平方复杂度。
     scenario_indexes = {}
     shared_scenario_indexes = {}
@@ -3656,15 +3663,19 @@ def flatten_single_talent_damage_variants(
             )
         ):
             return
-        # 一行只需要自己的数值，不能先复制该技能的全部层数再立刻丢弃。
-        row = copy.deepcopy({key: value for key, value in action.items()
-                             if key not in {'baseline', 'scenarios'}})
+        # Compact rows are private temporaries, synchronously packed at this
+        # pair's completion before advancing the producer. Borrow read-only
+        # metadata until that snapshot; public/default rows remain deep copies.
+        row = {key: value for key, value in action.items()
+               if key not in {'baseline', 'scenarios'}}
+        if not compact_cast_rows:
+            row = copy.deepcopy(row)
         hero_subtree_ids = native_hero_ownership(action)
         if hero_subtree_ids:
             row['hero_subtree_ids'] = hero_subtree_ids
         else:
             row.pop('hero_subtree_ids', None)
-        row['baseline'] = copy.deepcopy(amount)
+        row['baseline'] = copy.copy(amount) if compact_cast_rows else copy.deepcopy(amount)
         if scenario_tokens:
             action_baseline = action.get('baseline') or {}
             for component_name in ('direct', 'tick'):
@@ -3697,6 +3708,15 @@ def flatten_single_talent_damage_variants(
                             'phase': 'runtime_scenario', 'layer': layer_name,
                             'factor': marginal,
                         })
+                if compact_cast_rows and final_component is amount.get(component_name):
+                    # Only this component is written before packing. Preserve
+                    # top-level aliases (including direct == tick), just as
+                    # deepcopy did, without walking its nested native facts.
+                    detached_component = copy.copy(final_component)
+                    for name, component in row['baseline'].items():
+                        if component is final_component:
+                            row['baseline'][name] = detached_component
+                    final_component = detached_component
                 final_component['runtime_factor_layers'] = factor_layers
         row['scenarios'] = []
         if scenario_tokens:
@@ -3833,6 +3853,7 @@ def flatten_single_talent_damage_variants(
     complete_cast_damage_components(
         rows, cast_sources, grouped=cast_groups, finalize=False,
         scenario_lookup=indexed_scenarios,
+        compact_cast_rows=compact_cast_rows,
     )
     rows = []
     cast_sources.clear()
@@ -4118,8 +4139,12 @@ def complete_cast_damage_components(
             amount = scenario_lookup(action).get(scenario,action.get('baseline')) if scenario else action.get('baseline')
             if _amount_state(amount)[0] != 'resolved':
                 continue
-            added = copy.deepcopy({key:value for key,value in action.items() if key not in {'baseline','scenarios'}})
-            added['baseline'] = copy.deepcopy(amount)
+            added = {key:value for key,value in action.items() if key not in {'baseline','scenarios'}}
+            if not compact_cast_rows:
+                added = copy.deepcopy(added)
+            # No amount fields are written here; compact children are packed
+            # below, before the source actor can be released or reused.
+            added['baseline'] = amount if compact_cast_rows else copy.deepcopy(amount)
             added['scenarios'] = []
             added['variant'] = copy.deepcopy(template['variant'])
             if 'affected_target_counts' in template:
@@ -5249,10 +5274,11 @@ class SimcSkillDamageSnapshotService:
         self._validate_export(
             payload, profile=profile, expected_actor_names=expected_actor_names,
         )
-        _discard_empty_runtime_amount_components(marked_amounts)
-        self._validate_export(
-            payload, profile=profile, expected_actor_names=expected_actor_names,
-        )
+        if marked_amounts:
+            _discard_empty_runtime_amount_components(marked_amounts)
+            self._validate_export(
+                payload, profile=profile, expected_actor_names=expected_actor_names,
+            )
         payload.setdefault('unresolved', []).extend(
             collect_skill_damage_unresolved(payload, target_health=target_health),
         )
@@ -6113,7 +6139,7 @@ class SimcSkillDamageSnapshotService:
                 diagnostic = (stderr or stdout or '').strip()
                 raise RuntimeError(f'{profile.spec} 隔离生成进程失败：{diagnostic[-3000:]}')
             try:
-                decoded = json.loads(Path(output_path).read_text(encoding='utf-8'))
+                decoded = read_profile_product(output_path)
                 if not isinstance(decoded, list) or len(decoded) != 3:
                     raise ValueError('必须是 [actor, unresolved, raw_action_count]')
                 actor, unresolved_rows, raw_action_count = decoded
