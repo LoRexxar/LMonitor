@@ -12,16 +12,16 @@ from botend.models import PlayerObservationAnalysis, RaiderIORunRoster, RaiderIO
 from botend.services import player_observation as observation
 from botend.services.player_observation_badges import attach_badge_snapshots, public_badge_players, high_confidence_badges
 from botend.services.spec_overview_service import SpecOverviewService
-from botend.tests import test_player_four_plus_one as pipeline_fixtures
+from botend.tests import player_carrying_pipeline_fixtures as pipeline_fixtures
 from botend.tests.test_player_observation import structured_response
 
 
 class ObservationBadgeTests(TestCase):
-    transport = pipeline_fixtures.FourPlusOnePipelineTests.transport
-    refresh = pipeline_fixtures.FourPlusOnePipelineTests.refresh
+    transport = pipeline_fixtures.CarryingPipelineFixture.transport
+    refresh = pipeline_fixtures.CarryingPipelineFixture.refresh
 
     def setUp(self):
-        pipeline_fixtures.FourPlusOnePipelineTests.setUp(self)
+        pipeline_fixtures.CarryingPipelineFixture.setUp(self)
         self.refresh()
         def choose(prompt, **kwargs):
             data = json.loads(prompt)

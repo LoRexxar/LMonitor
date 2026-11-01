@@ -1,6 +1,6 @@
 {% if observation.status != 'hidden' and observation.status != 'archived' and observation.is_published != False and observation.review_status != 'rejected' %}
 {% if observation.source_kind != 'manual' or observation.review_status != 'pending' %}
-{% if observation.status == 'ready' and observation.has_supported_judgements or observation.status == 'stale' and observation.has_supported_judgements or observation.raid_judgement.supported or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'ready' or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'stale' or observation.investigation.triggered and observation.status == 'ready' or observation.investigation.triggered and observation.status == 'stale' %}
+{% if observation.status == 'ready' and observation.has_supported_judgements or observation.status == 'stale' and observation.has_supported_judgements or observation.raid_judgement.supported or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'ready' or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'stale' or observation.investigation.triggered and observation.status == 'ready' or observation.investigation.triggered and observation.status == 'stale' or observation.carrying_frequency and observation.status == 'ready' or observation.carrying_frequency and observation.status == 'stale' %}
 <section id="player-observation" class="player-observation" aria-labelledby="player-observation-title" data-status="{{ observation.status }}" data-source="{{ observation.source_kind|default:'ai' }}"{% if observation.analysis_id %} data-analysis-id="{{ observation.analysis_id }}"{% endif %}{% if observation.publication_current == False %} data-publication-current="false"{% elif observation.publication_current == True %} data-publication-current="true"{% endif %}>
     <header class="player-observation__header">
         <h2 id="player-observation-title">玩家观察</h2>
@@ -9,7 +9,7 @@
         {% if observation.generated_at %}<time class="player-observation__meta" datetime="{{ observation.generated_at|date:'c' }}">{{ observation.generated_at|date:"m-d H:i" }}</time>{% endif %}
         {% endif %}
     </header>
-    {% if observation.status == 'stale' %}<p class="player-observation__meta">{% if observation.stale_reason == 'source_changed' %}资料已更新，以下为上次已发布分析，待重新检查。{% else %}大秘境观察已过期，待更新。{% endif %}</p>{% endif %}
+    {% if observation.status == 'stale' %}<p class="player-observation__meta">{% if observation.stale_reason == 'rules_changed' %}判定规则已更新，以下为上次已发布分析，待重新检查。{% elif observation.stale_reason == 'source_changed' %}资料已更新，以下为上次已发布分析，待重新检查。{% else %}大秘境观察已过期，待更新。{% endif %}</p>{% endif %}
     <ul class="player-observation__items player-observation__judgements" aria-label="玩家判定">
         {% if observation.status == 'ready' or observation.status == 'stale' %}
         {% for judgement in observation.display_judgements %}
@@ -36,6 +36,23 @@
             </details>
             {% endif %}
         {% else %}
+            {% if observation.carrying_frequency %}
+            <div class="player-observation__note" data-carrying-frequency>
+                <strong>协助上分频率 · {% if observation.carrying_frequency.supported %}达到模式频率门槛{% else %}尚不能确认稳定模式{% endif %}</strong>
+                {% if observation.carrying_frequency.invalid %}<p>频率元数据无效，无法精确回溯；不能据此确认模式或当作零场。</p>{% endif %}
+                <p>分析当时的观察窗：近{{ observation.carrying_frequency.window_days }}天，最多{{ observation.carrying_frequency.sample_limit }}场已观测记录。</p>
+                <p>{% if observation.carrying_frequency.legacy %}已保存代表事件{% else %}已核实协助{% endif %} {% if observation.carrying_frequency.verified_runs != None %}{{ observation.carrying_frequency.verified_runs }}{% else %}未知{% endif %}/{% if observation.carrying_frequency.observed_runs != None %}{{ observation.carrying_frequency.observed_runs }}{% else %}未知{% endif %} 场（分子/已观测分母）；{% if observation.carrying_frequency.unknown_runs != None %}未知 {{ observation.carrying_frequency.unknown_runs }} 场{% else %}未知场次：未保存，无法精确回溯{% endif %}。</p>
+                <p>未公开场次不包含在本样本；样本内未知仍计入分母，不能当作支持或反证，不代表全部活动历史。</p>
+                {% if observation.carrying_frequency.legacy %}<p>{{ observation.carrying_frequency.legacy_note }}</p>{% endif %}
+                <p>稳定模式要求同一四人组合至少{{ observation.carrying_frequency.min_verified_runs }}个独立场次已核实协助上分，且至少{{ observation.carrying_frequency.min_distinct_beneficiaries }}名不同第五人受益；不足时仅展示事件线索。</p>
+                {% if observation.carrying_frequency_evidence %}
+                <details class="player-observation__details">
+                    <summary>查看已核实事件证据</summary>
+                    <ul class="player-observation__evidence">{% for evidence in observation.carrying_frequency_evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}</ul>
+                </details>
+                {% endif %}
+            </div>
+            {% endif %}
             {% if observation.label_reviews %}
             <details class="player-observation__details" data-label-reviews>
                 <summary>查看全部标签的核验进度</summary>
@@ -43,7 +60,7 @@
                 <div class="player-observation__note" data-label-review="{{ item.code }}">
                     <strong>{{ item.label }} · {{ item.strength.label }}</strong>
                     <p>{{ item.scope }}</p>
-                    <p>支持 {{ item.supported_run_ids|length }} 场 · 反向 {{ item.excluded_run_ids|length }} 场 · 未决 {{ item.unknown_run_ids|length }} 场</p>
+                    {% if item.code == 'carrying' and observation.carrying_frequency %}<p>本项已保存支持证据 {{ item.supported_run_ids|length }} 场 · 反向 {{ item.excluded_run_ids|length }} 场 · 未决 {{ item.unknown_run_ids|length }} 场；完整频率口径见上方。</p>{% else %}<p>支持 {{ item.supported_run_ids|length }} 场 · 反向 {{ item.excluded_run_ids|length }} 场 · 未决 {{ item.unknown_run_ids|length }} 场</p>{% endif %}
                     {% if item.reason %}<p>{{ item.reason }}</p>{% endif %}
                     {% for question in item.questions %}<p>补证：{{ question.reason }} {{ question.expected_change }}</p>{% endfor %}
                     {% if item.evidence %}<ul>{% for evidence in item.evidence %}{% include 'portal/spec_detail/_player_observation_evidence.html' with evidence=evidence only %}{% endfor %}</ul>{% endif %}
@@ -56,7 +73,7 @@
             <div data-player-investigation>
                 {% if observation.investigation.schema_version == 9 %}
                 <p class="player-observation__conclusion"><strong>行为模式与证据强度</strong> · 依据已核实的近期记录分项评估。</p>
-                <p class="player-observation__note"><strong>未核实信息：</strong>{{ observation.investigation.context_unknowns|join:'；' }}。这些未知不否定已核实的行为模式。</p>
+                <p class="player-observation__note"><strong>未核实信息：</strong>{{ observation.investigation.context_unknowns|join:'；' }}。{% if observation.carrying_frequency and not observation.carrying_frequency.supported %}这些未知不能补作协助上分事件或稳定模式的证据。{% else %}这些未知不否定已核实的行为模式。{% endif %}</p>
                 {% else %}
                 <p class="player-observation__conclusion"><strong>已有线索，尚待核查</strong> · 低置信解释，不是确定身份或交易结论。</p>
                 {% endif %}

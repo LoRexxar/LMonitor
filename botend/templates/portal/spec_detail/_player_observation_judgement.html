@@ -1,7 +1,7 @@
 <li class="player-observation__item" data-judgement="{{ judgement.code }}" data-supported="{{ judgement.supported|yesno:'true,false' }}">
     <div class="player-observation__label-row">
         <h3>{{ judgement.label }}</h3>
-        <strong>{{ judgement.value }}</strong>
+        <strong{% if judgement.carrying_event_only %} data-carrying-event-only{% endif %}>{{ judgement.value }}</strong>
     </div>
     {% if judgement.supported %}
     <p class="player-observation__meta">依据：{{ judgement.reason }}</p>

@@ -34,4 +34,4 @@ class EvidenceStrengthTests(TestCase):
         review['structure']['recent_run_ids'] = [1, 2]
         self.assertEqual(grade_review(review, inquiry, teams, records)['carrying']['level'], 'partial')
         review['structure']['recent_run_ids'] = [1, 2, 3]
-        self.assertEqual(grade_review(review, inquiry, teams, records)['carrying']['level'], 'strong')
+        self.assertEqual(grade_review(review, inquiry, teams, records)['carrying']['level'], 'partial')

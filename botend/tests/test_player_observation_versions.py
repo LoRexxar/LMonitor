@@ -50,7 +50,7 @@ class PublicationVersionTests(TestCase):
         view = service.project_player_observation(self.player)
         self.assertEqual(view['status'], 'stale')
         self.assertFalse(view['publication_current'])
-        self.assertEqual(view['stale_reason'], 'source_changed')
+        self.assertEqual(view['stale_reason'], 'rules_changed')
         self.assertEqual(view['generated_at'], row.generated_at)
         self.assertEqual(PlayerObservationAnalysis.objects.values().get(pk=row.pk), before)
         self.assertEqual(service._project_frozen_investigation(row)['summary'], row.result_json['investigation']['summary'])
@@ -71,7 +71,7 @@ class PublicationVersionTests(TestCase):
     def test_version_binding_and_narrow_cross_version_equivalence(self):
         row = self.legacy()
         current = self.evidence()
-        self.assertEqual(current['prompt_version'], 9)
+        self.assertEqual(current['prompt_version'], 10)
         self.assertFalse(service._same_publication(row, current))
         for mutation in ({'version': 9}, {'prompt_version': 9}, {'unknown': True}):
             changed = copy.deepcopy(current)
@@ -130,7 +130,7 @@ class PublicationVersionTests(TestCase):
         with self.assertRaises(service.InvalidResult):
             service._validate_frozen_publication(row)
 
-    def test_v9_real_generator_transport_and_frozen_projection(self):
+    def test_v10_real_generator_transport_and_frozen_projection(self):
         def respond(prompt, **kwargs):
             data = json.loads(prompt)
             plan = data['metrics']['investigation']
@@ -147,12 +147,17 @@ class PublicationVersionTests(TestCase):
         self.assertEqual(service.generate_observation(self.player, engine=engine)['status'], 'ready')
         engine.send_message.assert_called_once()
         row = PlayerObservationAnalysis.objects.get()
-        self.assertEqual(row.prompt_version, 9)
+        self.assertEqual(row.prompt_version, 10)
         self.assertNotIn('response_contract', row.evidence_json['metrics']['investigation'])
         raw = copy.deepcopy(row.result_json)
         projected = service._project_frozen_investigation(row)
         self.assertEqual(projected['structured_investigation'], raw['investigation'])
-        self.assertEqual(service.project_player_observation(self.player)['investigation'], projected)
+        public = service.project_player_observation(self.player)['investigation']
+        self.assertEqual(public['structured_investigation'], raw['investigation'])
+        # Only carrying's present-day frequency presentation can change; other
+        # hypotheses and the historical selected contract remain verbatim.
+        self.assertEqual([h for h in public['hypotheses'] if h['id'] != 'assistance'],
+                         [h for h in projected['hypotheses'] if h['id'] != 'assistance'])
         row.refresh_from_db()
         self.assertEqual(row.result_json, raw)
         for investigation in (fixtures.observation_response(row.evidence_json)['investigation'],
@@ -160,4 +165,21 @@ class PublicationVersionTests(TestCase):
             changed = {**raw, 'investigation': investigation}
             with self.assertRaises(service.InvalidResult):
                 service._validate_publication(json.dumps(changed), row.evidence_json,
-                    publication_version=9, require_investigation=True)
+                    publication_version=10, require_investigation=True)
+
+    def test_v9_frozen_publication_stays_valid_without_silent_frequency_upgrade(self):
+        row = self.current()
+        row.prompt_version = 9
+        row.evidence_json['prompt_version'] = 9
+        row.evidence_json['metrics']['behavior_review'].pop('carrying_frequency', None)
+        row.evidence_hash = service._hash({k: v for k, v in row.evidence_json.items()
+            if k not in ('evidence_hash', 'source_failed')})
+        row.evidence_json['evidence_hash'] = row.evidence_hash
+        row.save()
+        before = PlayerObservationAnalysis.objects.values().get(pk=row.pk)
+        self.assertEqual(service._validate_frozen_publication(row), row.result_json)
+        view = service.project_player_observation(self.player)
+        self.assertTrue(view['carrying_frequency']['legacy'])
+        self.assertFalse(view['carrying_frequency']['supported'])
+        self.assertFalse(service._same_publication(row, self.evidence()))
+        self.assertEqual(PlayerObservationAnalysis.objects.values().get(pk=row.pk), before)

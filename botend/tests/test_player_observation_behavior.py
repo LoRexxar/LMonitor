@@ -49,7 +49,9 @@ class BehaviorReviewTests(TestCase):
         self.assertFalse(out['supported'])
         self.assertEqual(set(out), {'version', 'triggered', 'structure', 'evidence', 'supported',
                                     'witnesses', 'resilience', 'questions', 'limitations',
-                                    'evidence_strengths', 'strength_rules', 'context_unknowns', 'label_reviews'})
+                                    'evidence_strengths', 'strength_rules', 'context_unknowns', 'label_reviews', 'carrying_frequency'})
+        self.assertEqual(out['carrying_frequency']['observed_runs'], out['structure']['recent_runs'])
+        self.assertFalse(out['carrying_frequency']['supported'])
         json.dumps(out)
 
     def test_single_subject_protection_and_fixed_five_do_not_establish_four_plus_one(self):

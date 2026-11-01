@@ -5,6 +5,8 @@ from decimal import Decimal, InvalidOperation
 from itertools import combinations
 import re
 
+from botend.services.player_observation_carrying_policy import WINDOW_DAYS, SAMPLE_LIMIT
+
 
 _CODES = ('carrying', 'being_carried', 'joint_progress', 'key_access', 'high_score_collaborator')
 _MARGIN = Decimal('0.2')
@@ -70,8 +72,8 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
                           dungeon_ids=None, histories=None):
     """返回可序列化的行为证据，不修改输入或发送请求。
 
-    supported 只包含通过对应行为条件的标签；4带1另外要求重复四人组合与
-    两名独立受益成员。witnesses 保留单场线索，evidence_strengths 单独分级。
+    supported 只包含通过对应行为条件的标签；4带1另外要求同一四人组合
+    六个独立核实场次及两名受益角色。witnesses 保留单场线索并单独分级。
     历史身份由采集层认证，本层再次核对范围。保护证据逐成员、逐副本绑定
     有日期的场次，未核实则保持未知；成绩达标不代表实际钥匙库存。
     """
@@ -133,9 +135,10 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
                     or any(ui.get(k) != v for k, v in dict(role='all', mode='scored', affixes='all', date='all').items())
                     or not isinstance(history.get('source_url'), str) or not history['source_url'].startswith('https://raider.io/')
                     or history.get('private') is True
-                    or history.get('status') in {'private', 'error', 'fetching'}
+                    or history.get('status') not in {None, 'ready', 'fresh'}
+                    or (_date(history.get('expires_at')) and _date(history['expires_at']) <= now)
                     or history.get('last_error')
-                    or not asof or asof > now):
+                    or not asof or not now-timedelta(hours=48) <= asof <= now):
                 continue
             accepted_histories[key][str(ui['dungeonId'])] = history
             for row in history.get('runs', []):
@@ -170,10 +173,10 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         add(subject, _record(row, rid=rid, dungeon=dungeon, profile=True), fetched)
 
     selected = {}
-    for row in recent[:20]:
+    for row in recent[:SAMPLE_LIMIT]:
         rid = _reference(row, rio_season)
         completed = _date(row.get('completed_at'))
-        if (rid not in runs or not completed or not now-timedelta(days=14) <= completed <= fetched
+        if (rid not in runs or not completed or not now-timedelta(days=WINDOW_DAYS) <= completed <= fetched
                 or not _positive(row.get('mythic_level'))
                 or type(row.get('num_keystone_upgrades')) is not int or row['num_keystone_upgrades'] < 0):
             continue
@@ -364,6 +367,7 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
     from botend.services.player_observation_questions import four_plus_one
     inquiry = four_plus_one(subject=subject, selected=selected, teams=teams,
         run_records=run_records, rosters=rosters, records=records, histories=accepted_histories)
+    out['carrying_frequency'] = inquiry['frequency']
     from botend.services.player_observation_resolution import resolve_labels
     resolutions, followups = resolve_labels(review=out, subject=subject, selected=selected,
         teams=teams, run_records=run_records, records=records, histories=accepted_histories,
@@ -372,7 +376,8 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
         scope='仅限本轮近期公开记录中的重复四人组合与受益事件。',
         supported_run_ids=sorted({event['run_id'] for event in inquiry['events']}),
         excluded_run_ids=inquiry['exclusion']['run_ids'] if inquiry.get('exclusion') else [],
-        unknown_run_ids=[] if inquiry['events'] or inquiry.get('exclusion') else sorted(selected),
+        unknown_run_ids=inquiry['frequency']['unknown_run_ids'],
+        frequency=inquiry['frequency'],
         support_ids=[f'behavior:carrying:{rid}' for rid in sorted({event['run_id'] for event in inquiry['events']})],
         counter_ids=['behavior:carrying_excluded'] if inquiry.get('exclusion') else [])
     out['label_reviews'] = resolutions
@@ -392,7 +397,7 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
                        for rid, prior in inquiry['exclusion']['counter_records'])
                        if inquiry['exclusion']['counter_records'] else '')
                     + '。仅排除这些样本内的重复4带1模式，不代表从未带人或没有协助行为。'})
-    for event in inquiry['events']:
+    for event in inquiry['candidates']:
         rid = event['run_id']
         guest_name = next(member.get('character', {}).get('name', '该第五人')
                           for key, member in rosters[rid][1] if key == event['guest'])
@@ -400,9 +405,12 @@ def build_behavior_review(*, subject, best, recent, runs, rosters, scores,
             f"同一四人组合反复与不同第五人通关；四人的跑前同本证据场次为{','.join(str(x) for x in sorted(set(event['prior_run_ids'].values())))}；"
             f"第五人{guest_name}的可见成绩由前场{event['guest_prior_run_id']}（{event['guest_prior_level']}层、{event['guest_prior_score']:g}分）"
             f"提高至本场（{event['level']}层、{event['score']:g}分）。"
-            '已核验至少两名不同受益成员，未将一个成员的连续通关重复计数；公开历史可能不完整。')
+            '独立场次按run去重，同一角色多场不等于多个受益角色；此为单场协助线索，公开历史可能不完整。')
     if inquiry['events']:
-        out['supported']['carrying'] = evidence_ids['carrying']
+        out['supported']['carrying'] = [f'behavior:carrying:{rid}'
+            for rid in sorted({event['run_id'] for event in inquiry['events']})]
+    else:
+        out['supported'].pop('carrying', None)
     out['triggered'] = bool(out['triggered'] or out['questions'])
     out['triggered'] = bool(out['triggered'] or any(out['witnesses'].values()))
     if invalid:

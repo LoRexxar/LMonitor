@@ -114,7 +114,7 @@ def build_contract(evidence):
                 support or counter or any(':high:' in ref for ref in unknown)):
             required.append(hypothesis['id'])
     _require(2 <= len(menu) <= 4, 'invalid_menu_size')
-    version = CURRENT_SCHEMA_VERSION if evidence.get('prompt_version') == 9 else SCHEMA_VERSION
+    version = CURRENT_SCHEMA_VERSION if evidence.get('prompt_version') in (9, 10) else SCHEMA_VERSION
     if version == CURRENT_SCHEMA_VERSION:
         grades = metrics.get('behavior_review', {}).get('evidence_strengths', {})
         for item in menu:

@@ -51,6 +51,17 @@ def _frozen_badges(row):
         code, title = label.get('code'), label.get('label')
         if not isinstance(code, str) or code in seen or not isinstance(title, str) or not title:
             continue
+        if code == 'carrying':
+            from botend.services.player_observation_carrying_policy import assess_carrying_frequency
+            review = row.get('badge_carrying_review') or {
+                'carrying_frequency': row.get('badge_carrying_frequency'),
+                'structure': {'recent_runs': row.get('badge_recent_runs'),
+                              'recent_run_ids': row.get('badge_recent_run_ids')},
+                'witnesses': {'carrying': row.get('badge_carrying_witnesses')},
+                'evidence_strengths': {'carrying': row.get('badge_carrying_strength')},
+            }
+            if not assess_carrying_frequency(review)['supported']:
+                continue
         strength = label.get('evidence_strength')
         structural = code in ('fixed_team', 'rotating_core')
         if not structural and code not in BEHAVIOR_LABELS:
@@ -149,10 +160,17 @@ def _published_badges(players, class_name=None, spec_name=None):
         frozen_hash=KeyTransform('evidence_hash', 'evidence_json'),
         frozen_rosters=KeyTransform('rosters', KeyTransform('source_stamps', 'evidence_json')),
         frozen_histories=KeyTransform('histories', KeyTransform('source_stamps', 'evidence_json')),
+        badge_carrying_frequency=KeyTransform('carrying_frequency', KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json'))),
+        badge_recent_run_ids=KeyTransform('recent_run_ids', KeyTransform('structure', KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json')))),
+        badge_recent_runs=KeyTransform('recent_runs', KeyTransform('structure', KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json')))),
+        badge_carrying_witnesses=KeyTransform('carrying', KeyTransform('witnesses', KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json')))),
+        badge_carrying_strength=KeyTransform('carrying', KeyTransform('evidence_strengths', KeyTransform('behavior_review', KeyTransform('metrics', 'evidence_json')))),
     ).values('id', 'activity_id', 'activity__identity_digest', 'activity__region',
         'activity__realm_slug', 'activity__character_name', 'badge_labels',
         'badge_observations', 'frozen_activity', 'frozen_season', 'frozen_version',
-        'frozen_hash', 'evidence_hash', 'prompt_version', 'frozen_rosters', 'frozen_histories')
+        'frozen_hash', 'evidence_hash', 'prompt_version', 'frozen_rosters', 'frozen_histories',
+        'badge_carrying_frequency', 'badge_recent_run_ids', 'badge_recent_runs',
+        'badge_carrying_witnesses', 'badge_carrying_strength')
     rows = list(rows)
     withdrawn = withdrawn_roster_publications([
         (row['id'], season.rio_season, row['frozen_rosters'], row['frozen_histories']) for row in rows])

@@ -36,8 +36,8 @@ class PlayerObservationGLMClient(GLMClient):
 
 PlayerObservationClient = PlayerObservationGLMClient
 
-PROMPT_VERSION = 9
-READABLE_PUBLICATION_VERSIONS = frozenset({7, 8, 9})
+PROMPT_VERSION = 10
+READABLE_PUBLICATION_VERSIONS = frozenset({7, 8, 9, 10})
 SCORE_TTL = timedelta(hours=48)
 LEASE_TTL = timedelta(minutes=15)
 BACKOFF = timedelta(minutes=30)
@@ -235,8 +235,12 @@ for _code in BEHAVIOR_LABELS:
                                'unknown_motive': '朋友互助可属于协助上分；钥匙归属及收费未知。'},
         'required_limitation_ids': ['sample_scope', 'unknown_motive'],
     }
+from botend.services.player_observation_carrying_policy import (
+    WINDOW_DAYS, SAMPLE_LIMIT, MIN_VERIFIED_RUNS, MIN_DISTINCT_BENEFICIARIES,
+)
 LABEL_OPTIONS['carrying']['reason_options'] = {
-    'repeated_witnesses': '同一四人组合反复与不同第五人通关；四人均有跑前同本相当或更高成绩，至少两名不同第五人获得了可见成绩提升。'}
+    'repeated_witnesses': (f'近{WINDOW_DAYS}天最多{SAMPLE_LIMIT}场已观测记录中，同一四人组合有至少{MIN_VERIFIED_RUNS}场独立核实的协助事件，'
+        f'涉及至少{MIN_DISTINCT_BENEFICIARIES}名不同受益成员；每场四人均有跑前同本相当或更高成绩，第五人有可见成绩提升。')}
 
 
 def _season_dungeon_ids(season, activity):
@@ -1047,7 +1051,7 @@ def _validate_publication(raw, evidence, *, publication_version, require_investi
     if require_investigation and triggered and 'investigation' not in result:
         raise InvalidResult('missing_investigation')
     if 'investigation' in result:
-        if publication_version in (8, 9):
+        if publication_version in (8, 9, 10):
             from botend.services.player_observation_contract import validate_investigation, InvalidContract
             try:
                 result['investigation'] = validate_investigation(result['investigation'], evidence)
@@ -1080,9 +1084,15 @@ def _validate_publication(raw, evidence, *, publication_version, require_investi
                 raise InvalidResult('invalid_evidence')
         if not isinstance(confidence, str) or confidence not in CONFIDENCE or CONFIDENCE[confidence] > CONFIDENCE[labels[code]['confidence_max']]:
             raise InvalidResult('invalid_confidence')
-        if (publication_version == 9 and code in BEHAVIOR_LABELS
+        if (publication_version in (9, 10) and code in BEHAVIOR_LABELS
                 and confidence != labels[code].get('evidence_strength', {}).get('confidence')):
             raise InvalidResult('invalid_evidence_strength')
+        if publication_version == 10 and code == 'carrying':
+            from botend.services.player_observation_carrying_policy import assess_carrying_frequency
+            frequency = assess_carrying_frequency(behavior)
+            if (not frequency['supported']
+                    or not set(frequency.get('verified_evidence_ids', [])) <= allowed):
+                raise InvalidResult('insufficient_carrying_frequency')
         refs = row['evidence_ids']
         if not isinstance(refs, list) or not refs or not all(isinstance(ref, str) for ref in refs) or len(refs) != len(set(refs)) or not set(refs) <= (allowed & set(labels[code]['evidence_ids'])) or not set(labels[code]['evidence_ids']) <= set(refs):
             raise InvalidResult('invalid_evidence')
@@ -1277,10 +1287,11 @@ def _same_publication(row, evidence):
     except InvalidResult:
         return False
     if (not isinstance(evidence, dict) or type(evidence.get('prompt_version')) is not int
-            or evidence['prompt_version'] not in (8, 9)):
+            or evidence['prompt_version'] not in (8, 9, 10)):
         return False
-    # v9 增加证据等级语义；旧版冻结结果可单独读取，不能冒充新版分级结果。
-    if row.prompt_version != evidence['prompt_version'] and 9 in (row.prompt_version, evidence['prompt_version']):
+    # v9 分级与v10频次门槛都是语义变化，不能作prompt-only迁移。
+    if (row.prompt_version != evidence['prompt_version']
+            and ({row.prompt_version, evidence['prompt_version']} & {9, 10})):
         return False
     old = {k: v for k, v in previous.items() if k != 'prompt_version'}
     current = {k: v for k, v in evidence.items() if k != 'prompt_version'}
@@ -1657,6 +1668,18 @@ def withdrawn_roster_publications(publications):
     return withdrawn
 
 
+def _apply_carrying_read_policy(view, frozen):
+    """Reassess presentation only, using the same frozen publication's proof."""
+    from botend.services.player_observation_carrying_policy import assess_carrying_frequency
+    from botend.services.player_observation_carrying_display import apply_carrying_frequency_policy
+    review = frozen.get('metrics', {}).get('behavior_review', {})
+    frequency = assess_carrying_frequency(review)
+    ids = {f'behavior:carrying:{rid}' for rid in frequency.get('verified_run_ids', [])}
+    view['carrying_frequency_evidence'] = [deepcopy(e) for e in frozen.get('evidence', [])
+                                           if e.get('id') in ids]
+    return apply_carrying_frequency_policy(view, frequency)
+
+
 def project_player_observation(player):
     """Read-only projection; no row creation, source refresh, or AI side effects."""
     view = {'status': 'pending', 'generated_at': None, 'model_label': '项目 AI',
@@ -1730,7 +1753,8 @@ def project_player_observation(player):
     except (InvalidResult, KeyError, TypeError, ValueError, AttributeError):
         source_failed, same = True, False
     publication_current = bool(same and not source_failed)
-    stale_reason = ('source_failed' if source_failed else 'source_changed' if not same
+    stale_reason = ('source_failed' if source_failed else
+                    ('rules_changed' if row.prompt_version != PROMPT_VERSION else 'source_changed') if not same
                     else 'generation_failed' if row.last_error
                     else 'generation_in_progress' if row.status == 'fetching' else '')
     view.update(publication_current=publication_current, stale_reason=stale_reason)
@@ -1746,7 +1770,7 @@ def project_player_observation(player):
                     source_kind='local_deterministic',
                     display_judgements=_display_judgements(current), has_supported_judgements=bool(_display_judgements(current) or view['label_reviews']),
                     publication_metadata=row.result_json['metadata'])
-        return view
+        return _apply_carrying_read_policy(view, current)
     labels = {item['code']: item['label'] for item in current['eligible_labels']}
     refs = {item['id']: item for item in current['evidence']}
     view.update(status='stale' if stale_reason else 'ready', generated_at=row.generated_at, conclusion=current['conclusion_options'][result['conclusion_id']]['text'], judgements=current['judgements'], progression=current['metrics'].get('progression'))
@@ -1764,11 +1788,11 @@ def project_player_observation(player):
         # Existing section gate means 'has content', not a new confirmed label.
         view['has_supported_judgements'] = True
     for item in result['observations']:
-        view['observations'].append({'label': labels[item['code']], 'confidence': item['confidence'], 'evidence_strength': next(label for label in current['eligible_labels'] if label['code'] == item['code']).get('evidence_strength'),
+        view['observations'].append({'code': item['code'], 'label': labels[item['code']], 'confidence': item['confidence'], 'evidence_strength': next(label for label in current['eligible_labels'] if label['code'] == item['code']).get('evidence_strength'),
             'context_unknowns': next(label for label in current['eligible_labels'] if label['code'] == item['code']).get('context_unknowns', []),
             'reason': next(label for label in current['eligible_labels'] if label['code'] == item['code'])['reason_options'][item['reason_id']],
             'limitations': [LABEL_OPTIONS[item['code']]['limitation_options'][key] for key in item['limitation_ids']], 'evidence': [refs[key] for key in item['evidence_ids']]})
-    return view
+    return _apply_carrying_read_policy(view, current)
 
 
 def _project_investigation(result, frozen):
