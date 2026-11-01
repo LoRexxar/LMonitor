@@ -13,7 +13,7 @@ from urllib.parse import unquote, urlsplit
 
 import requests
 from django.conf import settings
-from django.db import transaction
+from django.db import DatabaseError, transaction
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
 
@@ -373,6 +373,147 @@ def top20_candidates(season, *, class_name=None, spec_name=None, limit=None):
             candidates.append(candidate)
         keyed[key]['player_ids'].append(player.pk)
     return candidates[:limit] if limit is not None else candidates
+
+
+def _activity_deadline(row):
+    # next_attempt_at is the collector's authoritative lease/retry/TTL clock.
+    # Legacy ready rows without that clock may still have a fresh publication.
+    return row['next_attempt_at'] or (
+        row['fetched_at'] + TTL if row['status'] == 'ready' and row['fetched_at'] else None)
+
+
+def _activity_metadata(season, digests):
+    return {row['identity_digest']: row for row in RaiderIOCharacterActivity.objects.filter(
+        season=season, identity_digest__in=digests).values(
+            'id', 'identity_digest', 'status', 'last_error', 'next_attempt_at', 'fetched_at')}
+
+
+def _rate_limit_deadline(result, metadata, season):
+    """Read only the exact causal 429 clock; TTLs are not source backoff.
+
+    A concurrent replacement/missing clock cannot establish retry permission.
+    The caller persists that uncertainty and fails closed, rather than inventing
+    a delay or borrowing the profile's unrelated ready TTL.
+    """
+    if result['status'] == 'rate_limited':
+        row = metadata.get(result['identity_digest'])
+        if row and row['id'] == result.get('activity_id') and row['last_error'] == 'rate_limited':
+            return row['next_attempt_at']
+    for roster in result.get('roster_results') or []:
+        if roster['status'] == 'rate_limited':
+            from botend.models import RaiderIORunRoster
+            return RaiderIORunRoster.objects.filter(rio_season=season.rio_season,
+                run_id=roster.get('run_id'), last_error='rate_limited').values_list(
+                    'next_attempt_at', flat=True).first()
+    if (result.get('raid_first_kills') or {}).get('status') == 'rate_limited':
+        clock = RaiderIOCharacterActivity.objects.filter(pk=result.get('activity_id'),
+            season=season, identity_digest=result['identity_digest'],
+            payload_json__raid_first_kills__last_error='rate_limited').values_list(
+                'payload_json__raid_first_kills__next_attempt_at', flat=True).first()
+        return _date(clock)
+    return None
+
+
+def refresh_due_top20_activity(season, *, limit=100, collector=None,
+                               rate_limited_until=None, rate_limit_clock_error=''):
+    """Maintain only due current-Top20 identities, never character profiles or AI.
+
+    Candidate discovery is bounded per canonical spec before identity deduplication.
+    The lightweight snapshot is scheduling advice only: refresh() rechecks the
+    original row lease/backoff under lock and retains its existing CAS/publication
+    and roster budgets. Fresh candidates never enter refresh(), whose fresh branch
+    can otherwise perform independent enrichment HTTP.
+
+    ``due`` is the initial snapshot; ``remaining_due`` is a new metadata read of
+    that same candidate identity set after the batch (not a global ready claim).
+    Deferred candidates and collector race outcomes remain visible instead of
+    being counted as ready; attempted counts collector invocations, not HTTP.
+    ``rate_limited_until`` is the causal source's persisted retry deadline (not
+    the activity TTL). A task-level gate blocks all HTTP until then; missing or
+    replaced causal clocks produce a durable, explicit fail-closed diagnostic.
+    """
+    if type(limit) is not int or not 1 <= limit <= 100:
+        raise ValueError('activity batch limit must be 1..100')
+    active = list(SeasonMeta.objects.filter(is_active=True).values('id', 'rio_season')[:2])
+    if (season is None or not season.is_active or not season.rio_season
+            or len(active) != 1 or active[0]['id'] != season.pk
+            or active[0]['rio_season'] != season.rio_season):
+        raise ValueError('activity maintenance requires the unique active Raider.IO season')
+    candidates = top20_candidates(season)
+    keyed = {activity_identity_digest(**candidate['identity']): candidate
+             for candidate in candidates if candidate['identity']}
+    summary = dict(candidates=len(candidates), unresolved=len(candidates) - len(keyed),
+        due=0, selected=0, attempted=0, ready=0, partial=0, fresh=0, fresh_race=0,
+        busy=0, backoff=0, error=0, roster_error=0, raid_error=0,
+        remaining_due=0, stopped=False, stop='', states={}, results=[])
+    now = timezone.now()
+    metadata = _activity_metadata(season, keyed)
+    due = []
+    for digest, candidate in keyed.items():
+        row = metadata.get(digest)
+        deadline = _activity_deadline(row) if row else None
+        if deadline and deadline > now:
+            state = 'busy' if row['status'] == 'fetching' else 'fresh' if row['status'] == 'ready' else 'backoff'
+            summary[state] += 1
+            continue
+        due.append((deadline, digest, candidate))
+    # Missing/unclocked rows first, then oldest deadline; identity breaks ties,
+    # not the iteration order of specs or representative player primary keys.
+    due.sort(key=lambda item: (item[0] is not None, item[0] or now, item[1]))
+    summary['due'] = len(due)
+    selected = due[:limit]
+    summary['selected'] = len(selected)
+    if rate_limit_clock_error or (rate_limited_until and rate_limited_until > now):
+        summary.update(selected=0, remaining_due=len(due), stopped=True, stop='rate_limited',
+            rate_limited_until=rate_limited_until.isoformat() if rate_limited_until else None,
+            rate_limit_clock_error=rate_limit_clock_error)
+        return summary
+    collector = collector if collector is not None else ActivityCollector()
+    deferred_module_states = {'ready', 'fresh', 'busy', 'backoff', 'unavailable', 'private', 'batch_stopped'}
+    for _, digest, candidate in selected:
+        if collector.stopped:
+            break
+        summary['attempted'] += 1
+        try:
+            result = collector.refresh(candidate['player'], season, force=False, include_profile=False)
+        except Exception:
+            logging.getLogger(__name__).exception('Raider.IO due activity refresh failed player_id=%s',
+                                                  candidate['player'].pk)
+            result = {'status': 'collector_error'}
+        state = result['status']
+        summary['states'][state] = summary['states'].get(state, 0) + 1
+        counter = 'fresh_race' if state == 'fresh' else state if state in (
+            'ready', 'partial', 'busy', 'backoff', 'unresolved') else 'error'
+        summary[counter] += 1
+        roster = result.get('roster_results') or []
+        raid = result.get('raid_first_kills')
+        summary['roster_error'] += sum(r['status'] not in deferred_module_states for r in roster)
+        summary['raid_error'] += int(bool(raid and raid['status'] not in deferred_module_states))
+        summary['results'].append({'identity_digest': digest, 'player_ids': candidate['player_ids'], **result})
+        if collector.stopped:
+            summary['stop'] = ('rate_limited' if state == 'rate_limited'
+                or any(r['status'] == 'rate_limited' for r in roster)
+                or (raid and raid['status'] == 'rate_limited') else 'batch_stopped')
+    summary['stopped'] = collector.stopped
+    if collector.stopped and not summary['stop']:
+        summary['stop'] = 'batch_stopped'
+    # Read back exact identities; a competing collector can have won a snapshot
+    # candidate, while an exceptional failure may leave it eligible for retry.
+    metadata = _activity_metadata(season, keyed)
+    finished_at = timezone.now()
+    summary['remaining_due'] = sum(
+        not metadata.get(digest) or not _activity_deadline(metadata[digest])
+        or _activity_deadline(metadata[digest]) <= finished_at for digest in keyed)
+    summary.update(rate_limited_until=None, rate_limit_clock_error='')
+    if collector.stopped:
+        try:
+            deadline = _rate_limit_deadline(summary['results'][-1], metadata, season) if summary['results'] else None
+            if deadline is None or timezone.is_naive(deadline):
+                raise ValueError('missing source clock')
+            summary['rate_limited_until'] = deadline.isoformat()
+        except (DatabaseError, ValueError, TypeError, KeyError, AttributeError):
+            summary['rate_limit_clock_error'] = 'causal_429_clock_missing_or_changed'
+    return summary
 
 
 def _slug(value):

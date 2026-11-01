@@ -75,8 +75,8 @@ def monitor_default_wait_time(name):
     if name == 'AdventureJournalMonitor':
         return 604800  # 保留历史 type=35 的间隔；任务默认关闭且只允许手动刷新。
 
-    if name == "PortalPeakSpecRankMonitor":
-        return 600  # 10m，仅轻量刷新榜单；新入榜人物按需初始化
+    if name in {"PortalPeakSpecRankMonitor", "PlayerRaiderIOActivityMonitor"}:
+        return 600  # 10m；榜单与角色活动独立领取，不在短榜单链路同步补采。
     if name == "PortalMplusCutoffMonitor":
         return 3600
     if name == "SpecDungeonDpsRankingMonitor":
