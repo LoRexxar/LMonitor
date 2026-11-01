@@ -97,7 +97,10 @@ def _profile_identity(player):
 
 
 def _published_badges(players, class_name=None, spec_name=None):
-    """Two bounded batch reads after season lookup; no full evidence/source IO.
+    """Four bounded batch reads after season lookup; no full evidence/source IO.
+
+    Flat roster/history privacy metadata queries share the detail withdrawal
+    gate; neither loads full source payloads or rebuilds evidence per player.
 
     generate_observation writes evidence/result/generated_at atomically only on
     success. Its lease acquisition and _fail change status, not this last-good
@@ -105,6 +108,8 @@ def _published_badges(players, class_name=None, spec_name=None):
     must therefore never be publication visibility gates.
     """
     from botend.services.spec_stats_service import SpecStatsService
+    from botend.services.player_observation import (READABLE_PUBLICATION_VERSIONS,
+        publication_scope_matches, withdrawn_roster_publications)
     season = SpecStatsService.get_active_season()
     if not season or not players:
         return {}
@@ -134,20 +139,34 @@ def _published_badges(players, class_name=None, spec_name=None):
     rows = PlayerObservationAnalysis.objects.filter(
         activity__season_id=season.id, activity__identity_digest__in={digest for _, digest in bound.values()},
         is_published=True, manual_json={}, generated_at__isnull=False,
+        prompt_version__in=READABLE_PUBLICATION_VERSIONS,
     ).exclude(review_status='rejected').annotate(
         badge_labels=KeyTransform('eligible_labels', 'evidence_json'),
         badge_observations=KeyTransform('observations', 'result_json'),
         frozen_activity=KeyTransform('activity_id', 'evidence_json'),
         frozen_season=KeyTransform('season', 'evidence_json'),
+        frozen_version=KeyTransform('prompt_version', 'evidence_json'),
+        frozen_hash=KeyTransform('evidence_hash', 'evidence_json'),
+        frozen_rosters=KeyTransform('rosters', KeyTransform('source_stamps', 'evidence_json')),
+        frozen_histories=KeyTransform('histories', KeyTransform('source_stamps', 'evidence_json')),
     ).values('id', 'activity_id', 'activity__identity_digest', 'activity__region',
         'activity__realm_slug', 'activity__character_name', 'badge_labels',
-        'badge_observations', 'frozen_activity', 'frozen_season')
+        'badge_observations', 'frozen_activity', 'frozen_season', 'frozen_version',
+        'frozen_hash', 'evidence_hash', 'prompt_version', 'frozen_rosters', 'frozen_histories')
+    rows = list(rows)
+    withdrawn = withdrawn_roster_publications([
+        (row['id'], season.rio_season, row['frozen_rosters'], row['frozen_histories']) for row in rows])
     publications = {}
     for row in rows:
         digest = row['activity__identity_digest']
-        if (row['frozen_activity'] != row['activity_id'] or row['frozen_season'] != season.rio_season
-                or activity_identity_digest(row['activity__region'], row['activity__realm_slug'],
-                    row['activity__character_name']) != digest):
+        if (row['id'] in withdrawn or type(row['frozen_version']) is not int
+                or row['frozen_version'] != row['prompt_version']
+                or not row['evidence_hash'] or row['frozen_hash'] != row['evidence_hash']
+                or not publication_scope_matches(activity_id=row['activity_id'],
+                    frozen_activity=row['frozen_activity'], rio_season=season.rio_season,
+                    frozen_season=row['frozen_season'], digest=digest,
+                    region=row['activity__region'], realm_slug=row['activity__realm_slug'],
+                    character_name=row['activity__character_name'])):
             continue
         badges = _frozen_badges(row)
         if badges:

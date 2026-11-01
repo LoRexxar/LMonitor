@@ -59,7 +59,9 @@ class ObservationBadgeTests(TestCase):
                 patch('requests.sessions.Session.request', side_effect=AssertionError('禁止联网')), \
                 CaptureQueriesContext(connection) as queries:
             result = public_badge_players(self.players * 20, self.player.class_name, self.player.spec_name)
-        self.assertLessEqual(len(queries), 3)
+        # Two bounded metadata SELECTs check all frozen roster/history references;
+        # no per-player hydration or evidence rebuild is permitted.
+        self.assertLessEqual(len(queries), 5)
         self.assertTrue(all(q['sql'].lstrip().upper().startswith('SELECT') for q in queries))
         # SQL may extract frozen label metadata, but never SELECT the evidence document.
         import re
@@ -90,10 +92,15 @@ class ObservationBadgeTests(TestCase):
         self.players[0]['_observation_guard']['expires_at'] = (self.now - timedelta(days=30)).isoformat()
         RaiderIOCharacterActivity.objects.update(fetched_at=self.now - timedelta(days=30),
             source_updated_at=self.now, module_fetched_at={}, last_error='source_failed', status='fetching')
-        RaiderIORunRoster.objects.update(roster_visible=False, status='error')
+        RaiderIORunRoster.objects.update(status='error')
         self.assertEqual(self.read()['observation_badges'], expected)
         attach_badge_snapshots(self.players)
         self.assertEqual(self.players[0]['observation_badges'], expected)
+        # An explicit visibility withdrawal differs from an ordinary fetch error.
+        RaiderIORunRoster.objects.update(roster_visible=False, status='error')
+        self.assertNotIn('observation_badges', self.read())
+        attach_badge_snapshots(self.players)
+        self.assertNotIn('observation_badges', self.players[0])
 
     def test_background_states_and_failure_keep_published_result(self):
         row = PlayerObservationAnalysis.objects.get(activity=self.activity)
@@ -110,7 +117,7 @@ class ObservationBadgeTests(TestCase):
         self.assertTrue(row.result_json)
         self.assertEqual(self.read()['observation_badges'], expected)
 
-    def test_legacy_v5_frozen_labels_do_not_use_current_validator(self):
+    def test_unsupported_legacy_version_is_not_a_public_badge(self):
         row = PlayerObservationAnalysis.objects.get(activity=self.activity)
         evidence = copy.deepcopy(row.evidence_json)
         evidence['prompt_version'] = 5
@@ -118,9 +125,9 @@ class ObservationBadgeTests(TestCase):
             label.pop('evidence_strength', None)
         PlayerObservationAnalysis.objects.filter(pk=row.pk).update(prompt_version=5, evidence_json=evidence)
         with patch.object(observation, '_validate_frozen_publication', side_effect=AssertionError('旧发布不重验新契约')):
-            self.assertEqual(self.read()['observation_badges'][0]['code'], 'carrying')
+            self.assertNotIn('observation_badges', self.read())
             attach_badge_snapshots(self.players)
-            self.assertTrue(self.players[0]['observation_badges'])
+            self.assertNotIn('observation_badges', self.players[0])
 
     def test_neutral_observations_do_not_expand_badge_categories(self):
         row = PlayerObservationAnalysis.objects.get(activity=self.activity)

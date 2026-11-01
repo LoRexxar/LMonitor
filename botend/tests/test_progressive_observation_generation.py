@@ -129,13 +129,17 @@ class ProgressiveObservationGenerationTests(TestCase):
         self.assertTrue(generate.call_args.kwargs['skip_uninformative'])
         self.assertIn('basic_api_requests', output.getvalue())
 
-    def test_local_path_does_not_construct_client_and_source_change_retracts(self):
+    def test_local_path_does_not_construct_client_and_source_change_marks_history(self):
         self.trivial()
         with patch('botend.services.player_observation.PlayerObservationGLMClient', side_effect=AssertionError('no client')):
             self.assertEqual(generate_observation(self.player, skip_uninformative=True)['status'], 'ready')
         self.activity.payload_json = {}
         self.activity.save()
-        self.assertEqual(project_player_observation(self.player)['status'], 'pending')
+        view = project_player_observation(self.player)
+        self.assertEqual(view['status'], 'stale')
+        self.assertFalse(view['publication_current'])
+        self.assertEqual(view['source_kind'], 'local_deterministic')
+        self.assertEqual(view.get('observations'), [])
 
     def test_superseded_lease_preserves_good_and_counts_attempted_ai(self):
         generate_observation(self.player, engine=self.engine())

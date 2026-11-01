@@ -47,7 +47,12 @@ class PublicationVersionTests(TestCase):
         self.assertEqual(service._validate_frozen_publication(row), row.result_json)
         self.assertFalse(service._same_publication(row, self.evidence()))
         self.assertEqual(PlayerObservationAnalysis.objects.values().get(pk=row.pk), before)
-        self.assertEqual(service.project_player_observation(self.player)['status'], 'pending')
+        view = service.project_player_observation(self.player)
+        self.assertEqual(view['status'], 'stale')
+        self.assertFalse(view['publication_current'])
+        self.assertEqual(view['stale_reason'], 'source_changed')
+        self.assertEqual(view['generated_at'], row.generated_at)
+        self.assertEqual(PlayerObservationAnalysis.objects.values().get(pk=row.pk), before)
         self.assertEqual(service._project_frozen_investigation(row)['summary'], row.result_json['investigation']['summary'])
 
     def test_invalid_v7_and_corrupt_hash_cannot_reuse(self):

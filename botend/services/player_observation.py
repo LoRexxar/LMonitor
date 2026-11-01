@@ -1554,6 +1554,109 @@ def _display_judgements(evidence, result=None):
     return rows
 
 
+def publication_scope_matches(*, activity_id, frozen_activity, rio_season, frozen_season,
+                              digest, region, realm_slug, character_name):
+    """Shared read admission: a frozen publication cannot move to another owner."""
+    return (type(frozen_activity) is int and frozen_activity == activity_id
+            and frozen_season == rio_season
+            and activity_identity_digest(region, realm_slug, character_name) == digest)
+
+
+def _withdrawn_history_publications(publications):
+    """Project only scoped history privacy metadata in one flat batch read."""
+    from urllib.parse import parse_qs, urlencode, urlsplit
+    from django.db.models import Func, JSONField, Value
+    from django.db.models.fields.json import KeyTransform
+    from botend.services.player_observation_history import MODULE, MAX_DUNGEONS, URL, scope
+
+    references, withdrawn, dungeon_ids, activity_ids, seasons = {}, set(), set(), set(), set()
+    for pk, season, _rosters, histories in publications:
+        if histories is None:  # Older publications without history dependencies.
+            continue
+        if not isinstance(histories, list) or len(histories) > 40 * MAX_DUNGEONS:
+            withdrawn.add(pk)
+            continue
+        refs = set()
+        for ref in histories:
+            try:
+                if (not isinstance(ref, dict) or any(type(ref.get(key)) is not int
+                        or ref[key] <= 0 for key in ('activity_id', 'dungeon_id'))):
+                    raise ValueError('invalid history reference')
+                query = parse_qs(urlsplit(ref['source_url']).query)
+                cid = int(query['characterId'][0])
+                expected = scope(season, cid, ref['dungeon_id'])
+                if ref['source_url'] != URL + '?' + urlencode(expected):
+                    raise ValueError('wrong history scope')
+            except (KeyError, TypeError, ValueError, AttributeError):
+                withdrawn.add(pk)
+                continue
+            refs.add((ref['activity_id'], season, ref['dungeon_id'], cid))
+            activity_ids.add(ref['activity_id'])
+            dungeon_ids.add(ref['dungeon_id'])
+            seasons.add(season)
+        references[pk] = refs
+    if not activity_ids:
+        return withdrawn
+    # Never hydrate payload_json, runs, or even an entire history entry. A shared
+    # activity can have unrelated dungeon/character scopes; only the exact frozen
+    # source URL's scope can withdraw its publication.
+    annotations = {}
+    for did in sorted(dungeon_ids):
+        # Django's numeric KeyTransform means an array index. Dungeon IDs are
+        # literal object keys, so quote that path explicitly (SQLite and MySQL).
+        path = '$.' + '.'.join(json.dumps(key) for key in (MODULE, str(did)))
+        entry = Func('payload_json', Value(path), function='JSON_EXTRACT', output_field=JSONField())
+        for field in ('private', 'status', 'ui'):
+            annotations[f'h{did}_{field}'] = KeyTransform(field, entry)
+    hidden = set()
+    for row in RaiderIOCharacterActivity.objects.filter(
+            pk__in=activity_ids, season__rio_season__in=seasons).values(
+                'id', 'season__rio_season', **annotations):
+        season = row['season__rio_season']
+        for did in dungeon_ids:
+            if row[f'h{did}_private'] is not True and row[f'h{did}_status'] != 'private':
+                continue
+            ui = row[f'h{did}_ui']
+            if (isinstance(ui, dict) and type(ui.get('characterId')) is int
+                    and type(ui.get('dungeonId')) is int):
+                cid = ui['characterId']
+                if cid > 0 and ui == scope(season, cid, did):
+                    hidden.add((row['id'], season, did, cid))
+    withdrawn.update(pk for pk, refs in references.items() if refs & hidden)
+    return withdrawn
+
+
+def withdrawn_roster_publications(publications):
+    """Bounded metadata reads for frozen roster AND history references.
+
+    Explicit central withdrawals stay authoritative through later errors or
+    fetching; only a new validated public source restores visibility. Ordinary
+    failures, independent raid privacy and unrelated sources never withdraw M+.
+    Each input is (publication_id, rio_season, rosters, histories).
+    """
+    references, scopes = {}, {}
+    withdrawn = _withdrawn_history_publications(publications)
+    for pk, season, rosters, _histories in publications:
+        if not isinstance(rosters, list) or len(rosters) > 1000:
+            withdrawn.add(pk)
+            continue
+        ids = {ref['run_id'] for ref in rosters if isinstance(ref, dict)
+               and type(ref.get('run_id')) is int and ref['run_id'] > 0}
+        references[pk] = (season, ids)
+        scopes.setdefault(season, set()).update(ids)
+    predicate = Q()
+    for season, ids in scopes.items():
+        if ids:
+            predicate |= Q(rio_season=season, run_id__in=ids)
+    if not predicate:
+        return withdrawn
+    hidden = set(RaiderIORunRoster.objects.filter(predicate, roster_visible=False)
+                 .values_list('rio_season', 'run_id'))
+    withdrawn.update(pk for pk, (season, ids) in references.items()
+                     if any((season, rid) in hidden for rid in ids))
+    return withdrawn
+
+
 def project_player_observation(player):
     """Read-only projection; no row creation, source refresh, or AI side effects."""
     view = {'status': 'pending', 'generated_at': None, 'model_label': '项目 AI',
@@ -1595,27 +1698,50 @@ def project_player_observation(player):
         return view
     view.update(source_kind='ai', manual=None, analysis_id=row.pk,
                 activity_id=row.activity_id, player_id=row.player_id)
-    current = _build(context)
-    view.update(coverage=current['coverage'], season_counts=current['season_counts'], limitations=current['limitations'], source_stamps=current['source_stamps'])
-    if not row.result_json:
+    if not row.result_json or row.generated_at is None:
         view['status'] = 'error' if row.last_error else 'pending'
         return view
     if type(row.prompt_version) is not int or row.prompt_version not in READABLE_PUBLICATION_VERSIONS:
         return view
     try:
         result = _validate_frozen_publication(row)
-    except InvalidResult:
+    except (InvalidResult, KeyError, TypeError, ValueError):
         view['status'] = 'error'
         return view
-    if not _same_publication(row, current) and not _legacy_inquiry_compatible(row, current):
+    frozen = row.evidence_json
+    activity = context[2]
+    if not publication_scope_matches(activity_id=activity.pk, frozen_activity=frozen.get('activity_id'),
+            rio_season=context[0].rio_season, frozen_season=frozen.get('season'),
+            digest=activity.identity_digest, region=activity.region,
+            realm_slug=activity.realm_slug, character_name=activity.character_name):
         return view
-    source_failed = current['source_failed']
-    current = row.evidence_json
+    if row.pk in withdrawn_roster_publications([(row.pk, frozen['season'],
+            frozen.get('source_stamps', {}).get('rosters'),
+            frozen.get('source_stamps', {}).get('histories'))]):
+        return view
+    # Freshness is a separate read concern from publication validity. Never
+    # substitute today's facts into the frozen reasons or hide lawful history
+    # merely because a source or a background generation attempt has changed.
+    try:
+        current = _build(context)
+        source_failed = bool(current['source_failed'] or activity.last_error
+                             or activity.status in ('error', 'fetching'))
+        same = _same_publication(row, current) or _legacy_inquiry_compatible(row, current)
+    except (InvalidResult, KeyError, TypeError, ValueError, AttributeError):
+        source_failed, same = True, False
+    publication_current = bool(same and not source_failed)
+    stale_reason = ('source_failed' if source_failed else 'source_changed' if not same
+                    else 'generation_failed' if row.last_error
+                    else 'generation_in_progress' if row.status == 'fetching' else '')
+    view.update(publication_current=publication_current, stale_reason=stale_reason)
+    current = frozen
+    view.update(coverage=current['coverage'], season_counts=current['season_counts'],
+                limitations=current['limitations'], source_stamps=current['source_stamps'])
     from botend.services.player_observation_resolution import render_label_reviews
     view['label_reviews'] = render_label_reviews(current)
     view['evidence_strength_rules'] = deepcopy(current.get('metrics', {}).get('behavior_review', {}).get('strength_rules', {}))
     if _local_empty(row.result_json, current):
-        view.update(status='stale' if row.last_error or source_failed else 'ready',
+        view.update(status='stale' if stale_reason else 'ready',
                     generated_at=row.generated_at, model_label='',
                     source_kind='local_deterministic',
                     display_judgements=_display_judgements(current), has_supported_judgements=bool(_display_judgements(current) or view['label_reviews']),
@@ -1623,7 +1749,7 @@ def project_player_observation(player):
         return view
     labels = {item['code']: item['label'] for item in current['eligible_labels']}
     refs = {item['id']: item for item in current['evidence']}
-    view.update(status='stale' if row.last_error or source_failed else 'ready', generated_at=row.generated_at, conclusion=current['conclusion_options'][result['conclusion_id']]['text'], judgements=current['judgements'], progression=current['metrics'].get('progression'))
+    view.update(status='stale' if stale_reason else 'ready', generated_at=row.generated_at, conclusion=current['conclusion_options'][result['conclusion_id']]['text'], judgements=current['judgements'], progression=current['metrics'].get('progression'))
     view['display_judgements'] = _display_judgements(current, result)
     view['has_supported_judgements'] = bool(view['label_reviews']) or any(item['supported'] for item in view['display_judgements'])
     if 'investigation' in result:
