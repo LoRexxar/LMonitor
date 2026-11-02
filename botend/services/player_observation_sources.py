@@ -606,7 +606,10 @@ def _sync_execution_domain(activity, season, entries, characters, states, scores
         fact = _visible_facts(row, run, season.rio_season)
         protected = bool(row and row.next_attempt_at and row.next_attempt_at > timezone.now()
                          and (row.status != 'ready' or row.last_error))
-        if protected:
+        if row and row.status == 'unavailable' and not row.roster_visible and not row.last_error:
+            # A confirmed privacy negative-cache TTL is not a failed retry.
+            status = 'unavailable'
+        elif protected:
             status = 'busy' if row.status == 'fetching' else 'backoff'
         elif row and (row.status == 'error' or row.last_error):
             status = 'error'
