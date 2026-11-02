@@ -79,7 +79,8 @@ def _daily_report_to_dict(row):
     sections_obj = ext.get('sections')
     sections = sections_obj if isinstance(sections_obj, dict) else {}
     section_items = []
-    for key, label in [('news', '新闻'), ('nga', 'NGA'), ('videos', '视频'), ('cutoffs', '大秘境')]:
+    for key, label in [('news', '新闻'), ('events', '活动日历'), ('updates', '版本热修'),
+                       ('nga', 'NGA'), ('videos', '视频'), ('today', '北美轮换'), ('cutoffs', '大秘境')]:
         info_obj = sections.get(key)
         info = info_obj if isinstance(info_obj, dict) else {}
         count = info.get('count')

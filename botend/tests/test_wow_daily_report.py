@@ -36,6 +36,16 @@ class WowDailyReportDashboardListTest(TestCase):
         self.assertTrue(payload['success'])
         self.assertEqual(payload['data'][0]['portal_url'], '/portal/reports/wow_daily_report_2026-07-01.html')
 
+    def test_latest_report_exposes_new_source_sections(self):
+        WowDailyReport.objects.create(report_date=date(2026, 7, 1),
+            md_path='portal/reports/wow_daily_report_2026-07-01.html',
+            ext_json=json.dumps({'sections': {'events': {'count': 2},
+                'today': {'count': 13}, 'cutoffs': {'count': 3}}}))
+        data = self.client.get('/portal/api/daily-report/latest/').json()['data']
+        self.assertEqual([s['key'] for s in data['sections']], ['events', 'today', 'cutoffs'])
+        self.assertEqual([s['count'] for s in data['sections']], [2, 13, 3])
+        self.assertEqual(data['sections'][1]['label'], '北美轮换')
+
 
 class WowDailyReportHtmlGeneratorTest(TestCase):
     def setUp(self):
@@ -137,7 +147,7 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
             self.assertIn("暴雪蓝贴", html)
             self.assertIn("来源：wowhead", html)
             self.assertIn("原文链接", html)
-            self.assertIn("AI 总结：", html)
+            self.assertIn("内容摘要：", html)
             self.assertIn("新闻原文", html)
             self.assertIn("这是一段新闻原文内容，应该出现在日报模块中。", html)
             self.assertNotIn("昨天旧闻", html)
@@ -266,45 +276,30 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
             self.assertIn("正文结束", html)
             self.assertNotIn("暂无正文片段", html)
 
-    def test_ai_design_renderer_receives_structured_html_not_markdown(self):
-        designed_html = "<!DOCTYPE html><html><body><main>DESIGNED <strong>冒险者</strong></main></body></html>"
+    def test_editorial_renderer_keeps_structured_html_without_visual_ai(self):
         with override_settings(BASE_DIR=self.base_dir):
-            self._article(
-                title="格式新闻",
-                source="blizzard_tracker",
-                category="news",
-                description="",
-                content_blocks_cn=json.dumps([
-                    {"type": "html", "html": "<p>你好，<strong>冒险者</strong>。</p><table><tr><td>数值</td></tr></table>"},
-                ], ensure_ascii=False),
-            )
-            with patch("botend.wow_daily_report.html_design.GLMClient") as mock_client:
-                instance = mock_client.return_value
-                instance.client = object()
-                instance.send_message.return_value = designed_html
-
-                meta = generate_wow_daily_report(report_date=self.report_date, use_llm=True)
-
-            prompt = instance.send_message.call_args.args[0]
-            self.assertIn('"body_html"', prompt)
-            self.assertIn("<strong>冒险者</strong>", prompt)
-            self.assertIn("<table><tr><td>数值</td></tr></table>", prompt)
-            self.assertNotIn("【输入格式】: markdown", prompt)
+            self._article(title="格式新闻", source="blizzard_tracker", category="news",
+                description="", content_blocks_cn=json.dumps([{"type": "html",
+                    "html": "<p>你好，<strong>冒险者</strong>。</p><table><tr><td>数值</td></tr></table>"}], ensure_ascii=False))
+            with patch("botend.wow_daily_report.html_design.GLMClient") as visual_client:
+                meta = generate_wow_daily_report(report_date=self.report_date, use_llm=False)
+                visual_client.assert_not_called()
             html = open(meta["full_path"], encoding="utf-8").read()
-            self.assertIn("DESIGNED", html)
-            self.assertEqual(meta["ext"]["html_renderer"], "ai_html_skill")
+            self.assertIn("<strong>冒险者</strong>", html)
+            self.assertIn("<table><tr><td>数值</td></tr></table>", html)
+            self.assertIn("站内阅读", html)
+            self.assertIn("内容摘要：", html)
+            self.assertNotIn("AI 总结：", html)
+            self.assertEqual(meta["ext"]["html_renderer"], "daily_editorial_v2")
 
-    def test_ai_design_renderer_falls_back_when_llm_returns_invalid_html(self):
-        with override_settings(BASE_DIR=self.base_dir):
-            self._article(title="Fallback 新闻", source="wowhead", category="news")
-            with patch("botend.wow_daily_report.html_design.GLMClient") as mock_client:
-                instance = mock_client.return_value
-                instance.client = object()
-                instance.send_message.return_value = "不是 HTML"
-
-                meta = generate_wow_daily_report(report_date=self.report_date, use_llm=True)
-
-            html = open(meta["full_path"], encoding="utf-8").read()
-            self.assertIn("Fallback 新闻", html)
-            self.assertEqual(meta["ext"]["html_renderer"], "fallback_static")
-            self.assertIn("html_design_error", meta["ext"])
+    def test_legacy_visual_utility_still_receives_structured_html(self):
+        from botend.wow_daily_report.html_design import render_daily_html_with_skill
+        document = "<!doctype html><html><body><main>完整原文</main></body></html>"
+        with patch("botend.wow_daily_report.html_design.GLMClient") as client:
+            client.return_value.send_message.return_value = document
+            result, meta = render_daily_html_with_skill(self.report_date,
+                [{"key": "news", "items": [{"body_html": "<strong>冒险者</strong>"}]}])
+            self.assertIn('"body_html"', client.return_value.send_message.call_args.args[0])
+            self.assertIn("<strong>冒险者</strong>", client.return_value.send_message.call_args.args[0])
+            self.assertEqual(result, document)
+            self.assertEqual(meta["renderer"], "ai_html_skill")

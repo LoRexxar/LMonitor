@@ -3,13 +3,16 @@ import html
 import json
 import os
 import re
+import tempfile
 from typing import Any, Dict, List, Optional
 
 from django.conf import settings
 from django.utils import timezone
+from django.urls import reverse
+from django.utils.dateparse import parse_datetime
+from botend.wow_daily_report.site_sections import collect_site_sections, day_window
 
 from botend.models import PortalMplusSeasonCutoff, PortalVideo, WowArticle, WowDailyReport
-from botend.wow_daily_report.html_design import render_daily_html_with_skill
 
 try:
     from core.glm import GLMClient
@@ -131,10 +134,7 @@ def _bbcode_to_html(value: Any) -> str:
 
 
 def _date_range(local_date: datetime.date):
-    tz = timezone.get_current_timezone()
-    start = timezone.make_aware(datetime.datetime.combine(local_date, datetime.time.min), tz)
-    end = start + datetime.timedelta(days=1)
-    return start, end
+    return day_window(local_date)
 
 
 def _fmt_dt(dt) -> str:
@@ -173,22 +173,27 @@ def _fmt_delta(current, previous) -> str:
     return f"{prefix}{delta:.1f}".rstrip("0").rstrip(".")
 
 
-def _fmt_source_time(value) -> str:
-    if not value:
-        return ""
-    if hasattr(value, "isoformat"):
-        try:
-            return timezone.localtime(value).strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            return value.strftime("%Y-%m-%d %H:%M")
-    text = str(value).strip()
-    for fmt in ("%Y-%m-%dT%H:%M:%SZ", "%Y-%m-%d %H:%M:%S", "%a %b %d %Y %H:%M:%S"):
-        try:
-            source = text[:24] if fmt.startswith("%a ") else text
-            return datetime.datetime.strptime(source, fmt).strftime("%Y-%m-%d %H:%M")
-        except Exception:
-            continue
-    return text
+def _source_datetime(value):
+    if isinstance(value, datetime.datetime):
+        return value if timezone.is_aware(value) else None
+    text = str(value or '').strip()
+    try:
+        parsed = parse_datetime(text)
+        if parsed is not None and timezone.is_aware(parsed):
+            return parsed
+        match = re.fullmatch(r'([A-Za-z]{3} [A-Za-z]{3} \d{1,2} \d{4} \d{2}:\d{2}:\d{2}) GMT([+-]\d{4})(?: \([^\r\n]*\))?', text)
+        if match:
+            return datetime.datetime.strptime(' '.join(match.groups()), '%a %b %d %Y %H:%M:%S %z')
+    except ValueError:
+        pass
+    return None
+
+
+def _fmt_source_time(value: Any) -> str:
+    parsed = _source_datetime(value)
+    if parsed is not None:
+        return timezone.localtime(parsed).strftime('%Y-%m-%d %H:%M')
+    return str(value or '').strip()
 
 
 def _looks_like_json(value: Any) -> bool:
@@ -425,6 +430,7 @@ def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
             "source": a.source or "unknown",
             "category": a.category or "unknown",
             "url": a.url or "",
+            "portal_url": reverse("portal_article", kwargs={"article_id": a.pk}),
             "publish_time": a.publish_time,
             "body": _article_full_text(a),
             "body_html": _article_body_html(a),
@@ -480,7 +486,8 @@ def _latest_cutoff_season() -> str:
     return getattr(row, "season", "") or "unknown"
 
 
-def collect_cutoff_section(report_date: datetime.date, previous_ext: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def collect_cutoff_section(report_date: datetime.date, previous_ext: Optional[Dict[str, Any]] = None,
+                           published_ext: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     season = _latest_cutoff_season()
     rows = list(
         PortalMplusSeasonCutoff.objects.filter(season=season).order_by("region")
@@ -489,7 +496,21 @@ def collect_cutoff_section(report_date: datetime.date, previous_ext: Optional[Di
     )
     previous_by_region = (((previous_ext or {}).get("cutoffs") or {}).get("by_region") or {})
     items = []
+    _, report_end = _date_range(report_date)
     for row in rows:
+        source_stamp = _source_datetime(row.source_updated_at)
+        if source_stamp and source_stamp >= report_end:
+            # A rebuild must not replace a past edition's figures with tomorrow's.
+            frozen = ((published_ext or {}).get('cutoffs', {}).get('by_region', {}).get(row.region) or {})
+            if frozen.get('season') == season and frozen.get('cutoff_0_1') is not None:
+                prior = previous_by_region.get(row.region) or {}
+                items.append({**frozen, 'region': row.region,
+                    'region_label': REGION_LABELS.get(row.region, row.region.upper()),
+                    'cutoff_0_1_prev': prior.get('cutoff_0_1'), 'cutoff_1_prev': prior.get('cutoff_1'),
+                    'cutoff_0_1_delta': _fmt_delta(frozen.get('cutoff_0_1'), prior.get('cutoff_0_1')),
+                    'cutoff_1_delta': _fmt_delta(frozen.get('cutoff_1'), prior.get('cutoff_1')),
+                    'snapshot_note': '沿用本日已发布快照；' + ('时间为北京时间' if frozen.get('source_timezone') == 'Asia/Shanghai' else '原记录未保存来源时区')})
+            continue
         prev_snapshot = previous_by_region.get(row.region) or {}
         cutoff_0_1_prev = row.cutoff_0_1_prev
         cutoff_1_prev = row.cutoff_1_prev
@@ -509,9 +530,11 @@ def collect_cutoff_section(report_date: datetime.date, previous_ext: Optional[Di
                 "cutoff_1_prev": cutoff_1_prev,
                 "cutoff_1_delta": _fmt_delta(row.cutoff_1, cutoff_1_prev),
                 "source_updated_at": _fmt_source_time(row.source_updated_at),
+                "source_timezone": "Asia/Shanghai" if source_stamp else "",
             }
         )
-    return {"key": "cutoffs", "title": SECTION_TITLES["cutoffs"], "season": season, "items": items}
+    return {"key": "cutoffs", "title": SECTION_TITLES["cutoffs"], "season": season, "items": items,
+        "notice": "冲分参考快照，见各区来源更新时间；变化是相对上次记录，不代表自然日涨幅。"}
 
 
 def _load_previous_ext(report_date: datetime.date) -> Dict[str, Any]:
@@ -536,7 +559,7 @@ def _section_payload(section: Dict[str, Any]) -> Dict[str, Any]:
             else:
                 clean[key] = value
         items.append(clean)
-    return {"key": section.get("key"), "title": section.get("title"), "items": items}
+    return {**section, "items": items}
 
 
 def _render_news_items(items: List[Dict[str, Any]]) -> str:
@@ -550,7 +573,10 @@ def _render_news_items(items: List[Dict[str, Any]]) -> str:
             f'<div class="meta"><span>来源：{_safe_html(item.get("source"))}</span><span>时间：{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
         )
         out.append(f'<a class="original-link" href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">原文链接</a>')
-        out.append(f'<div class="item-summary"><strong>AI 总结：</strong>{_safe_html(item.get("summary") or _fallback_item_summary(item))}</div>')
+        if item.get("portal_url"):
+            out.append(f'<a class="original-link" href="{_safe_html(item["portal_url"])}">站内阅读</a>')
+        summary_label = "AI 总结" if item.get("summary_llm_ok") else "内容摘要"
+        out.append(f'<div class="item-summary"><strong>{summary_label}：</strong>{_safe_html(item.get("summary") or _fallback_item_summary(item))}</div>')
         out.append('<div class="original-label">新闻原文</div>')
         body_html = _sanitize_body_html(item.get("body_html") or "")
         if body_html:
@@ -623,94 +649,40 @@ def _render_cutoff_items(items: List[Dict[str, Any]]) -> str:
             f"<td>{_safe_html(_fmt_num(item.get('cutoff_1')))}</td>"
             f"<td>{_safe_html(_fmt_num(item.get('cutoff_1_prev')))}</td>"
             f"<td class=\"delta\">{_safe_html(item.get('cutoff_1_delta'))}</td>"
-            f"<td>{_safe_html(item.get('source_updated_at'))}</td>"
+            f"<td>{_safe_html(item.get('source_updated_at'))}<small>{_safe_html(item.get('snapshot_note') or '')}</small></td>"
             "</tr>"
         )
     rows.append("</tbody></table>")
     return "\n".join(rows)
 
 
+def _render_site_items(items):
+    from urllib.parse import urlsplit
+    rows = ['<div class="article-list site-context-list">']
+    for item in items:
+        url = str(item.get('url') or '').strip()
+        try:
+            parts = urlsplit(url)
+            safe = (not any(ord(c) < 32 for c in url) and '\\' not in url and
+                    ((parts.scheme in ('http', 'https') and parts.netloc) or
+                     (url.startswith('/') and not url.startswith('//') and not parts.scheme)))
+        except ValueError:
+            safe = False
+        title = _safe_html(item.get('title'))
+        heading = f'<a href="{_safe_html(url)}" rel="noopener" target="_blank">{title}</a>' if safe else title
+        rows.append(f'<article class="daily-card site-context-card"><h3>{heading}</h3>')
+        rows.append(f'<p class="meta">{_safe_html(item.get("source"))} · {_safe_html(item.get("time") or "")}</p>')
+        rows.append('<ul>' + ''.join(f'<li>{_safe_html(fact)}</li>' for fact in item.get('facts', [])) + '</ul></article>')
+    return '\n'.join(rows + ['</div>'])
+
+
 def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]) -> str:
-    generated_at = timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S")
-    section_html = []
-    body_renderers = {
-        "news": _render_news_items,
-        "nga": _render_nga_items,
-        "videos": _render_video_items,
-        "cutoffs": _render_cutoff_items,
-    }
-    for section in sections:
-        key = section["key"]
-        renderer = body_renderers[key]
-        summary_html = f'<p class="section-summary">{_safe_html(section.get("summary") or "")}</p>' if section.get("summary") else ""
-        section_html.append(
-            "\n".join(
-                [
-                    f'<section class="daily-section daily-{_safe_html(key)}">',
-                    f'<h2>{_safe_html(section["title"])}</h2>',
-                    summary_html,
-                    '<div class="section-body">',
-                    renderer(section.get("items") or []),
-                    "</div>",
-                    "</section>",
-                ]
-            )
-        )
-    return f"""<!doctype html>
-<html lang="zh-CN">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>魔兽世界日报 - {_safe_html(report_date.strftime('%Y-%m-%d'))}</title>
-  <style>
-    :root {{ color-scheme: light; --bg:#f4f7fb; --panel:#ffffff; --soft:#f8fafc; --muted:#64748b; --text:#0f172a; --accent:#92400e; --accent-2:#4f46e5; --line:rgba(148,163,184,.28); }}
-    * {{ box-sizing:border-box; }}
-    body {{ margin:0; background:linear-gradient(180deg,#eef2ff 0,#f8fafc 280px,#f4f7fb 100%); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; line-height:1.72; }}
-    a {{ color:#4f46e5; text-decoration:none; }}
-    a:hover {{ color:#3730a3; text-decoration:underline; }}
-    .daily-report {{ max-width:1180px; margin:0 auto; padding:24px 18px 44px; }}
-    .daily-hero {{ position:relative; overflow:hidden; padding:24px 26px; border:1px solid rgba(245,158,11,.22); border-radius:20px; background:linear-gradient(135deg,rgba(255,251,235,.98),rgba(255,255,255,.92)),radial-gradient(circle at 100% 0%,rgba(79,70,229,.12),transparent 36%); box-shadow:0 18px 44px rgba(15,23,42,.07); }}
-    .daily-hero::before {{ content:""; position:absolute; inset:0; width:4px; background:linear-gradient(180deg,#f59e0b,#4f46e5); }}
-    .daily-hero h1 {{ margin:0 0 6px; font-size:28px; letter-spacing:-.02em; }}
-    .daily-hero p,.meta {{ color:var(--muted); margin:0; }}
-    .daily-section {{ margin-top:18px; padding:18px; border:1px solid var(--line); border-radius:18px; background:rgba(255,255,255,.86); box-shadow:0 14px 34px rgba(15,23,42,.05); }}
-    .daily-section h2 {{ margin:0 0 10px; color:var(--accent); font-size:21px; }}
-    .section-summary {{ margin:0 0 16px; padding:11px 13px; border-left:4px solid #f59e0b; background:rgba(245,158,11,.08); border-radius:10px; color:#78350f; }}
-    .article-list {{ display:grid; grid-template-columns:1fr; gap:14px; }}
-    .daily-card {{ border:1px solid var(--line); background:linear-gradient(180deg,#fff,#f8fafc); border-radius:14px; padding:15px; }}
-    .daily-card h3 {{ margin:0 0 8px; font-size:18px; line-height:1.35; }}
-    .meta {{ display:flex; gap:12px; flex-wrap:wrap; font-size:13px; margin-bottom:8px; }}
-    .original-link {{ display:inline-flex; align-items:center; gap:6px; margin:2px 0 8px; padding:5px 10px; border:1px solid rgba(79,70,229,.24); border-radius:999px; background:rgba(79,70,229,.06); font-size:13px; font-weight:800; }}
-    .item-summary {{ margin:10px 0; padding:10px 12px; border:1px solid rgba(245,158,11,.22); background:rgba(245,158,11,.08); border-radius:10px; color:#78350f; }}
-    .original-label {{ margin:12px 0 6px; color:var(--muted); font-size:13px; font-weight:800; letter-spacing:.04em; }}
-    .body-text, .body-html {{ margin:8px 0 0; color:#334155; }}
-    .body-html {{ overflow-x:auto; }}
-    .body-html p {{ margin:8px 0; }}
-    .body-html ul,.body-html ol {{ margin:8px 0 8px 22px; padding:0; }}
-    .body-html blockquote {{ margin:10px 0; padding:8px 12px; border-left:3px solid #f59e0b; background:rgba(245,158,11,.07); }}
-    .body-html img {{ max-width:100%; height:auto; border-radius:10px; display:block; }}
-    .body-html table {{ margin:10px 0; min-width:520px; }}
-    .video-grid {{ display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }}
-    .video-card img {{ width:100%; aspect-ratio:16/9; object-fit:cover; border-radius:12px; margin-bottom:10px; background:#000; }}
-    table {{ width:100%; border-collapse:collapse; overflow:hidden; border-radius:12px; background:#fff; }}
-    th,td {{ border-bottom:1px solid var(--line); padding:10px 12px; text-align:left; }}
-    th {{ color:#334155; background:#f1f5f9; }}
-    .delta {{ font-weight:800; color:#92400e; }}
-    .empty {{ color:var(--muted); margin:0; }}
-    @media (max-width:700px) {{ .daily-report {{ padding:16px 12px 34px; }} .daily-hero,.daily-section {{ border-radius:16px; padding:16px; }} .daily-hero h1 {{ font-size:24px; }} .video-grid {{ grid-template-columns:1fr; }} .body-html table, table {{ min-width:560px; }} .section-body {{ overflow-x:auto; }} }}
-  </style>
-</head>
-<body>
-  <main class="daily-report">
-    <header class="daily-hero">
-      <h1>魔兽世界日报</h1>
-      <p>{_safe_html(report_date.strftime('%Y-%m-%d'))} · 生成时间 {_safe_html(generated_at)}</p>
-    </header>
-    {' '.join(section_html)}
-  </main>
-</body>
-</html>
-"""
+    from botend.wow_daily_report.presentation import render_daily_document
+    return render_daily_document(report_date, sections, {
+        'news': _render_news_items, 'nga': _render_nga_items,
+        'videos': _render_video_items, 'cutoffs': _render_cutoff_items,
+        'today': _render_site_items, 'events': _render_site_items, 'updates': _render_site_items,
+    }, generated_at=timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S'))
 
 
 def _static_report_path(report_date: datetime.date):
@@ -729,14 +701,22 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
         report_date = datetime.date.fromisoformat(report_date)
 
     previous_ext = _load_previous_ext(report_date)
+    published = WowDailyReport.objects.filter(report_date=report_date).only("ext_json").first()
+    try:
+        published_ext = json.loads(published.ext_json) if published else {}
+    except (TypeError, ValueError):
+        published_ext = {}
     sections = [
         collect_news_section(report_date),
         collect_nga_section(report_date),
-        collect_cutoff_section(report_date, previous_ext=previous_ext),
+        collect_cutoff_section(report_date, previous_ext=previous_ext, published_ext=published_ext),
     ]
     video_section = collect_video_section(report_date)
     if video_section.get("items"):
         sections.insert(2, video_section)
+
+    available = {section["key"]: section for section in sections + collect_site_sections(report_date)}
+    sections = [available[key] for key in ("news", "events", "updates", "nga", "videos", "today", "cutoffs") if key in available]
 
     ext_sections: Dict[str, Any] = {}
     cutoff_snapshot: Dict[str, Any] = {}
@@ -750,7 +730,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 item["summary_error"] = item_summary.get("error") or ""
         fallback = _section_fallback_summary(key, section.get("items") or [])
         payload = _section_payload(section)
-        if key == "cutoffs":
+        if key in ("cutoffs", "today", "events", "updates") or not section.get("items"):
             summary_result = {"text": "", "llm_ok": False, "error": "summary_disabled"}
         else:
             summary_result = _summarize_section(key, section["title"], payload, fallback, use_llm=use_llm)
@@ -767,6 +747,12 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 source = str(item.get("source") or "unknown")
                 source_counts[source] = source_counts.get(source, 0) + 1
             ext_section["source_counts"] = source_counts
+        for field in ("notice", "source_time", "source_date", "snapshot_id"):
+            if field in section:
+                ext_section[field] = section[field]
+        references = [item["reference"] for item in section.get("items", []) if item.get("reference")]
+        if references:
+            ext_section["references"] = references
         ext_sections[key] = ext_section
         if key == "cutoffs":
             for item in section.get("items") or []:
@@ -775,20 +761,27 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                     "cutoff_0_1": item.get("cutoff_0_1"),
                     "cutoff_1": item.get("cutoff_1"),
                     "source_updated_at": item.get("source_updated_at"),
+                    "source_timezone": item.get("source_timezone", ""),
                 }
 
-    design_sections = []
-    for section in sections:
-        design_section = dict(section)
-        design_section["items"] = (_section_payload(section).get("items") or [])
-        design_sections.append(design_section)
-    html_content, design_meta = render_daily_html_with_skill(report_date, design_sections, use_llm=use_llm)
-    if not html_content:
-        html_content = render_daily_html(report_date, sections)
+    # AI may summarize prose, never delete facts or freely redesign the document.
+    html_content = render_daily_html(report_date, sections)
+    design_meta = {"renderer": "daily_editorial_v2", "error": ""}
     rel_path, full_path = _static_report_path(report_date)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
-    with open(full_path, "w", encoding="utf-8") as f:
-        f.write(html_content)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8",
+                dir=os.path.dirname(full_path), prefix=".daily-", suffix=".tmp", delete=False) as f:
+            temporary_path = f.name
+            f.write(html_content)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(temporary_path, 0o644)
+        os.replace(temporary_path, full_path)
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
 
     ext = {
         "format": "html",

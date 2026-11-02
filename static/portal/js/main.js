@@ -763,10 +763,10 @@ function renderDailyReportCard() {
     const message = PORTAL_STATE.sectionFailures.daily_report ? "日报暂时无法读取，请稍后刷新。"
       : PORTAL_STATE.todaySourcesSettled.daily_report ? "今日日报正在准备中" : "正在加载魔兽世界日报...";
     el.innerHTML = `<article class="portal-daily-report-card portal-daily-report-card-loading">
-      <div class="portal-daily-report-kicker">今日日报</div>
+      <div class="portal-daily-report-kicker">最新日报</div>
       <div class="portal-daily-report-main">
         <div class="portal-daily-report-title">${message}</div>
-        <div class="portal-daily-report-meta">汇总新闻、NGA 热议与大秘境分数线</div>
+        <div class="portal-daily-report-meta">汇总当日新闻、活动日历、北美轮换与冲分参考</div>
       </div>
     </article>`;
     return;
@@ -775,22 +775,22 @@ function renderDailyReportCard() {
   const sections = Array.isArray(report.sections) ? report.sections : [];
   const sectionBadges = sections
     .filter((x) => Number(x?.count || 0) > 0)
-    .slice(0, 4)
+    .slice(0, 7)
     .map((x) => `<span class="portal-daily-report-badge"><span>${escapeHtml(x.label || x.title || x.key || "板块")}</span><strong>${escapeHtml(x.count)}</strong></span>`)
     .join("");
-  const totalCount = sections.reduce((acc, x) => acc + (Number(x?.count || 0) || 0), 0);
+  const sectionCount = sections.filter((x) => Number(x?.count || 0) > 0).length;
   const title = escapeHtml(report.title || "魔兽世界日报");
   const reportDate = escapeHtml(report.report_date || "");
   const generatedAt = escapeHtml(report.generated_at || report.updated_at || "");
   const url = escapeHtml(sanitizeHref(report.url) || report.url || "#");
   const metaParts = [];
   if (reportDate) metaParts.push(`<span>${reportDate}</span>`);
-  if (totalCount) metaParts.push(`<span>${totalCount} 条汇总</span>`);
+  if (sectionCount) metaParts.push(`<span>${sectionCount} 个板块</span>`);
   if (generatedAt) metaParts.push(`<span>生成 ${generatedAt}</span>`);
   const meta = metaParts.join(`<span class="portal-daily-report-dot">/</span>`);
 
   el.innerHTML = `<article class="portal-daily-report-card">
-    <div class="portal-daily-report-kicker">今日日报</div>
+    <div class="portal-daily-report-kicker">最新日报</div>
     <div class="portal-daily-report-main">
       <a class="portal-daily-report-title" href="${url}" target="_blank" rel="noreferrer">${title}</a>
       ${meta ? `<div class="portal-daily-report-meta">${meta}</div>` : ""}
