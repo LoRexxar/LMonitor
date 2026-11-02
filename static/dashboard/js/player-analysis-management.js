@@ -85,7 +85,7 @@
         function updateChecks() {
             root.querySelectorAll('[data-action="recheck"]').forEach(b=>{const c=checks.get(Number(b.dataset.id));b.disabled=b.dataset.allowed==='false'||checkBusy(c)||client.busy;b.textContent=checkBusy(c)?'检查进行中…':'重新检查';});
             const status=detail.querySelector('[data-check-status]');
-            if(status){const c=checks.get(current?.id);status.textContent=c ? `${({idle:'尚未重查',queued:'已排队',running:'正在检查',succeeded:'检查完成',failed:'检查失败',blocked:'检查受阻',unknown:'状态待确认',unconfirmed:'本次提交未确认',rejected:'提交被拒绝'})[c.state] || '检查状态'} · ${c.notice || ''}${c.message || ''}` : '重新检查只处理当前角色；人工草稿与冻结历史不会被直接覆盖。';}
+            if(status){const c=checks.get(current?.id);status.textContent=c ? `${({idle:'尚未重查',queued:'已排队',running:'正在检查',succeeded:'检查完成',insufficient_evidence:'证据不足',failed:'检查失败',blocked:'检查受阻',unknown:'状态待确认',unconfirmed:'本次提交未确认',rejected:'提交被拒绝'})[c.state] || '检查状态'} · ${c.notice || ''}${c.message || ''}` : '重新检查只处理当前角色；人工草稿与冻结历史不会被直接覆盖。';}
         }
         function recheckButton(row) {
             const b=button('重新检查','recheck',()=>startCheck(row));b.dataset.id=row.id;b.dataset.allowed=String(row.can_recheck!==false);b.title=row.can_recheck===false?'此角色当前不能重新检查':'重新采集并分析此角色';return b;
@@ -118,7 +118,7 @@
                 }
                 const terminalKey=JSON.stringify([data.token || '',data.state,data.finished_at || data.message || '']);
                 Object.assign(check,data);updateChecks();
-                if(['succeeded','failed','blocked'].includes(data.state) && check.readbackKey!==terminalKey) {
+                if(['succeeded','insufficient_evidence','failed','blocked'].includes(data.state) && check.readbackKey!==terminalKey) {
                     const row=await client.request(id+'/');if(destroyed || checks.get(id)!==check)return;check.readbackKey=terminalKey;
                     if(current?.id===id && !dirty() && !client.busy){current=row;renderDetail();}
                     else if(current?.id===id){message.textContent='检查状态已更新；未保存草稿已保留。保存前请核对新版本，版本冲突时先复制草稿再重新读取。';}

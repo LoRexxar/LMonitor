@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone as datetime_timezone
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, Client
+from django.test import TestCase, TransactionTestCase, Client
 from django.utils import timezone
 
 from botend.models import PlayerObservationAnalysis, PlayerSpecTopPlayer, RaiderIOCharacterActivity, SeasonMeta
@@ -100,7 +100,7 @@ class RecheckTests(TestCase):
         PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(result_json={'last': 'good'}, evidence_hash='old')
         token = self.queue()
         with patch('botend.services.player_observation_sources.refresh_observation_sources', return_value={'status': 'partial'}) as sources, patch('botend.services.player_raid_observation_sources.refresh_raid_sources') as raid, patch('botend.services.player_observation.generate_observation') as generate:
-            self.assertEqual(run(self.row.pk, token)['state'], 'blocked')
+            self.assertEqual(run(self.row.pk, token)['state'], 'insufficient_evidence')
             raid.assert_not_called()
             generate.assert_not_called()
             self.assertEqual(sources.call_args.kwargs, {'progressive': True, 'refresh_recent': True, 'max_basic_roster_requests': 5, 'max_followup_requests': 2, 'max_runs': 18, 'max_characters': 40})
@@ -214,3 +214,204 @@ class RecheckTests(TestCase):
             PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(next_attempt_at=None, player=None)
             self.assertEqual(self.post().json()['data']['state'], 'blocked')
             spawn.assert_not_called()
+
+
+class InsufficientEvidenceTests(TransactionTestCase):
+    """Full ORM snapshots and real collectors; only HTTP/AI are forbidden boundaries."""
+    def setUp(self):
+        now = timezone.now()
+        self.season = SeasonMeta.objects.create(season_key='insufficient', season_name='Test',
+            rio_season='season-mn-2', mplus_zone_id=1, raid_zone_id=2)
+        self.player = PlayerSpecTopPlayer.objects.create(season_id=self.season.pk, region='eu',
+            realm='test-realm', character_name='Member0', class_name='Priest', spec_name='Holy',
+            rank=1, profile_url='https://raider.io/characters/eu/test-realm/Member0')
+        self.activity = RaiderIOCharacterActivity.objects.create(season=self.season,
+            **player_identity(self.player), status='error', last_error='transport_error',
+            failure_count=3, last_attempt_at=now, next_attempt_at=now+timedelta(hours=1),
+            payload_json={'last': 'good'}, fetched_at=now-timedelta(days=1))
+        self.row = PlayerObservationAnalysis.objects.create(player=self.player, activity=self.activity,
+            status='ready', prompt_version=9, result_json={'old': 'result'},
+            evidence_json={'old': 'evidence'}, evidence_hash='old-hash', generated_at=now,
+            manual_json={'conclusion': 'retain'}, is_published=False, review_status='rejected',
+            revision=7, updated_at=now, reviewed_at=now, review_note='retain review',
+            recheck_json={'state': 'blocked', 'token': 'old-token', 'queued_at': now.isoformat(),
+                'started_at': now.isoformat(), 'expires_at': now.isoformat(),
+                'retry_at': (now+timedelta(hours=1)).isoformat(),
+                'collection': {'api_requests': 2}})
+
+    def snapshot(self):
+        return PlayerObservationAnalysis.objects.values().get(pk=self.row.pk)
+
+    def source_snapshot(self):
+        return RaiderIOCharacterActivity.objects.values().get(pk=self.activity.pk)
+
+    def record(self, snapshot, reason='source_unavailable'):
+        from botend.services.player_analysis_recheck import record_insufficient_evidence
+        return record_insufficient_evidence(self.row.pk, expected_snapshot=snapshot, reason=reason)
+
+    def test_real_collector_backoff_is_terminal_no_http_ai_or_new_publication(self):
+        from botend.services.player_analysis_recheck import enqueue, run, get_state
+        # Manual enqueue is allowed; a Source's error/backoff is never cleared.
+        PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(recheck_json={})
+        with patch('botend.services.player_analysis_recheck.subprocess.Popen'):
+            token = enqueue(self.row.pk, {'revision': 7})['token']
+        before, source = self.snapshot(), self.source_snapshot()
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('no HTTP')) as http, \
+                patch('botend.services.player_observation.PlayerObservationGLMClient',
+                      side_effect=AssertionError('no AI')) as ai:
+            result = run(self.row.pk, token)
+            self.assertEqual(result['state'], 'insufficient_evidence', result)
+            self.assertEqual(run(self.row.pk, token), result)
+            self.assertEqual(get_state(self.row.pk), result)
+            http.assert_not_called()
+            ai.assert_not_called()
+        after = self.snapshot()
+        self.assertEqual({k: v for k, v in after.items() if k != 'recheck_json'},
+                         {k: v for k, v in before.items() if k != 'recheck_json'})
+        self.assertEqual(self.source_snapshot(), source)
+        data = after['recheck_json']
+        self.assertEqual(data['sources']['status'], 'backoff')
+        self.assertEqual(data['sources']['api_requests'], 0)
+        self.assertEqual(data['phase'], 'complete')
+        self.assertIs(data['ai_called'], False)
+        self.assertIs(data['auto_retry'], False)
+        self.assertNotIn('retry_at', data)
+        self.assertEqual(result['message'], '本次检查完成：证据不足，不生成新标签。')
+
+    def test_real_raid_backoff_is_terminal_without_http_or_ai(self):
+        from botend.services.player_analysis_recheck import enqueue, run
+        from botend.services.player_raiderio_activity import MODULES, validate_payload
+        from botend.tests.test_player_raiderio_activity import payload
+        now = timezone.now()
+        data = payload('Member0')
+        data['mythic_plus_best_runs'] = []
+        facts, updated = validate_payload(data, player_identity(self.player), self.season)
+        facts['raid_first_kills'] = {'status': 'error', 'last_error': 'transport_error',
+            'failure_count': 3, 'visible': False, 'next_attempt_at': (now+timedelta(hours=1)).isoformat()}
+        RaiderIOCharacterActivity.objects.filter(pk=self.activity.pk).update(status='partial',
+            last_error='', failure_count=0, payload_json=facts, fetched_at=now,
+            source_updated_at=updated, last_attempt_at=now,
+            module_fetched_at={key: now.isoformat() for key in MODULES.values()})
+        PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(recheck_json={})
+        with patch('botend.services.player_analysis_recheck.subprocess.Popen'):
+            token = enqueue(self.row.pk, {'revision': 7})['token']
+        before, source = self.snapshot(), self.source_snapshot()
+        with patch('requests.sessions.Session.request', side_effect=AssertionError('no HTTP')) as http, \
+                patch('botend.services.player_observation.PlayerObservationGLMClient',
+                      side_effect=AssertionError('no AI')) as ai:
+            self.assertEqual(run(self.row.pk, token)['state'], 'insufficient_evidence')
+            http.assert_not_called()
+            ai.assert_not_called()
+        after = self.snapshot()
+        self.assertEqual(after['recheck_json']['sources']['status'], 'ready')
+        self.assertEqual(after['recheck_json']['sources']['api_requests'], 0)
+        self.assertEqual({k: v for k, v in after.items() if k != 'recheck_json'},
+                         {k: v for k, v in before.items() if k != 'recheck_json'})
+        self.assertEqual(self.source_snapshot(), source)
+
+    def test_safety_outcomes_are_not_insufficient_evidence(self):
+        from botend.services.player_analysis_recheck import require_sources, Blocked, InsufficientEvidence
+        for status in ('busy', 'rate_limited', 'database_busy_or_error', 'superseded',
+                       'cas_non_target_change', 'cas_claim_mismatch', 'cas_finalize_mismatch'):
+            for value in (
+                    {'status': status},
+                    {'status': 'error', 'source_failed': True,
+                     'investigation': {'requests': [{'status': status}]}},
+                    {'status': 'partial', 'source_failed': True,
+                     'investigation': {'outcomes': [{'status': 'source_failed', 'request_status': status}]}}):
+                with self.subTest(status=status, sources=value):
+                    with self.assertRaises(Blocked) as caught:
+                        require_sources(value)
+                    self.assertNotIsInstance(caught.exception, InsufficientEvidence)
+
+    def test_record_only_control_metadata_and_repeat_requires_fresh_snapshot(self):
+        from botend.services.raiderio_run_roster import _snapshot_json
+        before, source = self.snapshot(), self.source_snapshot()
+        self.assertEqual(self.record(before)['state'], 'insufficient_evidence')
+        after = self.snapshot()
+        self.assertEqual({k: v for k, v in after.items() if k != 'recheck_json'},
+                         {k: v for k, v in before.items() if k != 'recheck_json'})
+        self.assertEqual(self.source_snapshot(), source)
+        data = after['recheck_json']
+        self.assertEqual(data['phase'], 'complete')
+        self.assertEqual(data['reason'], 'source_unavailable')
+        self.assertIs(data['ai_called'], False)
+        self.assertIs(data['auto_retry'], False)
+        self.assertEqual(data['binding']['activity_id'], self.activity.pk)
+        self.assertEqual(data['collection'], before['recheck_json']['collection'])
+        for key in ('token', 'queued_at', 'started_at', 'expires_at', 'retry_at'):
+            self.assertNotIn(key, data)
+        self.assertEqual(self.record(before)['status'], 'cas_claim_mismatch')
+        self.assertEqual(self.snapshot(), after)
+        # Exact current snapshot is an idempotent readback, not a new check.
+        self.assertEqual(self.record(_snapshot_json(after))['state'], 'insufficient_evidence')
+        self.assertEqual(self.snapshot(), after)
+
+    def test_record_rejects_incomplete_snapshot_bad_reason_and_any_row_drift(self):
+        before = self.snapshot()
+        for snapshot in ({}, {'id': self.row.pk}, {**before, 'extra': 1},
+                         {**before, 'id': True}, {**before, 'revision': True},
+                         {**before, 'evidence_json': {'old': 'drift'}}):
+            with self.subTest(snapshot=snapshot):
+                self.assertEqual(self.record(snapshot)['status'], 'cas_claim_mismatch')
+                self.assertEqual(self.snapshot(), before)
+        for reason in ('', 'unknown_exception', 'rate_limited'):
+            with self.subTest(reason=reason):
+                self.assertEqual(self.record(before, reason)['status'], 'invalid_reason')
+                self.assertEqual(self.snapshot(), before)
+        # A post-preview edit to any field must refuse the whole update.
+        for field, value in (('manual_json', {'conclusion': 'changed'}),
+                             ('result_json', {'new': 'result'}), ('revision', 8),
+                             ('recheck_json', {'state': 'failed'})):
+            with self.subTest(field=field):
+                PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(**{field: value})
+                drift = self.snapshot()
+                self.assertEqual(self.record(before)['status'], 'cas_claim_mismatch')
+                self.assertEqual(self.snapshot(), drift)
+                PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(**{field: before[field]})
+
+    def test_record_refuses_active_jobs_even_expired_and_live_analysis_lease(self):
+        for state in ('queued', 'running'):
+            for expires in (None, timezone.now()-timedelta(hours=1), timezone.now()+timedelta(hours=1)):
+                with self.subTest(state=state, expires=expires):
+                    PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(
+                        recheck_json={'state': state, 'expires_at': expires.isoformat() if expires else None})
+                    before = self.snapshot()
+                    self.assertEqual(self.record(before)['status'], 'busy')
+                    self.assertEqual(self.snapshot(), before)
+        PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(recheck_json={},
+            lease_token='a'*32, lease_expires_at=timezone.now()+timedelta(hours=1))
+        before = self.snapshot()
+        self.assertEqual(self.record(before)['status'], 'busy')
+        self.assertEqual(self.snapshot(), before)
+
+    def test_record_explicit_identity_or_scope_reason_does_not_require_generation_eligibility(self):
+        PlayerObservationAnalysis.objects.filter(pk=self.row.pk).update(player=None,
+            next_attempt_at=timezone.now()+timedelta(hours=1))
+        for reason in ('identity_unresolved', 'outside_scope'):
+            with self.subTest(reason=reason):
+                before, source = self.snapshot(), self.source_snapshot()
+                self.assertEqual(self.record(before, reason)['state'], 'insufficient_evidence')
+                after = self.snapshot()
+                self.assertEqual(after['recheck_json']['reason'], reason)
+                self.assertEqual({k: v for k, v in before.items() if k != 'recheck_json'},
+                                 {k: v for k, v in after.items() if k != 'recheck_json'})
+                self.assertEqual(self.source_snapshot(), source)
+
+    def test_source_gate_rejections_remain_strict_but_busy_and_rate_limit_stay_blocked(self):
+        from botend.services.player_analysis_recheck import require_sources, Blocked, InsufficientEvidence
+        base = {'status': 'ready', 'activity': {'status': 'ready'}}
+        for changes in ({'source_failed': True}, {'status': 'backoff'},
+                        {'activity': {'status': 'partial'}}, {'identity_conflicts': 1},
+                        {'invalid_references': 1}, {'runs_truncated': True},
+                        {'runs': [{'status': 'backoff'}]}, {'characters': [{'status': 'error'}]},
+                        {'followup_triggered': True, 'followup_budget_reason': 'budget_exhausted'},
+                        {'status': 'partial'}):
+            with self.subTest(changes=changes), self.assertRaises(InsufficientEvidence):
+                require_sources({**base, **changes})
+        for changes in ({'status': 'busy'}, {'status': 'rate_limited'},
+                        {'runs': [{'status': 'busy'}]}, {'characters': [{'status': 'rate_limited'}]},
+                        {'followup_budget_reason': 'rate_limited'}):
+            with self.subTest(changes=changes), self.assertRaises(Blocked) as caught:
+                require_sources({**base, **changes})
+            self.assertNotIsInstance(caught.exception, InsufficientEvidence)

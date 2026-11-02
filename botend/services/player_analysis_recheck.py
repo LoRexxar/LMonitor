@@ -3,6 +3,7 @@
 GET is read-only (expired jobs are projected failed). POST/worker persist expiry.
 Control metadata never replaces evidence or editorial content. No automatic retry.
 """
+import json
 import os
 import subprocess
 import sys
@@ -21,16 +22,22 @@ from botend.models import PlayerObservationAnalysis, PlayerSpecTopPlayer, Raider
 from botend.raiderio_identity import activity_identity_digest
 from botend.services.player_analysis_management import AnalysisConflict
 from botend.services.player_raiderio_activity import player_identity, mplus_modules_ready
+from botend.services.raiderio_run_roster import _row_snapshot, _snapshot_json
 
 ACTIVE = ('queued', 'running')
 QUEUE_TTL = timedelta(minutes=5)
 RUN_SECONDS = 600
 RETRY = timedelta(minutes=30)
 PUBLIC_FIELDS = ('state', 'message', 'token', 'phase', 'retry_at', 'queued_at', 'started_at', 'finished_at', 'expires_at', 'collection')
+INSUFFICIENT_MESSAGE = '本次检查完成：证据不足，不生成新标签。'
 
 
 class Blocked(Exception):
     pass
+
+
+class InsufficientEvidence(Blocked):
+    """A completed evidence gate rejection, never a successful AI publication."""
 
 
 class Deadline(BaseException):
@@ -88,6 +95,48 @@ def _target(row):
 
 def _binding(row, activity):
     return {'player_id': row.player_id, 'activity_id': activity.pk, 'season_id': activity.season_id, 'identity_digest': activity.identity_digest}
+
+
+def record_insufficient_evidence(pk, *, expected_snapshot, reason):
+    """Close a reviewed evidence gap without collecting or generating anything.
+
+    Require autocommit and an exact complete values() dict (ISO datetimes allowed)
+    or _row_snapshot/_snapshot_json encoding. Any row drift refuses the write.
+    Even expired/unknown ACTIVE jobs and live analysis leases remain protected.
+    Only recheck_json changes; callers must archive old control receipts first.
+    A repeat with the exact new snapshot and same reason is a read-only no-op.
+    """
+    if reason not in ('source_unavailable', 'identity_unresolved', 'outside_scope'):
+        return {'status': 'invalid_reason', 'ai_called': False}
+    if not transaction.get_autocommit() or transaction.get_connection().in_atomic_block:
+        return {'status': 'cas_requires_autocommit', 'ai_called': False}
+    try:
+        values = json.loads(expected_snapshot) if isinstance(expected_snapshot, str) else expected_snapshot
+        fields = {f.attname for f in PlayerObservationAnalysis._meta.concrete_fields}
+        if (type(pk) is not int or not isinstance(values, dict) or set(values) != fields
+                or type(values['id']) is not int or values['id'] != pk):
+            return {'status': 'cas_claim_mismatch', 'ai_called': False}
+        approved = _snapshot_json(values)
+    except (TypeError, ValueError):
+        return {'status': 'cas_claim_mismatch', 'ai_called': False}
+    with transaction.atomic():
+        row = PlayerObservationAnalysis.objects.select_for_update().filter(pk=pk).first()
+        if row is None or _row_snapshot(row) != approved:
+            return {'status': 'cas_claim_mismatch', 'ai_called': False}
+        now = timezone.now()
+        old = row.recheck_json or {}
+        if (old.get('state') in ACTIVE
+                or (row.lease_token and row.lease_expires_at and row.lease_expires_at > now)):
+            return {'status': 'busy', 'ai_called': False}
+        if old.get('state') == 'insufficient_evidence' and old.get('reason') == reason:
+            return state(row)
+        # Retain diagnostics, not old job ownership/times or a synthetic request.
+        data = {key: old[key] for key in ('sources', 'investigation', 'collection') if key in old}
+        data.update(state='insufficient_evidence', message=INSUFFICIENT_MESSAGE,
+            phase='complete', finished_at=now.isoformat(), auto_retry=False,
+            ai_called=False, reason=reason, binding=_binding(row, row.activity))
+        _save(row, data)
+        return state(row)
 
 
 def _live(row, token):
@@ -180,6 +229,9 @@ def finish(pk, token, outcome, message, *, phase=None):
             data['phase'] = phase
         if outcome == 'failed':
             data['retry_at'] = (now + RETRY).isoformat()
+        elif outcome == 'insufficient_evidence':
+            data.pop('retry_at', None)
+            data.update(auto_retry=False, ai_called=False)
         _save(row, data)
         return state(row)
 
@@ -257,41 +309,61 @@ def _bounded_investigation_complete(sources):
         and all(item.get('status') in ('ready', 'fresh') for item in trace['requests']))
 
 
+def _require_source_safety(sources):
+    """Keep collector fencing/DB/quota refusals out of evidence conclusions."""
+    pending = [sources]
+    while pending:
+        item = pending.pop()
+        if isinstance(item, list):
+            pending.extend(item)
+        elif isinstance(item, dict):
+            for key in ('status', 'request_status', 'stop_reason', 'followup_budget_reason'):
+                value = item.get(key)
+                if isinstance(value, str) and (value in (
+                        'busy', 'rate_limited', 'database_busy_or_error', 'superseded')
+                        or value.startswith('cas_')):
+                    raise Blocked('来源执行、限流或一致性保护未通过；已保留上次有效分析。')
+            pending.extend(item[key] for key in (
+                'activity', 'runs', 'characters', 'investigation', 'requests', 'outcomes') if key in item)
+
+
 def require_sources(sources):
     """Validate bounded progressive work, not an all-teammates census.
 
     The collector deliberately reports partial after a completed follow-up,
     for private rosters, and when discovery exceeds the scoring candidate cap.
     Those are known sample limits, not failed requests. Actual unfinished work
-    and failed requests still block; publication independently checks central facts.
+    and failed requests still reject generation; publication independently checks
+    central facts. Busy/quota safety gates remain blocked, not evidence outcomes.
     """
+    _require_source_safety(sources)
     if sources.get('source_failed'):
-        raise Blocked('当前证据来源失败，已保留上次有效分析。')
+        raise InsufficientEvidence('当前证据来源失败，已保留上次有效分析。')
     if sources.get('status') not in ('ready', 'fresh', 'partial'):
-        raise Blocked('角色来源检查未完成：' + str(sources.get('status', 'unknown'))[:40])
+        raise InsufficientEvidence('角色来源检查未完成：' + str(sources.get('status', 'unknown'))[:40])
     if sources.get('activity', {}).get('status') not in ('ready', 'fresh'):
-        raise Blocked('角色活动来源未完整就绪或处于退避。')
+        raise InsufficientEvidence('角色活动来源未完整就绪或处于退避。')
     if sources.get('invalid_references') or sources.get('identity_conflicts'):
-        raise Blocked('通关引用或队友身份冲突，不能生成新分析。')
+        raise InsufficientEvidence('通关引用或队友身份冲突，不能生成新分析。')
     bounded = _bounded_investigation_complete(sources)
     runs = sources.get('runs', [])
     allowed_runs = ('ready', 'fresh', 'unavailable', 'not_needed', 'budget_exhausted') if bounded else ('ready', 'fresh', 'unavailable', 'not_needed')
     bad_runs = [item.get('status', 'unknown') for item in runs if item.get('status') not in allowed_runs]
     if sources.get('runs_truncated') or bad_runs:
-        raise Blocked('阵容来源未完成（' + ', '.join(map(str, bad_runs[:3] or ['sample_truncated'])) + '）；本轮预算或退避结束后请重试。')
+        raise InsufficientEvidence('阵容来源未完成（' + ', '.join(map(str, bad_runs[:3] or ['sample_truncated'])) + '）。')
     bad_scores = [item.get('status', 'unknown') for item in sources.get('characters', [])
                   if item.get('status') not in ('ready', 'fresh', 'pending')]
     if bad_scores:
-        raise Blocked('评分来源未完成（' + ', '.join(map(str, bad_scores[:3])) + '）；已保留上次分析。')
+        raise InsufficientEvidence('评分来源未完成（' + ', '.join(map(str, bad_scores[:3])) + '）；已保留上次分析。')
     followup = sources.get('followup_triggered')
     if followup and not bounded and (sources.get('investigation') is not None
                                     or sources.get('followup_budget_reason') != 'completed'):
-        raise Blocked('所需评分补采尚未完成（' + str(sources.get('followup_budget_reason', 'unknown'))[:40] + '）；请稍后再次检查。')
+        raise InsufficientEvidence('所需评分补采尚未完成（' + str(sources.get('followup_budget_reason', 'unknown'))[:40] + '）。')
     known_partial = (followup or sources.get('characters_truncated')
                      or any(item.get('status') == 'unavailable' for item in runs))
     if sources.get('status') == 'partial' and not (
             sources.get('collection_mode') == 'progressive' and known_partial):
-        raise Blocked('来源未完整就绪，不能用旧快照冒充本次成功。')
+        raise InsufficientEvidence('来源未完整就绪，不能用旧快照冒充本次成功。')
 
 
 def record_sources(pk, token, sources):
@@ -315,7 +387,6 @@ def run(pk, token):
     from botend.services.player_observation import build_evidence, generate_observation, PROMPT_VERSION, _validate_frozen_publication
     from botend.services.player_observation_sources import refresh_observation_sources
     from botend.services.player_raid_observation_sources import refresh_raid_sources
-    import json
     try:
         with transaction.atomic():
             row = PlayerObservationAnalysis.objects.select_for_update().defer('evidence_json', 'result_json').get(pk=pk)
@@ -340,8 +411,9 @@ def run(pk, token):
             require_sources(sources)
             phase(pk, token, 'raid_sources')
             raid = refresh_raid_sources(player)
+            _require_source_safety(raid)
             if raid.get('status') not in ('ready', 'fresh'):
-                raise Blocked('团本来源未完成或处于退避；已保留上次有效分析。')
+                raise InsufficientEvidence('团本来源未完成或处于退避；已保留上次有效分析。')
             row.refresh_from_db()
             validate_publication(row, token, build_evidence(player))
             phase(pk, token, 'analysis')
@@ -364,6 +436,8 @@ def run(pk, token):
                        if trace.get('triggered') and unfinished else
                        '重查完成；中央分析已更新，人工编辑与发布设置保持不变。')
             return finish(pk, token, 'succeeded', message, phase='complete')
+    except InsufficientEvidence:
+        return finish(pk, token, 'insufficient_evidence', INSUFFICIENT_MESSAGE, phase='complete')
     except Blocked as exc:
         return finish(pk, token, 'blocked', str(exc))
     except Deadline:
