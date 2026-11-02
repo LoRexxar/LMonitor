@@ -12,9 +12,10 @@ _IDENTITY_FIELDS = ('region', 'realm', 'character_name', 'profile_url')
 _SCOPE = '仅限近期公开样本，不代表长期身份或组队动机。'
 
 
-def high_confidence_badges(view):
+def high_confidence_badges(view, *, include_stale=False):
     """只采纳公开投影的正向强证据，人工维护不继承旧 AI 标签。"""
-    if not view or view.get('status') != 'ready' or view.get('source_kind') == 'manual':
+    statuses = ('ready', 'stale') if include_stale else ('ready',)
+    if not view or view.get('status') not in statuses or view.get('source_kind') == 'manual':
         return []
     badges, seen = [], set()
     for item in view.get('display_judgements', []):

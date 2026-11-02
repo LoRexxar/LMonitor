@@ -1,3 +1,5 @@
+{% load player_observation_tags %}
+{% with observation=observation|confirmed_player_observation %}
 {% if observation.status != 'hidden' and observation.status != 'archived' and observation.is_published != False and observation.review_status != 'rejected' %}
 {% if observation.source_kind != 'manual' or observation.review_status != 'pending' %}
 {% if observation.status == 'ready' and observation.has_supported_judgements or observation.status == 'stale' and observation.has_supported_judgements or observation.raid_judgement.supported or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'ready' or observation.source_kind == 'manual' and observation.conclusion and observation.status == 'stale' or observation.investigation.triggered and observation.status == 'ready' or observation.investigation.triggered and observation.status == 'stale' or observation.carrying_frequency and observation.status == 'ready' or observation.carrying_frequency and observation.status == 'stale' %}
@@ -55,7 +57,7 @@
             {% endif %}
             {% if observation.label_reviews %}
             <details class="player-observation__details" data-label-reviews>
-                <summary>查看全部标签的核验进度</summary>
+                <summary>查看已确认标签的核验证据</summary>
                 {% for item in observation.label_reviews %}
                 <div class="player-observation__note" data-label-review="{{ item.code }}">
                     <strong>{{ item.label }} · {{ item.strength.label }}</strong>
@@ -122,3 +124,4 @@
 {% endif %}
 {% endif %}
 {% endif %}
+{% endwith %}
