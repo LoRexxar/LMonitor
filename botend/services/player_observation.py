@@ -28,7 +28,40 @@ from core.glm import GLMClient
 
 
 class PlayerObservationGLMClient(GLMClient):
-    """JSON transport mode only for player analysis; strict validation follows."""
+    """Player-only producer wire; canonical publications still validate below."""
+    def send_message(self, message, max_tokens=None, thinking_type=None):
+        from botend.services.player_observation_selection import (
+            build_selection_input, decode_selection, InvalidSelection,
+            SYSTEM_PROMPT as selection_prompt)
+        self.last_raw_response = self.last_canonical_response = ''
+        self.last_raw_response_truncated = self.last_canonical_response_truncated = False
+        data = json.loads(message)
+        plan = data.get('metrics', {}).get('investigation', {})
+        if not plan.get('triggered') or 'response_contract' not in plan:
+            return super().send_message(message, max_tokens=max_tokens, thinking_type=thinking_type)
+        request = build_selection_input(data)
+        original_prompt = self.system_prompt
+        try:
+            self.system_prompt = selection_prompt
+            raw = super().send_message(json.dumps(request, ensure_ascii=False),
+                                       max_tokens=max_tokens, thinking_type=thinking_type)
+        finally:
+            self.system_prompt = original_prompt
+        if not isinstance(raw, str):
+            return raw
+        # Provider text and adapter product have deliberately separate audit
+        # fields. No retry or legacy-response repair is performed on rejection.
+        self.last_raw_response = raw[:16000]
+        self.last_raw_response_truncated = len(raw) > 16000
+        try:
+            canonical = decode_selection(raw, request)
+        except InvalidSelection as exc:
+            self.last_error = str(exc)
+            return json.dumps({'invalid_selection_wire': str(exc)})
+        self.last_canonical_response = canonical[:16000]
+        self.last_canonical_response_truncated = len(canonical) > 16000
+        return canonical
+
     def _create_completion(self, **kwargs):
         kwargs['response_format'] = {'type': 'json_object'}
         return super()._create_completion(**kwargs)
