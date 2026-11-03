@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from django.core.paginator import EmptyPage, Paginator
 from django.http import JsonResponse
+from django.urls import reverse
 from django.views import View
 from django.core.cache import cache
 from django.db.models import Count, Q
@@ -108,6 +109,7 @@ def _daily_report_to_dict(row):
         'report_date': report_date.isoformat() if report_date else '',
         'title': f"{report_date.strftime('%-m月%-d日') if report_date else '最新'}魔兽世界日报",
         'url': report_url,
+        'current_url': reverse('portal_daily_report_current'),
         'md_path': getattr(row, 'md_path', '') or '',
         'updated_at': _fmt_dt(getattr(row, 'updated_at', None)),
         'generated_at': ext.get('generated_at') or _fmt_dt(getattr(row, 'updated_at', None)),

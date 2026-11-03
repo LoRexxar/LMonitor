@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% if unavailable %}当日日报暂不可用{% else %}今日日报待发布{% endif %} - WowDaily.cn</title>
+    {% load static %}
+    <link rel="icon" href="/favicon.ico">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
+    <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260911_focus_digest">
+    <style>.daily-entry-pending{max-width:680px;margin:64px auto;padding:32px 24px;background:var(--portal-panel,#fff);border:1px solid var(--portal-border,#dde3e9);border-radius:12px;color:var(--portal-text,#172e47)}.daily-entry-pending h1{font-size:26px;margin:12px 0}.daily-entry-pending p{margin:12px 0;line-height:1.8}.daily-entry-pending a{color:var(--portal-accent,#205a88);text-decoration:underline}@media(max-width:600px){.daily-entry-pending{margin:28px 16px;padding:24px 20px}.daily-entry-pending h1{font-size:23px}}</style>
+</head>
+<body class="portal-bg font-sans">
+    {% include 'portal/_header.html' %}
+    <main class="daily-entry-pending">
+        <p>{{ publication_date|date:"Y-m-d" }} · 北京时间</p>
+        <h1>{% if unavailable %}当日日报暂不可用{% else %}今日日报待发布{% endif %}</h1>
+        <p>{% if unavailable %}当日已发布日报的文件暂时无法读取，请稍后刷新。{% else %}今天尚未发布新的日报，请稍后再来。{% endif %}</p>
+        <p>此入口仅展示当天发布的最新一期，不会自动回退到旧日报。</p>
+        <a href="/">返回首页</a>
+    </main>
+</body>
+</html>
