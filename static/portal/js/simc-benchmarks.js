@@ -168,6 +168,119 @@
     } catch (_) { return null; }
   }
 
+  // Tiering is a visual projection only. Do not inherit the legacy charts'
+  // Number(null)/Number(false) zero fallback for unconfirmed result metrics.
+  function tierNumber(value) {
+    if (typeof value !== "number" && typeof value !== "string") return null;
+    if (typeof value === "string" && !value.trim()) return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  function tierDps(candidate, useDisplay = true) {
+    const raw = tierNumber(candidate?.dps);
+    if (raw === null || raw < 0) return null;
+    const display = !useDisplay || candidate?.display_dps == null ? raw : tierNumber(candidate.display_dps);
+    return display !== null && display >= 0 ? display : null;
+  }
+
+  function tierEffectGain(candidate) {
+    const control = tierNumber(candidate?.baseline_dps);
+    if (tierDps(candidate, false) === null || control === null || control <= 0
+      || tierNumber(candidate?.effect_delta_percent) === null) return null;
+    return equipmentEffectGain(candidate);
+  }
+
+  function activateTierTarget(target, reveal) {
+    if (!target) return;
+    if (reveal) reveal();
+    target.scrollIntoView?.({ behavior: "smooth", block: "center" });
+    target.focus?.({ preventScroll: true });
+  }
+
+  // entries: {label, value, icon_url, metricLabel, metricKind?, metricText?,
+  // status?, tooltip?, onActivate?}. Callers pass only their current filtered
+  // group, retaining its established ordering and source DTOs unchanged.
+  function renderTierOverview(entries, { metricLabel = "DPS" } = {}) {
+    const bands = [[95, "S", "≥95%"], [90, "A", "90–95%"], [85, "B", "85–90%"],
+      [80, "C", "80–85%"], [75, "D", "75–80%"], [70, "E", "70–75%"], [-Infinity, "F", "<70%"]];
+    const values = entries.map(entry => tierNumber(entry.value));
+    const leader = values.reduce((highest, value) => value !== null && value > highest ? value : highest, 0);
+    const projected = entries.map((entry, index) => {
+      const value = values[index];
+      const relative = value !== null && leader > 0 ? value / leader * 100 : null;
+      const tier = relative === null ? "unrated" : bands.find(([minimum]) => relative >= minimum)[1];
+      const metric = value === null ? "暂无有效结果" : entry.metricText || (entry.metricKind === "percent"
+        ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}% ${entry.metricLabel || metricLabel}`
+        : `${numberFormat.format(value)} ${entry.metricLabel || metricLabel}`);
+      const status = entry.status || (relative === null ? (value === null ? "暂无有效结果" : "无正值参照，未分档") : "");
+      const reference = relative === null ? "" : `相对本组最高 ${relative.toFixed(1)}%`;
+      return {entry, value, tier, metric, status, reference};
+    });
+    const board = node("section", "simc-benchmark-tier-board simc-benchmark-tier-overview mplus-rank-tier-board");
+    board.setAttribute("aria-label", "当前模拟结果相对分档总览");
+    const header = node("div", "simc-benchmark-tier-header mplus-rank-tier-heading");
+    header.append(node("h2", "", "模拟结果分档总览"), node("small", "simc-benchmark-tier-count", `${entries.length} 项 · 当前筛选范围`));
+    const note = node("p", "simc-benchmark-tier-note", `仅按当前组${metricLabel}相对分档，以本组最高正值为 100%；不代表整体游戏强度。${leader > 0 ? "" : "当前无正值参照，结果未分档。"}`);
+    const groups = node("div", "simc-benchmark-tier-groups mplus-rank-tier-groups");
+    const detail = node("div", "simc-benchmark-tier-detail", "悬停或聚焦查看数值，点击图标定位原结果与明细。");
+    detail.setAttribute("aria-live", "polite");
+    const renderGroup = (tier, rangeLabel, members) => {
+      const suffix = tier === "unrated" ? "unknown" : tier.toLowerCase();
+      const row = node("article", `simc-benchmark-tier-row mplus-rank-tier-group mplus-rank-tier-group-${suffix}`);
+      row.setAttribute("data-tier", tier);
+      const label = node("div", "simc-benchmark-tier-label mplus-rank-tier-label");
+      label.append(node("strong", `simc-benchmark-tier-letter mplus-rank-tier-letter tier-${suffix}`, tier === "unrated" ? "—" : tier),
+        node("span", "", rangeLabel), node("small", "", `${members.length} 项`));
+      const items = node("div", "simc-benchmark-tier-items mplus-rank-tier-items");
+      members.forEach(({entry, metric, status, reference}) => {
+        const card = node("button", "simc-benchmark-tier-item simc-benchmark-tier-card mplus-rank-tier-card");
+        card.type = "button";
+        const description = [entry.label, tier === "unrated" ? "未分档" : `${tier} 档`, metric, status, reference].filter(Boolean).join(" · ");
+        card.title = description;
+        card.setAttribute("aria-label", `${description}，定位原结果明细`);
+        const bindTooltip = (element) => {
+          if (!entry.tooltip) return;
+          element.setAttribute("data-wow-item-tooltip", entry.tooltip);
+          element.setAttribute("data-wow-item-tooltip-name", entry.label);
+        };
+        bindTooltip(card);
+        const placeholder = node("span", "simc-benchmark-tier-placeholder", "无图");
+        placeholder.setAttribute("aria-hidden", "true");
+        const iconUrl = safeIconUrl(entry.icon_url);
+        placeholder.hidden = !!iconUrl;
+        if (iconUrl) {
+          const icon = node("img", "simc-benchmark-tier-icon");
+          icon.src = iconUrl; icon.alt = ""; icon.loading = "lazy";
+          bindTooltip(icon);
+          icon.addEventListener("error", () => { icon.hidden = true; placeholder.hidden = false; }, { once: true });
+          card.appendChild(icon);
+        }
+        card.appendChild(placeholder);
+        const identity = node("span", "simc-benchmark-tier-identity mplus-rank-tier-identity");
+        const name = node("strong", "simc-benchmark-tier-name", entry.label);
+        name.title = entry.label;
+        bindTooltip(name);
+        identity.append(name, node("span", "simc-benchmark-tier-metric mplus-rank-tier-dps", metric));
+        if (status) identity.appendChild(node("small", "simc-benchmark-tier-status", status));
+        card.appendChild(identity);
+        const showMetric = () => { detail.textContent = description; };
+        card.addEventListener("pointerenter", showMetric);
+        card.addEventListener("focus", showMetric);
+        if (entry.onActivate) card.addEventListener("click", entry.onActivate);
+        items.appendChild(card);
+      });
+      if (!members.length) items.appendChild(node("span", "simc-benchmark-tier-empty mplus-rank-tier-empty", "暂无条目"));
+      row.append(label, items); groups.appendChild(row);
+    };
+    bands.forEach(([, tier, range]) => renderGroup(tier, range, projected.filter(row => row.tier === tier)));
+    const unrated = projected.filter(row => row.tier === "unrated");
+    if (unrated.length) renderGroup("unrated", "未分档", unrated);
+    if (!projected.length) groups.appendChild(node("p", "simc-benchmark-tier-status", "暂无有效结果"));
+    board.append(header, note, groups, detail);
+    return board;
+  }
+
   function isBaseline(candidate) {
     return candidate && (candidate.type === "base" || candidate.type === "baseline"
       || candidate.key === "base" || candidate.key === "baseline");
@@ -330,12 +443,25 @@
     return new Map(levels.map((level, index) => [level, palette[index % palette.length]]));
   }
 
-  function renderGearResultChart(candidates, baseline, scale) {
+  function renderGearResultChart(candidates, baseline, scale, { iconUrl = "", beforeDetails = [] } = {}) {
     const effectComparison = isEffectComparison(candidates);
     if (effectComparison || !scale) scale = gearChartScale(candidates);
     const groups = groupGearCandidates(candidates);
     const levelColors = buildItemLevelColorMap(groups);
     const chart = node("div", "simc-benchmark-gear-chart");
+    const targets = new Map();
+    chart.appendChild(renderTierOverview(groups.map(group => {
+      const value = effectComparison ? tierEffectGain(group.best) : tierDps(group.best);
+      const unavailable = effectComparison ? equipmentEffectUnavailable(group.best) : "暂无有效 DPS 结果";
+      return {
+        label: group.label, icon_url: group.icon_url || iconUrl, tooltip: group.tooltip,
+        value, metricKind: effectComparison ? "percent" : "dps",
+        metricLabel: effectComparison ? (group.best.comparison_kind === "conditional_increment" ? "条件增量" : "特效提升") : "DPS",
+        status: value === null ? [unavailable, group.best.effect_validation?.reason].filter(Boolean).join(" · ") : "",
+        onActivate: () => activateTierTarget(targets.get(group.key)),
+      };
+    }), { metricLabel: effectComparison ? "特效提升（含条件增量）" : "DPS" }));
+    chart.append(...beforeDetails);
     const legend = node("div", "simc-benchmark-gear-level-legend");
     legend.setAttribute("aria-label", "装等颜色图例");
     levelColors.forEach((color, level) => {
@@ -362,6 +488,7 @@
       const row = node("div", "simc-benchmark-gear-row");
       const identity = node("button", "simc-benchmark-gear-identity");
       identity.type = "button";
+      targets.set(group.key, identity);
       const ranked = !effectComparison || equipmentEffectGain(group.best) !== null;
       identity.setAttribute("aria-label", `${ranked ? `第 ${index + 1} 名` : "未参与特效排名"}，查看 ${group.label} 的装备说明`);
       if (group.tooltip) {
@@ -728,13 +855,15 @@
     const axisRootLow = Math.sign(lowest) * Math.sqrt(Math.abs(lowest));
     const axisRootSpan = Math.sign(highest) * Math.sqrt(Math.abs(highest)) - axisRootLow;
     [0, 25, 50, 75, 100].forEach((value) => axis.appendChild(node("span", "simc-benchmark-axis-label", effectComparison ? `${(Math.sign(axisRootLow + axisRootSpan * value / 100) * (axisRootLow + axisRootSpan * value / 100) ** 2).toFixed(2)}%` : `${value}%`)));
-    const chart = renderGearResultChart(candidates, baseline, scale);
     const range = node("div", "simc-benchmark-range-note", effectComparison
       ? "平方根刻度（非线性）· 按特效提升排名 · 对照为同装备同属性、仅关闭特效 · 每件装备展示特效提升最高的装等"
       : scale.range > 0
       ? `区间对比：${numberFormat.format(lowest)} DPS = 0%，${numberFormat.format(highest)} DPS = 100%`
       : "区间内结果相同");
-    caseNode.append(range, axis, chart); return caseNode;
+    const chart = renderGearResultChart(candidates, baseline, scale, {
+      iconUrl: coordinate?.spec_icon_url, beforeDetails: [range, axis],
+    });
+    caseNode.appendChild(chart); return caseNode;
   }
 
   function renderSpecComparison(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {
@@ -788,6 +917,7 @@
       });
       const highest = projected.reduce((value, row) => Math.max(value, row.dps || 0), 0);
       const chart = node("div", "simc-benchmark-spec-chart");
+      const tierEntries = [];
       projected.forEach((entry, index) => {
         const coordinate = entry.coordinate;
         const row = node("div", "simc-benchmark-spec-row");
@@ -834,8 +964,21 @@
         });
         toggle.append(identity, track, metrics);
         row.append(toggle, profileDetails); chart.appendChild(row);
+        const baseline = (coordinate?.candidates || []).find(isBaseline);
+        if (String(coordinate?.scenario_key || "") === select.value) tierEntries.push({
+          label: coordinate?.labels?.spec || coordinate?.spec_key || "未知专精",
+          icon_url: coordinate?.spec_icon_url, value: tierDps(baseline, false),
+          metricLabel: "DPS",
+          onActivate: () => activateTierTarget(toggle, () => {
+            profileDetails.open = true;
+            toggle.setAttribute("aria-expanded", "true");
+            row.classList.add("is-expanded");
+          }),
+        });
       });
-      result.replaceChildren(projected.length ? chart : state("该场景暂无职业专精结果", "empty"));
+      result.replaceChildren(...(projected.length
+        ? [renderTierOverview(tierEntries), chart]
+        : [state("该场景暂无职业专精结果", "empty")]));
     };
     renderRows(rows);
     syncUrl();
@@ -871,6 +1014,7 @@
     const coordinates = Array.isArray(payload?.results?.coordinates)
       ? payload.results.coordinates : [];
     const rows = sourceRows.slice().sort((left, right) => Number(right?.gain_percent || 0) - Number(left?.gain_percent || 0));
+    const tierScenario = String(sourceRows[0]?.scenario_key || "");
     const coordinateFor = (entry) => coordinates.find((coordinate) => (
       String(coordinate?.spec_key || "") === String(entry?.spec_key || "")
       && String(coordinate?.profile_key || "") === String(entry?.profile_key || "")
@@ -892,6 +1036,7 @@
       return Math.max(value, Number.isFinite(gainPercent) ? Math.abs(gainPercent) : 0);
     }, 0);
     const chart = node("div", "simc-benchmark-spec-chart simc-benchmark-gain-chart");
+    const tierEntries = [];
     rows.forEach((entry, index) => {
       const gainDps = Number(entry?.gain_dps);
       const gainPercent = Number(entry?.gain_percent);
@@ -945,8 +1090,23 @@
         content.setAttribute("aria-expanded", String(expanded));
       });
       row.append(content, profileDetails); chart.appendChild(row);
+      const rawGain = tierNumber(entry?.gain_percent);
+      const rawBaseline = tierNumber(entry?.baseline_dps);
+      const rawComparison = tierNumber(entry?.comparison_dps ?? entry?.enabled_dps);
+      const tierGain = rawBaseline !== null && rawBaseline > 0 && rawComparison !== null && rawComparison >= 0 ? rawGain : null;
+      if (String(entry?.scenario_key || "") === tierScenario) tierEntries.push({
+        label: entry?.spec_label || entry?.spec_key || "未知专精",
+        icon_url: entry?.spec_icon_url || coordinate?.spec_icon_url, value: tierGain,
+        metricKind: "percent", metricLabel: `${optionLabel}提升`,
+        status: tierGain === null ? "暂无有效收益或基准对照" : "",
+        onActivate: () => activateTierTarget(content, () => {
+          profileDetails.open = true;
+          content.setAttribute("aria-expanded", "true");
+          row.classList.add("is-expanded");
+        }),
+      });
     });
-    shell.body.replaceChildren(intro, chart);
+    shell.body.replaceChildren(intro, renderTierOverview(tierEntries, { metricLabel: `${optionLabel}提升百分比` }), chart);
   }
 
   function renderOptionGainByScenario(shell, payload, { syncLocation = false, detailUrl = "" } = {}) {

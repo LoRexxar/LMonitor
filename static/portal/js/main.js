@@ -783,6 +783,7 @@ function renderDailyReportCard() {
   const reportDate = escapeHtml(report.report_date || "");
   const generatedAt = escapeHtml(report.generated_at || report.updated_at || "");
   const url = escapeHtml(sanitizeHref(report.url) || report.url || "#");
+  const currentUrl = escapeHtml(sanitizeHref(report.current_url) || sanitizeHref(report.url) || "#");
   const metaParts = [];
   if (reportDate) metaParts.push(`<span>${reportDate}</span>`);
   if (sectionCount) metaParts.push(`<span>${sectionCount} 个板块</span>`);
@@ -797,7 +798,7 @@ function renderDailyReportCard() {
       ${sectionBadges ? `<div class="portal-daily-report-sections">${sectionBadges}</div>` : ""}
     </div>
     <div class="portal-daily-report-actions">
-      <a class="portal-daily-report-open" href="${url}" target="_blank" rel="noreferrer">打开日报</a>
+      <a class="portal-daily-report-open" href="${currentUrl}" target="_blank" rel="noreferrer">当日日报</a>
     </div>
   </article>`;
 }

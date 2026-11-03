@@ -59,9 +59,10 @@ class ObservationBadgeTests(TestCase):
                 patch('requests.sessions.Session.request', side_effect=AssertionError('禁止联网')), \
                 CaptureQueriesContext(connection) as queries:
             result = public_badge_players(self.players * 20, self.player.class_name, self.player.spec_name)
-        # Two bounded metadata SELECTs check all frozen roster/history references;
-        # no per-player hydration or evidence rebuild is permitted.
-        self.assertLessEqual(len(queries), 5)
+        # Two bounded privacy metadata SELECTs plus one independent character
+        # label/editorial metadata SELECT; still constant for the whole batch.
+        self.assertLessEqual(len(queries), 6)
+        self.assertEqual(sum(' AS "raid_state"' in q['sql'] for q in queries), 1)
         self.assertTrue(all(q['sql'].lstrip().upper().startswith('SELECT') for q in queries))
         # SQL may extract frozen label metadata, but never SELECT the evidence document.
         import re

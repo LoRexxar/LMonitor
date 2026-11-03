@@ -5,6 +5,8 @@ from pathlib import Path, PurePosixPath
 
 from django.conf import settings
 from django.views import View
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
 from django.shortcuts import render
 from django.http import HttpResponse, JsonResponse
 
@@ -118,6 +120,35 @@ class PortalArticleView(View):
         except Exception:
             return HttpResponse('Not Found', status=404)
         return render(request, 'portal/article.html', {'article_id': article_id})
+
+
+class PortalCurrentDailyReportView(View):
+    """A stable entry for today's publication, never a history selector."""
+
+    @method_decorator(never_cache)
+    def dispatch(self, request, *args, **kwargs):
+        return super().dispatch(request, *args, **kwargs)
+
+    def get(self, request):
+        from django.utils import timezone
+        from botend.services.wow_daily_report_publication import current_daily_report
+        from botend.wow_daily_report.site_sections import REPORT_ZONE
+        day = timezone.localdate(timezone=REPORT_ZONE)
+        row = current_daily_report(day)
+        if row is None:
+            return render(request, 'portal/daily_report_pending.html', {'publication_date': day})
+        try:
+            path = _resolve_portal_report_html_path(row.md_path)
+            if path is None:
+                raise FileNotFoundError
+            content = path.read_text(encoding='utf-8')
+        except (OSError, UnicodeError, ValueError, RuntimeError):
+            return render(request, 'portal/daily_report_pending.html',
+                          {'publication_date': day, 'unavailable': True}, status=503)
+        response = HttpResponse(content, content_type='text/html; charset=utf-8')
+        response['X-Daily-Report-ID'] = str(row.pk)
+        response['X-Daily-Report-Date'] = row.report_date.isoformat()
+        return response
 
 
 class PortalReportFileView(View):

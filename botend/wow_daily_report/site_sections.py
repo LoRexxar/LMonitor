@@ -43,7 +43,7 @@ def collect_today_section(day):
         for card in section.get('modules', []):
             if card.get('key') in EXCLUDED_DAILY_ROTATION_CARD_KEYS:
                 continue
-            facts = []
+            facts, lines = [], []
             for item in card.get('items', []):
                 name = str(item.get('name') or '').strip()
                 if card.get('key') == 'holiday' and name.casefold() in ('暗月马戏团', 'darkmoon faire'):
@@ -57,9 +57,12 @@ def collect_today_section(day):
                 text = ' · '.join(parts)
                 if text:
                     facts.append(text)
+                    lines.append({'text': text, 'icon_url': item.get('icon_url') or '',
+                                  'url': item.get('url') or ''})
             if facts:
                 result['items'].append({'title': card.get('name') or section.get('name'),
-                    'url': card.get('url') or snapshot.source_url, 'facts': facts,
+                    'url': card.get('url') or snapshot.source_url, 'facts': facts, 'lines': lines,
+                    'icon_url': card.get('icon_url') or '',
                     'source': section.get('name') or 'Today in WoW',
                     'reference': {'kind': 'wow_today_snapshot', 'id': snapshot.pk, 'card_key': card.get('key')}})
     return result

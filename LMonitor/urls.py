@@ -67,7 +67,7 @@ from botend.dashboard.user_management import (
 from botend.portal.views import PortalHomeView, PortalSimcBenchmarkResultsView
 from botend.portal.views import PortalArticleView, PortalMplusDpsRankingsView, PortalNewsView, PortalSpecsView
 from botend.portal.views import PortalReportFileView, PortalWowHotfixReportView, PortalWowHotfixClassReportView, PortalWowHotfixClassMetadataAPIView, PortalWowSkillDiffReportView, PortalWowSkillDiffMetadataAPIView
-from botend.portal.views import PortalWowUpdatesView
+from botend.portal.views import PortalWowUpdatesView, PortalCurrentDailyReportView
 from botend.portal.nga_views import PortalNgaView, PortalNgaDetailView
 from botend.portal.raid_burst import PortalRaidBurstView
 from botend.portal.character_navigation import character_redirect
@@ -291,6 +291,7 @@ urlpatterns = [
     path('portal/api/mythic-planner/share-links/', MythicPlannerRouteShareAPIView.as_view(), name='mythic_planner_route_share_create'),
     path('portal/api/mythic-planner/share-links/<slug:share_token>/', MythicPlannerRouteShareAPIView.as_view(), name='mythic_planner_route_share_detail'),
     path('portal/api/mythic-planner/shared/<uuid:share_id>/', MythicPlannerSharedRouteAPIView.as_view(), name='mythic_planner_shared_route'),
+    path('portal/daily-report/', PortalCurrentDailyReportView.as_view(), name='portal_daily_report_current'),
     path('portal/reports/<path:report_path>', PortalReportFileView.as_view(), name="portal_report_file"),
     path('portal/wow-hotfix-report/<int:report_id>/', PortalWowHotfixReportView.as_view(), name="portal_wow_hotfix_report"),
     path('portal/wow-hotfix-class/<int:report_id>/', PortalWowHotfixClassReportView.as_view(), name="portal_wow_hotfix_class_report"),

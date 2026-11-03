@@ -14,4 +14,8 @@ test('daily homepage exposes all sources without mixing news/cards/regions into 
   assert.ok(card.innerHTML.includes('7 个板块'));
   assert.ok(!card.innerHTML.includes('条汇总'));
   assert.ok(card.innerHTML.includes('最新日报'));
+  vm.runInContext(`PORTAL_STATE.dailyReport=${JSON.stringify({title:'日报',url:'/portal/reports/daily.html?v=123',current_url:'/portal/daily-report/',sections})};renderDailyReportCard();`, context);
+  assert.ok(card.innerHTML.includes('class="portal-daily-report-open" href="/portal/daily-report/"'));
+  assert.ok(card.innerHTML.includes('class="portal-daily-report-title" href="/portal/reports/daily.html?v=123"'));
+  assert.ok(card.innerHTML.includes('>当日日报</a>'));
 });

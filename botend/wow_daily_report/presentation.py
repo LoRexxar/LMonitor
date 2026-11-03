@@ -28,9 +28,6 @@ _DEFAULT_TITLES = {
     'videos': '当前更新的 WoW 视频列表', 'cutoffs': '大秘境分数线汇总',
     'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修',
 }
-# Existing core modules retain their useful empty states. Optional/new sources
-# appear only with records, never because a stale summary or notice exists.
-_CORE_SECTIONS = frozenset({'news', 'nga', 'cutoffs'})
 _BEIJING = ZoneInfo('Asia/Shanghai')
 
 
@@ -86,7 +83,7 @@ def _source_metadata(record: Mapping[str, Any]) -> str:
     if region:
         meta.append(f'<span class="source-region">地区：{_escape(region)}</span>')
     source_time = _time_text(record.get('source_time'))
-    if source_time:
+    if source_time and source_time not in notice:
         meta.append(f'<span class="source-time">来源时间：{_escape(source_time)}</span>')
     href = _source_href(record.get('source_url'))
     if href:
@@ -123,49 +120,56 @@ def _generic_items(items: Sequence[Any]) -> str:
 
 
 _CSS = """
-:root{color-scheme:light;--paper:var(--portal-bg,#f7f8fa);--panel:var(--portal-panel,#fff);--ink:var(--portal-text,#172e47);--muted:var(--portal-muted,#607185);--gold:#92651c;--tint:#fbf7ec;--line:#dde3e9;--link:#205a88}
+:root{color-scheme:light;--paper:var(--portal-bg,#f7f8fa);--panel:var(--portal-panel,#fff);--ink:var(--portal-text,#172e47);--muted:var(--portal-muted,#607185);--gold:#92651c;--tint:#fbf7ec;--line:#dde3e9;--link:#205a88;--blue-tint:#f0f5fa}
 *,:before,:after{box-sizing:border-box}
-html{scroll-padding-top:18px}
+html{scroll-padding-top:20px}
 body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.8 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;overflow-wrap:anywhere}
 a{color:var(--link);text-underline-offset:3px;text-decoration-thickness:1px}
 a:hover{text-decoration:underline}
 a:focus-visible{outline:2px solid var(--gold);outline-offset:4px}
-.daily-report{width:100%;max-width:1180px;margin:0 auto;padding:36px 28px 60px}
+.daily-report{width:100%;max-width:1160px;margin:0 auto;padding:32px 28px 40px}
 .daily-report *{min-width:0}
 .skip-link{position:absolute;left:12px;top:0;transform:translateY(-150%);padding:8px 14px;background:var(--panel);z-index:2}
 .skip-link:focus{transform:translateY(0)}
-.daily-hero{padding:0 0 23px;border-top:4px solid var(--ink);border-bottom:1px solid var(--line)}
-.edition-kicker{margin:16px 0 4px;color:var(--gold);font-size:12px;font-weight:700;letter-spacing:.16em}
-.daily-hero h1{margin:0;font-size:clamp(29px,4vw,40px);font-weight:750;letter-spacing:.04em;line-height:1.35}
-.edition-date{margin:9px 0 3px;font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}
-.edition-meta{margin:0;color:var(--muted);font-size:13px}
-.edition-overview{margin:22px 0 0;padding:17px 20px;border:1px solid var(--line);border-radius:8px;background:var(--panel)}
-.edition-overview h2{margin:0 0 9px;font-size:14px;font-weight:700;color:var(--muted)}
-.overview-list{display:flex;flex-wrap:wrap;gap:8px 26px;margin:0;padding:0;list-style:none}
-.overview-list li{display:flex;align-items:baseline;gap:9px;font-size:14px}
-.overview-count{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ink)}
-.overview-unit{color:var(--muted);font-size:12px;margin-left:-5px}
-.daily-nav{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 18px;margin:18px 0 26px;padding:0 0 14px;border-bottom:1px solid var(--line);font-size:14px}
-.daily-nav .nav-label{color:var(--muted);font-size:12px}
-.daily-nav a{white-space:nowrap;text-decoration:none}
-.daily-section{margin:0 0 32px;padding:24px 26px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
-.section-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 14px;border-bottom:1px solid var(--line);padding-bottom:13px;margin-bottom:18px}
-.section-heading h2{margin:0;font-size:23px;line-height:1.5;scroll-margin-top:18px;color:var(--ink)}
+.daily-hero{position:relative;display:flex;align-items:flex-end;justify-content:space-between;gap:16px;padding:17px 0 20px;border-top:2px solid var(--ink);border-bottom:1px solid var(--line)}
+.daily-hero:before{content:"";position:absolute;top:-2px;left:0;width:56px;height:2px;background:var(--gold)}
+.edition-kicker{margin:0 0 5px;color:var(--gold);font-size:11px;font-weight:700;letter-spacing:.14em}
+.daily-hero h1{margin:0;font-size:34px;font-weight:750;letter-spacing:.025em;line-height:1.3}
+.edition-date{margin:0 0 2px;text-align:right;font-size:20px;font-weight:650;line-height:1.5;font-variant-numeric:tabular-nums;white-space:nowrap}
+.edition-date-label{display:block;text-align:right;color:var(--muted);font-size:11px;font-weight:400;letter-spacing:.12em}
+.edition-overview{display:flex;align-items:center;gap:24px;margin:0 0 28px;padding:17px 0;border-bottom:1px solid var(--line)}
+.edition-overview h2{flex:none;margin:0;color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.08em}
+.daily-nav{flex:1}
+.overview-list{display:flex;flex-wrap:wrap;gap:8px 30px;margin:0;padding:0;list-style:none}
+.overview-list li{display:flex;align-items:baseline;gap:7px;font-size:14px}
+.daily-nav a{white-space:nowrap;text-decoration:none;font-weight:600}
+.daily-nav a:hover{text-decoration:underline}
+.overview-count{font-size:18px;font-weight:650;font-variant-numeric:tabular-nums;color:var(--ink)}
+.overview-unit{color:var(--muted);font-size:11px;margin-left:-3px}
+.daily-section{margin:0 0 32px;scroll-margin-top:20px}
+.section-heading{display:flex;align-items:baseline;flex-wrap:wrap;gap:6px 12px;border-bottom:1px solid var(--line);padding:0 0 10px;margin-bottom:14px}
+.section-heading h2{position:relative;margin:0;padding-left:13px;font-size:22px;font-weight:700;line-height:1.5;scroll-margin-top:20px;color:var(--ink)}
+.section-heading h2:before{content:"";position:absolute;left:0;top:.3em;width:3px;height:.9em;border-radius:2px;background:var(--gold)}
 .section-count{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums}
-.section-summary{margin:0 0 19px;border-left:3px solid var(--gold);padding:10px 15px;background:var(--tint);white-space:pre-wrap}
-.section-notice{margin:10px 0;color:var(--muted);font-size:14px;white-space:pre-wrap}
-.source-meta,.meta{display:flex;flex-wrap:wrap;gap:4px 16px;margin:8px 0 14px;color:var(--muted);font-size:13px}
-.source-link{font-size:13px}
-.article-list{display:grid;grid-template-columns:minmax(0,1fr);gap:26px}
-.daily-card{max-width:100%;padding:0 0 24px;border-bottom:1px solid var(--line)}
+.section-summary{margin:0 0 16px;border-left:2px solid var(--gold);padding:10px 14px;background:var(--tint);white-space:pre-wrap;font-size:14px}
+.section-notice{margin:0 0 12px;padding:7px 11px;border-left:2px solid #d6bd86;background:var(--tint);color:var(--muted);font-size:12px;line-height:1.75;white-space:pre-wrap}
+.source-meta,.meta{display:flex;flex-wrap:wrap;gap:3px 14px;margin:7px 0 12px;color:var(--muted);font-size:12px;line-height:1.7}
+.source-link{font-size:12px}
+.article-list{display:grid;grid-template-columns:minmax(0,1fr);gap:20px}
+.daily-card{max-width:100%;padding:0 0 20px;border-bottom:1px solid var(--line)}
 .daily-card:last-child{padding-bottom:0;border-bottom:0}
-.daily-card h3{margin:0 0 8px;font-size:20px;line-height:1.6}
+.daily-card h3{margin:0 0 8px;font-size:21px;line-height:1.6}
 .daily-card h3 a{text-decoration:none;color:var(--ink)}
-.original-link{display:inline-block;margin:2px 0 12px;font-size:13px}
-.item-summary{margin:10px 0 16px;padding:10px 14px;background:var(--tint);border-left:2px solid var(--gold)}
-.original-label{margin:18px 0 7px;font-size:12px;color:var(--muted)}
+.daily-card h3 a:hover{color:var(--link);text-decoration:underline}
+.daily-news .daily-card,.daily-nga .daily-card{padding:26px 30px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.daily-news .article-list,.daily-nga .article-list{gap:24px}
+.daily-news .section-body,.daily-nga .section-body{max-width:960px;margin:0 auto}
+.original-link{display:inline-block;margin:0 14px 10px 0;font-size:12px}
+.item-summary{margin:10px 0 16px;padding:10px 14px;background:var(--tint);border-left:2px solid var(--gold);font-size:14px}
+.original-label{margin:18px 0 7px;font-size:11px;color:var(--muted);letter-spacing:.08em}
 .body-html,.body-text{max-width:100%;margin:8px 0 0;line-height:1.9}
 .body-text{white-space:pre-wrap}
+.nga-plain-text{white-space:pre-wrap}
 .body-html p{margin:12px 0}
 .body-html :is(h1,h2,h3,h4,h5,h6){margin:24px 0 10px;line-height:1.6}
 .body-html :is(ul,ol){padding-left:1.5em;margin:12px 0}
@@ -179,17 +183,42 @@ img,video{height:auto}
 pre{display:block;max-width:100%;overflow-x:auto;padding:12px;background:var(--paper);white-space:pre;overflow-wrap:normal}
 code{font-size:.9em;overflow-wrap:anywhere}
 pre code{overflow-wrap:normal}
-table{display:block;width:100%!important;max-width:100%;min-width:0!important;overflow-x:auto;border-collapse:collapse;margin:16px 0;font-size:14px;overscroll-behavior-x:contain}
+table{display:block;width:100%!important;max-width:100%;min-width:0!important;overflow-x:auto;border-collapse:collapse;margin:16px 0;font-size:14px;overscroll-behavior-x:contain;background:var(--panel)}
 caption{text-align:left;color:var(--muted)}
 .daily-report :is(th,td){text-align:left;padding:10px 13px;border:1px solid var(--line);vertical-align:top;min-width:5.5em}
-th{background:var(--paper);font-weight:650}
+th{background:var(--blue-tint);font-weight:650}
 .delta{font-weight:700;color:var(--gold)}
 .video-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:24px}
 .video-card img{width:100%;aspect-ratio:16/9;object-fit:cover}
+.daily-events .site-context-list{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.daily-today .site-context-list{grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.daily-events .site-context-card,.daily-today .site-context-card{padding:16px 18px;border:1px solid var(--line);border-radius:7px;background:var(--panel)}
+.daily-today .site-context-card{background:var(--blue-tint);border-color:#dfe7ef}
+.site-context-card h3{margin:0;font-size:17px;line-height:1.5}
+.site-context-card .meta{margin:5px 0 9px;font-size:11px;line-height:1.6}
+.site-context-card ul{list-style:none;margin:8px 0 0;padding:0;font-size:14px;line-height:1.75}
+.site-context-card li{padding:5px 0;border-bottom:1px solid #e0e7ed}
+.site-context-card li:last-child{border-bottom:0;padding-bottom:0}
+.context-heading{display:flex;align-items:center;gap:10px;margin:0 0 9px}
+.context-icon{flex:none;display:block;width:34px;height:34px;object-fit:cover;border-radius:5px;box-shadow:0 0 0 1px #172e4714}
+.context-heading h3{flex:1}
+.context-status{flex:none;display:inline-block;padding:1px 8px;border-radius:4px;background:#e9f2ed;color:#39634e;font-size:11px;font-weight:600}
+.context-facts li{display:flex;align-items:flex-start;gap:8px}
+.context-facts li>span{flex:1}
+.context-fact-icon{flex:none;display:block;width:20px;height:20px;margin-top:2px;object-fit:cover;border-radius:3px}
+.daily-events .context-facts{font-size:13px}
+.daily-events .context-facts li{padding:3px 0;border-bottom:0}
+.daily-events .context-time{color:var(--muted);font-size:12px}
+.daily-cutoffs .section-body>table{margin:0}
 .empty{color:var(--muted);margin:0}
-.edition-footer{border-top:1px solid var(--line);padding-top:16px;color:var(--muted);font-size:12px}
-@media(max-width:600px){body{font-size:16px}.daily-report{padding:20px 14px 36px}.daily-hero h1{font-size:29px}.edition-date{font-size:18px}.edition-overview{padding:13px 15px}.overview-list{gap:5px 18px}.overview-list li{font-size:13px}.daily-nav{gap:8px 16px;margin:16px 0 21px}.daily-section{padding:18px 15px;margin-bottom:22px}.section-heading h2{font-size:21px}.daily-card h3{font-size:18px}.video-grid{grid-template-columns:minmax(0,1fr)}th,td{padding:9px 11px}.body-html blockquote{padding:9px 12px}}
-@media print{body{background:#fff}.daily-report{max-width:none;padding:0}.daily-nav,.skip-link{display:none}.daily-section{border:0;padding:16px 0}.daily-card{break-inside:auto}}
+.edition-empty{padding:40px 20px;margin:28px 0;text-align:center;background:var(--panel);border:1px dashed var(--line);border-radius:8px}
+.edition-footer{border-top:1px solid var(--line);padding-top:14px;color:var(--muted);font-size:11px;line-height:1.8}
+.edition-footer p{margin:0 0 3px}
+.edition-meta{color:var(--muted);font-size:11px}
+@media(min-width:900px){.daily-cutoffs .section-body>table{display:table}}
+@media(max-width:760px){.daily-report{padding:20px 20px 32px}.daily-today .site-context-list{grid-template-columns:minmax(0,1fr)}.overview-list{gap:6px 22px}.edition-overview{gap:16px}.edition-overview h2{position:absolute;width:1px;height:1px;padding:0;margin:-1px;clip-path:inset(50%);white-space:nowrap}.daily-news .daily-card,.daily-nga .daily-card{padding:20px}}
+@media(max-width:600px){.daily-report{padding:16px 16px 30px}.daily-hero{gap:10px;padding:13px 0 15px}.daily-hero h1{font-size:27px;letter-spacing:0}.edition-kicker{font-size:9px;letter-spacing:.1em;margin-bottom:4px}.edition-date{font-size:14px;margin-bottom:1px}.edition-date-label{font-size:10px;letter-spacing:.04em}.edition-overview{padding:12px 0;margin-bottom:22px}.overview-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px 12px}.overview-list li{gap:6px;font-size:13px}.overview-count{font-size:16px}.overview-unit{font-size:10px}.daily-section{margin-bottom:26px}.section-heading{padding-bottom:9px;margin-bottom:11px;gap:5px 10px}.section-heading h2{font-size:20px;padding-left:11px}.section-count{font-size:11px}.daily-events .site-context-list{grid-template-columns:minmax(0,1fr);gap:10px}.daily-events .site-context-card,.daily-today .site-context-card{padding:13px 15px}.daily-card h3{font-size:19px}.site-context-card h3{font-size:17px}.daily-news .daily-card,.daily-nga .daily-card{padding:18px 16px}.video-grid{grid-template-columns:minmax(0,1fr)}.daily-report :is(th,td){padding:9px 11px}.body-html blockquote{padding:9px 12px}.section-notice{padding:7px 10px}}
+@media print{body{background:#fff}.daily-report{max-width:none;padding:0}.edition-overview,.skip-link{display:none}.daily-section{padding:16px 0}.daily-news .daily-card,.daily-nga .daily-card{border:0;padding:12px 0}.daily-card{break-inside:auto}}
 """
 
 
@@ -211,7 +240,7 @@ def render_daily_document(
     stable occurrence suffix. No database, network or model calls occur here.
     """
     date_text = report_date.isoformat() if isinstance(report_date, dt.date) else _text(report_date)
-    output, navigation, overview = [], [], []
+    output, overview = [], []
     seen: dict[str, int] = {}
     used_anchors: set[str] = set()
     for section in sections:
@@ -219,7 +248,7 @@ def render_daily_document(
         items = section.get('items')
         if not isinstance(items, (list, tuple)):
             items = []
-        if not items and key not in _CORE_SECTIONS:
+        if not items:
             continue
         slug = key if re.fullmatch(r'[a-z][a-z0-9_-]*', key) else 'source-' + hashlib.sha256(key.encode()).hexdigest()[:12]
         base_anchor = f'section-{slug}'
@@ -234,9 +263,8 @@ def render_daily_document(
         count = len(items)
         unit = {'news': '条新闻', 'nga': '个话题', 'videos': '个视频', 'cutoffs': '个地区',
                 'today': '张卡片', 'events': '项活动', 'updates': '份报告'}.get(key, '项')
-        navigation.append(f'<a href="#{anchor}">{short_name}</a>')
         overview.append(
-            f'<li data-section="{_escape(key)}"><span>{short_name}</span>'
+            f'<li data-section="{_escape(key)}"><a href="#{anchor}">{short_name}</a>'
             f'<strong class="overview-count">{count}</strong><span class="overview-unit">{unit}</span></li>'
         )
         summary = _text(section.get('summary')) if key != 'cutoffs' else ''
@@ -252,24 +280,22 @@ def render_daily_document(
         )
     overview_html = (
         '<aside class="edition-overview" aria-labelledby="overview-title">'
-        '<h2 id="overview-title">本期速览</h2><ul class="overview-list">'
-        + ''.join(overview) + '</ul></aside>'
+        '<h2 id="overview-title">本期导读</h2><nav class="daily-nav" aria-label="本期目录">'
+        '<ul class="overview-list">' + ''.join(overview) + '</ul></nav></aside>'
     ) if overview else ''
-    nav_html = (
-        '<nav class="daily-nav" aria-label="本期目录"><span class="nav-label">直达</span>'
-        + ''.join(navigation) + '</nav>'
-    ) if navigation else ''
+    content_html = '\n'.join(output) if output else '<p class="empty edition-empty">本期暂无收录内容，稍后再来看看。</p>'
     return (
         '<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f'<title>魔兽世界日报 - {_escape(date_text)}</title>\n<style>{_CSS}</style>\n</head>\n<body>\n'
         '<a class="skip-link" href="#edition-content">跳到本期正文</a>\n'
         '<main class="daily-report">\n<header class="daily-hero">'
-        '<p class="edition-kicker">WOW DAILY · 每日读本</p><h1>魔兽世界日报</h1>'
-        f'<p class="edition-date">{_escape(date_text)}</p>'
-        f'<p class="edition-meta">北京时间（UTC+8） · 生成于 {_escape(_time_text(generated_at))}</p>'
-        '</header>\n' + overview_html + '\n' + nav_html + '\n'
-        + '<div id="edition-content">\n' + '\n'.join(output) + '\n</div>\n'
-        + '<footer class="edition-footer">来源时间与适用地区以各模块标注为准；速览数量为本期收录记录数。</footer>\n'
+        '<div class="edition-title"><p class="edition-kicker">WOW DAILY · 每日读本</p><h1>魔兽世界日报</h1></div>'
+        f'<div class="edition-dateline"><span class="edition-date-label">本期日期</span><p class="edition-date">{_escape(date_text)}</p></div>'
+        '</header>\n' + overview_html + '\n'
+        + '<div id="edition-content">\n' + content_html + '\n</div>\n'
+        + '<footer class="edition-footer">'
+        f'<p class="edition-meta">北京时间（CST / UTC+8） · 生成于 {_escape(_time_text(generated_at))}</p>'
+        '<p>来源时间与适用地区以各模块标注为准；导读数量为本期收录记录数。</p></footer>\n'
         + '</main>\n</body>\n</html>\n'
     )

@@ -15,6 +15,7 @@ from botend.models import SeasonMeta, SpecDungeonRanking, SpecRaidRanking, Monit
 from botend.constants.wow import CLASS_SPEC_MAP
 from botend.services.wcl_storage_guard import WCLStorageError, check_wcl_storage
 from botend.services.wcl_ranking_payload import compact_ranking_talents
+from botend.services.wcl_ranking_time import parse_ranking_fight_started_at
 from botend.services.wcl_collection_cycle import (
     CycleOwnershipLost, begin_collection, checkpoint_scope, defer_cycle,
     fenced_cycle, finish_collection, freeze_samples, frozen_combatant_records,
@@ -32,6 +33,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         'dungeon_name', 'dps', 'keystone_level', 'clear_time', 'score', 'medal',
         'affixes', 'talents_json', 'talent_build_code', 'gear_json', 'faction',
         'guild_name',
+        'fight_started_at',
     )
     RAID_KEY_FIELDS = (
         'class_name', 'spec_name', 'character_name', 'realm', 'region',
@@ -148,7 +150,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
         if cycle:
             with fenced_cycle(cycle, phases=('rankings',)):
                 cached = load_work(cycle.season_id, scope, fingerprint)
-            if cached is not None:
+            if cached is not None and self._valid_ranking_page(cached):
                 return cached
         for attempt in range(max_retries):
             check_wcl_storage()
@@ -182,6 +184,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
             return False
         for row in payload['rankings']:
             if not isinstance(row, dict):
+                return False
+            try:
+                parse_ranking_fight_started_at(row)
+            except ValueError:
                 return False
             if any(row.get(key) is not None and not isinstance(row[key], dict)
                    for key in ('server', 'report', 'guild')):
@@ -309,6 +315,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     guild_name=guild.get('name', ''),
                                     report_code=report.get('code', ''),
                                     fight_id=report.get('fightID'),
+                                    fight_started_at=parse_ranking_fight_started_at(r),
                                     last_updated=now,
                                 ))
                                 collected += 1
@@ -629,6 +636,11 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                         raise ValueError(f'Invalid numeric ranking field: {name}')
                     values[name] = value
                 existing = existing_batch.get(existing_map.get(key))
+                if (existing is not None and 'fight_started_at' in values
+                        and values['fight_started_at'] is None):
+                    # The business key includes the exact report/fight. A later
+                    # missing field cannot erase that same log's known date.
+                    values['fight_started_at'] = existing.fight_started_at
                 if existing is None:
                     created = copy(incoming)
                     for name, value in values.items():

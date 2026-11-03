@@ -2932,6 +2932,7 @@ class SpecDungeonRanking(models.Model):
     guild_name = models.CharField("公会", max_length=100, null=True, blank=True, help_text="公会名")
     report_code = models.CharField("WCL报告码", max_length=50, null=True, blank=True, help_text="WCL report code")
     fight_id = models.IntegerField("FightID", null=True, blank=True, help_text="WCL fight ID")
+    fight_started_at = models.DateTimeField("战斗开始时间", null=True, blank=True, help_text="WCL ranking.startTime，真实开打时刻；未知留空")
     last_updated = models.DateTimeField("更新时间", null=True, blank=True, help_text="数据更新时间")
 
     class Meta:

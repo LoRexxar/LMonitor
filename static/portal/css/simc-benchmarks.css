@@ -364,7 +364,71 @@
 .simc-benchmark-gain-value { color: #15803d; }
 .simc-benchmark-gain-value--negative { color: #b91c1c; }
 
+/* Share the DPS leaderboard's tier layout; only adapt simulation identities. */
+.simc-benchmark-tier-board { box-sizing: border-box; max-width: 100%; }
+.simc-benchmark-tier-board .mplus-rank-tier-heading { flex-wrap: wrap; gap: 0.5rem; }
+.simc-benchmark-tier-board .mplus-rank-tier-items {
+    grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
+}
+.simc-benchmark-tier-item {
+    appearance: none;
+    cursor: pointer;
+    font-family: inherit;
+    text-align: left;
+    width: 100%;
+}
+.simc-benchmark-tier-item:focus-visible { outline: 2px solid #6366f1; outline-offset: 2px; }
+.simc-benchmark-tier-item .mplus-rank-tier-identity { flex: 1; }
+.simc-benchmark-tier-name { max-width: 100%; }
+.simc-benchmark-tier-detail,
+.simc-benchmark-tier-status { color: #64748b; font-size: 0.68rem; line-height: 1.5; overflow-wrap: anywhere; }
+.simc-benchmark-tier-detail { margin-top: 0.5rem; min-height: 1.5em; }
+.simc-benchmark-tier-placeholder[hidden] { display: none; }
+.simc-benchmark-tier-item .mplus-rank-tier-dps {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.simc-benchmark-tier-note,
+.simc-benchmark-tier-count { color: #64748b; font-size: 0.68rem; line-height: 1.5; }
+.simc-benchmark-tier-note { margin: 0 0 0.5rem; }
+.simc-benchmark-tier-placeholder {
+    align-items: center;
+    background: #e2e8f0;
+    border-radius: 5px;
+    color: #64748b;
+    display: inline-flex;
+    flex: 0 0 32px;
+    font-size: 0.65rem;
+    height: 32px;
+    justify-content: center;
+    width: 32px;
+}
+.simc-benchmark-tier-board .mplus-rank-tier-group-unknown .mplus-rank-tier-letter {
+    font-size: 0.62rem;
+    white-space: nowrap;
+    width: auto;
+}
+html.portal-theme-dark .simc-benchmark-tier-detail,
+html.portal-theme-dark .simc-benchmark-tier-status,
+html.portal-theme-dark .simc-benchmark-tier-note,
+html.portal-theme-dark .simc-benchmark-tier-count { color: #a8b6cb; }
+html.portal-theme-dark .simc-benchmark-tier-placeholder { background: #334155; color: #cbd5e1; }
+
+@media (prefers-reduced-motion: reduce) {
+    .simc-benchmark-tier-item,
+    .simc-benchmark-tier-item:hover { transform: none; transition: none; }
+}
+
 @media (max-width: 640px) {
+    .simc-benchmark-tier-board { padding: 6px; }
+    .simc-benchmark-tier-board .mplus-rank-tier-group { grid-template-columns: 42px minmax(0, 1fr); }
+    .simc-benchmark-tier-board .mplus-rank-tier-items { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .simc-benchmark-tier-item { gap: 4px; padding: 5px 4px; }
+    .simc-benchmark-tier-item img,
+    .simc-benchmark-tier-placeholder { flex-basis: 24px; height: 24px; width: 24px; }
+    .simc-benchmark-tier-item .mplus-rank-tier-identity strong { font-size: 11px; }
+    .simc-benchmark-tier-item .mplus-rank-tier-dps { font-size: 10px; }
     .simc-benchmark-list-header { display: none; }
     .simc-benchmark-list-row {
         align-items: stretch;
