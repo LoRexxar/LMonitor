@@ -51,7 +51,7 @@ def validate_raw_catalog(data, source, revision, build, resolve_revision=None):
     not [] (classified empty), for its required old-rule display-only field.
     """
     if (not isinstance(data, dict) or type(data.get('raw_catalog_schema')) is not int
-            or data['raw_catalog_schema'] != 1 or data.get('catalog_kind') != 'raw_dbc_scope_evidence'
+            or data['raw_catalog_schema'] not in (1, 2) or data.get('catalog_kind') != 'raw_dbc_scope_evidence'
             or data.get('draft') is not True or data.get('review_status') != 'unreviewed'
             or data.get('compile_contract_allowed') is not False or data.get('normalized') is not False
             or data.get('ptr') is not False):
@@ -68,6 +68,20 @@ def validate_raw_catalog(data, source, revision, build, resolve_revision=None):
             for child in value:
                 reject_classification(child)
     reject_classification(data)
+    if data['raw_catalog_schema'] >= 2:
+        spells = data.get('spell_catalog')
+        if not isinstance(spells, list) or not spells or any(
+                not isinstance(row, dict) or type(row.get('spell_id')) is not int
+                or not isinstance(row.get('effects'), list) for row in spells):
+            raise ValueError('完整原始目录缺少全法术效果全集')
+        if len({row['spell_id'] for row in spells}) != len(spells):
+            raise ValueError('原始全法术目录存在重复身份')
+        racials = data.get('racial_catalog')
+        if not isinstance(racials, list) or not racials or any(
+                not isinstance(row, dict) or type(row.get('spell_id')) is not int
+                or row['spell_id'] <= 0 or type(row.get('mask_race')) is not int
+                or type(row.get('mask_class')) is not int for row in racials):
+            raise ValueError('完整原始目录缺少有效的种族能力全集')
     binary_revision = data.get('binary_revision')
     if (not isinstance(binary_revision, str) or not re.fullmatch(r'[0-9a-f]{7,40}', binary_revision)
             or data.get('simc_revision') != binary_revision
@@ -87,6 +101,9 @@ def validate_raw_catalog(data, source, revision, build, resolve_revision=None):
         if (not isinstance(row, dict) or not isinstance(row.get('effects'), list)
                 or not isinstance(row.get('dbc_scope_effects'), list)):
             raise ValueError('原始 DBC 天赋效果结构无效')
+        if data['raw_catalog_schema'] >= 2 and (not isinstance(row.get('starter_spec_ids'), list)
+                or any(type(spec) is not int or spec <= 0 for spec in row['starter_spec_ids'])):
+            raise ValueError('原始 DBC 目录缺少默认赠送专精关系')
     return {**data, 'simc_revision': revision, 'source_revision': revision,
             'revision_resolution': 'compiled_git_revision_resolved_in_source_repository',
             'legacy_classification': 'unavailable; null is not an empty reviewed set',

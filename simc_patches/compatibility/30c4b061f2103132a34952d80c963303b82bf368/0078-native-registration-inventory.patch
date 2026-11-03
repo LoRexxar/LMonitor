@@ -1,0 +1,221 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1347,11 +1347,29 @@
+   return result;
+ }
+ 
++const std::set<unsigned>& skill_damage_actor_racial_spells(const player_t& player)
++{
++  struct entry_t { size_t count=std::numeric_limits<size_t>::max(); std::set<unsigned> spells; };
++  static std::map<const player_t*,entry_t> cache;
++  auto& entry=cache[&player];
++  if(entry.count!=player.skill_damage_native_racial_spell_ids.size())
++  {
++    entry.count=player.skill_damage_native_racial_spell_ids.size();
++    entry.spells=skill_damage_all_racial_spells(*player.dbc);
++    for(auto id:player.skill_damage_native_racial_spell_ids)
++    {
++      const auto closure=skill_damage_trigger_closure(*player.dbc,id);
++      entry.spells.insert(closure.begin(),closure.end());
++    }
++  }
++  return entry.spells;
++}
++
+ const char* skill_damage_global_buff_basis( const player_t& player, const buff_t* buff, bool target )
+ {
+   if ( !buff || !buff->data().ok() || buff->source != &player ||
+        buff->player != ( target ? player.target : &player ) ) return nullptr;
+-  if(skill_damage_all_racial_spells(*player.dbc).count(buff->data().id())) return nullptr;
++  if(skill_damage_actor_racial_spells(player).count(buff->data().id())) return nullptr;
+   const int family = as<int>(buff->data().class_family());
+   if ( family && family != dbc::get_class_spell_family(player.type) ) return nullptr;
+   const auto* fact = skill_damage_reviewed_buff(buff->data().id());
+@@ -1665,10 +1683,10 @@
+     cached.target = player.target;
+     cached.buffs.clear();
+     for ( buff_t* buff : player.buff_list )
+-      if ( skill_damage_all_racial_spells(*player.dbc).count(buff->data().id()) || skill_damage_excluded_global_buff( player, buff, false ) ) cached.buffs.push_back( buff );
++      if ( skill_damage_actor_racial_spells(player).count(buff->data().id()) || skill_damage_excluded_global_buff( player, buff, false ) ) cached.buffs.push_back( buff );
+     if ( player.target )
+       for ( buff_t* buff : player.target->buff_list )
+-        if ( skill_damage_all_racial_spells(*player.dbc).count(buff->data().id()) || skill_damage_excluded_global_buff( player, buff, true ) ) cached.buffs.push_back( buff );
++        if ( skill_damage_actor_racial_spells(player).count(buff->data().id()) || skill_damage_excluded_global_buff( player, buff, true ) ) cached.buffs.push_back( buff );
+   }
+   return cached.buffs;
+ }
+@@ -1676,7 +1694,7 @@
+ void skill_damage_remove_global_talents( player_t* player )
+ {
+   if ( !player->is_player() ) return;
+-  for(auto id:skill_damage_all_racial_spells(*player->dbc))
++  for(auto id:skill_damage_actor_racial_spells(*player))
+     for(const auto& effect:spell_data_t::find(id,player->is_ptr())->effects())
+       if(effect.id()) player->exclude_skill_damage_effect(effect);
+   const auto family = dbc::get_class_spell_family(player->type);
+@@ -1751,7 +1769,14 @@
+     out << ",\"spec\":"; apl_metadata_json_string(out,util::specialization_string(owner->specialization()));
+     out << ",\"race\":"; apl_metadata_json_string(out,util::race_type_string(owner->race));
+     out << ",\"race_mask\":\""<<util::race_mask(owner->race)<<"\",\"class_mask\":"<<util::class_id_mask(owner->type);
+-    out << ",\"selected_trait_ids\":[";
++    out << ",\"native_passive_spell_ids\":[";
++    bool first_native_source=true;
++    for(auto id:owner->skill_damage_native_passive_spell_ids)
++    { if(!first_native_source) out<<','; first_native_source=false; out<<id; }
++    out << "],\"native_racial_spell_ids\":["; first_native_source=true;
++    for(auto id:owner->skill_damage_native_racial_spell_ids)
++    { if(!first_native_source) out<<','; first_native_source=false; out<<id; }
++    out << "],\"selected_trait_ids\":[";
+     bool fs = true;
+     for ( const auto& t : owner->player_traits ) { if (!fs) out << ','; fs=false; out << std::get<1>(t); }
+     out << "],\"bindings\":[";
+@@ -1963,7 +1988,7 @@
+   };
+   if ( probe( nullptr ) ) return true;
+   for ( auto* buff : player.buff_list )
+-    if ( buff->source == &player && buff->player == &player && !skill_damage_all_racial_spells(*player.dbc).count(buff->data().id()) && drivers.count( buff->data().id() ) && probe( buff ) )
++    if ( buff->source == &player && buff->player == &player && !skill_damage_actor_racial_spells(player).count(buff->data().id()) && drivers.count( buff->data().id() ) && probe( buff ) )
+     {
+       required.push_back( { skill_damage_condition_scope_e::SELF, buff, "buff."+buff->name_str, 1 } );
+       return true;
+@@ -2103,7 +2128,7 @@
+ 
+ bool skill_damage_available_buff( const player_t& player, const buff_t& buff )
+ {
+-  if(skill_damage_all_racial_spells(*player.dbc).count(buff.data().id())) return false;
++  if(skill_damage_actor_racial_spells(player).count(buff.data().id())) return false;
+   if (!skill_damage_scope_owner_matches(player,buff.data().id())) return false;
+   // 其他职业的公共外部 buff 也会以接收者为 source 创建，不能据此认定可以自身施加。
+   const int family = as<int>(buff.data().class_family());
+@@ -2676,7 +2701,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":27,\"scope_inventory_version\":3,\"probe_context_inventory_version\":1,\"racial_policy\":\"exclude_all\",\"simc_revision\":";
++  out << "{\"schema_version\":27,\"scope_inventory_version\":4,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"racial_policy\":\"exclude_all\",\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2811,6 +2836,7 @@
+     for(auto id:skill_damage_trigger_closure(*player.dbc,trait.id_spell)) sources.emplace(id,trait.id_trait_node_entry);
+   }
+   for(auto id:skill_damage_catalog(player).spells) sources.emplace(id,0);
++  for(auto id:player.skill_damage_native_passive_spell_ids) sources.emplace(id,0);
+   for(auto* buff:player.buff_list)
+     if(buff->source==&player && buff->player==&player && skill_damage_available_buff(player,*buff))
+     { sources[buff->data().id()]=0; source_stacks[buff->data().id()]=buff->max_stack(); }
+@@ -2819,7 +2845,7 @@
+     { sources[buff->data().id()]=0; target_sources.insert(buff->data().id()); source_stacks[buff->data().id()]=buff->max_stack(); }
+   for(const auto& [id,trait]:sources)
+   {
+-    if(skill_damage_all_racial_spells(*player.dbc).count(id)) continue;
++    if(skill_damage_actor_racial_spells(player).count(id)) continue;
+     if (!skill_damage_scope_owner_matches(player,id)) continue;
+     const auto* spell=spell_data_t::find(id,player.is_ptr());
+     if(spell->class_family() && spell->class_family()!=static_cast<unsigned>(dbc::get_class_spell_family(player.type))) continue;
+@@ -2965,10 +2991,17 @@
+     out << ",\"action_universe\":\"dbc_spellbook_selected_traits_and_derived_actions\"";
+     out << ",\"race\":"; apl_metadata_json_string(out,util::race_type_string(player->race));
+     out << ",\"race_mask\":\""<<util::race_mask(player->race)<<"\",\"class_mask\":"<<util::class_id_mask(player->type);
+-    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":3,\"probe_context_inventory_version\":1,\"racial_policy\":\"exclude_all\"";
+-    out << ",\"excluded_racial_spell_ids\":[";
++    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":4,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"racial_policy\":\"exclude_all\"";
++    out << ",\"native_passive_spell_ids\":[";
++    bool first_native_source=true;
++    for(auto id:player->skill_damage_native_passive_spell_ids)
++    { if(!first_native_source) out<<','; first_native_source=false; out<<id; }
++    out << "],\"native_racial_spell_ids\":["; first_native_source=true;
++    for(auto id:player->skill_damage_native_racial_spell_ids)
++    { if(!first_native_source) out<<','; first_native_source=false; out<<id; }
++    out << "],\"excluded_racial_spell_ids\":[";
+     bool first_racial_id=true;
+-    for(auto id:skill_damage_all_racial_spells(*player->dbc))
++    for(auto id:skill_damage_actor_racial_spells(*player))
+     { if(!first_racial_id) out<<','; first_racial_id=false; out<<id; }
+     out<<']';
+     out << ",\"reviewed_global_effects\":[";
+@@ -2982,7 +3015,7 @@
+         bool racial=false;
+         if(definition.HasParseError()) throw std::runtime_error("Invalid frozen scope fact");
+         for(const auto& id:definition["source_spell_ids"].GetArray())
+-          racial|=skill_damage_all_racial_spells(*player->dbc).count(id.GetUint())!=0;
++          racial|=skill_damage_actor_racial_spells(*player).count(id.GetUint())!=0;
+         if(racial) continue;
+         if (!first_reviewed) out << ','; first_reviewed=false; out << fact.json;
+       }
+@@ -3008,7 +3041,7 @@
+     out << ']';
+     out<<",\"normalized_racial_effects\":[";
+     bool first_racial_effect=true;
+-    for(auto id:skill_damage_all_racial_spells(*player->dbc))
++    for(auto id:skill_damage_actor_racial_spells(*player))
+       for(const auto& original:spell_data_t::find(id,player->is_ptr())->effects())
+       {
+         if(!original.id()) continue;
+@@ -3125,8 +3158,8 @@
+     {
+       if ( !action ) continue;
+       coverage[action] = "no_native_damage";
+-      if(skill_damage_all_racial_spells(*player->dbc).count(action->data().id()) ||
+-         skill_damage_all_racial_spells(*player->dbc).count(apl_metadata_action_spell_id(*action)))
++      if(skill_damage_actor_racial_spells(*player).count(action->data().id()) ||
++         skill_damage_actor_racial_spells(*player).count(apl_metadata_action_spell_id(*action)))
+       { coverage[action]="racial_excluded"; continue; }
+       if ( action->external_recipient_action() ) { coverage[action]="external_recipient"; continue; }
+       if ( !action->harmful || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
+@@ -3152,7 +3185,7 @@
+         if ( !replacement_ready.at( root ) ) { coverage[action]="replacement_not_ready"; continue; }
+         skill_damage_activation_conditions[action] = skill_damage_activation_conditions[root];
+       }
+-      if(skill_damage_all_racial_spells(*player->dbc).count(root->data().id()))
++      if(skill_damage_actor_racial_spells(*player).count(root->data().id()))
+       { coverage[action]="racial_excluded"; continue; }
+       if ( root->item ) { coverage[action]="equipment_action"; continue; }
+       if ( !exported_cast_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ), root->name_str, root->data().id() ).second )
+@@ -3442,7 +3475,7 @@
+     {
+       for ( const auto& candidate : candidate_it->second )
+       {
+-        if(skill_damage_all_racial_spells(*player->dbc).count(candidate.spell_id)) continue;
++        if(skill_damage_actor_racial_spells(*player).count(candidate.spell_id)) continue;
+         const std::string token = candidate.name.empty()
+           ? fmt::format( "dbc_spell_{}", candidate.spell_id )
+           : util::tokenize_fn( candidate.name );
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -16284,6 +16284,23 @@
+   if ( !spell || !spell->ok() )
+     return;
+ 
++  if ( !sim->skill_damage_export_file.empty() || !sim->skill_damage_evidence_export_file.empty() )
++  {
++    if ( !range::contains(skill_damage_native_passive_spell_ids,spell->id()) )
++      skill_damage_native_passive_spell_ids.push_back(spell->id());
++    if ( source == PARSE_SOURCE_RACIAL )
++    {
++      if ( !range::contains(skill_damage_native_racial_spell_ids,spell->id()) )
++        skill_damage_native_racial_spell_ids.push_back(spell->id());
++      if ( !sim->skill_damage_export_file.empty() )
++      {
++        // 原生直接注册的变体可能没有 DBC trigger 边，仍须在注册前清除。
++        for ( const auto& effect : spell->effects() ) exclude_skill_damage_effect(effect);
++        return;
++      }
++    }
++  }
++
+   if ( !force &&
+        range::contains( registered_passive_spells_, spell->id(), &std::pair<unsigned, parse_source_e>::first ) )
+   {
+--- a/engine/player/player.hpp
++++ b/engine/player/player.hpp
+@@ -910,6 +910,9 @@
+ 
+ public:
+   std::vector<std::string> registered_passive_debug_printout;
++  // 保留原生注册意图，不能因归零后的注册返回 false 而丢失来源。
++  std::vector<unsigned> skill_damage_native_passive_spell_ids;
++  std::vector<unsigned> skill_damage_native_racial_spell_ids;
+   bool disable_class_spell_auto_cloning;
+ 
+   damage_multiplier_t get_passive_damage_multiplier(const spell_data_t&, std::string_view) const;

@@ -23,6 +23,31 @@ def fixture():
 
 
 class SkillTalentLinksTests(TestCase):
+    def test_normalized_actor_with_residual_global_value_cannot_be_published(self):
+        action = fixture()
+        payload = {'actors': [{'global_damage_policy': 'exclude_before_probe',
+                              'reviewed_global_effects': [{'global_components': [
+                                  {'spell_id': 300, 'effect_index': 1, 'effect_id': 301}]}],
+                              'actions': [action]}]}
+        with self.assertRaisesRegex(ValueError, '全局分量仍参与下表技能数值'):
+            project_skill_damage_product_payload(payload)
+
+    def test_global_component_is_not_a_local_prerequisite_even_with_actual_multiplier(self):
+        action = fixture()
+        global_fact = {'global_components': [{'spell_id': 300, 'effect_indices': [1]}]}
+        payload = {'actors': [{'global_skill_effects': [global_fact], 'actions': [action]}]}
+        row = project_skill_damage_product_payload(payload)['actors'][0]['actions'][0]
+        self.assertNotIn('related_talents', row['variant'])
+        self.assertAlmostEqual(row['product']['noncrit_damage'], 135)
+
+    def test_mixed_source_keeps_only_its_local_component_link(self):
+        action = fixture()
+        payload = {'actors': [{'reviewed_global_effects': [
+            {'global_components': [{'spell_id': 300, 'effect_index': 2, 'effect_id': 302}]}
+        ], 'actions': [action]}]}
+        row = project_skill_damage_product_payload(payload)['actors'][0]['actions'][0]
+        self.assertEqual([t['trait_entry_id'] for t in row['variant']['related_talents']], [30])
+
     def test_only_actual_effect_source_is_related(self):
         action = fixture()
         frozen = copy.deepcopy(action)

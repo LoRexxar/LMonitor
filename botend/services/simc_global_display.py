@@ -15,6 +15,16 @@ def _json(value):
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
 
 
+def _non_racial_source(actor, fact):
+    if not isinstance(fact, dict) or fact.get('source_race'):
+        return False
+    excluded = set(actor.get('excluded_racial_spell_ids') or [])
+    sources = set(fact.get('source_spell_ids') or [])
+    sources.update(p.get('spell_id') for p in fact.get('global_components') or [])
+    return not sources.intersection(excluded)
+
+
+
 def _unique(rows):
     return list({_json(row): copy.deepcopy(row) for row in rows}.values())
 
@@ -125,7 +135,7 @@ def _same_catalog_family(left, right):
             conditions[index] = ''
     if conditions[0] != conditions[1]:
         return False
-    for key in ('source_class', 'specializations', 'hero_subtree_id', 'hero_subtree_ids',
+    for key in ('source_class', 'source_race', 'specializations', 'hero_subtree_id', 'hero_subtree_ids',
                 'runtime_conditions', 'configuration', 'talent_configuration',
                 'rank', 'stacks', 'scope', 'affected_target_counts',
                 'activation_conditions', 'scenario_tokens', 'value_status',
@@ -204,24 +214,33 @@ def _definition_can_attach(definition, runtime):
 
 
 def reviewed_static_source_matches_owner(actor, effect, *, class_name):
-    """Generation gate before attaching any reviewed owner/local metadata."""
+    """按同一所有权下的完整物理分量集合校验，不要求所有分量挤在一条目录记录中。"""
     entry = _trait_entry(effect)
     if entry is None:
         return False
     spec = actor.get('specialization') or actor.get('spec')
     if not global_effect_matches_owner(effect, class_name, spec):
         return False
+    parts = set()
+    anchored = False
     for fact in actor.get('reviewed_global_effects') or []:
-        if not isinstance(fact, dict) or _trait_entry(fact) != entry:
+        if not isinstance(fact, dict) or not _non_racial_source(actor, fact) or not global_effect_matches_owner(fact, class_name, spec):
+            continue
+        fact_entry = _trait_entry(fact)
+        if fact_entry is None and (fact.get('source_kind') == 'talent' or _is_static(fact)):
+            continue
+        if fact_entry is not None and fact_entry != entry:
             continue
         owners = set(fact.get('source_spell_ids') or [])
         if not owners or not owners <= set(effect.get('source_spell_ids') or []):
             continue
-        if effect.get('owner_spell_id') is not None and effect['owner_spell_id'] not in owners:
-            continue
-        if global_effect_matches_owner(fact, class_name, spec) and _component_match(effect, fact):
-            return True
-    return False
+        parts.update(_parts(fact))
+        if fact_entry == entry and (
+                effect.get('owner_spell_id') is None or effect['owner_spell_id'] in owners):
+            anchored = True
+    return anchored and _component_match(effect, {
+        'global_components': [{'spell_id': s, 'effect_index': i, 'effect_id': p} for s, i, p in parts],
+    })
 
 
 def normalize_reviewed_global_effects(actor, *, class_name):
@@ -231,9 +250,11 @@ def normalize_reviewed_global_effects(actor, *, class_name):
     independently classified pre-review runtime effects retain their semantics.
     """
     spec = actor.get('specialization') or actor.get('spec')
-    facts = [f for f in actor.get('reviewed_global_effects') or [] if isinstance(f, dict)]
+    facts = [f for f in actor.get('reviewed_global_effects') or [] if isinstance(f, dict) and _non_racial_source(actor, f)]
     talent_scopes = {}
     for fact in facts:
+        if not _non_racial_source(actor, fact):
+            continue
         if fact.get('source_kind') == 'talent' or _trait_entry(fact) is not None:
             for spell in fact.get('source_spell_ids') or []:
                 if not fact.get('specializations'):
@@ -268,6 +289,8 @@ def normalize_reviewed_global_effects(actor, *, class_name):
 
     result, covered = [], set()
     for original in actor.get('global_skill_effects') or []:
+        if not _non_racial_source(actor, original):
+            continue
         if not isinstance(original, dict) or original.get('source_type') == 'specialization_passive':
             continue
         if not global_effect_matches_owner(original, class_name, spec, talent_scopes):
@@ -276,7 +299,12 @@ def normalize_reviewed_global_effects(actor, *, class_name):
         candidates = []
         for index, group in enumerate(groups):
             owner_ids = set(group.get('source_spell_ids') or [])
-            if not owner_ids or not owner_ids <= source_ids or not _component_match(original, group):
+            component_match = _component_match(original, group)
+            if (not component_match and actor.get('scope_inventory_version', 0) >= 2
+                    and original.get('source_type') == 'runtime_state'
+                    and _parts(group) and _parts(group) <= _parts(original)):
+                component_match = True
+            if not owner_ids or not owner_ids <= source_ids or not component_match:
                 continue
             if original.get('owner_spell_id') is not None and original['owner_spell_id'] not in owner_ids:
                 continue
@@ -295,6 +323,43 @@ def normalize_reviewed_global_effects(actor, *, class_name):
             result.append(copy.deepcopy(original))
             continue
         if len(candidates) != 1:
+            # 新目录已在目标状态初始化后冻结。同一 Buff 的完整运行时开关会同时
+            # 激活其不相交的全局分量；仅在没有待解释的实测统一倍率时合并定义。
+            conditions = original.get('runtime_conditions') or []
+            state = conditions[0] if len(conditions) == 1 else {}
+            spell = state.get('spell_id')
+            kind = 'buff' if state.get('scope') == 'self' else 'debuff'
+            can_join = (
+                actor.get('scope_inventory_version', 0) >= 2
+                and original.get('source_type') == 'runtime_state'
+                and not original.get('projections') and spell and source_ids == {spell}
+                and all(set(group.get('source_spell_ids') or []) == {spell}
+                        and not _conditions(group)
+                        and any(s.get('source_kind') == kind for s in group['sources'])
+                        and all(group.get(k) in (None, original.get(k)) for k in (
+                            'hero_subtree_id', 'hero_subtree_ids', 'rank', 'scope', 'affected_target_counts'))
+                        for _, group in candidates)
+            )
+            details = {}
+            for _, group in candidates:
+                for detail in group.get('effect_details') or []:
+                    key = detail.get('source_spell_id'), detail.get('effect_index')
+                    value = {k: v for k, v in detail.items() if k not in {'label', 'evidence'}}
+                    if key in details and details[key] != value:
+                        can_join = False
+                    details[key] = value
+            if can_join:
+                catalog = copy.deepcopy(candidates[0][1])
+                for _, group in candidates[1:]:
+                    catalog['global_components'] = _unique([*catalog['global_components'], *group['global_components']])
+                    _merge_evidence(catalog, group)
+                row = {**catalog, **copy.deepcopy(original)}
+                row['global_components'] = copy.deepcopy(catalog['global_components'])
+                row['sources'] = _sources(original)
+                _merge_evidence(row, catalog)
+                covered.update(index for index, _ in candidates)
+                result.append(row)
+                continue
             # No physical selector: do not attach arbitrary values to several
             # disjoint records. Ownership was verified above; retain the
             # observation and catalog definitions without guessing their join.

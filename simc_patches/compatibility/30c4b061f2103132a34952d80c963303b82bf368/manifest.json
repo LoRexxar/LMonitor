@@ -42,6 +42,31 @@
       "name": "0074-semantic-selectors-30c4b06.patch",
       "path": "0074-semantic-selectors-30c4b06.patch",
       "sha256": "2b06575301b7e7b937d4bf42630224d879d437a1267dc75e33c5103255f91550"
+    },
+    {
+      "name": "0075-complete-state-scope-inventory.patch",
+      "path": "0075-complete-state-scope-inventory.patch",
+      "sha256": "18f66af3042f702f3d86f02f595691baffc5e4d3debfe4d79a1aa5a7c83e6eda"
+    },
+    {
+      "name": "0076-probe-execute-context.patch",
+      "path": "0076-probe-execute-context.patch",
+      "sha256": "ccfac3e72ba56179895706f34fcef2fb123eb99025a14fa16b341e3b14aa5674"
+    },
+    {
+      "name": "0077-exclude-native-racials.patch",
+      "path": "0077-exclude-native-racials.patch",
+      "sha256": "04b623dada2f4bf17cac3884ddbe71b79142cca0a8fb8b10d1b505b173c44fa8"
+    },
+    {
+      "name": "0078-native-registration-inventory.patch",
+      "path": "0078-native-registration-inventory.patch",
+      "sha256": "de3359f027b4ea281b5f5d379f5a2b1722b48d009f83f867fbc47efe76c0d2ae"
+    },
+    {
+      "name": "0079-native-talent-ownership.patch",
+      "path": "0079-native-talent-ownership.patch",
+      "sha256": "9d42b4d84db5347b9216fcc8748fdd97238c0653892344900609bebd61401281"
     }
   ]
 }

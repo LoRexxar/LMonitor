@@ -1,0 +1,4 @@
+# 仅供原生 C++ 执行上下文审计使用，不是服务运行时依赖。
+# 安装命令：python -m pip install -r requirements-simc-audit.txt
+tree-sitter==0.25.2
+tree-sitter-cpp==0.23.4

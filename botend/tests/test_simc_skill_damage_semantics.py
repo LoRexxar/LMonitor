@@ -100,7 +100,7 @@ class SkillDamageSemanticRegressionTests(SimpleTestCase):
         self.assertFalse(any(row['variant']['scenario_tokens'] for row in
                              flatten_single_talent_damage_variants(high, low, [], global_effects=effects)))
 
-    def test_mixed_global_state_requires_explicit_local_skill_binding(self):
+    def test_mixed_global_state_is_excluded_even_with_local_skill_binding(self):
         high = {'class': 'warrior', 'actions': [damage_action(scenarios=(
             ('buff.enrage', 'self', 184362, 150),
         ))]}
@@ -122,9 +122,9 @@ class SkillDamageSemanticRegressionTests(SimpleTestCase):
             'skill_spell_ids': [167105], 'evidence': 'SimC 原生局部技能证据',
         }]
         rows = flatten_single_talent_damage_variants(high, high, [], global_effects=[bound])
-        self.assertEqual([row['variant']['scenario_tokens'] for row in rows], [[], ['buff.enrage']])
+        self.assertEqual([row['variant']['scenario_tokens'] for row in rows], [[]])
 
-    def test_mixed_global_state_keeps_native_child_action_under_display_root(self):
+    def test_native_child_keeps_baseline_without_global_state_dimension(self):
         # Exporter emits children separately; Python merges them under reporting_root later.
         child = damage_action(scenarios=(('buff.enrage', 'self', 184362, 150),))
         child.update(token='raging_blow_oh', spell_id=85384,
@@ -140,7 +140,7 @@ class SkillDamageSemanticRegressionTests(SimpleTestCase):
                                       'skill_spell_ids': [85384, 96103]}],
         }
         rows = flatten_single_talent_damage_variants(actor, actor, [], global_effects=[effect])
-        self.assertEqual([r['variant']['scenario_tokens'] for r in rows], [[], ['buff.enrage']])
+        self.assertEqual([r['variant']['scenario_tokens'] for r in rows], [[]])
         unrelated = copy.deepcopy(actor)
         unrelated['actions'][0].update(token='bloodthirst', spell_id=23881,
                                        reporting_root_token='bloodthirst', reporting_root_spell_id=23881)

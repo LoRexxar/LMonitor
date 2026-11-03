@@ -1,10 +1,10 @@
 """从完整 DBC 天赋目录逐项实算，仅跳过已确认纯全局的被动天赋。"""
 import argparse
 import concurrent.futures
-import copy
 import hashlib
 from collections import defaultdict
 import json
+import math
 import os
 from pathlib import Path
 import subprocess
@@ -22,6 +22,32 @@ from botend.services.simc_skill_damage import (
     _mark_empty_runtime_amount_components_unresolved, _discard_empty_runtime_amount_components,
 )
 from scripts.audit_simc_global_damage_initialization import CLASSES, SPECS
+
+
+class ProbeStabilityError(ValueError):
+    pass
+
+
+def assert_repeat_stable(left, right, path='导出'):
+    """比较两个独立进程的同配置结果；不把内存偶然值当成天赋差分。"""
+    if type(left) is int and type(right) is int:
+        equal = left == right
+    elif type(left) in (int, float) and type(right) in (int, float):
+        equal = math.isclose(left, right, rel_tol=1e-10, abs_tol=1e-12)
+    elif isinstance(left, dict) and isinstance(right, dict):
+        equal = left.keys() == right.keys()
+        if equal:
+            for key in left:
+                assert_repeat_stable(left[key], right[key], path + '.' + key)
+    elif isinstance(left, list) and isinstance(right, list):
+        equal = len(left) == len(right)
+        if equal:
+            for index, (a, b) in enumerate(zip(left, right)):
+                assert_repeat_stable(a, b, f'{path}[{index}]')
+    else:
+        equal = type(left) is type(right) and left == right
+    if not equal:
+        raise ProbeStabilityError(f'相同配置跨进程不稳定：{path}；{str(left)[:120]} != {str(right)[:120]}')
 
 
 def talent_probe_catalog(catalog, review):
@@ -53,6 +79,7 @@ def main():
     parser.add_argument('--spec', help='仅生成指定 class_spec')
     parser.add_argument('--limit', type=int, help='仅生成前若干项，用于批次一致性检查')
     parser.add_argument('--resume', action='store_true', help='仅复用同一构建下已通过的配置，其余写入新的原始批次')
+    parser.add_argument('--repeat-check', action='store_true', help='每个血量以新进程重算并比较完整数据；不稳定时拒绝通过')
     parser.add_argument('--partition',type=int,nargs=2,metavar=('序号','总数'),help='按完整计划分片，序号从零开始，各分片使用独立输出目录')
     args = parser.parse_args()
     cached_results = []
@@ -64,6 +91,8 @@ def main():
             parser.error('断点数据与当前二进制不一致，必须使用新的输出目录。')
         cached_results = [r for r in previous['结果'] if r['status'] == '通过' and all(
             (args.output/f'{r["class"]}_{r["spec"]}--{r["entry"]}--{h}.json').is_file() for h in (100,34))]
+        if args.repeat_check and not previous.get('逐配置新进程稳定性核对'):
+            parser.error('已有结果未经新进程稳定性核对，不能复用为通过结果。')
     elif args.output.exists() and any(args.output.iterdir()):
         parser.error('请使用空输出目录；原始导出保留，不覆盖既有实算文件。')
     args.output.mkdir(parents=True, exist_ok=True)
@@ -96,6 +125,20 @@ def main():
     tasks = [t for t in tasks if (t[0],t[1],t[2]['trait_entry_id']) not in cached_keys]
     attempt = uuid.uuid4().hex[:8]
 
+    def repeat_check(inp, original, health, key):
+        if not args.repeat_check:
+            return
+        target = args.output / f'{key}--repeat--{health}.json'
+        process = subprocess.run([str(args.binary.resolve()), str(inp.resolve()),
+            f'skill_damage_export={target.resolve()}', f'skill_damage_revision={catalog["simc_revision"]}',
+            f'skill_damage_game_build={catalog["game_build"]}', f'skill_damage_target_health_percentage={health}'],
+            capture_output=True, text=True, encoding='utf-8', errors='replace', timeout=180)
+        (args.output / f'{key}--repeat--{health}.log').write_text(process.stdout+process.stderr, encoding='utf-8')
+        if process.returncode:
+            raise ProbeStabilityError('重复进程未成功导出：' + (process.stdout+process.stderr)[-1000:])
+        repeated = json.loads(target.read_text(encoding='utf-8'))
+        assert_repeat_stable(original, repeated)
+
     def run(task):
         cls, spec, row = task
         entry = row['trait_entry_id']
@@ -124,6 +167,7 @@ def main():
                 if process.returncode:
                     raise RuntimeError((process.stdout+process.stderr)[-1000:])
                 payload = json.loads(raw_dst.read_text(encoding='utf-8'))
+                repeat_check(inp, payload, health, f'{key}--{attempt}')
                 dst.write_text(json.dumps(payload,ensure_ascii=False),encoding='utf-8')
                 marked = _mark_empty_runtime_amount_components_unresolved(payload)
                 service._validate_export(payload, profile=SimpleNamespace(class_name=cls, spec=cls+'_'+spec))
@@ -166,21 +210,31 @@ def main():
                 if process.returncode:
                     raise RuntimeError((process.stdout+process.stderr)[-1000:])
                 payload = json.loads(dst.read_text(encoding='utf-8'))
-                raw = copy.deepcopy(payload)
+                repeat_check(inp, payload, health, key)
+                # 原始逐角色文件先落盘；校验只修改当前批次，避免再复制整批状态图。
+                with dst.open('rb') as source:
+                    batch_sha256 = hashlib.file_digest(source, 'sha256').hexdigest()
+                actors = {a['name']: a for a in payload['actors']}
+                for item in records:
+                    entry = item['entry']
+                    split = {**payload, 'actors': [actors[f'skill_damage_talent_{entry}_trait_{entry}']],
+                             'batch_source': dst.name, 'batch_sha256': batch_sha256}
+                    (args.output/f'{cls}_{spec}--{entry}--{health}.json').write_text(
+                        json.dumps(split, ensure_ascii=False), encoding='utf-8')
+                split = None
                 marked = _mark_empty_runtime_amount_components_unresolved(payload)
                 service._validate_export(payload,expected_actor_names=[a['name'] for a in plan])
                 _discard_empty_runtime_amount_components(marked)
                 service._validate_export(payload,expected_actor_names=[a['name'] for a in plan])
-                actors = {a['name']:a for a in raw['actors']}
                 for item in records:
                     entry = item['entry']
                     actor = actors[f'skill_damage_talent_{entry}_trait_{entry}']
                     if entry not in actor['selected_trait_ids'] or actor['talent_effectiveness'] != 'active':
                         item['status'] = '当前专精未激活'
-                    split = {**raw,'actors':[actor], 'batch_source':dst.name,
-                             'batch_sha256':hashlib.sha256(dst.read_bytes()).hexdigest()}
-                    (args.output/f'{cls}_{spec}--{entry}--{health}.json').write_text(json.dumps(split,ensure_ascii=False),encoding='utf-8')
             return records
+        except ProbeStabilityError as exc:
+            (args.output/f'{key}.stability.log').write_text(str(exc),encoding='utf-8')
+            return [{**item, 'status': '未生成', 'error': str(exc)} for item in records]
         except Exception as exc:
             (args.output/f'{key}.fallback.log').write_text(str(exc),encoding='utf-8')
             return [run(task) for task in batch]
@@ -190,6 +244,7 @@ def main():
         grouped[task[:2]].append(task)
     batches = [items[i:i+args.batch_size] for items in grouped.values() for i in range(0,len(items),args.batch_size)]
     manifest = {'源码提交':catalog['simc_revision'], '客户端版本':catalog['game_build'],
+                '逐配置新进程稳定性核对': args.repeat_check,
                 '二进制_SHA256':binary_hash,'分片':args.partition,'完整计划数':total_planned_count,
                 '说明':'从完整 DBC 职业、专精与英雄天赋目录生成；仅排除已确认纯全局被动。每个配置为基础技能框架加一个天赋，不穷举多个可选天赋组合。', '计划数':planned_count, '批次大小':args.batch_size}
     results = list(cached_results)

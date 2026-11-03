@@ -47,14 +47,18 @@ def audit(directory, output, specs=()):
                  'action_spell_ids':sorted({e['replacement_spell_id'] for e in evidence})}
         raw=flatten_single_talent_damage_variants(high,low,[])
         # 相同 raw 施法/条件只增添真实配置元数据，伤害与目标数完全相同。
-        baseline=project_skill_damage_product_payload({'actors':[{'actions':raw}]})['actors'][0]['actions']
+        metadata={k:high[k] for k in ('class','spec','reviewed_global_effects',
+                                     'global_damage_policy','global_damage_states') if k in high}
+        baseline=project_skill_damage_product_payload({'actors':[{**metadata,'actions':raw}]})['actors'][0]['actions']
         for action in raw:
             action['variant']['reference_context']=reference
             action['variant']['activation_context']=context
-        rows=project_skill_damage_product_payload({'actors':[{'actions':raw}]})['actors'][0]['actions']
+        rows=project_skill_damage_product_payload({'actors':[{**metadata,'actions':raw}]})['actors'][0]['actions']
         if Counter(map(signature,rows))!=Counter(map(signature,baseline)):
             raise ValueError(key+' 前置过滤改变了技能数值或施法/条件分组。')
         counts=Counter()
+        global_parts={(p['spell_id'],p['effect_index'])
+                      for f in high.get('reviewed_global_effects') or [] for p in f.get('global_components') or []}
         for row in rows:
             variant=row.get('variant') or {}
             if 'reference_context' in variant or 'activation_context' in variant:
@@ -65,6 +69,9 @@ def audit(directory, output, specs=()):
                      if isinstance(s,dict)}
             sources_by_skill={}
             for part,formula in zip(row['components'],row['product']['formula_components']):
+                if any((s.get('source_spell_id'),s.get('effect_index')) in global_parts
+                       and abs(s.get('factor',1)-1)>1e-12 for s in formula.get('runtime_factor_sources') or []):
+                    raise ValueError(key+' 全局分量仍参与下表技能数值。')
                 sources_by_skill.setdefault(part['spell_id'],set()).update(
                     (s.get('source_spell_id'),s.get('effect_index'))
                     for s in formula.get('runtime_factor_sources',[]) if isinstance(s,dict))
@@ -78,6 +85,8 @@ def audit(directory, output, specs=()):
                         if not any(e['trait_entry_id']==link['trait_entry_id'] and e['replacement_spell_id']==row['spell_id'] for e in evidence):
                             raise ValueError(key+' 解锁关系不匹配当前行。')
                     elif proof['kind']=='native_modifier':
+                        if (proof['source_spell_id'],proof['effect_index']) in global_parts:
+                            raise ValueError(key+' 全局分量仍作为单行前置。')
                         if (catalog.get(link['trait_entry_id'],{}).get('spell_id')!=proof['source_spell_id']
                                 or (proof['source_spell_id'],proof['effect_index']) not in sources_by_skill.get(proof['skill_spell_id'],set())):
                             (output/('失败-'+key+'.json')).write_text(json.dumps({'row':row,'proof':proof},ensure_ascii=False),encoding='utf-8')

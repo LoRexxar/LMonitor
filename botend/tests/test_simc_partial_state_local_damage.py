@@ -292,18 +292,16 @@ class PartialStateLocalDamageTests(SimpleTestCase):
     def enrage_rows(self, rows):
         return [row for row in rows if 'buff.enrage' in row['variant']['scenario_tokens']]
 
-    def test_excluded_partial_state_retains_observed_local_delta_without_dbc_binding(self):
+    def test_global_partial_state_cannot_return_as_a_local_damage_dimension(self):
         effects = classify_global_skill_effects(self.high, self.low, [])
         self.assertTrue(effects[0]['partial_state'])
         self.assertTrue(effects[0]['excluded_before_probe'])
         self.assertNotIn(335096, [sid for binding in effects[0]['local_skill_bindings']
                                 for sid in binding['skill_spell_ids']])
-        rows = self.enrage_rows(self.rows())
-        self.assertEqual(len(rows), 1)
-        original = self.high['actions'][0]['scenarios'][0]
-        # Flatten adds product metadata, but must not alter any exported amount.
-        for key, value in original['values']['direct'].items():
-            self.assertEqual(rows[0]['baseline']['direct'][key], value)
+        rows = self.rows()
+        self.assertEqual(self.enrage_rows(rows), [])
+        # 保留无全局状态的原始实算值，不能只去掉激怒文字而留下其伤害。
+        self.assertEqual(rows[0]['baseline']['direct']['hit'], self.high['actions'][0]['baseline']['direct']['hit'])
         self.assertEqual(rows[0]['activation_conditions'], self.high['actions'][0]['activation_conditions'])
 
     def test_no_local_delta_does_not_create_a_row(self):
@@ -312,7 +310,7 @@ class PartialStateLocalDamageTests(SimpleTestCase):
             action['scenarios'][0]['values'] = copy.deepcopy(action['baseline'])
         self.assertEqual(self.enrage_rows(self.rows()), [])
 
-    def test_missing_exclusion_proof_still_requires_local_binding(self):
+    def test_local_binding_does_not_override_global_state_exclusion(self):
         for missing in ('actor_policy', 'state_exclusion'):
             with self.subTest(missing=missing):
                 high, low = copy.deepcopy(REAL_ACTOR), copy.deepcopy(REAL_ACTOR)
@@ -324,7 +322,7 @@ class PartialStateLocalDamageTests(SimpleTestCase):
                 self.assertEqual(self.enrage_rows(self.rows(high, low)), [])
                 for actor in (high, low):
                     actor['reviewed_global_effects'][0]['local_skill_bindings'][0]['skill_spell_ids'].append(335096)
-                self.assertEqual(len(self.enrage_rows(self.rows(high, low))), 1)
+                self.assertEqual(self.enrage_rows(self.rows(high, low)), [])
 
     def test_pure_global_state_is_excluded_even_with_delta(self):
         for actor in (self.high, self.low):
@@ -340,7 +338,7 @@ class PartialStateLocalDamageTests(SimpleTestCase):
         }
         self.assertFalse([r for r in self.rows(variants=[variant]) if r['variant']['talent_id'] == 7])
 
-    def test_runtime_delta_uses_selected_actor_not_shared_base(self):
+    def test_selected_actor_global_state_cannot_bypass_empty_shared_base(self):
         reference_high, reference_low = copy.deepcopy(self.high), copy.deepcopy(self.low)
         for actor in (reference_high, reference_low):
             actor['actions'][0]['scenarios'] = []
@@ -351,9 +349,7 @@ class PartialStateLocalDamageTests(SimpleTestCase):
         }
         shared_base = {'actions': []}
         rows = self.enrage_rows(self.rows(shared_base, shared_base, [variant]))
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]['variant']['talent_id'], 7)
-        self.assertTrue(rows[0]['variant']['reference_available'])
+        self.assertEqual(rows, [])
         for actor in (self.high, self.low):
             actor.pop('global_damage_policy')
         # A normalized shared actor cannot prove exclusion for the selected actor.
@@ -379,6 +375,9 @@ class ActivationContextProjectionTests(SimpleTestCase):
         reference = copy.deepcopy(REAL_ACTOR)
         reference['actions'][0]['scenarios'] = []
         selected = copy.deepcopy(REAL_ACTOR)
+        # 用局部状态验证固定前置；全局激怒不得成为下表的伤害维度。
+        selected['actions'][0]['scenarios'][0]['buffs'][0].update(
+            token='buff.local_modifier', spell_id=90001)
         context = {'trait_entry_ids': [119139], 'action_spell_ids': [335096],
                    'traits': [{'trait_entry_id': 119139, 'name': 'Reckless Abandon', 'name_zh': '肆意放纵'}],
                    'evidence': [{'trait_entry_id': 119139, 'replacement_spell_id': 335096}]}
@@ -388,7 +387,7 @@ class ActivationContextProjectionTests(SimpleTestCase):
         base = {'class': 'warrior', 'spec': 'fury', 'actions': []}
         effects = classify_global_skill_effects(selected, selected, [])
         rows = flatten_single_talent_damage_variants(base, base, [item], global_effects=effects)
-        enrage_rows = [row for row in rows if row['variant']['scenario_tokens'] == ['buff.enrage']]
+        enrage_rows = [row for row in rows if row['variant']['scenario_tokens'] == ['buff.local_modifier']]
         self.assertEqual(len(enrage_rows), 1)
         variant = enrage_rows[0]['variant']
         self.assertEqual(variant['trait_entry_id'], 112299)

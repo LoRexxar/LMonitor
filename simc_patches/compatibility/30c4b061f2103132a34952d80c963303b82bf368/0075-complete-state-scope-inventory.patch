@@ -1,0 +1,348 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1738,6 +1738,7 @@
+     std::set<unsigned> source_effects;
+     std::vector<player_t*> entities{owner};
+     for ( auto* pet : owner->pet_list ) entities.push_back(pet);
++    for (auto* entity:entities) if(entity->target) entity->get_target_data(entity->target);
+     for ( const auto* entity : entities )
+     {
+       const auto emit = [&](const spelleffect_data_t* e, unsigned target, const std::string& field,
+@@ -1836,8 +1837,24 @@
+         target_bank(parsed->target_multiplier_effects,target,"target_multiplier","target_registry");
+       }
+     }
+-    // 手写伤害函数可能完全绕过解析器，额外导出真实自身来源的目标状态及 DBC 分量。
+-    // 这些记录仅证明状态来源，不冒充已经登记的技能应用关系。
++    // 独立导出全部自身/目标状态的原始分量，不能先按已有全局分类筛掉未知效果。
++    // 这些记录只证明状态及其来源，不冒充已经登记的技能应用关系。
++    out << "],\"self_states\":[";
++    bool first_self_state=true;
++    for (const auto* entity:entities) for (const auto* buff:entity->buff_list)
++    {
++      if (buff->source!=entity || buff->player!=entity || !buff->data().ok()) continue;
++      if (!first_self_state) out << ','; first_self_state=false;
++      out << "{\"spell_id\":" << buff->data().id() << ",\"token\":";
++      apl_metadata_json_string(out,buff->name_str);
++      out << ",\"self_owned\":true,\"pet\":" << (entity!=owner?"true":"false")
++          << ",\"default_chance\":" << buff->default_chance << ",\"max_stack\":" << buff->max_stack()
++          << ",\"effect_ids\":[";
++      bool first_effect=true;
++      for(const auto& e:buff->data().effects()) if(e.id())
++      { if(!first_effect) out << ','; first_effect=false; out << e.id(); source_effects.insert(e.id()); }
++      out << "]}";
++    }
+     out << "],\"target_states\":[";
+     bool first_target_state=true;
+     for (const auto* entity:entities)
+@@ -1846,18 +1863,18 @@
+       entity->get_target_data(entity->target);
+       for (const auto* buff:entity->target->buff_list)
+       {
+-        if (buff->source!=entity || buff->player!=entity->target || !buff->data().ok() ||
+-            buff->data().class_family()!=dbc::get_class_spell_family(owner->type)) continue;
++        if (buff->source!=entity || buff->player!=entity->target || !buff->data().ok()) continue;
+         std::vector<unsigned> ids;
+         for (const auto& e:buff->data().effects())
+-          if (e.type()==E_APPLY_AURA && (e.subtype()==270 || e.subtype()==271 || e.subtype()==343 ||
+-              e.subtype()==380 || e.subtype()==381 || e.subtype()==537))
++          if (e.id())
+           { ids.push_back(e.id()); source_effects.insert(e.id()); }
+         if (ids.empty()) continue;
+         if (!first_target_state) out << ','; first_target_state=false;
+         out << "{\"spell_id\":" << buff->data().id() << ",\"token\":";
+         apl_metadata_json_string(out,buff->name_str);
+-        out << ",\"self_owned\":true,\"effect_ids\":[";
++        out << ",\"self_owned\":true,\"pet\":" << (entity!=owner?"true":"false")
++            << ",\"default_chance\":" << buff->default_chance << ",\"max_stack\":" << buff->max_stack()
++            << ",\"effect_ids\":[";
+         for (size_t i=0;i<ids.size();++i) { if(i) out << ','; out << ids[i]; }
+         out << "]}";
+       }
+@@ -2042,7 +2059,7 @@
+ }
+ 
+ // 尊重模块已经关闭的状态；同职业的其他专精天赋不能因共享 buff 对象而生效。
+-bool skill_damage_available_buff( const player_t& player, const buff_t& buff )
++bool skill_damage_scope_owner_matches( const player_t& player, unsigned spell )
+ {
+   // 冻结的作用域目录同时持有来源专精。原生模块预建对象不等于当前专精可施加。
+   static const auto owners=[] {
+@@ -2057,9 +2074,15 @@
+     }
+     return result;
+   }();
+-  const auto owner=owners.find(buff.data().id());
++  const auto owner=owners.find(spell);
+   if(owner!=owners.end() && !owner->second.count("") &&
+      !owner->second.count(util::tokenize_fn(dbc::specialization_string(player.specialization())))) return false;
++  return true;
++}
++
++bool skill_damage_available_buff( const player_t& player, const buff_t& buff )
++{
++  if (!skill_damage_scope_owner_matches(player,buff.data().id())) return false;
+   // 其他职业的公共外部 buff 也会以接收者为 source 创建，不能据此认定可以自身施加。
+   const int family = as<int>(buff.data().class_family());
+   if ( family && family != dbc::get_class_spell_family(player.type) ) return false;
+@@ -2109,7 +2132,7 @@
+       {
+         const std::string token = ( *it )[ 1 ].str();
+         buff_t* buff = skill_damage_owned_player_buff( *action.player, token );
+-        if ( buff && !skill_damage_excluded_global_buff( *action.player, buff, false ) )
++        if ( buff && !skill_damage_global_buff_basis( *action.player, buff, false ) )
+           conditions.push_back( { skill_damage_condition_scope_e::SELF, buff, "buff." + token } );
+       }
+       std::sort( conditions.begin(), conditions.end(), []( const auto& left, const auto& right ) {
+@@ -2130,7 +2153,8 @@
+          !skill_damage_available_buff( *action.player, *buff ) ) return;
+     if ( scope == skill_damage_condition_scope_e::SELF && buff->player != action.player ) return;
+     if ( scope == skill_damage_condition_scope_e::TARGET && buff->player != action.target ) return;
+-    if ( skill_damage_excluded_global_buff( *action.player, buff,
++    // 公共状态不构成普通增伤维度；原生解锁前提由独立目录加入快照。
++    if ( skill_damage_global_buff_basis( *action.player, buff,
+          scope == skill_damage_condition_scope_e::TARGET ) ) return;
+     const std::string token = ( scope == skill_damage_condition_scope_e::TARGET ? "debuff." : "buff." ) + buff->name_str;
+     scenarios.emplace( token + "\n", std::vector<skill_damage_condition_t>{ { scope, buff, token } } );
+@@ -2543,7 +2567,7 @@
+     throw std::runtime_error( "Raw scope catalog requires compiled git revision metadata" );
+   std::ofstream out( sim.skill_damage_raw_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open raw scope catalog" );
+-  out << "{\"raw_catalog_schema\":1,\"catalog_kind\":\"raw_dbc_scope_evidence\","
++  out << "{\"raw_catalog_schema\":2,\"catalog_kind\":\"raw_dbc_scope_evidence\","
+          "\"draft\":true,\"review_status\":\"unreviewed\",\"compile_contract_allowed\":false,"
+          "\"normalized\":false,\"simc_revision\":";
+   apl_metadata_json_string( out, revision );
+@@ -2587,6 +2611,31 @@
+     { if(!fr) out << ','; fr=false; skill_damage_write_dbc_relation(out,*sim.dbc,effect); }
+     out << "]}";
+   }
++  out << "],\"spell_catalog\":[";
++  bool first_spell=true;
++  for (const auto& spell:spell_data_t::data(sim.dbc->ptr))
++  {
++    if (!first_spell) out << ','; first_spell=false;
++    out << "{\"spell_id\":" << spell.id() << ",\"name\":";
++    apl_metadata_json_string(out,spell.name_cstr());
++    out << ",\"class_family\":" << spell.class_family()
++        << ",\"school\":" << spell.school_mask()
++        << ",\"mastery_scaled\":" << (spell.flags(SX_MASTERY_AFFECTS_POINTS)?"true":"false")
++        << ",\"effects\":[";
++    bool first_effect=true;
++    for (const auto& e:spell.effects()) if(e.id())
++    {
++      if (!first_effect) out << ','; first_effect=false;
++      out << "{\"id\":" << e.id() << ",\"index\":" << e.index()+1
++          << ",\"type\":" << e.type() << ",\"subtype\":" << e.subtype()
++          << ",\"misc1\":" << e.misc_value1() << ",\"misc2\":" << e.misc_value2()
++          << ",\"value\":" << e.base_value() << ",\"mastery_coefficient\":" << e.mastery_value()
++          << ",\"trigger\":" << e.trigger_spell_id() << ",\"flags\":[";
++      for(unsigned i=0;i<NUM_CLASS_FAMILY_FLAGS;++i){if(i)out<<',';out<<e.class_flags(i);}
++      out << "]}";
++    }
++    out << "]}";
++  }
+   out << "]}\n";
+   out.flush();
+   if ( !out ) throw std::runtime_error( "Unable to write raw scope catalog" );
+@@ -2597,7 +2646,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":27,\"simc_revision\":";
++  out << "{\"schema_version\":27,\"scope_inventory_version\":2,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2709,7 +2758,20 @@
+   std::set<std::pair<unsigned,unsigned>> reviewed;
+   for(const auto& fact:skill_damage_scope_effects) if(fact.global) reviewed.emplace(fact.spell,fact.index);
+   std::map<unsigned,unsigned> sources;
++  std::set<unsigned> target_sources;
++  std::map<unsigned,int> source_stacks;
+   const auto spec=static_cast<unsigned>(player.specialization());
++  // 已复核的同专精来源也必须补齐新增类别分量，即使当前配点未激活该状态。
++  const auto player_spec=util::tokenize_fn(dbc::specialization_string(player.specialization()));
++  for(const auto& fact:skill_damage_scope_display)
++    if((fact.shared || fact.family==static_cast<unsigned>(dbc::get_class_spell_family(player.type))) &&
++       (!fact.specialization[0] || player_spec==fact.specialization))
++    {
++      rapidjson::Document data; data.Parse(fact.json);
++      if(data.HasParseError() || !data.HasMember("source_spell_ids"))
++        throw std::runtime_error("Invalid frozen scope source catalog");
++      for(const auto& id:data["source_spell_ids"].GetArray()) sources.emplace(id.GetUint(),0);
++    }
+   for(const auto& trait:trait_data_t::data(player.is_ptr()))
+   {
+     if(trait.id_class!=static_cast<unsigned>(util::class_id(player.type))) continue;
+@@ -2720,11 +2782,14 @@
+   }
+   for(auto id:skill_damage_catalog(player).spells) sources.emplace(id,0);
+   for(auto* buff:player.buff_list)
+-    if(buff->source==&player && buff->player==&player && skill_damage_available_buff(player,*buff)) sources[buff->data().id()]=0;
++    if(buff->source==&player && buff->player==&player && skill_damage_available_buff(player,*buff))
++    { sources[buff->data().id()]=0; source_stacks[buff->data().id()]=buff->max_stack(); }
+   if(player.target) for(auto* buff:player.target->buff_list)
+-    if(buff->source==&player && skill_damage_available_buff(player,*buff)) sources[buff->data().id()]=0;
++    if(buff->source==&player && skill_damage_available_buff(player,*buff))
++    { sources[buff->data().id()]=0; target_sources.insert(buff->data().id()); source_stacks[buff->data().id()]=buff->max_stack(); }
+   for(const auto& [id,trait]:sources)
+   {
++    if (!skill_damage_scope_owner_matches(player,id)) continue;
+     const auto* spell=spell_data_t::find(id,player.is_ptr());
+     if(spell->class_family() && spell->class_family()!=static_cast<unsigned>(dbc::get_class_spell_family(player.type))) continue;
+     std::vector<const spelleffect_data_t*> effects;
+@@ -2734,7 +2799,7 @@
+          !reviewed.count({id,e.index()+1})) effects.push_back(&e);
+     if(effects.empty()) continue;
+     if(!first) out<<','; first=false;
+-    out<<"{\"effect_id\":\"semantic_scope:"<<id<<"\",\"source_type\":\"reviewed_scope\",\"source_kind\":\""<<(trait?"talent":"buff")<<"\",\"source_name\":";
++    out<<"{\"effect_id\":\"semantic_scope:"<<id<<"\",\"source_type\":\"reviewed_scope\",\"source_kind\":\""<<(trait?"talent":target_sources.count(id)?"debuff":"buff")<<"\",\"source_name\":";
+     apl_metadata_json_string(out,spell->name_cstr());
+     if(trait) out<<",\"trait_entry_id\":"<<trait;
+     out<<",\"source_spell_ids\":["<<id<<"],\"source_class\":";
+@@ -2751,9 +2816,71 @@
+     out<<"],\"effect_details\":["; component_first=true;
+     for(const auto* e:effects)
+     { if(!component_first) out<<','; component_first=false;
++      std::string label="公共效果分量";
++      switch(e->subtype())
++      {
++        case A_ADD_PCT_MODIFIER: case A_ADD_FLAT_MODIFIER:
++          switch(e->misc_value1())
++          {
++            case P_GENERIC: label="直接伤害（相应技能类别）"; break;
++            case P_TICK_DAMAGE: label="周期伤害（相应技能类别）"; break;
++            case P_CRIT: label=e->subtype()==A_ADD_PCT_MODIFIER?"暴击率倍率（相应技能类别）":"暴击率（相应技能类别）"; break;
++            case P_CRIT_BONUS: label="暴击伤害加成（相应技能类别）"; break;
++            default: throw std::runtime_error("Unknown global spell property");
++          }
++          break;
++        case A_MOD_ALL_CRIT_CHANCE: case A_MOD_CRIT_PERCENT: case A_MOD_SPELL_CRIT_CHANCE:
++        case A_MOD_SPELL_CRIT_CHANCE_SCHOOL: label="公共暴击率"; break;
++        case A_MOD_CRIT_CHANCE_FROM_CASTER: case A_MOD_CRIT_CHANCE_FROM_CASTER_SPELLS: label="施法者暴击率"; break;
++        case A_MOD_CRIT_DAMAGE_MULTIPLIER: case A_MOD_CRIT_DAMAGE_PCT_FROM_CASTER_SPELLS: label="施法者暴击伤害"; break;
++        case A_HASTE_ALL: label="公共急速"; break;
++        case A_MOD_DAMAGE_PERCENT_DONE:
++        {
++          const unsigned mask=e->misc_value1();
++          if(mask==127) label="全学校伤害";
++          else if(!mask) label="伤害（适用学校随状态确定）";
++          else
++          {
++            label.clear();
++            const std::array<const char*,7> schools{"物理","神圣","火焰","自然","冰霜","暗影","奥术"};
++            for(unsigned bit=0;bit<schools.size();++bit) if(mask&(1u<<bit))
++            { if(!label.empty()) label+="、"; label+=schools[bit]; }
++            label+="伤害";
++          }
++          break;
++        }
++        case A_MOD_DAMAGE_FROM_CASTER: label="施法者伤害"; break;
++        case A_MOD_DAMAGE_FROM_CASTER_SPELLS: label="目标受到施法者的技能伤害"; break;
++        case A_MOD_DAMAGE_DONE_VERSUS: label="对指定生物类型的伤害"; break;
++        case A_MOD_MECHANIC_DAMAGE_DONE_PERCENT: label="符合指定机制的伤害"; break;
++        case A_MOD_DAMAGE_DONE_VERSUS_AURASTATE: label="符合目标状态时的伤害"; break;
++        case A_MOD_MELEE_AUTO_ATTACK_SPEED: label="近战普通攻击速度"; break;
++        case A_MOD_RANGED_AND_MELEE_AUTO_ATTACK_SPEED: label="普通攻击速度"; break;
++        case A_MOD_AUTO_ATTACK_FROM_CASTER: label="施法者普通攻击伤害"; break;
++        case A_MOD_AUTO_ATTACK_PCT: case A_MOD_AUTO_ATTACK_DAMAGE_PCT: label="普通攻击伤害"; break;
++        case A_MOD_DAMAGE_FROM_CASTER_GUARDIAN: label="施法者守护者伤害"; break;
++        case A_MOD_DAMAGE_FROM_CASTER_PET: label="施法者宠物伤害"; break;
++        case A_MOD_PET_DAMAGE_DONE: label="宠物伤害"; break;
++        case A_MOD_GUARDIAN_DAMAGE_DONE: label="守护者伤害"; break;
++        default: break;
++      }
++      if(source_stacks[id]>1) label+="（每层）";
++      const bool mastery=e->spell()->flags(SX_MASTERY_AFFECTS_POINTS) && e->mastery_value()!=0;
++      const bool chance=e->subtype()==A_MOD_ALL_CRIT_CHANCE || e->subtype()==A_MOD_CRIT_PERCENT ||
++        e->subtype()==A_MOD_SPELL_CRIT_CHANCE || e->subtype()==A_MOD_SPELL_CRIT_CHANCE_SCHOOL ||
++        e->subtype()==A_MOD_CRIT_CHANCE_FROM_CASTER || e->subtype()==A_MOD_CRIT_CHANCE_FROM_CASTER_SPELLS ||
++        (e->subtype()==A_ADD_FLAT_MODIFIER && e->misc_value1()==P_CRIT);
+       out<<"{\"source_spell_id\":"<<id<<",\"effect_index\":"<<e->index()+1<<",\"base_value\":"<<e->base_value()
+-         <<",\"value_kind\":\"percent\",\"evidence\":\"dbc_native\",\"conditional\":false,\"label\":";
+-      apl_metadata_json_string(out,e->subtype()==A_MOD_ALL_CRIT_CHANCE?"公共暴击率":e->subtype()==A_HASTE_ALL?"公共急速":"公共效果分量"); out<<'}'; }
++         <<",\"type\":"<<e->type()<<",\"subtype\":"<<e->subtype()<<",\"misc1\":"<<e->misc_value1()<<",\"misc2\":"<<e->misc_value2()<<",\"value_kind\":\""
++         <<(mastery?"mastery":e->base_value()==0?"dynamic":chance?"percentage_points":e->subtype()==A_ADD_FLAT_MODIFIER?"flat":"percent")
++         <<"\",\"evidence\":\"dbc_native\",\"conditional\":"<<(trait?"false":"true")<<",\"label\":";
++      apl_metadata_json_string(out,label);
++      if(e->subtype()==A_ADD_FLAT_MODIFIER && !chance) out<<",\"unit\":\"点\"";
++      if(mastery)
++      { out<<",\"coefficient\":"<<e->mastery_value();
++        if(player.mastery_coefficient()!=0) out<<",\"normalized_mastery_percent\":"
++          <<50*e->mastery_value()/player.mastery_coefficient()+e->base_value(); }
++      out<<'}'; }
+     out<<"]}";
+   }
+ }
+@@ -2789,6 +2916,9 @@
+   {
+     // 增辉的内部队友估算角色不属于用户要求的职业技能。
+     if ( player->type == PLAYER_SIMPLIFIED ) continue;
++    // 目标 Debuff 通常在目标数据首次访问时才创建；目录必须在完整状态集合形成后冻结。
++    if (player->target) player->get_target_data(player->target);
++    for (auto* pet:player->pet_list) if(pet->target) pet->get_target_data(pet->target);
+     if ( !first_actor ) out << ',';
+     first_actor = false;
+     const stat_e primary_stat = player->convert_hybrid_stat( STAT_STR_AGI_INT );
+@@ -2802,7 +2932,7 @@
+     out << ",\"talent_effectiveness\":";
+     apl_metadata_json_string( out, skill_damage_talent_effectiveness( *player ) );
+     out << ",\"action_universe\":\"dbc_spellbook_selected_traits_and_derived_actions\"";
+-    out << ",\"global_damage_policy\":\"exclude_before_probe\"";
++    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":2";
+     out << ",\"reviewed_global_effects\":[";
+     bool first_reviewed = true;
+     const auto player_spec = util::tokenize_fn( dbc::specialization_string( player->specialization() ) );
+--- a/engine/skill_damage_scope_semantics.hpp
++++ b/engine/skill_damage_scope_semantics.hpp
+@@ -5,10 +5,18 @@
+ #include <set>
+ #include <vector>
+ 
++inline bool skill_damage_aura_carrier(const spelleffect_data_t& e)
++{
++  return e.type()==E_APPLY_AURA || e.type()==E_APPLY_AREA_AURA_PARTY ||
++      e.type()==E_APPLY_AREA_AURA_RAID || e.type()==E_APPLY_AREA_AURA_PET ||
++      e.type()==E_APPLY_AREA_AURA_FRIEND || e.type()==E_APPLY_AREA_AURA_ENEMY ||
++      e.type()==E_APPLY_AREA_AURA_OWNER || e.type()==E_APPLY_AURA_PET ||
++      e.type()==E_APPLY_AURA_PLAYER_AND_PET;
++}
++
+ inline bool skill_damage_unrestricted_result(const spelleffect_data_t& e)
+ {
+-  if (e.type() != E_APPLY_AURA && e.type() != E_APPLY_AREA_AURA_PARTY &&
+-      e.type() != E_APPLY_AURA_PLAYER_AND_PET) return false;
++  if (!skill_damage_aura_carrier(e)) return false;
+   for (unsigned i=0; i<NUM_CLASS_FAMILY_FLAGS; ++i) if (e.class_flags(i)) return false;
+   switch (e.subtype())
+   {
+@@ -17,6 +25,12 @@
+     case A_MOD_CRIT_PERCENT: case A_MOD_SPELL_CRIT_CHANCE: case A_MOD_SPELL_CRIT_CHANCE_SCHOOL:
+     case A_MOD_CRIT_CHANCE_FROM_CASTER: case A_MOD_CRIT_CHANCE_FROM_CASTER_SPELLS:
+     case A_MOD_CRIT_DAMAGE_PCT_FROM_CASTER_SPELLS:
++    case A_MOD_DAMAGE_FROM_CASTER: case A_MOD_DAMAGE_DONE_VERSUS:
++    case A_MOD_MECHANIC_DAMAGE_DONE_PERCENT: case A_MOD_DAMAGE_DONE_VERSUS_AURASTATE:
++    case A_MOD_MELEE_AUTO_ATTACK_SPEED: case A_MOD_RANGED_AND_MELEE_AUTO_ATTACK_SPEED:
++    case A_MOD_AUTO_ATTACK_FROM_CASTER: case A_MOD_AUTO_ATTACK_PCT:
++    case A_MOD_DAMAGE_FROM_CASTER_GUARDIAN: case A_MOD_DAMAGE_FROM_CASTER_PET:
++    case A_MOD_PET_DAMAGE_DONE: case A_MOD_AUTO_ATTACK_DAMAGE_PCT: case A_MOD_GUARDIAN_DAMAGE_DONE:
+       return true;
+     default: return false;
+   }
+@@ -24,12 +38,13 @@
+ 
+ inline bool skill_damage_public_selector(const spelleffect_data_t& e)
+ {
+-  if (e.type() != E_APPLY_AURA) return false;
++  if (!skill_damage_aura_carrier(e)) return false;
+   if (e.subtype() != A_ADD_PCT_MODIFIER && e.subtype() != A_ADD_FLAT_MODIFIER &&
+       e.subtype() != A_MOD_DAMAGE_FROM_CASTER_SPELLS &&
+       e.subtype() != A_MOD_CRIT_CHANCE_FROM_CASTER_SPELLS &&
+       e.subtype() != A_MOD_CRIT_DAMAGE_PCT_FROM_CASTER_SPELLS) return false;
+-  if (e.misc_value1()!=P_GENERIC && e.misc_value1()!=P_TICK_DAMAGE &&
++  if ((e.subtype()==A_ADD_PCT_MODIFIER || e.subtype()==A_ADD_FLAT_MODIFIER) &&
++      e.misc_value1()!=P_GENERIC && e.misc_value1()!=P_TICK_DAMAGE &&
+       e.misc_value1()!=P_CRIT && e.misc_value1()!=P_CRIT_BONUS) return false;
+   for (const auto& selector: skill_damage_semantic_selectors)
+     if (e.spell()->class_family()==selector.family && (e.class_flags(selector.word)&selector.mask)) return true;

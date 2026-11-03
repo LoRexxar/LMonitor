@@ -7,7 +7,20 @@ def _positive(value):
     return type(value) is int and value > 0
 
 
-def collect_skill_talent_links(action, *, component_name=None):
+def global_effect_components(actor):
+    """物理分量的作用域独立于天赋名称、倍率及显示分组。"""
+    return frozenset(
+        (part.get('spell_id'), index)
+        for fact in [*(actor.get('reviewed_global_effects') or []),
+                     *(actor.get('global_skill_effects') or [])]
+        if isinstance(fact, dict)
+        for part in fact.get('global_components') or [] if isinstance(part, dict)
+        for index in part.get('effect_indices') or [part.get('effect_index')]
+        if _positive(part.get('spell_id')) and _positive(index)
+    )
+
+
+def collect_skill_talent_links(action, *, component_name=None, global_components=frozenset()):
     variant = action.get('variant') or {}
     reference = variant.get('reference_context') or {}
     context = variant.get('activation_context') or {}
@@ -31,6 +44,7 @@ def collect_skill_talent_links(action, *, component_name=None):
                    for s in ((action.get('baseline') or {}).get(kind) or {}).get('runtime_factor_sources', [])
                    if s.get('evidence') == 'native_multiplier_dataflow_v1'
                    and _positive(s.get('source_spell_id')) and _positive(s.get('effect_index'))
+                   and (s['source_spell_id'], s['effect_index']) not in global_components
                    and type(s.get('factor')) in (int, float) and math.isfinite(s['factor'])
                    and not math.isclose(s['factor'], 1.0, rel_tol=0, abs_tol=1e-12)}
         for fact in action.get('selected_trait_effects') or []:

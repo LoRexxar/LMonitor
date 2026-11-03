@@ -10,9 +10,31 @@ from botend.services.simc_skill_damage import (
     project_skill_damage_product_payload,
     reviewed_global_display_effects,
 )
+from botend.services.simc_global_display import reviewed_static_source_matches_owner
 
 
 class GlobalDisplayIntegrityTests(SimpleTestCase):
+    def test_racial_source_is_excluded_even_when_actor_race_matches(self):
+        for extra in ({'source_race': 'dwarf'}, {}):
+            actor = self.actor([self.fact(**extra)], [self.static()])
+            actor.update(race='dwarf', excluded_racial_spell_ids=[10])
+            self.assertEqual(reviewed_global_display_effects(actor), [])
+            self.assertFalse(reviewed_static_source_matches_owner(actor, self.static(), class_name='warrior'))
+
+    def test_generation_owner_gate_accepts_split_frozen_components_without_borrowing_other_owner(self):
+        static = self.static(owner_spell_id=10, global_components=[{'spell_id': 10, 'effect_indices': [1, 2]}])
+        extra = self.fact(kind='buff', index=2, physical=102)
+        actor = self.actor([self.fact(), extra], [])
+        self.assertTrue(reviewed_static_source_matches_owner(actor, static, class_name='warrior'))
+        for invalid in (
+            {'specializations': ['arms']}, {'source_class': 'mage'},
+            {'effect_id': 'reviewed_scope:天赋:10:999', 'source_kind': 'talent'},
+        ):
+            actor['reviewed_global_effects'][1] = {**extra, **invalid}
+            self.assertFalse(reviewed_static_source_matches_owner(actor, static, class_name='warrior'))
+        actor['reviewed_global_effects'] = [extra]
+        self.assertFalse(reviewed_static_source_matches_owner(actor, static, class_name='warrior'))
+
     def fact(self, *, entry=101, spell=10, index=1, physical=100, kind='talent', **extra):
         row = {
             'effect_id': f'reviewed_scope:{"天赋" if kind == "talent" else "自身状态"}:{spell}:{entry if kind == "talent" else "None"}',
@@ -199,6 +221,20 @@ class GlobalDisplayIntegrityTests(SimpleTestCase):
         self.assertIn(observation, rows)
         self.assertEqual(len(rows), 3)
         self.assertEqual(reviewed_global_display_effects({**actor, 'global_skill_effects': rows}), rows)
+
+    def test_complete_state_catalog_joins_disjoint_categories_without_inventing_a_multiplier(self):
+        facts = [self.fact(kind='buff'), self.fact(kind='buff', index=2, physical=200)]
+        observation = self.runtime(value_status='configuration_dependent_or_unresolved')
+        actor = {**self.actor(facts, [observation]), 'scope_inventory_version': 2}
+        rows = reviewed_global_display_effects(actor)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(len(rows[0]['global_components']), 2)
+        self.assertEqual(len(rows[0]['effect_details']), 2)
+        self.assertEqual(rows[0]['projections'], [])
+        self.assertEqual(reviewed_global_display_effects({**actor, 'global_skill_effects': rows}), rows)
+        actor['reviewed_global_effects'][1]['specializations'] = ['arms']
+        rows = reviewed_global_display_effects(actor)
+        self.assertFalse(any(p['effect_index'] == 2 for row in rows for p in row['global_components']))
 
     def test_definition_different_target_coverage_is_not_attached(self):
         actor = self.actor([self.fact(), self.fact(kind='buff')], [

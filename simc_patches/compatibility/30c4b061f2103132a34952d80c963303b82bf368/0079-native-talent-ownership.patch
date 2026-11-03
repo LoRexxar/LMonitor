@@ -1,0 +1,195 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1691,9 +1691,43 @@
+   return cached.buffs;
+ }
+ 
++// 英雄节点本身的专精字段可能缺失；选择节点才是原生权威归属。
++std::set<unsigned> skill_damage_trait_specs(const trait_data_t& trait,bool ptr)
++{
++  std::set<unsigned> result;
++  if(trait.tree_index==static_cast<unsigned>(talent_tree::HERO))
++  {
++    for(const auto& selection:trait_data_t::data(trait.id_class,talent_tree::SELECTION,ptr))
++      if(selection.id_sub_tree==trait.id_sub_tree)
++        for(auto spec:selection.id_spec) if(spec) result.insert(spec);
++  }
++  else
++  {
++    for(auto spec:trait.id_spec) if(spec) result.insert(spec);
++    // 专精受限节点也可能由其他专精直接赠送；无专精限制的职业节点仍保持通用。
++    if(!result.empty()) for(auto spec:trait.id_spec_starter) if(spec) result.insert(spec);
++  }
++  return result;
++}
++
++void skill_damage_validate_hero_ownership(player_t* player)
++{
++  if(!player->is_player()) return;
++  for(const auto& selected:player->player_traits)
++    if(const auto* trait=trait_data_t::find(std::get<1>(selected),player->is_ptr()); trait)
++    {
++      const auto specs=skill_damage_trait_specs(*trait,player->is_ptr());
++      if(trait->id_class!=static_cast<unsigned>(util::class_id(player->type)) ||
++         (!specs.empty() && !specs.count(static_cast<unsigned>(player->specialization()))) ||
++         (trait->tree_index==static_cast<unsigned>(talent_tree::HERO) && specs.empty()))
++        throw std::runtime_error("Selected trait belongs to another class or specialization");
++    }
++}
++
+ void skill_damage_remove_global_talents( player_t* player )
+ {
+   if ( !player->is_player() ) return;
++  skill_damage_validate_hero_ownership(player);
+   for(auto id:skill_damage_actor_racial_spells(*player))
+     for(const auto& effect:spell_data_t::find(id,player->is_ptr())->effects())
+       if(effect.id()) player->exclude_skill_damage_effect(effect);
+@@ -1769,7 +1803,12 @@
+     out << ",\"spec\":"; apl_metadata_json_string(out,util::specialization_string(owner->specialization()));
+     out << ",\"race\":"; apl_metadata_json_string(out,util::race_type_string(owner->race));
+     out << ",\"race_mask\":\""<<util::race_mask(owner->race)<<"\",\"class_mask\":"<<util::class_id_mask(owner->type);
+-    out << ",\"native_passive_spell_ids\":[";
++    out << ",\"spec_id\":" << static_cast<unsigned>(owner->specialization());
++    out << ",\"valid_hero_subtree_ids\":[";
++    bool first_hero=true;
++    for(auto id:trait_data_t::get_valid_hero_tree_ids(owner->specialization(),owner->is_ptr()))
++    { if(!first_hero) out<<','; first_hero=false; out<<id; }
++    out << "],\"native_passive_spell_ids\":[";
+     bool first_native_source=true;
+     for(auto id:owner->skill_damage_native_passive_spell_ids)
+     { if(!first_native_source) out<<','; first_native_source=false; out<<id; }
+@@ -2107,6 +2146,31 @@
+ // 尊重模块已经关闭的状态；同职业的其他专精天赋不能因共享 buff 对象而生效。
+ bool skill_damage_scope_owner_matches( const player_t& player, unsigned spell )
+ {
++  struct ownership_t { std::map<unsigned,std::set<unsigned>> specs; std::set<unsigned> shared; };
++  static std::map<std::pair<bool,unsigned>,ownership_t> native_owners;
++  const auto key=std::make_pair(player.is_ptr(),static_cast<unsigned>(util::class_id(player.type)));
++  auto found=native_owners.find(key);
++  if(found==native_owners.end())
++  {
++    ownership_t result;
++    for(const auto& trait:trait_data_t::data(player.is_ptr()))
++    {
++      if(trait.id_class!=key.second || !trait.id_spell) continue;
++      const auto closure=skill_damage_trigger_closure(*player.dbc,trait.id_spell);
++      if(trait.tree_index==static_cast<unsigned>(talent_tree::SELECTION)) continue;
++      const auto specs=skill_damage_trait_specs(trait,player.is_ptr());
++      if(!specs.empty() || trait.tree_index==static_cast<unsigned>(talent_tree::HERO))
++      {
++        for(auto id:closure) result.specs[id].insert(specs.begin(),specs.end());
++      }
++      else
++        result.shared.insert(closure.begin(),closure.end());
++    }
++    found=native_owners.emplace(key,std::move(result)).first;
++  }
++  const auto owned=found->second.specs.find(spell);
++  if(owned!=found->second.specs.end() && !found->second.shared.count(spell) &&
++     !owned->second.count(static_cast<unsigned>(player.specialization()))) return false;
+   // 冻结的作用域目录同时持有来源专精。原生模块预建对象不等于当前专精可施加。
+   static const auto owners=[] {
+     std::map<unsigned,std::set<std::string>> result;
+@@ -2142,6 +2206,9 @@
+   for ( const auto& trait : trait_data_t::data( player.is_ptr() ) )
+   {
+     if ( trait.id_class != static_cast<unsigned>( util::class_id( player.type ) ) ) continue;
++    const auto native_specs=skill_damage_trait_specs(trait,player.is_ptr());
++    if(!native_specs.empty() && !native_specs.count(static_cast<unsigned>(player.specialization()))) continue;
++
+     if ( !skill_damage_trigger_closure(*player.dbc,trait.id_spell).count(buff.data().id()) &&
+          util::tokenize_fn( trait.name ) != buff.name_str ) continue;
+     talent_owned = true;
+@@ -2635,6 +2702,8 @@
+     out << ",\"spec_ids\":[";
+     bool fs = true;
+     for ( auto spec : trait.id_spec ) if ( spec ) { if ( !fs ) out << ','; fs = false; out << spec; }
++    out << "],\"starter_spec_ids\":["; fs=true;
++    for(auto spec:trait.id_spec_starter) if(spec) { if(!fs) out<<','; fs=false; out<<spec; }
+     out << "],\"passive\":" << ( spell && spell->flags( spell_attribute::SX_PASSIVE ) ? "true" : "false" );
+     const auto& txt = sim.dbc->spell_text( trait.id_spell );
+     out << ",\"description\":"; apl_metadata_json_string( out, txt.desc() ? txt.desc() : "" );
+@@ -2701,7 +2770,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":27,\"scope_inventory_version\":4,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"racial_policy\":\"exclude_all\",\"simc_revision\":";
++  out << "{\"schema_version\":27,\"scope_inventory_version\":5,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"hero_ownership_inventory_version\":1,\"racial_policy\":\"exclude_all\",\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2763,7 +2832,9 @@
+     apl_metadata_json_string( out, trait.name );
+     out << ",\"spec_ids\":[";
+     bool fs = true;
+-    for ( auto spec : trait.id_spec ) if ( spec ) { if ( !fs ) out << ','; fs = false; out << spec; }
++    for ( auto spec : skill_damage_trait_specs(trait,sim.dbc->ptr) ) { if ( !fs ) out << ','; fs = false; out << spec; }
++    out << "],\"starter_spec_ids\":["; fs=true;
++    for(auto spec:trait.id_spec_starter) if(spec) { if(!fs) out<<','; fs=false; out<<spec; }
+     out << "],\"passive\":" << ( spell && spell->flags( spell_attribute::SX_PASSIVE ) ? "true" : "false" );
+     const auto& txt = sim.dbc->spell_text( trait.id_spell );
+     out << ",\"description\":"; apl_metadata_json_string( out, txt.desc() ? txt.desc() : "" );
+@@ -2830,9 +2901,9 @@
+   for(const auto& trait:trait_data_t::data(player.is_ptr()))
+   {
+     if(trait.id_class!=static_cast<unsigned>(util::class_id(player.type))) continue;
+-    bool restricted=false, matches=false;
+-    for(auto id:trait.id_spec) { restricted|=id!=0; matches|=id==spec; }
+-    if(restricted && !matches) continue;
++    const auto native_specs=skill_damage_trait_specs(trait,player.is_ptr());
++    if(!native_specs.empty() && !native_specs.count(static_cast<unsigned>(player.specialization()))) continue;
++
+     for(auto id:skill_damage_trigger_closure(*player.dbc,trait.id_spell)) sources.emplace(id,trait.id_trait_node_entry);
+   }
+   for(auto id:skill_damage_catalog(player).spells) sources.emplace(id,0);
+@@ -2991,8 +3062,13 @@
+     out << ",\"action_universe\":\"dbc_spellbook_selected_traits_and_derived_actions\"";
+     out << ",\"race\":"; apl_metadata_json_string(out,util::race_type_string(player->race));
+     out << ",\"race_mask\":\""<<util::race_mask(player->race)<<"\",\"class_mask\":"<<util::class_id_mask(player->type);
+-    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":4,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"racial_policy\":\"exclude_all\"";
+-    out << ",\"native_passive_spell_ids\":[";
++    out << ",\"spec_id\":" << static_cast<unsigned>(player->specialization());
++    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":5,\"probe_context_inventory_version\":1,\"native_registration_inventory_version\":1,\"hero_ownership_inventory_version\":1,\"racial_policy\":\"exclude_all\"";
++    out << ",\"valid_hero_subtree_ids\":[";
++    bool first_hero=true;
++    for(auto id:trait_data_t::get_valid_hero_tree_ids(player->specialization(),player->is_ptr()))
++    { if(!first_hero) out<<','; first_hero=false; out<<id; }
++    out << "],\"native_passive_spell_ids\":[";
+     bool first_native_source=true;
+     for(auto id:player->skill_damage_native_passive_spell_ids)
+     { if(!first_native_source) out<<','; first_native_source=false; out<<id; }
+@@ -3751,6 +3827,8 @@
+     if ( !skill_damage_evidence_export_file.empty() )
+     {
+       skill_damage_dbc_candidates.clear();
++      register_actor_initializer(INIT_ACTOR_TALENTS + 1, &skill_damage_validate_hero_ownership,
++                                 "skill_damage_validate_hero_ownership_for_evidence");
+       register_actor_initializer(INIT_ACTOR_CREATE_ACTIONS + 90, &prepare_skill_damage_dbc_actions,
+                                  "skill_damage_dbc_actions_for_evidence");
+       init();
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -2478,6 +2478,11 @@
+ 
+ static void allocate_trait( player_t* player, const trait_data_t* trait, talent_tree tree, unsigned ranks )
+ {
++  if ( tree==talent_tree::HERO && ranks &&
++       (!player->sim->skill_damage_export_file.empty() || !player->sim->skill_damage_evidence_export_file.empty()) &&
++       !trait_data_t::is_hero_trait_available(trait,player->type,player->specialization(),player->is_ptr()) )
++    throw std::invalid_argument("Hero trait is not available to this specialization");
++
+   auto it = range::find_if( player->player_traits, [ trait ]( const auto& entry ) {
+     return std::get<1>( entry ) == trait->id_trait_node_entry;
+   } );
+@@ -3087,7 +3092,10 @@
+   // add any freely granted traits
+   for ( const auto& trait : trait_data_t::data( util::class_id( player->type ), tree, player->is_ptr() ) )
+   {
+-    if ( trait_data_t::is_granted( &trait, player->specialization() ) )
++    if ( trait_data_t::is_granted( &trait, player->specialization() ) &&
++         (tree!=talent_tree::HERO ||
++          (player->sim->skill_damage_export_file.empty() && player->sim->skill_damage_evidence_export_file.empty()) ||
++          trait_data_t::is_hero_trait_available(&trait,player->type,player->specialization(),player->is_ptr())) )
+     {
+       auto id = trait.id_trait_node_entry;
+       auto it = range::find_if( player->player_traits, [ id ]( const auto& e ) { return std::get<1>( e ) == id; } );

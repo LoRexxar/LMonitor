@@ -1,0 +1,205 @@
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -1332,10 +1332,26 @@
+   return nullptr;
+ }
+ 
++// 按原生种族目录及触发闭包统一排除，不依赖名称或职业 family。
++const std::set<unsigned>& skill_damage_all_racial_spells(const dbc_t& dbc)
++{
++  static std::map<bool,std::set<unsigned>> cache;
++  const auto found=cache.find(dbc.ptr);
++  if(found!=cache.end()) return found->second;
++  auto& result=cache[dbc.ptr];
++  for(const auto& entry:racial_spell_entry_t::data(dbc.ptr))
++  {
++    const auto ids=skill_damage_trigger_closure(dbc,entry.spell_id);
++    result.insert(ids.begin(),ids.end());
++  }
++  return result;
++}
++
+ const char* skill_damage_global_buff_basis( const player_t& player, const buff_t* buff, bool target )
+ {
+   if ( !buff || !buff->data().ok() || buff->source != &player ||
+        buff->player != ( target ? player.target : &player ) ) return nullptr;
++  if(skill_damage_all_racial_spells(*player.dbc).count(buff->data().id())) return nullptr;
+   const int family = as<int>(buff->data().class_family());
+   if ( family && family != dbc::get_class_spell_family(player.type) ) return nullptr;
+   const auto* fact = skill_damage_reviewed_buff(buff->data().id());
+@@ -1649,10 +1665,10 @@
+     cached.target = player.target;
+     cached.buffs.clear();
+     for ( buff_t* buff : player.buff_list )
+-      if ( skill_damage_excluded_global_buff( player, buff, false ) ) cached.buffs.push_back( buff );
++      if ( skill_damage_all_racial_spells(*player.dbc).count(buff->data().id()) || skill_damage_excluded_global_buff( player, buff, false ) ) cached.buffs.push_back( buff );
+     if ( player.target )
+       for ( buff_t* buff : player.target->buff_list )
+-        if ( skill_damage_excluded_global_buff( player, buff, true ) ) cached.buffs.push_back( buff );
++        if ( skill_damage_all_racial_spells(*player.dbc).count(buff->data().id()) || skill_damage_excluded_global_buff( player, buff, true ) ) cached.buffs.push_back( buff );
+   }
+   return cached.buffs;
+ }
+@@ -1660,6 +1676,9 @@
+ void skill_damage_remove_global_talents( player_t* player )
+ {
+   if ( !player->is_player() ) return;
++  for(auto id:skill_damage_all_racial_spells(*player->dbc))
++    for(const auto& effect:spell_data_t::find(id,player->is_ptr())->effects())
++      if(effect.id()) player->exclude_skill_damage_effect(effect);
+   const auto family = dbc::get_class_spell_family(player->type);
+   // 所有本职业已复核分量都在初始化前处理，包含非天赋父节点的自身 Buff。
+   for ( const auto& fact : skill_damage_effect_scope(*player->dbc) )
+@@ -1730,6 +1749,8 @@
+     if ( !fa ) out << ','; fa = false;
+     out << "{\"class\":"; apl_metadata_json_string(out,util::player_type_string(owner->type));
+     out << ",\"spec\":"; apl_metadata_json_string(out,util::specialization_string(owner->specialization()));
++    out << ",\"race\":"; apl_metadata_json_string(out,util::race_type_string(owner->race));
++    out << ",\"race_mask\":\""<<util::race_mask(owner->race)<<"\",\"class_mask\":"<<util::class_id_mask(owner->type);
+     out << ",\"selected_trait_ids\":[";
+     bool fs = true;
+     for ( const auto& t : owner->player_traits ) { if (!fs) out << ','; fs=false; out << std::get<1>(t); }
+@@ -1942,7 +1963,7 @@
+   };
+   if ( probe( nullptr ) ) return true;
+   for ( auto* buff : player.buff_list )
+-    if ( buff->source == &player && buff->player == &player && drivers.count( buff->data().id() ) && probe( buff ) )
++    if ( buff->source == &player && buff->player == &player && !skill_damage_all_racial_spells(*player.dbc).count(buff->data().id()) && drivers.count( buff->data().id() ) && probe( buff ) )
+     {
+       required.push_back( { skill_damage_condition_scope_e::SELF, buff, "buff."+buff->name_str, 1 } );
+       return true;
+@@ -2082,6 +2103,7 @@
+ 
+ bool skill_damage_available_buff( const player_t& player, const buff_t& buff )
+ {
++  if(skill_damage_all_racial_spells(*player.dbc).count(buff.data().id())) return false;
+   if (!skill_damage_scope_owner_matches(player,buff.data().id())) return false;
+   // 其他职业的公共外部 buff 也会以接收者为 source 创建，不能据此认定可以自身施加。
+   const int family = as<int>(buff.data().class_family());
+@@ -2611,6 +2633,14 @@
+     { if(!fr) out << ','; fr=false; skill_damage_write_dbc_relation(out,*sim.dbc,effect); }
+     out << "]}";
+   }
++  out << "],\"racial_catalog\":[";
++  bool first_racial=true;
++  for(const auto& racial:racial_spell_entry_t::data(sim.dbc->ptr))
++  {
++    if(!first_racial) out<<','; first_racial=false;
++    out<<"{\"mask_race\":"<<racial.mask_race<<",\"mask_class\":"<<racial.mask_class<<",\"spell_id\":"<<racial.spell_id<<",\"name\":";
++    apl_metadata_json_string(out,racial.name); out<<'}';
++  }
+   out << "],\"spell_catalog\":[";
+   bool first_spell=true;
+   for (const auto& spell:spell_data_t::data(sim.dbc->ptr))
+@@ -2646,7 +2676,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":27,\"scope_inventory_version\":2,\"probe_context_inventory_version\":1,\"simc_revision\":";
++  out << "{\"schema_version\":27,\"scope_inventory_version\":3,\"probe_context_inventory_version\":1,\"racial_policy\":\"exclude_all\",\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2789,6 +2819,7 @@
+     { sources[buff->data().id()]=0; target_sources.insert(buff->data().id()); source_stacks[buff->data().id()]=buff->max_stack(); }
+   for(const auto& [id,trait]:sources)
+   {
++    if(skill_damage_all_racial_spells(*player.dbc).count(id)) continue;
+     if (!skill_damage_scope_owner_matches(player,id)) continue;
+     const auto* spell=spell_data_t::find(id,player.is_ptr());
+     if(spell->class_family() && spell->class_family()!=static_cast<unsigned>(dbc::get_class_spell_family(player.type))) continue;
+@@ -2932,14 +2963,29 @@
+     out << ",\"talent_effectiveness\":";
+     apl_metadata_json_string( out, skill_damage_talent_effectiveness( *player ) );
+     out << ",\"action_universe\":\"dbc_spellbook_selected_traits_and_derived_actions\"";
+-    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":2,\"probe_context_inventory_version\":1";
++    out << ",\"race\":"; apl_metadata_json_string(out,util::race_type_string(player->race));
++    out << ",\"race_mask\":\""<<util::race_mask(player->race)<<"\",\"class_mask\":"<<util::class_id_mask(player->type);
++    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":3,\"probe_context_inventory_version\":1,\"racial_policy\":\"exclude_all\"";
++    out << ",\"excluded_racial_spell_ids\":[";
++    bool first_racial_id=true;
++    for(auto id:skill_damage_all_racial_spells(*player->dbc))
++    { if(!first_racial_id) out<<','; first_racial_id=false; out<<id; }
++    out<<']';
+     out << ",\"reviewed_global_effects\":[";
+     bool first_reviewed = true;
+     const auto player_spec = util::tokenize_fn( dbc::specialization_string( player->specialization() ) );
+     for (const auto& fact : skill_damage_scope_display)
+       if ((fact.shared || fact.family == static_cast<unsigned>(dbc::get_class_spell_family(player->type))) &&
+           (!fact.specialization[ 0 ] || player_spec == fact.specialization))
+-      { if (!first_reviewed) out << ','; first_reviewed=false; out << fact.json; }
++      {
++        rapidjson::Document definition; definition.Parse(fact.json);
++        bool racial=false;
++        if(definition.HasParseError()) throw std::runtime_error("Invalid frozen scope fact");
++        for(const auto& id:definition["source_spell_ids"].GetArray())
++          racial|=skill_damage_all_racial_spells(*player->dbc).count(id.GetUint())!=0;
++        if(racial) continue;
++        if (!first_reviewed) out << ','; first_reviewed=false; out << fact.json;
++      }
+     write_skill_damage_semantic_scope(out,*player,first_reviewed);
+     out << ']';
+     out << ",\"scope_contract_sha256\":"; apl_metadata_json_string(out, skill_damage_scope_sha256);
+@@ -2960,6 +3006,21 @@
+           << ",\"actual_mastery_coefficient\":" << (actual.spell()->flags(SX_MASTERY_AFFECTS_POINTS)?actual.mastery_value():0.0) << '}';
+     }
+     out << ']';
++    out<<",\"normalized_racial_effects\":[";
++    bool first_racial_effect=true;
++    for(auto id:skill_damage_all_racial_spells(*player->dbc))
++      for(const auto& original:spell_data_t::find(id,player->is_ptr())->effects())
++      {
++        if(!original.id()) continue;
++        const auto& e=dbc::find_spell(player,id)->effectN(original.index()+1);
++        if(e.base_value()!=0.0 || e.sp_coeff()!=0.0 || e.ap_coeff()!=0.0 || e.m_coefficient()!=0.0)
++          throw std::runtime_error("Racial effect survived normalization");
++        if(!first_racial_effect) out<<','; first_racial_effect=false;
++        out<<"{\"spell_id\":"<<id<<",\"effect_index\":"<<original.index()+1<<",\"effect_id\":"<<original.id()
++           <<",\"actual_base_value\":"<<e.base_value()<<",\"actual_sp_coefficient\":"<<e.sp_coeff()
++           <<",\"actual_ap_coefficient\":"<<e.ap_coeff()<<",\"actual_scale_coefficient\":"<<e.m_coefficient()<<'}';
++      }
++    out<<']';
+     out << ",\"selected_trait_ids\":[";
+     bool first_selected = true;
+     for ( const auto& selected : player->player_traits )
+@@ -3064,6 +3125,9 @@
+     {
+       if ( !action ) continue;
+       coverage[action] = "no_native_damage";
++      if(skill_damage_all_racial_spells(*player->dbc).count(action->data().id()) ||
++         skill_damage_all_racial_spells(*player->dbc).count(apl_metadata_action_spell_id(*action)))
++      { coverage[action]="racial_excluded"; continue; }
+       if ( action->external_recipient_action() ) { coverage[action]="external_recipient"; continue; }
+       if ( !action->harmful || action->type == ACTION_HEAL || action->type == ACTION_ABSORB ||
+            ( !action->does_direct_damage() && !action->does_periodic_damage() ) ) continue;
+@@ -3088,6 +3152,8 @@
+         if ( !replacement_ready.at( root ) ) { coverage[action]="replacement_not_ready"; continue; }
+         skill_damage_activation_conditions[action] = skill_damage_activation_conditions[root];
+       }
++      if(skill_damage_all_racial_spells(*player->dbc).count(root->data().id()))
++      { coverage[action]="racial_excluded"; continue; }
+       if ( root->item ) { coverage[action]="equipment_action"; continue; }
+       if ( !exported_cast_actions.emplace( action->name_str, apl_metadata_action_spell_id( *action ), root->name_str, root->data().id() ).second )
+       { coverage[action]="duplicate_within_cast"; continue; }
+@@ -3376,6 +3442,7 @@
+     {
+       for ( const auto& candidate : candidate_it->second )
+       {
++        if(skill_damage_all_racial_spells(*player->dbc).count(candidate.spell_id)) continue;
+         const std::string token = candidate.name.empty()
+           ? fmt::format( "dbc_spell_{}", candidate.spell_id )
+           : util::tokenize_fn( candidate.name );
+--- a/engine/player/player.cpp
++++ b/engine/player/player.cpp
+@@ -16768,7 +16768,7 @@
+   // 精通效果的实际值来自 sp_coefficient；只清 base_value 不会移除增伤。
+   if ( effect.spell()->flags( SX_MASTERY_AFFECTS_POINTS ) )
+     register_passive_effect_override( effect, 0.0, "sp_coefficient" );
+-  if ( effect.type() == E_SCHOOL_DAMAGE )
+-    for ( const auto* field : { "sp_coefficient", "ap_coefficient", "coefficient", "delta", "bonus" } )
+-      register_passive_effect_override( effect, 0.0, field );
+-}
++  // 排除整个物理分量，不能留下属性、治疗或其他效果的缩放旁路。
++  for ( const auto* field : { "sp_coefficient", "ap_coefficient", "coefficient", "delta", "bonus" } )
++    register_passive_effect_override( effect, 0.0, field );
++}

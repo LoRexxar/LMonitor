@@ -1,0 +1,99 @@
+--- a/engine/class_modules/priest/sc_priest_pets.cpp
++++ b/engine/class_modules/priest/sc_priest_pets.cpp
+@@ -777,6 +777,9 @@
+   inescapable_torment_damage_t( base_fiend_pet_t& p )
+     : priest_pet_spell_t( "inescapable_torment_damage", p, p.o().find_spell( 373442 ) )
+   {
++    // 成员 mod 由实际施法过程提供；独立快照不可读取未定义上下文。
++    snapshot_state_requires_parent_execute_state = true;
++
+     background                 = true;
+     affected_by_shadow_weaving = true;
+     triggers_atonement         = true;
+--- a/engine/class_modules/sc_death_knight.cpp
++++ b/engine/class_modules/sc_death_knight.cpp
+@@ -8234,6 +8234,9 @@
+   exterminate_aoe_t( std::string_view name, death_knight_t* p )
+     : death_knight_spell_t( name, p, p->spell.exterminate_aoe )
+   {
++    // 成员 empowered 由实际施法过程提供；独立快照不可读取未定义上下文。
++    snapshot_state_requires_parent_execute_state = true;
++
+     background              = true;
+     cooldown->duration      = 0_ms;
+     aoe                     = -1;
+@@ -8295,6 +8298,9 @@
+     : death_knight_spell_t( name, p, p->spell.exterminate_damage ),
+       second_hit( get_action<exterminate_aoe_t>( name_str + "_second_hit", p ) )
+   {
++    // 成员 empowered 由实际施法过程提供；独立快照不可读取未定义上下文。
++    snapshot_state_requires_parent_execute_state = true;
++
+     background              = true;
+     cooldown->duration      = 0_ms;
+     const int effect_idx    = p->specialization() == DEATH_KNIGHT_FROST ? 2 : 1;
+--- a/engine/class_modules/sc_warrior.cpp
++++ b/engine/class_modules/sc_warrior.cpp
+@@ -4226,6 +4226,9 @@
+     : warrior_attack_t( "execute_damage", p, p->spell.execute->effectN( 1 ).trigger() ), max_rage( 40 ),
+     finishing_wound( nullptr )
+   {
++    // 成员 cost_rage 由实际施法过程提供；独立快照不可读取未定义上下文。
++    snapshot_state_requires_parent_execute_state = true;
++
+     parse_options( options_str );
+     weapon = &( p->main_hand_weapon );
+     background = true;
+--- a/engine/class_modules/warlock/sc_warlock_actions.cpp
++++ b/engine/class_modules/warlock/sc_warlock_actions.cpp
+@@ -2987,6 +2987,9 @@
+       implosion_aoe_t( warlock_t* p )
+         : warlock_spell_t( "Implosion (AoE)", p, p->talents.implosion_aoe )
+       {
++        // 成员 next_imp 由实际施法过程提供；独立快照不可读取未定义上下文。
++        snapshot_state_requires_parent_execute_state = true;
++
+         aoe = -1;
+         background = dual = true;
+       }
+--- a/engine/class_modules/warlock/sc_warlock_pets.cpp
++++ b/engine/class_modules/warlock/sc_warlock_pets.cpp
+@@ -2435,6 +2435,9 @@
+ 
+   eye_beam_t( warlock_pet_t* p ) : warlock_pet_spell_t( "Eye Beam", p, p->o()->talents.eye_beam )
+   {
++    // 成员 last_chain_target 由实际施法过程提供；独立快照不可读取未定义上下文。
++    snapshot_state_requires_parent_execute_state = true;
++
+     if ( p->o()->talents.nether_plating.ok() )
+       radius = p->o()->talents.nether_plating->effectN( 2 ).base_value();
+   }
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -2201,7 +2201,7 @@
+ 
+ void write_skill_damage_json_number( std::ostream& out, double value )
+ {
+-  if ( std::isfinite( value ) )
++  if ( std::isfinite( value ) && (value==0.0 || std::isnormal(value)) )
+   {
+     out.precision( std::numeric_limits<double>::max_digits10 );
+     out << value;
+@@ -2646,7 +2646,7 @@
+ {
+   std::ofstream out( sim.skill_damage_scope_export_file, std::ios::binary | std::ios::trunc );
+   if ( !out ) throw std::runtime_error( "Unable to open skill damage scope catalog" );
+-  out << "{\"schema_version\":27,\"scope_inventory_version\":2,\"simc_revision\":";
++  out << "{\"schema_version\":27,\"scope_inventory_version\":2,\"probe_context_inventory_version\":1,\"simc_revision\":";
+   apl_metadata_json_string( out, sim.skill_damage_revision );
+   out << ",\"game_build\":"; apl_metadata_json_string( out, sim.skill_damage_game_build );
+   out << ",\"talents\":[";
+@@ -2932,7 +2932,7 @@
+     out << ",\"talent_effectiveness\":";
+     apl_metadata_json_string( out, skill_damage_talent_effectiveness( *player ) );
+     out << ",\"action_universe\":\"dbc_spellbook_selected_traits_and_derived_actions\"";
+-    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":2";
++    out << ",\"global_damage_policy\":\"exclude_before_probe\",\"scope_inventory_version\":2,\"probe_context_inventory_version\":1";
+     out << ",\"reviewed_global_effects\":[";
+     bool first_reviewed = true;
+     const auto player_spec = util::tokenize_fn( dbc::specialization_string( player->specialization() ) );

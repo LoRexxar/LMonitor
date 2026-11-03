@@ -200,7 +200,6 @@ def main():
     def product_actor(cls, spec, high, low, variants, mode):
         global_effects = classify_global_skill_effects(high,low,variants)
         display_global_effects = list(global_effects)
-        global_effects = [e for e in global_effects if not any(p.get('kind')=='crit_chance' for p in e.get('projections',[]))]
         selected = set(high['selected_trait_ids'])
         for variant in variants:
             selected.update(variant['high']['selected_trait_ids'])

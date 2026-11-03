@@ -3230,9 +3230,7 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
             if (row.get('variant') or {}).get('talent_id') is None
             and (row.get('variant') or {}).get('scenario_tokens')
         ]
-        self.assertEqual(len(base_runtime_rows), 4)
-        self.assertEqual({token for row in base_runtime_rows for token in row['variant']['scenario_tokens']},
-                         {'buff.recklessness', 'buff.compound_global'})
+        self.assertEqual(base_runtime_rows, [], '已证明的公共暴击和公共复合加成只进入全局表')
         self.assertEqual(avatar['projections'][0]['kind'], 'damage_multiplier')
         self.assertAlmostEqual(avatar['projections'][0]['value'], 1.20)
         self.assertEqual(recklessness['projections'][0]['kind'], 'crit_chance')
@@ -3290,14 +3288,10 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         self.assertEqual(
             remaining_global_runtime_rows,
             [
-                ('a', None, ['buff.recklessness'], True),
-                ('a', None, ['buff.compound_global'], True),
-                ('b', None, ['buff.recklessness'], True),
-                ('b', None, ['buff.compound_global'], True),
                 ('a', 9, ['buff.recklessness'], True),
                 ('b', 9, ['buff.recklessness'], True),
             ],
-            '影响暴击期望的基础状态和天赋状态均须保留',
+            '公共暴击和公共复合加成过滤，未被完整公共投影解释的天赋差异保留',
         )
 
         mixed_crit_actor = copy.deepcopy(base_actor)
@@ -3848,13 +3842,13 @@ class SimcSkillDamageSnapshotServiceTests(TestCase):
         peak_live = 0
         peak_context = None
 
-        def classify_with_tracking(base_high, base_low, variants):
+        def classify_with_tracking(base_high, base_low, variants, **kwargs):
             nonlocal tracking_consumers
             # Exclude the fixed base pair, not the first load of each name:
             # activation-context planning also reads base actors beforehand.
             # All subsequent lazy reference/base loads must still be counted.
             tracking_consumers = True
-            return classify_global_skill_effects(base_high, base_low, variants)
+            return classify_global_skill_effects(base_high, base_low, variants, **kwargs)
 
         def tracked_load(spool, target_health, canonical_name):
             nonlocal peak_live, peak_context

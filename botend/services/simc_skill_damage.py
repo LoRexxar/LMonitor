@@ -1,6 +1,10 @@
 import copy
 import hashlib
-from .simc_skill_talent_links import collect_skill_talent_links, merge_skill_talent_links, apply_skill_talent_links
+from .simc_skill_state_projection import global_damage_state_identities, uses_global_damage_scenario
+from .simc_skill_talent_links import (
+    collect_skill_talent_links, merge_skill_talent_links, apply_skill_talent_links,
+    global_effect_components,
+)
 import json
 import math
 import os
@@ -406,6 +410,7 @@ def _finite_number(value):
         isinstance(value, (int, float))
         and not isinstance(value, bool)
         and math.isfinite(value)
+        and (value == 0 or abs(value) >= sys.float_info.min)
     )
 
 
@@ -1077,7 +1082,7 @@ def collect_skill_damage_unresolved(payload, *, target_health=100):
     seen = set()
     for actor in payload.get('actors') or []:
         for action in actor.get('actions') or []:
-            if action.get('supported') is not True or action.get('harmful') is not True:
+            if action.get('harmful') is not True or action.get('player_skill') is False:
                 continue
             amounts = [action.get('baseline'), *(
                 scenario.get('values') for scenario in action.get('scenarios') or []
@@ -2873,6 +2878,38 @@ def _amount_change_only_global_projections(reference, selected, effect):
             normalized_component['expected'] = reference_component.get('expected')
             applied = True
 
+        if damage_applies or crit_applies:
+            # 新导出器还携带逐目标暴击期望和两类贡献，必须一起核实。
+            # 缺失目标级未封顶暴击率时，只接受与已证明的单目标概率一致的曲线。
+            for field in ('target_hit', 'target_crit', 'target_expected',
+                          'target_noncrit_contribution', 'target_crit_contribution'):
+                old_curve, new_curve = reference_component.get(field), selected_component.get(field)
+                if old_curve is None and new_curve is None:
+                    continue
+                if not isinstance(old_curve, dict) or not isinstance(new_curve, dict) or set(old_curve) != set(new_curve):
+                    return False
+                for target, old_value in old_curve.items():
+                    new_value = new_curve[target]
+                    if not crit_applies or field in ('target_hit', 'target_crit'):
+                        if not _ratio_matches_projection(old_value, new_value, damage_multiplier if damage_applies else 1.0):
+                            return False
+                    else:
+                        for component, value in ((reference_component, old_value), (selected_component, new_value)):
+                            hit = (component.get('target_hit') or {}).get(target)
+                            crit = (component.get('target_crit') or {}).get(target)
+                            chance = component.get('crit_chance')
+                            if not all(_finite_number(n) for n in (hit, crit, chance, value)):
+                                return False
+                            expected_value = {
+                                'target_expected': hit * (1 - chance) + crit * chance,
+                                'target_noncrit_contribution': hit * (1 - chance),
+                                'target_crit_contribution': crit * chance,
+                            }[field]
+                            if not math.isclose(value, expected_value, rel_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE,
+                                                abs_tol=_GLOBAL_DAMAGE_RATIO_REL_TOLERANCE):
+                                return False
+                normalized_component[field] = copy.deepcopy(old_curve)
+
     return applied and _projection_fact_equal(reference, normalized)
 
 
@@ -2948,6 +2985,62 @@ def _validate_global_scope_catalog(actor):
         declared[key] = (row.get('scope_basis'), row.get('available'))
     if declared != classified:
         raise ValueError('exporter 全局效果声明与候选目录不一致。')
+    if actor.get('scope_inventory_version', 0) >= 3:
+        racial_ids = actor.get('excluded_racial_spell_ids')
+        racial_effects = actor.get('normalized_racial_effects')
+        if (actor.get('racial_policy') != 'exclude_all' or not isinstance(racial_ids, list) or not racial_ids
+                or any(type(sid) is not int or sid <= 0 for sid in racial_ids)
+                or len(set(racial_ids)) != len(racial_ids) or not isinstance(racial_effects, list)):
+            raise ValueError('缺少完整种族能力排除契约。')
+        excluded = set(racial_ids)
+        if actor.get('scope_inventory_version', 0) >= 5:
+            valid_heroes = actor.get('valid_hero_subtree_ids')
+            if (actor.get('hero_ownership_inventory_version') != 1 or not isinstance(valid_heroes, list)
+                    or not valid_heroes or any(type(sid) is not int or sid <= 0 for sid in valid_heroes)
+                    or len(valid_heroes) != len(set(valid_heroes))
+                    or type(actor.get('spec_id')) is not int or actor['spec_id'] <= 0):
+                raise ValueError('缺少原生英雄树选择节点归属。')
+        if actor.get('scope_inventory_version', 0) >= 4:
+            registered = actor.get('native_passive_spell_ids')
+            racial_registered = actor.get('native_racial_spell_ids')
+            if (actor.get('native_registration_inventory_version') != 1
+                    or not isinstance(registered, list) or not isinstance(racial_registered, list)
+                    or any(type(sid) is not int or sid <= 0 for sid in [*registered, *racial_registered])
+                    or set(racial_registered) - excluded):
+                raise ValueError('缺少完整原生注册来源或原生种族变体未排除。')
+        for effect in racial_effects:
+            if (any(type(effect.get(key)) is not int or effect[key] <= 0 for key in ('spell_id', 'effect_index', 'effect_id'))
+                    or effect['spell_id'] not in excluded
+                    or any(not _finite_number(effect.get(key)) or effect[key] != 0 for key in (
+                        'actual_base_value', 'actual_sp_coefficient', 'actual_ap_coefficient', 'actual_scale_coefficient'))):
+                raise ValueError('种族能力分量未在探测前完整归零。')
+        for row in [*(actor.get('global_damage_states') or []), *(actor.get('actions') or [])]:
+            if row.get('spell_id') in excluded or row.get('reporting_root_spell_id') in excluded:
+                raise ValueError('种族能力仍出现在技能或全局状态目录。')
+        for action in actor.get('actions') or []:
+            conditions = [*(action.get('activation_conditions') or []),
+                          *(state for scenario in action.get('scenarios') or [] for state in scenario.get('buffs') or [])]
+            if any(state.get('spell_id') in excluded for state in conditions):
+                raise ValueError('种族能力仍出现在技能条件。')
+        for fact in actor.get('reviewed_global_effects') or []:
+            if (fact.get('source_race') or set(fact.get('source_spell_ids') or []).intersection(excluded)
+                    or any(p.get('spell_id') in excluded for p in fact.get('global_components') or [])):
+                raise ValueError('种族能力仍出现在上表明细。')
+    if actor.get('scope_inventory_version', 0) >= 2:
+        for fact in actor.get('reviewed_global_effects') or []:
+            if fact.get('source_race') and str(fact['source_race']).casefold() != str(actor.get('race') or '').casefold():
+                raise ValueError('冻结上表种族来源与当前角色不一致。')
+            details = fact.get('effect_details') or []
+            parts = {(p.get('spell_id'), index) for p in fact.get('global_components') or []
+                     for index in p.get('effect_indices') or [p.get('effect_index')] if index}
+            detailed = {(d.get('source_spell_id'), d.get('effect_index')) for d in details}
+            if parts - detailed:
+                raise ValueError('冻结上表分量缺少对应效果明细。')
+            if fact.get('scope_evidence') == 'dbc_semantic_effect_scope':
+                for detail in details:
+                    if (any(type(detail.get(key)) is not int for key in ('type', 'subtype', 'misc1', 'misc2'))
+                            or not detail.get('label') or detail['label'] in {'公共效果分量', '未标注效果类别'}):
+                        raise ValueError('冻结上表明细缺少原始效果属性或明确类别，请重新编译 SimC。')
     if actor.get('scope_contract_sha256') is not None or any(basis == 'reviewed_dbc_native_effect_scope' for basis, _ in classified.values()):
         digest = actor.get('scope_contract_sha256')
         normalized = actor.get('normalized_scope_effects')
@@ -2981,6 +3074,15 @@ def _validate_global_scope_catalog(actor):
                 catalog_effects.add((component['spell_id'],component['effect_index']))
         if not catalog_effects or not catalog_effects.issubset(seen_effects):
             raise ValueError('全局展示目录与实际剔除分量不一致。')
+        if actor.get('scope_inventory_version', 0) >= 2:
+            for state in actor['global_damage_states']:
+                if state.get('available') is not True:
+                    continue
+                sid = state['spell_id']
+                if not any(sid in (fact.get('source_spell_ids') or []) or any(
+                        part.get('spell_id') == sid for part in fact.get('global_components') or [])
+                           for fact in directory):
+                    raise ValueError(f'可用全局状态缺少冻结上表明细：{sid}')
 
 
 def _reviewed_global_fact_metadata(actor, spell_id):
@@ -3091,7 +3193,34 @@ def _collect_declared_global_state_effects(actor, effects):
                 effect['_incomplete'] = True
 
 
-def classify_global_skill_effects(base_high, base_low, variants):
+def _collect_profile_scope_catalog(catalog, actor, owner):
+    """只汇总同一专精的冻结目录，保留互不相同的条件与物理分量事实。"""
+    def identity(source):
+        cls = source.get('class') or source.get('class_name')
+        spec = source.get('specialization') or source.get('spec')
+        if not cls or not spec:
+            return None
+        try:
+            result = canonical_simc_profile_identity(spec, cls)
+            return result if _scope_name_key(result[0]) == _scope_name_key(cls) else None
+        except ValueError:
+            return None
+    expected = identity(owner)
+    if expected is None or identity(actor) != expected:
+        return
+    for fact in actor.get('reviewed_global_effects') or []:
+        if not isinstance(fact, dict) or not global_effect_matches_owner(fact, *expected):
+            continue
+        excluded = set(actor.get('excluded_racial_spell_ids') or []) | set(owner.get('excluded_racial_spell_ids') or [])
+        sources = set(fact.get('source_spell_ids') or []) | {p.get('spell_id') for p in fact.get('global_components') or []}
+        if fact.get('source_race') or sources.intersection(excluded):
+            continue
+        key = json.dumps(fact, ensure_ascii=False, sort_keys=True, separators=(',', ':'))
+        if key not in catalog:
+            catalog[key] = copy.deepcopy(fact)
+
+
+def classify_global_skill_effects(base_high, base_low, variants, *, scope_catalog=None):
     variants = _reiterable_variants(variants)
     declared_effects = {}
     declared_identities = set()
@@ -3129,6 +3258,8 @@ def classify_global_skill_effects(base_high, base_low, variants):
     seen_state_effects = set()
     for source_high, source_low, talent, reference_high, reference_low in iter_state_sources():
         for source_actor in (source_high, source_low, reference_high, reference_low):
+            if scope_catalog is not None:
+                _collect_profile_scope_catalog(scope_catalog, source_actor, base_high)
             _collect_declared_global_state_effects(source_actor, declared_effects)
         source_actor = None
         declared_identities.update(declared_effects)
@@ -3400,7 +3531,7 @@ def classify_global_skill_effects(base_high, base_low, variants):
             for projection in effect['projections']:
                 projection['evidence_layer'] = 'dbc_base_multiplier'
         if effect.get('partial_state') is True:
-            effect['runtime_condition'] = '效果生效时；对特定技能的额外加成见下方对应条件'
+            effect['runtime_condition'] = '效果生效时；全局状态不作为下表增伤条件，技能触发前提单独保留'
     return [*declared_effects.values(), *result]
 
 
@@ -3457,16 +3588,13 @@ def flatten_single_talent_damage_variants(
     declared_state_identities = {
         (condition.get('scope'), condition.get('spell_id'))
         for effect in (global_effects or []) if effect.get('scope_evidence') == 'declared_global_damage_state'
-        and effect.get('partial_state') is not True
         for condition in effect.get('runtime_conditions') or []
     }
-    declared_state_effects = {}
-    for effect in global_effects or []:
-        if not isinstance(effect, dict) or effect.get('scope_evidence') != 'declared_global_damage_state':
-            continue
-        for condition in effect.get('runtime_conditions') or []:
-            key = (condition.get('scope'), condition.get('spell_id'))
-            declared_state_effects.setdefault(key, []).append(effect)
+    declared_state_identities.update(
+        (scope, spell_id)
+        for actor in (base_high, base_low)
+        for _, scope, spell_id in global_damage_state_identities(actor)
+    )
     base_high_actions = {
         _action_identity(action): action
         for action in (base_high.get('actions') or [])
@@ -3485,6 +3613,7 @@ def flatten_single_talent_damage_variants(
     cast_sources = {}
     actor_context = {id(action):actor for actor in (base_high,base_low)
                      for action in actor.get('actions') or []}
+    actor_state_identities = {}
     hero_subtree_by_trait_entry = {}
     for item in _variant_metadata(variants):
         talent = (item or {}).get('talent') or {}
@@ -3557,48 +3686,11 @@ def flatten_single_talent_damage_variants(
                     return True
         return False
 
-    def action_has_local_state_evidence(action, effects, identity, amount, comparison):
-        if action_has_explicit_local_binding(action, effects):
-            return True
-        # DBC bindings are positive evidence, not a complete inventory of native
-        # C++ conditionals. A validated exclude-before-probe actor can also prove
-        # locality: its same-action singleton still changes after global values
-        # have been removed. Do not borrow normalization from another actor, an
-        # unrelated state in a combination, or an absent/unresolved reference.
-        actor = actor_context.get(id(action)) or {}
-        if (
-            actor.get('global_damage_policy') != 'exclude_before_probe'
-            or not all(effect.get('excluded_before_probe') is True for effect in effects)
-            or _amount_state(comparison)[0] != 'resolved'
-            or not _effect_changed(comparison, amount)
-        ):
-            return False
-        token, scope, spell_id, _ = identity
-        if not any(
-            state.get('token') == token
-            and state.get('scope') == scope and state.get('spell_id') == spell_id
-            and state.get('partial_state') is True
-            and state.get('excluded_before_probe') is True
-            and state.get('scope_basis') in {'reviewed_dbc_native_effect_scope', 'dbc_semantic_effect_scope'}
-            for state in actor.get('global_damage_states') or []
-        ):
-            return False
-        baseline = action.get('baseline')
-        singleton = indexed_scenarios(action).get((identity,))
-        return (
-            _amount_state(baseline)[0] == 'resolved'
-            and _amount_state(singleton)[0] == 'resolved'
-            and _effect_changed(baseline, singleton)
-        )
-
     global_runtime_effects_by_scenario = {}
     global_talent_effects_by_owner_scenario = {}
     global_talent_effects_by_owner = {}
     for effect in global_effects or []:
         if not isinstance(effect, dict):
-            continue
-        # 暴击率属于期望计算输入，不得当作全局直接增伤把对应天赋/状态行删除。
-        if any(projection.get('kind') == 'crit_chance' for projection in effect.get('projections') or []):
             continue
         scenario_identity = _global_effect_scenario_identity(effect)
         if effect.get('source_type') == 'talent':
@@ -3622,19 +3714,18 @@ def flatten_single_talent_damage_variants(
         if not isinstance(action, dict) or _amount_state(amount)[0] != 'resolved':
             return
         scenario_identity = tuple(scenario_tokens or ())
+        source_actor = actor_context.get(id(action)) or {}
+        if id(source_actor) not in actor_state_identities:
+            actor_state_identities[id(source_actor)] = {
+                (scope, spell_id) for _, scope, spell_id in global_damage_state_identities(source_actor)
+            }
+        source_global_states = actor_state_identities[id(source_actor)]
         # 下表的比较域排除明确声明的全局状态；组合探针也不能重新引入该维度。
         # 不按施法技能 ID 删除 action，巨人打击自身的直接伤害仍然保留。
         for identity in scenario_identity:
             if (_declared_global_state_name(base_high, identity)
-                    or (identity[1], identity[2]) in declared_state_identities):
-                return
-            partial_effects = [
-                effect for effect in declared_state_effects.get((identity[1], identity[2]), ())
-                if effect.get('partial_state') is True
-            ]
-            if partial_effects and not action_has_local_state_evidence(
-                action, partial_effects, identity, amount, comparison,
-            ):
+                    or (identity[1], identity[2]) in declared_state_identities
+                    or (identity[1], identity[2]) in source_global_states):
                 return
         candidate_owner = _talent_source_ownership(talent)
         if candidate_owner is not None:
@@ -3858,6 +3949,7 @@ def flatten_single_talent_damage_variants(
     rows = []
     cast_sources.clear()
     actor_context.clear()
+    actor_state_identities.clear()
     scenario_indexes.clear()
     shared_scenario_indexes.clear()
     for item in variants:
@@ -4005,6 +4097,7 @@ def flatten_single_talent_damage_variants(
         rows = []
         cast_sources.clear()
         actor_context.clear()
+        actor_state_identities.clear()
         # Drop only our indexes/maps and borrowed references. Output rows and
         # first-source cast children are already detached; do not mutate actors.
         scenario_indexes.clear()
@@ -4359,6 +4452,8 @@ def project_skill_damage_product_payload(payload, *, take_ownership=False):
     from .simc_skill_passive_projection import normalize_native_specialization_passives
 
     for actor in actors:
+        global_components = global_effect_components(actor)
+        global_states = global_damage_state_identities(actor, actor.get('global_skill_effects') or [])
         passive_diagnostics = []
         normalize_native_specialization_passives(actor, diagnostics=passive_diagnostics)
         if passive_diagnostics:
@@ -4399,6 +4494,8 @@ def project_skill_damage_product_payload(payload, *, take_ownership=False):
         if take_ownership:
             action_rows = _consume_owned_action_rows(action_rows)
         for action in action_rows:
+            if isinstance(action, dict) and uses_global_damage_scenario(action, global_states):
+                continue
             if not isinstance(action, dict) or action.get('supported') is not True:
                 continue
             baseline = action.get('baseline')
@@ -4490,7 +4587,9 @@ def project_skill_damage_product_payload(payload, *, take_ownership=False):
                                                              | set(action['affected_target_counts']))
                 weighted_base = normalized_base * count
                 merge_skill_talent_links(group.setdefault('_row_talent_links', []),
-                                         collect_skill_talent_links(action, component_name=component_name))
+                                         collect_skill_talent_links(
+                                             action, component_name=component_name,
+                                             global_components=global_components))
                 weighted_final = final_damage * count
                 weighted_hit = hit_damage * count
                 weighted_crit = crit_damage * count
@@ -4515,6 +4614,12 @@ def project_skill_damage_product_payload(payload, *, take_ownership=False):
                     if not _finite_number(value):
                         continue
                     if not math.isclose(value, 1.0, rel_tol=0.0, abs_tol=1e-12):
+                        if (actor.get('global_damage_policy') == 'exclude_before_probe'
+                                and (factor_row.get('source_spell_id'), factor_row.get('effect_index')) in global_components):
+                            raise ValueError(
+                                f"全局分量仍参与下表技能数值：{action.get('token')} "
+                                f"{factor_row.get('source_spell_id')}:{factor_row.get('effect_index')}"
+                            )
                         runtime_factors.append(value)
                         formula_sources.append(copy.deepcopy(factor_row))
 
@@ -4687,7 +4792,7 @@ class SimcSkillDamageSnapshotService:
     """Generate one persisted exporter dataset for one SimC/DBC/schema identity."""
 
     EXPORTER_SCHEMA_REVISION = 27
-    DATASET_SCHEMA_REVISION = 51
+    DATASET_SCHEMA_REVISION = 58
     MIN_DISPLAY_SCHEMA_REVISION = 51
     # Dataset revisions describe generator semantics. The wire revision only
     # changes when the Dashboard response shape becomes incompatible.
@@ -5202,6 +5307,52 @@ class SimcSkillDamageSnapshotService:
         native = payload.get('talent_catalog', [])
         if not isinstance(native, list) or any(not isinstance(row, dict) for row in native):
             raise ValueError('原生天赋 DBC 目录格式无效。')
+        schema_revision = getattr(self.snapshot, 'schema_revision', 0)
+        if type(schema_revision) is int and schema_revision >= 56 and payload.get('racial_policy') != 'exclude_all':
+            raise ValueError('当前数据版本要求完整排除种族能力，请重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 55 and payload.get('probe_context_inventory_version') != 1:
+            raise ValueError('缺少原生执行上下文目录版本，请应用上下文补丁并重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 57 and payload.get('native_registration_inventory_version') != 1:
+            raise ValueError('当前数据版本要求完整原生注册来源，请重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 58 and payload.get('hero_ownership_inventory_version') != 1:
+            raise ValueError('当前数据版本要求英雄树选择节点归属，请重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 58:
+            selection = {}
+            for row in native:
+                if row.get('tree_index') == 4:
+                    selection.setdefault((row.get('class_id'), row.get('subtree_id')), set()).update(row.get('spec_ids') or [])
+            for row in native:
+                if row.get('tree_index') == 3 and (not selection.get((row.get('class_id'), row.get('subtree_id')))
+                        or set(row.get('spec_ids') or []) != selection[row.get('class_id'), row.get('subtree_id')]):
+                    raise ValueError('英雄节点专精归属与原生选择节点不一致。')
+        if type(schema_revision) is int and schema_revision >= 58 and payload.get('scope_inventory_version') != 5:
+            raise ValueError('当前数据版本要求完整英雄归属冻结目录，请重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 57 and payload.get('scope_inventory_version') not in (4, 5):
+            raise ValueError('当前数据版本要求包含原生注册来源的冻结目录，请重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 55 and payload.get('scope_inventory_version') not in (3, 4, 5):
+            raise ValueError('缺少包含种族归属的冻结目录版本，请应用原生归属补丁并重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 54 and payload.get('scope_inventory_version') not in (2, 3, 4, 5):
+            raise ValueError('缺少完整冻结状态目录版本，请应用目录完整性补丁并重新编译 SimC。')
+        if type(schema_revision) is int and schema_revision >= 52:
+            # 字段协议相同并不证明作用域实现相同；不能让旧二进制再生成新快照。
+            if not native or any(type(row.get('spell_id')) is not int or not isinstance(row.get('effects'), list)
+                                 for row in native):
+                raise ValueError('缺少完整原生作用域证据，请应用最新 SimC 补丁并重新编译。')
+            expected_public = set()
+            for row in native:
+                for effect in row['effects']:
+                    if (not isinstance(effect, dict) or not isinstance(effect.get('flags'), list)
+                            or len(effect['flags']) != 4 or type(effect.get('index')) is not int
+                            or not _finite_number(effect.get('value'))):
+                        raise ValueError('原生作用域分量证据格式无效。')
+                    if (effect.get('type') in (6, 35, 65, 119, 128, 129, 143, 174, 202)
+                            and effect.get('subtype') in (52, 57, 71, 79, 163, 168, 193, 270, 276, 290, 303, 306, 308, 319, 342, 343, 344, 380, 381, 429, 501, 530, 531)
+                            and not any(effect['flags']) and effect['value'] != 0):
+                        expected_public.add((row['spell_id'], effect['index']))
+            declared_public = {(part['spell_id'], index) for fact in catalog.values()
+                               for part in fact['global_components'] for index in part['effect_indices']}
+            if expected_public - declared_public:
+                raise ValueError('原生目录遗漏公共结果分量，请应用共享作用域补丁并重新编译 SimC。')
         self._native_talent_catalog = native
         self._global_damage_catalog = catalog
         return catalog
@@ -6034,7 +6185,8 @@ class SimcSkillDamageSnapshotService:
             actor['variant_model'] = 'single_talent_runtime'
             actor['hero_talent_trees'] = hero_talent_trees
             actor['base_damage_basis'] = 'dbc_spell_effect_ap_sp_coefficients_at_100'
-            global_effects = classify_global_skill_effects(base_high, base_low, variants)
+            scope_catalog = {}
+            global_effects = classify_global_skill_effects(base_high, base_low, variants, scope_catalog=scope_catalog)
             from .simc_global_display import reviewed_static_source_matches_owner
 
             # Metadata.spec_name is not TraitEntry eligibility. Validate the
@@ -6056,16 +6208,17 @@ class SimcSkillDamageSnapshotService:
                 if source_spell_ids:
                     effect.update(_reviewed_global_fact_metadata(base_high, source_spell_ids[0]))
             actor['global_skill_effects'] = all_global_effects
-            global_effects = [effect for effect in all_global_effects if not any(
-                projection.get('kind') == 'crit_chance' for projection in effect.get('projections') or []
-            )]
             actor['actions'] = flatten_single_talent_damage_variants(
                 base_high, base_low,
                 _ActivationContextVariants(variants, valid_context_pairs, actor_spool),
-                global_effects=global_effects,
+                global_effects=all_global_effects,
                 compact_cast_rows=True,
                 stream_cast_rows=True,
             )
+            if scope_catalog:
+                # 上表与发布门禁需要所有实际配置的目录，不能只看基础配置中已实例化的 Buff。
+                # 仅更新汇总元数据，参考对和下表的实际计算域保持各自的原生证据。
+                actor['reviewed_global_effects'] = list(scope_catalog.values())
             raw_action_count = len(actor.get('actions') or [])
             profile_payload = project_skill_damage_product_payload({
                 'identity': {

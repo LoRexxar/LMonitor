@@ -14,6 +14,7 @@ os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'LMonitor.settings_test_sqlite')
 import django
 django.setup()
 from botend.services.simc_global_display import normalize_reviewed_global_effects
+from botend.services.simc_skill_state_projection import global_damage_state_identities, uses_global_damage_scenario
 
 
 def read(path):
@@ -46,6 +47,10 @@ def verify(directory):
         lower = product['actions']
         for health in (100, 34):
             actor = read(directory / (key + f'-{health}.json'))['actors'][0]
+            global_states = global_damage_state_identities(actor)
+            for action in lower:
+                if uses_global_damage_scenario(action, global_states):
+                    row['错误'].append(['全局状态仍作为下表伤害条件', health, action['token']])
             normalized = {(e['spell_id'], e['effect_index']): e for e in actor['normalized_scope_effects']}
             for e in normalized.values():
                 if e['actual_base_value'] != 0 or e['actual_mastery_coefficient'] != 0:

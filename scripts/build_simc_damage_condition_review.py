@@ -107,7 +107,6 @@ def paired_products(path, catalog):
     products = []
     for actor in (before, after):
         effects = classify_global_skill_effects(actor, actor, [])
-        effects = [e for e in effects if not any(p.get('kind')=='crit_chance' for p in e.get('projections', []))]
         product = copy.copy(actor)
         product['global_skill_effects'] = effects
         product['actions'] = flatten_single_talent_damage_variants(actor, actor, [], global_effects=effects)

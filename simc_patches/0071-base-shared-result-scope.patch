@@ -1,0 +1,52 @@
+diff --git a/engine/sc_main.cpp b/engine/sc_main.cpp
+index 992cfe90a3..605706db6e 100644
+--- a/engine/sc_main.cpp
++++ b/engine/sc_main.cpp
+@@ -2726,7 +2726,7 @@ void write_skill_damage_semantic_scope(std::ostream& out,player_t& player,bool&
+   for(const auto& [id,trait]:sources)
+   {
+     const auto* spell=spell_data_t::find(id,player.is_ptr());
+-    if(spell->class_family()!=static_cast<unsigned>(dbc::get_class_spell_family(player.type))) continue;
++    if(spell->class_family() && spell->class_family()!=static_cast<unsigned>(dbc::get_class_spell_family(player.type))) continue;
+     std::vector<const spelleffect_data_t*> effects;
+     for(const auto& e:spell->effects())
+       if(e.id() && skill_damage_global_components(*player.dbc).count(id) &&
+diff --git a/engine/skill_damage_scope_semantics.hpp b/engine/skill_damage_scope_semantics.hpp
+index ea8da52b64..ac23cb4392 100644
+--- a/engine/skill_damage_scope_semantics.hpp
++++ b/engine/skill_damage_scope_semantics.hpp
+@@ -15,6 +15,8 @@ inline bool skill_damage_unrestricted_result(const spelleffect_data_t& e)
+     case A_MOD_DAMAGE_PERCENT_DONE: case A_MOD_ALL_CRIT_CHANCE:
+     case A_HASTE_ALL: case A_MOD_CRIT_DAMAGE_MULTIPLIER:
+     case A_MOD_CRIT_PERCENT: case A_MOD_SPELL_CRIT_CHANCE: case A_MOD_SPELL_CRIT_CHANCE_SCHOOL:
++    case A_MOD_CRIT_CHANCE_FROM_CASTER: case A_MOD_CRIT_CHANCE_FROM_CASTER_SPELLS:
++    case A_MOD_CRIT_DAMAGE_PCT_FROM_CASTER_SPELLS:
+       return true;
+     default: return false;
+   }
+@@ -24,7 +26,9 @@ inline bool skill_damage_public_selector(const spelleffect_data_t& e)
+ {
+   if (e.type() != E_APPLY_AURA) return false;
+   if (e.subtype() != A_ADD_PCT_MODIFIER && e.subtype() != A_ADD_FLAT_MODIFIER &&
+-      e.subtype() != A_MOD_DAMAGE_FROM_CASTER_SPELLS) return false;
++      e.subtype() != A_MOD_DAMAGE_FROM_CASTER_SPELLS &&
++      e.subtype() != A_MOD_CRIT_CHANCE_FROM_CASTER_SPELLS &&
++      e.subtype() != A_MOD_CRIT_DAMAGE_PCT_FROM_CASTER_SPELLS) return false;
+   if (e.misc_value1()!=P_GENERIC && e.misc_value1()!=P_TICK_DAMAGE &&
+       e.misc_value1()!=P_CRIT && e.misc_value1()!=P_CRIT_BONUS) return false;
+   for (const auto& selector: skill_damage_semantic_selectors)
+@@ -41,13 +45,12 @@ inline const std::vector<skill_damage_scope_effect_t>& skill_damage_effect_scope
+   std::map<std::pair<unsigned,unsigned>,skill_damage_scope_effect_t> facts;
+   for (const auto& fact: skill_damage_scope_effects) facts[{fact.spell,fact.index}]=fact;
+   for (const auto& spell: spell_data_t::data(dbc.ptr))
+-    if (spell.class_family())
+     for (const auto& e: spell.effects())
+     {
+       const bool unrestricted=skill_damage_unrestricted_result(e);
+       const auto key=std::make_pair(spell.id(),e.index()+1);
+       if (!unrestricted && (!skill_damage_public_selector(e) || facts.count(key))) continue;
+-      facts[key]={spell.id(), e.index()+1, e.id(), spell.class_family(), true, false};
++      facts[key]={spell.id(), e.index()+1, e.id(), spell.class_family(), true, spell.class_family()==0};
+     }
+   auto& result=cache[dbc.ptr];
+   for (const auto& [key,fact]:facts) result.push_back(fact);

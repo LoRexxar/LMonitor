@@ -239,7 +239,9 @@ class CastLifecycleTests(SimpleTestCase):
         rows = damage.flatten_single_talent_damage_variants(
             {'actions': []}, {'actions': []}, Variants(), global_effects=[],
         )
-        self.assertEqual(len(rows), 60)
+        # 每组只保留基线与局部状态；原生声明的全局激怒不能因缺少汇总目录而回流。
+        self.assertEqual(len(rows), 40)
+        self.assertFalse(any('buff.enrage' in row['variant']['scenario_tokens'] for row in rows))
         gc.collect()
         self.assertFalse(any(ref() is not None for ref in refs))
 

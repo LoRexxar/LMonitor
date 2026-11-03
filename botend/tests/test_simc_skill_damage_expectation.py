@@ -1,3 +1,4 @@
+import copy
 import os
 import re
 import shutil
@@ -164,6 +165,34 @@ def project(*actions):
 
 
 class SkillDamageExpectationTests(SimpleTestCase):
+    def test_global_crit_and_compound_damage_use_complete_target_curves(self):
+        for multiplier in (1.0, 1.2):
+            with self.subTest(multiplier=multiplier):
+                base = {'actions': [skill()]}
+                selected = {'actions': [skill(100 * multiplier, 200 * multiplier, 0.4)]}
+                amount = selected['actions'][0]['baseline']['direct']
+                amount['native_base_damage'] = 100
+                amount['runtime_layers']['da_multiplier'] = multiplier
+                effect = {
+                    'source_type': 'talent', 'talent_id': 5, 'tree_type': 'spec',
+                    'scenario_tokens': [], 'projections': [{'kind': 'crit_chance', 'value': 0.2}],
+                    'evidence': {'crit': {'runtime_components': ['direct']}},
+                }
+                if multiplier != 1:
+                    effect['projections'].append({'kind': 'damage_multiplier', 'value': multiplier,
+                                                  'evidence_layer': 'da_multiplier'})
+                    effect['evidence']['damage'] = {'runtime_components': ['direct'], 'runtime_layer': 'da_multiplier'}
+                item = {'talent': {'id': 5, 'tree_type': 'spec'}, 'reference_high': base,
+                        'reference_low': base, 'high': selected, 'low': selected}
+                rows = flatten_single_talent_damage_variants(base, base, [item], global_effects=[effect])
+                self.assertEqual(len(rows), 1)
+                # 额外的目标级差异不属于已证明的公共效果，必须保留以供定位。
+                local = copy.deepcopy(selected)
+                local['actions'][0]['baseline']['direct']['target_expected']['2'] += 1
+                rows = flatten_single_talent_damage_variants(base, base, [{**item, 'high': local, 'low': local}],
+                                                            global_effects=[effect])
+                self.assertEqual(len(rows), 2)
+
     def test_armor_preserves_base_and_explains_post_mitigation_expectation(self):
         action = skill(70, 140, 0.2)
         component = action['baseline']['direct']
@@ -234,7 +263,7 @@ class SkillDamageExpectationTests(SimpleTestCase):
         row = project(action)
         self.assertNotIn('final_normalized_damage_by_target', row['product'])
 
-    def test_crit_only_talent_is_not_removed_as_a_global_damage_modifier(self):
+    def test_crit_claim_without_complete_evidence_cannot_remove_a_local_talent(self):
         base = {'actions': [skill()]}
         selected = {'actions': [skill(chance=0.3)]}
         effect = {

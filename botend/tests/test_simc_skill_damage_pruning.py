@@ -296,7 +296,7 @@ class SkillDamagePruningTests(SimpleTestCase):
              mock.patch.object(service, '_talent_prerequisite_map', return_value={1: [], 2: [root], 3: [root, global_talent]}), \
              mock.patch.object(service, '_global_damage_talent_catalog', return_value={2: global_fact(2)}), \
              mock.patch.object(service, '_run_profile_export', side_effect=export), \
-             mock.patch('botend.services.simc_skill_damage.localize_skill_damage_payload', side_effect=lambda value: value):
+             mock.patch('botend.services.simc_skill_damage.localize_skill_damage_payload', side_effect=lambda value, **_kwargs: value):
             actor, unresolved, count = service._generate_profile_product_actor(profile)
         self.assertEqual([call['target_health'] for call in calls], [100, 34])
         for call in calls:

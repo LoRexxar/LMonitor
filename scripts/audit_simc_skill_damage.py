@@ -127,7 +127,6 @@ def run(identity):
     result['raw_unresolved']=dict(Counter(action.get('unsupported_reason') or (action.get('baseline') or {}).get('unresolved_reason') for action in base_high.get('actions',[]) if action.get('unsupported_reason') or (action.get('baseline') or {}).get('unresolved_reason')))
     actor=copy.deepcopy(base_high)
     effects=classify_global_skill_effects(base_high,base_low,[])
-    effects=[effect for effect in effects if not any(p.get('kind')=='crit_chance' for p in effect.get('projections',[]))]
     selected_talents = [SimpleNamespace(pk=entry, node_id=entry, name=catalog[entry]['name'],
                           name_zh='', tree_type='spec', db2_subtree_id=0)
                         for entry in base_high.get('selected_trait_ids', []) if entry in catalog]
