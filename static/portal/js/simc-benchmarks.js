@@ -871,6 +871,16 @@
       ? payload.results.coordinate_options : [];
     let rows = Array.isArray(payload?.results?.coordinates) ? payload.results.coordinates : [];
     if (!coordinateOptions.length) coordinateOptions = rows;
+    const roleLabels = { dps: "输出", tank: "坦克", healer: "治疗", unknown: "职责未识别" };
+    const specRoles = new Map();
+    (Array.isArray(payload?.spec_options) ? payload.spec_options : []).forEach((option) => {
+      const role = ["dps", "tank", "healer"].includes(option?.role) ? option.role : "unknown";
+      [option?.spec_key, option?.value].forEach((key) => {
+        if (typeof key === "string" && key) specRoles.set(key, role);
+      });
+    });
+    const roleFor = coordinate => specRoles.get(coordinate?.spec_key) || "unknown";
+    const roles = new Set([...coordinateOptions, ...rows].map(roleFor));
     const scenarios = new Map();
     coordinateOptions.forEach((coordinate) => {
       const key = String(coordinate?.scenario_key || "");
@@ -890,23 +900,38 @@
     const label = node("label", "simc-benchmark-filter");
     label.appendChild(node("span", "simc-benchmark-filter-label", "场景"));
     const select = node("select", "simc-benchmark-filter-select");
+    select.setAttribute("aria-label", "场景");
     scenarios.forEach((text, value) => {
       const option = node("option", "", text); option.value = value; select.appendChild(option);
     });
     select.value = selectedScenario;
     label.appendChild(select);
-    controls.append(label, node("p", "simc-benchmark-spec-axis-note", "纵轴：职业专精 · 横向条：DPS（相对本场景最高值）"));
+    const roleLabel = node("label", "simc-benchmark-role-filter simc-benchmark-filter");
+    roleLabel.appendChild(node("span", "simc-benchmark-filter-label", "职责"));
+    const roleSelect = node("select", "simc-benchmark-role-select simc-benchmark-filter-select");
+    roleSelect.setAttribute("aria-label", "职责");
+    Object.entries(roleLabels).forEach(([value, text]) => {
+      if (!roles.has(value)) return;
+      const option = node("option", "", text); option.value = value; roleSelect.appendChild(option);
+    });
+    roleSelect.value = roles.has(params.get("role")) ? params.get("role")
+      : roles.has("dps") ? "dps" : roleSelect.children[0]?.value || "unknown";
+    roleLabel.appendChild(roleSelect);
+    controls.append(label, roleLabel, node("p", "simc-benchmark-spec-axis-note", "纵轴：职业专精 · 横向条：DPS（相对当前职责及场景最高值）"));
     const result = node("div", "simc-benchmark-spec-results");
 
     const syncUrl = () => {
       if (!syncLocation) return;
       const next = new URLSearchParams(window.location.search);
       next.set("scenario", select.value);
+      next.set("role", roleSelect.value);
       next.delete("spec"); next.delete("profile"); next.delete("selected");
       window.history.replaceState(null, "", `${window.location.pathname}?${next.toString()}`);
     };
     const renderRows = (coordinates) => {
-      const projected = coordinates.map((coordinate) => {
+      const projected = coordinates.filter(coordinate => (
+        String(coordinate?.scenario_key || "") === select.value && roleFor(coordinate) === roleSelect.value
+      )).map((coordinate) => {
         const candidates = Array.isArray(coordinate?.candidates) ? coordinate.candidates : [];
         const baseline = candidates.find(isBaseline);
         return { coordinate, dps: baseline ? validDps(baseline.dps) : null };
@@ -967,7 +992,8 @@
         const baseline = (coordinate?.candidates || []).find(isBaseline);
         if (String(coordinate?.scenario_key || "") === select.value) tierEntries.push({
           label: coordinate?.labels?.spec || coordinate?.spec_key || "未知专精",
-          icon_url: coordinate?.spec_icon_url, value: tierDps(baseline, false),
+          icon_url: coordinate?.spec_icon_url, value: roleSelect.value === "unknown" ? null : tierDps(baseline, false),
+          status: roleSelect.value === "unknown" ? "职责未识别" : undefined,
           metricLabel: "DPS",
           onActivate: () => activateTierTarget(toggle, () => {
             profileDetails.open = true;
@@ -978,15 +1004,20 @@
       });
       result.replaceChildren(...(projected.length
         ? [renderTierOverview(tierEntries), chart]
-        : [state("该场景暂无职业专精结果", "empty")]));
+        : [state("当前职责及场景暂无职业专精结果", "empty")]));
     };
     renderRows(rows);
     syncUrl();
 
     let requestController = null;
+    roleSelect.addEventListener("change", () => {
+      syncUrl();
+      if (requestController) result.replaceChildren(state("正在加载场景对比…", "loading"));
+      else renderRows(rows);
+    });
     select.addEventListener("change", async () => {
       syncUrl();
-      if (!detailUrl) return;
+      if (!detailUrl) { renderRows(rows); return; }
       if (requestController) requestController.abort();
       requestController = new AbortController();
       const current = requestController;
@@ -1003,6 +1034,8 @@
         if (error?.name !== "AbortError" && current === requestController) {
           result.replaceChildren(state("场景对比加载失败，请稍后重试", "error"));
         }
+      } finally {
+        if (current === requestController) requestController = null;
       }
     });
     shell.body.replaceChildren(controls, result);

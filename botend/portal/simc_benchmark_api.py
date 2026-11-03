@@ -292,7 +292,12 @@ def _public_result_payload(panel, *, coordinate_filter=None, scenario_filter=Non
     if panel.benchmark_type == SimcBenchmarkPanel.BENCHMARK_TYPE_OPTION_GAIN:
         payload['result_view'] = 'option_gain'
     elif scenario_filter is not None:
+        from botend.dashboard.api import _benchmark_spec_options
+
         payload['result_view'] = 'spec_comparison'
+        # The same maintained catalog used by Benchmark configuration owns
+        # specialization roles; do not infer them from frozen actor role=attack.
+        payload['spec_options'] = _benchmark_spec_options()
     return payload
 
 class PortalSimcBenchmarkPanelListAPIView(View):

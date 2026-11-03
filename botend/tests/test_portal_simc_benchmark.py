@@ -191,6 +191,13 @@ class PortalSimcBenchmarkAPITests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(payload['result_view'], 'spec_comparison')
         self.assertEqual(len(payload['results']['coordinates']), 2)
+        from botend.dashboard.api import _benchmark_spec_options
+        self.assertEqual(payload['spec_options'], _benchmark_spec_options())
+        roles = {row['spec_key']: row['role'] for row in payload['spec_options']}
+        self.assertEqual(roles['warrior_fury'], 'dps')
+        self.assertEqual(roles['deathknight_blood'], 'tank')
+        self.assertNotIn('spec_options', serializer.return_value)
+        self.assertEqual(payload['results']['coordinates'], serializer.return_value['coordinates'])
         serializer.assert_called_once_with(
             self.public,
             scenario_filter='st',

@@ -188,8 +188,9 @@
 .simc-benchmark-candidate--baseline .simc-benchmark-bar { background: #0f766e; }
 .simc-benchmark-relative { color: #64748b; font-size: 0.59rem; white-space: nowrap; }
 
-.simc-benchmark-spec-controls { align-items: end; display: flex; gap: 1rem; justify-content: space-between; margin-bottom: 0.75rem; }
+.simc-benchmark-spec-controls { align-items: end; display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between; margin-bottom: 0.75rem; }
 .simc-benchmark-spec-controls .simc-benchmark-filter { flex: 0 1 22rem; width: 100%; }
+.simc-benchmark-spec-controls .simc-benchmark-role-filter { flex-basis: 9rem; }
 .simc-benchmark-spec-axis-note { color: #64748b; font-size: 0.66rem; margin: 0 0 0.42rem; text-align: right; }
 .simc-benchmark-spec-results { min-width: 0; }
 .simc-benchmark-spec-chart { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 0.7rem; display: grid; gap: 0.18rem; padding: 0.55rem; }
