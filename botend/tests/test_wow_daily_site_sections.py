@@ -84,6 +84,94 @@ class DailySiteSectionsTests(TestCase):
         self.assertNotIn('沿用本日已发布快照', html)
         self.assertNotIn('原记录未保存来源时区', html)
 
+    def test_rotation_rendering_uses_central_icons_and_links_without_mutating_snapshot(self):
+        from bs4 import BeautifulSoup
+        from botend.wow_daily_report.site_sections import collect_today_section
+        from botend.wow_daily_report.generator import _render_site_items
+        modules = [{'key': 'mn-bountiful-delves', 'name': '丰裕地下堡', 'items': [{
+            'name': '中央地下堡', 'icon_url': 'https://oss.wowdaily.cn/wow_icons_oss/small/test.jpg',
+            'url': 'https://www.wowhead.com/zone=123'}]}]
+        WowTodaySnapshot.objects.filter(pk=self.snapshot.pk).update(sections_json=[{
+            'key': 'dungeons-raids', 'name': '地下城与团队副本', 'modules': modules}])
+        before = list(WowTodaySnapshot.objects.values())
+        items = collect_today_section(self.day)['items']
+        self.assertEqual(items[0]['facts'], ['中央地下堡'])
+        self.assertEqual(items[0]['lines'][0]['icon_url'], modules[0]['items'][0]['icon_url'])
+        soup = BeautifulSoup(_render_site_items(items), 'html.parser')
+        self.assertEqual(soup.select_one('.context-today')['data-source-kind'], 'today')
+        self.assertEqual(soup.select_one('.context-fact-icon')['src'], modules[0]['items'][0]['icon_url'])
+        self.assertEqual(soup.select_one('.context-facts a')['href'], modules[0]['items'][0]['url'])
+        self.assertEqual(list(WowTodaySnapshot.objects.values()), before)
+
+    def test_context_renderer_keeps_status_and_rejects_unsafe_line_media(self):
+        from bs4 import BeautifulSoup
+        from botend.wow_daily_report.generator import _render_site_items
+        soup = BeautifulSoup(_render_site_items([{'title': '活动', 'source': '中央日历',
+            'reference': {'kind': 'portal_event', 'id': 1},
+            'facts': ['当日持续', '2026-07-01 至 2026-07-02（北京时间）']},
+            {'title': '轮换', 'reference': {'kind': 'wow_today_snapshot', 'id': 1},
+             'facts': ['<script>事实</script>'], 'lines': [{'text': '<script>事实</script>',
+             'icon_url': 'javascript:alert(1)', 'url': '//evil.test/path'}]}]), 'html.parser')
+        self.assertEqual(soup.select_one('.context-event .context-status').get_text(), '当日持续')
+        self.assertIn('2026-07-01 至 2026-07-02', soup.get_text())
+        self.assertIn('<script>事实</script>', soup.get_text())
+        self.assertFalse(soup.select('img, script, a'))
+        self.assertNotIn(' · </p>', str(soup))
+
+    def test_nga_uses_the_existing_full_post_reader_instead_of_escaping_markup(self):
+        from bs4 import BeautifulSoup
+        from botend.models import WowArticle
+        from botend.services.nga_browse_service import render_main_post
+        from botend.wow_daily_report.generator import collect_nga_section, _render_nga_items
+        raw = '开头<br/>[b]保留粗体[/b]' + '完整原文' * 300 + '[s:ac:赞]末尾'
+        article = WowArticle.objects.create(title='真实主帖', url='https://bbs.nga.cn/read.php?tid=12345',
+            source='nga', category='nga', content=raw, publish_time=self.noon)
+        section = collect_nga_section(self.day)
+        self.assertEqual(section['items'][0]['body_html'], str(render_main_post(raw)))
+        html = _render_nga_items(section['items'])
+        soup = BeautifulSoup(html, 'html.parser')
+        self.assertIsNotNone(soup.find('br'))
+        self.assertIn('保留粗体', soup.select_one('strong, b').get_text())
+        self.assertIn('完整原文' * 300, soup.get_text())
+        self.assertIn('（表情：赞）末尾', soup.get_text())
+        self.assertNotIn('<br/>', soup.get_text())
+        self.assertNotIn('[b]', soup.get_text())
+        self.assertEqual(WowArticle.objects.get(pk=article.pk).content, raw)
+
+    def test_nga_keeps_plain_text_line_breaks_in_the_final_document(self):
+        from pathlib import Path
+        from bs4 import BeautifulSoup
+        from botend.models import WowArticle
+        raw = '第一行\n第二行\n\n第三段'
+        WowArticle.objects.create(title='换行主帖', url='https://bbs.nga.cn/read.php?tid=12346',
+            source='nga', category='nga', content=raw, publish_time=self.noon)
+        with tempfile.TemporaryDirectory() as root, override_settings(BASE_DIR=root):
+            result = generate_wow_daily_report(report_date=self.day, use_llm=False)
+            html = Path(result['full_path']).read_text()
+        soup = BeautifulSoup(html, 'html.parser')
+        self.assertEqual(soup.select_one('.daily-nga .nga-plain-text').get_text(), raw)
+        self.assertIn('.nga-plain-text{white-space:pre-wrap}', html)
+
+    def test_nga_safe_reader_attributes_survive_without_double_entity_escaping(self):
+        from bs4 import BeautifulSoup
+        from botend.models import WowArticle
+        from botend.wow_daily_report.generator import collect_nga_section, _render_nga_items, _section_payload
+        raw = ('<a href="https://bbs.nga.cn/read.php?tid=12345&amp;page=2">链接</a>'
+               '<img src="https://example.com/a.jpg?token=abc&amp;size=full" alt="A &amp; B" onerror="alert(1)">'
+               '<script>alert(1)</script>')
+        WowArticle.objects.create(title='属性主帖', url='https://bbs.nga.cn/read.php?tid=12347',
+            source='nga', category='nga', content=raw, publish_time=self.noon)
+        section = collect_nga_section(self.day)
+        for html in (_render_nga_items(section['items']), _section_payload(section)['items'][0]['body_html']):
+            soup = BeautifulSoup(html, 'html.parser')
+            self.assertEqual(soup.select_one('a[href*="page"]')['href'], 'https://bbs.nga.cn/read.php?tid=12345&page=2')
+            self.assertEqual(soup.img['src'], 'https://example.com/a.jpg?token=abc&size=full')
+            self.assertEqual(soup.img['alt'], 'A & B')
+            self.assertFalse(soup.select('script, [onerror]'))
+        unsafe = BeautifulSoup(_render_nga_items([{'title': '未清洗输入', 'body_html': raw}]), 'html.parser')
+        self.assertFalse(unsafe.select('script, [onerror]'))
+        self.assertEqual(unsafe.img['alt'], 'A & B')
+
     def test_event_links_respect_the_existing_public_calendar_domain_gate(self):
         from botend.wow_daily_report.site_sections import collect_event_section
         from botend.wow_daily_report.generator import _render_site_items

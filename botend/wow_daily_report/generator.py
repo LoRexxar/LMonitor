@@ -10,6 +10,7 @@ from django.conf import settings
 from django.utils import timezone
 from django.urls import reverse
 from django.utils.dateparse import parse_datetime
+from django.utils.safestring import SafeData
 from botend.wow_daily_report.site_sections import collect_site_sections, day_window
 
 from botend.models import PortalMplusSeasonCutoff, PortalVideo, WowArticle, WowDailyReport
@@ -441,6 +442,7 @@ def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
 
 
 def collect_nga_section(report_date: datetime.date) -> Dict[str, Any]:
+    from botend.services.nga_browse_service import render_main_post
     start, end = _date_range(report_date)
     rows = (
         WowArticle.objects.filter(is_active=True, source="nga", publish_time__gte=start, publish_time__lt=end)
@@ -453,7 +455,7 @@ def collect_nga_section(report_date: datetime.date) -> Dict[str, Any]:
             "url": a.url or "",
             "publish_time": a.publish_time,
             "body": _article_text(a, max_chars=600),
-            "body_html": _article_body_html(a),
+            "body_html": render_main_post(a.content_cn or a.content) if (a.content_cn or a.content) else _article_body_html(a),
         }
         for a in rows
     ]
@@ -553,7 +555,7 @@ def _section_payload(section: Dict[str, Any]) -> Dict[str, Any]:
         clean = {}
         for key, value in item.items():
             if key == "body_html":
-                clean[key] = _sanitize_body_html(value)
+                clean[key] = str(value) if section.get('key') == 'nga' and isinstance(value, SafeData) else _sanitize_body_html(value)
             elif hasattr(value, "isoformat"):
                 clean[key] = value.isoformat()
             else:
@@ -590,6 +592,7 @@ def _render_news_items(items: List[Dict[str, Any]]) -> str:
 
 
 def _render_nga_items(items: List[Dict[str, Any]]) -> str:
+    from botend.services.nga_browse_service import render_main_post
     if not items:
         return '<p class="empty">今日暂无 NGA 热议记录。</p>'
     out = ['<div class="article-list">']
@@ -599,9 +602,16 @@ def _render_nga_items(items: List[Dict[str, Any]]) -> str:
         out.append(
             f'<div class="meta"><span>回复 {_safe_html(item.get("reply_count"))}</span><span>{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
         )
-        body_html = _sanitize_body_html(item.get("body_html") or "")
+        # Preserve validated SafeData from the public reader; do not re-escape URLs.
+        body_html = item.get("body_html") or ""
+        if not isinstance(body_html, SafeData):
+            body_html = render_main_post(body_html)
         if body_html:
-            out.append(f'<div class="body-html">{body_html}</div>')
+            from bs4 import BeautifulSoup
+            fragment = BeautifulSoup(body_html, 'html.parser')
+            for image in fragment.find_all('img'):
+                image.attrs.setdefault('alt', 'NGA 图片')
+            out.append(f'<div class="body-html">{fragment}</div>')
         else:
             out.append(f'<p class="body-text">{_safe_html(item.get("body") or "（暂无正文片段）")}</p>')
         out.append('</article>')
@@ -658,21 +668,47 @@ def _render_cutoff_items(items: List[Dict[str, Any]]) -> str:
 
 def _render_site_items(items):
     from urllib.parse import urlsplit
+    from botend.wow_daily_report.presentation import _source_href
+
+    def link(text, url):
+        href = _source_href(url)
+        return (f'<a href="{_safe_html(href)}" rel="noopener noreferrer" target="_blank">'
+                f'{_safe_html(text)}</a>') if href else _safe_html(text)
+
+    def icon(url, css_class):
+        href = _source_href(url)
+        if not href or urlsplit(href).scheme != 'https':
+            return ''
+        return (f'<img class="{css_class}" src="{_safe_html(href)}" alt="" '
+                'width="20" height="20" loading="lazy" decoding="async">')
+
     rows = ['<div class="article-list site-context-list">']
+    kinds = {'portal_event': 'event', 'wow_today_snapshot': 'today'}
     for item in items:
-        url = str(item.get('url') or '').strip()
-        try:
-            parts = urlsplit(url)
-            safe = (not any(ord(c) < 32 for c in url) and '\\' not in url and
-                    ((parts.scheme in ('http', 'https') and parts.netloc) or
-                     (url.startswith('/') and not url.startswith('//') and not parts.scheme)))
-        except ValueError:
-            safe = False
-        title = _safe_html(item.get('title'))
-        heading = f'<a href="{_safe_html(url)}" rel="noopener" target="_blank">{title}</a>' if safe else title
-        rows.append(f'<article class="daily-card site-context-card"><h3>{heading}</h3>')
-        rows.append(f'<p class="meta">{_safe_html(item.get("source"))} · {_safe_html(item.get("time") or "")}</p>')
-        rows.append('<ul>' + ''.join(f'<li>{_safe_html(fact)}</li>' for fact in item.get('facts', [])) + '</ul></article>')
+        kind = kinds.get((item.get('reference') or {}).get('kind'), 'update')
+        facts = item.get('facts', [])
+        status = ''
+        if kind == 'event' and facts:
+            status = f'<span class="context-status">{_safe_html(facts[0])}</span>'
+            facts = facts[1:]
+        heading = link(item.get('title'), item.get('url'))
+        rows.append(f'<article class="daily-card site-context-card context-{kind}" data-source-kind="{kind}">'
+                    f'<div class="context-heading">{icon(item.get("icon_url"), "context-icon")}'
+                    f'<h3>{heading}</h3>{status}</div>')
+        meta = [str(item.get(key) or '').strip() for key in ('source', 'time')]
+        meta = [value for value in meta if value]
+        if meta:
+            rows.append(f'<p class="meta">{_safe_html(" · ".join(meta))}</p>')
+        lines = item.get('lines')
+        # Rich lines are a parallel presentation of these exact central facts,
+        # never a replacement with independently shortened content.
+        if not isinstance(lines, list) or [line.get('text') for line in lines] != facts:
+            lines = [{'text': fact} for fact in facts]
+        rows.append('<ul class="context-facts">')
+        for line in lines:
+            rows.append('<li>' + icon(line.get('icon_url'), 'context-fact-icon')
+                        + f'<span>{link(line.get("text"), line.get("url"))}</span></li>')
+        rows.append('</ul></article>')
     return '\n'.join(rows + ['</div>'])
 
 
