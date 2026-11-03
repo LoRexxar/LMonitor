@@ -5944,10 +5944,10 @@ function renderSimcSkillDamageSnapshot(snapshot) {
     }
     if (!unresolved.length && snapshot && (snapshot.unresolved_reference || (snapshot.actor_page && snapshot.actor_page.unresolved))) {
         const reference = snapshot.unresolved_reference || snapshot.actor_page.unresolved;
-        const count = reference.count == null ? '总数未随分页提供' : `${reference.count}项`;
+        const count = reference.count == null ? '数量单独统计' : `${reference.count}项`;
         const href = `/api/simc-skill-damage/?${new URLSearchParams({view: 'unresolved_fragment', stream: '1',
             snapshot_id: String(reference.snapshot_id || snapshot.id), actor_id: String(reference.actor_id || ''), offset: '0', fragment_limit: '16384'})}`;
-        unresolvedEl.innerHTML = `未解析明细独立存储（${escapeHtml(count)}）；分页列表不代表完整覆盖。<a class="ml-2 underline" target="_blank" rel="noopener" href="${escapeHtml(href)}">查看有界原始片段</a>`;
+        unresolvedEl.innerHTML = `未解析明细独立存储（${escapeHtml(count)}），不计入下方已解析伤害列表。<a class="ml-2 underline" target="_blank" rel="noopener" href="${escapeHtml(href)}">查看有界原始片段</a>`;
         unresolvedEl.classList.remove('hidden');
     }
     const actors = snapshot && Array.isArray(snapshot.actors)
@@ -6371,29 +6371,23 @@ function initSimcSkillDamagePanel() {
     const excludedConditionKeysByScope = new Map();
     panel.__simcSkillDamageFilterState = {excludedConditionKeysByScope};
     let currentSnapshot = null;
-    let pageController = null;
-    let pageGeneration = 0;
+    let listController = null;
+    let listGeneration = 0;
     let indexGeneration = 0;
     let searchTimer = null;
-    let pageCursors = [null];
-    let pageNumber = 0;
-    const previousPageButton = document.getElementById('simc-skill-damage-page-prev');
-    const nextPageButton = document.getElementById('simc-skill-damage-page-next');
-    const pageStatus = document.getElementById('simc-skill-damage-page-status');
-    const pageControls = document.getElementById('simc-skill-damage-pagination');
-    const invalidatePage = () => {
-        pageGeneration += 1;
-        if (pageController) pageController.abort();
-        pageController = null;
+    const listStatus = document.getElementById('simc-skill-damage-list-status');
+    const listProgress = document.getElementById('simc-skill-damage-list-progress');
+    const invalidateList = () => {
+        listGeneration += 1;
+        if (listController) listController.abort();
+        listController = null;
         clearTimeout(searchTimer);
         searchTimer = null;
     };
-    const setPageLoading = () => {
-        document.getElementById('simc-skill-damage-body').innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">正在扫描快照并加载技能页，较大专精可能需要几十秒…</td></tr>';
-        pageControls.classList.remove('hidden');
-        pageStatus.textContent = '加载中…';
-        previousPageButton.disabled = true;
-        nextPageButton.disabled = true;
+    const setListLoading = () => {
+        document.getElementById('simc-skill-damage-body').innerHTML = '<tr><td colspan="5" class="px-4 py-8 text-center text-stone-500">正在加载全部技能，较大专精可能需要一些时间…</td></tr>';
+        listProgress.classList.remove('hidden');
+        listStatus.textContent = '加载中…';
     };
     const waitForReaderSlot = (delay, signal) => new Promise((resolve, reject) => {
         if (signal.aborted) {
@@ -6410,14 +6404,13 @@ function initSimcSkillDamagePanel() {
         }, delay);
         signal.addEventListener('abort', onAbort, {once: true});
     });
-    const loadSelectedPage = async ({reset = true, index = 0} = {}) => {
-        invalidatePage();
-        const generation = pageGeneration;
-        if (reset) { pageCursors = [null]; index = 0; }
+    const loadSelectedList = async () => {
+        invalidateList();
+        const generation = listGeneration;
         const actorIndex = currentSnapshot && currentSnapshot.actor_index || [];
         const actor = actorIndex.find(item => `${item.class_name || item.class || ''}:${item.specialization || item.spec || ''}` === specSelect.value);
         if (!actor || !heroTreeSelect.value || !currentSnapshot.id) {
-            pageControls.classList.add('hidden');
+            listProgress.classList.add('hidden');
             renderSimcSkillDamageSnapshot(currentSnapshot);
             return;
         }
@@ -6429,62 +6422,80 @@ function initSimcSkillDamagePanel() {
             actor_id: String(actor.id), hero_tree_id: heroTreeSelect.value,
             target_count: targetTab ? targetTab.dataset.targetCount : '1', sort,
             direction: sortButton.dataset.direction === 'asc' ? 'asc' : 'desc',
-            q: searchInput.value.trim(), exclude: JSON.stringify(Array.from(excludedConditionKeysByScope.get(scopeKey) || [])), limit: '50'});
-        if (pageCursors[index]) params.set('cursor', pageCursors[index]);
+            q: searchInput.value.trim(), exclude: JSON.stringify(Array.from(excludedConditionKeysByScope.get(scopeKey) || [])), limit: '100'});
         const controller = new AbortController();
-        pageController = controller;
-        setPageLoading();
+        listController = controller;
+        setListLoading();
         try {
-            let response, payload;
-            // HTTP abort cannot stop an existing server scan. Retry only slot
-            // contention, with the same frozen query/generation/signal. The
-            // 319s cumulative wait covers the existing 300s worker deadline
-            // plus cleanup; it does not extend that server resource deadline.
-            const readerBusyRetryLimit = 42;
-            for (let busyRetries = 0; ; busyRetries += 1) {
-                response = await fetch(`/api/simc-skill-damage/?${params}`, {method: 'GET', signal: controller.signal});
-                payload = await response.json();
-                if (generation !== pageGeneration || controller.signal.aborted) return;
-                if (response.status !== 503 || payload.code !== 'reader_busy' || busyRetries >= readerBusyRetryLimit) break;
-                pageStatus.textContent = '快照读取槽忙，正在等待并自动重试…';
-                await waitForReaderSlot(Math.min(1000 * 2 ** busyRetries, 8000), controller.signal);
-            }
-            if (generation !== pageGeneration) return;
-            if (!response.ok || !payload.success) {
-                const error = new Error(payload.error || '加载技能分页失败');
-                if (payload.worker_error && Number.isSafeInteger(payload.worker_error.source_ordinal)) {
-                    error.sourceOrdinal = payload.worker_error.source_ordinal;
-                    const fragment = new URLSearchParams({view: 'actor_fragment', stream: '1', snapshot_id: params.get('snapshot_id'),
-                        actor_id: params.get('actor_id'), source_ordinal: String(error.sourceOrdinal), offset: '0', fragment_limit: '16384'});
-                    error.fragmentHref = `/api/simc-skill-damage/?${fragment}`;
+            const actions = [], sourceOrdinals = [], seenCursors = new Set();
+            let lastRender = 0;
+            // 后台保持单次读取的资源上限；自动读完所有批次，同页累积展示全部结果。
+            while (true) {
+                let response, payload;
+                // HTTP abort cannot stop an existing server scan. Retry only slot
+                // contention, with the same frozen query/generation/signal. The
+                // 319s cumulative wait covers the existing 300s worker deadline
+                // plus cleanup; it does not extend that server resource deadline.
+                const readerBusyRetryLimit = 42;
+                for (let busyRetries = 0; ; busyRetries += 1) {
+                    response = await fetch(`/api/simc-skill-damage/?${params}`, {method: 'GET', signal: controller.signal});
+                    payload = await response.json();
+                    if (generation !== listGeneration || controller.signal.aborted) return;
+                    if (response.status !== 503 || payload.code !== 'reader_busy' || busyRetries >= readerBusyRetryLimit) break;
+                    listStatus.textContent = '快照读取槽忙，正在等待并自动重试…';
+                    await waitForReaderSlot(Math.min(1000 * 2 ** busyRetries, 8000), controller.signal);
                 }
-                throw error;
+                if (generation !== listGeneration) return;
+                if (!response.ok || !payload.success) {
+                    const error = new Error(payload.error || '加载技能列表失败');
+                    if (payload.worker_error && Number.isSafeInteger(payload.worker_error.source_ordinal)) {
+                        error.sourceOrdinal = payload.worker_error.source_ordinal;
+                        const fragment = new URLSearchParams({view: 'actor_fragment', stream: '1', snapshot_id: params.get('snapshot_id'),
+                            actor_id: params.get('actor_id'), source_ordinal: String(error.sourceOrdinal), offset: '0', fragment_limit: '16384'});
+                        error.fragmentHref = `/api/simc-skill-damage/?${fragment}`;
+                    }
+                    throw error;
+                }
+                const loaded = payload.data && payload.data.snapshot;
+                if (!loaded || !loaded.actor_page || loaded.id !== currentSnapshot.id
+                        || !Array.isArray(loaded.actors) || loaded.actors.length !== 1) throw new Error('技能列表响应无效');
+                const page = loaded.actor_page.page;
+                const batch = loaded.actors[0].actions;
+                const counts = loaded.actor_page.counts;
+                if (!Array.isArray(batch) || batch.length !== page.returned || !Number.isSafeInteger(counts.matched)
+                        || counts.matched < 0 || (page.has_more && (!batch.length || !page.next_cursor
+                            || seenCursors.has(page.next_cursor)))) throw new Error('技能列表读取进度无效');
+                const offset = actions.length;
+                actions.push(...batch);
+                sourceOrdinals.push(...(loaded.actor_page.source_ordinals || batch.map((_, index) => offset + index)));
+                if (actions.length > counts.matched || (!page.has_more && actions.length !== counts.matched)) {
+                    throw new Error('技能列表不完整，请刷新重试');
+                }
+                currentSnapshot = {...currentSnapshot, ...loaded, actor_index: actorIndex,
+                    actors: [{...loaded.actors[0], actions}],
+                    actor_page: {...loaded.actor_page, source_ordinals: sourceOrdinals,
+                        page: {...page, returned: actions.length}}};
+                if (!page.has_more || offset === 0 || Date.now() - lastRender >= 250) {
+                    renderSimcSkillDamageSnapshot(currentSnapshot);
+                    lastRender = Date.now();
+                }
+                listStatus.textContent = page.has_more
+                    ? `正在加载全部技能：已加载 ${actions.length} / ${counts.matched} 行…`
+                    : `共 ${actions.length} 行，已全部显示`;
+                if (!page.has_more) break;
+                seenCursors.add(page.next_cursor);
+                params.set('cursor', page.next_cursor);
             }
-            const loaded = payload.data && payload.data.snapshot;
-            if (!loaded || !loaded.actor_page) throw new Error('技能分页响应缺少分页信息');
-            currentSnapshot = {...currentSnapshot, ...loaded, actor_index: actorIndex};
-            pageNumber = index;
-            pageCursors = pageCursors.slice(0, index + 1);
-            const page = loaded.actor_page.page;
-            if (page.has_more && !page.next_cursor) throw new Error('技能分页响应缺少后续游标');
-            if (page.has_more) pageCursors[index + 1] = page.next_cursor;
-            renderSimcSkillDamageSnapshot(currentSnapshot);
-            const counts = loaded.actor_page.counts;
-            pageStatus.textContent = `第 ${index + 1} 页 · 本页 ${page.returned} 行 · 匹配 ${counts.matched} / 条件范围 ${counts.scope_candidates} / 存储 ${counts.stored_actions} 行`;
-            previousPageButton.disabled = index === 0;
-            nextPageButton.disabled = !page.has_more;
         } catch (error) {
-            if (generation !== pageGeneration || error.name === 'AbortError') return;
+            if (generation !== listGeneration || error.name === 'AbortError') return;
             const detail = error.fragmentHref
                 ? `（原始序号 ${error.sourceOrdinal}）<a class="ml-2 underline" target="_blank" rel="noopener" href="${escapeHtml(error.fragmentHref)}">查看有界原始片段</a>` : '';
             document.getElementById('simc-skill-damage-body').innerHTML = `<tr><td colspan="5" class="px-4 py-8 text-center text-red-700">${escapeHtml(error.message)}${detail}</td></tr>`;
-            pageStatus.textContent = '分页加载失败；可调整条件或刷新重试';
+            listStatus.textContent = '列表加载失败，尚未完整显示；可调整条件或刷新重试';
             showMessage(error.message, 'error');
         }
     };
-    const requestPage = () => loadSelectedPage();
-    previousPageButton.addEventListener('click', () => loadSelectedPage({reset: false, index: pageNumber - 1}));
-    nextPageButton.addEventListener('click', () => loadSelectedPage({reset: false, index: pageNumber + 1}));
+    const requestList = () => loadSelectedList();
     let pollTimer = null;
     let pollInFlight = false;
 
@@ -6535,7 +6546,7 @@ function initSimcSkillDamagePanel() {
     };
 
     const loadFullSnapshot = async ({managePolling = true} = {}) => {
-        invalidatePage();
+        invalidateList();
         const generation = ++indexGeneration;
         const response = await fetch('/api/simc-skill-damage/?index=1', { method: 'GET' });
         const payload = await response.json();
@@ -6546,7 +6557,7 @@ function initSimcSkillDamagePanel() {
         currentSnapshot = data.snapshot || null;
         renderSimcSkillDamageSnapshot(currentSnapshot);
         const running = renderStatus(data);
-        await requestPage();
+        await requestList();
         if (managePolling) {
             if (running) schedulePoll();
             else stopPolling();
@@ -6594,7 +6605,7 @@ function initSimcSkillDamagePanel() {
         else excludedConditionKeys.add(conditionKey);
         if (excludedConditionKeys.size) excludedConditionKeysByScope.set(filterScopeKey, excludedConditionKeys);
         else excludedConditionKeysByScope.delete(filterScopeKey);
-        requestPage();
+        requestList();
     });
     targetTabs.forEach(tab => tab.addEventListener('click', () => {
         targetTabs.forEach(candidate => {
@@ -6607,25 +6618,25 @@ function initSimcSkillDamagePanel() {
             candidate.classList.toggle('bg-white', !active);
             candidate.classList.toggle('text-stone-700', !active);
         });
-        requestPage();
+        requestList();
     }));
     specSelect.addEventListener('change', () => {
-        invalidatePage();
+        invalidateList();
         heroTreeSelect.value = '';
         if (currentSnapshot) currentSnapshot = {...currentSnapshot, actors: [], actor_page: null};
-        pageControls.classList.add('hidden');
+        listProgress.classList.add('hidden');
         renderSimcSkillDamageSnapshot(currentSnapshot);
     });
     heroTreeSelect.addEventListener('change', () => {
         if (currentSnapshot) currentSnapshot = {...currentSnapshot, actors: [], actor_page: null};
         renderSimcSkillDamageSnapshot(currentSnapshot);
-        requestPage();
+        requestList();
     });
     searchInput.addEventListener('input', () => {
-        invalidatePage();
+        invalidateList();
         if (!specSelect.value || !heroTreeSelect.value) return;
-        setPageLoading();
-        searchTimer = setTimeout(requestPage, 250);
+        setListLoading();
+        searchTimer = setTimeout(requestList, 250);
     });
     nameSortButton.addEventListener('click', () => {
         const alreadyActive = nameSortButton.dataset.active === 'true';
@@ -6634,7 +6645,7 @@ function initSimcSkillDamagePanel() {
         nameSortButton.dataset.direction = alreadyActive && nameSortButton.dataset.direction === 'asc'
             ? 'desc'
             : 'asc';
-        requestPage();
+        requestList();
     });
     finalSortButton.addEventListener('click', () => {
         const alreadyActive = finalSortButton.dataset.active === 'true';
@@ -6643,7 +6654,7 @@ function initSimcSkillDamagePanel() {
         finalSortButton.dataset.direction = alreadyActive && finalSortButton.dataset.direction === 'desc'
             ? 'asc'
             : 'desc';
-        requestPage();
+        requestList();
     });
     generateBtn.addEventListener('click', async () => {
         generateBtn.disabled = true;
