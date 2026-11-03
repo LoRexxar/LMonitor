@@ -198,18 +198,46 @@
     target.focus?.({ preventScroll: true });
   }
 
+  function equalRangeTier(value, minimum, maximum) {
+    if (maximum === minimum) return "S";
+    // Compare the input Numbers' decimal values exactly. Float subtraction loses
+    // small ranges at large offsets; an epsilon would swallow real lower values.
+    const decimals = [value, minimum, maximum].map(number => {
+      const [mantissa, exponent = "0"] = String(number).toLowerCase().split("e");
+      const fractionDigits = (mantissa.split(".")[1] || "").length;
+      return { coefficient: BigInt(mantissa.replace(".", "")), scale: fractionDigits - Number(exponent) };
+    });
+    const scale = Math.max(...decimals.map(decimal => decimal.scale));
+    const [current, low, high] = decimals.map(decimal => decimal.coefficient * 10n ** BigInt(scale - decimal.scale));
+    const position = 7n * (current - low) / (high - low);
+    const bucket = position < 0n ? 0 : position > 6n ? 6 : Number(position);
+    return ["F", "E", "D", "C", "B", "A", "S"][bucket];
+  }
+
   // entries: {label, value, icon_url, metricLabel, metricKind?, metricText?,
   // status?, tooltip?, onActivate?}. Callers pass only their current filtered
   // group, retaining its established ordering and source DTOs unchanged.
-  function renderTierOverview(entries, { metricLabel = "DPS" } = {}) {
-    const bands = [[95, "S", "≥95%"], [90, "A", "90–95%"], [85, "B", "85–90%"],
-      [80, "C", "80–85%"], [75, "D", "75–80%"], [70, "E", "70–75%"], [-Infinity, "F", "<70%"]];
+  function renderTierOverview(entries, { metricLabel = "DPS", tierMode = "leader_relative" } = {}) {
+    const equalRange = tierMode === "equal_range";
     const values = entries.map(entry => tierNumber(entry.value));
-    const leader = values.reduce((highest, value) => value !== null && value > highest ? value : highest, 0);
+    const validValues = values.filter(value => value !== null);
+    const leader = validValues.reduce((highest, value) => Math.max(highest, value), 0);
+    const minimum = validValues.reduce((lowest, value) => Math.min(lowest, value), leader);
+    const span = leader - minimum;
+    const bandWidth = span / 7;
+    const preciseNumber = new Intl.NumberFormat("zh-CN", { maximumSignificantDigits: 17 });
+    const bands = equalRange
+      ? ["S", "A", "B", "C", "D", "E", "F"].map((tier, index) => [
+        minimum + (6 - index) * bandWidth, tier,
+        leader <= 0 ? "—" : span > 0 ? `第${index + 1}段` : index === 0 ? "并列" : "—",
+      ])
+      : [[95, "S", "≥95%"], [90, "A", "90–95%"], [85, "B", "85–90%"],
+        [80, "C", "80–85%"], [75, "D", "75–80%"], [70, "E", "70–75%"], [-Infinity, "F", "<70%"]];
     const projected = entries.map((entry, index) => {
       const value = values[index];
       const relative = value !== null && leader > 0 ? value / leader * 100 : null;
-      const tier = relative === null ? "unrated" : bands.find(([minimum]) => relative >= minimum)[1];
+      const tier = relative === null ? "unrated" : equalRange
+        ? equalRangeTier(value, minimum, leader) : bands.find(([minimum]) => relative >= minimum)[1];
       const metric = value === null ? "暂无有效结果" : entry.metricText || (entry.metricKind === "percent"
         ? `${value >= 0 ? "+" : ""}${value.toFixed(2)}% ${entry.metricLabel || metricLabel}`
         : `${numberFormat.format(value)} ${entry.metricLabel || metricLabel}`);
@@ -219,9 +247,20 @@
     });
     const board = node("section", "simc-benchmark-tier-board simc-benchmark-tier-overview mplus-rank-tier-board");
     board.setAttribute("aria-label", "当前模拟结果相对分档总览");
+    board.setAttribute("data-tier-mode", tierMode);
+    if (equalRange && validValues.length) {
+      board.setAttribute("data-tier-minimum", String(minimum));
+      board.setAttribute("data-tier-maximum", String(leader));
+      board.setAttribute("data-tier-width", String(bandWidth));
+    }
     const header = node("div", "simc-benchmark-tier-header mplus-rank-tier-heading");
     header.append(node("h2", "", "模拟结果分档总览"), node("small", "simc-benchmark-tier-count", `${entries.length} 项 · 当前筛选范围`));
-    const note = node("p", "simc-benchmark-tier-note", `仅按当前组${metricLabel}相对分档，以本组最高正值为 100%；不代表整体游戏强度。${leader > 0 ? "" : "当前无正值参照，结果未分档。"}`);
+    const rangeNote = span > 0
+      ? `按当前组${metricLabel}最高值 ${preciseNumber.format(leader)} 与最低值 ${preciseNumber.format(minimum)} 的差值等分为7档，每档约 ${preciseNumber.format(bandWidth)} ${metricLabel}；第一名 S，最后一名 F。`
+      : "当前组有效结果全部相同，并列 S，不强行拆档。";
+    const note = node("p", "simc-benchmark-tier-note", equalRange && leader > 0
+      ? `${rangeNote}档位只表示本组区间位置，不代表整体游戏强度。`
+      : `仅按当前组${metricLabel}相对分档，以本组最高正值为 100%；不代表整体游戏强度。${leader > 0 ? "" : "当前无正值参照，结果未分档。"}`);
     const groups = node("div", "simc-benchmark-tier-groups mplus-rank-tier-groups");
     const detail = node("div", "simc-benchmark-tier-detail", "悬停或聚焦查看数值，点击图标定位原结果与明细。");
     detail.setAttribute("aria-live", "polite");
@@ -229,6 +268,10 @@
       const suffix = tier === "unrated" ? "unknown" : tier.toLowerCase();
       const row = node("article", `simc-benchmark-tier-row mplus-rank-tier-group mplus-rank-tier-group-${suffix}`);
       row.setAttribute("data-tier", tier);
+      if (equalRange && span > 0 && leader > 0 && tier !== "unrated") {
+        const index = bands.findIndex(([, name]) => name === tier);
+        row.title = `最低值+极差×${6 - index}/7 ≤ ${metricLabel} ${index === 0 ? "≤" : "<"} 最低值+极差×${7 - index}/7（极差=最高值−最低值）`;
+      }
       const label = node("div", "simc-benchmark-tier-label mplus-rank-tier-label");
       label.append(node("strong", `simc-benchmark-tier-letter mplus-rank-tier-letter tier-${suffix}`, tier === "unrated" ? "—" : tier),
         node("span", "", rangeLabel), node("small", "", `${members.length} 项`));
@@ -460,7 +503,8 @@
         status: value === null ? [unavailable, group.best.effect_validation?.reason].filter(Boolean).join(" · ") : "",
         onActivate: () => activateTierTarget(targets.get(group.key)),
       };
-    }), { metricLabel: effectComparison ? "特效提升（含条件增量）" : "DPS" }));
+    }), { metricLabel: effectComparison ? "特效提升（含条件增量）" : "DPS",
+      tierMode: effectComparison ? "leader_relative" : "equal_range" }));
     chart.append(...beforeDetails);
     const legend = node("div", "simc-benchmark-gear-level-legend");
     legend.setAttribute("aria-label", "装等颜色图例");
@@ -1003,7 +1047,7 @@
         });
       });
       result.replaceChildren(...(projected.length
-        ? [renderTierOverview(tierEntries), chart]
+        ? [renderTierOverview(tierEntries, { tierMode: "equal_range" }), chart]
         : [state("当前职责及场景暂无职业专精结果", "empty")]));
     };
     renderRows(rows);

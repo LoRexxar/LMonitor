@@ -71,6 +71,64 @@ for (const values of [[0, 0], [-1, -2], [null, false]]) {
 }
 assert.match(text(overview([])), /暂无有效结果/);
 
+// Equal-width value intervals, not fixed leader percentages or rank quantiles.
+const equalRange = {tierMode:'equal_range'};
+const compressed = overview([7007,7006,7005,7004,7003,7002,7001,7000].map(v=>entry(String(v),v)),equalRange);
+assert.deepEqual(tiers(compressed),{S:['7007','7006'],A:['7005'],B:['7004'],C:['7003'],D:['7002'],E:['7001'],F:['7000']});
+assert.match(text(compressed),/最高.*最低.*7.*等分|最高.*最低.*等分.*7/);
+assert.doesNotMatch(text(compressed),/≥95%|90–95%/);
+const decimalRange=overview([0.8,0.7,0.6,0.5,0.4,0.3,0.2,0.1].map(v=>entry(String(v),v)),equalRange);
+assert.deepEqual(tiers(decimalRange),{S:['0.8','0.7'],A:['0.6'],B:['0.5'],C:['0.4'],D:['0.3'],E:['0.2'],F:['0.1']});
+// Large offsets must not lose decimal boundaries or swallow the adjacent float below.
+function nextDown(value) {
+  const bytes = new DataView(new ArrayBuffer(8));
+  bytes.setFloat64(0, value);
+  bytes.setBigUint64(0, bytes.getBigUint64(0) - 1n);
+  return bytes.getFloat64(0);
+}
+for (const values of [
+  [7000,7000.1,7000.2,7000.3,7000.4,7000.5,7000.6,7000.7],
+  [7000,7000.000001,7000.000002,7000.000003,7000.000004,7000.000005,7000.000006,7000.000007],
+  [7000,7000.000000001,7000.000000002,7000.000000003,7000.000000004,7000.000000005,7000.000000006,7000.000000007],
+  [1e-7,2e-7,3e-7,4e-7,5e-7,6e-7,7e-7,8e-7],
+]) {
+  const labels = ['F','E','D','C','B','A','S','S'];
+  const entries = values.map((value, i) => entry(`boundary ${i}`, value));
+  for (let k = 1; k <= 6; k++) entries.push(entry(`below ${k}`, nextDown(values[k])));
+  const before = JSON.stringify(entries);
+  const board = overview(entries, equalRange);
+  for (let k = 0; k < values.length; k++) assert.ok(tiers(board)[labels[k]].includes(`boundary ${k}`), `${values[k]} belongs to ${labels[k]}`);
+  for (let k = 1; k <= 6; k++) assert.ok(tiers(board)[labels[k-1]].includes(`below ${k}`), `adjacent float below ${values[k]} stays lower`);
+  assert.equal(JSON.stringify(entries), before);
+  assert.equal(board.attributes['data-tier-minimum'], String(values[0]));
+  assert.equal(board.attributes['data-tier-maximum'], String(values[7]));
+  assert.equal(Number(board.attributes['data-tier-width']), (values[7]-values[0])/7);
+}
+for (const maximum of [7000.7,7000.000007]) {
+  const minimum = 7000, width = (maximum-minimum)/7;
+  const board = overview([entry('min',minimum),entry('max',maximum),entry('computed 2',minimum+2*width),entry('computed 4',minimum+4*width)],equalRange);
+  assert.deepEqual(tiers(board).D,['computed 2']);
+  // In the tiny range the computed fourth cut is actually 7000.0000039999995,
+  // below the decimal boundary: do not promote it by a tolerance.
+  assert.deepEqual(tiers(board)[maximum === 7000.7 ? 'B' : 'C'],['computed 4']);
+}
+const tinyRange = overview([entry('min',7000),entry('max',7000.000000007)],equalRange);
+assert.match(text(tinyRange), /7,000\.000000007/);
+assert.match(text(tinyRange), /每档约/);
+for (const row of descendants(tinyRange,'simc-benchmark-tier-row')) {
+  assert.match(row.title, /最低值\+极差×\d\/7 ≤ DPS [<≤] 最低值\+极差×\d\/7/);
+}
+const clustered=overview([100,99.999,99.998,70].map(v=>entry(String(v),v)),equalRange);
+assert.deepEqual(tiers(clustered).S,['100','99.999','99.998']);
+assert.deepEqual(tiers(clustered).F,['70']);assert.deepEqual(tiers(clustered).A,[]);
+const equalValues=overview([entry('Tie A',84),entry('Tie B',84)],equalRange);
+assert.deepEqual(tiers(equalValues).S,['Tie A','Tie B']);assert.deepEqual(tiers(equalValues).F,[]);
+assert.match(text(equalValues),/相同|并列/);
+const rangeUnknown=overview([entry('Top',100),entry('Low',99),entry('Missing',null),entry('Bad',false)],equalRange);
+assert.deepEqual(tiers(rangeUnknown).S,['Top']);assert.deepEqual(tiers(rangeUnknown).F,['Low']);
+assert.deepEqual(tiers(rangeUnknown).unrated,['Missing','Bad']);
+for(const values of [[0,0],[-1,-2],[null,false]])assert.equal(tiers(overview(values.map((v,i)=>entry(String(i),v)),equalRange)).unrated.length,2);
+
 const tooltip = '完整装备\n物品等级 321\n+123 急速\n装备：造成 456 点伤害并提高属性。';
 const items = [
   {key:'a-low', item_id:1, label:'A', item_level:321, dps:100, tooltip, icon_url:'/icons/a.jpg'},
@@ -80,7 +138,8 @@ const items = [
 const itemsBefore = JSON.stringify(items);
 const ordinary = gear(items, {dps:80});
 assert.equal(cards(ordinary).length, 2, 'one icon per original grouped item, not per item level');
-assert.deepEqual(tiers(ordinary).S, ['A','B']);
+assert.deepEqual(tiers(ordinary).S, ['A']);
+assert.deepEqual(tiers(ordinary).F, ['B']);
 assert.match(metric(ordinary, 'A'), /200.*DPS/);
 const a = card(ordinary, 'A');
 assert.equal(a.tagName, 'BUTTON'); assert.equal(a.type, 'button');
@@ -103,7 +162,7 @@ const displayChart = gear([
   {key:'display-high',label:'Display high',dps:950},
 ], null);
 assert.deepEqual(tiers(displayChart).S,['Display high']);
-assert.deepEqual(tiers(displayChart).A,['Raw high'],'ordinary gear reuses the existing display DPS ranking, not raw ordering');
+assert.deepEqual(tiers(displayChart).F,['Raw high'],'ordinary gear ranges use existing display DPS, not raw ordering');
 const brokenIcon = descendants(a, 'simc-benchmark-tier-icon')[0]; brokenIcon.handlers.error();
 assert.ok(descendants(a, 'simc-benchmark-tier-placeholder').some(node => !node.hidden), 'failed assets reveal an explicit text placeholder');
 const unsafe = overview([entry('Unsafe <script>', 100, {icon_url:'javascript:alert(1)', tooltip})]);
@@ -167,7 +226,7 @@ assert.equal(JSON.stringify(rolePayload),roleBefore);
 const specPayload = {spec_options:specOptions(specRows),results:{coordinates:specRows}};
 const specBefore = JSON.stringify(specPayload), specShell = {body:element()};
 spec(specShell, specPayload);
-assert.deepEqual(tiers(specShell.body).S, ['Spec A']); assert.deepEqual(tiers(specShell.body).E, ['Spec B']);
+assert.deepEqual(tiers(specShell.body).S, ['Spec A']); assert.deepEqual(tiers(specShell.body).F, ['Spec B']);
 assert.deepEqual(tiers(specShell.body).unrated, ['Missing','Boolean']);
 assert.equal(descendants(specShell.body, 'simc-benchmark-spec-name').length, 4);
 card(specShell.body, 'Spec A').click();
@@ -178,7 +237,8 @@ assert.equal(specOriginal.attributes['aria-expanded'], 'true');
 assert.equal(JSON.stringify(specPayload), specBefore);
 const rawSpecShell={body:element()};
 spec(rawSpecShell,{spec_options:specOptions([coord('Raw spec'),coord('Other spec')]),results:{coordinates:[coord('Raw spec',100,{candidates:[{key:'baseline',dps:100,display_dps:1}]}),coord('Other spec',95)]}});
-assert.deepEqual(tiers(rawSpecShell.body).S,['Raw spec','Other spec'],'spec comparison retains its raw baseline DPS metric');
+assert.deepEqual(tiers(rawSpecShell.body).S,['Raw spec'],'spec comparison retains its raw baseline DPS metric');
+assert.deepEqual(tiers(rawSpecShell.body).F,['Other spec']);
 
 const gains = [
   {spec_key:'Gain A',spec_label:'Gain A',profile_key:'p',scenario_key:'one',baseline_dps:100,comparison_dps:110,gain_percent:10},
