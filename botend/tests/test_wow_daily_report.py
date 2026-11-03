@@ -36,6 +36,22 @@ class WowDailyReportDashboardListTest(TestCase):
         self.assertTrue(payload['success'])
         self.assertEqual(payload['data'][0]['portal_url'], '/portal/reports/wow_daily_report_2026-07-01.html')
 
+    def test_latest_public_report_url_changes_only_when_the_edition_changes(self):
+        from datetime import timedelta
+        from urllib.parse import urlsplit, parse_qs
+        row = WowDailyReport.objects.create(report_date=date(2026, 7, 2),
+            md_path='portal/reports/wow_daily_report_2026-07-02.html')
+        first = self.client.get('/portal/api/daily-report/latest/').json()['data']['url']
+        parts = urlsplit(first)
+        self.assertEqual(parts.path, '/portal/reports/wow_daily_report_2026-07-02.html')
+        self.assertTrue(parse_qs(parts.query).get('v'))
+        self.assertEqual(self.client.get('/portal/api/daily-report/latest/').json()['data']['url'], first)
+        WowDailyReport.objects.filter(pk=row.pk).update(updated_at=row.updated_at+timedelta(seconds=1))
+        second = self.client.get('/portal/api/daily-report/latest/').json()['data']['url']
+        self.assertNotEqual(second, first)
+        self.assertEqual(urlsplit(second).path, parts.path)
+        self.assertEqual(WowDailyReport.objects.get(pk=row.pk).md_path, row.md_path)
+
     def test_latest_report_exposes_new_source_sections(self):
         WowDailyReport.objects.create(report_date=date(2026, 7, 1),
             md_path='portal/reports/wow_daily_report_2026-07-01.html',

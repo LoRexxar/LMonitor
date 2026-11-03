@@ -98,11 +98,16 @@ def _daily_report_to_dict(row):
                 'source_counts': source_counts if isinstance(source_counts, dict) else {},
             })
     report_date = getattr(row, 'report_date', None)
+    report_url = _portal_report_url(getattr(row, 'md_path', '') or '')
+    updated_at = getattr(row, 'updated_at', None)
+    if report_url and updated_at:
+        separator = '&' if '?' in report_url else '?'
+        report_url += separator + 'v=' + updated_at.strftime('%Y%m%d%H%M%S%f')
     return {
         'id': row.id,
         'report_date': report_date.isoformat() if report_date else '',
         'title': f"{report_date.strftime('%-m月%-d日') if report_date else '最新'}魔兽世界日报",
-        'url': _portal_report_url(getattr(row, 'md_path', '') or ''),
+        'url': report_url,
         'md_path': getattr(row, 'md_path', '') or '',
         'updated_at': _fmt_dt(getattr(row, 'updated_at', None)),
         'generated_at': ext.get('generated_at') or _fmt_dt(getattr(row, 'updated_at', None)),
