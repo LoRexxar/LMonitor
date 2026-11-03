@@ -41,6 +41,47 @@ class DailySiteSectionsTests(TestCase):
             self.assertEqual(result['ext']['sections']['events']['count'], 1)
             self.assertEqual(result['ext']['html_renderer'], 'daily_editorial_v2')
 
+    def test_daily_report_omits_selected_rotation_cards_without_changing_central_data(self):
+        from botend.wow_daily_report.site_sections import collect_today_section
+        excluded = {
+            'season-caps': '赛季上限', 'mn-notable-world-quests': '值得关注的世界任务',
+            'empowered-abundance': '强化丰裕事件', 'mn-heroic-world-tier': '英雄世界层级',
+            'mn-ritual-site': '当前仪式场地', 'mn-void-assault': '虚空侵袭',
+            'mn-cursed-surges': '诅咒涌动', 'mn-aqir-invasion': '亚基入侵',
+            'epiceliteworldmn': '午夜之境世界首领', 'darkmoon-faire': '暗月马戏团',
+        }
+        modules = [{'key': key, 'name': name, 'items': [{'name': name+'内容'}]}
+                   for key, name in excluded.items()]
+        kept = [('mythicaffix', '大秘境词缀'), ('mn-bountiful-delves', '丰裕地下堡'), ('holiday', '节日')]
+        modules += [{'key': key, 'name': name, 'items': [{'name': name+'内容'}]} for key, name in kept]
+        WowTodaySnapshot.objects.filter(pk=self.snapshot.pk).update(sections_json=[{
+            'key': 'dungeons-raids', 'name': '轮换', 'modules': modules}])
+        WowTodayCardSetting.objects.create(section_key='dungeons-raids', card_key='season-caps', display_name='改过显示名的赛季上限')
+        before = list(WowTodaySnapshot.objects.values())
+        settings_before = list(WowTodayCardSetting.objects.values())
+        section = collect_today_section(self.day)
+        self.assertEqual([item['reference']['card_key'] for item in section['items']], [key for key, _ in kept])
+        with tempfile.TemporaryDirectory() as root, override_settings(BASE_DIR=root):
+            result = generate_wow_daily_report(report_date=self.day, use_llm=False)
+            html = open(result['full_path'], encoding='utf-8').read()
+            self.assertEqual(result['ext']['sections']['today']['count'], 3)
+            for name in excluded.values():
+                self.assertNotIn(name, html)
+            for _, name in kept:
+                self.assertIn(name, html)
+        self.assertEqual(list(WowTodaySnapshot.objects.values()), before)
+        self.assertEqual(list(WowTodayCardSetting.objects.values()), settings_before)
+
+    def test_cutoff_html_does_not_display_internal_snapshot_notes(self):
+        from botend.wow_daily_report.generator import _render_cutoff_items
+        html = _render_cutoff_items([{'region_label': '国服', 'cutoff_0_1': 3990,
+            'source_updated_at': '2026-07-01 10:00',
+            'snapshot_note': '沿用本日已发布快照；原记录未保存来源时区'}])
+        self.assertIn('3990', html)
+        self.assertIn('2026-07-01 10:00', html)
+        self.assertNotIn('沿用本日已发布快照', html)
+        self.assertNotIn('原记录未保存来源时区', html)
+
     def test_event_links_respect_the_existing_public_calendar_domain_gate(self):
         from botend.wow_daily_report.site_sections import collect_event_section
         from botend.wow_daily_report.generator import _render_site_items

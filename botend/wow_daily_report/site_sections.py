@@ -10,6 +10,13 @@ from botend.services.wow_today_service import apply_wow_today_section_settings, 
 
 REPORT_ZONE = ZoneInfo('Asia/Shanghai')
 
+# Editorial selection for the daily report only; central cards stay unchanged.
+EXCLUDED_DAILY_ROTATION_CARD_KEYS = frozenset({
+    'season-caps', 'mn-notable-world-quests', 'empowered-abundance',
+    'mn-heroic-world-tier', 'mn-ritual-site', 'mn-void-assault',
+    'mn-cursed-surges', 'mn-aqir-invasion', 'epiceliteworldmn', 'darkmoon-faire',
+})
+
 
 def day_window(day):
     start = datetime.combine(day, time.min, tzinfo=REPORT_ZONE)
@@ -34,6 +41,8 @@ def collect_today_section(day):
                   snapshot_id=snapshot.pk, source_date=snapshot.snapshot_date.isoformat())
     for section in public:
         for card in section.get('modules', []):
+            if card.get('key') in EXCLUDED_DAILY_ROTATION_CARD_KEYS:
+                continue
             facts = []
             for item in card.get('items', []):
                 name = str(item.get('name') or '').strip()
