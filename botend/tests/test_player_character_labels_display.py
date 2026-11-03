@@ -22,7 +22,7 @@ class UnifiedCharacterLabelDisplayTests(TestCase):
         self.assertIsNone(projected.get('raid_judgement'))
         html = render_to_string('portal/spec_detail/_player_observation.html', {'observation':view})
         self.assertEqual(html.count('data-judgement="raid_consumer"'), 1)
-        for text in ('团本消费选手','首次击杀','不代表已确认付费'):
+        for text in ('异常团本经历','首次击杀','不代表已确认付费'):
             self.assertIn(text, html)
         self.assertEqual(view, original)
 

@@ -49,7 +49,8 @@ class RaidObservationProjectionTests(TestCase):
             self.assertTrue(view['raid_judgement']['supported'])
             self.assertEqual(view['raid_judgement']['value'], '团本消费选手')
             html = render_to_string('portal/spec_detail/_player_observation.html', {'observation':view})
-            self.assertIn('团本消费选手', html)
+            self.assertIn('异常团本经历', html)
+            self.assertNotIn('团本消费', html)
             for placeholder in ('证据不足', '尚未生成', '生成失败', '暂不可用'):
                 self.assertNotIn(placeholder, html)
             self.assertIn('史诗7、8号', html)

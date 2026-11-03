@@ -8,6 +8,11 @@ from copy import deepcopy
 
 DEFAULT_SCOPE = '仅限近期公开样本，不代表长期身份或组队动机。'
 MANUAL_SCOPE = '人工审核标签，不代表独立来源已证实。'
+DISPLAY_LABELS = {
+    'raid_consumer': {'label': '团本经历', 'value': '异常团本经历'},
+    'fixed_team': {'value': '固定5人车队'},
+    'rotating_core': {'value': '固定4人+轮换玩家'},
+}
 
 
 def _confirmed(item):
@@ -25,7 +30,14 @@ def _unique_judgements(items):
         if not isinstance(code, str) or not code or code in seen:
             continue
         seen.add(code)
-        result.append(deepcopy(item))
+        projected = deepcopy(item)
+        value = projected.get('value')
+        if code in DISPLAY_LABELS and isinstance(value, str) and value:
+            # Rename only the public copy; frozen facts and qualifiers stay intact.
+            _old_name, separator, qualifier = value.partition(' · ')
+            projected.update(DISPLAY_LABELS[code])
+            projected['value'] += separator + qualifier
+        result.append(projected)
     return result
 
 
