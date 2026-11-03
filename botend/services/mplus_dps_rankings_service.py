@@ -2,9 +2,11 @@
 """Current-season Mythic+ DPS leaderboards built from local WCL run facts."""
 
 import json
+import math
 import os
 import tempfile
 from collections import defaultdict
+from datetime import datetime, timezone as dt_timezone
 from pathlib import Path
 from urllib.parse import quote
 
@@ -25,6 +27,7 @@ from botend.services.spec_stats_service import _lookup_dungeon_cn
 
 SNAPSHOT_FILENAME = 'mplus-dps-rankings.json'
 SAMPLE_CAP_PER_SPEC_DUNGEON = 100
+TIME_WEIGHT_HALF_LIFE_DAYS = 7
 AVERAGE_DPS_TIER_STEP_PERCENT = 5
 AVERAGE_DPS_TIER_BANDS = (
     (95, 'S'),
@@ -37,7 +40,7 @@ AVERAGE_DPS_TIER_BANDS = (
 )
 ROW_FIELDS = (
     'dungeon_id', 'class_name', 'spec_name', 'dps', 'keystone_level',
-    'region', 'realm', 'character_name', 'last_updated',
+    'region', 'realm', 'character_name', 'last_updated', 'fight_started_at',
 )
 ROW_FIELD_INDEX = {field: index for index, field in enumerate(ROW_FIELDS)}
 
@@ -99,27 +102,66 @@ def _row_value(row, field):
     return row[ROW_FIELD_INDEX[field]]
 
 
-def _select_representative_values(rows, max_samples=SAMPLE_CAP_PER_SPEC_DUNGEON):
-    """Compact equivalent of select_representative_rows for production streaming."""
-    by_level = defaultdict(list)
-    for level, dps, player_key in rows:
-        by_level[level].append((dps, player_key))
+def _select_representative_entries(rows, max_samples=SAMPLE_CAP_PER_SPEC_DUNGEON):
+    """Select original compact entries; trailing facts never affect selection.
 
-    selected_values = []
+    Keep each run's timestamp attached through sorting and character deduplication,
+    including stable DPS ties. The first three fields retain the legacy contract.
+    """
+    by_level = defaultdict(list)
+    for entry in rows:
+        by_level[entry[0]].append(entry)
+
+    selected = []
     seen_players = set()
     for level in sorted(by_level, reverse=True):
-        level_rows = sorted(by_level[level], key=lambda item: item[0], reverse=True)
-        median_dps = _percentile([item[0] for item in level_rows], 50)
-        for dps, player_key in level_rows:
-            if len(selected_values) >= max_samples:
-                return selected_values
+        level_rows = sorted(by_level[level], key=lambda item: item[1], reverse=True)
+        median_dps = _percentile([item[1] for item in level_rows], 50)
+        for entry in level_rows:
+            if len(selected) >= max_samples:
+                return selected
+            dps, player_key = entry[1:3]
             if median_dps is not None and dps < median_dps:
                 continue
             if player_key in seen_players:
                 continue
             seen_players.add(player_key)
-            selected_values.append(dps)
-    return selected_values
+            selected.append(entry)
+    return selected
+
+
+def _select_representative_values(rows, max_samples=SAMPLE_CAP_PER_SPEC_DUNGEON):
+    """Retain the legacy (level, DPS, player-key) -> DPS-list interface."""
+    return [entry[1] for entry in _select_representative_entries(rows, max_samples)]
+
+
+def _aware_utc(value, field):
+    if not isinstance(value, datetime) or timezone.is_naive(value):
+        raise RuntimeError(f'大秘境 DPS 时间加权需要有效带时区的 {field}')
+    return value.astimezone(dt_timezone.utc)
+
+
+def _time_weighted_average(selected, as_of):
+    """Weight only final samples, failing closed on missing/invalid run dates."""
+    started_at = []
+    for entry in selected:
+        started = _aware_utc(entry[3], 'fight_started_at')
+        if started > as_of:
+            raise RuntimeError('大秘境 DPS 时间加权不接受未来的 fight_started_at')
+        started_at.append(started)
+
+    # Divide all absolute decay weights by the newest run's weight. This is
+    # algebraically identical to 2**(-age_days/7), but even ancient groups have
+    # at least one weight of 1 instead of every weight underflowing to zero.
+    newest = max(started_at)
+    half_life_seconds = TIME_WEIGHT_HALF_LIFE_DAYS * 86400
+    weights = [
+        2 ** (-(newest - started).total_seconds() / half_life_seconds)
+        for started in started_at
+    ]
+    return math.fsum(
+        entry[1] * weight for entry, weight in zip(selected, weights)
+    ) / math.fsum(weights)
 
 
 def _season_value(season, key, default=None):
@@ -176,6 +218,8 @@ def _rank(items):
 def build_rankings_payload_from_rows(season, rows, generated_at=None):
     """Pure aggregation entry point used by the hourly publisher and focused tests."""
     encounters, encounter_ids = _season_encounter_ids(season)
+    generated_at = generated_at if generated_at is not None else timezone.now()
+    as_of = _aware_utc(generated_at, 'generated_at')
     allowed_dungeons = set(encounter_ids)
     grouped = defaultdict(list)
     source_updated_at = None
@@ -204,6 +248,7 @@ def build_rankings_payload_from_rows(season, rows, generated_at=None):
             _row_value(row, 'keystone_level') or 0,
             float(dps),
             player_key,
+            _row_value(row, 'fight_started_at'),
         ))
         updated_at = _row_value(row, 'last_updated')
         if updated_at and (source_updated_at is None or updated_at > source_updated_at):
@@ -212,15 +257,16 @@ def build_rankings_payload_from_rows(season, rows, generated_at=None):
     dungeon_stats = {}
     per_dungeon = {dungeon_id: [] for dungeon_id in encounter_ids}
     for (class_name, spec_name, dungeon_id), group_rows in grouped.items():
-        values = _select_representative_values(group_rows)
-        if not values:
+        selected = _select_representative_entries(group_rows)
+        if not selected:
             continue
+        values = [entry[1] for entry in selected]
         stat = {
             **_identity_payload(class_name, spec_name),
             'dungeon_id': dungeon_id,
             'sample_size': len(values),
             'lower_dps': min(values),
-            'average_dps': sum(values) / len(values),
+            'average_dps': _time_weighted_average(selected, as_of),
             'highest_dps': max(values),
             'dungeon_count': 1,
             'required_dungeon_count': len(encounter_ids),
@@ -270,7 +316,6 @@ def build_rankings_payload_from_rows(season, rows, generated_at=None):
         })
         rankings[scope_key] = _rank(per_dungeon[dungeon_id])
 
-    generated_at = generated_at or timezone.now()
     season_id = _season_value(season, 'id')
     season_key = _season_value(season, 'season_key', '')
     season_name = _season_value(season, 'season_name', '')
@@ -284,7 +329,14 @@ def build_rankings_payload_from_rows(season, rows, generated_at=None):
             'role': 'dps',
             'sample_cap_per_spec_dungeon': SAMPLE_CAP_PER_SPEC_DUNGEON,
             'sample_rule': '按钥石层数从高到低；每层保留不低于该层中位数的记录；角色去重',
-            'dungeon_metrics': {'lower': 'min', 'average': 'mean', 'highest': 'max'},
+            'dungeon_metrics': {'lower': 'min', 'average': 'time_weighted_mean', 'highest': 'max'},
+            'time_weighting': {
+                'kind': 'exponential',
+                'half_life_days': TIME_WEIGHT_HALF_LIFE_DAYS,
+                'timestamp': 'fight_started_at',
+                'scope': '各专精各副本最终入选样本内部，不参与选样',
+                'formula': 'sum(dps * 2^(-age_days/7)) / sum(2^(-age_days/7))',
+            },
             'overall_weight': '各副本最终样本数',
             'overall_requires_all_dungeons': True,
             'required_dungeon_count': len(encounter_ids),

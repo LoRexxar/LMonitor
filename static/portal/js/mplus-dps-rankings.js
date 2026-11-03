@@ -291,11 +291,15 @@
         updated.textContent = `生成 ${formatTimestamp(generated)}${source ? ` · 来源 ${formatTimestamp(source)}` : ''}`;
         const required = ((payload.method || {}).required_dungeon_count) || Math.max(0, (payload.scopes || []).length - 1);
         const sampleCap = payload.method?.sample_cap_per_spec_dungeon || 100;
+        const weighting = payload.method?.time_weighting;
+        const averageExplanation = weighting?.kind === 'exponential'
+            ? `平均 DPS 仅对原规则入选的样本按真实战斗开始时间加权，半衰期为 ${weighting.half_life_days} 天（每过 ${weighting.half_life_days} 天权重减半），公式为 Σ（DPS × 时间权重）÷ Σ时间权重`
+            : '平均 DPS 为入选样本的算术平均';
         const explanation = element('dl', 'mplus-rank-explanation');
         const notes = [
             ['数据来源', '来自本站收录的 Warcraft Logs（WCL）当前赛季大秘境实战日志排名，仅统计输出专精，DPS 使用 WCL 提供的数值。'],
             ['样本筛选', `每个专精、每个副本最多取 ${sampleCap} 条记录：优先高层钥石，同层按 DPS 从高到低选择，只保留不低于该层中位数的记录；同一地区、服务器、角色仅保留一条。因此，本榜反映筛选后样本的表现。`],
-            ['数值计算', `单副本：平均 DPS 为入选样本的算术平均，最高 DPS 为样本中的最大值。总计：需在全部 ${required} 个副本均有样本；平均与最高分别按各副本的最终样本数加权，公式为 Σ（副本数值 × 样本数）÷ 总样本数。总计的最高值也是加权结果。`],
+            ['数值计算', `单副本：${averageExplanation}；最高 DPS 为样本中的原始最大值，不做时间折减。总计：需在全部 ${required} 个副本均有样本；平均与最高分别按各副本的最终样本数加权，公式为 Σ（副本数值 × 样本数）÷ 总样本数。总计的最高值也是加权结果。`],
             ['评级规则', '按平均 DPS 从高到低排名；总计与各副本独立评级。以当前范围榜首的平均 DPS 为 100%，计算「该专精平均 DPS ÷ 榜首平均 DPS × 100%」，每相差 5 个百分点划分一档。最高 DPS 仅供参考，不参与排名和评级。'],
         ];
         notes.forEach(([label, text]) => {

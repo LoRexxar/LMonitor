@@ -39,6 +39,7 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
             'region': 'cn',
             'realm': 'test',
             'character_name': player,
+            'fight_started_at': datetime(2026, 9, 5, 1, 2, 3, tzinfo=dt_timezone.utc),
         }
 
     def test_total_is_sample_weighted_and_requires_all_eight_dungeons(self):
