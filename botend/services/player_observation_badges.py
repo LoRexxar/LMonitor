@@ -1,9 +1,14 @@
-"""Top20 标签读取中央 last-good 发布，不以新来源或生成状态撤回旧标签。"""
+"""Top20 统一已确认角色标签；M+ last-good 与独立规则各守自己的门禁。"""
+from types import SimpleNamespace
 from urllib.parse import unquote, urlsplit
 
+from django.db.models import BooleanField, Case, F, Value, When
 from django.db.models.fields.json import KeyTransform
+from django.utils import timezone
 
-from botend.models import PlayerObservationAnalysis, PlayerSpecTopPlayer
+from botend.models import PlayerObservationAnalysis, PlayerSpecTopPlayer, RaiderIOCharacterActivity
+from botend.services.player_character_labels import (confirmed_character_badges,
+    frozen_badge_judgements)
 from botend.services.player_external_links import REGION_LOCALES
 from botend.raiderio_identity import activity_identity_digest, normalized_name
 
@@ -13,22 +18,10 @@ _SCOPE = '仅限近期公开样本，不代表长期身份或组队动机。'
 
 
 def high_confidence_badges(view, *, include_stale=False):
-    """只采纳公开投影的正向强证据，人工维护不继承旧 AI 标签。"""
-    statuses = ('ready', 'stale') if include_stale else ('ready',)
-    if not view or view.get('status') not in statuses or view.get('source_kind') == 'manual':
+    """Compatibility wrapper; default stale/manual behavior remains unchanged."""
+    if not view or view.get('source_kind') == 'manual':
         return []
-    badges, seen = [], set()
-    for item in view.get('display_judgements', []):
-        strength = item.get('evidence_strength') or {}
-        if (not item.get('supported') or strength.get('level') != 'strong'
-                or strength.get('confidence') != '高' or item.get('code') in seen):
-            continue
-        seen.add(item['code'])
-        label = item.get('value', '').split(' · ')[0]
-        if label:
-            badges.append({'code': item['code'], 'label': label, 'confidence': '高',
-                'scope': strength.get('scope') or _SCOPE})
-    return badges
+    return confirmed_character_badges(view, include_stale=include_stale)
 
 
 def _frozen_badges(row):
@@ -92,6 +85,8 @@ def _profile_identity(player):
     """
     region = str(player.region or '').lower()
     name = str(player.character_name or '').strip()
+    if normalized_name(name) == 'anonymous':
+        return None
     try:
         url = urlsplit(str(player.profile_url or '').strip())
         parts = url.path.strip('/').split('/')
@@ -108,8 +103,66 @@ def _profile_identity(player):
         return None
 
 
+def _character_label_views(season, digests):
+    """One bounded source/editorial metadata SELECT, including rule-only rows.
+
+    Only the independent raid module and character-ID scalar cross this read
+    boundary. Manual badges need two scalar tag columns, not manual evidence.
+    The left join is essential: an activity need not have an AI publication.
+    """
+    from botend.services.player_analysis_management import _ManualTagColumn
+    from botend.services.player_raid_observation import project_raid_observation
+
+    def manual_column(key):
+        expression = _ManualTagColumn(key)
+        sources = expression.get_source_expressions()
+        expression.set_source_expressions([F('observation_analysis__manual_json'), *sources[1:]])
+        return expression
+
+    rows = RaiderIOCharacterActivity.objects.filter(season_id=season.pk,
+        identity_digest__in=digests).annotate(
+        raid_state=KeyTransform('raid_first_kills', 'payload_json'),
+        scored_character=KeyTransform('characterId', KeyTransform('ui', 'scored_runs_json')),
+        has_manual=Case(
+            When(observation_analysis__pk__isnull=True, then=Value(False)),
+            When(observation_analysis__manual_json={}, then=Value(False)),
+            default=Value(True), output_field=BooleanField()),
+        manual_labels=manual_column('label'), manual_values=manual_column('value'),
+    ).values('id', 'identity_digest', 'region', 'realm_slug', 'character_name',
+        'raid_state', 'scored_character', 'has_manual', 'manual_labels', 'manual_values',
+        'observation_analysis__id', 'observation_analysis__is_published',
+        'observation_analysis__review_status')
+    views, now = {}, timezone.now()
+    for row in rows:
+        identity = {key: row[key] for key in ('region', 'realm_slug', 'character_name')}
+        digest = row['identity_digest']
+        if activity_identity_digest(**identity) != digest:
+            continue  # A corrupted/reused activity row must fail closed too.
+        analysis_id = row['observation_analysis__id']
+        if analysis_id is not None and (row['observation_analysis__is_published'] is not True
+                or row['observation_analysis__review_status'] == 'rejected'):
+            continue
+        if row['has_manual']:
+            if row['observation_analysis__review_status'] != 'approved':
+                continue
+            labels, values = row['manual_labels'], row['manual_values']
+            tags = [{'label': label, 'value': values[index]}
+                    for index, label in enumerate(labels if isinstance(labels, list) else [])
+                    if isinstance(values, list) and index < len(values)
+                    and isinstance(label, str) and label]
+            view = {'status': 'ready', 'source_kind': 'manual', 'manual': {'tags': tags}}
+        else:
+            activity = SimpleNamespace(identity_digest=digest,
+                payload_json={'raid_first_kills': row['raid_state']},
+                scored_runs_json={'ui': {'characterId': row['scored_character']}})
+            view = {'status': 'ready', 'display_judgements': [],
+                'raid_judgement': project_raid_observation(activity, season, identity, now=now)}
+        views[digest] = (analysis_id, view)
+    return views
+
+
 def _published_badges(players, class_name=None, spec_name=None):
-    """Four bounded batch reads after season lookup; no full evidence/source IO.
+    """Five bounded batch reads after season lookup; no full evidence/source IO.
 
     Flat roster/history privacy metadata queries share the detail withdrawal
     gate; neither loads full source payloads or rebuilds evidence per player.
@@ -123,7 +176,7 @@ def _published_badges(players, class_name=None, spec_name=None):
     from botend.services.player_observation import (READABLE_PUBLICATION_VERSIONS,
         publication_scope_matches, withdrawn_roster_publications)
     season = SpecStatsService.get_active_season()
-    if not season or not players:
+    if not season or not season.rio_season or not players:
         return {}
     query = PlayerSpecTopPlayer.objects.filter(pk__in=[p.get('id') for p in players],
         season_id=season.id, rank__gte=1, rank__lte=20)
@@ -190,8 +243,17 @@ def _published_badges(players, class_name=None, spec_name=None):
         badges = _frozen_badges(row)
         if badges:
             publications[digest] = (row['id'], badges)
-    return {key: (publications[digest], objects[pk])
-        for key, (pk, digest) in bound.items() if digest in publications}
+    views = _character_label_views(season, {digest for _, digest in bound.values()})
+    merged = {}
+    for digest, (analysis_id, view) in views.items():
+        publication = publications.get(digest)
+        if publication and view.get('source_kind') != 'manual':
+            view['display_judgements'] = frozen_badge_judgements(publication[1])
+        badges = confirmed_character_badges(view)
+        if badges:
+            merged[digest] = (analysis_id, badges)
+    return {key: (merged[digest], objects[pk])
+        for key, (pk, digest) in bound.items() if digest in merged}
 
 
 def attach_badge_snapshots(players):
@@ -212,7 +274,8 @@ def public_badge_players(players, class_name, spec_name):
     """Always read the central publication, including for pre-badge snapshots.
 
     A successful replacement takes effect immediately; hidden/rejected/manual
-    rows retract immediately. Snapshot badges are never an authority or fallback.
+    draft rows retract immediately. Approved manual tags replace AI/rule tags.
+    Snapshot badges are never an authority or fallback.
     """
     publications = _published_badges(players, class_name, spec_name)
     result = []

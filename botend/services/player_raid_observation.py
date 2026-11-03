@@ -109,7 +109,9 @@ def project_raid_observation(activity, season, identity, *, now=None):
                              'source_url': profile})
         result.update(supported=True, value='团本消费选手',
             reason=f"史诗{numbers}号于 {matched[0]['date']} 同日首杀（北京时间）。",
-            evidence=evidence, note='日期规则标记，不代表已确认付费。')
+            evidence=evidence, note='日期规则标记，不代表已确认付费。',
+            evidence_strength={'level': 'strong', 'confidence': '高',
+                'label': '日期规则支持', 'scope': '日期规则标记，不代表已确认付费。'})
     except (AttributeError, KeyError, TypeError, ValueError, OverflowError):
         # Broken/obsolete cached source is unknown, never a public conclusion.
         pass

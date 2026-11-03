@@ -8,15 +8,13 @@ register = template.Library()
 def confirmed_player_observation(observation):
     if not isinstance(observation, dict):
         return {}
-    if observation.get('source_kind') == 'manual':
-        # The central projection and template retain their editorial gates.
-        return observation
-    from botend.services.player_observation_badges import high_confidence_badges
+    from botend.services.player_character_labels import confirmed_character_judgements
 
-    codes = {badge['code'] for badge in high_confidence_badges(observation, include_stale=True)}
-    judgements = [item for item in observation.get('display_judgements', []) if item['code'] in codes]
+    judgements = confirmed_character_judgements(observation, include_stale=True)
+    codes = {item['code'] for item in judgements}
     return {**observation,
             'display_judgements': judgements,
+            'raid_judgement': None,
             'has_supported_judgements': bool(judgements),
             'label_reviews': [item for item in observation.get('label_reviews', []) if item['code'] in codes],
             'carrying_frequency': observation.get('carrying_frequency') if 'carrying' in codes else None,

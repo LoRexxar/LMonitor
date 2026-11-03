@@ -53,10 +53,12 @@ class PlayerAnalysisManagementUITests(TestCase):
                'evidence': [{'text': '人工证据', 'url': 'https://example.com/manual'}]}
         raid = {'supported': True, 'label': '团本标签', 'value': '支持',
                 'evidence': [{'text': '团本证据', 'source_url': 'https://example.com/raid'}]}
-        html = self.render_observation(display_judgements=[tag], has_supported_judgements=True, raid_judgement=raid)
+        html = self.render_observation(manual={'tags': [tag]},
+            display_judgements=[{**tag, 'code': 'manual:0'}],
+            has_supported_judgements=True, raid_judgement=raid)
         self.assertIn('人工标签', html)
         self.assertIn('https://example.com/manual', html)
-        self.assertIn('https://example.com/raid', html)
+        self.assertNotIn('https://example.com/raid', html)
 
     def test_service_projection_without_editorial_flags_is_visible(self):
         # The service already gates publication; its public DTO omits review fields.

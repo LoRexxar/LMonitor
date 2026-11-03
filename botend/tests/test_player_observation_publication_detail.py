@@ -224,7 +224,8 @@ class PublicationDetailTests(TestCase):
                 with patch.object(service, '_build', side_effect=AssertionError('no live evidence')), CaptureQueriesContext(connection) as queries:
                     result = public_badge_players(self.players * size, self.player.class_name, self.player.spec_name)
                 counts.append(len(queries))
-                self.assertLessEqual(len(queries), 5)
+                self.assertLessEqual(len(queries), 6)
+                self.assertEqual(sum(' AS "raid_state"' in q['sql'] for q in queries), 1)
                 self.assertTrue(all(bool(item.get('observation_badges')) == visible for item in result))
                 roster_queries = [q['sql'] for q in queries if 'wow_raiderio_run_roster' in q['sql']]
                 self.assertEqual(len(roster_queries), 1)
