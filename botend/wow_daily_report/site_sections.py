@@ -46,6 +46,8 @@ def collect_today_section(day):
             facts = []
             for item in card.get('items', []):
                 name = str(item.get('name') or '').strip()
+                if card.get('key') == 'holiday' and name.casefold() in ('暗月马戏团', 'darkmoon faire'):
+                    continue
                 value = str(item.get('value') or '').strip()
                 parts = [part for part in (name, str(item.get('icon_label') or '').strip(), value) if part]
                 if item.get('quantity') is not None and 'quantity' in item:

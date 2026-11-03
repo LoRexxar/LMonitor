@@ -54,6 +54,7 @@ class DailySiteSectionsTests(TestCase):
                    for key, name in excluded.items()]
         kept = [('mythicaffix', '大秘境词缀'), ('mn-bountiful-delves', '丰裕地下堡'), ('holiday', '节日')]
         modules += [{'key': key, 'name': name, 'items': [{'name': name+'内容'}]} for key, name in kept]
+        modules[-1]['items'].extend([{'name': '暗月马戏团'}, {'name': 'Darkmoon Faire'}])
         WowTodaySnapshot.objects.filter(pk=self.snapshot.pk).update(sections_json=[{
             'key': 'dungeons-raids', 'name': '轮换', 'modules': modules}])
         WowTodayCardSetting.objects.create(section_key='dungeons-raids', card_key='season-caps', display_name='改过显示名的赛季上限')
@@ -67,6 +68,7 @@ class DailySiteSectionsTests(TestCase):
             self.assertEqual(result['ext']['sections']['today']['count'], 3)
             for name in excluded.values():
                 self.assertNotIn(name, html)
+            self.assertNotIn('Darkmoon Faire', html)
             for _, name in kept:
                 self.assertIn(name, html)
         self.assertEqual(list(WowTodaySnapshot.objects.values()), before)
