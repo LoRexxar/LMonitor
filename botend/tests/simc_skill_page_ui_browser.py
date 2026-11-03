@@ -27,7 +27,7 @@ INDEX = {
 }
 
 
-def snapshot(names=('技能10', '技能2'), more=True):
+def snapshot(names=('技能10', '技能2'), more=False, matched=None, cursor='signed-next'):
     data = copy.deepcopy(INDEX)
     data['actors'] = [{
         'class': 'warrior', 'specialization': 'fury',
@@ -38,11 +38,12 @@ def snapshot(names=('技能10', '技能2'), more=True):
         'global_skill_effects': [{'display_name': '全局激怒', 'effect_details': []}],
     }]
     data['actor_page'] = {
-        'counts': {'stored_actions': 152211, 'scope_candidates': 100, 'matched': 80},
+        'counts': {'stored_actions': 152211, 'scope_candidates': 100,
+                   'matched': len(names) if matched is None else matched},
         'facets': {'talents': [{'key': 'talent:10', 'label': '远页天赋',
                                'description': '所有页的条件'}], 'buffs': []},
         'page': {'returned': len(names), 'has_more': more,
-                 'next_cursor': 'signed-next' if more else None},
+                 'next_cursor': cursor if more else None},
     }
     return data
 
@@ -177,7 +178,7 @@ class SkillPageDOM(unittest.TestCase):
             && pageSignals.slice(1).every(signal => signal === pageSignals[1] && !signal.aborted)'''))
         self.reply(snapshot(['槽释放后最新目标']))
         self.assertIn('槽释放后最新目标', self.el('body').inner_text())
-        self.assertIn('第 1 页', self.el('page-status').inner_text())
+        self.assertIn('已全部显示', self.el('list-status').inner_text())
         self.assertEqual(self.params()['target_count'], '2')
         count = len(self.requests)
         self.page.clock.run_for(120000)
@@ -208,7 +209,7 @@ class SkillPageDOM(unittest.TestCase):
         self.freeze_clock()
         self.start()
         self.busy()
-        self.assertIn('等待并自动重试', self.el('page-status').inner_text())
+        self.assertIn('等待并自动重试', self.el('list-status').inner_text())
         self.el('hero-tree').select_option('61')
         self.await_requests(3)
         self.reply(snapshot(['最新英雄']))
@@ -235,11 +236,11 @@ class SkillPageDOM(unittest.TestCase):
             self.page.clock.run_for(min(1000 * 2 ** retry, 8000))
             self.await_requests(3 + retry)
             self.busy()
-        self.assertIn('分页加载失败', self.el('page-status').inner_text())
+        self.assertIn('尚未完整显示', self.el('list-status').inner_text())
         self.page.clock.run_for(120000)
         self.page.wait_for_timeout(30)
         self.assertEqual(len(self.requests), 44, 'busy exhaustion must stop automatic requests')
-        self.assertTrue(self.el('page-next').is_disabled())
+        self.assertEqual(self.el('page-next').count(), 0)
 
     def pending_index_control(self, control):
         self.page.evaluate('initSimcSkillDamagePanel()')
@@ -292,11 +293,11 @@ class SkillPageDOM(unittest.TestCase):
         data['id'] = 53
         self.reply(data)
 
-    def test_controls_complete_facets_server_order_and_page_replacement(self):
+    def test_controls_complete_facets_server_order_and_single_list(self):
         self.start()
         params = self.params()
         for key, value in {'view': 'actor_page', 'stream': '1', 'snapshot_id': '52', 'actor_id': '471',
-                           'hero_tree_id': '60', 'target_count': '1', 'limit': '50'}.items():
+                           'hero_tree_id': '60', 'target_count': '1', 'limit': '100'}.items():
             self.assertEqual(params[key], value)
         self.assertIn('加载', self.el('body').inner_text())
         self.reply(snapshot())
@@ -304,38 +305,29 @@ class SkillPageDOM(unittest.TestCase):
         self.assertLess(text.index('技能10'), text.index('技能2'), 'never re-sort a server page')
         self.assertIn('远页天赋', self.el('filter-talents').inner_text())
         self.assertIn('全局激怒', self.el('global-modifiers').inner_text())
-        self.assertIn('80', self.el('page-status').inner_text())
-        self.el('page-next').click()
-        self.await_requests(3)
-        self.assertEqual(self.params()['cursor'], 'signed-next')
-        self.reply(snapshot(['下一页'], more=False))
-        self.assertNotIn('技能10', self.el('body').inner_text())
-        self.assertIn('下一页', self.el('body').inner_text())
-        self.assertTrue(self.el('page-next').is_disabled())
-        self.el('page-prev').click()
-        self.await_requests(4)
-        self.assertNotIn('cursor', self.params())
-        self.reply(snapshot())
+        self.assertIn('共 2 行，已全部显示', self.el('list-status').inner_text())
+        self.assertEqual(self.el('page-next').count(), 0)
+        self.assertEqual(self.el('page-prev').count(), 0)
         self.el('sort-name').click()
-        self.await_requests(5)
+        self.await_requests(3)
         self.assertEqual(self.params()['sort'], 'name')
         self.assertEqual(self.params()['direction'], 'asc')
         self.assertNotIn('cursor', self.params())
         self.reply(snapshot())
         self.el('filter-talents').locator('input').uncheck()
-        self.await_requests(6)
+        self.await_requests(4)
         self.assertEqual(json.loads(self.params()['exclude']), ['talent:10'])
         self.reply(snapshot())
         self.assertFalse(self.el('filter-talents').locator('input').is_checked())
         self.el('target-tabs').locator('[data-target-count="2"]').click()
-        self.await_requests(7)
+        self.await_requests(5)
         self.assertEqual(self.params()['target_count'], '2')
         self.assertNotIn('cursor', self.params())
         self.reply(snapshot())
         self.el('search').fill('激怒')
         self.page.wait_for_timeout(100)
-        self.assertEqual(len(self.requests), 7, 'query is debounced')
-        self.await_requests(8)
+        self.assertEqual(len(self.requests), 5, 'query is debounced')
+        self.await_requests(6)
         self.assertEqual(self.params()['q'], '激怒')
         self.assertEqual(self.params()['snapshot_id'], '52')
         self.reply(snapshot(['搜索结果']))
@@ -348,7 +340,7 @@ class SkillPageDOM(unittest.TestCase):
         data['actor_page']['unresolved'] = {'actor_id': 471, 'snapshot_id': 52,
                                            'availability': 'separate_document'}
         self.reply(data)
-        self.assertIn('总数未随分页提供', self.el('unresolved').inner_text())
+        self.assertIn('数量单独统计', self.el('unresolved').inner_text())
         params = parse_qs(urlparse(self.el('unresolved').locator('a').get_attribute('href')).query)
         self.assertEqual(params['view'], ['unresolved_fragment'])
         self.assertEqual(params['stream'], ['1'])
@@ -367,6 +359,68 @@ class SkillPageDOM(unittest.TestCase):
         self.page.clock.run_for(120000)
         self.page.wait_for_timeout(30)
         self.assertEqual(len(self.requests), 3, 'non-busy 503 must not retry')
+
+    def test_all_batches_are_automatically_displayed_together(self):
+        self.page.set_viewport_size({'width': 1440, 'height': 1000})
+        self.start()
+        for batch,(start,end) in enumerate(((0,50),(50,100),(100,123))):
+            names=[f'完整技能{i:03d}' for i in range(start,end)]
+            data=snapshot(names,more=end<123,matched=123,cursor=f'batch-{batch+2}')
+            data['actor_page']['source_ordinals']=list(range(start,end))
+            self.reply(data)
+            if end<123:
+                self.await_requests(batch+3)
+                self.assertEqual(self.params()['cursor'],f'batch-{batch+2}')
+                self.assertIn(f'{end} / 123',self.el('list-status').inner_text())
+        self.assertEqual(self.el('body').locator('tr').count(),123)
+        text=self.el('body').inner_text()
+        self.assertIn('完整技能000',text)
+        self.assertIn('完整技能122',text)
+        self.assertLess(text.index('完整技能049'),text.index('完整技能050'))
+        self.assertIn('共 123 行，已全部显示',self.el('list-status').inner_text())
+        self.assertEqual(self.el('page-next').count(),0)
+        self.assertEqual(self.el('page-prev').count(),0)
+        screenshots=os.environ.get('SIMC_UI_SCREENSHOT_DIR')
+        if screenshots:
+            directory=Path(screenshots)
+            directory.mkdir(parents=True,exist_ok=True)
+            self.page.screenshot(path=str(directory/'simc-single-page-desktop.png'))
+            self.el('body').locator('tr').last.scroll_into_view_if_needed()
+            last=self.el('body').locator('tr').last.bounding_box()
+            self.assertGreater(last['y']+last['height'],0)
+            self.assertLess(last['y'],1000)
+            self.page.screenshot(path=str(directory/'simc-single-page-last-row.png'))
+            self.page.set_viewport_size({'width':390,'height':844})
+            self.el('list-status').scroll_into_view_if_needed()
+            self.page.screenshot(path=str(directory/'simc-single-page-mobile.png'))
+
+    def test_incomplete_or_repeated_continuation_never_claims_complete(self):
+        self.start()
+        self.reply(snapshot(['首批'],more=True,matched=3,cursor='repeat'))
+        self.await_requests(3)
+        self.reply(snapshot(['重复后续'],more=True,matched=3,cursor='repeat'))
+        self.assertIn('尚未完整显示',self.el('list-status').inner_text())
+        self.assertNotIn('已全部显示',self.el('list-status').inner_text())
+        self.assertEqual(len(self.requests),3)
+
+    def test_continuation_from_an_old_query_cannot_enter_the_new_list(self):
+        self.page.evaluate('''() => {
+            window.pending=[];
+            window.fetch=(url,options={})=>new Promise(resolve=>pending.push({url,options,resolve}));
+        }''')
+        self.page.evaluate('initSimcSkillDamagePanel()')
+        self.resolve_pending(0,INDEX)
+        self.el('spec').select_option('warrior:fury')
+        self.el('hero-tree').select_option('60')
+        self.resolve_pending(1,snapshot(['旧查询首批'],more=True,matched=2))
+        self.assertEqual(self.page.evaluate('pending.length'),3)
+        self.el('hero-tree').select_option('61')
+        self.assertTrue(self.page.evaluate('pending[2].options.signal.aborted'))
+        self.resolve_pending(3,snapshot(['新查询完整列表']))
+        self.resolve_pending(2,snapshot(['旧查询后续'],matched=2))
+        self.assertIn('新查询完整列表',self.el('body').inner_text())
+        self.assertNotIn('旧查询',self.el('body').inner_text())
+        self.assertIn('共 1 行，已全部显示',self.el('list-status').inner_text())
 
     def test_browser_original_and_node_collation_agree(self):
         oracle = (ROOT / 'botend/tests/fixtures/simc_skill_query_original.cjs').read_text()
@@ -416,22 +470,19 @@ class SkillPageDOM(unittest.TestCase):
         self.assertEqual(json.loads(self.params()['exclude']), ['talent:10'])
         self.reply(snapshot())
         self.assertFalse(self.el('filter-talents').locator('input').is_checked())
-        self.el('page-next').click()
-        self.await_requests(6)
-        self.reply(snapshot(['第二页']))
         self.el('refresh').click()
-        self.await_requests(7)
+        self.await_requests(6)
         newer = copy.deepcopy(INDEX)
         newer['id'] = 53
         self.reply(newer)
-        self.await_requests(8)
+        self.await_requests(7)
         self.assertEqual(self.params()['snapshot_id'], '53')
         self.assertEqual(self.params()['exclude'], '[]', 'new snapshot drops old exclusions')
         self.assertNotIn('cursor', self.params(), 'new snapshot cannot reuse old cursor')
         data = snapshot(['新快照'])
         data['id'] = 53
         self.reply(data)
-        self.assertIn('第 1 页', self.el('page-status').inner_text())
+        self.assertIn('已全部显示', self.el('list-status').inner_text())
         self.assertIn('新快照', self.el('body').inner_text())
         self.assertTrue(self.el('filter-talents').locator('input').is_checked())
 
@@ -457,7 +508,7 @@ class SkillPageDOM(unittest.TestCase):
         self.page.wait_for_timeout(350)
         self.assertEqual(self.page.evaluate('pending.length'), before)
         self.assertIn('请先选择专精', self.el('body').inner_text())
-        self.assertTrue(self.el('pagination').is_hidden())
+        self.assertTrue(self.el('list-progress').is_hidden())
 
     def resolve_pending(self, index, data):
         self.page.evaluate("""([index, snapshot]) => pending[index].resolve({ok: true,
