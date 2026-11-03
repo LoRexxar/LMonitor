@@ -649,7 +649,7 @@ def _render_cutoff_items(items: List[Dict[str, Any]]) -> str:
             f"<td>{_safe_html(_fmt_num(item.get('cutoff_1')))}</td>"
             f"<td>{_safe_html(_fmt_num(item.get('cutoff_1_prev')))}</td>"
             f"<td class=\"delta\">{_safe_html(item.get('cutoff_1_delta'))}</td>"
-            f"<td>{_safe_html(item.get('source_updated_at'))}<small>{_safe_html(item.get('snapshot_note') or '')}</small></td>"
+            f"<td>{_safe_html(item.get('source_updated_at'))}</td>"
             "</tr>"
         )
     rows.append("</tbody></table>")
