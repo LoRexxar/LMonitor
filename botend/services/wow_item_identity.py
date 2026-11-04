@@ -251,6 +251,12 @@ def project_item_identity(item, ref):
     projected.effect_refs = []
     projected.quality = ref.get('quality', 0)
     projected.metadata = {'primary_stat_options': list(ref['primary_stat_options'])}
+    # Keep only the validated central asset, never the full source/DB2 metadata
+    # in a frozen identity projection. The identity reference itself is unchanged.
+    from botend.services.wow_item_icon_asset import verified_item_icon_asset
+    asset = verified_item_icon_asset(item)
+    if asset:
+        projected.metadata['display_facts'] = {'icon': deepcopy(asset)}
     projected._resolved_identity = deepcopy(ref)
     return projected
 

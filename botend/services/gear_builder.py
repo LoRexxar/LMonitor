@@ -694,7 +694,7 @@ def serialize_item(item, variants, class_name='', spec_name=''):
         'description': display['localized_description'],
         'text_schema_version': 2,
         'display_description': display['display_description'],
-        'icon': item.icon or '',
+        'icon': display['icon'],
         'icon_url': display['icon_url'],
         'quality': item.quality,
         'catalog_type': item.catalog_type,

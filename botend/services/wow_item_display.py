@@ -501,7 +501,9 @@ def item_display_metadata(
         # 旧规范化可能清空展示字段；原始中文仍在数据库中时先按当前规则重新投影。
         description_zh = str(raw_descriptions.get('description_zh') or '')
     has_chinese_description = bool(description_zh.strip())
-    icon = (snapshot.icon if snapshot else "") or ""
+    from botend.services.wow_item_icon_asset import verified_item_icon_asset
+    icon_asset = verified_item_icon_asset(snapshot)
+    icon = icon_asset['value'] if icon_asset else (snapshot.icon if snapshot else "") or ""
     icon_name = item_cdn_icon(snapshot)
     normalized_stats = _normalize_stats(stats)
     variant_metadata = (

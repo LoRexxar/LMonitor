@@ -16,9 +16,13 @@ def named_item_icon(value):
 
 
 def item_cdn_icon(item):
-    """Preserve a published numeric basename, never invent one from an overlay FDID."""
+    """Prefer the ItemID asset; retain legacy basenames, never invent FDID URLs."""
     if item is None:
         return ''
+    from botend.services.wow_item_icon_asset import verified_item_icon_asset
+    asset = verified_item_icon_asset(item)
+    if asset:
+        return asset['value']
     named = named_item_icon(item.icon)
     if named:
         return named

@@ -206,6 +206,39 @@ def merge_item_display_facts(item, *, name_zh='', icon='', provenance=None):
     return True
 
 
+def merge_item_icon_asset(item, *, icon, image_bytes, provenance):
+    """Merge an ItemID-bound verified JPEG mapping, preserving every raw fact.
+
+    ``provenance`` must contain source='wowhead_tooltip', item_id, the explicit
+    dataEnv/locale tooltip_url, its parsed tooltip_response, and the exact
+    wow.zamimg.com image_url. Bytes are decoded here, not trusted via a flag.
+    Caller owns the short transaction/row lock and asset delivery; no network,
+    upload, variant writes or cache invalidation occurs here. Returns changed.
+    """
+    from botend.services.wow_item_icon_asset import (
+        validated_item_icon_asset, verified_item_icon_asset,
+    )
+    if (item._state.adding or getattr(item, '_resolved_identity', None)
+            or hasattr(item, '_central_icon_provenance')):
+        raise ValueError('图标资产只能写入已持久化的中央物品，不接受展示投影')
+    asset = validated_item_icon_asset(item.item_id, icon=icon, image_bytes=image_bytes,
+                                      provenance=provenance)
+    metadata = deepcopy(item.metadata or {})
+    display_facts = metadata.setdefault('display_facts', {})
+    if not isinstance(display_facts, dict):
+        raise ValueError('中央 display_facts 必须为对象')
+    existing = verified_item_icon_asset(item)
+    # A refreshed tooltip with the same mapping and image is not a fact change.
+    if existing and all(existing[key] == value for key, value in asset.items()
+                        if key != 'provenance'):
+        return False
+    display_facts['icon'] = asset
+    item.metadata = metadata
+    item.updated_at = timezone.now()
+    item.save(update_fields=('metadata', 'updated_at'))
+    return True
+
+
 def merge_item_catalog_metadata(item, metadata):
     """补充已验证的中央元数据，不触碰名称、分类、属性或其他原始事实。"""
     if not isinstance(metadata, dict):
