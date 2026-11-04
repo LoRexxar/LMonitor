@@ -4,6 +4,12 @@
   "game_build": "12.1.5.70575",
   "patches": [
     {
+      "original_name": "0031-allow-partial-monk-hero-talent-probes.patch",
+      "original_sha256": "249e6751a4b8719ea05baf054874f2260e1a197de89f88ca67c5c5c351317afc",
+      "replacement": "0031-30c4b06-compatible.patch",
+      "replacement_sha256": "dfdbb0e3b5c02c867a47849b7147756d4394637aaa485449a11b788a2c54fb1d"
+    },
+    {
       "original_name": "0065-trace-native-damage-multipliers.patch",
       "original_sha256": "2dfb67a51269f7561369c038a73e8995d70892170b9c1aaa8ad4fd3122b75e6c",
       "replacement": "0065-30c4b06-compatible.patch",

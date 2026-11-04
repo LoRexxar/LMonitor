@@ -77,6 +77,94 @@ class UpdateSimcBinaryCommandTests(TestCase):
                 failures.append(f'{patch_path.name}: {detail}')
         self.assertEqual(failures, [])
 
+    def test_audited_30c4b061_full_managed_chain_replays_with_real_git(self):
+        """Requires the real audited Git source (SIMC_REPLAY_SOURCE_DIR overrides config)."""
+        from botend.management.commands.update_simc_binary import Command
+
+        revision = '30c4b061f2103132a34952d80c963303b82bf368'
+        patch_dir = Path(settings.BASE_DIR) / 'simc_patches'
+        command = Command()
+        source = Path(os.environ.get('SIMC_REPLAY_SOURCE_DIR') or command._resolve_paths()[0])
+        self.assertTrue(source.is_dir(), f'Audited SimC Git source required: {source}')
+        command.simc_source_dir = str(source)
+
+        def git(*args, env=None, content=None, check=True):
+            result = subprocess.run(
+                ['git', *args], cwd=source, env=env, input=content,
+                capture_output=True, timeout=90,
+            )
+            if check:
+                self.assertEqual(result.returncode, 0, result.stderr.decode(errors='replace'))
+            return result
+
+        head = git('rev-parse', 'HEAD').stdout
+        status = git('status', '--porcelain').stdout
+        source_index = Path(git('rev-parse', '--git-path', 'index').stdout.decode().strip())
+        if not source_index.is_absolute():
+            source_index = source / source_index
+        index_before = source_index.read_bytes()
+        original_name = '0031-allow-partial-monk-hero-talent-probes.patch'
+        original = (patch_dir / original_name).read_bytes()
+        self.assertEqual(
+            hashlib.sha256(original).hexdigest(),
+            '249e6751a4b8719ea05baf054874f2260e1a197de89f88ca67c5c5c351317afc',
+        )
+        overrides = command._patch_compatibility(patch_dir, revision=revision)
+        self.assertIn(original_name, overrides)
+        names = sorted({p.name for p in patch_dir.glob('*.patch')} | set(overrides))
+        monk_path = 'engine/class_modules/monk/sc_monk.cpp'
+        upstream = git('show', f'{revision}:{monk_path}').stdout
+        start = upstream.index(b'bool monk_t::validate_actor()')
+        end = upstream.index(b'bool monk_t::validate_fight_style', start)
+        validate_actor = upstream[start:end]
+        old_condition = b'if ( count < expected && count != 0 )'
+        new_condition = b'if ( sim->skill_damage_export_file.empty() && count < expected && count != 0 )'
+        self.assertEqual(validate_actor.count(old_condition), 1)
+        try:
+            with tempfile.TemporaryDirectory(prefix='simc-audited-replay-') as tmpdir:
+                env = os.environ.copy()
+                env['GIT_INDEX_FILE'] = str(Path(tmpdir) / 'index')
+                git('read-tree', revision, env=env)
+                for name in names:
+                    with self.subTest(patch=name):
+                        if name == original_name:
+                            # Both directions must still reject the immutable historical context.
+                            for direction in ([], ['--reverse']):
+                                rejected = git(
+                                    'apply', '--cached', '--check', *direction, '-',
+                                    env=env, content=original, check=False,
+                                )
+                                self.assertNotEqual(rejected.returncode, 0)
+                                self.assertIn(b'patch does not apply', rejected.stderr)
+                        content = overrides[name] if name in overrides else (patch_dir / name).read_bytes()
+                        forward = git(
+                            'apply', '--cached', '--check', '-', env=env,
+                            content=content, check=False,
+                        )
+                        if forward.returncode:
+                            reverse = git(
+                                'apply', '--cached', '--reverse', '--check', '-',
+                                env=env, content=content, check=False,
+                            )
+                            self.assertEqual(
+                                reverse.returncode, 0,
+                                (forward.stderr + reverse.stderr).decode(errors='replace'),
+                            )
+                        else:
+                            git('apply', '--cached', '-', env=env, content=content)
+                final_tree = git('write-tree', env=env).stdout.decode().strip()
+                patched = git('show', f':{monk_path}', env=env).stdout
+                start = patched.index(b'bool monk_t::validate_actor()')
+                end = patched.index(b'bool monk_t::validate_fight_style', start)
+                self.assertEqual(
+                    patched[start:end], validate_actor.replace(old_condition, new_condition),
+                )
+                print(f'Audited SimC replay: {len(names)} patches; final tree {final_tree}')
+        finally:
+            self.assertEqual(git('rev-parse', 'HEAD').stdout, head)
+            self.assertEqual(git('status', '--porcelain').stdout, status)
+            self.assertEqual(source_index.read_bytes(), index_before)
+
     @override_settings(SIMC_CONFIG={})
     def test_wow_build_resolution_uses_new_binary_identity_among_multiple_candidates(self):
         from botend.management.commands.update_simc_binary import Command
