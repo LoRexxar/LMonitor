@@ -4,6 +4,7 @@ import json
 import os
 import re
 import tempfile
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, List, Optional
 
 from django.conf import settings
@@ -151,27 +152,26 @@ def _fmt_num(value) -> str:
     if value is None or value == "":
         return "-"
     try:
-        num = float(value)
-        if num.is_integer():
-            return str(int(num))
-        return f"{num:.1f}".rstrip("0").rstrip(".")
-    except Exception:
-        return str(value)
+        num = Decimal(str(value))
+        if not num.is_finite():
+            return "-"
+        text = f"{num:.2f}"
+        return "0.00" if text == "-0.00" else text
+    except (InvalidOperation, TypeError, ValueError):
+        return "-"
 
 
 def _fmt_delta(current, previous) -> str:
     if current is None or previous is None:
         return "-"
     try:
-        delta = float(current) - float(previous)
-    except Exception:
+        delta = Decimal(str(current)) - Decimal(str(previous))
+    except (InvalidOperation, TypeError, ValueError):
         return "-"
-    if abs(delta) < 0.05:
-        return "0"
-    prefix = "+" if delta > 0 else ""
-    if float(delta).is_integer():
-        return f"{prefix}{int(delta)}"
-    return f"{prefix}{delta:.1f}".rstrip("0").rstrip(".")
+    text = _fmt_num(delta)
+    if text in {"-", "0.00"}:
+        return text
+    return ("+" if delta > 0 else "") + text
 
 
 def _source_datetime(value):
@@ -490,57 +490,56 @@ def _latest_cutoff_season() -> str:
 
 def collect_cutoff_section(report_date: datetime.date, previous_ext: Optional[Dict[str, Any]] = None,
                            published_ext: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    season = _latest_cutoff_season()
-    rows = list(
-        PortalMplusSeasonCutoff.objects.filter(season=season).order_by("region")
-        if season != "unknown"
-        else PortalMplusSeasonCutoff.objects.none()
-    )
+    frozen_by_region = (((published_ext or {}).get("cutoffs") or {}).get("by_region") or {})
+    # Start with the edition's facts, not today's mutable central rows.  Even an
+    # absent region, empty central table or season rollover cannot erase them.
+    current_by_region = {region: {**snapshot, "snapshot_note": '沿用本日已发布快照；' + (
+                             '时间为北京时间' if snapshot.get('source_timezone') == 'Asia/Shanghai'
+                             else '原记录未保存来源时区')}
+                         for region, snapshot in frozen_by_region.items()
+                         if region in REGION_LABELS and isinstance(snapshot, dict)}
+    frozen_seasons = {snapshot.get("season") for snapshot in current_by_region.values()}
+    season = (next(iter(frozen_seasons)) if len(frozen_seasons) == 1 else "unknown"
+              ) if current_by_region else _latest_cutoff_season()
+    rows = (PortalMplusSeasonCutoff.objects.filter(season=season).order_by("region")
+            if season and season != "unknown" else PortalMplusSeasonCutoff.objects.none())
     previous_by_region = (((previous_ext or {}).get("cutoffs") or {}).get("by_region") or {})
-    items = []
     _, report_end = _date_range(report_date)
     for row in rows:
+        if row.region in current_by_region or row.region not in REGION_LABELS:
+            continue
         source_stamp = _source_datetime(row.source_updated_at)
         if source_stamp and source_stamp >= report_end:
-            # A rebuild must not replace a past edition's figures with tomorrow's.
-            frozen = ((published_ext or {}).get('cutoffs', {}).get('by_region', {}).get(row.region) or {})
-            if frozen.get('season') == season and frozen.get('cutoff_0_1') is not None:
-                prior = previous_by_region.get(row.region) or {}
-                items.append({**frozen, 'region': row.region,
-                    'region_label': REGION_LABELS.get(row.region, row.region.upper()),
-                    'cutoff_0_1_prev': prior.get('cutoff_0_1'), 'cutoff_1_prev': prior.get('cutoff_1'),
-                    'cutoff_0_1_delta': _fmt_delta(frozen.get('cutoff_0_1'), prior.get('cutoff_0_1')),
-                    'cutoff_1_delta': _fmt_delta(frozen.get('cutoff_1'), prior.get('cutoff_1')),
-                    'snapshot_note': '沿用本日已发布快照；' + ('时间为北京时间' if frozen.get('source_timezone') == 'Asia/Shanghai' else '原记录未保存来源时区')})
+            # Only unfrozen regions in this edition's season may be filled, and
+            # never with tomorrow's central values.
             continue
-        prev_snapshot = previous_by_region.get(row.region) or {}
-        cutoff_0_1_prev = row.cutoff_0_1_prev
-        cutoff_1_prev = row.cutoff_1_prev
-        if cutoff_0_1_prev is None:
-            cutoff_0_1_prev = prev_snapshot.get("cutoff_0_1")
-        if cutoff_1_prev is None:
-            cutoff_1_prev = prev_snapshot.get("cutoff_1")
-        items.append(
-            {
-                "season": row.season,
-                "region": row.region,
-                "region_label": REGION_LABELS.get(row.region, row.region.upper()),
-                "cutoff_0_1": row.cutoff_0_1,
-                "cutoff_0_1_prev": cutoff_0_1_prev,
-                "cutoff_0_1_delta": _fmt_delta(row.cutoff_0_1, cutoff_0_1_prev),
-                "cutoff_1": row.cutoff_1,
-                "cutoff_1_prev": cutoff_1_prev,
-                "cutoff_1_delta": _fmt_delta(row.cutoff_1, cutoff_1_prev),
-                "source_updated_at": _fmt_source_time(row.source_updated_at),
-                "source_timezone": "Asia/Shanghai" if source_stamp else "",
-            }
-        )
+        if row.cutoff_0_1 is None and row.cutoff_1 is None:
+            continue
+        current_by_region[row.region] = {
+            "season": row.season,
+            "cutoff_0_1": row.cutoff_0_1,
+            "cutoff_1": row.cutoff_1,
+            "source_updated_at": _fmt_source_time(row.source_updated_at),
+            "source_timezone": "Asia/Shanghai" if source_stamp else "",
+        }
+    items = []
+    for region, item in sorted(current_by_region.items()):
+        item.update(region=region, region_label=REGION_LABELS[region])
+        prior = previous_by_region.get(region) or {}
+        if not item.get("season") or prior.get("season") != item.get("season"):
+            prior = {}
+        # Compare only the same region/season in yesterday's published edition.
+        # Central *_prev fields are collector latches, not daily-report facts.
+        for field in ("cutoff_0_1", "cutoff_1"):
+            item[field + "_prev"] = prior.get(field)
+            item[field + "_delta"] = _fmt_delta(item.get(field), prior.get(field))
+        items.append(item)
     return {"key": "cutoffs", "title": SECTION_TITLES["cutoffs"], "season": season, "items": items,
-        "notice": "冲分参考快照，见各区来源更新时间；变化是相对上次记录，不代表自然日涨幅。"}
+        "notice": f"冲分参考快照，见各区来源更新时间；变化较昨日已发布快照（{report_date - datetime.timedelta(days=1):%Y-%m-%d}），采样时点可能不同，不代表精确自然日涨幅；无可比昨日快照时显示“-”。"}
 
 
 def _load_previous_ext(report_date: datetime.date) -> Dict[str, Any]:
-    row = WowDailyReport.objects.filter(report_date__lt=report_date).order_by("-report_date").first()
+    row = WowDailyReport.objects.filter(report_date=report_date - datetime.timedelta(days=1)).first()
     if not row or not row.ext_json:
         return {}
     try:
@@ -646,7 +645,7 @@ def _render_cutoff_items(items: List[Dict[str, Any]]) -> str:
         return '<p class="empty">今日暂无大秘境分数线数据。</p>'
     rows = [
         "<table>",
-        "<thead><tr><th>区域</th><th>0.1%</th><th>上次 0.1%</th><th>变化</th><th>1%</th><th>上次 1%</th><th>变化</th><th>数据更新时间</th></tr></thead>",
+        "<thead><tr><th>区域</th><th>0.1%</th><th>昨日已发布 0.1%</th><th>较昨日已发布快照</th><th>1%</th><th>昨日已发布 1%</th><th>较昨日已发布快照</th><th>数据更新时间</th></tr></thead>",
         "<tbody>",
     ]
     for item in items:

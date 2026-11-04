@@ -63,6 +63,169 @@ class WowDailyReportDashboardListTest(TestCase):
         self.assertEqual(data['sections'][1]['label'], '北美轮换')
 
 
+class WowDailyReportCutoffSnapshotTest(TestCase):
+    def test_frozen_cutoffs_survive_central_season_and_region_changes(self):
+        from bs4 import BeautifulSoup
+
+        day = date(2026, 11, 3)
+        season = 'season-mn-2'
+        frozen = {region: {'season': season, 'cutoff_0_1': 100.01 + n,
+                           'cutoff_1': None if region == 'us' else 90.02 + n,
+                           'source_updated_at': '2026-11-03 20:58',
+                           'source_timezone': 'Asia/Shanghai'}
+                  for n, region in enumerate(('cn', 'eu', 'us'))}
+        baseline = {region: {**snapshot, 'cutoff_0_1': snapshot['cutoff_0_1'] - 1}
+                    for region, snapshot in frozen.items()}
+        cases = ('new_season', 'missing_region', 'no_central_rows', 'empty_central_values',
+                 'fill_same_season', 'reject_future_fill', 'reject_new_season_fill')
+        with tempfile.TemporaryDirectory() as base_dir, override_settings(BASE_DIR=base_dir):
+            for case in cases:
+                with self.subTest(case=case):
+                    WowDailyReport.objects.all().delete()
+                    PortalMplusSeasonCutoff.objects.all().delete()
+                    saved = {r: v for r, v in frozen.items()
+                             if r != 'us' or case not in ('fill_same_season', 'reject_future_fill',
+                                                         'reject_new_season_fill')}
+                    prior = WowDailyReport.objects.create(
+                        report_date=day - timedelta(days=1), md_path='prior.html',
+                        ext_json=json.dumps({'cutoffs': {'by_region': baseline}}))
+                    WowDailyReport.objects.create(report_date=day, md_path='current.html',
+                        ext_json=json.dumps({'cutoffs': {'by_region': saved}}))
+                    for region in ('cn', 'eu', 'us'):
+                        if case == 'no_central_rows' or (case == 'missing_region' and region == 'eu'):
+                            continue
+                        PortalMplusSeasonCutoff.objects.create(
+                            season='season-mn-3' if case in ('new_season', 'reject_new_season_fill') else season,
+                            region=region, cutoff_0_1=None if case == 'empty_central_values' else 9999,
+                            cutoff_1=None if case == 'empty_central_values' else 8888,
+                            source_updated_at='2026-11-04T01:00:00Z' if case == 'reject_future_fill'
+                                              else '2026-11-03T12:58:00Z')
+                    central_before = list(PortalMplusSeasonCutoff.objects.order_by('pk').values())
+                    expected = dict(saved)
+                    if case == 'fill_same_season':
+                        expected['us'] = {**frozen['us'], 'cutoff_0_1': 9999, 'cutoff_1': 8888}
+                    meta = generate_wow_daily_report(report_date=day, use_llm=False)
+                    self.assertEqual(meta['ext']['cutoffs']['by_region'], expected)
+                    report = WowDailyReport.objects.get(report_date=day)
+                    self.assertEqual(json.loads(report.ext_json), meta['ext'])
+                    with open(meta['full_path'], encoding='utf-8') as report_file:
+                        section = BeautifulSoup(report_file.read(), 'html.parser').select_one(
+                            'section[data-section="cutoffs"]')
+                    self.assertEqual(len(section.select('tbody tr')), len(expected))
+                    self.assertIn('+1.00', section.get_text())
+                    self.assertNotIn('season-mn-3', str(section))
+                    prior.refresh_from_db()
+                    self.assertEqual(json.loads(prior.ext_json)['cutoffs']['by_region'], baseline)
+                    self.assertEqual(list(PortalMplusSeasonCutoff.objects.order_by('pk').values()),
+                                     central_before)
+
+    def test_daily_cutoffs_compare_exact_yesterday_in_live_and_frozen_editions(self):
+        from bs4 import BeautifulSoup
+
+        day = date(2026, 11, 3)
+        season = 'season-mn-2'
+        labels = {'cn': '国服', 'eu': '欧服', 'us': '美服'}
+        production = {'cn': (4133.81, 3909.58), 'eu': (4089.91, 3861.94),
+                      'us': (4037.60, 3778.44)}
+        yesterday = {'cn': {'season': season, 'cutoff_0_1': 4132.79, 'cutoff_1': 3906.71},
+                     'eu': {'season': season, 'cutoff_0_1': 4086.99, 'cutoff_1': 3853.74},
+                     'us': {'season': season, 'cutoff_0_1': 4033.46, 'cutoff_1': 3775.96}}
+        scenarios = [
+            ('production', production, yesterday, 1, {
+                'cn': ['4133.81', '4132.79', '+1.02', '3909.58', '3906.71', '+2.87'],
+                'eu': ['4089.91', '4086.99', '+2.92', '3861.94', '3853.74', '+8.20'],
+                'us': ['4037.60', '4033.46', '+4.14', '3778.44', '3775.96', '+2.48'],
+            }),
+            ('missing_yesterday', {'cn': production['cn']}, yesterday, 2, {
+                'cn': ['4133.81', '-', '-', '3909.58', '-', '-'],
+            }),
+            ('season_and_field_identity', production, {
+                'cn': {**yesterday['cn'], 'season': 'old-season'},
+                'eu': {'season': season, 'cutoff_0_1': 4086.99},
+                # No US snapshot: another region cannot stand in for it.
+            }, 1, {
+                'cn': ['4133.81', '-', '-', '3909.58', '-', '-'],
+                'eu': ['4089.91', '4086.99', '+2.92', '3861.94', '-', '-'],
+                'us': ['4037.60', '-', '-', '3778.44', '-', '-'],
+            }),
+            ('zero_negative_and_raw_decimal', {'cn': (0, 1.01), 'eu': (10.014, 20.01),
+                                               'us': (3, 4)}, {
+                'cn': {'season': season, 'cutoff_0_1': 0, 'cutoff_1': 1.03},
+                'eu': {'season': season, 'cutoff_0_1': 10.006, 'cutoff_1': 20},
+                'us': {'season': season, 'cutoff_0_1': 3.02, 'cutoff_1': 4},
+            }, 1, {
+                'cn': ['0.00', '0.00', '0.00', '1.01', '1.03', '-0.02'],
+                'eu': ['10.01', '10.01', '+0.01', '20.01', '20.00', '+0.01'],
+                'us': ['3.00', '3.02', '-0.02', '4.00', '4.00', '0.00'],
+            }),
+        ]
+        with tempfile.TemporaryDirectory() as base_dir, override_settings(BASE_DIR=base_dir):
+            for name, current, baseline, days_back, expected in scenarios:
+                with self.subTest(scenario=name):
+                    WowDailyReport.objects.all().delete()
+                    PortalMplusSeasonCutoff.objects.all().delete()
+                    prior = WowDailyReport.objects.create(
+                        report_date=day - timedelta(days=days_back),
+                        md_path='portal/reports/prior.html',
+                        ext_json=json.dumps({'cutoffs': {'by_region': baseline}}),
+                    )
+                    prior_ext = prior.ext_json
+                    # Legacy source clocks without a saved zone must stay unknown.
+                    legacy_clock = name == 'zero_negative_and_raw_decimal'
+                    source = '2026-11-03 20:58' if legacy_clock else '2026-11-03T12:58:00Z'
+                    snapshots = {}
+                    for region, (score, score_1) in current.items():
+                        PortalMplusSeasonCutoff.objects.create(
+                            season=season, region=region, cutoff_0_1=score, cutoff_1=score_1,
+                            cutoff_0_1_prev=score, cutoff_1_prev=score_1,
+                            source_updated_at=source,
+                        )
+                        snapshots[region] = {'season': season, 'cutoff_0_1': score,
+                            'cutoff_1': score_1, 'source_updated_at': '2026-11-03 20:58',
+                            'source_timezone': '' if legacy_clock else 'Asia/Shanghai'}
+                    for branch in ('live', 'frozen_future', 'frozen_same_day'):
+                        with self.subTest(branch=branch):
+                            if branch != 'live':
+                                # Both future and still-eligible newer central facts must
+                                # leave this edition's already published values intact.
+                                PortalMplusSeasonCutoff.objects.update(
+                                    cutoff_0_1=9999, cutoff_1=8888,
+                                    source_updated_at=('2026-11-04T07:03:43Z'
+                                        if branch == 'frozen_future' else '2026-11-03T13:00:00Z'),
+                                )
+                            central_before = list(PortalMplusSeasonCutoff.objects.order_by('pk').values())
+                            meta = generate_wow_daily_report(report_date=day, use_llm=False)
+                            published = WowDailyReport.objects.get(report_date=day)
+                            ext = json.loads(published.ext_json)
+                            self.assertEqual(ext, meta['ext'])
+                            self.assertEqual(ext['cutoffs']['by_region'], snapshots)
+                            with open(meta['full_path'], encoding='utf-8') as report_file:
+                                document = report_file.read()
+                            section = BeautifulSoup(document, 'html.parser').select_one(
+                                'section[data-section="cutoffs"]')
+                            self.assertIsNotNone(section)
+                            rows = [row.find_all('td') for row in section.select('tbody tr')]
+                            actual = {cells[0].get_text(): [c.get_text() for c in cells[1:7]]
+                                      for cells in rows}
+                            self.assertEqual(actual, {labels[r]: cells for r, cells in expected.items()})
+                            self.assertIn('较昨日已发布快照', section.get_text())
+                            self.assertIn('2026-11-02', section.get_text())
+                            self.assertIn('采样时点可能不同', section.get_text())
+                            self.assertIn('昨日已发布', section.select_one('thead').get_text())
+                            self.assertNotIn('snapshot_note', str(section))
+                            self.assertNotIn('原记录未保存来源时区', str(section))
+                            self.assertEqual(list(PortalMplusSeasonCutoff.objects.order_by('pk').values()),
+                                             central_before)
+                            prior.refresh_from_db()
+                            self.assertEqual(prior.ext_json, prior_ext)
+            with self.subTest(scenario='future_without_frozen'):
+                WowDailyReport.objects.filter(report_date=day).delete()
+                PortalMplusSeasonCutoff.objects.update(source_updated_at='2026-11-04T07:03:43Z')
+                meta = generate_wow_daily_report(report_date=day, use_llm=False)
+                self.assertEqual(meta['ext']['cutoffs']['by_region'], {})
+                self.assertEqual(meta['ext']['sections']['cutoffs']['count'], 0)
+
+
 class WowDailyReportHtmlGeneratorTest(TestCase):
     def setUp(self):
         self.tmpdir_ctx = tempfile.TemporaryDirectory()
@@ -137,6 +300,15 @@ class WowDailyReportHtmlGeneratorTest(TestCase):
                     source_updated_at="2026-07-01T00:00:00Z",
                 )
 
+            # Daily deltas compare published editions, not the collector's latch.
+            WowDailyReport.objects.create(
+                report_date=self.report_date - timedelta(days=1),
+                md_path='portal/reports/yesterday.html',
+                ext_json=json.dumps({'cutoffs': {'by_region': {
+                    region: {'season': 'season-mn-1', 'cutoff_0_1': prev, 'cutoff_1': prev - 300}
+                    for region, prev in [('cn', 3820), ('eu', 3818), ('us', 3790)]
+                }}}),
+            )
             meta = generate_wow_daily_report(report_date=self.report_date, use_llm=False)
 
             self.assertTrue(meta["md_path"].endswith(".html"))
