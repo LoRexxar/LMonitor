@@ -14,9 +14,9 @@ class PublicScopeInventoryTests(TestCase):
                        racial_policy='exclude_all')
         payload['talent_catalog'] += [
             {'trait_entry_id': 201, 'class_id': 12, 'tree_index': 4, 'subtree_id': 126,
-             'spell_id': 0, 'spec_ids': [1480], 'effects': []},
+             'spell_id': 0, 'spec_ids': [1480], 'starter_spec_ids': [], 'effects': []},
             {'trait_entry_id': 202, 'class_id': 12, 'tree_index': 3, 'subtree_id': 126,
-             'spell_id': 200, 'spec_ids': [], 'effects': []}]
+             'spell_id': 200, 'spec_ids': [], 'starter_spec_ids': [], 'effects': []}]
         with self.assertRaisesRegex(ValueError, '英雄节点专精归属与原生选择节点不一致'):
             service._load_global_damage_talent_catalog(payload)
         payload['talent_catalog'][-1]['spec_ids'] = [1480]
@@ -57,6 +57,9 @@ class PublicScopeInventoryTests(TestCase):
                    'simc_revision': snapshot.simc_revision, 'game_build': snapshot.game_build,
                    'talents': [], 'talent_catalog': [{'trait_entry_id': 101, 'spell_id': 100,
                        'effects': [{'index': 1, 'type': 6, 'subtype': 290, 'value': 2, 'flags': [0, 0, 0, 0]}]}]}
+        if revision >= 58:
+            payload['talent_catalog'][0].update(
+                class_id=1, tree_index=1, subtree_id=0, spec_ids=[71], starter_spec_ids=[])
         return service, payload
 
     def test_same_protocol_with_missing_public_effect_is_rejected(self):

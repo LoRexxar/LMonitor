@@ -200,6 +200,8 @@ class SimcSkillDamageScopeHandoffTests(TestCase):
             }],
             'talent_catalog': [{
                 'trait_entry_id': 101, 'spell_id': 100,
+                'class_id': 1, 'tree_index': 2, 'subtree_id': 0,
+                'spec_ids': [72], 'starter_spec_ids': [],
                 'effects': [{
                     'index': 1, 'type': 6, 'subtype': 290, 'value': 2,
                     'flags': [0, 0, 0, 0],
@@ -207,6 +209,122 @@ class SimcSkillDamageScopeHandoffTests(TestCase):
             }],
         }
         return service, payload
+
+    def test_planner_filters_native_owners_before_scaffolds_and_actor_inputs(self):
+        service, source = self.scope_fixture()
+        active, _ = WowTalentVersion.objects.update_or_create(
+            key='retail', defaults={'is_active': True, 'status': 'active'},
+        )
+        # Synthetic ownership facts, including the real failing Felblade identity.
+        facts = [
+            (112928, 1, [577], [], 0),
+            (900001, 1, [], [577], 0),  # Generic even with a starter specialization.
+            (900002, 1, [577, 1480], [1480], 0),  # Already-unioned granted owner.
+            (900003, 2, [1480], [], 0),
+            (900004, 3, [581], [], 124),  # Metadata name alone allows this hero tree.
+            (900005, 3, [1480], [], 126),
+            (900006, 4, [581], [], 124),
+            (900007, 4, [1480], [], 126),
+        ]
+        for entry, tree, specs, starters, subtree in facts:
+            source['talent_catalog'].append({
+                'trait_entry_id': entry, 'spell_id': entry + 1,
+                'class_id': 12, 'tree_index': tree, 'subtree_id': subtree,
+                'spec_ids': specs, 'starter_spec_ids': starters, 'effects': [],
+            })
+            if tree == 4:
+                continue
+            for spec_name in ('Devourer', 'Havoc'):
+                WowTalentNodeMetadata.objects.create(
+                    talent_version=active, class_name='DemonHunter', spec_name=spec_name,
+                    tree_type={1: 'class', 2: 'spec', 3: 'hero'}[tree],
+                    node_id=entry, spell_id=232893 if entry == 112928 else entry,
+                    db2_subtree_id=subtree, name=f'Entry {entry}', max_points=1,
+                    row=1, column=1,
+                    parents_json=[900001] if entry == 900002 else [],
+                )
+        # A wrong-class native entry is also excluded, not trusted via Meta's class.
+        WowTalentNodeMetadata.objects.create(
+            talent_version=active, class_name='DemonHunter', spec_name='Devourer',
+            tree_type='class', node_id=101, spell_id=100, name='Wrong class', max_points=1,
+        )
+        source['talent_catalog'].append({
+            'trait_entry_id': 900008, 'spell_id': 900008, 'class_id': 3,
+            'tree_index': 2, 'subtree_id': 0, 'spec_ids': [253],
+            'starter_spec_ids': [], 'effects': [],
+        })
+        WowTalentNodeMetadata.objects.create(
+            talent_version=active, class_name='Hunter', spec_name='BeastMastery',
+            tree_type='spec', node_id=900008, spell_id=900008, name='Hunter', max_points=1,
+        )
+        service._load_global_damage_talent_catalog(source)
+        before = copy.deepcopy(source)
+        with mock.patch('botend.services.simc_skill_damage.subprocess.run') as exporter:
+            hunter = service._talent_entries(SimpleNamespace(
+                spec='hunter_beast_mastery', class_name='hunter',
+            ))
+            self.assertEqual([row.node_id for row in hunter], [900008])
+            devourer = SimpleNamespace(spec='demonhunter_devourer', class_name='demonhunter')
+            selected = service._talent_entries(devourer)
+            self.assertEqual({row.node_id for row in selected}, {900001, 900002, 900003, 900005})
+            havoc = service._talent_entries(SimpleNamespace(
+                spec='demonhunter_havoc', class_name='demonhunter',
+            ))
+            self.assertIn(112928, {row.node_id for row in havoc})
+            self.assertIn(900001, {row.node_id for row in havoc})
+            prerequisites = service._talent_prerequisite_map(selected)
+            scaffold = service._spec_root_scaffold(selected)
+            actor_plan = plan_unique_talent_actor_configs(
+                selected, scaffold_talents=scaffold, talent_prerequisites=prerequisites,
+            )
+            generated = build_single_talent_actor_input(
+                'demonhunter="Native owner probe"\nspec=devourer\n', 'demonhunter', selected,
+                scaffold_talents=scaffold, talent_prerequisites=prerequisites,
+                actor_plan=actor_plan['actors'],
+            )
+            self.assertEqual([row.node_id for row in scaffold], [900003])
+            self.assertEqual([row.node_id for row in prerequisites[
+                next(row.pk for row in selected if row.node_id == 900002)
+            ]], [900001])
+            self.assertNotIn('112928:1', generated)
+            self.assertNotIn('900004:1', generated)
+            self.assertNotIn('101:1', generated)
+            self.assertIn('900001:1', generated)
+            self.assertIn('900002:1', generated)
+            self.assertIn('900005:1', generated)
+            exporter.assert_not_called()
+        self.assertEqual(source, before)
+        self.assertIs(service._native_talent_by_entry[112928], source['talent_catalog'][1])
+
+    def test_planner_native_ownership_fails_closed_for_missing_and_invalid_catalog(self):
+        service, source = self.scope_fixture()
+        active, _ = WowTalentVersion.objects.update_or_create(
+            key='retail', defaults={'is_active': True, 'status': 'active'},
+        )
+        WowTalentNodeMetadata.objects.create(
+            talent_version=active, class_name='Warrior', spec_name='Fury', tree_type='spec',
+            node_id=999, spell_id=999, name='Unknown native entry', max_points=1,
+        )
+        service._load_global_damage_talent_catalog(source)
+        with self.assertRaisesMessage(ValueError, '999'):
+            service._talent_entries(SimpleNamespace(spec='warrior_fury', class_name='warrior'))
+        mutations = [
+            lambda rows: rows.append(copy.deepcopy(rows[0])),
+            lambda rows: rows[0].pop('spec_ids'),
+            lambda rows: rows[0].update(spec_ids=[True]),
+            lambda rows: rows[0].update(starter_spec_ids='72'),
+            lambda rows: rows[0].update(class_id=0),
+            lambda rows: rows.append({**rows[0], 'trait_entry_id': 102, 'class_id': 2}),
+            lambda rows: rows.append({**rows[0], 'trait_entry_id': 102, 'spec_ids': [577]}),
+        ]
+        for mutate in mutations:
+            invalid = copy.deepcopy(source)
+            mutate(invalid['talent_catalog'])
+            rejected, _ = self.scope_fixture()
+            with self.subTest(mutation=mutations.index(mutate)):
+                with self.assertRaisesMessage(ValueError, '原生天赋归属'):
+                    rejected._load_global_damage_talent_catalog(invalid)
+                self.assertFalse(hasattr(rejected, '_global_damage_catalog'))
 
     def isolated_child_result(self, command):
         actor = {

@@ -27,6 +27,7 @@ from django.utils import timezone
 from botend.constants.hero_talents import (
     hero_subtree_name_by_id, hero_subtree_name_zh, spec_hero_subtree_names,
 )
+from botend.constants.wow import SPEC_IDENTITY_MAP, canonical_class_spec
 from botend.constants.simc_specs import SIMC_REQUIRED_PROFILE_SPECS
 from botend.constants.simc_effect_ownership import global_effect_matches_owner
 from botend.models import (
@@ -5020,6 +5021,19 @@ class SimcSkillDamageSnapshotService:
         class_name, spec_name = canonical_simc_profile_identity(
             getattr(profile, 'spec', ''), getattr(profile, 'class_name', ''),
         )
+        native_owners = None
+        schema_revision = getattr(self.snapshot, 'schema_revision', 0)
+        if type(schema_revision) is int and schema_revision >= 58:
+            # Plan every selectable input (including scaffolds/prerequisites) from
+            # the same validated binary catalog, before any actor configurations.
+            self._global_damage_talent_catalog()
+            identity = canonical_class_spec(class_name, spec_name)
+            spec_id = next((key for key, pair in SPEC_IDENTITY_MAP.items()
+                            if pair == identity), None)
+            class_id = self._native_talent_class_by_spec.get(spec_id)
+            if class_id is None:
+                raise ValueError(f'{profile.spec} 缺少明确的原生天赋归属。')
+            native_owners = self._native_talent_by_entry
         rows = WowTalentNodeMetadata.objects.filter(
             talent_version=self._talent_version(),
             class_name__iexact=class_name,
@@ -5041,6 +5055,17 @@ class SimcSkillDamageSnapshotService:
             key = (str(row.tree_type or '').lower(), row.node_id)
             if not isinstance(row.node_id, int) or row.node_id <= 0 or key in seen:
                 continue
+            if native_owners is not None:
+                native = native_owners.get(row.node_id)
+                if native is None:
+                    raise ValueError(f'{profile.spec} 天赋 {row.node_id} 缺少原生天赋归属。')
+                # spec_ids already contains native default grants and hero
+                # selection ownership. Empty means generic: never re-union or
+                # restrict it using starter_spec_ids or metadata spell wrappers.
+                if native['class_id'] != class_id or (
+                    native['spec_ids'] and spec_id not in native['spec_ids']
+                ):
+                    continue
             seen.add(key)
             selected.append(row)
         if not selected:
@@ -5316,6 +5341,40 @@ class SimcSkillDamageSnapshotService:
             raise ValueError('当前数据版本要求完整原生注册来源，请重新编译 SimC。')
         if type(schema_revision) is int and schema_revision >= 58 and payload.get('hero_ownership_inventory_version') != 1:
             raise ValueError('当前数据版本要求英雄树选择节点归属，请重新编译 SimC。')
+        native_by_entry = {}
+        native_class_by_spec = {}
+        if type(schema_revision) is int and schema_revision >= 58:
+            class_by_name = {}
+            name_by_class = {}
+            for row in native:
+                entry_id = row.get('trait_entry_id')
+                class_id = row.get('class_id')
+                tree_index = row.get('tree_index')
+                if (
+                    type(entry_id) is not int or entry_id <= 0 or entry_id in native_by_entry
+                    or type(class_id) is not int or class_id < 0
+                    or type(tree_index) is not int or tree_index <= 0
+                    or (tree_index in (1, 2, 3, 4) and class_id == 0)
+                    or type(row.get('subtree_id')) is not int or row['subtree_id'] < 0
+                    or any(
+                        not isinstance(row.get(field), list)
+                        or any(type(spec) is not int or spec not in SPEC_IDENTITY_MAP
+                               for spec in row[field])
+                        or len(set(row[field])) != len(row[field])
+                        for field in ('spec_ids', 'starter_spec_ids')
+                    )
+                ):
+                    raise ValueError('原生天赋归属目录格式无效或 trait entry 重复。')
+                native_by_entry[entry_id] = row  # Borrow, never copy the native row graph.
+                for spec_id in row['spec_ids']:
+                    class_name = SPEC_IDENTITY_MAP[spec_id][0]
+                    if (
+                        class_id == 0
+                        or native_class_by_spec.setdefault(spec_id, class_id) != class_id
+                        or class_by_name.setdefault(class_name, class_id) != class_id
+                        or name_by_class.setdefault(class_id, class_name) != class_name
+                    ):
+                        raise ValueError('原生天赋归属目录的职业与专精矛盾。')
         if type(schema_revision) is int and schema_revision >= 58:
             selection = {}
             for row in native:
@@ -5366,6 +5425,9 @@ class SimcSkillDamageSnapshotService:
             if key in payload
         }
         self._native_talent_catalog = native
+        if type(schema_revision) is int and schema_revision >= 58:
+            self._native_talent_by_entry = native_by_entry
+            self._native_talent_class_by_spec = native_class_by_spec
         self._global_damage_catalog = catalog
         return catalog
 
