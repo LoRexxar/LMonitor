@@ -204,6 +204,9 @@
             const members = rows.filter((row) => resolvedTier(row, projection) === tier);
             if (state.source === 'mythicstats' && !members.length) return;
             const group = element('article', `mplus-rank-tier-group mplus-rank-tier-group-${tier.toLowerCase()}`);
+            // Keep the new numeric DPS bounds readable without changing the
+            // forwarded Mythicstats rail or shrinking its existing typography.
+            if (state.source === 'local') group.style.gridTemplateColumns = '64px minmax(0, 1fr)';
             const label = element('div', 'mplus-rank-tier-label');
             const range = element('span', '', state.source === 'mythicstats' ? '' : rangeLabel);
             if (state.source === 'local') {
