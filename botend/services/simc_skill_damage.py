@@ -5353,6 +5353,18 @@ class SimcSkillDamageSnapshotService:
                                for part in fact['global_components'] for index in part['effect_indices']}
             if expected_public - declared_public:
                 raise ValueError('原生目录遗漏公共结果分量，请应用共享作用域补丁并重新编译 SimC。')
+        # Cache only validated source headers, never the full raw scope graph.
+        # Missing legacy capabilities stay missing across the process boundary.
+        self._global_damage_catalog_header = {
+            key: payload[key]
+            for key in (
+                'schema_version', 'simc_revision', 'game_build', 'data_branch',
+                'racial_policy', 'probe_context_inventory_version',
+                'native_registration_inventory_version',
+                'hero_ownership_inventory_version', 'scope_inventory_version',
+            )
+            if key in payload
+        }
         self._native_talent_catalog = native
         self._global_damage_catalog = catalog
         return catalog
@@ -6245,12 +6257,10 @@ class SimcSkillDamageSnapshotService:
         with tempfile.TemporaryDirectory(prefix='simc-skill-damage-profile-') as workdir:
             output_path = os.path.join(workdir, 'profile.json')
             catalog_path = Path(workdir) / 'scope.json'
+            catalog = self._global_damage_talent_catalog()
             catalog_path.write_text(json.dumps({
-                'schema_version': self.EXPORTER_SCHEMA_REVISION,
-                'simc_revision': self.snapshot.simc_revision,
-                'game_build': self.snapshot.game_build,
-                'data_branch': 'ptr' if getattr(self.backend, 'identifier', '') == 'ptr' else 'retail',
-                'talents': list(self._global_damage_talent_catalog().values()),
+                **self._global_damage_catalog_header,
+                'talents': list(catalog.values()),
                 'talent_catalog': getattr(self, '_native_talent_catalog', []),
             }, ensure_ascii=False), encoding='utf-8')
             command = [

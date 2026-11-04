@@ -171,6 +171,186 @@ class SimcSkillDamageSnapshotCommandTests(TestCase):
         self.assertEqual(output_actor, actor)
 
 
+class SimcSkillDamageScopeHandoffTests(TestCase):
+    def scope_fixture(self, schema_revision=58):
+        snapshot = SimpleNamespace(
+            pk=1, simc_revision='c' * 40, game_build='12.1.5.70575',
+            schema_revision=schema_revision,
+        )
+        service = SimcSkillDamageSnapshotService(
+            snapshot, backend=SimpleNamespace(pk=None, identifier='retail'),
+        )
+        # Synthetic source facts exercise the wire contract, not native capability attestation.
+        payload = {
+            'schema_version': service.EXPORTER_SCHEMA_REVISION,
+            'simc_revision': snapshot.simc_revision,
+            'game_build': snapshot.game_build,
+            'data_branch': 'ptr',
+            'racial_policy': 'exclude_all',
+            'probe_context_inventory_version': 1,
+            'native_registration_inventory_version': 1,
+            'hero_ownership_inventory_version': 1,
+            'scope_inventory_version': 5,
+            'talents': [{
+                'trait_entry_id': 101, 'spell_id': 100,
+                'evidence': 'dbc_global_damage_talent', 'dbc_base_multiplier': None,
+                'remove_talent': True, 'has_rank_scaling': False,
+                'global_effect_indices': [1],
+                'global_components': [{'spell_id': 100, 'effect_indices': [1]}],
+            }],
+            'talent_catalog': [{
+                'trait_entry_id': 101, 'spell_id': 100,
+                'effects': [{
+                    'index': 1, 'type': 6, 'subtype': 290, 'value': 2,
+                    'flags': [0, 0, 0, 0],
+                }],
+            }],
+        }
+        return service, payload
+
+    def isolated_child_result(self, command):
+        actor = {
+            'class': 'warrior', 'specialization': 'fury', 'actions': [],
+            'variant_model': 'single_talent_runtime',
+            'action_universe': 'dbc_spellbook_selected_traits_and_derived_actions',
+        }
+        Path(command[command.index('--output') + 1]).write_text(
+            json.dumps([actor, [], 0]), encoding='utf-8',
+        )
+        return SimpleNamespace(returncode=0, communicate=lambda **kwargs: ('', ''))
+
+    def test_isolated_scope_catalog_roundtrips_validated_source_header(self):
+        for schema_revision in (58, 54, 51):
+            with self.subTest(schema_revision=schema_revision):
+                service, source = self.scope_fixture(schema_revision)
+                if schema_revision == 54:
+                    source.update(
+                        racial_policy='legacy_policy', scope_inventory_version=2,
+                        probe_context_inventory_version=7,
+                        native_registration_inventory_version=8,
+                        hero_ownership_inventory_version=9,
+                    )
+                elif schema_revision == 51:
+                    for key in (
+                        'data_branch', 'racial_policy', 'scope_inventory_version',
+                        'probe_context_inventory_version',
+                        'native_registration_inventory_version',
+                        'hero_ownership_inventory_version',
+                    ):
+                        source.pop(key)
+                expected = copy.deepcopy(source)
+                source['spell_catalog'] = {'unused_large_graph': [1, 2, 3]}
+
+                def export_scope(command, **kwargs):
+                    output = next(arg.split('=', 1)[1] for arg in command
+                                  if arg.startswith('skill_damage_scope_export='))
+                    Path(output).write_text(json.dumps(source), encoding='utf-8')
+                    return SimpleNamespace(returncode=0, stderr='', stdout='')
+
+                def child(command, **kwargs):
+                    payload = json.loads(Path(
+                        command[command.index('--scope-catalog') + 1],
+                    ).read_text(encoding='utf-8'))
+                    child_service, _ = self.scope_fixture(schema_revision)
+                    child_catalog = child_service._load_global_damage_talent_catalog(payload)
+                    self.assertEqual(payload, expected)
+                    self.assertEqual(child_catalog, service._global_damage_catalog)
+                    self.assertEqual(child_service._native_talent_catalog, source['talent_catalog'])
+                    return self.isolated_child_result(command)
+
+                with mock.patch.object(service, '_binary_path', return_value='/unused/simc'), \
+                     mock.patch('botend.services.simc_skill_damage.subprocess.run', side_effect=export_scope) as export, \
+                     mock.patch('botend.services.simc_skill_damage.subprocess.Popen', side_effect=child) as popen:
+                    result = service._generate_profile_product_actor_isolated(
+                        SimpleNamespace(pk=1535, spec='fury', class_name='warrior'),
+                    )
+                self.assertEqual(result[1:], ([], 0))
+                export.assert_called_once()
+                popen.assert_called_once()
+
+    def test_isolated_scope_catalog_rejects_missing_or_tampered_required_header(self):
+        service, source = self.scope_fixture()
+        service._load_global_damage_talent_catalog(source)
+        fields = {
+            'racial_policy': ('normalize', '排除种族能力'),
+            'probe_context_inventory_version': (0, '原生执行上下文目录版本'),
+            'native_registration_inventory_version': (0, '完整原生注册来源'),
+            'hero_ownership_inventory_version': (0, '英雄树选择节点归属'),
+            'scope_inventory_version': (4, '完整英雄归属冻结目录'),
+        }
+        for field, (invalid_value, diagnostic) in fields.items():
+            for missing in (True, False):
+                with self.subTest(field=field, missing=missing):
+                    def corrupt(payload):
+                        if missing:
+                            payload.pop(field, None)
+                        else:
+                            payload[field] = invalid_value
+
+                    invalid_source = copy.deepcopy(source)
+                    corrupt(invalid_source)
+                    rejected_parent, _ = self.scope_fixture()
+                    with self.assertRaisesMessage(ValueError, diagnostic):
+                        rejected_parent._load_global_damage_talent_catalog(invalid_source)
+                    for attribute in (
+                        '_global_damage_catalog_header', '_native_talent_catalog',
+                        '_global_damage_catalog',
+                    ):
+                        self.assertFalse(hasattr(rejected_parent, attribute))
+
+                    def child(command, **kwargs):
+                        payload = json.loads(Path(
+                            command[command.index('--scope-catalog') + 1],
+                        ).read_text(encoding='utf-8'))
+                        # Validate the actual parent wire before corrupting one field.
+                        child_service, _ = self.scope_fixture()
+                        child_service._load_global_damage_talent_catalog(payload)
+                        corrupt(payload)
+                        with self.assertRaisesMessage(ValueError, diagnostic):
+                            child_service._load_global_damage_talent_catalog(payload)
+                        return SimpleNamespace(
+                            returncode=1, communicate=lambda **kw: ('', diagnostic),
+                        )
+
+                    with mock.patch('botend.services.simc_skill_damage.subprocess.Popen', side_effect=child):
+                        with self.assertRaisesMessage(RuntimeError, diagnostic):
+                            service._generate_profile_product_actor_isolated(
+                                SimpleNamespace(pk=1535, spec='fury', class_name='warrior'),
+                            )
+
+    def test_scope_catalog_caches_only_validated_header_and_borrows_row_graphs(self):
+        class SourceGraph(dict):
+            pass
+
+        service, payload = self.scope_fixture()
+        payload = SourceGraph(payload)
+        payload['spell_catalog'] = SourceGraph(unused_large_graph=[1, 2, 3])
+        payload_ref = weakref.ref(payload)
+        unused_graph_ref = weakref.ref(payload['spell_catalog'])
+        expected_header = {key: value for key, value in payload.items()
+                           if key not in ('talents', 'talent_catalog', 'spell_catalog')}
+        # This fails after all header guards, so nothing may be cached yet.
+        payload['talent_catalog'][0]['effects'][0]['flags'] = []
+        with self.assertRaisesMessage(ValueError, '原生作用域分量证据格式无效'):
+            service._load_global_damage_talent_catalog(payload)
+        for attribute in (
+            '_global_damage_catalog_header', '_native_talent_catalog',
+            '_global_damage_catalog',
+        ):
+            self.assertFalse(hasattr(service, attribute))
+        payload['talent_catalog'][0]['effects'][0]['flags'] = [0, 0, 0, 0]
+        before = copy.deepcopy(payload)
+        catalog = service._load_global_damage_talent_catalog(payload)
+        self.assertEqual(payload, before)
+        self.assertIs(catalog[101], payload['talents'][0])
+        self.assertIs(service._native_talent_catalog, payload['talent_catalog'])
+        self.assertEqual(service._global_damage_catalog_header, expected_header)
+        del payload
+        gc.collect()
+        self.assertIsNone(payload_ref(), 'Service must not retain the original full scope payload')
+        self.assertIsNone(unused_graph_ref(), 'Unconsumed spell_catalog must not be retained')
+
+
 class SimcSkillDamageSnapshotServiceTests(TestCase):
     def setUp(self):
         scope_patch = mock.patch.object(
