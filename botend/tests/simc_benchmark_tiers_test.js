@@ -49,13 +49,30 @@ function tiers(root) {
 }
 function card(root, name) { return cards(root).find(c => descendants(c, 'simc-benchmark-tier-name')[0].textContent === name); }
 function metric(root, name) { return descendants(card(root, name), 'simc-benchmark-tier-metric')[0].textContent; }
+function ranges(root) {
+  return descendants(root, 'simc-benchmark-tier-label').slice(0,7).map(label => label.children[1].textContent);
+}
+function equalRangeBoard(root, unit) {
+  const board = descendants(root, 'simc-benchmark-tier-board')[0] || root;
+  assert.equal(board.attributes['data-tier-mode'], 'equal_range');
+  const labels = ranges(root);
+  assert.equal(labels.length, 7);
+  for (const label of labels) {
+    assert.match(label, /约.*[0-9]/, 'left label shows approximate numeric bounds, not a segment number');
+    assert.ok(label.includes(unit), `range label includes ${unit}: ${label}`);
+    assert.doesNotMatch(label, /第\d段|≥95%|90–95%/);
+  }
+  assert.equal(new Set(labels).size, 7, 'small ranges must not collapse to identical labels');
+  return board;
+}
 const entry = (label, value, extra = {}) => ({label, value, metricLabel: 'DPS', ...extra});
 const borderEntries = [100, 95, 94.999, 90, 89.999, 85, 84.999, 80, 79.999, 75, 74.999, 70, 69.999, 0, -5].map(v => entry(String(v), v));
 const borderBefore = JSON.stringify(borderEntries);
 const borders = overview(borderEntries);
-assert.deepEqual(tiers(borders), {S:['100','95'], A:['94.999','90'], B:['89.999','85'], C:['84.999','80'], D:['79.999','75'], E:['74.999','70'], F:['69.999','0','-5']});
+assert.deepEqual(tiers(borders), {S:['100','95','94.999','90','89.999','85'], A:['84.999','80','79.999','75','74.999','70'], B:['69.999'], C:[], D:[], E:[], F:['0','-5']});
+equalRangeBoard(borders, 'DPS');
 assert.equal(JSON.stringify(borderEntries), borderBefore);
-assert.match(text(borders), /当前.*最高正/);
+assert.match(text(borders), /当前.*最高值.*最低值/);
 assert.match(text(borders), /不代表.*整体.*强度/);
 for (const value of [null, undefined, '', ' ', false, true, NaN, Infinity, {}, [], 'invalid']) {
   const board = overview([entry('Leader', 100), entry('Unknown', value, {status: '结果待确认'})]);
@@ -63,12 +80,15 @@ for (const value of [null, undefined, '', ' ', false, true, NaN, Infinity, {}, [
   assert.match(text(card(board, 'Unknown')), /结果待确认/);
   assert.doesNotMatch(metric(board, 'Unknown'), /0 DPS/);
 }
-for (const values of [[0, 0], [-1, -2], [null, false]]) {
+for (const values of [[0, 0], [-2, -2], [-1, -2]]) {
   const board = overview(values.map((v,i) => entry(`v${i}`, v)));
-  assert.deepEqual(tiers(board).S, []);
-  assert.equal(tiers(board).unrated.length, 2);
-  assert.match(text(board), /无正值参照|暂无有效结果/);
+  assert.deepEqual(tiers(board).S, values[0] === values[1] ? ['v0','v1'] : ['v0']);
+  assert.deepEqual(tiers(board).F, values[0] === values[1] ? [] : ['v1']);
+  assert.equal(tiers(board).unrated, undefined);
 }
+const unknownOnly = overview([entry('null', null),entry('bool', false)]);
+assert.deepEqual(tiers(unknownOnly).unrated, ['null','bool']);
+assert.match(text(unknownOnly), /暂无有效结果/);
 assert.match(text(overview([])), /暂无有效结果/);
 
 // Equal-width value intervals, not fixed leader percentages or rank quantiles.
@@ -86,6 +106,12 @@ function nextDown(value) {
   bytes.setBigUint64(0, bytes.getBigUint64(0) - 1n);
   return bytes.getFloat64(0);
 }
+function nextUp(value) {
+  const bytes = new DataView(new ArrayBuffer(8));
+  bytes.setFloat64(0, value);
+  bytes.setBigUint64(0, bytes.getBigUint64(0) + 1n);
+  return bytes.getFloat64(0);
+}
 for (const values of [
   [7000,7000.1,7000.2,7000.3,7000.4,7000.5,7000.6,7000.7],
   [7000,7000.000001,7000.000002,7000.000003,7000.000004,7000.000005,7000.000006,7000.000007],
@@ -94,11 +120,16 @@ for (const values of [
 ]) {
   const labels = ['F','E','D','C','B','A','S','S'];
   const entries = values.map((value, i) => entry(`boundary ${i}`, value));
-  for (let k = 1; k <= 6; k++) entries.push(entry(`below ${k}`, nextDown(values[k])));
+  for (let k = 1; k <= 6; k++) {
+    entries.push(entry(`below ${k}`, nextDown(values[k])));
+    entries.push(entry(`above ${k}`, nextUp(values[k])));
+  }
   const before = JSON.stringify(entries);
   const board = overview(entries, equalRange);
   for (let k = 0; k < values.length; k++) assert.ok(tiers(board)[labels[k]].includes(`boundary ${k}`), `${values[k]} belongs to ${labels[k]}`);
   for (let k = 1; k <= 6; k++) assert.ok(tiers(board)[labels[k-1]].includes(`below ${k}`), `adjacent float below ${values[k]} stays lower`);
+  for (let k = 1; k <= 6; k++) assert.ok(tiers(board)[labels[k]].includes(`above ${k}`), `adjacent float above ${values[k]} stays higher`);
+  equalRangeBoard(board, 'DPS');
   assert.equal(JSON.stringify(entries), before);
   assert.equal(board.attributes['data-tier-minimum'], String(values[0]));
   assert.equal(board.attributes['data-tier-maximum'], String(values[7]));
@@ -127,7 +158,8 @@ assert.match(text(equalValues),/相同|并列/);
 const rangeUnknown=overview([entry('Top',100),entry('Low',99),entry('Missing',null),entry('Bad',false)],equalRange);
 assert.deepEqual(tiers(rangeUnknown).S,['Top']);assert.deepEqual(tiers(rangeUnknown).F,['Low']);
 assert.deepEqual(tiers(rangeUnknown).unrated,['Missing','Bad']);
-for(const values of [[0,0],[-1,-2],[null,false]])assert.equal(tiers(overview(values.map((v,i)=>entry(String(i),v)),equalRange)).unrated.length,2);
+// Even adjacent representable endpoints need distinguishable approximate range labels.
+equalRangeBoard(overview([entry('low',nextDown(1)),entry('high',1)]), 'DPS');
 
 const tooltip = '完整装备\n物品等级 321\n+123 急速\n装备：造成 456 点伤害并提高属性。';
 const items = [
@@ -140,6 +172,7 @@ const ordinary = gear(items, {dps:80});
 assert.equal(cards(ordinary).length, 2, 'one icon per original grouped item, not per item level');
 assert.deepEqual(tiers(ordinary).S, ['A']);
 assert.deepEqual(tiers(ordinary).F, ['B']);
+equalRangeBoard(ordinary, 'DPS');
 assert.match(metric(ordinary, 'A'), /200.*DPS/);
 const a = card(ordinary, 'A');
 assert.equal(a.tagName, 'BUTTON'); assert.equal(a.type, 'button');
@@ -182,6 +215,16 @@ const effectRows = [
   effect('No control', 999, 60, {item_id:16, baseline_dps:null}),
   effect('Boolean', 999, false, {item_id:17}),
 ];
+const effectRange = gear([effect('Top 11.43',120,11.43),effect('Middle 5.82',999,5.82),effect('Zero',100,0)],null);
+assert.deepEqual(tiers(effectRange).S,['Top 11.43']);
+assert.deepEqual(tiers(effectRange).C,['Middle 5.82'], 'effect midpoint uses backend display gain, not DPS or fixed leader percent');
+assert.deepEqual(tiers(effectRange).F,['Zero']);
+equalRangeBoard(effectRange, '%');
+assert.match(ranges(effectRange)[0], /9\.8.*11\.43/);
+assert.match(ranges(effectRange)[6], /0%.*1\.63/);
+const zeroEffects = gear([effect('Zero A',90,0),effect('Zero B',110,0),effect('Invalid zero',100,0,{effect_validation:{status:'invalid'}})],null);
+assert.deepEqual(tiers(zeroEffects).S,['Zero A','Zero B']);
+assert.deepEqual(tiers(zeroEffects).unrated,['Invalid zero']);
 const effectBefore = JSON.stringify(effectRows);
 const effectChart = gear(effectRows, null);
 assert.deepEqual(tiers(effectChart).S, ['Best gain']);
@@ -228,6 +271,7 @@ const specBefore = JSON.stringify(specPayload), specShell = {body:element()};
 spec(specShell, specPayload);
 assert.deepEqual(tiers(specShell.body).S, ['Spec A']); assert.deepEqual(tiers(specShell.body).F, ['Spec B']);
 assert.deepEqual(tiers(specShell.body).unrated, ['Missing','Boolean']);
+equalRangeBoard(specShell.body, 'DPS');
 assert.equal(descendants(specShell.body, 'simc-benchmark-spec-name').length, 4);
 card(specShell.body, 'Spec A').click();
 const specOriginal = descendants(specShell.body, 'simc-benchmark-spec-row-toggle')[0];
@@ -250,7 +294,9 @@ const gains = [
 const gainPayload = {results:{option_gain_rows:gains,coordinates:gains.map(g=>coord(g.spec_key,100))}};
 const gainBefore = JSON.stringify(gainPayload), gainShell={body:element()}; gain(gainShell,gainPayload);
 assert.deepEqual(tiers(gainShell.body).S,['Gain A']);
-assert.deepEqual(tiers(gainShell.body).F,['Gain Zero','Gain Negative']);
+assert.deepEqual(tiers(gainShell.body).D,['Gain Zero']);
+assert.deepEqual(tiers(gainShell.body).F,['Gain Negative']);
+equalRangeBoard(gainShell.body, '%');
 assert.deepEqual(tiers(gainShell.body).unrated,['Gain No Control','Gain Missing']);
 assert.match(metric(gainShell.body,'Gain Negative'), /-5\.00%/);
 card(gainShell.body,'Gain A').click();
@@ -263,7 +309,19 @@ for (const bad of [false,true,'',NaN]) {
   gain(shell,{results:{option_gain_rows:[{...gains[0],gain_percent:bad}]}});
   assert.deepEqual(tiers(shell.body).unrated,['Gain A']);
 }
-const apl = coordinate(coord('APL',100,{spec_icon_url:'/icons/apl.jpg',candidates:[{key:'test',label:'APL candidate',dps:100}]}));
+for (const values of [[11.43,5.82,0],[0,0],[-5,-5],[-1,-2,-3]]) {
+  const shell = {body:element()};
+  gain(shell,{results:{option_gain_rows:values.map((value,i)=>({...gains[0],spec_key:`gain ${i}`,spec_label:`gain ${i}`,gain_percent:value}))}});
+  assert.deepEqual(tiers(shell.body).S, values.every(v=>v===values[0]) ? values.map((_,i)=>`gain ${i}`) : ['gain 0']);
+  if (values[0]!==values[values.length-1]) {
+    assert.deepEqual(tiers(shell.body).C,['gain 1']);
+    assert.deepEqual(tiers(shell.body).F,['gain 2']);
+    equalRangeBoard(shell.body, '%');
+  }
+}
+const apl = coordinate(coord('APL',100,{spec_icon_url:'/icons/apl.jpg',candidates:[{key:'test',label:'APL candidate',dps:100},{key:'middle',label:'APL middle',dps:95},{key:'low',label:'APL low',dps:90}]}));
+assert.deepEqual(tiers(apl).C,['APL middle']);
+equalRangeBoard(apl, 'DPS');
 assert.equal(descendants(apl,'simc-benchmark-tier-icon')[0].src,'https://wowdaily.cn/icons/apl.jpg','plain APL falls back to the coordinate API icon');
 const mixedSpec={body:element()};
 spec(mixedSpec,{spec_options:specOptions([coord('Selected'),coord('Other scenario')]),results:{coordinates:[coord('Selected',100),coord('Other scenario',10000,{scenario_key:'two'})]}});
@@ -370,5 +428,5 @@ assert.deepEqual(tiers(mixedGain.body).S,['Gain A']);
   assert.equal(request.searchParams.get('spec'),'Gear spec');
   assert.equal(request.searchParams.get('talent'),'p');
   assert.equal(request.searchParams.get('scenario'),'two');
-  console.log('通过：三类真实renderer的S–F边界/未知与非正参照/最佳变体和权威收益/完整tooltip/安全图标/键盘定位/输入不变/筛选重画与原按需GET（纯renderer单测，非生产验收）。');
+  console.log('通过：全部真实renderer统一等距七档/动态数值区间/精确边界/未知与零负有效值/最佳变体和权威收益/完整tooltip/安全图标/键盘定位/输入不变/筛选重画与原按需GET（纯renderer单测，非生产验收）。');
 })().catch(error=>{ console.error(error); process.exitCode=1; });
