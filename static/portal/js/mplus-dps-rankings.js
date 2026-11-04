@@ -75,17 +75,88 @@
         [0, 'F', '<70%']
     ];
 
-    function tierForAverage(average, leaderAverage) {
-        const ratio = leaderAverage > 0 ? Number(average || 0) / leaderAverage * 100 : 0;
-        return (tierBands.find(([threshold]) => ratio >= threshold) || [0, 'F'])[1];
+    function localDps(value) {
+        if (typeof value !== 'number' && typeof value !== 'string') return null;
+        if (typeof value === 'string' && !/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(value.trim())) return null;
+        const number = Number(value);
+        return Number.isFinite(number) && number >= 0 ? number : null;
     }
 
-    function resolvedTier(row, leaderAverage) {
+    function decimalIntegers(values) {
+        const decimals = values.map(value => {
+            const [mantissa, exponent = '0'] = String(value).toLowerCase().split('e');
+            return {coefficient: BigInt(mantissa.replace('.', '')),
+                scale: (mantissa.split('.')[1] || '').length - Number(exponent)};
+        });
+        const scale = Math.max(...decimals.map(decimal => decimal.scale));
+        return {scale, integers: decimals.map(decimal => decimal.coefficient * 10n ** BigInt(scale - decimal.scale))};
+    }
+
+    function equalRangeTier(value, minimum, maximum) {
+        if (minimum === maximum) return 'S';
+        // Same exact decimal/BigInt comparison as the verified SimC projection.
+        // No float subtraction or epsilon may move a boundary's lower neighbor up.
+        const {integers: [current, low, high]} = decimalIntegers([value, minimum, maximum]);
+        const position = 7n * (current - low) / (high - low);
+        return ['F', 'E', 'D', 'C', 'B', 'A', 'S'][Number(position > 6n ? 6n : position)];
+    }
+
+    function localTierProjection(rows) {
+        const local = rows.filter(row => row.source === undefined || row.source === 'local');
+        const values = local.map(row => localDps(row.average_dps));
+        const valid = values.filter(value => value !== null);
+        const minimum = valid.length ? Math.min(...valid) : null;
+        const maximum = valid.length ? Math.max(...valid) : null;
+        const tiers = new Map(local.map((row, index) => [row, values[index] === null ? '—'
+            : equalRangeTier(values[index], minimum, maximum)]));
+        const names = ['S', 'A', 'B', 'C', 'D', 'E', 'F'];
+        const compact = new Intl.NumberFormat('zh-CN', {maximumSignificantDigits: 6});
+        let bounds = [];
+        let offset = false;
+        if (valid.length && maximum !== minimum) {
+            const {scale, integers: [low, high]} = decimalIntegers([minimum, maximum]);
+            const digits = Math.max(0, 1 - Math.floor(Math.log10(maximum - minimum) - Math.log10(7)));
+            // Tiny spans at large offsets need relative labels, not 17-digit fine
+            // print or identical rounded endpoints. The title keeps exact formulas.
+            offset = digits > 6 || String(Math.trunc(maximum)).length > 12;
+            const adjustment = digits - scale;
+            const multiplier = 10n ** BigInt(Math.max(0, adjustment));
+            const divisor = 7n * 10n ** BigInt(Math.max(0, -adjustment));
+            bounds = Array.from({length: 8}, (_, step) => {
+                const numerator = (offset ? (high - low) * BigInt(step)
+                    : low * BigInt(7 - step) + high * BigInt(step)) * multiplier;
+                const raw = String((numerator + divisor / 2n) / divisor).padStart(digits + 1, '0');
+                const integer = digits ? raw.slice(0, -digits) : raw;
+                const fraction = digits ? raw.slice(-digits).replace(/0+$/, '') : '';
+                if (offset) {
+                    const significant = raw.replace(/^0+/, '');
+                    if (!significant) return '0';
+                    const leading = significant.slice(0, 3).replace(/0+$/, '');
+                    return `${leading[0]}${leading.length > 1 ? `.${leading.slice(1)}` : ''}e${significant.length - digits - 1}`;
+                }
+                return `${BigInt(integer).toLocaleString('zh-CN')}${fraction ? `.${fraction}` : ''}`;
+            });
+        }
+        const bands = names.map((tier, index) => {
+            const step = 6 - index;
+            const range = !valid.length ? '—' : minimum === maximum
+                ? (index === 0 ? `约 ${compact.format(maximum)} DPS · 并列 S` : '—')
+                : offset ? `约 ${compact.format(minimum)} + (${bounds[step]}～${bounds[step + 1]}) DPS`
+                    : `约 ${bounds[step]}～${bounds[step + 1]} DPS`;
+            const title = !valid.length ? '当前范围暂无有效平均 DPS，未知不评级'
+                : minimum === maximum ? `当前范围全部有效平均 DPS = ${minimum}，并列 S（含明确 0）`
+                    : `精确区间：[${minimum} + (${maximum} - ${minimum}) × ${step}/7, ${minimum} + (${maximum} - ${minimum}) × ${step + 1}/7${index === 0 ? ']' : ')'} DPS；边界归高档；左侧为约值${offset ? '，加号前为最低值的约数，括号为相对精确最低值的增量约数' : ''}`;
+            return [0, tier, range, title];
+        });
+        if (values.some(value => value === null)) bands.push([0, '—', '暂无有效平均 DPS', '未知不补零、不评级']);
+        return {tiers, bands};
+    }
+
+    function resolvedTier(row, projection) {
         const suppliedTier = String(row.tier || '').toUpperCase();
         if (state.source === 'mythicstats') return /^[SABCDEF]$/.test(suppliedTier) ? suppliedTier : '—';
-        return /^[SABCDEF]$/.test(suppliedTier)
-            ? suppliedTier
-            : tierForAverage(row.average_dps, leaderAverage);
+        if (row.source !== undefined && row.source !== 'local') return /^[SABCDEF]$/.test(suppliedTier) ? suppliedTier : '—';
+        return projection.tiers.get(row) || '—';
     }
 
     function safeClassColor(value) {
@@ -119,7 +190,7 @@
         }
     }
 
-    function renderTierBoard(rows, leaderAverage) {
+    function renderTierBoard(rows, projection) {
         tierGroups.replaceChildren();
         if (!rows.length) {
             tierBoard.hidden = true;
@@ -128,15 +199,22 @@
         }
 
         tierCount.textContent = `${rows.length} 个专精 · ${state.source === 'mythicstats' ? 'Mythicstats 来源评级' : '当前范围独立评级'}`;
-        const bands = state.source === 'mythicstats' ? [...tierBands, [0, '—', '']] : tierBands;
-        bands.forEach(([, tier, rangeLabel]) => {
-            const members = rows.filter((row) => resolvedTier(row, leaderAverage) === tier);
+        const bands = state.source === 'mythicstats' ? [...tierBands, [0, '—', '']] : projection.bands;
+        bands.forEach(([, tier, rangeLabel, rangeTitle]) => {
+            const members = rows.filter((row) => resolvedTier(row, projection) === tier);
             if (state.source === 'mythicstats' && !members.length) return;
             const group = element('article', `mplus-rank-tier-group mplus-rank-tier-group-${tier.toLowerCase()}`);
             const label = element('div', 'mplus-rank-tier-label');
+            const range = element('span', '', state.source === 'mythicstats' ? '' : rangeLabel);
+            if (state.source === 'local') {
+                range.title = rangeTitle;
+                range.style.whiteSpace = 'normal';
+                range.style.overflowWrap = 'anywhere';
+                range.tabIndex = 0;
+            }
             label.append(
                 element('strong', `mplus-rank-tier-letter tier-${tier.toLowerCase()}`, tier),
-                element('span', '', state.source === 'mythicstats' ? '' : rangeLabel),
+                range,
                 element('small', '', `${members.length} 个`)
             );
 
@@ -146,12 +224,14 @@
             }
             members.forEach((row) => {
                 const classColor = safeClassColor(row.class_color);
+                const averageText = state.source === 'local' && localDps(row.average_dps) === null
+                    ? '—' : formatDps(row.average_dps);
                 const card = element('a', 'mplus-rank-tier-card');
                 setDetailLink(card, row);
                 card.style.setProperty('--class-color', classColor);
                 card.setAttribute(
                     'aria-label',
-                    `${row.class_name_cn} ${row.spec_name_cn}，${tier} 评级，平均 DPS ${formatDps(row.average_dps)}`
+                    `${row.class_name_cn} ${row.spec_name_cn}，${tier} 评级，平均 DPS ${averageText}`
                 );
 
                 const icon = element('img');
@@ -164,7 +244,7 @@
                 const averageDps = element(
                     'span',
                     'mplus-rank-tier-dps',
-                    formatDps(row.average_dps)
+                    averageText
                 );
                 identity.append(specName, averageDps);
                 card.append(icon, identity);
@@ -182,8 +262,20 @@
         list.replaceChildren();
         const isMythicstats = state.source === 'mythicstats';
         list.classList.toggle('mplus-rank-list-mythicstats', isMythicstats);
-        const leaderAverage = Math.max(...rows.map((row) => Number(row.average_dps || 0)), 0);
-        renderTierBoard(rows, leaderAverage);
+        const leaderAverage = isMythicstats
+            ? Math.max(...rows.map((row) => Number(row.average_dps || 0)), 0)
+            : Math.max(...rows.filter(row => row.source === undefined || row.source === 'local')
+                .map(row => localDps(row.average_dps)).filter(value => value !== null), 0);
+        const projection = isMythicstats ? null : localTierProjection(rows);
+        renderTierBoard(rows, projection);
+        if (!isMythicstats) {
+            const bands = method.querySelector('.mplus-rank-explanation-bands');
+            if (bands) bands.replaceChildren(...projection.bands.map(([, tier, range, title]) => {
+                const label = element('span', '', `${tier}：${range}`);
+                label.title = title;
+                return label;
+            }));
+        }
         if (!rows.length) {
             list.hidden = true;
             status.hidden = false;
@@ -230,7 +322,7 @@
             const classColor = safeClassColor(row.class_color);
             card.style.setProperty('--class-color', classColor);
 
-            const tier = resolvedTier(row, leaderAverage);
+            const tier = resolvedTier(row, projection);
             card.classList.add(`mplus-rank-tier-${tier.toLowerCase()}`);
             if (previousTier !== null && previousTier !== tier) {
                 card.classList.add('mplus-rank-tier-break');
@@ -239,11 +331,13 @@
             const metrics = element('div', 'mplus-rank-metrics');
             const tierBadge = element('span', `mplus-rank-tier tier-${tier.toLowerCase()}`, tier);
             tierBadge.setAttribute('aria-label', `评级 ${tier}`);
+            const averageText = !isMythicstats && localDps(row.average_dps) === null
+                ? '—' : formatDps(row.average_dps);
             const peakMetric = metric('最高', formatDps(row.highest_dps), false);
             peakMetric.classList.add('peak');
             metrics.append(
                 tierBadge,
-                metric('平均', formatDps(row.average_dps), true),
+                metric('平均', averageText, true),
                 peakMetric
             );
             card.appendChild(metrics);
@@ -257,11 +351,12 @@
                 card.append(runs, change);
             }
 
-            const average = Math.max(0, Math.min(100, Number(row.average_dps || 0) / dpsScale * 100));
+            const average = !isMythicstats && localDps(row.average_dps) === null ? 0
+                : Math.max(0, Math.min(100, Number(row.average_dps || 0) / dpsScale * 100));
             const peak = Math.max(0, Math.min(100, Number(row.highest_dps || 0) / dpsScale * 100));
             const plot = element('a', 'mplus-rank-plot');
             setDetailLink(plot, row);
-            plot.setAttribute('aria-label', `${row.spec_name_cn}，平均 DPS ${formatDps(row.average_dps)}，最高 DPS ${formatDps(row.highest_dps)}`);
+            plot.setAttribute('aria-label', `${row.spec_name_cn}，平均 DPS ${averageText}，最高 DPS ${formatDps(row.highest_dps)}`);
             const icon = element('img');
             icon.src = specIconUrl(row);
             icon.alt = '';
@@ -300,15 +395,12 @@
             ['数据来源', '来自本站收录的 Warcraft Logs（WCL）当前赛季大秘境实战日志排名，仅统计输出专精，DPS 使用 WCL 提供的数值。'],
             ['样本筛选', `每个专精、每个副本最多取 ${sampleCap} 条记录：优先高层钥石，同层按 DPS 从高到低选择，只保留不低于该层中位数的记录；同一地区、服务器、角色仅保留一条。因此，本榜反映筛选后样本的表现。`],
             ['数值计算', `单副本：${averageExplanation}；最高 DPS 为样本中的原始最大值，不做时间折减。总计：需在全部 ${required} 个副本均有样本；平均与最高分别按各副本的最终样本数加权，公式为 Σ（副本数值 × 样本数）÷ 总样本数。总计的最高值也是加权结果。`],
-            ['评级规则', '按平均 DPS 从高到低排名；总计与各副本独立评级。以当前范围榜首的平均 DPS 为 100%，计算「该专精平均 DPS ÷ 榜首平均 DPS × 100%」，每相差 5 个百分点划分一档。最高 DPS 仅供参考，不参与排名和评级。'],
+            ['评级规则', '按平均 DPS 从高到低排名；总计与各副本按自身有效平均 DPS 的最高值与最低值之差等分为 7 档，最高 S、最低 F。令 m 为本范围最低平均 DPS、M 为最高平均 DPS，档位序号 = min(6, floor(7 × (平均 DPS − m) ÷ (M − m)))，0 至 6 对应 F、E、D、C、B、A、S；精确边界归高档，同值同档。单条或全同值（含明确 0）并列 S，未知不补零、不评级。左侧及下列 DPS 区间为约值；极小差值使用「最低值约数 + 相对精确最低值的增量约数」展示，精确区间公式见悬停说明。最高 DPS 仅供参考，不参与排名和评级。'],
         ];
         notes.forEach(([label, text]) => {
             explanation.append(element('dt', '', label), element('dd', '', text));
         });
         const bands = element('div', 'mplus-rank-explanation-bands');
-        tierBands.forEach(([, tier, range]) => {
-            bands.appendChild(element('span', '', `${tier}：${tier === 'F' ? '<70%' : range}`));
-        });
         explanation.lastElementChild.appendChild(bands);
         method.replaceChildren(explanation);
         renderTabs();

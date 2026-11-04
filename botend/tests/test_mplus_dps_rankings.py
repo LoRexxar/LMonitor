@@ -107,19 +107,85 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
         self.assertEqual(dungeon_one[0]['average_dps'], 400)
         self.assertEqual(dungeon_one[0]['highest_dps'], 500)
 
-    def test_average_dps_tiers_use_five_percent_bands_from_scope_leader(self):
+    def test_average_dps_tiers_use_exact_equal_range_per_scope(self):
         from botend.services.mplus_dps_rankings_service import _rank
 
-        averages = (100, 95, 90, 85, 80, 75, 70, 69.99)
-        items = [
-            {'class_name': 'Mage', 'spec_name': f'Spec {index}', 'average_dps': average}
-            for index, average in enumerate(averages, start=1)
-        ]
+        for averages, expected in [
+            ([7000.7, 7000.6, 7000.5, 7000.4, 7000.3, 7000.2, 7000.1, 7000],
+             ['S', 'S', 'A', 'B', 'C', 'D', 'E', 'F']),
+            ([7000.7, 7000.600000000001, 7000.6, 7000.599999999999, 7000],
+             ['S', 'S', 'S', 'A', 'F']),
+            ([0.0000000000007, 0.0000000000006, 0.0000000000005999999999999, 0],
+             ['S', 'S', 'A', 'F']),
+            ([7000.000000000001, 7000], ['S', 'F']),
+            ([100, 95, 90, 85, 80, 75, 70, 65], ['S', 'S', 'A', 'B', 'C', 'D', 'E', 'F']),
+            ([0, 0], ['S', 'S']), ([123], ['S']),
+        ]:
+            with self.subTest(averages=averages):
+                items = [
+                    {'class_name': 'Mage', 'spec_name': f'Spec {index}', 'average_dps': average}
+                    for index, average in enumerate(averages)
+                ]
+                ranked = _rank(items)
+                self.assertEqual([item['tier'] for item in ranked], expected)
+                self.assertEqual([item['average_dps'] for item in ranked], averages)
+                self.assertEqual([item['rank'] for item in ranked], list(range(1, len(items) + 1)))
+                self.assertEqual([item['average_ratio'] for item in ranked], [
+                    round(value / averages[0] * 100, 2) if averages[0] else 0 for value in averages
+                ])
 
-        ranked = _rank(items)
+    def test_old_snapshot_api_projects_only_tiers_and_method_without_writes(self):
+        from botend.services.mplus_dps_rankings_service import snapshot_path
 
-        self.assertEqual([item['tier'] for item in ranked], ['S', 'S', 'A', 'B', 'C', 'D', 'E', 'F'])
-        self.assertEqual([item['average_ratio'] for item in ranked], list(averages))
+        season = type('Season', (), {'id': self.season['id']})()
+        def rows(values):
+            return [dict(average_dps=value, lower_dps=10, highest_dps=9000,
+                         sample_size=42, rank=index + 1, average_ratio=99.99, tier='S')
+                    for index, value in enumerate(values)]
+        old = {
+            'season': {'id': season.id}, 'generated_at': '2026-09-05T01:02:03+00:00',
+            'source_updated_at': '2026-09-04T01:02:03+00:00',
+            'rankings': {'overall': rows([7000.7, 7000.6, 7000.599999999999, 7000]),
+                         'dungeon:1': rows([42, 35, 28, 21, 14, 7, 0]),
+                         'dungeon:2': rows([0, 0]),
+                         'dungeon:3': rows([None, True, '', 'bad', 'NaN', -1, 5, 4])},
+            'method': {'tier_step_percent': 5, 'tier_bands': {'S': 95}, 'tier_basis': 'old',
+                       'time_weighting': {'kind': 'exponential', 'half_life_days': 7},
+                       'sample_cap_per_spec_dungeon': 100},
+        }
+        # A foreign row must not affect local extrema or be regraded.
+        old['rankings']['dungeon:3'].append({'source': 'mythicstats', 'average_dps': 99999, 'tier': 'E'})
+        with tempfile.TemporaryDirectory() as temporary, override_settings(MEDIA_ROOT=temporary):
+            path = snapshot_path(season.id)
+            path.parent.mkdir(parents=True)
+            path.write_text(json.dumps(old))
+            original_bytes, original_stat = path.read_bytes(), path.stat()
+            with (patch('botend.services.mplus_dps_rankings_service.active_season', return_value=season),
+                  patch('botend.services.mplus_dps_rankings_service.iter_season_rows', side_effect=AssertionError('no DB aggregation')),
+                  patch('botend.services.mplus_dps_rankings_service.atomic_write_payload', side_effect=AssertionError('read only'))):
+                response = self.client.get(reverse('portal_mplus_dps_rankings_api'))
+            self.assertEqual(response.status_code, 200)
+            projected = response.json()
+            self.assertEqual([r['tier'] for r in projected['rankings']['overall']], ['S', 'S', 'A', 'F'])
+            self.assertEqual([r['tier'] for r in projected['rankings']['dungeon:1']], ['S', 'A', 'B', 'C', 'D', 'E', 'F'])
+            self.assertEqual([r['tier'] for r in projected['rankings']['dungeon:2']], ['S', 'S'])
+            self.assertEqual([r['tier'] for r in projected['rankings']['dungeon:3']], ['—'] * 6 + ['S', 'F', 'E'])
+            self.assertEqual(projected['method']['tier_mode'], 'equal_range')
+            self.assertEqual(projected['method']['tier_count'], 7)
+            self.assertIn('最高', projected['method']['tier_basis'])
+            self.assertIn('最低', projected['method']['tier_basis'])
+            self.assertNotIn('tier_step_percent', projected['method'])
+            self.assertNotIn('tier_bands', projected['method'])
+            expected = json.loads(json.dumps(old))
+            for scope, entries in expected['rankings'].items():
+                for index, row in enumerate(entries):
+                    row['tier'] = projected['rankings'][scope][index]['tier']
+            expected['method'] = projected['method']
+            self.assertEqual(projected, expected)
+            self.assertEqual(projected['method']['time_weighting'], old['method']['time_weighting'])
+            self.assertEqual(projected['method']['sample_cap_per_spec_dungeon'], 100)
+            self.assertEqual(path.read_bytes(), original_bytes)
+            self.assertEqual(path.stat().st_mtime_ns, original_stat.st_mtime_ns)
 
     def test_invalid_season_manifest_is_rejected_before_publishing(self):
         from botend.services.mplus_dps_rankings_service import build_rankings_payload_from_rows

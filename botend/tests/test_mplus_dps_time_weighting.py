@@ -189,7 +189,7 @@ class MplusDpsTimeWeightingTests(SimpleTestCase):
         self.assertNotEqual(original['generated_at'], later['generated_at'])
         self.assertEqual(original['source_updated_at'], later['source_updated_at'])
 
-    def test_rank_and_original_tier_bands_follow_weighted_mean_not_peak(self):
+    def test_rank_and_equal_range_tiers_follow_weighted_mean_not_peak(self):
         rows = []
         for dungeon_id in range(1, 9):
             rows.extend([
@@ -203,7 +203,7 @@ class MplusDpsTimeWeightingTests(SimpleTestCase):
             with self.subTest(scope=scope):
                 fire, arcane = payload['rankings'][scope]
                 self.assertEqual((fire['spec_name'], fire['tier']), ('Fire', 'S'))
-                self.assertEqual((arcane['spec_name'], arcane['tier']), ('Arcane', 'C'))
+                self.assertEqual((arcane['spec_name'], arcane['tier']), ('Arcane', 'F'))
                 self.assertEqual(arcane['average_dps'], 160)
                 self.assertEqual(arcane['highest_dps'], 400)
                 self.assertEqual(arcane['average_ratio'], 80)
@@ -292,7 +292,16 @@ class MplusDpsTimeWeightingTests(SimpleTestCase):
                 patch.object(service, 'active_season', return_value=season),
                 patch.object(service, 'build_current_mplus_dps_rankings_payload') as aggregate,
             ):
-                self.assertEqual(service.get_current_mplus_dps_rankings_payload(), previous)
+                projected = service.get_current_mplus_dps_rankings_payload()
+                self.assertEqual(set(projected), set(previous))
+                self.assertEqual(projected['season'], previous['season'])
+                self.assertEqual(projected['rankings'], {'overall': [{'average_dps': 300, 'tier': 'S'}]})
+                self.assertEqual(projected['method']['tier_mode'], 'equal_range')
+                self.assertEqual(projected['method']['tier_count'], 7)
+                self.assertEqual(
+                    {key: value for key, value in projected['method'].items() if not key.startswith('tier_')},
+                    previous['method'],
+                )
             aggregate.assert_not_called()
             self.assertEqual(path.read_bytes(), original_bytes)
             self.assertNotIn('time_weighting', service.load_published_mplus_dps_rankings(season)['method'])

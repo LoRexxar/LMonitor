@@ -4,9 +4,12 @@
 import json
 import math
 import os
+import re
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone as dt_timezone
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from pathlib import Path
 from urllib.parse import quote
 
@@ -28,16 +31,7 @@ from botend.services.spec_stats_service import _lookup_dungeon_cn
 SNAPSHOT_FILENAME = 'mplus-dps-rankings.json'
 SAMPLE_CAP_PER_SPEC_DUNGEON = 100
 TIME_WEIGHT_HALF_LIFE_DAYS = 7
-AVERAGE_DPS_TIER_STEP_PERCENT = 5
-AVERAGE_DPS_TIER_BANDS = (
-    (95, 'S'),
-    (90, 'A'),
-    (85, 'B'),
-    (80, 'C'),
-    (75, 'D'),
-    (70, 'E'),
-    (0, 'F'),
-)
+AVERAGE_DPS_TIERS = ('F', 'E', 'D', 'C', 'B', 'A', 'S')
 ROW_FIELDS = (
     'dungeon_id', 'class_name', 'spec_name', 'dps', 'keystone_level',
     'region', 'realm', 'character_name', 'last_updated', 'fight_started_at',
@@ -197,11 +191,48 @@ def _identity_payload(class_name, spec_name):
     }
 
 
-def _average_dps_tier(ratio):
-    for threshold, tier in AVERAGE_DPS_TIER_BANDS:
-        if ratio >= threshold:
-            return tier
-    return 'F'
+def _tier_value(value):
+    """Exact decimal input, without coercing unknown/bool/invalid DPS to zero."""
+    if isinstance(value, bool) or not isinstance(value, (int, float, str, Decimal)):
+        return None
+    if isinstance(value, str) and not re.fullmatch(
+        r'[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?', value.strip()
+    ):
+        return None
+    try:
+        decimal = Decimal(str(value))
+        return Fraction(decimal) if decimal.is_finite() and decimal >= 0 else None
+    except (InvalidOperation, ValueError, OverflowError):
+        return None
+
+
+def _project_local_tiers(items):
+    """Regrade only local rows, in place, without sorting or changing any facts."""
+    local = [item for item in items if item.get('source', 'local') == 'local']
+    values = [_tier_value(item.get('average_dps')) for item in local]
+    valid = [value for value in values if value is not None]
+    minimum, maximum = (min(valid), max(valid)) if valid else (None, None)
+    for item, value in zip(local, values):
+        if value is None:
+            item['tier'] = '—'
+        elif minimum == maximum:
+            item['tier'] = 'S'
+        else:
+            # Fraction cross-multiplication preserves exact decimal boundaries:
+            # floor(7 * (value-min)/(max-min)); an exact boundary joins the upper band.
+            bucket = min(6, (7 * (value - minimum)) // (maximum - minimum))
+            item['tier'] = AVERAGE_DPS_TIERS[bucket]
+    return items
+
+
+def _tier_method():
+    return {
+        'tier_mode': 'equal_range',
+        'tier_count': 7,
+        'tier_basis': '当前统计范围有效平均 DPS 的最高值与最低值之差等分为 7 档',
+        'tier_formula': 'min(6, floor(7 * (average_dps - min) / (max - min)))；0→F，6→S',
+        'tier_boundary': '边界归高档；同值同档；单条或全同值（含 0）并列 S；未知不评级',
+    }
 
 
 def _rank(items):
@@ -211,8 +242,7 @@ def _rank(items):
         ratio = (float(item['average_dps']) / leader_average * 100) if leader_average > 0 else 0
         item['rank'] = index
         item['average_ratio'] = round(ratio, 2)
-        item['tier'] = _average_dps_tier(ratio)
-    return items
+    return _project_local_tiers(items)
 
 
 def build_rankings_payload_from_rows(season, rows, generated_at=None):
@@ -340,9 +370,7 @@ def build_rankings_payload_from_rows(season, rows, generated_at=None):
             'overall_weight': '各副本最终样本数',
             'overall_requires_all_dungeons': True,
             'required_dungeon_count': len(encounter_ids),
-            'tier_basis': '当前统计范围榜首的平均 DPS',
-            'tier_step_percent': AVERAGE_DPS_TIER_STEP_PERCENT,
-            'tier_bands': {tier: threshold for threshold, tier in AVERAGE_DPS_TIER_BANDS},
+            **_tier_method(),
         },
     }
 
@@ -411,6 +439,17 @@ def load_published_mplus_dps_rankings(season=None):
         return None
     if not isinstance(payload, dict) or (payload.get('season') or {}).get('id') != season.id:
         return None
+    # Read-time projection upgrades old publications immediately. Never resample,
+    # republish, reorder, or advance their generation/source timestamps here.
+    if not isinstance(payload.get('rankings'), dict):
+        return payload
+    for items in payload['rankings'].values():
+        _project_local_tiers(items)
+    method = dict(payload.get('method') or {})
+    method.pop('tier_step_percent', None)
+    method.pop('tier_bands', None)
+    method.update(_tier_method())
+    payload['method'] = method
     return payload
 
 

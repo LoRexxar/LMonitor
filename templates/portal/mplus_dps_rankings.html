@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260903_external_menu_v2">
-    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20261103_dps_time_weighting">
+    <link rel="stylesheet" href="{% static 'portal/css/mplus-dps-rankings.css' %}?v=20261104_local_equal_range">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -36,7 +36,7 @@
             <div id="mplus-mythicstats-controls" class="mplus-rank-filters" hidden></div>
             <div class="mplus-rank-tabs" id="mplus-rank-tabs" role="tablist" aria-label="统计范围"></div>
             <div class="mplus-rank-method" id="mplus-rank-method">
-                总计要求专精覆盖当前赛季全部 8 个副本；评级按当前范围榜首平均 DPS 每 5% 划分一档。
+                本站总计要求专精覆盖当前赛季全部副本；总计与各副本按自身有效平均 DPS 的最高值与最低值之差等分为 7 档。Mythicstats 沿用来源评级。
             </div>
             <section class="mplus-rank-tier-board" id="mplus-rank-tier-board" aria-labelledby="mplus-rank-tier-title" hidden>
                 <div class="mplus-rank-tier-heading">
@@ -54,6 +54,6 @@
         </section>
     </main>
 
-    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20261103_dps_time_weighting"></script>
+    <script src="{% static 'portal/js/mplus-dps-rankings.js' %}?v=20261104_local_equal_range"></script>
 </body>
 </html>
