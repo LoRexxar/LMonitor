@@ -1,0 +1,117 @@
+{% extends 'portal/base.html' %}
+{% load static %}
+{% block title %}魔兽世界数据观察 · WowDaily{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'portal/css/rio-statistics.css' %}?v=20261105_5">{% endblock %}
+{% block content %}
+<div id="rio-statistics" class="rio-observer">
+    <div class="rio-heading">
+        <div><h1>魔兽世界数据观察</h1><p>跟踪赛季参与规模、分数变化与副本空间数据。</p></div>
+        <a href="#rio-methodology">查看数据来源</a>
+    </div>
+    <p id="rio-version" class="rio-note rio-version" role="status"></p>
+    <div class="rio-tabs" role="tablist" aria-label="数据观察模块">
+        <button id="rio-tab-overview" role="tab" aria-selected="true" aria-controls="rio-overview" data-tab="overview">统计总览</button>
+        <button id="rio-tab-runs" role="tab" aria-selected="false" aria-controls="rio-runs" data-tab="runs" tabindex="-1">完成记录</button>
+        <button id="rio-tab-heatmaps" role="tab" aria-selected="false" aria-controls="rio-heatmaps" data-tab="heatmaps" tabindex="-1">大秘境热力图</button>
+        <button id="rio-tab-raids" role="tab" aria-selected="false" aria-controls="rio-raids" data-tab="raids" tabindex="-1">团本进度</button>
+    </div>
+    <form id="rio-filters" class="rio-filters" aria-label="统计筛选">
+        {% csrf_token %}
+        <label>赛季<select id="rio-season" name="season"><option value="">正在读取赛季…</option></select></label>
+        <label>地区<select id="rio-region" name="region"><option value="cn">国服</option></select></label>
+        <div id="rio-overview-filters" class="rio-filter-group">
+            <label>时间范围<select id="rio-days" name="days"><option value="30">最近 30 天</option><option value="14">最近 14 天</option><option value="0">赛季累计</option></select></label>
+            <label>分数线<select id="rio-percentile" name="percentile"><option value="1">前 1%</option><option value="0.1">前 0.1%</option><option value="5">前 5%</option><option value="10">前 10%</option><option value="25">前 25%</option><option value="40">前 40%</option></select></label>
+        </div>
+        <div id="rio-heatmap-filters" class="rio-filter-group" hidden>
+            <label id="rio-dungeon-filter">副本<select id="rio-dungeon" name="dungeon"></select></label>
+            <label>层数<select id="rio-level" name="level"></select></label>
+            <label>周次<select id="rio-period" name="period"></select></label>
+        </div>
+        <div id="rio-level-range" class="rio-filter-group" hidden><label>最低层数<input id="rio-min_level" type="number" min="2" max="99" value="10"></label><label>最高层数<input id="rio-max_level" type="number" min="2" max="99" value="20"></label><button id="rio-apply-level-range" class="rio-text-button" type="button">应用层数</button></div>
+        <div id="rio-week-range" class="rio-filter-group" hidden><label>起始周<select id="rio-week_start"></select></label><label>结束周<select id="rio-week_end"></select></label></div>
+        <div id="rio-raid-filters" class="rio-filter-group" hidden>
+            <label>团本<select id="rio-raid" name="raid"></select></label>
+            <label>难度<select id="rio-difficulty" name="difficulty"><option value="mythic">史诗</option><option value="heroic">英雄</option><option value="normal">普通</option></select></label>
+        </div>
+        <button id="rio-share" class="rio-text-button" type="button">复制当前链接</button>
+    </form>
+    <details id="rio-advanced" class="rio-advanced" hidden><summary>高级筛选<span id="rio-filter-summary" class="rio-note"></span></summary><div class="rio-panel">
+        <p class="rio-note">包含条件匹配任意一项，可多选。死亡者条件仅用于死亡图层。</p>
+        <div class="rio-advanced-grid">
+            <label>队伍包含职业<select id="rio-include_classes" multiple size="3"></select></label>
+            <label>队伍排除职业<select id="rio-exclude_classes" multiple size="3"></select></label>
+            <label>队伍包含专精<select id="rio-include_specs" multiple size="3"></select></label>
+            <label>队伍排除专精<select id="rio-exclude_specs" multiple size="3"></select></label>
+            <label>包含词缀<select id="rio-include_affixes" multiple size="3"></select></label>
+            <label>排除词缀<select id="rio-exclude_affixes" multiple size="3"></select></label>
+            <label>死亡者职业<select id="rio-death_classes" multiple size="3" data-death-filter></select></label>
+            <label>排除死亡者职业<select id="rio-exclude_death_classes" multiple size="3" data-death-filter></select></label>
+            <label>死亡者专精<select id="rio-death_specs" multiple size="3" data-death-filter></select></label>
+            <label>排除死亡者专精<select id="rio-exclude_death_specs" multiple size="3" data-death-filter></select></label>
+            <label>队伍平均装等下限<input id="rio-item_min" type="number" min="0" max="5000" step="0.1" placeholder="不限"></label>
+            <label>队伍平均装等上限<input id="rio-item_max" type="number" min="0" max="5000" step="0.1" placeholder="不限"></label>
+            <label>全程死亡数下限<input id="rio-deaths_min" type="number" min="0" max="5000" placeholder="不限"></label>
+            <label>全程死亡数上限<input id="rio-deaths_max" type="number" min="0" max="5000" placeholder="不限"></label>
+            <label>用时下限（时限倍数）<input id="rio-timer_min" type="number" min="0" max="10" step="0.01" placeholder="0"></label>
+            <label>用时上限（时限倍数）<input id="rio-timer_max" type="number" min="0" max="10" step="0.01" placeholder="1"></label>
+        </div>
+        <div class="rio-advanced-actions"><button id="rio-apply" type="button">应用筛选</button><button id="rio-clear-advanced" type="button">清空高级条件</button></div>
+    </div></details>
+    <p id="rio-status" class="rio-status" role="status" aria-live="polite">正在读取统计数据…</p>
+    <div id="rio-error" class="rio-empty" hidden><h2 id="rio-error-title">暂时无法读取数据</h2><p id="rio-error-message"></p><button id="rio-retry" type="button">重新读取</button><button id="rio-prepare" type="button" hidden>加入凌晨更新</button></div>
+    <section id="rio-overview" role="tabpanel" aria-labelledby="rio-tab-overview">
+        <div class="rio-panel rio-population-layout">
+            <div class="rio-chart-area"><h2>参与角色趋势</h2><div id="rio-population-chart" class="rio-chart"></div></div>
+            <dl class="rio-summary">
+                <div><dt>参与角色</dt><dd id="rio-population">—</dd></div>
+                <div><dt id="rio-score-label">前 1% 分数线</dt><dd id="rio-score">—</dd></div>
+                <div><dt>数据日期</dt><dd id="rio-date" class="rio-date">—</dd></div>
+                <div><dt id="rio-change-label">所选区间角色变化</dt><dd id="rio-change" class="rio-change">—</dd></div>
+            </dl>
+        </div>
+        <div class="rio-detail-layout">
+            <section class="rio-panel"><h2>分数线变化</h2><div id="rio-score-chart" class="rio-chart"></div></section>
+            <section class="rio-panel"><h2>分位对照</h2><table class="rio-table"><thead><tr><th scope="col">分位</th><th scope="col">分数线</th></tr></thead><tbody id="rio-percentiles"></tbody></table></section>
+        </div>
+        <p class="rio-note">统计的是有赛季分数的角色，非独立玩家人数。不同地区的历史重建与样本覆盖可能不同。</p>
+        <details class="rio-data-table"><summary>查看趋势明细</summary><div class="rio-table-scroll"><table class="rio-table"><thead><tr><th scope="col">日期</th><th scope="col">参与角色</th><th scope="col">所选分数线</th></tr></thead><tbody id="rio-history"></tbody></table></div></details>
+        <div class="rio-explore"><h2>探索更多数据</h2><button type="button" data-open="heatmaps">死亡、嗜血与击杀位置 →</button><button type="button" data-open="raids">团本公会进度 →</button></div>
+    </section>
+    <section id="rio-runs" role="tabpanel" aria-labelledby="rio-tab-runs" hidden>
+        <div class="rio-panel rio-population-layout"><div class="rio-chart-area"><h2>完成次数趋势</h2><div id="rio-runs-chart" class="rio-chart"></div></div><dl class="rio-summary"><div><dt>已收录完成记录</dt><dd id="rio-runs-total">—</dd></div><div><dt>限时完成</dt><dd id="rio-runs-timed">—</dd></div><div><dt>限时率</dt><dd id="rio-runs-rate">—</dd></div></dl></div>
+        <p class="rio-note" id="rio-runs-note">限时率按已收录的完成记录计算，不包含全部放弃或解散尝试。</p>
+        <details class="rio-data-table"><summary>查看每周明细</summary><div class="rio-table-scroll"><table class="rio-table"><thead><tr><th scope="col">周次</th><th scope="col">完成次数</th><th scope="col">限时</th><th scope="col">非限时</th><th scope="col">限时率</th></tr></thead><tbody id="rio-runs-rows"></tbody></table></div></details>
+    </section>
+    <section id="rio-heatmaps" role="tabpanel" aria-labelledby="rio-tab-heatmaps" hidden>
+        <div class="rio-layer-controls">
+            <div class="rio-layer-buttons" role="group" aria-label="空间数据类型">
+                <button type="button" data-layer="player_death" aria-pressed="true">死亡位置</button>
+                <button type="button" data-layer="player_spell" aria-pressed="false">嗜血位置</button>
+                <button type="button" data-layer="npc_death" aria-pressed="false">怪物击杀</button>
+            </div>
+            <label class="rio-checkbox"><input type="checkbox" id="rio-zero">仅看全程零死亡样本</label>
+            <label class="rio-opacity">透明度<input type="range" id="rio-opacity" min="20" max="100" value="80"></label>
+        </div>
+        <section class="rio-panel rio-map-panel" aria-label="副本地图">
+            <div class="rio-map-toolbar"><label>楼层<select id="rio-floor"></select></label><a id="rio-source-map" target="_blank" rel="noopener noreferrer">来源地图 ↗</a></div>
+            <div class="rio-map-actions" role="group" aria-label="地图缩放"><button type="button" id="rio-map-zoom-in" aria-label="放大地图">放大</button><button type="button" id="rio-map-zoom-out" aria-label="缩小地图">缩小</button><button type="button" id="rio-map-reset">重置</button><span id="rio-map-scale" aria-label="缩放比例">100%</span></div>
+            <div class="rio-map-frame"><p id="rio-map-message" class="rio-map-message" role="status">正在加载地图…</p><canvas id="rio-heatmap" aria-label="副本热力图" role="img"></canvas></div>
+            <p id="rio-floor-empty" class="rio-note" hidden>该楼层暂无数据。</p>
+            <div class="rio-map-footer"><dl id="rio-map-stats" class="rio-facts"></dl><div class="rio-map-legend" aria-label="热度从低到高"><span>热度</span><span>低</span><div class="rio-density-legend"></div><span>高</span></div></div>
+        </section>
+    </section>
+    <section id="rio-raids" role="tabpanel" aria-labelledby="rio-tab-raids" hidden>
+        <section class="rio-panel"><h2 id="rio-raid-heading">公会击杀进度分布</h2><p class="rio-note">各进度档的公会数量按来源定义展示，不累加为独立公会总数。</p><div id="rio-raid-chart" class="rio-raid-bars"></div><table class="rio-table"><thead><tr><th scope="col">已击杀首领</th><th scope="col">公会数</th></tr></thead><tbody id="rio-raid-rows"></tbody></table></section>
+    </section>
+    <details id="rio-methodology" class="rio-methodology"><summary>数据来源与统计口径</summary>
+        <p>数据每天由凌晨长任务更新。角色、团本进度和空间数据来自 <a href="https://raider.io" target="_blank" rel="noopener noreferrer">Raider.IO</a> 公开 API；完成记录使用单独导入的来源聚合响应。页面展示最近快照，更新时间见上方；它不是实时全服统计。</p>
+        <p>角色趋势统计有正赛季分数的角色，不对现实玩家去重。分数线是对应百分位的样本分数，不保证等同于赛季结算奖励线；空缺的历史值保留为空。</p>
+        <p>空间数据来自客户端上传的战斗日志，当前预设采用限时完成记录。不同类型的样本数与覆盖可能不同，低密度网格可能被上游过滤。嗜血合并当前配置中的同类技能；位置热度不代表最优策略，也不能还原逐把施法时间线。</p>
+        <p>底图来自 <a href="https://keystone.guru" target="_blank" rel="noopener noreferrer">Keystone.Guru</a>，地图版权归暴雪娱乐所有。热度表示事件密度，不等于死亡概率。</p>
+        <p>“全球最近完整周”使用美服周期编号，跨地区重置时间存在差异。团本进度是当前采集快照，未收集历史变化时不推算周增量。</p>
+        <a href="https://raider.io/api" target="_blank" rel="noopener noreferrer">查看官方接口说明 ↗</a>
+    </details>
+</div>
+{% endblock %}
+{% block extra_script %}<script src="{% static 'portal/js/rio-statistics.js' %}?v=20261105_6" defer></script>{% endblock %}

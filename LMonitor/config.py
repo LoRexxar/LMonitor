@@ -49,6 +49,7 @@ from botend.controller.plugins.portal.SpecDetailAggregationMonitor import SpecDe
 from botend.controller.plugins.portal.RaidBurstAggregationMonitor import RaidBurstAggregationMonitor
 from botend.controller.plugins.portal.SpecDungeonDpsRankingMonitor import SpecDungeonDpsRankingMonitor
 from botend.controller.plugins.portal.PlayerRaiderIOActivityMonitor import PlayerRaiderIOActivityMonitor
+from botend.controller.plugins.portal.RioStatisticsMonitor import RioStatisticsMonitor
 
 class DedicatedSimcWorkerSlot(BaseScan):
     """保留历史 MonitorTask.type=15 索引；SimC 仅由 simc_worker 消费。"""
@@ -97,4 +98,5 @@ Monitor_Type_BaseObject_List = [
     WowDataVersionMonitor,
     RaidBurstAggregationMonitor,
     PlayerRaiderIOActivityMonitor,
+    RioStatisticsMonitor,
 ]

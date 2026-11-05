@@ -154,8 +154,14 @@ from botend.simc_agent_api import (
 )
 from django.http import HttpResponse, JsonResponse
 from botend.portal.updates import PortalSiteUpdatesAPIView
+from botend.portal.rio_statistics import RioStatisticsView, RioStatisticsAPIView, RioStatisticsMapView, RioStatisticsPrepareView
 
 urlpatterns = [
+    path('portal/rio-statistics/', RioStatisticsView.as_view(), name='portal_rio_statistics'),
+    path('portal/api/rio-statistics/', RioStatisticsAPIView.as_view(), name='portal_rio_statistics_catalog'),
+    path('portal/api/rio-statistics/prepare/', RioStatisticsPrepareView.as_view(), name='portal_rio_statistics_prepare'),
+    path('portal/api/rio-statistics/maps/<str:image_key>/', RioStatisticsMapView.as_view(), name='portal_rio_statistics_map'),
+    path('portal/api/rio-statistics/<str:module>/', RioStatisticsAPIView.as_view(), name='portal_rio_statistics_data'),
     path('api/dashboard/ai-providers/', AIProviderManagementAPIView.as_view(), name='dashboard_ai_providers'),
     path('api/dashboard/ai-providers/<str:provider_key>/', AIProviderManagementAPIView.as_view(), name='dashboard_ai_provider_detail'),
     path('api/site-analytics/collect/', CollectView.as_view(), name='site_analytics_collect'),
