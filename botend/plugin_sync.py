@@ -27,7 +27,7 @@ def _monitor_task_lease_ttl(lease_seconds=None):
 
 NIGHT_LANE_TASKS = (
     'SpecDetailSeasonMonitor', 'WowDataVersionMonitor',
-    'MythicDungeonToolsMonitor', 'MaxrollClassGuideMonitor',
+    'MythicDungeonToolsMonitor', 'RioStatisticsMonitor', 'MaxrollClassGuideMonitor',
     'WowDailyReportMonitor', 'SpecDetailPlayerMonitor',
     'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor',
 )
@@ -107,6 +107,9 @@ def portal_data_task_due_at(task, now=None):
         return None
 
     local_now = _normalized_now(now).astimezone(PORTAL_DATA_TIMEZONE)
+    # 数据观察只在凌晨启动；不把昨夜未运行的重采集补到白天。
+    if task.name == 'RioStatisticsMonitor' and local_now.hour >= 6:
+        return None
     from botend.services.wcl_collection_cycle import NO_OVERRIDE, scheduled_cycle_due_at
     override = scheduled_cycle_due_at(task, local_now)
     if override is not NO_OVERRIDE:
@@ -123,6 +126,22 @@ def portal_data_task_due_at(task, now=None):
         return latest_slot
     if timezone.is_naive(last_scan_time):
         last_scan_time = timezone.make_aware(last_scan_time, PORTAL_DATA_TIMEZONE)
+    if task.name == 'RioStatisticsMonitor':
+        from botend.services.rio_statistics_schedule import resume_due_at, flag_data
+        # 传给恢复判定的时钟与通用队列保持一致。
+        from types import SimpleNamespace
+        normalized = SimpleNamespace(last_scan_time=last_scan_time, flag=getattr(task, 'flag', ''))
+        flag = flag_data(normalized.flag)
+        scope_token = None
+        if (flag.get('state') == 'complete'
+                and str(flag.get('identity', '')).split('@', 1)[0] == local_now.date().isoformat()):
+            from botend.services.rio_statistics_scope import active_scope, ScopeUnavailable
+            from django.db import DatabaseError
+            try:
+                scope_token = active_scope()['token']
+            except (ScopeUnavailable, DatabaseError):
+                return None
+        return resume_due_at(normalized, local_now, latest_slot, scope_token=scope_token)
     return latest_slot if last_scan_time < latest_slot else None
 
 

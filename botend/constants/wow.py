@@ -359,6 +359,8 @@ DUNGEON_CN = {
 
 # 团本区域英文 → 中文
 RAID_ZONE_CN = {
+    # 来源：中央中文手册制品 kithix_localization_12_1_5.json。
+    "The Unbinding of Kith'ix": "基希克斯破封",
     # TWW
     "Nerub-ar Palace": "尼鲁巴尔王宫",
     "Liberation of Undermine": "安德麦解放战",
