@@ -57,6 +57,11 @@ html.portal-theme-dark .home-news-wowhead { --news-accent: #f4a3ae; --news-tint:
 html.portal-theme-dark .home-news-date-error { color: #ffabb5; }
 html.portal-theme-dark .home-news-custom input { color-scheme: dark; }
 html.portal-theme-dark .home-news-presets button:is([aria-pressed="true"], [aria-expanded="true"]) { color: #c4bdff; }
+/* Only capable desktop browsers opt in; single-column CSS never applies spans. */
+@media (min-width: 901px) {
+    .home-news-sources.is-masonry { grid-auto-rows: 1px; row-gap: 0; grid-auto-flow: dense; }
+    .home-news-sources.is-masonry > .home-news-source { grid-row-end: span var(--news-row-span, 1); }
+}
 @media (max-width: 900px) {
     .home-news-sources { grid-template-columns: minmax(0, 1fr); }
 }
