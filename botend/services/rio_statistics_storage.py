@@ -230,12 +230,17 @@ class SnapshotStore:
             rows = db.execute('SELECT coordinate,error FROM snapshots WHERE scope=? AND payload IS NOT NULL', (scope or '',)).fetchall()
         return [{'coordinate': json.loads(r['coordinate']), 'state': 'stale' if r['error'] else 'ready'} for r in rows]
 
-    def projection_entries(self, scope):
+    def projection_entries(self, scope, *, keys=None):
         """仅供后台投影枚举当前范围，不在公开请求路径使用。"""
         self.ensure()
+        rows = []
+        selected = None if keys is None else sorted(set(keys))
         with self.connection() as db:
-            rows = db.execute('''SELECT key,coordinate,attempted_at,next_at,error,fetched_at,digest,
-                payload IS NOT NULL AS has_payload FROM snapshots WHERE scope=?''', (scope,)).fetchall()
+            for start in ([0] if selected is None else range(0, len(selected), 400)):
+                batch = [] if selected is None else selected[start:start + 400]
+                clause = '' if selected is None else ' AND key IN (' + ','.join('?' for _ in batch) + ')'
+                rows.extend(db.execute('''SELECT key,coordinate,attempted_at,next_at,error,fetched_at,digest,
+                    payload IS NOT NULL AS has_payload FROM snapshots WHERE scope=?''' + clause, (scope, *batch)).fetchall())
         return {row['key']: {**self._entry(row), 'digest': row['digest'], 'has_payload': bool(row['has_payload'])} for row in rows}
 
     def _history(self, db, key, c, blob, digest, size, fetched_at, upstream_at):
@@ -391,6 +396,18 @@ class SnapshotStore:
                     db.execute('ROLLBACK')
                     raise
         return repaired
+
+    def progress(self):
+        """仅取最近批次，不扫描快照、正文或文件目录。"""
+        if not self.initialized():
+            return {'state': 'uninitialized', 'message': '尚无可读取的批次记录'}
+        with self.connection() as db:
+            row = db.execute('SELECT * FROM cycles ORDER BY started_at DESC LIMIT 1').fetchone()
+        if not row:
+            return {'state': 'unknown', 'message': '尚无批次记录'}
+        result = dict(row)
+        result['details'] = json.loads(result['details'])
+        return result
 
     def audit(self, *, deep=False):
         if not self.initialized():

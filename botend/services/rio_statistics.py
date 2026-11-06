@@ -339,6 +339,19 @@ class Collector:
         self.force = force
         self.stopped = False
         self.scope = None
+        self._view_keys = set()
+
+    def publish_views(self):
+        from botend.services.rio_statistics_views import refresh_views
+        stage = self._report.get('stage', 'snapshots')
+        self._progress(stage='views')
+        try:
+            result = refresh_views(keys=self._view_keys, verify=False)
+            self._view_keys.clear()
+            self._progress(views=result)
+            return result
+        finally:
+            self._progress(stage=stage)
 
     def request(self, url, params=None):
         if self.stopped or self.requests >= self.max_requests:
@@ -475,6 +488,8 @@ class Collector:
         return normalize_heatmap(data, meta['floors'].get(str(dungeon['challenge_mode_id']), [])), None
 
     def _progress(self, **fields):
+        if fields.get('stage') and fields['stage'] != self._report.get('stage'):
+            self._report['stage_started_at'] = _now()
         self._report.update(fields)
         self._report.update(requests=self.requests, progress_at=_now())
         store().cycle(self._report, cycle_id=self.cycle_id)
@@ -496,6 +511,7 @@ class Collector:
             cache.recover_cycles()
             self.maintain = maintain
             self._report = {'state': 'running', 'stage': 'metadata', 'progress_at': _now(),
+                            'stage_started_at': _now(),
                             'kind': 'nightly' if maintain else 'manual', 'day': timezone.now().astimezone(LOCAL_TZ).date().isoformat(),
                             'full_plan': (not only_queries and not dungeons and set(modules) == set(MODULES)
                                           and set(regions) == {'cn', 'world'} and set(levels) == set(DEFAULT_LEVELS)
@@ -509,14 +525,14 @@ class Collector:
                     result = self._collect(season=season, regions=regions, modules=modules, dungeons=dungeons,
                         levels=levels, periods=periods, queries=queries, only_queries=only_queries)
                 try:
-                    from botend.services.rio_statistics_views import refresh_views
-                    result['views'] = refresh_views()
+                    result['views'] = self.publish_views()
                     if result['views']['state'] != 'complete':
                         result.update(state='partial', views_error='部分正文未就绪，保留已发布数据')
                 except (StorageError, ScopeUnavailable, OSError, ValueError) as exc:
                     result.update(state='partial', views_error=type(exc).__name__)
                     logger.exception('统计展示文件未能发布，保留现有展示')
                 if maintain:
+                    self._progress(stage='storage-audit')
                     report = cache.audit(deep=True)
                     entries = cache.index()['entries']
                     invalid_active = [key for key in report['invalid_payloads']
@@ -525,6 +541,7 @@ class Collector:
                     if invalid_active:
                         result.update(state='partial', maintenance_error='当前版本仍有未修复缓存')
                     try:
+                        self._progress(stage='backup')
                         cache.backup()
                     except StorageError:
                         result.update(state='partial', maintenance_error='备份未完成，原备份保留')
@@ -552,6 +569,7 @@ class Collector:
         meta = self.metadata()
         self._progress(scope=self.scope['token'], stage='planning')
         if self.maintain:
+            self._progress(stage='storage-audit')
             report = store().audit(deep=True)
             recovered = store().repair_from_backups(report)
             if recovered:
@@ -569,7 +587,7 @@ class Collector:
         if not season_row:
             raise ValueError('未知采集赛季')
         from botend.services.rio_statistics_runs import import_feeds
-        feed_result = import_feeds(meta) if 'runs' in modules else {'imported': 0, 'failed': 0}
+        feed_result = import_feeds(meta, changed_keys=self._view_keys) if 'runs' in modules else {'imported': 0, 'failed': 0}
         if dungeons and not set(dungeons) <= {d['slug'] for d in season_row['dungeons']}:
             raise ValueError('副本不属于该赛季')
         tasks = []
@@ -611,17 +629,51 @@ class Collector:
                  or _stamp(manifest[key_for(c)]['next_at']) <= now]
         # 总览优先；其余同一模块先处理未尝试组合，避免单一坏组合饿死其他范围。
         tasks.sort(key=lambda c: (c['module'] != 'overview', key_for(c) not in subscribed_keys,
-                                  MODULES.index(c['module']), manifest.get(key_for(c), {}).get('attempted_at', '')))
+                                  MODULES.index(c['module']), bool(manifest.get(key_for(c), {}).get('attempted_at')),
+                                  c.get('level') != '10-plus', c.get('period') != 'season', c['region'] != 'cn',
+                                  manifest.get(key_for(c), {}).get('attempted_at', '')))
         ready = failed = 0
         consecutive_errors = 0
+        maps_failed = 0
+        maps_started = False
+        query_dungeons = {c.get('dungeon') for c in subscribed}
+        map_targets = [d for d in season_row['dungeons'] if (not dungeons or d['slug'] in dungeons)
+                       and (not only_queries or d['slug'] in query_dungeons)] if 'heatmaps' in modules else []
+        def prepare_maps():
+            nonlocal maps_started, maps_failed
+            maps_started = True
+            self._progress(stage='maps', ready=ready, failed=failed, maps_failed=maps_failed)
+            from botend.services.rio_statistics_maps import collect_maps
+            for dungeon in map_targets:
+                if self.requests >= self.max_requests or self.stopped:
+                    break
+                view = dict(meta, seasons=[dict(season_row, dungeons=[dungeon])])
+                try:
+                    collect_maps(view, self.scope, self.get_bytes, root(), checkpoint=lambda _: self.save_metadata(meta))
+                except Exception as exc:
+                    maps_failed += 1
+                    logger.warning('数据观察地图采集失败 %s：%s', dungeon['slug'], type(exc).__name__)
+                    if isinstance(exc, (ScopeUnavailable, StorageError)):
+                        self.stopped = True
+                        break
+                self._progress(stage='maps', ready=ready, failed=failed, maps_failed=maps_failed)
+            self._progress(stage='snapshots')
+        map_budget = sum(2 + 16 * len(meta['floors'].get(str(d['challenge_mode_id']), [])) for d in map_targets)
         self._progress(stage='snapshots', planned=len(tasks), ready=0, failed=0)
         for c in tasks:
             if self.requests >= self.max_requests or self.stopped:
                 break
+            if (c['module'] == 'heatmaps' and not maps_started
+                    and self.max_requests - self.requests >= len(tasks) + map_budget):
+                # 总览先发布；预算充足时先准备底图，避免空间数据等数千个组合后才能展示。
+                prepare_maps()
+                if self.stopped or self.requests >= self.max_requests:
+                    break
             try:
                 payload, stamp = self.fetch(c, meta)
                 self.guard_scope()
                 _publish(c, payload, upstream_at=stamp)
+                self._view_keys.add(key_for(c))
                 ready += 1
                 consecutive_errors = 0
             except ScopeUnavailable:
@@ -629,6 +681,7 @@ class Collector:
                 break
             except Exception as exc:
                 _failure(c, '来源限流' if isinstance(exc, RateLimited) else '本轮采集失败')
+                self._view_keys.add(key_for(c))
                 failed += 1
                 logger.warning('Raider.IO 统计采集失败 %s：%s', c, type(exc).__name__)
                 response = getattr(exc, 'response', None)
@@ -642,22 +695,15 @@ class Collector:
                     break
             if (ready + failed) % 25 == 0:
                 self._progress(ready=ready, failed=failed)
-        maps_failed = 0
-        query_dungeons = {c.get('dungeon') for c in subscribed}
-        map_targets = [d for d in season_row['dungeons'] if (not dungeons or d['slug'] in dungeons)
-                       and (not only_queries or d['slug'] in query_dungeons)] if 'heatmaps' in modules else []
-        if 'heatmaps' in modules and not self.stopped:
-            from botend.services.rio_statistics_maps import collect_maps
-            for dungeon in map_targets:
-                if self.requests >= self.max_requests or self.stopped:
-                    break
-                view = dict(meta, seasons=[dict(season_row, dungeons=[dungeon])])
+            if ready + failed == 1 or (ready + failed) % 100 == 0:
                 try:
-                    collect_maps(view, self.scope, self.get_bytes, root(), checkpoint=lambda _: self.save_metadata(meta))
-                except Exception as exc:
-                    maps_failed += 1
-                    logger.warning('数据观察地图采集失败 %s：%s', dungeon['slug'], type(exc).__name__)
-                self._progress(stage='maps', ready=ready, failed=failed, maps_failed=maps_failed)
+                    self._progress(stage='snapshots', ready=ready, failed=failed)
+                    published = self.publish_views()
+                    self._progress(stage='snapshots', ready=ready, failed=failed, views=published)
+                except (StorageError, ScopeUnavailable, OSError, ValueError):
+                    logger.exception('采集过程展示检查点未发布，已有发布保留')
+        if 'heatmaps' in modules and not self.stopped and not maps_started:
+            prepare_maps()
         def map_ready(dungeon):
             atlas = meta.get('maps', {}).get(dungeon['slug'], {})
             return (atlas.get('scope_token') == self.scope['token'] and atlas.get('floors')

@@ -18,9 +18,10 @@ class Command(BaseCommand):
         if meta.get('scope_state') != 'ready':
             raise CommandError('当前赛季元数据尚未就绪，请先完成每日元数据采集')
         try:
-            changed = import_file(options['source'], meta)
+            changed_keys = set()
+            changed = import_file(options['source'], meta, changed_keys=changed_keys)
             from botend.services.rio_statistics_views import refresh_views
-            refresh_views()
+            refresh_views(keys=changed_keys, verify=False)
         except (ValueError, TypeError, KeyError, OSError, StorageError, ScopeUnavailable) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(json.dumps({'已更新': changed}, ensure_ascii=False))

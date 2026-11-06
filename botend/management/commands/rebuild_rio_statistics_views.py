@@ -9,9 +9,12 @@ from botend.services.rio_statistics_scope import ScopeUnavailable
 class Command(BaseCommand):
     help = '重建数据观察页面展示文件；不访问外网，不改变业务赛季'
 
+    def add_arguments(self, parser):
+        parser.add_argument('--reuse-published', action='store_true', help='复用已提交且未变更的正文，快速升级或刷新轻量目录；不进行全量正文复核')
+
     def handle(self, *args, **options):
         try:
-            result = refresh_views()
+            result = refresh_views(keys=set(), verify=False) if options['reuse_published'] else refresh_views()
         except (StorageError, ScopeUnavailable, OSError, ValueError) as exc:
             raise CommandError(str(exc)) from exc
         self.stdout.write(json.dumps(result, ensure_ascii=False))
