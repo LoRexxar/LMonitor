@@ -9,7 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="{% static 'portal/js/portal-theme.js' %}?v=20260903_unified_navigation"></script>
     <link rel="stylesheet" href="{% static 'portal/css/portal.css' %}?v=20260911_focus_digest">
-    <link rel="stylesheet" href="{% static 'portal/css/home-news.css' %}?v=20261106_home_masonry_1">
+    <link rel="stylesheet" href="{% static 'portal/css/home-news.css' %}?v=20261106_home_headers_1">
 </head>
 <body class="portal-bg font-sans">
     {% include 'portal/_header.html' %}
@@ -60,9 +60,9 @@
             </div>
             <div id="featured-news-card"></div>
             <section class="home-news" aria-labelledby="home-news-title">
-                <div class="home-news-toolbar" id="home-news-controls">
+                <div class="home-news-toolbar portal-card portal-card-accent portal-accent-indigo shadow-sm border border-slate-200/70 p-4" id="home-news-controls">
                     <div class="home-news-heading">
-                        <h2 id="home-news-title">魔兽新闻与咨询</h2>
+                        <h2 id="home-news-title"><svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-newspaper"></use></svg><span>魔兽新闻与资讯</span></h2>
                         <div class="home-news-presets" role="group" aria-label="新闻日期范围">
                             <button type="button" data-news-days="1" aria-pressed="false">今天</button>
                             <button type="button" data-news-days="3" aria-pressed="true">近 3 天</button>
