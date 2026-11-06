@@ -254,8 +254,13 @@ class RioStatisticsPresentationTests(SimpleTestCase):
             with self.subTest(node_id=node_id):
                 node = self.dom.find(id=node_id)
                 self.assertEqual(node.name, contract['tag'])
+                expected_attrs = dict(contract['attrs'])
+                # The moved controls keep their original form owner explicitly.
+                if node_id in ('rio-dungeon', 'rio-level', 'rio-period', 'rio-min_level',
+                               'rio-max_level', 'rio-week_start', 'rio-week_end', 'rio-apply-level-range'):
+                    expected_attrs['form'] = 'rio-filters'
                 self.assertEqual({k: v for k, v in node.attrs.items()
-                                  if k not in ('id', 'class')}, contract['attrs'])
+                                  if k not in ('id', 'class')}, expected_attrs)
                 self.assertEqual([dict(o.attrs) for o in node.select('option')], contract['options'])
         self.assertIn('{% csrf_token %}', self.source)
 
@@ -295,6 +300,19 @@ class RioStatisticsPresentationTests(SimpleTestCase):
         self.assertIsNotNone(disclosure.find('summary', recursive=False))
         self.assertIsNotNone(disclosure.find(id='rio-filters'))
         self.assertIsNone(self.dom.find(id='rio-context').find_parent(id='rio-filter-disclosure'))
+
+    def test_dungeon_and_range_controls_are_visible_outside_general_disclosure(self):
+        scope = self.dom.select_one('.rio-map-scope')
+        self.assertIsNotNone(scope)
+        self.assertIsNone(scope.find_parent('details'))
+        self.assertIsNone(scope.find_parent(attrs={'role': 'tabpanel'}), 'selection remains reachable with an empty result')
+        for node_id in ('rio-dungeon', 'rio-level', 'rio-period', 'rio-min_level', 'rio-max_level', 'rio-week_start', 'rio-week_end'):
+            control = scope.find(id=node_id)
+            self.assertIsNotNone(control)
+            self.assertEqual(control.get('form'), 'rio-filters')
+        self.assertIsNotNone(scope.find(id='rio-dungeon-filter'))
+        self.assertIsNotNone(scope.find(id='rio-level-range'))
+        self.assertIsNotNone(scope.find(id='rio-week-range'))
 
     def test_filter_groups_and_current_context_are_separate(self):
         filters = self.dom.find(id='rio-filters')

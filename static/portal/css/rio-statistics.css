@@ -152,6 +152,16 @@ html.portal-theme-dark .rio-observer {
 .rio-observer #rio-runs > .rio-note { margin: 12px 2px; }
 .rio-observer #rio-runs .rio-table { min-width: 560px; }
 
+/* Dungeon is a primary workspace switch, never a collapsed general filter. */
+.rio-observer .rio-map-scope { display: none; margin: 12px 0; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.rio-observer[data-tab="heatmaps"] .rio-map-scope,
+.rio-observer[data-tab="runs"] .rio-map-scope { display: flex; }
+.rio-observer .rio-map-scope .rio-filter-group { width: 100%; }
+.rio-observer .rio-map-scope label { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 5px; font-size: 12px; font-weight: 600; color: var(--rio-muted); }
+.rio-observer .rio-map-scope #rio-dungeon-filter { flex: 2; }
+.rio-observer .rio-map-scope select,
+.rio-observer .rio-map-scope input[type="number"] { width: 100%; min-width: 0; max-width: none; }
+
 /* Heatmap tools are separate from the map; canvas coordinates stay 3:2. */
 .rio-observer .rio-layer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; margin-bottom: 14px; padding: 14px 18px; }
 .rio-observer .rio-control-label { display: block; color: var(--rio-muted); font-size: 11px; font-weight: 600; margin-bottom: 6px; }
@@ -263,6 +273,7 @@ html.portal-theme-dark .rio-observer {
     .rio-observer .rio-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; border-left: 0; border-top: 1px solid var(--rio-line); margin: 0; padding: 14px 0 0; }
     .rio-observer .rio-summary > div + div { margin: 0; }
     .rio-observer .rio-summary dd { font-size: 23px; }
+    .rio-observer .rio-map-scope #rio-dungeon-filter { grid-column: 1 / -1; }
     .rio-observer .rio-layer-controls { padding: 12px; gap: 12px; }
     .rio-observer .rio-layer-selector { width: 100%; }
     .rio-observer .rio-layer-buttons button { flex: 1; padding: 7px 8px; font-size: 12px; }
