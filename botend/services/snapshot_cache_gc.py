@@ -90,8 +90,14 @@ class Reader:
         require(before[2] <= 32 * 1024 * 1024, 'file validation budget exceeded')
         self.bytes += before[2]
         require(self.bytes <= self.maximum, 'closure validation byte budget exceeded')
-        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        fd = os.open(path, os.O_RDONLY | getattr(os, 'O_NOFOLLOW', 0))
         with os.fdopen(fd, 'r', encoding='utf-8') as stream:
+            # Windows没有O_NOFOLLOW；读取前核对已打开句柄与lstat身份，拒绝路径替换。
+            opened = os.fstat(stream.fileno())
+            # Windows的句柄/路径ctime口径不同；设备、文件标识、长度和mtime用于开句柄核对。
+            require(stat.S_ISREG(opened.st_mode) and opened.st_nlink == 1 and
+                    (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) == before[:4],
+                    'file changed while opening')
             body = json.load(stream, object_pairs_hook=_pairs,
                              parse_constant=lambda _: require(False, 'non-finite JSON'))
         require(_identity(path) == before, 'file changed while validating')
@@ -191,6 +197,8 @@ class Reader:
             return self.metadata(name)
         if self.kind == 'news':
             keys = ('schema', 'shards', 'sources', 'home')
+            if 'home_shards' in index:
+                keys += ('home_shards',)
             require(set(index) == {*keys, 'generation', 'generated_at'}, 'unknown news index fields')
             require(digest({k: index[k] for k in keys}) == index['generation'], 'news generation mismatch')
             require(isinstance(index['shards'], list) and isinstance(index['sources'], dict), 'invalid news index')
@@ -208,6 +216,17 @@ class Reader:
                         and dict(counts) == shard['sources'], 'news shard count mismatch')
                 totals.update(counts)
             require(dict(totals) == index['sources'], 'news total mismatch')
+            # 首页日期分片与历史列表独立，必须纳入当前发布的可达文件集合。
+            require(isinstance(index.get('home_shards', []), list), 'invalid home shards')
+            for shard in index.get('home_shards', []):
+                require(isinstance(shard, dict) and set(shard) == {'file', 'count', 'sources', 'month'},
+                        'invalid home shard')
+                items = load(shard['file']).get('items')
+                require(isinstance(items, list) and all(isinstance(row.get('source'), str) for row in items),
+                        'invalid home items')
+                require(type(shard['count']) is int and len(items) == shard['count']
+                        and dict(Counter(row['source'] for row in items)) == shard['sources'],
+                        'home shard count mismatch')
         elif self.kind == 'rio':
             require(set(index) == {'schema', 'current_season', 'entries'}
                     and isinstance(index['current_season'], str) and isinstance(index['entries'], dict), 'invalid RIO index')

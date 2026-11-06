@@ -425,9 +425,11 @@ async function loadTools() {
 }
 
 const SECTION_MAP = {
-  blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list" },
-  exwind: { url: "/portal/api/exwind/latest/", listId: "exwind-list" },
-  wowhead: { url: "/portal/api/wowhead/latest/", listId: "wowhead-list" },
+  blueposts: { url: "/portal/api/blueposts/", listId: "blueposts-list", homeNews: true },
+  blizzard_cn: { url: "/portal/api/exwind/latest/?source=blizzard_cn", listId: "blizzard_cn-list", homeNews: true },
+  exwind: { url: "/portal/api/exwind/latest/?source=exwind", listId: "exwind-list", homeNews: true },
+  nga_preview: { url: "/portal/api/exwind/latest/?source=nga_preview", listId: "nga_preview-list", homeNews: true },
+  wowhead: { url: "/portal/api/wowhead/latest/", listId: "wowhead-list", homeNews: true },
   today_in_wow: { url: "/portal/api/today-in-wow/latest/" },
   daily_report: { url: "/portal/api/daily-report/latest/" },
   nga: { url: "/portal/api/nga-hot/", listId: "nga-list" },
@@ -454,8 +456,7 @@ const PORTAL_STATE = {
   sectionRequests: {},
   sectionFailures: {},
   mplusCutoffsMeta: { season: "", updated_at: "" },
-  activeExwindSource: "default",
-  exwindTabsBound: false,
+  homeNews: { preset: 3, range: null, status: {}, snapshots: {}, bound: false },
   searchBound: false,
   dailyReport: null,
   wowToday: null,
@@ -688,13 +689,6 @@ function renderWowTodayPanel() {
   });
 }
 
-function getExwindUrl() {
-  const ep = SECTION_MAP.exwind;
-  if (!ep) return "";
-  if (PORTAL_STATE.activeExwindSource === "nga_preview") return `${ep.url}?source=nga_preview`;
-  return ep.url;
-}
-
 function firstArrayItem(sectionKey) {
   const items = PORTAL_STATE.dataBySection[sectionKey];
   return Array.isArray(items) && items.length ? items[0] : null;
@@ -906,31 +900,224 @@ function renderTodayStrip() {
   }
 }
 
-function renderExwindSourceTabs() {
-  const wrap = document.getElementById("exwind-source-tabs");
-  if (!wrap) return;
-  const active = PORTAL_STATE.activeExwindSource || "default";
-  wrap.querySelectorAll("[data-exwind-source]").forEach((btn) => {
-    const on = btn.getAttribute("data-exwind-source") === active;
-    btn.className = `px-3 py-1 rounded-full text-xs border ${on ? "border-slate-900 bg-slate-900 text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"}`;
-  });
+const HOME_NEWS_SOURCE_NAMES = {
+  blizzard_tracker: "Blizzard Tracker", blizzard_cn: "魔兽世界中国",
+  exwind: "Exwind", nga: "NGA", wowhead: "Wowhead",
+};
+
+function homeNewsKeys() {
+  return Object.keys(SECTION_MAP).filter((key) => SECTION_MAP[key].homeNews);
 }
 
-function bindExwindSourceTabs() {
-  if (PORTAL_STATE.exwindTabsBound) return;
-  const wrap = document.getElementById("exwind-source-tabs");
-  if (!wrap) return;
-  wrap.querySelectorAll("[data-exwind-source]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const next = btn.getAttribute("data-exwind-source") || "default";
-      if (next === PORTAL_STATE.activeExwindSource) return;
-      PORTAL_STATE.activeExwindSource = next;
-      renderExwindSourceTabs();
-      await loadSection("exwind");
-      updateSearchMeta();
+function homeNewsToday(now = new Date()) {
+  return new Date(now.getTime() + 8 * 3600000).toISOString().slice(0, 10);
+}
+
+function homeNewsPresetRange(days, now = new Date()) {
+  const end = homeNewsToday(now);
+  const start = new Date(`${end}T00:00:00Z`);
+  start.setUTCDate(start.getUTCDate() - days + 1);
+  return {start_date: start.toISOString().slice(0, 10), end_date: end};
+}
+
+const HOME_NEWS_PREF_KEY = "wowdaily:home-news:dates:v1";
+
+function validHomeNewsRange(range, now = new Date()) {
+  const validDate = (value) => {
+    if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const date = new Date(`${value}T00:00:00Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value;
+  };
+  return range && validDate(range.start_date) && validDate(range.end_date)
+    && range.start_date <= range.end_date && range.end_date <= homeNewsToday(now);
+}
+
+function loadHomeNewsPreferences(now = new Date()) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(HOME_NEWS_PREF_KEY));
+    if (saved?.version === 1) {
+      if ([1, 3, 7].includes(saved.preset)) {
+        return {preset: saved.preset, range: homeNewsPresetRange(saved.preset, now)};
+      }
+      if (saved.preset === null && validHomeNewsRange(saved.range, now)) {
+        return {preset: null, range: {start_date: saved.range.start_date, end_date: saved.range.end_date}};
+      }
+    }
+  } catch (_error) {
+    // 本地存储不可用或记录损坏时回退到近3天。
+  }
+  return {preset: 3, range: homeNewsPresetRange(3, now)};
+}
+
+function saveHomeNewsPreferences() {
+  const {preset, range} = PORTAL_STATE.homeNews;
+  try {
+    localStorage.setItem(HOME_NEWS_PREF_KEY, JSON.stringify({version: 1, preset,
+      ...(preset === null ? {range} : {})}));
+  } catch (_error) {
+    // 禁用本地存储时，当前页面仍正常切换日期。
+  }
+}
+
+function homeNewsRange() {
+  if (!PORTAL_STATE.homeNews.range) Object.assign(PORTAL_STATE.homeNews, loadHomeNewsPreferences());
+  return PORTAL_STATE.homeNews.range;
+}
+
+function homeNewsUrl(key) {
+  const base = SECTION_MAP[key].url;
+  const range = homeNewsRange();
+  return `${base}${base.includes("?") ? "&" : "?"}start_date=${encodeURIComponent(range.start_date)}&end_date=${encodeURIComponent(range.end_date)}`;
+}
+
+function homeNewsSourceName(item) {
+  return HOME_NEWS_SOURCE_NAMES[item.source] || item.source || "来源未标注";
+}
+
+function renderHomeNews(key) {
+  const list = document.getElementById(SECTION_MAP[key].listId);
+  if (!list) return;
+  const setVisible = (visible) => {
+    for (const id of [`news-source-${key}`, `news-jump-${key}`]) {
+      const element = document.getElementById(id);
+      if (element) element.hidden = !visible;
+    }
+  };
+  setVisible(true);
+  const news = PORTAL_STATE.homeNews;
+  const state = news.status[key] || "loading";
+  const count = document.getElementById(`news-count-${key}`);
+  list.setAttribute?.("aria-busy", String(state === "loading"));
+  if (state === "loading") {
+    if (count) count.textContent = "正在读取";
+    list.innerHTML = '<p class="home-news-message">正在读取所选日期的新闻…</p>';
+    return;
+  }
+  if (state === "error" || state === "pending") {
+    if (count) count.textContent = state === "pending" ? "数据准备中" : "暂未读取";
+    const message = state === "pending" ? "新闻数据正在准备，请稍后重试。" : "该来源暂时无法读取，请重试。";
+    list.innerHTML = `<p class="home-news-message" role="status">${message}<button type="button" data-home-news-retry="${escapeHtml(key)}">重试</button></p>`;
+    return;
+  }
+  const allItems = PORTAL_STATE.dataBySection[key] || [];
+  const query = getSearchQuery();
+  const items = allItems.filter((item) => matchItem(item, query) || (query && homeNewsSourceName(item).toLowerCase().includes(query)))
+    .sort((a, b) => String(b.publish_time || "").localeCompare(String(a.publish_time || "")) || Number(b.id || 0) - Number(a.id || 0));
+  if (count) count.textContent = query ? `匹配 ${items.length} / ${allItems.length} 条` : `所选日期 · ${allItems.length} 条`;
+  const snapshot = news.snapshots[key];
+  const notice = snapshot?.state === "stale"
+    ? `<p class="home-news-notice" role="status">${escapeHtml(snapshot.message || "新闻更新暂未完成，正在展示上次数据。")}</p>` : "";
+  if (!items.length) {
+    list.innerHTML = "";
+    setVisible(false);
+    return;
+  }
+  // 每个来源按发布时间连续排列，日期仅用于范围筛选，不拆成每日分组。
+  const entries = items.map((item) => {
+      const title = escapeHtml(item.title_cn || item.title || "未提供标题");
+      const original = sanitizeHref(item.url || "");
+      const internal = (key === "blueposts" || key === "wowhead") && /^\d+$/.test(String(item.id))
+        ? `/portal/article/${item.id}/` : "";
+      const href = internal || original;
+      const link = href ? `<a class="home-news-title" href="${escapeHtml(href)}"${internal ? "" : ' target="_blank" rel="noreferrer"'}>${title}</a>`
+        : `<span class="home-news-title">${title}</span>`;
+      const author = item.author && item.author !== item.source && item.author !== homeNewsSourceName(item)
+        ? `<span>${escapeHtml(item.author)}</span>` : "";
+      const published = String(item.publish_time || "");
+      return `<li class="home-news-row">
+        <div>${link}<div class="home-news-meta"><span class="home-news-origin">${escapeHtml(homeNewsSourceName(item))}</span>${author}
+          <time class="home-news-time" datetime="${escapeHtml(published.replace(" ", "T"))}+08:00">${escapeHtml(published.slice(0, 16))}</time>
+        </div></div>
+      </li>`;
+  }).join("");
+  list.innerHTML = `${notice}<ul class="home-news-items">${entries}</ul>`;
+}
+
+function renderHomeNewsControls() {
+  const controls = document.getElementById("home-news-controls");
+  if (!controls) return;
+  const news = PORTAL_STATE.homeNews;
+  const range = homeNewsRange();
+  controls.querySelectorAll("[data-news-days]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(Number(button.dataset.newsDays) === news.preset));
+  });
+  document.getElementById("home-news-custom-toggle").setAttribute("aria-pressed", String(news.preset === null));
+  document.getElementById("home-news-range").textContent = `${range.start_date} 至 ${range.end_date} · 北京时间 · 按发布时间`;
+  for (const [id, value] of [["home-news-start", range.start_date], ["home-news-end", range.end_date]]) {
+    const input = document.getElementById(id);
+    input.max = homeNewsToday();
+    input.value = value;
+  }
+}
+
+async function reloadHomeNews() {
+  const keys = homeNewsKeys();
+  // 先使所有旧请求失效，再启动有界并发，防止旧日期内容混入新范围。
+  for (const key of keys) {
+    PORTAL_STATE.sectionRequests[key] = (PORTAL_STATE.sectionRequests[key] || 0) + 1;
+    PORTAL_STATE.dataBySection[key] = [];
+    PORTAL_STATE.homeNews.status[key] = "loading";
+    renderHomeNews(key);
+  }
+  updateSearchMeta();
+  await loadHomepageSections(keys);
+}
+
+function bindHomeNewsControls() {
+  const controls = document.getElementById("home-news-controls");
+  if (!controls || PORTAL_STATE.homeNews.bound) return;
+  const custom = document.getElementById("home-news-custom");
+  const toggle = document.getElementById("home-news-custom-toggle");
+  const error = document.getElementById("home-news-date-error");
+  controls.querySelectorAll(".home-news-jumps a").forEach((link) => {
+    link.addEventListener("click", (event) => {
+      const section = document.getElementById(link.hash.slice(1));
+      if (!section) return;
+      event.preventDefault();
+      window.history.replaceState(null, "", link.hash);
+      scrollToPortalSection(section);
     });
   });
-  PORTAL_STATE.exwindTabsBound = true;
+  controls.querySelectorAll("[data-news-days]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const days = Number(button.dataset.newsDays);
+      PORTAL_STATE.homeNews.preset = days;
+      PORTAL_STATE.homeNews.range = homeNewsPresetRange(days);
+      saveHomeNewsPreferences();
+      custom.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      error.hidden = true;
+      renderHomeNewsControls();
+      reloadHomeNews();
+    });
+  });
+  toggle.addEventListener("click", () => {
+    custom.hidden = !custom.hidden;
+    toggle.setAttribute("aria-expanded", String(!custom.hidden));
+    if (!custom.hidden) document.getElementById("home-news-start").focus();
+  });
+  custom.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const start = document.getElementById("home-news-start").value;
+    const end = document.getElementById("home-news-end").value;
+    if (!validHomeNewsRange({start_date: start, end_date: end})) {
+      error.textContent = "请选择有效日期：开始日期不能晚于结束日期，结束日期不能晚于今天。";
+      error.hidden = false;
+      return;
+    }
+    error.hidden = true;
+    PORTAL_STATE.homeNews.preset = null;
+    PORTAL_STATE.homeNews.range = {start_date: start, end_date: end};
+    saveHomeNewsPreferences();
+    renderHomeNewsControls();
+    reloadHomeNews();
+  });
+  document.getElementById("home-news-sources").addEventListener("click", (event) => {
+    const button = event.target.closest("[data-home-news-retry]");
+    if (button && SECTION_MAP[button.dataset.homeNewsRetry]?.homeNews) loadSection(button.dataset.homeNewsRetry);
+  });
+  PORTAL_STATE.homeNews.bound = true;
+  renderHomeNewsControls();
 }
 
 function classColor(slug) {
@@ -1804,17 +1991,24 @@ async function loadSection(key) {
   PORTAL_STATE.sectionFailures[key] = false;
   const current = () => PORTAL_STATE.sectionRequests[key] === requestId;
 
-  if (ep.listId) renderSkeleton(ep.listId, key === "nga" ? 10 : 6);
+  if (ep.homeNews) {
+    PORTAL_STATE.homeNews.status[key] = "loading";
+    PORTAL_STATE.dataBySection[key] = [];
+    renderHomeNews(key);
+  } else if (ep.listId) renderSkeleton(ep.listId, key === "nga" ? 10 : 6);
 
   try {
     let url = ep.url;
-    if (key === "exwind") {
-      url = getExwindUrl();
-    }
+    if (ep.homeNews) url = homeNewsUrl(key);
     if (key === "mplus_rankings") url = `${ep.url}?catalog=1`;
     const r = await fetchJson(url);
     if (!current()) return;
-    if (key === "daily_report") {
+    if (ep.homeNews) {
+      PORTAL_STATE.dataBySection[key] = r.data || [];
+      PORTAL_STATE.homeNews.status[key] = r.snapshot?.state === "pending" ? "pending" : "ready";
+      PORTAL_STATE.homeNews.snapshots[key] = r.snapshot || null;
+      renderHomeNews(key);
+    } else if (key === "daily_report") {
       PORTAL_STATE.dailyReport = r.data || null;
       PORTAL_STATE.dataBySection[key] = r.data || null;
       renderDailyReportCard();
@@ -1851,7 +2045,7 @@ async function loadSection(key) {
       renderEvents(r.data || []);
     } else {
       PORTAL_STATE.dataBySection[key] = r.data || [];
-      renderSimpleList(ep.listId, r.data || [], { limit: key === "nga" ? 20 : 12 });
+      renderSimpleList(ep.listId, r.data || [], { limit: 20 });
       if (r.snapshot?.state === 'pending' && ep.listId) {
         const list = document.getElementById(ep.listId);
         if (list) list.innerHTML = `<div class="text-sm text-slate-500">${escapeHtml(r.snapshot.message || '新闻数据正在准备，请稍后重试。')}</div>`;
@@ -1862,10 +2056,14 @@ async function loadSection(key) {
   } catch (e) {
     if (current()) {
       PORTAL_STATE.sectionFailures[key] = true;
+      if (ep.homeNews) {
+        PORTAL_STATE.homeNews.status[key] = "error";
+        renderHomeNews(key);
+      }
       if (key === "today_in_wow") renderWowTodayPanel();
       if (key === "daily_report") renderDailyReportCard();
     }
-    if (current() && ep.listId) {
+    if (current() && ep.listId && !ep.homeNews) {
       const el = document.getElementById(ep.listId);
       if (el) el.innerHTML = `<div class="text-slate-500">加载失败</div>`;
     }
@@ -1897,7 +2095,9 @@ function updateSearchMeta() {
       ? rawItems
       : (Array.isArray(rawItems?.items) ? rawItems.items : []);
     total += Array.isArray(items) ? items.length : 0;
-    shown += filterItems(items, q).length;
+    shown += ep.homeNews
+      ? items.filter((item) => matchItem(item, q) || homeNewsSourceName(item).toLowerCase().includes(q)).length
+      : filterItems(items, q).length;
   });
   meta.textContent = `过滤结果：${shown}/${total}`;
 }
@@ -1911,7 +2111,9 @@ function bindSearch() {
       Object.keys(SECTION_MAP).forEach((key) => {
         const ep = SECTION_MAP[key];
         if (ep.listId && PORTAL_STATE.dataBySection[key]) {
-          if (key === "mplus_rankings") {
+          if (ep.homeNews) {
+            renderHomeNews(key);
+          } else if (key === "mplus_rankings") {
             renderMplusSelection();
           } else if (key === "mplus_cutoffs") {
             renderMplusCutoffs(ep.listId, {
@@ -1929,7 +2131,7 @@ function bindSearch() {
             renderPeakSpecGrid(ep.listId, PORTAL_STATE.dataBySection[key]);
             renderRankingSnapshotStatus(ep.listId, PORTAL_STATE.dataBySection[key]);
           } else {
-            renderSimpleList(ep.listId, PORTAL_STATE.dataBySection[key], { limit: key === "nga" ? 20 : 12 });
+            renderSimpleList(ep.listId, PORTAL_STATE.dataBySection[key], { limit: 20 });
           }
         }
       });
@@ -1981,12 +2183,11 @@ async function loadHomepageSections(keys, concurrency = 3) {
 
 async function loadAll() {
   bindSearch();
-  bindExwindSourceTabs();
-  renderExwindSourceTabs();
+  bindHomeNewsControls();
   await Promise.allSettled([
     loadTools(),
     loadHomepageSections([
-      "today_in_wow", "daily_report", "blueposts", "exwind", "wowhead", "nga",
+      "today_in_wow", "daily_report", "blueposts", "exwind", "wowhead", "blizzard_cn", "nga_preview", "nga",
       "events", "videos", "mplus_cutoffs", "mplus_rankings", "peak_spec_rankings",
     ]),
   ]);

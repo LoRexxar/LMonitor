@@ -427,7 +427,7 @@ class WowTodayFrontendContractTests(SimpleTestCase):
     def test_today_content_has_no_external_links_and_hides_unavailable_icons(self):
         with open('static/portal/js/main.js', encoding='utf-8') as handle:
             script = handle.read()
-        renderer = script[script.index('function renderWowTodayItem('):script.index('function getExwindUrl(')]
+        renderer = script[script.index('function renderWowTodayItem('):script.index('function firstArrayItem(')]
         self.assertNotIn('<a ', renderer)
         self.assertIn('来源：Wowhead', renderer)
         self.assertIn('notable-world-quests|bountiful-delves', renderer)
