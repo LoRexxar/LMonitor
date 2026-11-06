@@ -314,6 +314,13 @@ class RioStatisticsPresentationTests(SimpleTestCase):
         self.assertIsNotNone(scope.find(id='rio-level-range'))
         self.assertIsNotNone(scope.find(id='rio-week-range'))
 
+    def test_compact_pc_header_preserves_version_and_viewport_sized_map(self):
+        header = self.dom.select_one('.rio-page-header')
+        self.assertIsNotNone(header.find(id='rio-version'))
+        self.assertIsNotNone(header.select_one('.rio-heading h1'))
+        self.assertIn('100dvh - 330px', self.css)
+        self.assertIn('max(320px,', self.css)
+
     def test_filter_groups_and_current_context_are_separate(self):
         filters = self.dom.find(id='rio-filters')
         self.assertTrue(filters.select_one('.rio-filter-primary'))
@@ -321,6 +328,65 @@ class RioStatisticsPresentationTests(SimpleTestCase):
         self.assertEqual(share['type'], 'button')
         self.assertIsNotNone(share.find_parent(class_='rio-filter-actions'))
         self.assertIsNotNone(self.dom.find(id='rio-context').find_parent(class_='rio-context-bar'))
+
+    def test_workspace_separates_controls_from_all_result_panels(self):
+        workspace = self.dom.select_one('.rio-workspace')
+        self.assertIsNotNone(workspace)
+        self.assertEqual(workspace.parent.get('id'), 'rio-statistics')
+        controls = workspace.select_one('aside.rio-controls')
+        results = workspace.select_one('div.rio-results')
+        self.assertIsNotNone(controls)
+        self.assertEqual(controls.get('aria-label'), '数据筛选与图层')
+        self.assertIsNotNone(results)
+        self.assertEqual(workspace.find_all(recursive=False), [controls, results])
+        self.assertEqual([n.get('id') or n.get('class')[0]
+                          for n in controls.find_all(recursive=False)],
+                         ['rio-filter-disclosure', 'rio-map-scope',
+                          'rio-layer-controls', 'rio-advanced'])
+        self.assertEqual([n.get('id') or n.get('class')[0]
+                          for n in results.find_all(recursive=False)],
+                         ['rio-context-bar', 'rio-status', 'rio-error',
+                          'rio-overview', 'rio-runs', 'rio-heatmaps', 'rio-raids'])
+        self.assertFalse(workspace.find_all('main'), 'the portal already owns the main landmark')
+        for node_id in ('rio-zero', 'rio-opacity'):
+            self.assertIsNotNone(controls.find(id=node_id))
+            self.assertIsNone(results.find(id=node_id))
+        self.assertEqual(len(self.dom.select('[form="rio-filters"]')), 8)
+
+    def test_workspace_desktop_grid_and_mobile_reading_order(self):
+        desktop = re.search(r'@media\s*\(min-width:\s*1001px\)\s*\{(.*?)\n\}',
+                            self.css, re.S)
+        self.assertIsNotNone(desktop)
+        self.assertRegex(desktop[1], r'\.rio-workspace\s*\{[^}]*display:\s*grid\s*;'
+                         r'[^}]*grid-template-columns:\s*252px\s+minmax\(0,\s*1fr\)\s*;'
+                         r'[^}]*gap:\s*16px')
+        self.assertRegex(desktop[1], r'\.rio-advanced-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)')
+        mobile = re.search(r'@media\s*\(max-width:\s*1000px\)\s*\{(.*?)\n\}',
+                           self.css, re.S)
+        self.assertIsNotNone(mobile)
+        self.assertRegex(mobile[1], r'\.rio-workspace\s*\{[^}]*display:\s*flex\s*;[^}]*flex-direction:\s*column')
+        for selector in ('.rio-controls', '.rio-results', '.rio-map-navigation'):
+            self.assertRegex(mobile[1], re.escape(selector) + r'(?:\s*,[^{}]+)?\s*\{[^}]*display:\s*contents')
+        for selector, order in (('.rio-filter-disclosure', 0), ('.rio-context-bar', 1),
+                                ('.rio-map-scope', 2), ('.rio-layer-controls', 3),
+                                ('.rio-advanced', 4), ('.rio-status', 5), ('#rio-error', 6)):
+            self.assertRegex(mobile[1], re.escape(selector) + r'\s*\{[^}]*order:\s*' + str(order))
+        self.assertRegex(mobile[1], r'\[role="tabpanel"\]\s*\{[^}]*order:\s*7')
+        self.assertRegex(self.css, r'\.rio-layer-controls\s*\{[^}]*display:\s*none')
+        self.assertRegex(self.css, r'\[data-tab="heatmaps"\]\s+\.rio-layer-controls\s*\{[^}]*display:\s*flex')
+
+    def test_map_navigation_groups_floor_source_and_zoom_without_moving_map(self):
+        panel = self.dom.select_one('.rio-map-panel')
+        navigation = panel.select_one('.rio-map-navigation')
+        self.assertIsNotNone(navigation)
+        self.assertEqual([n.get('class')[0] for n in navigation.find_all(recursive=False)],
+                         ['rio-map-toolbar', 'rio-map-actions'])
+        for node_id in ('rio-floor', 'rio-source-map', 'rio-map-zoom-in',
+                        'rio-map-zoom-out', 'rio-map-reset', 'rio-map-scale'):
+            self.assertIsNotNone(navigation.find(id=node_id))
+        self.assertIsNone(navigation.find('canvas'))
+        self.assertIsNotNone(panel.select_one('.rio-map-frame > #rio-heatmap'))
+        self.assertRegex(self.css, r'\.rio-map-navigation\s*\{[^}]*display:\s*flex')
 
     def test_heatmap_controls_legend_and_sampling_context(self):
         heatmaps = self.dom.find(id='rio-heatmaps')
@@ -331,8 +397,11 @@ class RioStatisticsPresentationTests(SimpleTestCase):
         self.assertEqual(output.name, 'output')
         self.assertEqual(output['for'], ['rio-opacity'])
         self.assertEqual(output.get_text(strip=True), '80%')
-        self.assertEqual([(n['data-layer'], n['aria-pressed']) for n in heatmaps.select('[data-layer]')],
+        controls = self.dom.select_one('.rio-controls')
+        self.assertIsNotNone(controls)
+        self.assertEqual([(n['data-layer'], n['aria-pressed']) for n in controls.select('[data-layer]')],
                          [('player_death', 'true'), ('player_spell', 'false'), ('npc_death', 'false')])
+        self.assertFalse(heatmaps.select('[data-layer]'), 'layer controls have one owner in the sidebar')
         self.assertTrue(heatmaps.select_one('.rio-map-legend'))
         self.assertTrue(heatmaps.find(id='rio-map-stats'))
         self.assertIn('拖动', heatmaps.get_text())

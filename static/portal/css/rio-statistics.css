@@ -72,6 +72,11 @@ html.portal-theme-dark .rio-observer {
 .rio-observer .rio-module-intro { margin: 18px 0 12px; }
 .rio-observer .rio-module-intro h2 { margin-bottom: 3px; font-size: 17px; }
 
+/* One set of controls and results; only their layout changes at the breakpoint. */
+.rio-observer .rio-workspace,
+.rio-observer .rio-controls,
+.rio-observer .rio-results { min-width: 0; }
+
 /* Native mobile disclosure keeps desktop filters open and reachable. */
 .rio-observer .rio-filter-disclosure > summary { display: none; }
 
@@ -163,7 +168,8 @@ html.portal-theme-dark .rio-observer {
 .rio-observer .rio-map-scope input[type="number"] { width: 100%; min-width: 0; max-width: none; }
 
 /* Heatmap tools are separate from the map; canvas coordinates stay 3:2. */
-.rio-observer .rio-layer-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; margin-bottom: 14px; padding: 14px 18px; }
+.rio-observer .rio-layer-controls { display: none; flex-wrap: wrap; align-items: center; gap: 14px 24px; margin-bottom: 14px; padding: 14px 18px; }
+.rio-observer[data-tab="heatmaps"] .rio-layer-controls { display: flex; }
 .rio-observer .rio-control-label { display: block; color: var(--rio-muted); font-size: 11px; font-weight: 600; margin-bottom: 6px; }
 .rio-observer .rio-layer-buttons { display: flex; gap: 6px; }
 .rio-observer .rio-layer-buttons button { padding: 7px 14px; color: var(--rio-text); border: 1px solid var(--rio-line); border-radius: 6px; background: var(--rio-surface); font-size: 13px; }
@@ -230,7 +236,102 @@ html.portal-theme-dark .rio-observer {
 .rio-observer .rio-raid-fill { height: 100%; background: var(--rio-accent); min-width: 2px; }
 .rio-observer .rio-raid-row > span:last-child { text-align: right; }
 
+/* Desktop workbench: the map/chart starts beside, not below, its controls. */
+@media (min-width: 1001px) {
+    .rio-observer { padding-top: 0; }
+    .rio-observer .rio-page-header { display: flex; align-items: center; gap: 24px; margin-bottom: 6px; }
+    .rio-observer .rio-page-header .rio-heading { flex: 1; min-width: 0; margin: 0; }
+    .rio-observer .rio-page-header .rio-heading > a { min-height: 32px; }
+    .rio-observer .rio-page-header .rio-version { font-size: 10px; line-height: 1.5; margin: 0; max-width: 45%; text-align: right; }
+    .rio-observer .rio-module-intro { display: none; }
+    .rio-observer .rio-results { display: flex; flex-direction: column; }
+    .rio-observer .rio-results > .rio-status { order: 2; min-height: 0; padding: 6px 2px; }
+    .rio-observer .rio-results > .rio-context-bar { order: 0; margin-bottom: 8px; }
+    .rio-observer .rio-results > [role="tabpanel"],
+    .rio-observer .rio-results > #rio-error { order: 1; }
+    .rio-observer .rio-heading { margin-top: 0; }
+    .rio-observer .rio-heading h1 { font-size: 25px; margin-bottom: 0; }
+    .rio-observer .rio-heading p,
+    .rio-observer .rio-tab-description,
+    .rio-observer .rio-module-intro h2 { display: none; }
+    .rio-observer .rio-version { margin-bottom: 8px; }
+    .rio-observer .rio-tabs { padding-bottom: 4px; margin-bottom: 10px; }
+    .rio-observer .rio-tabs button { padding: 6px 12px; }
+    .rio-observer .rio-module-intro { margin: 8px 0 12px; }
+    .rio-observer .rio-workspace { display: grid; grid-template-columns: 252px minmax(0, 1fr); gap: 16px; align-items: start; }
+    /* Deliberately not fixed/sticky: expanded advanced filters use page scrolling. */
+    .rio-observer .rio-controls { background: var(--rio-surface); border: 1px solid var(--rio-line); border-radius: 10px; padding: 14px; }
+    .rio-observer .rio-controls .rio-filters,
+    .rio-observer .rio-controls .rio-panel { background: transparent; border: 0; border-radius: 0; padding: 0; }
+    .rio-observer .rio-controls .rio-filters { flex-direction: column; align-items: stretch; gap: 12px; }
+    .rio-observer .rio-controls .rio-filter-group { display: grid; grid-template-columns: minmax(0, 1fr); width: 100%; gap: 12px; }
+    .rio-observer .rio-controls .rio-filter-primary { padding: 0 0 12px; border-right: 0; border-bottom: 1px solid var(--rio-line); }
+    .rio-observer .rio-controls label,
+    .rio-observer .rio-controls select,
+    .rio-observer .rio-controls input[type="number"] { width: 100%; min-width: 0; max-width: none; }
+    .rio-observer .rio-controls select { font-size: 12px; padding: 7px 22px 7px 8px; }
+    .rio-observer .rio-controls .rio-filter-actions { margin-left: 0; }
+    .rio-observer .rio-controls #rio-share { width: 100%; font-size: 12px; }
+    .rio-observer .rio-controls .rio-map-scope { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--rio-line); }
+    .rio-observer .rio-map-scope .rio-filter-group { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .rio-observer .rio-map-scope #rio-dungeon-filter,
+    .rio-observer .rio-map-scope #rio-apply-level-range { grid-column: 1 / -1; }
+    .rio-observer .rio-controls .rio-layer-controls { margin: 14px 0 0; padding-top: 14px; border-top: 1px solid var(--rio-line); gap: 8px; }
+    .rio-observer .rio-controls .rio-layer-selector { width: 100%; }
+    .rio-observer .rio-controls .rio-layer-buttons { gap: 4px; }
+    .rio-observer .rio-controls .rio-layer-buttons button { min-width: 0; flex: 1; min-height: 40px; padding: 7px 4px; font-size: 12px; white-space: nowrap; }
+    .rio-observer .rio-controls .rio-checkbox,
+    .rio-observer .rio-controls .rio-opacity { margin-left: 0; width: 100%; }
+    .rio-observer .rio-controls .rio-opacity input { flex: 1; width: 0; min-width: 0; }
+    .rio-observer .rio-controls .rio-advanced { margin: 14px 0 0; padding-top: 4px; border-top: 1px solid var(--rio-line); }
+    .rio-observer .rio-controls .rio-advanced > summary { overflow-wrap: anywhere; }
+    .rio-observer .rio-controls .rio-advanced .rio-note { margin-bottom: 10px; }
+    .rio-observer .rio-advanced-grid { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+    .rio-observer .rio-controls .rio-advanced-actions { margin-top: 12px; gap: 8px; }
+    .rio-observer .rio-controls .rio-advanced-actions button { width: 100%; }
+    .rio-observer .rio-context-bar { padding: 7px 12px; border: 1px solid var(--rio-line); border-radius: 8px; gap: 2px 8px; }
+    .rio-observer .rio-status { min-height: 26px; padding: 4px 2px; }
+    .rio-observer .rio-metrics { gap: 10px; margin-bottom: 12px; }
+    .rio-observer .rio-metric { padding: 12px; }
+    .rio-observer .rio-metric dd[id] { font-size: clamp(18px, 1.8vw, 26px); }
+    .rio-observer .rio-metric dd.rio-date { font-size: 18px; }
+    .rio-observer .rio-metric dd.rio-change { font-size: clamp(16px, 1.5vw, 22px); }
+    .rio-observer .rio-metric .rio-metric-note { margin-top: 5px; font-size: 10px; }
+    .rio-observer .rio-results .rio-panel { padding: 16px; }
+    .rio-observer .rio-panel-heading { margin-bottom: 10px; gap: 4px 12px; }
+    .rio-observer .rio-map-panel { display: flex; flex-direction: column; }
+    .rio-observer .rio-map-panel .rio-panel-heading { margin-bottom: 6px; }
+    .rio-observer .rio-map-panel .rio-panel-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 3px 12px; }
+    .rio-observer .rio-map-panel .rio-panel-heading h2 { margin-bottom: 0; }
+    .rio-observer #rio-heatmap-description { font-size: 11px; line-height: 1.5; }
+    .rio-observer .rio-map-panel h2 { font-size: 17px; }
+    .rio-observer .rio-map-navigation { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; min-width: 0; }
+    .rio-observer .rio-map-toolbar { flex: 1; min-width: 0; flex-wrap: nowrap; gap: 10px; margin-bottom: 0; }
+    .rio-observer .rio-map-toolbar label { flex: 1; min-width: 0; gap: 8px; white-space: nowrap; }
+    .rio-observer .rio-map-toolbar select { width: 100%; min-width: 0; max-width: 180px; }
+    .rio-observer .rio-map-toolbar a { flex-shrink: 0; white-space: nowrap; }
+    .rio-observer .rio-map-actions { flex-shrink: 0; gap: 6px; margin-bottom: 0; }
+    .rio-observer .rio-map-actions button { padding: 7px 9px; }
+    .rio-observer .rio-map-actions span { min-width: 4ch; }
+    .rio-observer .rio-map-hint { order: 1; padding: 10px 0 0; }
+    .rio-observer .rio-map-frame { flex-shrink: 0; width: min(100%, calc(max(320px, 100dvh - 330px) * 1.5)); }
+    .rio-observer .rio-map-footer { width: 100%; margin-top: 10px; }
+}
+
 @media (max-width: 1000px) {
+    .rio-observer .rio-workspace { display: flex; flex-direction: column; }
+    .rio-observer .rio-page-header,
+    .rio-observer .rio-controls,
+    .rio-observer .rio-results,
+    .rio-observer .rio-map-navigation { display: contents; }
+    .rio-observer .rio-filter-disclosure { order: 0; }
+    .rio-observer .rio-context-bar { order: 1; }
+    .rio-observer .rio-map-scope { order: 2; }
+    .rio-observer .rio-layer-controls { order: 3; }
+    .rio-observer .rio-advanced { order: 4; }
+    .rio-observer .rio-status { order: 5; }
+    .rio-observer #rio-error { order: 6; }
+    .rio-observer .rio-results > [role="tabpanel"] { order: 7; }
     .rio-observer .rio-tabs button { padding: 11px 12px; }
     .rio-observer .rio-filter-actions { margin-left: 0; }
     .rio-observer .rio-metric { padding: 14px; }
