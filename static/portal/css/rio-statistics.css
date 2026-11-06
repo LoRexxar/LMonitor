@@ -243,7 +243,8 @@ html.portal-theme-dark .rio-observer {
     .rio-observer .rio-filter-disclosure > summary::after { content: "展开调整 ＋"; color: var(--rio-accent); font-size: 12px; }
     .rio-observer .rio-filter-disclosure[open] > summary::after { content: "收起 －"; }
     .rio-observer .rio-filter-disclosure .rio-filters { border-top: 0; border-radius: 0; }
-    .rio-observer .rio-module-intro { margin-top: 14px; }
+    .rio-observer .rio-module-intro { margin-top: 10px; }
+    .rio-observer .rio-module-intro h2 { display: none; }
     .rio-observer .rio-filters { padding: 12px; gap: 12px; }
     .rio-observer .rio-filter-group { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
     .rio-observer .rio-filter-primary { padding: 0 0 12px; border-right: 0; border-bottom: 1px solid var(--rio-line); }
