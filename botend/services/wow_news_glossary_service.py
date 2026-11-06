@@ -174,7 +174,13 @@ class WowNewsGlossary:
         terms: Sequence[Tuple[str, str]] = (),
         *,
         trusted_terms: Iterable[str] = (),
+        blocked_terms: Iterable[str] = (),
+        controlled_terms: Iterable[str] = (),
+        suppress_fallback: bool = False,
     ):
+        self._suppress_fallback = suppress_fallback
+        self._blocked_terms = {term.casefold() for term in blocked_terms}
+        self._controlled_terms = {term.casefold() for term in controlled_terms}
         trusted_keys = {str(term or "").strip().casefold() for term in trusted_terms if str(term or "").strip()}
         candidates: Dict[str, set[str]] = {}
         english_names: Dict[str, str] = {}
@@ -182,7 +188,8 @@ class WowNewsGlossary:
             english = (english or "").strip()
             chinese = (chinese or "").strip()
             english_key = english.casefold()
-            if self._is_candidate(english, chinese, allow_single_word=english_key in trusted_keys):
+            if english_key not in self._blocked_terms and self._is_candidate(
+                    english, chinese, allow_single_word=english_key in trusted_keys or english_key in self._controlled_terms):
                 candidates.setdefault(english_key, set()).add(chinese)
                 english_names.setdefault(english_key, english)
 
@@ -435,6 +442,19 @@ class WowNewsGlossary:
         return cls(pairs, trusted_terms=trusted)
 
     @classmethod
+    def from_news_journal(cls, source_text: str) -> "WowNewsGlossary":
+        """Read official names in the article's verified Journal scope only."""
+        try:
+            from botend.services.news_journal_glossary import read_news_journal_terms
+            terms = read_news_journal_terms(source_text)
+            return cls(terms.pairs, trusted_terms=terms.trusted,
+                       blocked_terms=terms.blocked, controlled_terms=terms.controlled,
+                       suppress_fallback=terms.suppress_fallback)
+        except Exception as exc:
+            logger.warning('[WowNewsGlossary] cannot read news Journal terms: %s', str(exc)[:300])
+            return cls.empty()
+
+    @classmethod
     def merged(cls, *glossaries: "WowNewsGlossary") -> "WowNewsGlossary":
         """合并独立来源，并只保留中文候选唯一的英文名称。"""
         pairs = [
@@ -447,24 +467,39 @@ class WowNewsGlossary:
             for glossary in glossaries
             for english in glossary._trusted_terms
         ]
-        return cls(pairs, trusted_terms=trusted)
+        return cls(pairs, trusted_terms=trusted,
+                   blocked_terms=set().union(*(g._blocked_terms for g in glossaries)),
+                   controlled_terms=set().union(*(g._controlled_terms for g in glossaries)))
 
     @classmethod
     def prioritized(cls, *glossaries: "WowNewsGlossary") -> "WowNewsGlossary":
         """按来源优先级合并；较低优先级不得覆盖已确认的稳定术语。"""
+        # A verified scope with incomplete authority must not fall back to any
+        # older name source: spell IDs and capitalization cannot prove safety.
+        allowed = []
+        for glossary in glossaries:
+            allowed.append(glossary)
+            if glossary._suppress_fallback:
+                break
+        glossaries = tuple(allowed)
         pairs = []
         trusted = []
+        controlled = set()
+        blocked = set().union(*(g._blocked_terms for g in glossaries))
         seen = set()
         for glossary in glossaries:
             for english, chinese in glossary._terms.items():
                 key = english.casefold()
-                if key in seen:
+                if key in seen or key in blocked:
                     continue
                 seen.add(key)
                 pairs.append((english, chinese))
                 if english in glossary._trusted_terms:
                     trusted.append(english)
-        return cls(pairs, trusted_terms=trusted)
+                if key in glossary._controlled_terms:
+                    controlled.add(key)
+        return cls(pairs, trusted_terms=trusted, blocked_terms=blocked, controlled_terms=controlled,
+                   suppress_fallback=any(g._suppress_fallback for g in glossaries))
 
     @staticmethod
     def _is_candidate(english: str, chinese: str, *, allow_single_word: bool = False) -> bool:
@@ -490,6 +525,15 @@ class WowNewsGlossary:
         def replace(match: re.Match) -> str:
             english = match.group(0)
             english_key = english.casefold()
+            if english_key in self._controlled_terms:
+                # Scope admits a candidate, not every ordinary use of that word.
+                before, after = text[:match.start()], text[match.end():]
+                skill_after = re.match(
+                    r'\s+(?:(?:initial|impact|periodic|over time)\s+)?'
+                    r'(?:damage|duration|cast(?:s|ing)?|cooldown|movement speed|healing|targets?)\b', after, re.I)
+                skill_before = re.search(r'\b(?:casts?|casting|channels?|channeling|uses?)\s+$', before, re.I)
+                if not (skill_after or skill_before):
+                    return english
             token = term_tokens.get(english_key)
             if token is None:
                 token = _TOKEN_TEMPLATE.format(len(term_tokens) + 1)

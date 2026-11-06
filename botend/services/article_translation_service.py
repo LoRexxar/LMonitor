@@ -529,6 +529,7 @@ class ArticleTranslationService:
             getattr(article, "content", "") or "",
         ])
         return WowNewsGlossary.prioritized(
+            WowNewsGlossary.from_news_journal(source_text),
             self.glossary,
             WowNewsGlossary.from_shared_localization(source_text),
             WowNewsGlossary.from_active_mythic_dungeon_metadata(source_text=source_text),
