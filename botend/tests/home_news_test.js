@@ -9,7 +9,18 @@ test('新闻区复用首页容器宽度，不另设桌面固定上限，更新�
   assert.match(root, /(?:^|;)\s*width:\s*100%\s*;/);
   assert.match(root, /(?:^|;)\s*min-width:\s*0\s*;/);
   assert.doesNotMatch(root, /(?:^|;)\s*max-width:\s*\d+(?:px|rem)\b/);
-  assert.doesNotMatch(readSource('templates/portal/index.html'), /home-news\.css' %}\?v=20261106_source_dates_7/);
+  const template = readSource('templates/portal/index.html');
+  assert.match(template, /href="{% static 'portal\/css\/home-news\.css' %}\?v=[a-zA-Z0-9_]+"/);
+  assert.doesNotMatch(template, /home-news\.css' %}\?v=20261106_(?:source_dates_7|home_width_1)/);
+});
+
+test('新闻来源桌面左右双栏，窄屏恢复单栏且卡片可收缩', () => {
+  const css = readSource('static/portal/css/home-news.css');
+  const grid = css.match(/\.home-news-sources\s*\{([^}]*)\}/)?.[1] || '';
+  assert.match(grid, /grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+  assert.match(grid, /align-items:\s*start/);
+  assert.match(css, /\.home-news-source\s*\{[^}]*min-width:\s*0\s*;/);
+  assert.match(css, /@media\s*\(max-width:\s*900px\)\s*\{\s*\.home-news-sources\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
 });
 
 function setup(localStorage) {
