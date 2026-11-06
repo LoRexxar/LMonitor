@@ -15,11 +15,15 @@ from utils.log import logger
 
 _LIVE_TITLE_PREFIX_RE = re.compile(r"^\s*\[\s*live\s*\]\s*", re.IGNORECASE)
 _TRANSLATED_LIVE_TITLE_PREFIX_RE = re.compile(r"^\s*\[(?:直播|实时|正式服)\]\s*")
+_FOREVER_TITLE_PREFIX_RE = re.compile(r"^\s*\[无限\]\s*")
 
 
 def normalize_translated_title(source_title: str, translated_title: str) -> str:
-    """Keep Wowhead's Live channel label distinct from the word "live"."""
+    """Restore source channel labels without asking the translation engine."""
     translated_title = (translated_title or "").strip()
+    if translated_title and _FOREVER_TITLE_PREFIX_RE.match(source_title or ""):
+        translated_title = re.sub(r"^(?:\s*\[(?:无限|Forever|永久)\]\s*)+", "", translated_title, flags=re.I)
+        return "[无限]{}".format(translated_title)
     if not translated_title or not _LIVE_TITLE_PREFIX_RE.match(source_title or ""):
         return translated_title
     translated_title = _TRANSLATED_LIVE_TITLE_PREFIX_RE.sub("", translated_title, count=1)
@@ -188,7 +192,7 @@ class ArticleTranslationService:
         title = (title or "").strip()
         if not title or not self.available():
             return ""
-        title_for_translation = _LIVE_TITLE_PREFIX_RE.sub("", title, count=1)
+        title_for_translation = _FOREVER_TITLE_PREFIX_RE.sub("", _LIVE_TITLE_PREFIX_RE.sub("", title, count=1), count=1)
         protected = glossary.protect(title_for_translation)
         prompt = (
             "请将以下英文标题翻译成自然、完整的中文，只返回翻译结果，不要添加任何解释。"
@@ -440,9 +444,36 @@ class ArticleTranslationService:
                 return True
         return False
 
+    def _article_translation_state(self, article):
+        """Read the same missing-field and block-quality state for all callers."""
+        needs_title = bool((getattr(article, "title", "") or "").strip() and not (getattr(article, "title_cn", "") or "").strip())
+        content = (getattr(article, "content", "") or "").strip()
+        blocks = loads_blocks(getattr(article, "content_blocks", "") or "")
+        translated_blocks = loads_blocks(getattr(article, "content_blocks_cn", "") or "")
+        blocks_are_valid = (
+            blocks
+            and hasattr(article, "content_blocks_cn")
+            and article_blocks_match_reference(
+                blocks,
+                reference_text=content,
+                reference_title=getattr(article, "title", "") or "",
+            )
+        )
+        needs_content_cn = bool(content and not (getattr(article, "content_cn", "") or "").strip())
+        needs_blocks_cn = bool(blocks_are_valid and self._needs_content_blocks_translation(blocks, translated_blocks))
+        return needs_title, needs_content_cn, needs_blocks_cn, blocks
+
+    def needs_translation(self, article) -> bool:
+        """Read-only translation need, independent of engine availability."""
+        return any(self._article_translation_state(article)[:3])
+
     def translate_article_fields(self, article, logger_prefix: str = "ArticleTranslationService") -> bool:
         """Translate missing title/content fields and save each field independently."""
         if not self.available():
+            return False
+
+        needs_title, needs_content_cn, needs_blocks_cn, blocks = self._article_translation_state(article)
+        if not (needs_title or needs_content_cn or needs_blocks_cn):
             return False
 
         any_translated = False
@@ -450,7 +481,7 @@ class ArticleTranslationService:
         url = getattr(article, "url", "")
         glossary = self._glossary_for_article(article)
 
-        if (getattr(article, "title", "") or "").strip() and not (getattr(article, "title_cn", "") or "").strip():
+        if needs_title:
             try:
                 title_cn = self.translate_title(article.title, glossary=glossary)
                 if title_cn:
@@ -465,21 +496,6 @@ class ArticleTranslationService:
                 logger.error(
                     f"[{logger_prefix}] title translate exception for article_id={article_id} url={url}: {e}; engine_error={self.last_error}"
                 )
-
-        content = (getattr(article, "content", "") or "").strip()
-        blocks = loads_blocks(getattr(article, "content_blocks", "") or "")
-        translated_blocks = loads_blocks(getattr(article, "content_blocks_cn", "") or "")
-        blocks_are_valid = (
-            blocks
-            and hasattr(article, "content_blocks_cn")
-            and article_blocks_match_reference(
-                blocks,
-                reference_text=content,
-                reference_title=getattr(article, "title", "") or "",
-            )
-        )
-        needs_content_cn = content and not (getattr(article, "content_cn", "") or "").strip()
-        needs_blocks_cn = blocks_are_valid and self._needs_content_blocks_translation(blocks, translated_blocks)
 
         if needs_content_cn or needs_blocks_cn:
             try:

@@ -110,6 +110,26 @@ class ArticleTranslationServiceTests(SimpleTestCase):
             loader.start()
             self.addCleanup(loader.stop)
 
+    def test_needs_translation_preserves_block_completeness_and_english_checks(self):
+        article = FakeArticle()
+        article.title_cn = '已有标题'
+        article.content = 'Complete English article paragraph. ' * 40
+        article.content_cn = '已有正文'
+        article.content_blocks = dumps_blocks([{'type': 'paragraph', 'text': article.content}])
+        engine = FakeEngine()
+        svc = ArticleTranslationService(engine=engine, glossary=WowNewsGlossary.empty(), sleep_func=lambda _: None)
+        for translated in ([], [{'type': 'paragraph', 'text': '短译文'}],
+                           [{'type': 'paragraph', 'text': article.content}]):
+            with self.subTest(translated=translated):
+                article.content_blocks_cn = dumps_blocks(translated)
+                self.assertTrue(svc.needs_translation(article))
+        article.content_blocks_cn = dumps_blocks([{'type': 'paragraph', 'text': '完整中文译文。' * 200}])
+        with patch.object(svc, '_glossary_for_article', side_effect=AssertionError('unnecessary glossary read')):
+            self.assertFalse(svc.needs_translation(article))
+            self.assertFalse(svc.translate_article_fields(article))
+        self.assertEqual(engine.prompts, [])
+        self.assertEqual(article.saved_fields, [])
+
     def test_translate_title_strips_quotes(self):
         svc = ArticleTranslationService(engine=FakeEngine(['"中文标题"']), sleep_func=lambda _: None)
 
@@ -121,6 +141,19 @@ class ArticleTranslationServiceTests(SimpleTestCase):
 
         self.assertEqual(svc.translate_title("[Live] Version Update"), "[正式服]直播版本更新")
         self.assertNotIn("[Live]", engine.prompts[0][0])
+
+    def test_forever_prefix_is_deterministic_and_existing_translation_stable(self):
+        engine = FakeEngine(['中文标题'])
+        svc = ArticleTranslationService(engine=engine, sleep_func=lambda _: None)
+        self.assertEqual(svc.translate_title('[无限] English title'), '[无限]中文标题')
+        self.assertNotIn('[无限]', engine.prompts[0][0])
+        article = FakeArticle()
+        article.title = '[无限] English title'
+        article.title_cn = '[无限]已有标题'
+        article.content = ''
+        self.assertFalse(svc.translate_article_fields(article))
+        self.assertEqual(article.title_cn, '[无限]已有标题')
+        self.assertEqual(len(engine.prompts), 1)
 
     def test_translate_content_returns_json_pairs(self):
         svc = ArticleTranslationService(

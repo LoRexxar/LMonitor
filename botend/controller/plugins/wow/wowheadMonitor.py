@@ -44,6 +44,7 @@ class wowheadMonitor(BaseScan):
         self.last_error_detail = ""
         # 单次 scan 最多翻译多少篇（包括补翻译历史记录）
         self._translate_budget = 10
+        self._translation_attempted_ids = set()
 
     def _set_error_detail(self, message, **extra):
         parts = [str(message or "").strip()]
@@ -130,11 +131,30 @@ class wowheadMonitor(BaseScan):
         return post_count, new_count, True
 
     def scan(self, url):
-        """
-        扫描
-        :param url:
-        :return:
-        """
+        """Try each feed independently while sharing one translation budget."""
+        original_url = self.target_url
+        errors = []
+        self._remaining_translate_budget = self._translate_budget
+        self._translation_attempted_ids = set()
+        try:
+            for feed_url in (original_url, "https://www.wowhead.com/forever/news"):
+                self.target_url = feed_url
+                self.last_error_detail = ""
+                self._post_errors = []
+                try:
+                    ok = self._scan_feed()
+                except Exception as exc:
+                    ok = False
+                    self._set_error_detail("wowhead feed exception", error=str(exc))
+                if not ok or self._post_errors:
+                    detail = "; ".join(filter(None, [self.last_error_detail] + self._post_errors))
+                    errors.append("{}: {}".format(feed_url, detail or "feed failed"))
+        finally:
+            self.target_url = original_url
+        self.last_error_detail = " | ".join(errors)[:1000]
+        return not errors
+
+    def _scan_feed(self):
         cookies = ""
         logger.info("[wowheadMonitor] scan start context={}".format(self._request_debug_context()))
 
@@ -199,7 +219,8 @@ class wowheadMonitor(BaseScan):
                 self._request_debug_context(),
             ))
             new_count = 0
-            translated_count = 0
+            if not hasattr(self, "_remaining_translate_budget"):
+                self._remaining_translate_budget = self._translate_budget
             for post in posts_data[:int(limit or 10)]:
                 try:
                     post_type = (post.get("type") or "").strip()
@@ -250,7 +271,12 @@ class wowheadMonitor(BaseScan):
                     if not post_link:
                         continue
 
-                    wa = WowArticle.objects.filter(url=post_link).first()
+                    wa = self._find_existing_article(post_link)
+                    if wa and wa.url != post_link:
+                        # Same numeric source identity via another feed: preserve
+                        # the original URL/body rather than reimporting aliases.
+                        self._translate_with_budget(wa)
+                        continue
                     if wa:
                         existing_blocks = []
                         try:
@@ -307,10 +333,7 @@ class wowheadMonitor(BaseScan):
                                     update_fields.append("content_blocks")
                                 wa.save(update_fields=update_fields)
                         # 若译文缺失，补翻译（标题/内容）
-                        if translated_count < self._translate_budget:
-                            translated = self._ensure_translated(wa)
-                            if translated:
-                                translated_count += 1
+                        self._translate_with_budget(wa)
                         continue
 
                     blocks = self._fetch_article_blocks(post_link, cookies="", reference_title=post_title)
@@ -321,6 +344,7 @@ class wowheadMonitor(BaseScan):
                             post_link,
                             self._request_debug_context(),
                         ))
+                        self._record_post_error("empty article body: {}".format(post_link))
                         continue
                     obj = WowArticle(
                         title="[{}]{}".format(post_type, post_title),
@@ -337,10 +361,7 @@ class wowheadMonitor(BaseScan):
                     new_count += 1
                     logger.info("[wowhead Monitor] Found new wowhead article.{}".format(post_title))
 
-                    if translated_count < self._translate_budget:
-                        translated = self._ensure_translated(obj)
-                        if translated:
-                            translated_count += 1
+                    self._translate_with_budget(obj)
 
                     self.task.flag = post_link
                     self.task.save()
@@ -352,23 +373,23 @@ class wowheadMonitor(BaseScan):
                     self.trigger_webhook()
                 except Exception as e:
                     logger.warning("[wowheadMonitor] Parse post failed: {}".format(str(e)))
+                    self._record_post_error("{}: {}".format(post.get("link", ""), str(e)))
                     continue
 
             # 补翻译：避免只翻译“最新列表里出现的文章”，导致历史文章长期 title_cn/content_cn 为空
             try:
-                if translated_count < self._translate_budget and self.translation_service.available():
+                if self._remaining_translate_budget > 0 and self.translation_service.available():
                     from django.db.models import Q
                     missing = (
                         WowArticle.objects.filter(source="wowhead")
                         .filter(Q(title_cn__isnull=True) | Q(title_cn="") | Q(content_cn__isnull=True) | Q(content_cn=""))
                         .exclude(content="")
-                        .order_by("-publish_time")[: max(0, self._translate_budget - translated_count)]
+                        .order_by("-publish_time")[: self._remaining_translate_budget]
                     )
                     for wa2 in missing:
-                        if translated_count >= self._translate_budget:
+                        if self._remaining_translate_budget <= 0:
                             break
-                        if self._ensure_translated(wa2):
-                            translated_count += 1
+                        self._translate_with_budget(wa2)
             except Exception:
                 pass
 
@@ -387,6 +408,37 @@ class wowheadMonitor(BaseScan):
             raise
 
         return 0, 0
+
+    def _record_post_error(self, detail):
+        if not hasattr(self, "_post_errors"):
+            self._post_errors = []
+        self._post_errors.append(detail)
+
+    def _translate_with_budget(self, article):
+        if self._remaining_translate_budget <= 0 or not self.translation_service.available():
+            return False
+        if article.pk in self._translation_attempted_ids or not self.translation_service.needs_translation(article):
+            return False
+        # Charge attempts, not only successes: failures must not multiply calls.
+        self._translation_attempted_ids.add(article.pk)
+        self._remaining_translate_budget -= 1
+        return self._ensure_translated(article)
+
+    def _find_existing_article(self, url):
+        articles = WowArticle.objects.filter(source="wowhead")
+        existing = articles.filter(url=url).first()
+        if existing:
+            return existing
+        match = re.search(r"/news/(?:[^/]*-)?(\d+)/?$", urlparse(url).path)
+        if not match:
+            return None
+        return articles.filter(url__regex=r"/news/(?:[^/?#]*-)?{}/?([?#].*)?$".format(match.group(1))).first()
+
+    @staticmethod
+    def _post_type_label(type_name, href, type_id=None):
+        if type_name.lower() == "forever" or (str(type_id) == "24" and urlparse(href).path.startswith("/forever/news/")):
+            return "无限"
+        return type_name
 
     def _ensure_translated(self, article: WowArticle) -> bool:
         """
@@ -442,15 +494,25 @@ class wowheadMonitor(BaseScan):
                     if not title_text or len(title_text) < 8:
                         continue
 
-                    container = a
-                    for _ in range(4):
+                    container = a.find_parent(class_=re.compile(r"^(?:news-card|recent-news-post)(?:-|$)"))
+                    if container is None:
+                        container = a.parent
+                    for _ in range(3):
+                        if container.select_one("a[href*='type='], [class*='type24'], [class*='type20']"):
+                            break
                         if not getattr(container, "parent", None):
                             break
                         container = container.parent
                     window_text = " ".join((container.get_text(" ", strip=True) or "").split())
 
                     type_text = ""
-                    if "ptr" in title_text.lower() or " ptr " in window_text.lower():
+                    badge = container.select_one("a[href*='type='], [class*='type24'], [class*='type20']")
+                    if badge:
+                        type_text = badge.get_text(" ", strip=True)
+                        evidence = "{} {}".format(badge.get("href", ""), " ".join(badge.get("class", [])))
+                        type_id = 24 if re.search(r"(?:type=|\btype)24\b", evidence) else None
+                        type_text = self._post_type_label(type_text, href, type_id)
+                    elif "ptr" in title_text.lower() or " ptr " in window_text.lower():
                         type_text = "PTR"
                     elif "live" in str(" ".join(a.get("class") or [])).lower() or re.search(r"\b\d+[hd]\s+ago\b", window_text.lower()):
                         type_text = "Live"
@@ -516,9 +578,7 @@ class wowheadMonitor(BaseScan):
     def _parse_posts_from_home_news_json(self, soup, limit=10):
         """解析 Wowhead 首页当前的 JSON 数据块。"""
         try:
-            script = soup.select_one('script#data\.home\.newsData')
-            if not script:
-                script = soup.find('script', attrs={'id': 'data.home.newsData'})
+            script = soup.find('script', attrs={'id': ['data.home.newsData', 'data.news.newsData']})
             raw = (script.string or script.get_text() or '').strip() if script else ''
             if not raw:
                 return []
@@ -548,6 +608,7 @@ class wowheadMonitor(BaseScan):
                 continue
             preview_text = " ".join(str(item.get('preview') or '').split())
             type_text = " ".join(str(item.get('typeName') or '').split())
+            type_text = self._post_type_label(type_text, href, item.get('typeId', item.get('type')))
             date_text = " ".join(str(item.get('postedFull') or item.get('posted') or '').split())
 
             cards.append({
