@@ -72,6 +72,9 @@ html.portal-theme-dark .rio-observer {
 .rio-observer .rio-module-intro { margin: 18px 0 12px; }
 .rio-observer .rio-module-intro h2 { margin-bottom: 3px; font-size: 17px; }
 
+/* Native mobile disclosure keeps desktop filters open and reachable. */
+.rio-observer .rio-filter-disclosure > summary { display: none; }
+
 /* Vertical labels and independent share action */
 .rio-observer .rio-filters { display: flex; align-items: flex-end; flex-wrap: wrap; gap: 14px 18px; background: var(--rio-surface); border: 1px solid var(--rio-line); border-radius: 10px 10px 0 0; padding: 16px 18px; }
 .rio-observer .rio-filter-group { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; min-width: 0; }
@@ -232,8 +235,14 @@ html.portal-theme-dark .rio-observer {
     .rio-observer .rio-heading p { font-size: 12px; }
     .rio-observer .rio-heading > a { font-size: 11px; }
     .rio-observer .rio-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .rio-observer .rio-tabs button { min-height: 44px; padding: 8px 10px; }
     .rio-observer .rio-tab-title { font-size: 14px; }
-    .rio-observer .rio-tab-description { font-size: 11px; }
+    .rio-observer .rio-tab-description { display: none; }
+    .rio-observer .rio-filter-disclosure > summary { display: flex; justify-content: space-between; align-items: center; min-height: 44px; padding: 10px 12px; list-style: none; background: var(--rio-surface); border: 1px solid var(--rio-line); border-radius: 10px 10px 0 0; }
+    .rio-observer .rio-filter-disclosure > summary::-webkit-details-marker { display: none; }
+    .rio-observer .rio-filter-disclosure > summary::after { content: "展开调整 ＋"; color: var(--rio-accent); font-size: 12px; }
+    .rio-observer .rio-filter-disclosure[open] > summary::after { content: "收起 －"; }
+    .rio-observer .rio-filter-disclosure .rio-filters { border-top: 0; border-radius: 0; }
     .rio-observer .rio-module-intro { margin-top: 14px; }
     .rio-observer .rio-filters { padding: 12px; gap: 12px; }
     .rio-observer .rio-filter-group { width: 100%; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }

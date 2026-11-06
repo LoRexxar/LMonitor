@@ -1,7 +1,7 @@
 {% extends 'portal/base.html' %}
 {% load static %}
 {% block title %}魔兽世界数据观察 · WowDaily{% endblock %}
-{% block extra_head %}<link rel="stylesheet" href="{% static 'portal/css/rio-statistics.css' %}?v=20261106_rio_design_1">{% endblock %}
+{% block extra_head %}<link rel="stylesheet" href="{% static 'portal/css/rio-statistics.css' %}?v=20261106_rio_design_2">{% endblock %}
 {% block content %}
 <div id="rio-statistics" class="rio-observer">
     <header class="rio-heading">
@@ -19,6 +19,8 @@
         <h2 id="rio-module-title">赛季参与与分数趋势</h2>
         <p id="rio-module-description" class="rio-note">按赛季和地区查看有分数的角色规模，对照不同分位的分数线。</p>
     </div>
+    <details id="rio-filter-disclosure" class="rio-filter-disclosure" open>
+    <summary>筛选条件</summary>
     <form id="rio-filters" class="rio-filters" aria-label="统计筛选">
         {% csrf_token %}
         <div class="rio-filter-primary rio-filter-group">
@@ -42,6 +44,7 @@
         </div>
         <div class="rio-filter-actions"><button id="rio-share" class="rio-text-button" type="button">复制当前链接 ↗</button></div>
     </form>
+    </details>
     <div class="rio-context-bar"><span class="rio-context-label">当前查看</span><p id="rio-context">正在读取所选范围…</p></div>
     <details id="rio-advanced" class="rio-advanced" hidden><summary>高级筛选<span id="rio-filter-summary" class="rio-note"></span></summary><div class="rio-panel">
         <p class="rio-note">包含条件匹配任意一项，可多选。死亡者条件仅用于死亡图层。</p>
@@ -124,4 +127,4 @@
     </details>
 </div>
 {% endblock %}
-{% block extra_script %}<script src="{% static 'portal/js/rio-statistics.js' %}?v=20261106_rio_design_1" defer></script>{% endblock %}
+{% block extra_script %}<script src="{% static 'portal/js/rio-statistics.js' %}?v=20261106_rio_design_2" defer></script>{% endblock %}

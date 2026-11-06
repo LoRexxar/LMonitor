@@ -232,7 +232,7 @@ LEGACY_CONTRACT = {'rio-statistics': {'tag': 'div',
  'rio-raid-chart': {'tag': 'div', 'attrs': {}, 'options': []},
  'rio-raid-rows': {'tag': 'tbody', 'attrs': {}, 'options': []},
  'rio-methodology': {'tag': 'details', 'attrs': {}, 'options': []}}
-NEW_IDS = set("""rio-context rio-module-title rio-module-description
+NEW_IDS = set("""rio-context rio-module-title rio-module-description rio-filter-disclosure
 rio-heatmap-title rio-heatmap-description rio-opacity-value
 rio-population-range rio-score-range rio-runs-availability""".split())
 
@@ -286,6 +286,15 @@ class RioStatisticsPresentationTests(SimpleTestCase):
             self.assertFalse(any(n.has_attr('hidden') for n in chart.parents if n.name))
             self.assertIsNotNone(overview.find(id=f'rio-{name}-range'))
         self.assertIn('非独立玩家人数', overview.get_text())
+
+    def test_filters_have_native_mobile_disclosure_with_context_outside(self):
+        disclosure = self.dom.find(id='rio-filter-disclosure')
+        self.assertIsNotNone(disclosure)
+        self.assertEqual(disclosure.name, 'details')
+        self.assertTrue(disclosure.has_attr('open'), 'desktop/no-JS fallback keeps filters reachable')
+        self.assertIsNotNone(disclosure.find('summary', recursive=False))
+        self.assertIsNotNone(disclosure.find(id='rio-filters'))
+        self.assertIsNone(self.dom.find(id='rio-context').find_parent(id='rio-filter-disclosure'))
 
     def test_filter_groups_and_current_context_are_separate(self):
         filters = self.dom.find(id='rio-filters')

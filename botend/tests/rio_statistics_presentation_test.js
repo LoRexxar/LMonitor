@@ -33,7 +33,7 @@ function setup() {
   const marker = '  bootstrap();\n})();';
   assert.equal(source.split(marker).length, 2, 'instrument only the initial bootstrap call');
   vm.runInContext(source.replace(marker,
-    '  globalThis.unit = {state, updatePresentation, setTab, updateUrl, renderOverview, refresh, viewQuery: () => viewQuery()};\n})();'), context);
+    '  globalThis.unit = {state, updatePresentation, setTab, updateUrl, renderOverview, refresh, fitFilters: () => fitFilters(), viewQuery: () => viewQuery()};\n})();'), context);
   const select = (name, value, text) => {
     Object.assign(get(name), {value, selectedOptions: [{value, textContent: text}], options: [{value, textContent: text}]});
   };
@@ -43,11 +43,20 @@ function setup() {
   select('period', 'season', '赛季累计'); select('raid', 'test-raid', '测试团本');
   select('difficulty', 'mythic', '史诗'); get('opacity').value = '80';
   context.unit.state.catalog = {availability: {complete_list: false, modules: {runs: 0}}, available: [], levels: [{value: '10-plus', min: 10, max: 99}], weeks: {cn: []}};
-  return {...context.unit, get, select, urls, requests,
+  return {...context.unit, get, select, urls, requests, setWidth: value => { context.window.innerWidth = value; },
     setApplied: query => { context.unit.state.appliedQuery = new URLSearchParams(query); context.unit.state.appliedTab = context.unit.state.tab; },
     respondWith: fn => { context.fetch = (...args) => { requests.push(args); return fn(...args); }; }};
 }
 
+test('native filters collapse on mobile but preserve user opening within the breakpoint', () => {
+  const h = setup();
+  h.setWidth(390); h.fitFilters(); assert.equal(h.get('filter-disclosure').open, false);
+  h.get('filter-disclosure').open = true;
+  h.setWidth(360); h.fitFilters(); assert.equal(h.get('filter-disclosure').open, true);
+  h.setWidth(1440); h.fitFilters(); assert.equal(h.get('filter-disclosure').open, true);
+  h.setWidth(390); h.fitFilters(); assert.equal(h.get('filter-disclosure').open, false);
+  assert.equal(h.requests.length, 0);
+});
 test('overview context uses readable selected labels, including percentile', () => {
   const h = setup(); h.updatePresentation();
   assert.match(h.get('context').textContent, /国服/);

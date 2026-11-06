@@ -17,6 +17,14 @@
     layer: ['player_death', 'player_spell', 'npc_death'].includes(initial.get('layer')) ? initial.get('layer') : 'player_death',
     catalog: null, payload: null, appliedQuery: null, appliedTab: null, envelope: null, floor: null, controller: null, serial: 0 };
 
+  function fitFilters() {
+    const compact = window.innerWidth <= 640;
+    if (compact !== state.compactFilters) {
+      $('filter-disclosure').open = !compact;
+      state.compactFilters = compact;
+    }
+  }
+
   function element(tag, text, cls) {
     const node = document.createElement(tag);
     if (text !== undefined) node.textContent = text;
@@ -599,6 +607,7 @@
   });
   new MutationObserver(() => { if (state.tab === 'overview' && state.payload) renderOverview(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   window.addEventListener('resize', () => {
+    fitFilters();
     if (state.tab === 'overview' && state.payload) renderOverview();
     else if (state.tab === 'runs' && state.payload) renderRuns();
     else if (state.tab === 'heatmaps' && state.payload) drawHeatmap();
@@ -611,5 +620,6 @@
           || next.revision !== state.catalog.revision) await bootstrap(true);
     } catch { /* 本地目录读取失败不清空已有页面。 */ }
   }, 60000);
+  fitFilters();
   bootstrap();
 })();
