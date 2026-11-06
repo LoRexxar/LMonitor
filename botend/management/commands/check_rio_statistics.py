@@ -14,9 +14,16 @@ class Command(BaseCommand):
         parser.add_argument('--migrate', action='store_true', help='将旧 JSON 缓存迁入独立缓存库，保留原文件')
         parser.add_argument('--backup', action='store_true', help='创建或更新当天固定备份槽')
         parser.add_argument('--allow-warning', action='store_true', help='有未运行批次等警告时允许返回零退出码')
+        parser.add_argument('--progress-only', action='store_true', help='只读最近阶段和计数，不扫描全部正文或目录')
 
     def handle(self, *args, **options):
         try:
+            if options['progress_only']:
+                if options['deep'] or options['migrate'] or options['backup']:
+                    raise CommandError('轻量进度不能与深检、迁移或备份同时执行')
+                from botend.services.rio_statistics import store
+                self.stdout.write(json.dumps(store().progress(), ensure_ascii=False, indent=2))
+                return
             report = check_health(deep=options['deep'], initialize=options['migrate'], backup=options['backup'])
         except (StorageError, OSError, ValueError) as exc:
             raise CommandError(str(exc)) from exc

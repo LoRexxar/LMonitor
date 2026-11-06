@@ -70,7 +70,7 @@ def inbox():
     return Path(getattr(settings, 'RIO_STATISTICS_RUNS_SOURCE_DIR', root() / 'imports' / 'runs'))
 
 
-def import_file(path, meta, *, retain=True):
+def import_file(path, meta, *, retain=True, changed_keys=None):
     from botend.services.rio_statistics import _publish, _write
     path = Path(path)
     if path.stat().st_size > 4 * 1024 * 1024:
@@ -84,10 +84,14 @@ def import_file(path, meta, *, retain=True):
         raise ValueError('导入期间数据库赛季版本发生变化')
     if retain:
         _write(inbox() / (hashlib.sha256(raw).hexdigest() + '.json'), source)
-    return _publish(c, payload, upstream_at=updated, newer_only=True)
+    changed = _publish(c, payload, upstream_at=updated, newer_only=True)
+    if changed and changed_keys is not None:
+        from botend.services.rio_statistics import key_for
+        changed_keys.add(key_for(c))
+    return changed
 
 
-def import_feeds(meta):
+def import_feeds(meta, *, changed_keys=None):
     result = {'imported': 0, 'failed': 0, 'pending': 0, 'skipped': 0}
     directory = inbox()
     if not directory.is_dir():
@@ -95,7 +99,7 @@ def import_feeds(meta):
     files = sorted(directory.glob('*.json'), key=lambda p: p.stat().st_mtime, reverse=True)[:50]
     for path in files:
         try:
-            changed = import_file(path, meta, retain=False)
+            changed = import_file(path, meta, retain=False, changed_keys=changed_keys)
             result['imported' if changed else 'skipped'] += 1
         except StatisticsPending:
             result['pending'] += 1

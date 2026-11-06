@@ -188,6 +188,8 @@ class RioStorageMaintenanceTests(SimpleTestCase):
     def test_failed_combinations_are_retryable_before_next_midnight(self):
         import requests
         start = datetime(2026, 11, 5, 8, tzinfo=ZoneInfo('Asia/Shanghai'))
+        self.meta['updated_at'] = start.isoformat()
+        rio._write(self.directory / 'catalog.json', self.meta)
         bad = self.response({}); bad.status_code = 503
         bad.raise_for_status.side_effect = requests.HTTPError(response=bad)
         with patch.object(rio.timezone, 'now', return_value=start):
