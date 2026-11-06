@@ -1,5 +1,5 @@
 """验证新闻统一发布、原列表契约、轻量读取与更新边界。"""
-from datetime import timedelta
+from datetime import datetime, timedelta
 from io import StringIO
 import json
 from pathlib import Path
@@ -67,17 +67,22 @@ class NewsSnapshotTests(TestCase):
 
     def test_home_fields_match_database_and_all_public_reads_use_zero_sql(self):
         ns.refresh_news_snapshot()
-        since = timezone.now() - timedelta(days=7)
+        _, since, until = ns.home_news_range({})
+        since = datetime.fromtimestamp(since, ns.NEWS_TIMEZONE)
+        until = datetime.fromtimestamp(until, ns.NEWS_TIMEZONE)
         base = WowArticle.objects.filter(is_active=True)
+        dated = base.filter(publish_time__gte=since, publish_time__lt=until)
         examples = [
-            (PortalBluepostsAPIView, {}, base.filter(category='bluepost', publish_time__gte=since)),
-            (PortalWowheadLatestAPIView, {}, base.filter(source='wowhead', category='news', publish_time__gte=since)),
-            (PortalExwindLatestAPIView, {}, base.filter(source__in=['exwind', 'blizzard_cn'], publish_time__gte=since)),
-            (PortalExwindLatestAPIView, {'source': 'nga_preview'}, base.filter(source='nga').filter(
+            (PortalBluepostsAPIView, {}, dated.filter(category='bluepost')),
+            (PortalWowheadLatestAPIView, {}, dated.filter(source='wowhead', category='news')),
+            (PortalExwindLatestAPIView, {}, dated.filter(source__in=['exwind', 'blizzard_cn'])),
+            (PortalExwindLatestAPIView, {'source': 'exwind'}, dated.filter(source='exwind')),
+            (PortalExwindLatestAPIView, {'source': 'blizzard_cn'}, dated.filter(source='blizzard_cn')),
+            (PortalExwindLatestAPIView, {'source': 'nga_preview'}, dated.filter(source='nga').filter(
                 Q(nga_board_id='310') | Q(nga_board_id='', category='nga', author='nga前瞻区'))),
         ]
         for view, params, query in examples:
-            expected = [self.public_row(row) for row in query.order_by('-publish_time', '-id')[:60]]
+            expected = [self.public_row(row) for row in query.order_by('-publish_time', '-id')]
             for _ in range(2):
                 with self.assertNumQueries(0), patch.object(ns, '_write') as write:
                     response = self.response(view, params)
@@ -292,11 +297,90 @@ class NewsSnapshotTests(TestCase):
     def test_nga_hot_fallback_and_legacy_preview_keep_existing_scope(self):
         WowArticle.objects.filter(source='nga').update(category='nga', nga_board_id='', author='nga前瞻区')
         ns.refresh_news_snapshot()
-        preview = ns.read_home_news('nga_preview')['data']
+        preview = ns.read_home_news('nga_preview', {'days': '30'})['data']
         hot = ns.read_home_news('nga')['data']
         self.assertEqual(len(preview), 9)
         self.assertTrue(hot)
         self.assertTrue(all(row['category'] == 'nga' and row['reply_count'] > 20 for row in hot))
+
+    def test_home_date_range_keeps_every_item_across_storage_chunks_and_gc_references(self):
+        from botend.services.snapshot_cache_gc import Reader
+        published = self.now - timedelta(days=1)
+        WowArticle.objects.bulk_create([
+            WowArticle(title=f'完整列表 {i}', source='wowhead', category='news', publish_time=published)
+            for i in range(620)
+        ])
+        ns.refresh_news_snapshot()
+        params = {'start_date': published.astimezone(ns.NEWS_TIMEZONE).date().isoformat(),
+                  'end_date': published.astimezone(ns.NEWS_TIMEZONE).date().isoformat()}
+        expected = list(WowArticle.objects.filter(source='wowhead', category='news',
+                        publish_time__gte=datetime.fromisoformat(params['start_date']).replace(tzinfo=ns.NEWS_TIMEZONE),
+                        publish_time__lt=datetime.fromisoformat(params['end_date']).replace(tzinfo=ns.NEWS_TIMEZONE) + timedelta(days=1))
+                        .order_by('-publish_time', '-id').values_list('id', flat=True))
+        with self.assertNumQueries(0):
+            result = self.payload(self.response(PortalWowheadLatestAPIView, {**params, 'limit': '12', 'page_size': '60'}))
+        self.assertGreaterEqual(len(result['data']), 620)
+        self.assertEqual([row['id'] for row in result['data']], expected)
+        self.assertEqual(result['meta']['total'], len(expected))
+        index = ns._index()
+        references = Reader(self.root, 'news').closure(index)
+        self.assertTrue(all(shard['file'] in references for shard in index['home_shards']))
+        self.assertTrue(all(not any(key.startswith('_') for key in row) for row in result['data']))
+
+    def test_beijing_calendar_boundaries_month_crossing_and_missing_dates(self):
+        start = datetime(2026, 10, 31, tzinfo=ns.NEWS_TIMEZONE)
+        end = datetime(2026, 11, 2, tzinfo=ns.NEWS_TIMEZONE)
+        created = [WowArticle.objects.create(title=f'日期边界 {i}', source='exwind', category='news', publish_time=at)
+                   for i, at in enumerate((start - timedelta(seconds=1), start, end - timedelta(seconds=1), end))]
+        ns.refresh_news_snapshot()
+        with patch.object(ns.timezone, 'now', return_value=end + timedelta(hours=1)), self.assertNumQueries(0):
+            result = ns.read_home_news('exwind', {'source': 'exwind', 'start_date': '2026-10-31', 'end_date': '2026-11-01'})
+            # 北京时间11月2日凌晨1点在UTC仍是11月1日，今天必须按北京时间判定。
+            today = ns.read_home_news('exwind', {'source': 'exwind', 'days': '1'})
+        ids = {row['id'] for row in result['data']}
+        self.assertTrue({created[1].id, created[2].id} <= ids)
+        self.assertFalse({created[0].id, created[3].id} & ids)
+        self.assertEqual(today['meta']['start_date'], '2026-11-02')
+        self.assertIn(created[3].id, {row['id'] for row in today['data']})
+        self.assertNotIn(self.null_time.id, {row['id'] for row in ns.read_home_news('wowhead', {'days': '30'})['data']})
+
+    def test_invalid_date_ranges_return_400_without_reading_snapshots(self):
+        for params in ({'days': '0'}, {'days': '-1'}, {'days': 'abc'}, {'days': '9' * 100},
+                       {'start_date': '2026-02-30', 'end_date': '2026-03-01'},
+                       {'start_date': '2026-11-02', 'end_date': '2026-11-01'},
+                       {'start_date': '2026-11-01'}, {'end_date': '2026-11-01'},
+                       {'start_date': '9999-01-01', 'end_date': '9999-01-02'}):
+            with self.assertNumQueries(0), patch.object(ns, '_index') as read:
+                response = self.response(PortalWowheadLatestAPIView, params)
+            self.assertEqual(response.status_code, 400, params)
+            read.assert_not_called()
+
+    def test_legacy_home_projection_is_pending_instead_of_silently_truncated(self):
+        ns.refresh_news_snapshot()
+        index = ns._index()
+        del index['home_shards']
+        index['generation'] = ns._digest({key: index[key] for key in ('schema', 'shards', 'sources', 'home')})
+        ns._write(self.root / 'index.json', index)
+        with self.assertNumQueries(0):
+            response = self.response(PortalWowheadLatestAPIView, {'days': '3'})
+        self.assertEqual(response.status_code, 202)
+        self.assertEqual(self.payload(response)['snapshot']['state'], 'pending')
+        ns.refresh_news_snapshot()
+        self.assertEqual(self.response(PortalWowheadLatestAPIView).status_code, 200)
+
+    def test_snapshot_reader_rejects_replaced_file_handle_before_reading(self):
+        from types import SimpleNamespace
+        from botend.services import snapshot_cache_gc as gc
+        ns.refresh_news_snapshot()
+        index = ns._index()
+        path = self.root / index['home']
+        metadata = path.stat()
+        replaced = SimpleNamespace(**{key: getattr(metadata, key) for key in
+            ('st_mode', 'st_nlink', 'st_dev', 'st_size', 'st_mtime_ns')}, st_ino=metadata.st_ino + 1)
+        with patch.object(gc.os, 'fstat', return_value=replaced), patch.object(gc.json, 'load') as read:
+            with self.assertRaisesRegex(gc.UnsafeCache, 'file changed while opening'):
+                gc.Reader(self.root, 'news').read(index['home'])
+        read.assert_not_called()
 
     def test_offline_command_uses_same_publisher(self):
         output = StringIO()

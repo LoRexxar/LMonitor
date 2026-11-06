@@ -19,7 +19,7 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
   };
   context.loadTools = () => new Promise((resolve, reject) => { navigation = {resolve, reject}; });
   context.bindSearch = () => { bound = true; };
-  context.bindExwindSourceTabs = context.renderExwindSourceTabs = context.updateSearchMeta = () => {};
+  context.bindHomeNewsControls = context.updateSearchMeta = () => {};
   const loading = context.loadAll();
   await flush();
   assert.equal(bound, true, '导航未完成时搜索也应可用');
@@ -29,11 +29,11 @@ const flush = async () => { for (let i = 0; i < 8; i++) await Promise.resolve();
   await flush();
   assert.equal(started[3], 'exwind', '空出的并发位置应马上加载后续板块');
   // 首个板块持续未完成，其余板块仍应全部加载。
-  while (started.length < 11) {
+  while (started.length < 13) {
     for (const [key, task] of pending) if (key !== 'today_in_wow') task.resolve();
     await flush();
   }
-  assert.equal(new Set(started).size, 11);
+  assert.equal(new Set(started).size, 13);
   assert.equal(peak, 3, '内容板块最多并发三个');
   for (const task of pending.values()) task.resolve();
   await loading;

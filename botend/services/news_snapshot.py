@@ -1,5 +1,6 @@
 """新闻轻量读模型：后台统一发布，首页及历史列表只读取文件。"""
 from collections import Counter, deque
+from datetime import date, datetime, time as day_time, timedelta
 from functools import lru_cache
 import hashlib
 import json
@@ -10,6 +11,7 @@ import re
 import threading
 import time
 import uuid
+from zoneinfo import ZoneInfo
 
 from bs4 import BeautifulSoup
 from django.conf import settings
@@ -27,6 +29,8 @@ from botend.services.simc_benchmark_result_snapshot import _load, _lock, _write
 logger = logging.getLogger(__name__)
 SCHEMA = 1
 CHUNK_SIZE = 500
+NEWS_TIMEZONE = ZoneInfo('Asia/Shanghai')
+HOME_NEWS_SECTIONS = ('blueposts', 'exwind', 'wowhead', 'nga_preview')
 SOURCE_LABELS = {
     'blizzard_cn': '魔兽世界中国', 'blizzard_tracker': 'Blizzard Tracker',
     'bilibili': 'B 站视频', 'exwind': 'Exwind 新闻', 'lhfszs': '老黄蜂说芝士',
@@ -34,6 +38,34 @@ SOURCE_LABELS = {
 }
 _thread = None
 _thread_lock = threading.Lock()
+
+
+class NewsDateRangeError(ValueError):
+    """用户提交的新闻日期范围无效。"""
+
+
+def home_news_range(params):
+    """按北京时间自然日计算闭区间，不以条数限制新闻。"""
+    today = timezone.now().astimezone(NEWS_TIMEZONE).date()
+    start_text, end_text = params.get('start_date'), params.get('end_date')
+    try:
+        if start_text is not None or end_text is not None:
+            if not all(re.fullmatch(r'\d{4}-\d{2}-\d{2}', value or '') for value in (start_text, end_text)):
+                raise ValueError
+            start, end = date.fromisoformat(start_text), date.fromisoformat(end_text)
+        else:
+            days_text = str(params.get('days', '7'))
+            if not re.fullmatch(r'[1-9]\d*', days_text):
+                raise ValueError
+            end = today
+            start = end - timedelta(days=int(days_text) - 1)
+        if start > end or end > today:
+            raise ValueError
+        since = datetime.combine(start, day_time.min, NEWS_TIMEZONE).timestamp()
+        until = datetime.combine(end + timedelta(days=1), day_time.min, NEWS_TIMEZONE).timestamp()
+    except (ValueError, TypeError, OverflowError):
+        raise NewsDateRangeError('请选择有效的新闻日期范围，开始日期不能晚于结束日期，结束日期不能晚于今天。') from None
+    return {'start_date': start.isoformat(), 'end_date': end.isoformat(), 'timezone': 'Asia/Shanghai'}, since, until
 
 
 def snapshot_root():
@@ -70,7 +102,7 @@ def _project(row):
         'url': url, 'article_url': f'/portal/article/{row["id"]}/',
         'author': '' if author == 'LMonitor' else author,
         'source': row['source'] or '', 'category': row['category'] or '',
-        'publish_time': timezone.localtime(published).strftime('%Y-%m-%d %H:%M:%S') if published else '',
+        'publish_time': published.astimezone(NEWS_TIMEZONE).strftime('%Y-%m-%d %H:%M:%S') if published else '',
         'reply_count': int(row['reply_count'] or 0),
         'has_content': bool(row['content_flag']), 'has_translation': bool(row['translation_flag']),
         '_published': published.timestamp() if published else None,
@@ -124,17 +156,23 @@ def refresh_news_snapshot(*, poll=False):
         if poll:
             if now - _load(root / 'attempt.json', {}).get('at', 0) < 15:
                 return False
-            if (root / 'index.json').exists() and revision == checked.get('revision') and now - checked.get('at', 0) < 300:
+            if 'home_shards' in _load(root / 'index.json', {}) and revision == checked.get('revision') and now - checked.get('at', 0) < 300:
                 return False
         _write(root / 'attempt.json', {'at': now})
         try:
             shards, chunk, month = [], [], None
+            home_shards, home_chunk, home_month = [], [], None
             source_counts = Counter()
             home = {key: [] for key in ('blueposts', 'exwind', 'wowhead', 'nga_preview', 'nga_hot', 'nga_fallback')}
             def save_chunk():
                 counts = dict(Counter(row['source'] for row in chunk))
                 shards.append({'month': month, 'file': _save_content({'schema': SCHEMA, 'items': chunk}),
                                'count': len(chunk), 'sources': counts})
+            def save_home_chunk():
+                home_shards.append({'month': home_month,
+                                    'file': _save_content({'schema': SCHEMA, 'items': home_chunk}),
+                                    'count': len(home_chunk),
+                                    'sources': dict(Counter(row['source'] for row in home_chunk))})
             for raw in lightweight_rows():
                 row = _project(raw)
                 flags = {
@@ -149,9 +187,21 @@ def refresh_news_snapshot(*, poll=False):
                 # 仅为实际显示的热帖生成摘要，历史归档不逐篇解析 HTML。
                 if any(flags[key] and len(home[key]) < 40 for key in ('nga_hot', 'nga_fallback')):
                     row['_preview'] = BeautifulSoup(raw['preview'] or '', 'html.parser').get_text(' ', strip=True)[:200]
-                for key, eligible in flags.items():
-                    if eligible and len(home[key]) < (40 if key in ('nga_hot', 'nga_fallback') else 60):
+                for key in ('nga_hot', 'nga_fallback'):
+                    if flags[key] and len(home[key]) < 40:
                         home[key].append(row)
+                # 新闻分片只按月份和存储批次拆分，读取范围内的全部分片，不做 Top N 候选。
+                memberships = [key for key in HOME_NEWS_SECTIONS if flags[key]]
+                if memberships and row['_published'] is not None:
+                    row_month = row['publish_time'][:7]
+                    if home_chunk and row_month != home_month:
+                        save_home_chunk()
+                        home_chunk = []
+                    home_month = row_month
+                    home_chunk.append({**row, '_sections': memberships})
+                    if len(home_chunk) == CHUNK_SIZE:
+                        save_home_chunk()
+                        home_chunk = []
                 # 历史列表保留原先排除空标题的规则，首页仍允许来源自身的空标题条目。
                 if not row['title']:
                     continue
@@ -168,8 +218,10 @@ def refresh_news_snapshot(*, poll=False):
                     chunk = []
             if chunk:
                 save_chunk()
+            if home_chunk:
+                save_home_chunk()
             body = {'schema': SCHEMA, 'shards': shards, 'sources': dict(source_counts),
-                    'home': _save_content({'schema': SCHEMA, 'sections': home})}
+                    'home': _save_content({'schema': SCHEMA, 'sections': home}), 'home_shards': home_shards}
             generation = _digest(body)
             previous = _load(root / 'index.json', {})
             if revision != _load(root / 'revision.json', {}):
@@ -212,6 +264,8 @@ def _index():
     if not isinstance(index, dict) or index.get('schema') != SCHEMA:
         raise ValueError('新闻索引不可用')
     body = {key: index[key] for key in ('schema', 'shards', 'sources', 'home')}
+    if 'home_shards' in index:
+        body['home_shards'] = index['home_shards']
     if _digest(body) != index.get('generation'):
         raise ValueError('新闻索引校验失败')
     return index
@@ -297,23 +351,44 @@ def read_news_page(params):
                      'has_next': page < pages, 'has_previous': page > 1}, 'snapshot': _state(index)}
 
 
-def read_home_news(section):
+def read_home_news(section, params=None):
+    params = params or {}
+    nga = section == 'nga'
+    if not nga:
+        date_range, since, until = home_news_range(params)
     index = _index()
-    if index is None:
+    if index is None or (not nga and 'home_shards' not in index):
         return {'status': 'success', 'data': [],
                 'snapshot': {'state': 'pending', 'message': '新闻数据正在准备，请稍后重试。'}}
-    sections = _content(index['home'])['sections']
-    nga = section == 'nga'
-    rows = (sections['nga_hot'] or sections['nga_fallback']) if nga else sections[section]
-    if section in ('blueposts', 'exwind', 'wowhead'):
-        since = timezone.now().timestamp() - 7 * 86400
-        rows = [row for row in rows if row['_published'] is not None and row['_published'] >= since]
-    return {'status': 'success', 'data': [_public(row, nga=nga) for row in rows], 'snapshot': _state(index)}
+    if nga:
+        sections = _content(index['home'])['sections']
+        rows = sections['nga_hot'] or sections['nga_fallback']
+        meta = {}
+    else:
+        rows = []
+        source = params.get('source') if section == 'exwind' else None
+        for shard in index['home_shards']:
+            if not date_range['start_date'][:7] <= shard['month'] <= date_range['end_date'][:7]:
+                continue
+            if source in ('exwind', 'blizzard_cn') and not shard['sources'].get(source):
+                continue
+            for row in _content(shard['file'])['items']:
+                if (section in row['_sections'] and since <= row['_published'] < until
+                        and (source not in ('exwind', 'blizzard_cn') or row['source'] == source)):
+                    rows.append(row)
+        rows.sort(key=lambda row: (row['_published'], row['id']), reverse=True)
+        meta = {'meta': {**date_range, 'total': len(rows)}}
+    return {'status': 'success', 'data': [_public(row, nga=nga) for row in rows],
+            **meta, 'snapshot': _state(index)}
 
 
 def news_response(request, section=None):
     try:
-        payload = read_home_news(section) if section else read_news_page(request.GET)
+        payload = read_home_news(section, request.GET) if section else read_news_page(request.GET)
+    except NewsDateRangeError as error:
+        response = JsonResponse({'status': 'error', 'message': str(error)}, status=400)
+        response['Cache-Control'] = 'no-store'
+        return response
     except (OSError, ValueError, KeyError, TypeError):
         logger.warning('新闻已发布文件不可用', exc_info=True)
         response = JsonResponse({'status': 'error', 'message': '新闻数据暂不可用，请稍后重试。'}, status=503)

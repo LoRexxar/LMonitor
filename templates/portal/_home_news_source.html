@@ -1,0 +1,12 @@
+{% load static %}
+<section id="news-source-{{ key }}" class="home-news-source home-news-{{ key }}" aria-labelledby="news-heading-{{ key }}">
+    <header class="home-news-source-heading">
+        <svg aria-hidden="true"><use href="{% static 'portal/icons/icons.svg' %}#icon-{{ icon }}"></use></svg>
+        <h3 id="news-heading-{{ key }}">{{ name }}</h3>
+        <p>{{ description }}</p>
+        <span id="news-count-{{ key }}" class="home-news-count">正在读取</span>
+    </header>
+    <div id="{{ key }}-list" class="home-news-list" aria-busy="true">
+        <p class="home-news-message">正在读取所选日期的新闻…</p>
+    </div>
+</section>
