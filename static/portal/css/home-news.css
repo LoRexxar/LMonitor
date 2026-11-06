@@ -1,5 +1,5 @@
 /* 首页新闻：来源身份、日期范围筛选与完整标题。 */
-.home-news { --news-line: var(--portal-border-subtle, #dce2e9); max-width: 800px; margin-inline: auto; color: var(--portal-text, #172033); }
+.home-news { --news-line: var(--portal-border-subtle, #dce2e9); width: 100%; min-width: 0; color: var(--portal-text, #172033); }
 .home-news [hidden] { display: none !important; }
 .home-news-toolbar { margin: 28px 0 20px; }
 .home-news-heading { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; }

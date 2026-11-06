@@ -3,6 +3,15 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const {readSource} = require('./vm_harness');
 
+test('新闻区复用首页容器宽度，不另设桌面固定上限，更新样式缓存版本', () => {
+  const css = readSource('static/portal/css/home-news.css');
+  const root = css.match(/\.home-news\s*\{([^}]*)\}/)?.[1] || '';
+  assert.match(root, /(?:^|;)\s*width:\s*100%\s*;/);
+  assert.match(root, /(?:^|;)\s*min-width:\s*0\s*;/);
+  assert.doesNotMatch(root, /(?:^|;)\s*max-width:\s*\d+(?:px|rem)\b/);
+  assert.doesNotMatch(readSource('templates/portal/index.html'), /home-news\.css' %}\?v=20261106_source_dates_7/);
+});
+
 function setup(localStorage) {
   const elements = new Map();
   const element = id => {
