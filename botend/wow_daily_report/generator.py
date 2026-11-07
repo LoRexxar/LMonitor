@@ -564,7 +564,7 @@ def _section_payload(section: Dict[str, Any]) -> Dict[str, Any]:
     return {**section, "items": items}
 
 
-def _render_news_items(items: List[Dict[str, Any]]) -> str:
+def _render_news_items(items: List[Dict[str, Any]], *, summary_only=False) -> str:
     if not items:
         return '<p class="empty">今日暂无相关新闻。</p>'
     out = ['<div class="article-list">']
@@ -578,14 +578,19 @@ def _render_news_items(items: List[Dict[str, Any]]) -> str:
         if item.get("portal_url"):
             out.append(f'<a class="original-link" href="{_safe_html(item["portal_url"])}">站内阅读</a>')
         summary_label = "AI 总结" if item.get("summary_llm_ok") else "内容摘要"
-        out.append(f'<div class="item-summary"><strong>{summary_label}：</strong>{_safe_html(item.get("summary") or _fallback_item_summary(item))}</div>')
-        out.append('<div class="original-label">新闻原文</div>')
-        body_html = _sanitize_body_html(item.get("body_html") or "")
-        if body_html:
-            out.append(f'<div class="body-html">{body_html}</div>')
+        summary = item.get("summary") or _fallback_item_summary(item)
+        if summary_only:
+            # Weekly news is one readable paragraph, not a hidden full article.
+            out.append(f'<p class="item-summary"><strong>{summary_label}：</strong>{_safe_html(_collapse_space(summary))}</p>')
         else:
-            body = item.get("body") or "（暂无正文片段）"
-            out.append(f'<p class="body-text">{_safe_html(body)}</p>')
+            out.append(f'<div class="item-summary"><strong>{summary_label}：</strong>{_safe_html(summary)}</div>')
+            out.append('<div class="original-label">新闻原文</div>')
+            body_html = _sanitize_body_html(item.get("body_html") or "")
+            if body_html:
+                out.append(f'<div class="body-html">{body_html}</div>')
+            else:
+                body = item.get("body") or "（暂无正文片段）"
+                out.append(f'<p class="body-text">{_safe_html(body)}</p>')
         out.append('</article>')
     out.append('</div>')
     return "\n".join(out)
@@ -769,7 +774,8 @@ def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]
     if edition is None:
         edition = edition_for_report_date(report_date)
     return render_daily_document(report_date, sections, {
-        'news': _render_news_items, 'nga': _render_nga_items,
+        'news': lambda items: _render_news_items(items, summary_only=edition['kind'] == 'wednesday_weekly'),
+        'nga': _render_nga_items,
         'videos': _render_video_items, 'cutoffs': _render_cutoff_items,
         'today': _render_site_items, 'events': _render_site_items, 'updates': _render_site_items,
         'rio': _render_rio_items,
