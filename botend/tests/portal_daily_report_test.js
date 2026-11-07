@@ -8,10 +8,10 @@ test('daily homepage exposes all sources without mixing news/cards/regions into 
   const context = vm.createContext({URL, console, document:{addEventListener(){},
     getElementById(id){return id === 'featured-news-card' ? card : null;}}});
   vm.runInContext(readSource('static/portal/js/main.js'), context);
-  const sections = ['news','events','updates','nga','videos','today','cutoffs'].map((key,index)=>({key,label:key,count:index+1}));
+  const sections = ['news','events','updates','nga','videos','today','cutoffs','rio'].map((key,index)=>({key,label:key,count:index+1}));
   vm.runInContext(`PORTAL_STATE.dailyReport=${JSON.stringify({title:'日报',url:'/portal/reports/daily.html',sections})};renderDailyReportCard();`, context);
   for(const section of sections)assert.ok(card.innerHTML.includes(`<span>${section.label}</span>`), section.key);
-  assert.ok(card.innerHTML.includes('7 个板块'));
+  assert.ok(card.innerHTML.includes('8 个板块'));
   assert.ok(!card.innerHTML.includes('条汇总'));
   assert.ok(card.innerHTML.includes('最新日报'));
   vm.runInContext(`PORTAL_STATE.dailyReport=${JSON.stringify({title:'日报',url:'/portal/reports/daily.html?v=123',current_url:'/portal/daily-report/',sections})};renderDailyReportCard();`, context);

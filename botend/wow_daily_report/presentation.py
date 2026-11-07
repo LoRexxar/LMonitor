@@ -21,12 +21,12 @@ from zoneinfo import ZoneInfo
 
 _SHORT_NAMES = {
     'news': '新闻', 'nga': '社区', 'videos': '视频', 'cutoffs': '冲分',
-    'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修',
+    'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修', 'rio': '数据观察',
 }
 _DEFAULT_TITLES = {
     'news': '魔兽世界当天新闻', 'nga': 'NGA 热议',
     'videos': '当前更新的 WoW 视频列表', 'cutoffs': '大秘境分数线汇总',
-    'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修',
+    'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修', 'rio': '数据观察',
 }
 _BEIJING = ZoneInfo('Asia/Shanghai')
 
@@ -117,6 +117,26 @@ def _generic_items(items: Sequence[Any]) -> str:
             + '</article>'
         )
     return '<div class="article-list">' + '\n'.join(cards) + '</div>'
+
+
+_RIO_CSS = """
+.rio-report-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.rio-report-card{padding:18px 20px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.rio-report-heading{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+.rio-report-heading h3{margin:0;font-size:18px}.rio-report-heading>span{font-size:12px;color:var(--muted)}
+.rio-report-date{margin:3px 0 12px;color:var(--muted);font-size:12px}
+.rio-report-status{color:var(--gold);margin-left:8px}
+.rio-report-population{display:flex;align-items:baseline;gap:12px;margin:0 0 12px}
+.rio-report-population strong{font-size:30px;line-height:1.3;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.rio-report-population>span{font-size:12px;color:var(--muted)}
+.rio-report-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.rio-report-metrics dt{font-size:12px;color:var(--muted)}.rio-report-metrics dt span{display:block;font-size:11px}
+.rio-report-metrics dd{font-size:21px;font-weight:650;font-variant-numeric:tabular-nums;margin:3px 0 0}
+.rio-report-metrics dd[data-direction=positive]{color:#277050}.rio-report-metrics dd[data-direction=negative]{color:#a04444}
+.rio-report-source,.rio-report-missing{font-size:11px;color:var(--muted);line-height:1.7;margin:8px 0}
+.rio-report-links{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:10px;font-size:13px}
+@media(max-width:700px){.rio-report-grid{grid-template-columns:minmax(0,1fr);gap:12px}.rio-report-card{padding:16px}.rio-report-population strong{font-size:28px}}
+"""
 
 
 _CSS = """
@@ -262,12 +282,12 @@ def render_daily_document(
         title = _text(section.get('title')) or _DEFAULT_TITLES.get(key, '站内新内容')
         count = len(items)
         unit = {'news': '条新闻', 'nga': '个话题', 'videos': '个视频', 'cutoffs': '个地区',
-                'today': '张卡片', 'events': '项活动', 'updates': '份报告'}.get(key, '项')
+                'today': '张卡片', 'events': '项活动', 'updates': '份报告', 'rio': '个地区'}.get(key, '项')
         overview.append(
             f'<li data-section="{_escape(key)}"><a href="#{anchor}">{short_name}</a>'
             f'<strong class="overview-count">{count}</strong><span class="overview-unit">{unit}</span></li>'
         )
-        summary = _text(section.get('summary')) if key != 'cutoffs' else ''
+        summary = _text(section.get('summary')) if key not in ('cutoffs', 'rio') else ''
         summary_html = f'<p class="section-summary">{_escape(summary)}</p>' if summary else ''
         renderer = body_renderers.get(key)
         body = renderer(items) if renderer is not None else _generic_items(items)
@@ -278,6 +298,9 @@ def render_daily_document(
             + _source_metadata(section) + '\n' + summary_html + '\n'
             + '<div class="section-body">\n' + body + '\n</div>\n</section>'
         )
+        if key == 'rio':
+            overview[-1] = '<!--daily-rio:nav-->' + overview[-1] + '<!--/daily-rio:nav-->'
+            output[-1] = '<!--daily-rio:section-->' + output[-1] + '<!--/daily-rio:section-->'
     overview_html = (
         '<aside class="edition-overview" aria-labelledby="overview-title">'
         '<h2 id="overview-title">本期导读</h2><nav class="daily-nav" aria-label="本期目录">'
@@ -287,7 +310,7 @@ def render_daily_document(
     return (
         '<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f'<title>魔兽世界日报 - {_escape(date_text)}</title>\n<style>{_CSS}</style>\n</head>\n<body>\n'
+        f'<title>魔兽世界日报 - {_escape(date_text)}</title>\n<style>{_CSS}</style>\n<!--daily-rio:style--><style id="daily-rio-style">{_RIO_CSS}</style>\n<!--/daily-rio:style--></head>\n<body>\n'
         '<a class="skip-link" href="#edition-content">跳到本期正文</a>\n'
         '<main class="daily-report">\n<header class="daily-hero">'
         '<div class="edition-title"><p class="edition-kicker">WOW DAILY · 每日读本</p><h1>魔兽世界日报</h1></div>'

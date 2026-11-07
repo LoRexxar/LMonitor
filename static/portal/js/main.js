@@ -760,7 +760,7 @@ function renderDailyReportCard() {
       <div class="portal-daily-report-kicker">最新日报</div>
       <div class="portal-daily-report-main">
         <div class="portal-daily-report-title">${message}</div>
-        <div class="portal-daily-report-meta">汇总当日新闻、活动日历、北美轮换与冲分参考</div>
+        <div class="portal-daily-report-meta">汇总赛季参与、当日新闻、活动日历与冲分参考</div>
       </div>
     </article>`;
     return;
@@ -769,7 +769,6 @@ function renderDailyReportCard() {
   const sections = Array.isArray(report.sections) ? report.sections : [];
   const sectionBadges = sections
     .filter((x) => Number(x?.count || 0) > 0)
-    .slice(0, 7)
     .map((x) => `<span class="portal-daily-report-badge"><span>${escapeHtml(x.label || x.title || x.key || "板块")}</span><strong>${escapeHtml(x.count)}</strong></span>`)
     .join("");
   const sectionCount = sections.filter((x) => Number(x?.count || 0) > 0).length;
