@@ -829,6 +829,13 @@ function getNewsWowSourceBadgeClass(source) {
     return 'bg-slate-50 text-slate-700 border-slate-100';
 }
 
+function renderNewsWowChannelBadge(article) {
+    if (article.source !== 'blizzard_tracker' || !article.game_version_label) return '';
+    const categoryName = article.forum_category?.name || '';
+    const tooltip = categoryName ? ` title="${escapeHtml(categoryName)}"` : '';
+    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full border bg-sky-50 text-sky-700 border-sky-100"${tooltip}>[${escapeHtml(article.game_version_label)}]</span>`;
+}
+
 function renderNewsWowListItem(item) {
     const titleCn = item.title_cn || '';
     const title = item.title || titleCn || '未命名文章';
@@ -846,6 +853,7 @@ function renderNewsWowListItem(item) {
         : '';
     const metaParts = [];
     if (source) metaParts.push(`<span class="inline-flex items-center px-2 py-0.5 rounded-full border ${sourceBadge}">${escapeHtml(source)}</span>`);
+    metaParts.push(renderNewsWowChannelBadge(item));
     if (category) metaParts.push(`<span class="inline-flex items-center px-2 py-0.5 rounded-full bg-slate-100 text-slate-600">${escapeHtml(category)}</span>`);
     if (author) metaParts.push(`<span><i class="fas fa-user mr-1 text-slate-400"></i>${escapeHtml(author)}</span>`);
     if (time) metaParts.push(`<span><i class="fas fa-clock mr-1 text-slate-400"></i>${escapeHtml(time)}</span>`);
@@ -947,6 +955,7 @@ function openNewsWowDetail(articleId) {
         const url = article.url || '';
         const meta = [];
         if (article.source) meta.push(`<span class="inline-flex items-center px-2 py-1 rounded-full border ${getNewsWowSourceBadgeClass(article.source)}">${escapeHtml(article.source)}</span>`);
+        meta.push(renderNewsWowChannelBadge(article));
         if (article.category) meta.push(`<span class="inline-flex items-center px-2 py-1 rounded-full bg-slate-100 text-slate-600">${escapeHtml(article.category)}</span>`);
         if (article.author) meta.push(`<span><i class="fas fa-user mr-1 text-slate-400"></i>${escapeHtml(article.author)}</span>`);
         if (article.publish_time) meta.push(`<span><i class="fas fa-clock mr-1 text-slate-400"></i>${escapeHtml(formatDateTime(article.publish_time))}</span>`);

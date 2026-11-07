@@ -1,0 +1,82 @@
+[
+  {
+    "file": "2403040.html",
+    "url": "https://us.forums.blizzard.com/en/wow/t/wow-forever-hotfixes-november-6-2026/2403040/4",
+    "topic_id": 2403040,
+    "category_id": 352,
+    "title": "WoW: Forever Hotfixes - November 6, 2026",
+    "game_version": "forever",
+    "source_sha256": "775144ab708367129d1530ed778e1b94b40a2631be17c5956aaa3e53d446e47b",
+    "fixture_sha256": "30641e324619aa46c3fbd1725c677e6e84666f0263d73ee08c5c55a2f152487b"
+  },
+  {
+    "file": "2382684.html",
+    "url": "https://us.forums.blizzard.com/en/wow/t/world-of-warcraft-midnight-hotfixes-november-6/2382684/163",
+    "topic_id": 2382684,
+    "category_id": 171,
+    "title": "World of Warcraft: Midnight Hotfixes - November 6",
+    "game_version": "retail",
+    "source_sha256": "ec884e4af5b65dcdfdc3892b88296861435fcc83b3a6fb3767a838c9d23e0f8e",
+    "fixture_sha256": "21893f38f3e26054d426a1c0cdc2e1e29da795dc806cc0fd3237a85c92161c52"
+  },
+  {
+    "file": "2360696.html",
+    "url": "https://us.forums.blizzard.com/en/wow/t/wow-forever-beta-development-notes-%E2%80%93-updated-november-2/2360696/10",
+    "topic_id": 2360696,
+    "category_id": 349,
+    "title": "WoW Forever Beta Development Notes – Updated November 2",
+    "game_version": "test",
+    "source_sha256": "f69616808c8a437274cf78cff91ad88697f2d2db10302fb5eef9870061a393a9",
+    "fixture_sha256": "fcb62a46fdcbd455344fe871f0ead1c7dd2971450318d0a82e8e73926296a26e"
+  },
+  {
+    "file": "2404092.html",
+    "url": "https://us.forums.blizzard.com/en/wow/t/class-tuning-incoming-november-10/2404092/1",
+    "topic_id": 2404092,
+    "category_id": 347,
+    "title": "Class Tuning Incoming - November 10",
+    "game_version": "forever",
+    "source_sha256": "19d75b3f3f4b13289e92aa37c172fb5b91dcb8d668d819a5563996d85ee12d0e",
+    "fixture_sha256": "9b4a484e9b6eb625c0ba1eb50679271846cc87b30a92001fd1739be498730cf9"
+  },
+  {
+    "file": "2402802.html",
+    "url": "https://us.forums.blizzard.com/en/wow/t/wow-forever%E2%80%93-watch-forging-forever/2402802/1",
+    "topic_id": 2402802,
+    "category_id": 347,
+    "title": "WoW: Forever– Watch Forging Forever",
+    "game_version": "forever",
+    "source_sha256": "04074e47f530160deddc162bc77391bb0d0e3c045a1de9c8139a59e22fccb8a0",
+    "fixture_sha256": "183fc95b956f7dbb99812b66900973befb5465ee47935f62f30354dc211b6587"
+  },
+  {
+    "file": "2402801.html",
+    "url": "https://us.forums.blizzard.com/en/wow/t/wow-forever%E2%80%93-watch-forging-forever/2402801/1",
+    "topic_id": 2402801,
+    "category_id": 171,
+    "title": "WoW: Forever– Watch Forging Forever",
+    "game_version": "retail",
+    "source_sha256": "a5578947715d0c809be908473cf8a17a440b45bac58527e3ee2b6490048e1b8c",
+    "fixture_sha256": "194d002ac53525a21acd5f709b73edc70a8d41eb7192ae7e3a51892bd91ca48a"
+  },
+  {
+    "file": "2383391.html",
+    "url": "https://us.forums.blizzard.com/en/wow/t/midnight-echoes-of-the-worldcore-ptr-development-notes/2383391",
+    "topic_id": 2383391,
+    "category_id": 351,
+    "title": "Midnight: Echoes of the Worldcore PTR Development Notes",
+    "game_version": "test",
+    "source_sha256": "771d613310ee848fee3e0522b8a2302da4996ae0641e785041f5a19c23b82c64",
+    "fixture_sha256": "d5ed55a3257bad609ba0e5e49a9be4516e71ce7607391ab34a3dcc3ae566da82"
+  },
+  {
+    "file": "2376548.html",
+    "url": "https://us.forums.blizzard.com/en/wow/t/burning-crusade-classic-zulaman-ptr-raid-testing/2376548",
+    "topic_id": 2376548,
+    "category_id": 350,
+    "title": "Burning Crusade Classic Zul'Aman PTR Raid Testing",
+    "game_version": "test",
+    "source_sha256": "7141d154d0a495f5d193318014eebb2300c36ba4e52d963e6860fa8faeb2d222",
+    "fixture_sha256": "1401c2d9978a389643ce2dade6b14174a403a0fbd91dcb681d932a8252b6854d"
+  }
+]

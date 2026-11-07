@@ -190,6 +190,8 @@ function matchItem(item, q) {
     item?.title,
     item?.title_cn,
     item?.source,
+    item?.source === 'blizzard_tracker' ? item?.game_version_label : '',
+    item?.source === 'blizzard_tracker' ? item?.forum_category?.name : '',
     item?.author,
     item?.tag,
     item?.time,
@@ -257,6 +259,10 @@ function renderSimpleList(containerId, items, opts) {
         : "";
 
       const parts = [];
+      if (it.source === 'blizzard_tracker' && it.game_version_label) {
+        const tooltip = it.forum_category?.name ? ` title="${escapeHtml(it.forum_category.name)}"` : '';
+        parts.push(`<span${tooltip}>[${escapeHtml(it.game_version_label)}]</span>`);
+      }
       if (source) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-globe", "w-3.5 h-3.5 text-slate-400")}<span>${source}</span></span>`);
       if (author) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-user", "w-3.5 h-3.5 text-slate-400")}<span>${author}</span></span>`);
       if (time) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></span>`);
@@ -695,7 +701,9 @@ function firstArrayItem(sectionKey) {
 }
 
 function getItemTitle(it) {
-  return String(it?.title || it?.name || it?.headline || "").trim();
+  const title = String(it?.title || it?.name || it?.headline || "").trim();
+  return it?.source === 'blizzard_tracker' && it?.game_version_label
+    ? `[${String(it.game_version_label)}] ${title}` : title;
 }
 
 function getItemUrl(it) {
@@ -1025,9 +1033,14 @@ function renderHomeNews(key) {
         : `<span class="home-news-title">${title}</span>`;
       const author = item.author && item.author !== item.source && item.author !== homeNewsSourceName(item)
         ? `<span>${escapeHtml(item.author)}</span>` : "";
+      const versionLabel = item.source === "blizzard_tracker" ? item.game_version_label : "";
+      const versionTooltip = item.forum_category?.name
+        ? ` title="${escapeHtml(item.forum_category.name)}"` : "";
+      const versionBadge = versionLabel
+        ? `<span class="home-news-origin"${versionTooltip}>[${escapeHtml(versionLabel)}]</span>` : "";
       const published = String(item.publish_time || "");
       return `<li class="home-news-row">
-        <div>${link}<div class="home-news-meta"><span class="home-news-origin">${escapeHtml(homeNewsSourceName(item))}</span>${author}
+        <div>${link}<div class="home-news-meta"><span class="home-news-origin">${escapeHtml(homeNewsSourceName(item))}</span>${versionBadge}${author}
           <time class="home-news-time" datetime="${escapeHtml(published.replace(" ", "T"))}+08:00">${escapeHtml(published.slice(0, 16))}</time>
         </div></div>
       </li>`;

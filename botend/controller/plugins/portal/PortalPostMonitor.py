@@ -8,13 +8,15 @@ import datetime
 from urllib.parse import urljoin, urlparse
 
 from botend.controller.BaseScan import BaseScan
-from botend.models import TargetAuth, WowArticle
+from botend.models import TargetAuth, WowArticle, MonitorTask, MonitorTaskLeaseLost
 from botend.alerting import upsert_system_alert
 from botend.services.article_image_service import upload_article_images_in_blocks
 from django.utils import timezone
+from django.db import transaction
 from utils.log import logger
 from botend.services.article_content_service import blocks_to_plain_text, dumps_blocks, extract_structured_article, plain_text_to_blocks
 from botend.services.article_translation_service import build_translation_service
+from botend.services.blizzard_forum import ForumMetadataCollector, validate_metadata_lease
 
 
 def _hash_url(url):
@@ -116,7 +118,25 @@ class PortalPostMonitor(BaseScan):
         except Exception:
             return ""
 
+    def _forum_metadata_collector(self):
+        if not hasattr(self, '_forum_collector'):
+            task = self.task
+            owner = getattr(task, '_monitor_task_lease_owner', None) if isinstance(task, MonitorTask) else None
+            guard = (lambda: validate_metadata_lease(task.pk, owner)) if isinstance(owner, str) and owner else None
+            self._forum_collector = ForumMetadataCollector(self.req, write_guard=guard)
+        return self._forum_collector
+
+    def ensure_article_channel(self, article, force=False):
+        """Metadata only: no translation, body extraction, or image upload."""
+        return self._forum_metadata_collector().ensure(article, force=force)
+
+    def _blizzard_detail_html(self, url):
+        return self._forum_metadata_collector().html_for_url(url)
+
     def update_blueposts(self):
+        if hasattr(self, '_forum_collector'):
+            del self._forum_collector
+        self._forum_metadata_collector().check_lease()
         rss_url = 'https://us.forums.blizzard.com/en/wow/g/blizzard-tracker/posts.rss'
         try:
             resp = self.req.get(rss_url, 'Response', 0, '', headers={'User-Agent': 'Mozilla/5.0'})
@@ -146,6 +166,7 @@ class PortalPostMonitor(BaseScan):
                         break
                 if not title or not link:
                     continue
+                self._forum_metadata_collector().check_lease()
                 obj = self._upsert_article(
                     title=title,
                     url=link,
@@ -155,6 +176,9 @@ class PortalPostMonitor(BaseScan):
                     description=None,
                     publish_time=dt,
                 )
+                # Board classification has no translation quota and also repairs complete articles.
+                if obj:
+                    self.ensure_article_channel(obj)
                 # 1) 抓取主楼内容并落库（content/description）
                 # 2) 标题/内容分段走 GLM 翻译（title_cn/content_cn）
                 if obj and self._translate_budget > 0:
@@ -164,8 +188,17 @@ class PortalPostMonitor(BaseScan):
                 i += 1
                 if i >= 20:
                     break
+        except MonitorTaskLeaseLost:
+            raise
         except Exception as e:
             logger.error(f"[PortalPostMonitor] blueposts error: {str(e)}")
+
+    def _save_article_fields(self, article, fields, source):
+        guard = self._forum_metadata_collector().write_guard if source == 'blizzard_tracker' else None
+        with transaction.atomic():
+            if guard:
+                guard()
+            article.save(update_fields=list(set(fields)))
 
     def _ensure_article_filled_and_translated(self, article: WowArticle, source: str) -> bool:
         """
@@ -191,19 +224,25 @@ class PortalPostMonitor(BaseScan):
                     updated.extend(["content", "description"])
 
             if updated:
-                article.save(update_fields=list(set(updated)))
+                self._save_article_fields(article, updated, source)
 
+            if source == 'blizzard_tracker':
+                self._forum_metadata_collector().check_lease()
             did_translate = self.translation_service.translate_article_fields(
                 article,
                 logger_prefix="PortalPostMonitor",
             )
             return bool(updated or did_translate)
+        except MonitorTaskLeaseLost:
+            raise
         except Exception as e:
             logger.error(f"[PortalPostMonitor] fill/translate article error: {e}; article_id={getattr(article, 'id', None)} url={getattr(article, 'url', '')}")
             try:
                 if updated:
-                    article.save(update_fields=list(set(updated)))
+                    self._save_article_fields(article, updated, source)
                     return True
+            except MonitorTaskLeaseLost:
+                raise
             except Exception:
                 pass
             return False
@@ -215,16 +254,11 @@ class PortalPostMonitor(BaseScan):
         url = (url or "").strip()
         if not url:
             return []
-        headers = {
-            # 论坛对不同 UA 的 HTML 结构差异较大，Firefox UA 更稳定
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0",
-            "Referer": "https://us.forums.blizzard.com/",
-        }
         html_text = ""
         try:
-            resp = self.req.get(url, "Response", 0, "", headers=headers)
-            if resp and getattr(resp, "status_code", 0) == 200:
-                html_text = resp.text or ""
+            html_text = self._blizzard_detail_html(url)
+        except MonitorTaskLeaseLost:
+            raise
         except Exception:
             html_text = ""
         if not html_text:

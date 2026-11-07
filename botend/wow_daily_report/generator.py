@@ -414,6 +414,7 @@ NEWS_SECTION_SOURCES = ("wowhead", "blizzard_tracker")
 
 
 def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
+    from botend.services.blizzard_forum import article_channel
     start, end = _date_range(report_date)
     rows = (
         WowArticle.objects.filter(
@@ -424,6 +425,7 @@ def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
         )
         .exclude(category="nga")
         .exclude(category="video")
+        .select_related("blizzard_topic__category")
         .order_by("-publish_time", "-id")
     )
     items = [
@@ -436,6 +438,7 @@ def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
             "publish_time": a.publish_time,
             "body": _article_full_text(a),
             "body_html": _article_body_html(a),
+            **article_channel(a),
         }
         for a in rows
     ]
@@ -571,8 +574,10 @@ def _render_news_items(items: List[Dict[str, Any]], *, summary_only=False) -> st
     for item in items:
         out.append('<article class="daily-card news-card">')
         out.append(f'<h3 class="news-title"><a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">{_safe_html(item.get("title"))}</a></h3>')
+        channel = (f'<span>[{_safe_html(item.get("game_version_label"))}]</span>'
+                   if item.get('source') == 'blizzard_tracker' and item.get('game_version_label') else '')
         out.append(
-            f'<div class="meta"><span>来源：{_safe_html(item.get("source"))}</span><span>时间：{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
+            f'<div class="meta"><span>来源：{_safe_html(item.get("source"))}</span>{channel}<span>时间：{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
         )
         out.append(f'<a class="original-link" href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">原文链接</a>')
         if item.get("portal_url"):

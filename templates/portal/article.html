@@ -199,6 +199,11 @@
                     ? article.source
                     : 'other';
                 const sourceName = sourceNames[article.source] || article.source;
+                const versionLabel = article.source === 'blizzard_tracker' ? article.game_version_label : '';
+                const versionTooltip = article.forum_category?.name
+                    ? ` title="${escapeHtml(article.forum_category.name)}"` : '';
+                const versionBadge = versionLabel
+                    ? `<span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-600"${versionTooltip}>[${escapeHtml(versionLabel)}]</span>` : '';
                 const href = sanitizeHref(article.url);
 
                 let contentHtml = renderBlocks(article.content_blocks_cn) || renderBlocks(article.content_blocks);
@@ -214,7 +219,7 @@
                         <h1 class="text-2xl font-bold text-slate-900 mb-2">${escapeHtml(article.title)}</h1>
                         ${article.title_cn ? `<h2 class="text-lg text-indigo-700 mb-3">${escapeHtml(article.title_cn)}</h2>` : ''}
                         <div class="flex flex-wrap items-center gap-3 text-sm text-slate-500">
-                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">${escapeHtml(sourceName)}</span>
+                            <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-slate-100 text-slate-600">${escapeHtml(sourceName)}</span>${versionBadge}
                             ${article.author ? `<span>作者：${escapeHtml(article.author)}</span>` : ''}
                             <span>${escapeHtml(article.publish_time)}</span>
                             ${href ? `<a href="${escapeHtml(href)}" target="_blank" rel="noreferrer" class="text-indigo-600 hover:text-indigo-800">查看原文</a>` : ''}

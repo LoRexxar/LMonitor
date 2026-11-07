@@ -27,6 +27,11 @@ from botend.services.mplus_dps_rankings_service import get_current_mplus_dps_ran
 
 
 
+def _article_channel(article):
+    from botend.services.blizzard_forum import article_channel
+    return article_channel(article)
+
+
 def _fmt_dt(dt):
     if not dt:
         return ''
@@ -663,7 +668,7 @@ class PortalNewsIndexAPIView(View):
 class PortalArticleDetailAPIView(View):
     def get(self, request, article_id):
         try:
-            article = WowArticle.objects.get(id=article_id, is_active=True)
+            article = WowArticle.objects.select_related('blizzard_topic__category').get(id=article_id, is_active=True)
         except WowArticle.DoesNotExist:
             return JsonResponse({'status': 'error', 'message': '文章不存在'}, status=404)
 
@@ -698,6 +703,7 @@ class PortalArticleDetailAPIView(View):
                 'content_cn': content_cn,
                 'content_blocks': content_blocks,
                 'content_blocks_cn': content_blocks_cn,
+                **_article_channel(article),
             }
         })
 
