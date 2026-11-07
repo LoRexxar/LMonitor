@@ -11,7 +11,7 @@ from django.core.cache import cache
 from django.db.models import Count, Q
 from django.db.models.functions import Substr
 from django.utils import timezone
-from datetime import timedelta
+from datetime import date, timedelta
 
 from botend.models import PortalEvent, PortalMplusSeasonCutoff, PortalNavigationGroup, PortalToolLink, PortalVideo, SeasonMeta, WowArticle, WowDailyReport, WowTodaySnapshot, WowSkillDiffReport, WowHotfixReport, WowWagoMonitorState
 from botend.services.article_content_service import loads_blocks
@@ -76,12 +76,18 @@ def _load_json_dict(raw):
 
 
 def _daily_report_to_dict(row):
+    from botend.wow_daily_report.edition import published_edition
+
     ext = _load_json_dict(getattr(row, 'ext_json', '') or '')
+    edition = published_edition(getattr(row, 'report_date', None), ext)
+    weekly = edition is not None and edition['kind'] == 'wednesday_weekly'
     sections_obj = ext.get('sections')
     sections = sections_obj if isinstance(sections_obj, dict) else {}
     section_items = []
     for key, label in [('rio', '数据观察'), ('news', '新闻'), ('events', '活动日历'), ('updates', '版本热修'),
                        ('nga', 'NGA'), ('videos', '视频'), ('today', '北美轮换'), ('cutoffs', '大秘境')]:
+        if weekly and key == 'rio':
+            label = '数据周报'
         info_obj = sections.get(key)
         info = info_obj if isinstance(info_obj, dict) else {}
         count = info.get('count')
@@ -99,6 +105,7 @@ def _daily_report_to_dict(row):
                 'source_counts': source_counts if isinstance(source_counts, dict) else {},
             })
     report_date = getattr(row, 'report_date', None)
+    title_date = date.fromisoformat(edition['publication_date']) if weekly else report_date
     report_url = _portal_report_url(getattr(row, 'md_path', '') or '')
     updated_at = getattr(row, 'updated_at', None)
     if report_url and updated_at:
@@ -107,7 +114,8 @@ def _daily_report_to_dict(row):
     return {
         'id': row.id,
         'report_date': report_date.isoformat() if report_date else '',
-        'title': f"{report_date.strftime('%-m月%-d日') if report_date else '最新'}魔兽世界日报",
+        'title': f"{title_date.strftime('%-m月%-d日') if title_date else '最新'}魔兽世界{'周报' if weekly else '日报'}",
+        'edition': edition,
         'url': report_url,
         'current_url': reverse('portal_daily_report_current'),
         'md_path': getattr(row, 'md_path', '') or '',

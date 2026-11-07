@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 from django.utils.safestring import SafeData
 from botend.wow_daily_report.site_sections import collect_site_sections, day_window
+from botend.wow_daily_report.edition import SHANGHAI, edition_for_report_date
 
 from botend.models import PortalMplusSeasonCutoff, PortalVideo, WowArticle, WowDailyReport
 
@@ -667,6 +668,9 @@ def _render_cutoff_items(items: List[Dict[str, Any]]) -> str:
 
 def _render_rio_items(items):
     """A small, deterministic projection; the central source owns all facts."""
+    if items and all(isinstance(item.get("weekly"), dict) for item in items):
+        from botend.wow_daily_report.rio_weekly_presentation import render_weekly_rio_items
+        return render_weekly_rio_items(items)
     from botend.wow_daily_report.presentation import _source_href
 
     def count(value, signed=False):
@@ -760,14 +764,17 @@ def _render_site_items(items):
     return '\n'.join(rows + ['</div>'])
 
 
-def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]) -> str:
+def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]], *, edition=None) -> str:
     from botend.wow_daily_report.presentation import render_daily_document
+    if edition is None:
+        edition = edition_for_report_date(report_date)
     return render_daily_document(report_date, sections, {
         'news': _render_news_items, 'nga': _render_nga_items,
         'videos': _render_video_items, 'cutoffs': _render_cutoff_items,
         'today': _render_site_items, 'events': _render_site_items, 'updates': _render_site_items,
         'rio': _render_rio_items,
-    }, generated_at=timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S'))
+    }, generated_at=timezone.localtime(timezone.now(), timezone=SHANGHAI).strftime('%Y-%m-%d %H:%M:%S'),
+        edition=edition)
 
 
 def _static_report_path(report_date: datetime.date):
@@ -785,6 +792,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
     if isinstance(report_date, str):
         report_date = datetime.date.fromisoformat(report_date)
 
+    edition = edition_for_report_date(report_date)
     previous_ext = _load_previous_ext(report_date)
     published = WowDailyReport.objects.filter(report_date=report_date).only("ext_json").first()
     try:
@@ -801,7 +809,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
         sections.insert(2, video_section)
 
     from botend.wow_daily_report.rio_section import collect_rio_section
-    rio_section = collect_rio_section(report_date, published_ext=published_ext)
+    rio_section = collect_rio_section(report_date, published_ext=published_ext,
+                                      weekly=edition["kind"] == "wednesday_weekly")
     if rio_section.get('items'):
         sections.append(rio_section)
     available = {section["key"]: section for section in sections + collect_site_sections(report_date)}
@@ -854,7 +863,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 }
 
     # AI may summarize prose, never delete facts or freely redesign the document.
-    html_content = render_daily_html(report_date, sections)
+    html_content = render_daily_html(report_date, sections, edition=edition)
     design_meta = {"renderer": "daily_editorial_v2", "error": ""}
     rel_path, full_path = _static_report_path(report_date)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -874,7 +883,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
 
     ext = {
         "format": "html",
-        "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S"),
+        "edition": edition,
+        "generated_at": timezone.localtime(timezone.now(), timezone=SHANGHAI).strftime("%Y-%m-%d %H:%M:%S"),
         "llm_enabled": bool(use_llm),
         "llm_errors": list(_LLM_RUN_ERRORS),
         "html_renderer": design_meta.get("renderer") or "fallback_static",

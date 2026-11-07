@@ -772,8 +772,11 @@ function renderDailyReportCard() {
     .map((x) => `<span class="portal-daily-report-badge"><span>${escapeHtml(x.label || x.title || x.key || "板块")}</span><strong>${escapeHtml(x.count)}</strong></span>`)
     .join("");
   const sectionCount = sections.filter((x) => Number(x?.count || 0) > 0).length;
+  const weekly = report.edition?.kind === "wednesday_weekly";
   const title = escapeHtml(report.title || "魔兽世界日报");
-  const reportDate = escapeHtml(report.report_date || "");
+  const reportDate = weekly
+    ? escapeHtml(`${report.edition.period_start || ""}—${report.edition.period_end || ""}`)
+    : escapeHtml(report.report_date || "");
   const generatedAt = escapeHtml(report.generated_at || report.updated_at || "");
   const url = escapeHtml(sanitizeHref(report.url) || report.url || "#");
   const currentUrl = escapeHtml(sanitizeHref(report.current_url) || sanitizeHref(report.url) || "#");
@@ -784,14 +787,14 @@ function renderDailyReportCard() {
   const meta = metaParts.join(`<span class="portal-daily-report-dot">/</span>`);
 
   el.innerHTML = `<article class="portal-daily-report-card">
-    <div class="portal-daily-report-kicker">最新日报</div>
+    <div class="portal-daily-report-kicker">${weekly ? "周三周报" : "最新日报"}</div>
     <div class="portal-daily-report-main">
       <a class="portal-daily-report-title" href="${url}" target="_blank" rel="noreferrer">${title}</a>
       ${meta ? `<div class="portal-daily-report-meta">${meta}</div>` : ""}
       ${sectionBadges ? `<div class="portal-daily-report-sections">${sectionBadges}</div>` : ""}
     </div>
     <div class="portal-daily-report-actions">
-      <a class="portal-daily-report-open" href="${currentUrl}" target="_blank" rel="noreferrer">当日日报</a>
+      <a class="portal-daily-report-open" href="${currentUrl}" target="_blank" rel="noreferrer">${weekly ? "阅读周报" : "当日日报"}</a>
     </div>
   </article>`;
 }

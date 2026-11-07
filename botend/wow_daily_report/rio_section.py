@@ -13,6 +13,7 @@ from botend.services.rio_statistics_storage import LOCAL_TZ, SCHEMA, StorageErro
 
 logger = logging.getLogger(__name__)
 NOTICE = '来源 Raider.IO；统计有赛季分数的角色，非独立玩家，国服与全球不相加。变化比较数据日前一日及7日前，缺失不补零。'
+WEEKLY_NOTICE = '来源 Raider.IO；统计有赛季分数的角色，非独立玩家，国服与全球不相加。按北京时间上周三至本周二完整7天观察角色数量净变化，非新增玩家；窗口缺失不补零、不以邻日代替。'
 
 
 def _date(value):
@@ -49,7 +50,7 @@ def _history(body):
     return values
 
 
-def _item(body, reference, day):
+def _item(body, reference, day, *, weekly=False):
     values = _history(body)
     source_day = _date(reference['data_date'])
     population = values.get(source_day)
@@ -60,7 +61,7 @@ def _item(body, reference, day):
     path = reverse('portal_rio_statistics')
     def url(tab):
         return path + '?' + urlencode({'tab': tab, 'season': c['season'], 'region': c['region'], 'days': 14})
-    return {'region': c['region'], 'region_label': rio.REGIONS[c['region']],
+    item = {'region': c['region'], 'region_label': rio.REGIONS[c['region']],
         'season': c['season'], 'season_name': reference['season_name'],
         'data_date': source_day.isoformat(), 'population': population,
         'previous_date': previous.isoformat(),
@@ -70,9 +71,13 @@ def _item(body, reference, day):
         'fetched_at': body['fetched_at'], 'upstream_at': body['upstream_at'],
         'stale': reference['stale'], 'url': url('overview'), 'heatmap_url': url('heatmaps'),
         'reference': reference}
+    if weekly:
+        from .rio_weekly import project_weekly
+        item['weekly'] = project_weekly(body, day)
+    return item
 
 
-def _current_reference(region, day):
+def _current_reference(region, day, *, weekly=False):
     envelope = json.loads(rio_statistics_views.read_public('overview', {'region': region}).raw)['data']
     snapshot = envelope.get('snapshot') or {}
     if snapshot.get('state') not in ('ready', 'stale') or not isinstance(envelope.get('data'), dict):
@@ -96,12 +101,15 @@ def _current_reference(region, day):
         'data_date': max(eligible).isoformat(), 'season_name': scope.get('season_name'),
         'stale': snapshot['state'] == 'stale'}
     # 发布文件和中央写入可能交错；必须先证明这一精确源仍在中央，而非读取 private 新值。
-    return _item(rio.store().read_reference(reference), reference, day)
+    return _item(rio.store().read_reference(reference), reference, day, weekly=weekly)
 
 
-def collect_rio_section(day, published_ext=None):
+def collect_rio_section(day, published_ext=None, *, weekly=False):
     """首次只读公开 Service；已发布栏目只认冻结引用，缺失则阻止覆盖旧 HTML。"""
-    result = {'key': 'rio', 'title': '大秘境参与观察', 'notice': NOTICE, 'items': []}
+    if weekly and day.weekday() != 1:
+        raise ValueError('周三特刊的内容日期必须为周二')
+    result = {'key': 'rio', 'title': '大秘境一周观察' if weekly else '大秘境参与观察',
+        'notice': WEEKLY_NOTICE if weekly else NOTICE, 'items': []}
     sections = published_ext.get('sections', {}) if isinstance(published_ext, dict) else {}
     if isinstance(sections, dict) and 'rio' in sections:
         section = sections['rio']
@@ -116,11 +124,11 @@ def collect_rio_section(day, published_ext=None):
             if region in seen:
                 raise StorageError('日报已发布统计引用地区重复')
             seen.add(region)
-            result['items'].append(_item(body, reference, day))
+            result['items'].append(_item(body, reference, day, weekly=weekly))
         return result
     for region in ('cn', 'world'):
         try:
-            item = _current_reference(region, day)
+            item = _current_reference(region, day, weekly=weekly)
         except (StorageError, OSError, ValueError, TypeError, KeyError, OverflowError) as exc:
             # 不输出 payload、路径或上游错误文本；首次竞态/缺资料可以没有栏目事实。
             logger.warning('日报 RIO 投影跳过 region=%s reason=%s', region, type(exc).__name__)
