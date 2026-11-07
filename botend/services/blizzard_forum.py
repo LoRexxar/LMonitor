@@ -77,6 +77,9 @@ def article_channel(article):
 
 def _version(chain):
     ids = [c['external_id'] for c in chain]
+    # Product channel wins for the explicitly classified Forever Beta board.
+    if 349 in ids:
+        return BlizzardForumCategory.GameVersion.FOREVER
     if 23 in ids:
         return BlizzardForumCategory.GameVersion.TEST
     if 346 in ids:

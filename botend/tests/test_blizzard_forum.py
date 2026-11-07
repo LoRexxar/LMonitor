@@ -189,7 +189,7 @@ class BlizzardForumTests(TestCase):
             with self.subTest(id=invalid), self.assertRaises(ValueError):
                 parse_topic_metadata(html, BY_ID[2404092]['url'])
 
-    def test_unknown_beta_classic_and_test_ancestor_precedence(self):
+    def test_unknown_beta_classic_and_forever_beta_channel_precedence(self):
         unknowns = [
             [{'id': 197, 'name': 'WoW Classic', 'slug': 'wow-classic', 'parent_category_id': None}],
             [{'id': 43, 'name': 'Recruitment', 'slug': 'recruitment', 'parent_category_id': None},
@@ -204,7 +204,12 @@ class BlizzardForumTests(TestCase):
                 {'id': 23, 'name': 'In Development', 'slug': 'in-development', 'parent_category_id': 346},
                 {'id': 349, 'name': 'Forever Beta', 'slug': 'forever-beta', 'parent_category_id': 23}]
         p = parse_topic_metadata(synthetic_metadata(cats), FORUM_URL + '/t/x/900001')
-        self.assertEqual(p['categories'][-1]['game_version'], 'test')
+        self.assertEqual(p['categories'][-1]['game_version'], 'forever')
+        cats = cats[1:]
+        cats[0]['parent_category_id'] = None
+        cats.append({'id': 900002, 'name': 'Child', 'slug': 'child', 'parent_category_id': 349})
+        p = parse_topic_metadata(synthetic_metadata(cats), FORUM_URL + '/t/x/900001')
+        self.assertEqual(p['categories'][-1]['game_version'], 'forever')
 
     def test_invalid_conflicting_metadata_keeps_all_previous_facts(self):
         a = self.article()
@@ -403,7 +408,7 @@ class BlizzardForumTests(TestCase):
         self.assertEqual(WowArticle.objects.count(), 3)
         self.assertIsNone(c.blizzard_topic_id)
         self.assertEqual(article_channel(a)['game_version'], 'forever')
-        self.assertEqual(article_channel(b)['game_version'], 'test')
+        self.assertEqual(article_channel(b)['game_version'], 'forever')
         for bad in ('0', '-1', 'x'):
             with self.subTest(limit=bad), self.assertRaises(Exception):
                 call_command('refresh_blizzard_forum_metadata', '--limit', bad)
