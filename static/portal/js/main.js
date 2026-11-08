@@ -1928,11 +1928,14 @@ function portalDateKey(date) {
 }
 
 function getPortalEventHref(item) {
-  const href = sanitizeHref(item?.url || item?.source_url || "");
-  if (!href) return "";
-  if (href.startsWith("/")) return href;
+  const raw = String(item?.url || item?.source_url || "");
+  if (/[\u0000-\u001f\u007f]/.test(raw)) return "";
+  const href = sanitizeHref(raw);
+  if (!href || href.startsWith("//") || href.includes("\\")) return "";
   try {
-    const host = new URL(href).hostname.replace(/^www\./, "");
+    const parsed = new URL(href, "https://wowdaily.cn");
+    if (href.startsWith("/")) return parsed.origin === "https://wowdaily.cn" ? href : "";
+    const host = parsed.hostname.replace(/^www\./, "");
     if (host === "wowhead.com" || host === "wowdaily.cn") return href;
   } catch (e) {}
   return "";
@@ -1986,163 +1989,200 @@ function portalEventStatusClasses(status) {
   };
 }
 
+// Calendar state is presentation-only; source records and shared date helpers stay untouched.
+const PORTAL_ACTIVITY_STATE = { viewMonth: "", selectedDay: "", query: "" };
+
+function activityCalendarToday() {
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Shanghai", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
+  const value = (type) => parts.find((part) => part.type === type).value;
+  return `${value("year")}-${value("month")}-${value("day")}`;
+}
+
+function activityCalendarDay(value) {
+  return new Date(`${value}T00:00:00Z`);
+}
+
+function activityCalendarAdd(day, amount) {
+  const date = activityCalendarDay(day);
+  date.setUTCDate(date.getUTCDate() + amount);
+  return date.toISOString().slice(0, 10);
+}
+
+function activityCalendarTime(value) {
+  const raw = String(value || "");
+  // API civil times are Beijing fields, never host-local Date input.
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2}):(\d{2})(\.\d{1,9})?(Z|[+-]\d{2}:\d{2})?$/);
+  if (!match) return null;
+  const [, y, m, d, h, minute, second, fraction, zone] = match;
+  const day = `${y}-${m}-${d}`;
+  const civil = activityCalendarDay(day);
+  if (+y < 1000 || Number.isNaN(civil.getTime()) || civil.toISOString().slice(0, 10) !== day || +h > 23 || +minute > 59 || +second > 59) return null;
+  if (!zone) {
+    if (fraction || raw[10] !== " ") return null;
+    return { day, display: raw, order: Date.UTC(+y, +m - 1, +d, +h, +minute, +second) };
+  }
+  if (zone !== "Z" && (+zone.slice(1, 3) > 23 || +zone.slice(4, 6) > 59)) return null;
+  const instant = new Date(`${day}T${h}:${minute}:${second}${fraction || ""}${zone}`);
+  if (Number.isNaN(instant.getTime())) return null;
+  const beijing = new Date(instant.getTime() + 8 * 3600000).toISOString();
+  // Keep original aware source text too: exact precision/offset remains inspectable.
+  return { day: beijing.slice(0, 10), display: `${beijing.slice(0, 10)} ${beijing.slice(11, 19)}${fraction || ""}（原值：${raw}）`, order: instant.getTime() + 8 * 3600000 };
+}
+
+function activityCalendarGrid(month) {
+  const first = `${month}-01`;
+  const date = activityCalendarDay(first);
+  const offset = (date.getUTCDay() + 6) % 7;
+  date.setUTCMonth(date.getUTCMonth() + 1, 0);
+  const count = Math.ceil((offset + date.getUTCDate()) / 7) * 7;
+  return Array.from({ length: count }, (_, index) => activityCalendarAdd(first, index - offset));
+}
+
+function activityCalendarRows(items) {
+  return items.map((item) => {
+    const start = activityCalendarTime(item.start_at);
+    const end = activityCalendarTime(item.end_at);
+    if (!start) return null;
+    return { item, start, end, lastDay: end && end.order >= start.order ? end.day : start.day };
+  }).filter(Boolean).sort((a, b) => a.start.order - b.start.order);
+}
+
+function activityCalendarStatus(status) {
+  const raw = String(status || "").trim();
+  if (raw === "进行中") return "active";
+  if (raw === "即将开始") return "upcoming";
+  if (raw === "已结束") return "ended";
+  return "unknown";
+}
+
+function activityCalendarEvent(row) {
+  const { item, start, end } = row;
+  const status = String(item.status || "");
+  const title = `<span class="portal-monthly-event-title">${escapeHtml(item.title || "未命名活动")}</span>`;
+  const range = `<div class="portal-monthly-time"><span>开始：${escapeHtml(start.display)}</span>${item.end_at ? `<span>结束：${escapeHtml(end ? end.display : item.end_at)}</span>` : ""}</div>`;
+  return `<article class="portal-monthly-event">
+    <div class="portal-monthly-event-head">${renderPortalEventLink(item, "portal-monthly-event-link", title)}${status ? `<span class="portal-monthly-status" data-status="${activityCalendarStatus(status)}">${escapeHtml(status)}</span>` : ""}</div>
+    ${range}${item.summary ? `<details class="portal-monthly-description"><summary>活动说明</summary><div>${escapeHtml(item.summary)}</div></details>` : ""}
+  </article>`;
+}
+
 function renderEvents(items) {
   const el = document.getElementById(SECTION_MAP.events.listId);
   if (!el) return;
-  const q = getSearchQuery();
-  const filtered = filterItems(items || [], q)
-    .map((item) => ({ ...item, startDate: parsePortalDateTime(item.start_at), endDate: parsePortalDateTime(item.end_at) }))
-    .filter((item) => item.startDate)
-    .sort((a, b) => a.startDate - b.startDate);
-  if (!filtered.length) {
-    el.innerHTML = `<div class="text-slate-500">暂无活动数据</div>`;
-    return;
-  }
-
-  const today = new Date();
-  const todayMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-  const currentMonthHasEvents = filtered.some((item) => {
-    const rawStart = normalizePortalDay(item.startDate);
-    const rawEnd = item.endDate ? normalizePortalDay(item.endDate) : rawStart;
-    const eventEnd = rawEnd < rawStart ? rawStart : rawEnd;
-    const nextTodayMonthStart = new Date(todayMonthStart.getFullYear(), todayMonthStart.getMonth() + 1, 1);
-    return rawStart < nextTodayMonthStart && eventEnd >= todayMonthStart;
-  });
-  const firstDate = new Date(filtered[0].startDate);
-  const monthBase = currentMonthHasEvents ? today : firstDate;
-  const monthStart = new Date(monthBase.getFullYear(), monthBase.getMonth(), 1);
-  const nextMonthStart = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
-  const gridStart = new Date(monthStart);
-  gridStart.setDate(monthStart.getDate() - ((monthStart.getDay() + 6) % 7));
-  const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
-  const visibleEnd = addPortalDays(nextMonthStart, 6 - ((nextMonthStart.getDay() + 6) % 7));
-  const visibleDayCount = diffPortalDays(gridStart, visibleEnd) + 1;
-  const visibleDays = Array.from({ length: visibleDayCount }, (_, index) => addPortalDays(gridStart, index));
-  const todayKey = portalDateKey(today);
-  const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
-
-  const weekCount = Math.ceil(visibleDayCount / 7);
-  const weekSegments = Array.from({ length: weekCount }, () => []);
-  filtered.forEach((item) => {
-    const rawStart = normalizePortalDay(item.startDate);
-    const rawEnd = item.endDate ? normalizePortalDay(item.endDate) : rawStart;
-    const eventEnd = rawEnd < rawStart ? rawStart : rawEnd;
-    const clampedStart = rawStart < gridStart ? gridStart : rawStart;
-    const clampedEnd = eventEnd > visibleEnd ? visibleEnd : eventEnd;
-    if (clampedEnd < gridStart || clampedStart > visibleEnd) return;
-
-    let cursor = clampedStart;
-    while (cursor <= clampedEnd) {
-      const weekIndex = Math.floor(diffPortalDays(gridStart, cursor) / 7);
-      const weekEnd = addPortalDays(gridStart, weekIndex * 7 + 6);
-      const segmentEnd = clampedEnd < weekEnd ? clampedEnd : weekEnd;
-      const startOffset = diffPortalDays(gridStart, cursor);
-      const endOffset = diffPortalDays(gridStart, segmentEnd);
-      weekSegments[weekIndex].push({
-        item,
-        colStart: startOffset % 7,
-        colSpan: (endOffset % 7) - (startOffset % 7) + 1,
-        startsHere: portalDateKey(cursor) === portalDateKey(rawStart),
-      });
-      cursor = addPortalDays(segmentEnd, 1);
-    }
-  });
-
-  const weekLayouts = weekSegments.map((segments) => {
-    const rowEndCols = [];
-    const laidOut = segments.map((segment) => {
-      let rowIndex = 0;
-      while (rowEndCols[rowIndex] !== undefined && rowEndCols[rowIndex] >= segment.colStart) rowIndex += 1;
-      rowEndCols[rowIndex] = segment.colStart + segment.colSpan - 1;
-      return { ...segment, rowIndex };
-    });
-    return { segments: laidOut, rowCount: Math.max(rowEndCols.length, 1) };
-  });
-
-  const renderWeekRow = (weekStart, weekIndex) => {
-    const weekDays = Array.from({ length: 7 }, (_, dayIndex) => addPortalDays(weekStart, dayIndex));
-    const layout = weekLayouts[weekIndex] || { segments: [], rowCount: 1 };
-    const dayMinHeight = 54 + Math.min(layout.rowCount, 5) * 20;
-    const bars = layout.segments.map((segment) => {
-      const title = escapeHtml(segment.item.title || "");
-      const rawStatus = String(segment.item.status || "").trim();
-      const cls = portalEventStatusClasses(rawStatus).bar;
-      const titleHtml = segment.startsHere ? title : `<span class="opacity-80">↳</span> ${title}`;
-      const width = `calc(${segment.colSpan} * ((100% - 6px) / 7) + ${Math.max(segment.colSpan - 1, 0)}px)`;
-      const left = `calc(${segment.colStart} * ((100% - 6px) / 7 + 1px))`;
-      return `<div class="absolute z-10 px-0.5" style="left:${left};width:${width};top:${30 + segment.rowIndex * 20}px;">
-        ${renderPortalEventLink(segment.item, `block truncate rounded-md px-1.5 py-0.5 text-[10px] font-bold leading-4 shadow-sm ${cls}`, titleHtml)}
-      </div>`;
-    }).join("");
-    return `<div class="relative grid grid-cols-7 gap-px bg-slate-100 border-b border-slate-100 last:border-b-0">
-      ${weekDays.map((date) => {
-        const key = portalDateKey(date);
-        const muted = date < monthStart || date > monthEnd;
-        const isToday = key === todayKey;
-        const dayCellCls = isToday
-          ? "bg-amber-50 text-amber-950 ring-1 ring-inset ring-amber-200"
-          : `bg-white ${muted ? "text-slate-300" : "text-slate-700"}`;
-        return `<div class="p-1.5 ${dayCellCls}" style="min-height:${dayMinHeight}px;">
-          <div class="flex items-center justify-between">
-            <span class="${isToday ? "inline-flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 text-[11px] font-extrabold text-white shadow-sm ring-2 ring-amber-100" : "text-[11px] font-bold"}">${date.getDate()}</span>
-          </div>
-        </div>`;
-      }).join("")}
-      ${bars}
-    </div>`;
+  const all = activityCalendarRows(items || []);
+  const query = getSearchQuery();
+  const rows = activityCalendarRows(filterItems(items || [], query));
+  const today = activityCalendarToday();
+  const state = PORTAL_ACTIVITY_STATE;
+  // Navigation uses the unfiltered collection, including the current month.
+  const monthIndexOf = (key) => Number(key.slice(0, 4)) * 12 + Number(key.slice(5, 7)) - 1;
+  const monthKeyOf = (index) => `${String(Math.floor(index / 12)).padStart(4, "0")}-${String(index % 12 + 1).padStart(2, "0")}`;
+  const currentIndex = monthIndexOf(today.slice(0, 7));
+  // Closed numerical ranges keep source duration intact without materializing
+  // every month (or stepping past the four-digit source year boundary).
+  const ranges = [[currentIndex, currentIndex], ...all.map((row) => [monthIndexOf(row.start.day), monthIndexOf(row.lastDay)])];
+  const hasMonth = (key) => {
+    const index = monthIndexOf(key);
+    return ranges.some(([first, last]) => index >= first && index <= last);
   };
-
-  const calendarLegendHtml = `<div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] font-semibold text-slate-500">
-    <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-slate-300 ring-1 ring-slate-200"></span>已结束</span>
-    <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-emerald-500"></span>进行中</span>
-    <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-sky-500"></span>即将开始</span>
-    <span class="inline-flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>当前日</span>
-  </div>`;
-
-  const calendarHtml = `<div class="portal-activity-calendar min-w-[640px] overflow-hidden rounded-2xl border border-emerald-100 bg-white shadow-sm">
-    <div class="flex items-center justify-between gap-3 border-b border-emerald-100 bg-emerald-50/80 px-3 py-2.5">
-      <div>
-        <div class="text-sm font-extrabold text-slate-950">${formatMonthTitle(monthStart)}</div>
-        <div class="mt-0.5 text-[11px] text-emerald-700">Wowhead 数据源 · 国服时间 +2 天</div>
-      </div>
-      <div class="flex flex-col items-end gap-1.5">
-        <div class="rounded-full border border-emerald-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-emerald-800">未来 45 天</div>
-        ${calendarLegendHtml}
-      </div>
-    </div>
-    <div class="grid grid-cols-7 border-b border-slate-100 bg-slate-50 text-center text-[11px] font-bold text-slate-500">
-      ${weekdays.map((day) => `<div class="px-1.5 py-1.5">周${day}</div>`).join("")}
-    </div>
-    <div class="bg-white">
-      ${Array.from({ length: weekCount }, (_, weekIndex) => renderWeekRow(addPortalDays(gridStart, weekIndex * 7), weekIndex)).join("")}
-    </div>
-  </div>`;
-
-  const upcomingHtml = `<div class="space-y-2">
-    ${filtered.slice(0, 10).map((it) => {
-      const title = escapeHtml(it.title || "");
-      const start = escapeHtml(it.start_at || "");
-      const end = escapeHtml(it.end_at || "");
-      const rawStatus = String(it.status || "").trim();
-      const status = escapeHtml(rawStatus);
-      const range = end ? `${start} - ${end}` : start;
-      const badgeCls = portalEventStatusClasses(rawStatus).badge;
-      const card = `<div class="flex items-start justify-between gap-2">
-          <div class="font-semibold leading-5 text-slate-900 portal-line-clamp-2">${title}</div>
-          ${status ? `<span class="shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${badgeCls}">${status}</span>` : ""}
+  const onDay = (day) => rows.filter((row) => row.start.day <= day && row.lastDay >= day);
+  if (!state.selectedDay || (state.query !== query && !query)) {
+    state.selectedDay = today;
+    state.viewMonth = today.slice(0, 7);
+  }
+  if (query && state.query !== query && rows.length && !onDay(state.selectedDay).length) {
+    state.selectedDay = onDay(today).length ? today : rows[0].start.day;
+    state.viewMonth = state.selectedDay.slice(0, 7);
+  }
+  state.query = query;
+  if (!hasMonth(state.viewMonth)) {
+    state.viewMonth = today.slice(0, 7);
+    state.selectedDay = today;
+  }
+  const month = state.viewMonth;
+  const monthIndex = monthIndexOf(month);
+  let previousIndex = null;
+  let nextIndex = null;
+  ranges.forEach(([first, last]) => {
+    const before = Math.min(monthIndex - 1, last);
+    const after = Math.max(monthIndex + 1, first);
+    if (before >= first && (previousIndex === null || before > previousIndex)) previousIndex = before;
+    if (after <= last && (nextIndex === null || after < nextIndex)) nextIndex = after;
+  });
+  const days = activityCalendarGrid(month);
+  const weekdays = ["一", "二", "三", "四", "五", "六", "日"];
+  const selected = onDay(state.selectedDay);
+  const monthly = rows.filter((row) => row.start.day.slice(0, 7) <= month && row.lastDay.slice(0, 7) >= month);
+  const [year, monthNumber] = month.split("-");
+  const selectedDate = activityCalendarDay(state.selectedDay);
+  const dateLabel = `${selectedDate.getUTCMonth() + 1}月${selectedDate.getUTCDate()}日 · 周${weekdays[(selectedDate.getUTCDay() + 6) % 7]}`;
+  const empty = !items?.length ? "暂无活动数据" : query && !rows.length ? "无匹配活动" : "已收录活动中，当天暂无安排";
+  el.innerHTML = `<div class="portal-monthly" aria-label="游戏活动日历">
+    <div class="portal-monthly-calendar">
+      <div class="portal-monthly-toolbar"><div><h3>${year} 年 ${Number(monthNumber)} 月</h3><p>游戏活动日历 · 北京时间</p></div>
+        <div class="portal-monthly-controls">
+          <button type="button" data-cal-action="prev" aria-label="上个月" ${previousIndex === null ? "disabled" : ""}>‹</button>
+          <button type="button" data-cal-action="today">回到今天</button>
+          <button type="button" data-cal-action="next" aria-label="下个月" ${nextIndex === null ? "disabled" : ""}>›</button>
         </div>
-        ${range ? `<div class="mt-1.5 text-xs text-slate-500 portal-line-clamp-1">${range}</div>` : ""}`;
-      return renderPortalEventLink(it, "block rounded-xl border border-slate-200 bg-white p-2.5 shadow-sm transition hover:-translate-y-0.5 hover:border-emerald-200 hover:shadow-md", card);
-    }).join("")}
-  </div>`;
-
-  el.innerHTML = `<div class="grid grid-cols-1 gap-3 xl:grid-cols-[minmax(260px,0.9fr)_minmax(620px,1.6fr)] xl:items-start">
-    <div>
-      <div class="mb-2 text-xs font-bold text-slate-500">近期活动</div>
-      ${upcomingHtml}
+      </div>
+      <div class="portal-monthly-weekdays" aria-hidden="true">${weekdays.map((day) => `<span>周${day}</span>`).join("")}</div>
+      <div class="portal-monthly-grid" role="group" aria-label="选择日期">${days.map((day) => {
+        const events = onDay(day);
+        const isToday = day === today;
+        const isSelected = day === state.selectedDay;
+        const outside = day.slice(0, 7) !== month;
+        const enabled = hasMonth(day.slice(0, 7));
+        const statuses = [...new Set(events.map((row) => activityCalendarStatus(row.item.status)))];
+        return `<button type="button" class="portal-monthly-day${outside ? " is-outside" : ""}${isToday ? " is-today" : ""}" data-cal-day="${day}" aria-label="${day}，${events.length}项活动${isToday ? "，今天" : ""}" aria-pressed="${isSelected}" ${isToday ? 'aria-current="date"' : ""} tabindex="${isSelected ? 0 : -1}" ${enabled ? "" : "disabled"}>
+          <span class="portal-monthly-number">${Number(day.slice(8))}</span>
+          ${events.length ? `<span class="portal-monthly-count">${events.length}项<span class="portal-monthly-dots" aria-hidden="true">${statuses.map((status) => `<i data-status="${status}"></i>`).join("")}</span></span><span class="portal-monthly-preview">${escapeHtml(events[0].item.title || "")}</span>` : ""}
+        </button>`;
+      }).join("")}</div>
+      <p class="portal-monthly-boundary">仅浏览已收录活动涉及月份及当前月 · 点击日期查看详情</p>
+      <details class="portal-monthly-all"><summary>本月全部活动（${monthly.length}）</summary><div>${monthly.length ? monthly.map(activityCalendarEvent).join("") : `<p class="portal-monthly-empty">${query ? "无匹配活动" : "本月暂无已收录活动"}</p>`}</div></details>
     </div>
-    <div class="overflow-x-auto pb-1">${calendarHtml}</div>
+    <section class="portal-monthly-agenda" aria-label="选定日活动详情"><div class="portal-monthly-agenda-head"><h3>${dateLabel}${state.selectedDay === today ? '<span class="portal-monthly-today">今天</span>' : ""}</h3><p>${selected.length} 项活动${query ? " · 搜索结果" : ""}</p></div>
+      <div class="portal-monthly-agenda-list">${selected.length ? selected.map(activityCalendarEvent).join("") : `<p class="portal-monthly-empty" role="status">${empty}</p>`}</div>
+    </section>
   </div>`;
+  const repaint = (selector) => {
+    renderEvents(items);
+    const control = el.querySelector(selector);
+    const target = control && !control.disabled ? control : el.querySelector(`[data-cal-day="${state.selectedDay}"]`);
+    target?.focus({ preventScroll: true });
+  };
+  el.querySelectorAll("[data-cal-action], [data-cal-day]").forEach((button) => {
+    button.onclick = () => {
+      if (button.disabled) return;
+      const action = button.dataset.calAction;
+      if (action) {
+        const targetIndex = action === "prev" ? previousIndex : nextIndex;
+        const target = action === "today" ? today.slice(0, 7) : targetIndex === null ? null : monthKeyOf(targetIndex);
+        if (!target) return;
+        state.viewMonth = target;
+        state.selectedDay = target === today.slice(0, 7) ? today : `${target}-01`;
+        repaint(`[data-cal-action="${action}"]`);
+      } else {
+        state.selectedDay = button.dataset.calDay;
+        state.viewMonth = state.selectedDay.slice(0, 7);
+        repaint(`[data-cal-day="${state.selectedDay}"]`);
+      }
+    };
+    if (!button.dataset.calDay) return;
+    button.onkeydown = (event) => {
+      const day = button.dataset.calDay;
+      const weekday = (activityCalendarDay(day).getUTCDay() + 6) % 7;
+      const steps = { ArrowLeft: -1, ArrowRight: 1, ArrowUp: -7, ArrowDown: 7, Home: -weekday, End: 6 - weekday };
+      if (!(event.key in steps)) return;
+      event.preventDefault();
+      const target = activityCalendarAdd(day, steps[event.key]);
+      if (!hasMonth(target.slice(0, 7))) return;
+      state.selectedDay = target;
+      state.viewMonth = target.slice(0, 7);
+      repaint(`[data-cal-day="${target}"]`);
+    };
+  });
 }
 
 async function loadSection(key) {
