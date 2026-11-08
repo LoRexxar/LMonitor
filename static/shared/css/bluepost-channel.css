@@ -1,0 +1,51 @@
+/* Shared by portal, Dashboard and self-contained future daily/weekly reports. */
+.bluepost-channel-badge {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  vertical-align: middle;
+  padding: 0.1rem 0.45rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.4rem;
+  background-color: #f8fafc;
+  color: #475569;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+.bluepost-channel-badge[data-game-version="retail"] {
+  color: #1d4ed8;
+  background-color: #eff6ff;
+  border-color: #bfdbfe;
+}
+.bluepost-channel-badge[data-game-version="forever"] {
+  color: #6d28d9;
+  background-color: #f5f3ff;
+  border-color: #ddd6fe;
+}
+.bluepost-channel-badge[data-game-version="test"] {
+  color: #92400e;
+  background-color: #fffbeb;
+  border-color: #fde68a;
+}
+:is(.portal-theme-dark, [data-dashboard-theme="dark"]) .bluepost-channel-badge {
+  color: #cbd5e1;
+  background-color: #1e293b;
+  border-color: #475569;
+}
+:is(.portal-theme-dark, [data-dashboard-theme="dark"]) .bluepost-channel-badge[data-game-version="retail"] {
+  color: #bfdbfe;
+  background-color: #172554;
+  border-color: #1e40af;
+}
+:is(.portal-theme-dark, [data-dashboard-theme="dark"]) .bluepost-channel-badge[data-game-version="forever"] {
+  color: #ddd6fe;
+  background-color: #2e1065;
+  border-color: #5b21b6;
+}
+:is(.portal-theme-dark, [data-dashboard-theme="dark"]) .bluepost-channel-badge[data-game-version="test"] {
+  color: #fde68a;
+  background-color: #451a03;
+  border-color: #92400e;
+}

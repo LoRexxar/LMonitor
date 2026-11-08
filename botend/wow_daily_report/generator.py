@@ -574,7 +574,7 @@ def _render_news_items(items: List[Dict[str, Any]], *, summary_only=False) -> st
     for item in items:
         out.append('<article class="daily-card news-card">')
         out.append(f'<h3 class="news-title"><a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">{_safe_html(item.get("title"))}</a></h3>')
-        channel = (f'<span>[{_safe_html(item.get("game_version_label"))}]</span>'
+        channel = (f'<span class="bluepost-channel-badge" data-game-version="{_safe_html(item.get("game_version"))}">[{_safe_html(item.get("game_version_label"))}]</span>'
                    if item.get('source') == 'blizzard_tracker' and item.get('game_version_label') else '')
         out.append(
             f'<div class="meta"><span>来源：{_safe_html(item.get("source"))}</span>{channel}<span>时间：{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'

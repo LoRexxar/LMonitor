@@ -46,6 +46,8 @@ for (const surface of ['list', 'detail']) {
             const badges = html.match(/<span\b[^>]*>\[(正式服|无限服|测试服)\]<\/span>/g) || [];
             assert.equal(badges.length, 1);
             assert.ok(badges[0].includes(`[${game_version_label}]`));
+            assert.ok(badges[0].includes('bluepost-channel-badge'));
+            assert.ok(badges[0].includes(`data-game-version="${game_version}"`));
             assert.ok(badges[0].includes('title="真实来源板块"'));
             assert.equal(html.replace(badges[0], ''), await render(surface, article()));
             assert.equal(JSON.stringify(row), frozen);

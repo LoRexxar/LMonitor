@@ -81,6 +81,8 @@ for (const [surface, render] of Object.entries(renderers)) {
       const badge = html.match(/<span\b[^>]*>\[(正式服|无限服|测试服)\]<\/span>/g) || [];
       assert.equal(badge.length, 1, 'one metadata badge, not a title prefix');
       assert.ok(badge[0].includes(`[${game_version_label}]`));
+      assert.ok(badge[0].includes('bluepost-channel-badge'));
+      assert.ok(badge[0].includes(`data-game-version="${game_version}"`));
       assert.ok(badge[0].includes('title="真实来源板块"'));
       assert.equal(html.replace(badge[0], ''), await render(plain), 'all original presentation remains intact');
       assert.equal(JSON.stringify(row), original, 'renderer must not rewrite payload');
@@ -134,4 +136,53 @@ test('today strip and search use backend channel text without rewriting titles o
   assert.equal(context.getItemTitle(article({game_version: 'test'})), article().title);
   assert.equal(context.getItemTitle({...item, source: 'wowhead'}), item.title);
   assert.equal(context.matchItem({...item, source: 'wowhead'}, '无限服'), false);
+});
+
+
+test('today strip has a separate color badge, keeps title text, and does not color unrelated sources', () => {
+  const {document} = dom();
+  const context = vm.createContext({document, console, URL, Date});
+  vm.runInContext(readSource('static/portal/js/main.js'), context);
+  const item = article({game_version: 'forever', game_version_label: '无限服'});
+  const html = context.makeTodayChip('蓝帖速递', item.title, 'section-news', '', '', item);
+  assert.match(html, /class="bluepost-channel-badge" data-game-version="forever"/);
+  assert.equal((html.match(/\[无限服\]/g) || []).length, 1);
+  assert.ok(html.includes(item.title));
+  assert.equal(context.renderBluepostChannelBadge({...item, source: 'wowhead'}), '');
+});
+
+for (const [surface, render] of Object.entries(renderers)) {
+  test(`${surface}: version style key cannot inject attributes`, async () => {
+    const html = await render(article({game_version: 'retail" onmouseover="bad()', game_version_label: '测试服'}));
+    assert.ok(html.includes('data-game-version="retail&quot; onmouseover=&quot;bad()"'));
+    assert.doesNotMatch(html, / onmouseover="/);
+  });
+}
+
+
+test('all four pages load the single shared palette, with distinct accessible light/dark colors', () => {
+  for (const path of ['templates/portal/index.html', 'templates/portal/news.html',
+    'templates/portal/article.html', 'templates/dashboard/index.html']) {
+    assert.ok(readSource(path).includes("shared/css/bluepost-channel.css"));
+  }
+  const css = readSource('static/shared/css/bluepost-channel.css');
+  const colors = {};
+  const luminance = hex => {
+    const rgb = hex.slice(1).match(/../g).map(n => parseInt(n,16)/255)
+      .map(n => n <= 0.04045 ? n / 12.92 : ((n + 0.055) / 1.055) ** 2.4);
+    return rgb[0]*0.2126 + rgb[1]*0.7152 + rgb[2]*0.0722;
+  };
+  for (const match of css.matchAll(/\.bluepost-channel-badge\[data-game-version="(retail|forever|test)"\]\s*\{([^}]+)\}/g)) {
+    const fg = match[2].match(/^\s*color:\s*(#[a-f0-9]+);/m)[1];
+    const bg = match[2].match(/background-color:\s*(#[a-f0-9]+);/)[1];
+    const a = luminance(fg), b = luminance(bg);
+    assert.ok((Math.max(a,b)+0.05)/(Math.min(a,b)+0.05) >= 4.5);
+    (colors[match[1]] ||= []).push([fg,bg]);
+  }
+  assert.deepEqual(Object.keys(colors).sort(), ['forever','retail','test']);
+  for (const palette of Object.values(colors)) assert.equal(palette.length, 2);
+  for (let theme=0; theme<2; theme++) {
+    assert.equal(new Set(Object.values(colors).map(p => p[theme][0])).size, 3);
+    assert.equal(new Set(Object.values(colors).map(p => p[theme][1])).size, 3);
+  }
 });

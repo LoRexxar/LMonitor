@@ -833,7 +833,7 @@ function renderNewsWowChannelBadge(article) {
     if (article.source !== 'blizzard_tracker' || !article.game_version_label) return '';
     const categoryName = article.forum_category?.name || '';
     const tooltip = categoryName ? ` title="${escapeHtml(categoryName)}"` : '';
-    return `<span class="inline-flex items-center px-2 py-0.5 rounded-full border bg-sky-50 text-sky-700 border-sky-100"${tooltip}>[${escapeHtml(article.game_version_label)}]</span>`;
+    return `<span class="bluepost-channel-badge" data-game-version="${escapeHtml(article.game_version || '')}"${tooltip}>[${escapeHtml(article.game_version_label)}]</span>`;
 }
 
 function renderNewsWowListItem(item) {

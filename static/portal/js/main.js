@@ -259,10 +259,8 @@ function renderSimpleList(containerId, items, opts) {
         : "";
 
       const parts = [];
-      if (it.source === 'blizzard_tracker' && it.game_version_label) {
-        const tooltip = it.forum_category?.name ? ` title="${escapeHtml(it.forum_category.name)}"` : '';
-        parts.push(`<span${tooltip}>[${escapeHtml(it.game_version_label)}]</span>`);
-      }
+      const channelBadge = renderBluepostChannelBadge(it);
+      if (channelBadge) parts.push(channelBadge);
       if (source) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-globe", "w-3.5 h-3.5 text-slate-400")}<span>${source}</span></span>`);
       if (author) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-user", "w-3.5 h-3.5 text-slate-400")}<span>${author}</span></span>`);
       if (time) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></span>`);
@@ -700,6 +698,12 @@ function firstArrayItem(sectionKey) {
   return Array.isArray(items) && items.length ? items[0] : null;
 }
 
+function renderBluepostChannelBadge(item) {
+  if (item?.source !== 'blizzard_tracker' || !item.game_version_label) return '';
+  const tooltip = item.forum_category?.name ? ` title="${escapeHtml(item.forum_category.name)}"` : '';
+  return `<span class="bluepost-channel-badge" data-game-version="${escapeHtml(item.game_version || '')}"${tooltip}>[${escapeHtml(item.game_version_label)}]</span>`;
+}
+
 function getItemTitle(it) {
   const title = String(it?.title || it?.name || it?.headline || "").trim();
   return it?.source === 'blizzard_tracker' && it?.game_version_label
@@ -710,12 +714,13 @@ function getItemUrl(it) {
   return sanitizeHref(it?.url || it?.source_url || it?.link || "");
 }
 
-function makeTodayChip(label, text, targetSectionId, mutedText, url) {
+function makeTodayChip(label, text, targetSectionId, mutedText, url, channelItem = null) {
   const safeLabel = escapeHtml(label);
   const safeText = escapeHtml(text || "");
   const safeTarget = escapeHtml(targetSectionId || "");
   const safeMuted = mutedText ? `<span class="portal-today-chip-muted">${escapeHtml(mutedText)}</span>` : "";
-  const inner = `<span class="portal-today-chip-label">${safeLabel}</span><span class="portal-today-chip-text">${safeText}</span>${safeMuted}`;
+  const channelBadge = renderBluepostChannelBadge(channelItem);
+  const inner = `<span class="portal-today-chip-label">${safeLabel}</span><span class="portal-today-chip-text">${channelBadge}${channelBadge ? " " : ""}${safeText}</span>${safeMuted}`;
   if (url) return `<a class="portal-today-chip" href="${escapeHtml(sanitizeHref(url))}" title="${escapeHtml(`${label} · ${text}`)}">${inner}</a>`;
   return `<button type="button" class="portal-today-chip" data-today-target="${safeTarget}">${inner}</button>`;
 }
@@ -830,7 +835,8 @@ function renderTodayStrip() {
   if (bluepost && getItemTitle(bluepost)) {
     candidates.push({
       label: "蓝帖速递",
-      text: getItemTitle(bluepost),
+      text: String(bluepost.title || bluepost.name || bluepost.headline || "").trim(),
+      channelItem: bluepost,
       target: "section-news",
       muted: bluepost.published_at || bluepost.time_ago || "",
       priority: 30,
@@ -900,7 +906,7 @@ function renderTodayStrip() {
   }
   document.getElementById('portal-today-strip').hidden = false;
   const visible = PORTAL_STATE.todayExpanded ? picked : picked.slice(0, 6);
-  el.innerHTML = visible.map((item) => makeTodayChip(item.label, item.text, item.target, item.muted, item.url)).join("");
+  el.innerHTML = visible.map((item) => makeTodayChip(item.label, item.text, item.target, item.muted, item.url, item.channelItem)).join("");
   if (picked.length > 6) {
     el.insertAdjacentHTML('beforeend', `<button type="button" class="portal-today-more" aria-expanded="${PORTAL_STATE.todayExpanded}">${PORTAL_STATE.todayExpanded ? '收起' : `另 ${picked.length - 6} 条重点`}</button>`);
     el.querySelector('.portal-today-more').addEventListener('click', () => {
@@ -1033,11 +1039,7 @@ function renderHomeNews(key) {
         : `<span class="home-news-title">${title}</span>`;
       const author = item.author && item.author !== item.source && item.author !== homeNewsSourceName(item)
         ? `<span>${escapeHtml(item.author)}</span>` : "";
-      const versionLabel = item.source === "blizzard_tracker" ? item.game_version_label : "";
-      const versionTooltip = item.forum_category?.name
-        ? ` title="${escapeHtml(item.forum_category.name)}"` : "";
-      const versionBadge = versionLabel
-        ? `<span class="home-news-origin"${versionTooltip}>[${escapeHtml(versionLabel)}]</span>` : "";
+      const versionBadge = renderBluepostChannelBadge(item);
       const published = String(item.publish_time || "");
       return `<li class="home-news-row">
         <div>${link}<div class="home-news-meta"><span class="home-news-origin">${escapeHtml(homeNewsSourceName(item))}</span>${versionBadge}${author}

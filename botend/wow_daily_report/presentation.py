@@ -14,6 +14,8 @@ import hashlib
 import html
 import re
 from collections.abc import Callable, Mapping, Sequence
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -254,6 +256,12 @@ th{background:var(--blue-tint);font-weight:650}
 """
 
 
+@lru_cache(maxsize=1)
+def _bluepost_channel_css() -> str:
+    """Freeze the shared source palette into new editions, not published files."""
+    return (Path(__file__).resolve().parents[2] / 'static/shared/css/bluepost-channel.css').read_text(encoding='utf-8')
+
+
 def render_daily_document(
     report_date: dt.date | str,
     sections: Sequence[Mapping[str, Any]],
@@ -342,7 +350,9 @@ def render_daily_document(
     return (
         '<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f'<title>{heading} - {_escape(display_date)}</title>\n<style>{_CSS}</style>\n<!--daily-rio:style--><style id="daily-rio-style">{_RIO_CSS}</style>\n<!--/daily-rio:style--></head>\n<body>\n'
+        f'<title>{heading} - {_escape(display_date)}</title>\n<style>{_CSS}</style>\n'
+        f'<style id="bluepost-channel-style">{_bluepost_channel_css()}</style>\n'
+        f'<!--daily-rio:style--><style id="daily-rio-style">{_RIO_CSS}</style>\n<!--/daily-rio:style--></head>\n<body>\n'
         '<a class="skip-link" href="#edition-content">跳到本期正文</a>\n'
         '<main class="daily-report">\n<header class="daily-hero">'
         f'<div class="edition-title"><p class="edition-kicker">{kicker}</p><h1>{heading}</h1></div>'
