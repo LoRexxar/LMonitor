@@ -1,12 +1,18 @@
-async function fetchJson(url) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 10000);
+async function fetchJson(url, controller = new AbortController()) {
+  let timer = setTimeout(() => controller.abort(), 10000);
+  const clearTimer = () => {
+    if (timer === null) return;
+    clearTimeout(timer);
+    timer = null;
+  };
+  controller.signal.addEventListener("abort", clearTimer, { once: true });
   try {
     const resp = await fetch(url, { credentials: "same-origin", signal: controller.signal });
     if (!resp.ok) throw new Error("数据读取未成功");
     return await resp.json();
   } finally {
-    clearTimeout(timer);
+    clearTimer();
+    controller.signal.removeEventListener("abort", clearTimer);
   }
 }
 
@@ -73,97 +79,231 @@ function getBilibiliThumbnailUrl(raw) {
   }
 }
 
-// --- NGA hover preview (Portal) ---
-const NGA_PREVIEW_CACHE = new Map(); // articleId -> preview text
+// --- Homepage NGA preview: one invalidatable, non-modal session ---
+const NGA_PREVIEW_CACHE = new Map();
 let NGA_TOOLTIP_EL = null;
+let NGA_TOOLTIP_CONTENT = null;
+let NGA_TOOLTIP_CLOSE = null;
+let NGA_PREVIEW_SESSION = null;
+let NGA_PREVIEW_GENERATION = 0;
 let NGA_TOOLTIP_HIDE_TIMER = null;
+let NGA_PREVIEW_INTENT_TIMER = null;
+let NGA_PREVIEW_INTENT_ROW = null;
+let NGA_PREVIEW_HOVER_AFTER = 0;
+let NGA_PREVIEW_BLOCKED_ROW = null;
+let NGA_PREVIEW_POINTER_ROW = null;
+let NGA_PREVIEW_GLOBALS_BOUND = false;
+let NGA_PREVIEW_LAST_MOUSE_POINT = null;
+let NGA_PREVIEW_DISMISSED_POINT = null;
+
+function cancelNgaPreviewIntent() {
+  if (NGA_PREVIEW_INTENT_TIMER !== null) clearTimeout(NGA_PREVIEW_INTENT_TIMER);
+  NGA_PREVIEW_INTENT_TIMER = null;
+  NGA_PREVIEW_INTENT_ROW = null;
+}
+
+function cancelNgaPreviewHide() {
+  if (NGA_TOOLTIP_HIDE_TIMER !== null) clearTimeout(NGA_TOOLTIP_HIDE_TIMER);
+  NGA_TOOLTIP_HIDE_TIMER = null;
+}
+
+function closeNgaPreview(restoreFocus = false) {
+  const session = NGA_PREVIEW_SESSION;
+  const returnFocus = restoreFocus && session?.trigger?.isConnected &&
+    (NGA_TOOLTIP_EL?.contains(document.activeElement) || document.activeElement === session.trigger);
+  NGA_PREVIEW_SESSION = null;
+  NGA_PREVIEW_GENERATION++;
+  cancelNgaPreviewIntent();
+  cancelNgaPreviewHide();
+  if (NGA_TOOLTIP_EL) NGA_TOOLTIP_EL.style.display = "none";
+  if (!session) return;
+  // Hiding an overlay can expose a different row without physical mouse motion.
+  NGA_PREVIEW_DISMISSED_POINT = NGA_PREVIEW_LAST_MOUSE_POINT;
+  NGA_PREVIEW_BLOCKED_ROW = NGA_PREVIEW_POINTER_ROW === session.row ? session.row : null;
+  session.controller.abort();
+  session.trigger?.setAttribute("aria-expanded", "false");
+  // Outside clicks, scrolling and blur must not steal focus from the next target.
+  if (returnFocus) {
+    session.trigger.focus({ preventScroll: true });
+  }
+}
+
+function hideNgaTooltipSoon() {
+  if (!NGA_PREVIEW_SESSION || NGA_PREVIEW_SESSION.pinned) return;
+  cancelNgaPreviewHide();
+  NGA_TOOLTIP_HIDE_TIMER = setTimeout(() => closeNgaPreview(), 150);
+}
+
+function bindNgaPreviewGlobals() {
+  if (NGA_PREVIEW_GLOBALS_BOUND || typeof window === "undefined") return;
+  NGA_PREVIEW_GLOBALS_BOUND = true;
+  document.addEventListener("pointermove", (ev) => {
+    if (ev.pointerType === "mouse" && Number.isFinite(ev.clientX) && Number.isFinite(ev.clientY)) {
+      NGA_PREVIEW_LAST_MOUSE_POINT = { x: ev.clientX, y: ev.clientY };
+    }
+  }, true);
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape" && NGA_PREVIEW_SESSION) {
+      ev.preventDefault();
+      closeNgaPreview(true);
+    }
+  });
+  document.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType === "touch") NGA_PREVIEW_HOVER_AFTER = Date.now() + 800;
+    const session = NGA_PREVIEW_SESSION;
+    if (!session?.trigger?.contains(ev.target) && !NGA_TOOLTIP_EL?.contains(ev.target)) closeNgaPreview();
+  }, true);
+  window.addEventListener("scroll", (ev) => {
+    if (NGA_TOOLTIP_EL?.contains(ev.target)) return;
+    NGA_PREVIEW_HOVER_AFTER = Date.now() + 400;
+    closeNgaPreview();
+  }, true);
+  window.addEventListener("resize", () => closeNgaPreview());
+  window.addEventListener("blur", () => closeNgaPreview());
+  document.addEventListener("visibilitychange", () => {
+    if (document.hidden) closeNgaPreview();
+  });
+}
 
 function ensureNgaTooltip() {
   if (NGA_TOOLTIP_EL) return NGA_TOOLTIP_EL;
   const el = document.createElement("div");
   el.id = "nga-hover-tooltip";
-  el.style.position = "fixed";
-  el.style.zIndex = "9999";
-  el.style.maxWidth = "520px";
+  el.className = "portal-nga-preview";
+  el.setAttribute("role", "dialog");
+  el.setAttribute("aria-label", "主楼预览");
   el.style.display = "none";
-  el.className = "rounded-xl border border-slate-200 bg-white shadow-lg p-3 text-xs text-slate-700";
-  el.style.whiteSpace = "pre-wrap";
-  el.style.pointerEvents = "none";
+  const header = document.createElement("div");
+  header.className = "portal-nga-preview__header";
+  const title = document.createElement("strong");
+  title.textContent = "主楼预览";
+  header.appendChild(title);
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "portal-nga-preview__close";
+  close.textContent = "关闭";
+  close.addEventListener("click", () => closeNgaPreview(true));
+  header.appendChild(close);
+  el.appendChild(header);
+  const content = document.createElement("div");
+  content.className = "portal-nga-preview__content";
+  // Keyboard readers can focus/scroll the text without a modal focus trap.
+  content.tabIndex = 0;
+  el.appendChild(content);
+  const hint = document.createElement("div");
+  hint.className = "portal-nga-preview__hint";
+  hint.textContent = "点击帖子标题可查看原帖";
+  el.appendChild(hint);
+  el.addEventListener("mouseenter", cancelNgaPreviewHide);
+  el.addEventListener("mouseleave", hideNgaTooltipSoon);
+  el.addEventListener("focusin", cancelNgaPreviewHide);
+  el.addEventListener("focusout", (ev) => {
+    if (!el.contains(ev.relatedTarget)) hideNgaTooltipSoon();
+  });
   document.body.appendChild(el);
   NGA_TOOLTIP_EL = el;
+  NGA_TOOLTIP_CONTENT = content;
+  NGA_TOOLTIP_CLOSE = close;
   return el;
 }
 
-function showNgaTooltipAt(x, y, html) {
-  const el = ensureNgaTooltip();
-  if (NGA_TOOLTIP_HIDE_TIMER) {
-    clearTimeout(NGA_TOOLTIP_HIDE_TIMER);
-    NGA_TOOLTIP_HIDE_TIMER = null;
-  }
-  const pad = 12;
-  const vw = window.innerWidth || 1200;
-  const vh = window.innerHeight || 800;
-  el.innerHTML = html || "";
-  el.style.display = "block";
-  // 先给一个默认位置，再根据尺寸修正
-  el.style.left = Math.min(vw - 40, x + pad) + "px";
-  el.style.top = Math.min(vh - 40, y + pad) + "px";
-  const rect = el.getBoundingClientRect();
-  let left = x + pad;
-  let top = y + pad;
-  if (left + rect.width > vw - 12) left = Math.max(12, vw - rect.width - 12);
-  if (top + rect.height > vh - 12) top = Math.max(12, vh - rect.height - 12);
-  el.style.left = left + "px";
-  el.style.top = top + "px";
+function positionNgaPreview(session) {
+  const el = NGA_TOOLTIP_EL;
+  const anchor = (session.pinned ? session.trigger : session.row) || session.row;
+  const rect = anchor.getBoundingClientRect();
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const size = el.getBoundingClientRect();
+  const left = Math.max(12, Math.min(rect.left, vw - size.width - 12));
+  const top = rect.bottom + 8 + size.height <= vh - 12
+    ? rect.bottom + 8 : Math.max(12, Math.min(rect.top - size.height - 8, vh - size.height - 12));
+  el.style.left = `${left}px`;
+  el.style.top = `${top}px`;
 }
 
-function hideNgaTooltipSoon() {
-  const el = ensureNgaTooltip();
-  if (NGA_TOOLTIP_HIDE_TIMER) clearTimeout(NGA_TOOLTIP_HIDE_TIMER);
-  NGA_TOOLTIP_HIDE_TIMER = setTimeout(() => {
-    el.style.display = "none";
-  }, 120);
-}
-
-async function fetchNgaPreviewText(articleId) {
+async function fetchNgaPreviewText(articleId, controller) {
   const id = Number(articleId || 0);
   if (!id) return "";
-  if (NGA_PREVIEW_CACHE.has(id)) return NGA_PREVIEW_CACHE.get(id) || "";
-  try {
-    const resp = await fetch(`/portal/api/article/${id}/`);
-    if (!resp.ok) return "";
-    const data = await resp.json();
-    const item = data?.data || {};
-    const raw = String(item.content || "").trim();
-    const preview = raw.length > 900 ? raw.slice(0, 900).trim() + "..." : raw;
-    NGA_PREVIEW_CACHE.set(id, preview);
-    return preview;
-  } catch (e) {
-    return "";
+  if (NGA_PREVIEW_CACHE.has(id)) return NGA_PREVIEW_CACHE.get(id);
+  const data = await fetchJson(`/portal/api/article/${id}/`, controller);
+  // Abort can race with JSON parsing (and cached or already-resolved transports).
+  if (controller.signal.aborted) return "";
+  const raw = String(data?.data?.content || "").trim();
+  const preview = raw.length > 900 ? raw.slice(0, 900).trim() + "..." : raw;
+  NGA_PREVIEW_CACHE.set(id, preview);
+  return preview;
+}
+
+function openNgaPreview(row, pinned) {
+  if (!row.isConnected) return;
+  cancelNgaPreviewIntent();
+  cancelNgaPreviewHide();
+  let session = NGA_PREVIEW_SESSION;
+  if (session?.row === row) {
+    if (pinned) {
+      session.pinned = true;
+      session.trigger?.setAttribute("aria-expanded", "true");
+      positionNgaPreview(session);
+      NGA_TOOLTIP_CLOSE.focus({ preventScroll: true });
+    }
+    return;
   }
+  closeNgaPreview();
+  const trigger = row.querySelector("[data-nga-preview-toggle]");
+  session = { row, trigger, pinned, generation: NGA_PREVIEW_GENERATION, controller: new AbortController() };
+  NGA_PREVIEW_SESSION = session;
+  const tip = ensureNgaTooltip();
+  trigger?.setAttribute("aria-expanded", "true");
+  NGA_TOOLTIP_CONTENT.textContent = "正在读取主楼预览…";
+  tip.style.display = "flex";
+  positionNgaPreview(session);
+  if (pinned) NGA_TOOLTIP_CLOSE.focus({ preventScroll: true });
+  const current = () => NGA_PREVIEW_SESSION === session && session.generation === NGA_PREVIEW_GENERATION &&
+    session.row.isConnected;
+  fetchNgaPreviewText(row.getAttribute("data-nga-article-id"), session.controller).then((preview) => {
+    if (!current() || session.controller.signal.aborted) return;
+    NGA_TOOLTIP_CONTENT.textContent = preview || "暂无预览内容（可能需要配置 NGA Cookie 才能抓取主楼）";
+    positionNgaPreview(session); // Never cancel a pending leave deadline on response.
+  }).catch(() => {
+    if (current()) {
+      NGA_TOOLTIP_CONTENT.textContent = "预览暂时不可用，请稍后重试或点击帖子标题查看原帖";
+      positionNgaPreview(session);
+    }
+  });
 }
 
 function bindNgaHoverTooltips(containerEl) {
   if (!containerEl) return;
-  const items = containerEl.querySelectorAll("[data-nga-article-id]");
-  items.forEach((el) => {
-    if (el.dataset?.ngaTooltipBound === "1") return;
-    el.dataset.ngaTooltipBound = "1";
-    el.addEventListener("mouseenter", async (ev) => {
-      const id = el.getAttribute("data-nga-article-id");
-      const preview = await fetchNgaPreviewText(id);
-      const safe = preview || "暂无预览内容（可能需要配置 NGA Cookie 才能抓取主楼）";
-      const html = `<div class="font-semibold text-slate-900 mb-1">主楼预览</div><div class="text-slate-700">${escapeHtml(safe)}</div>`;
-      showNgaTooltipAt(ev.clientX, ev.clientY, html);
+  bindNgaPreviewGlobals();
+  containerEl.querySelectorAll("[data-nga-article-id]").forEach((row) => {
+    if (row.dataset?.ngaTooltipBound === "1") return;
+    row.dataset.ngaTooltipBound = "1";
+    row.addEventListener("pointerenter", (ev) => {
+      NGA_PREVIEW_POINTER_ROW = row;
+      if (ev.pointerType !== "mouse" || ev.sourceCapabilities?.firesTouchEvents ||
+          typeof window === "undefined" || !window.matchMedia?.("(hover: hover) and (pointer: fine)").matches ||
+          Date.now() < NGA_PREVIEW_HOVER_AFTER || NGA_PREVIEW_BLOCKED_ROW === row) return;
+      if (NGA_PREVIEW_DISMISSED_POINT) {
+        if (Math.abs(ev.clientX - NGA_PREVIEW_DISMISSED_POINT.x) <= 3 &&
+            Math.abs(ev.clientY - NGA_PREVIEW_DISMISSED_POINT.y) <= 3) return;
+        NGA_PREVIEW_DISMISSED_POINT = null;
+      }
+      if (NGA_PREVIEW_SESSION?.row === row) { cancelNgaPreviewHide(); return; }
+      if (NGA_PREVIEW_SESSION?.pinned) return;
+      closeNgaPreview();
+      NGA_PREVIEW_INTENT_ROW = row;
+      NGA_PREVIEW_INTENT_TIMER = setTimeout(() => openNgaPreview(row, false), 180);
     });
-    el.addEventListener("mousemove", (ev) => {
-      const tip = ensureNgaTooltip();
-      if (tip.style.display !== "block") return;
-      // 不重写内容，仅更新位置
-      showNgaTooltipAt(ev.clientX, ev.clientY, tip.innerHTML);
+    row.addEventListener("pointerleave", () => {
+      if (NGA_PREVIEW_POINTER_ROW === row) NGA_PREVIEW_POINTER_ROW = null;
+      if (NGA_PREVIEW_BLOCKED_ROW === row) NGA_PREVIEW_BLOCKED_ROW = null;
+      if (NGA_PREVIEW_INTENT_ROW === row) cancelNgaPreviewIntent();
+      if (NGA_PREVIEW_SESSION?.row === row && !NGA_TOOLTIP_EL?.contains(document.activeElement)) hideNgaTooltipSoon();
     });
-    el.addEventListener("mouseleave", () => {
-      hideNgaTooltipSoon();
+    const trigger = row.querySelector("[data-nga-preview-toggle]");
+    trigger?.addEventListener("click", () => {
+      if (NGA_PREVIEW_SESSION?.row === row && NGA_PREVIEW_SESSION.pinned) closeNgaPreview(true);
+      else openNgaPreview(row, true);
     });
   });
 }
@@ -219,6 +359,7 @@ function filterItems(items, q) {
 }
 
 function renderSimpleList(containerId, items, opts) {
+  if (containerId === "nga-list") closeNgaPreview();
   const el = document.getElementById(containerId);
   if (!el) return;
   const query = getSearchQuery();
@@ -265,6 +406,9 @@ function renderSimpleList(containerId, items, opts) {
       if (author) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-user", "w-3.5 h-3.5 text-slate-400")}<span>${author}</span></span>`);
       if (time) parts.push(`<span class="inline-flex items-center gap-1">${svgIcon("icon-clock", "w-3.5 h-3.5 text-slate-400")}<span>${time}</span></span>`);
       if (reply) parts.push(reply);
+      if (containerId === "nga-list" && it.id) {
+        parts.push(`<button type="button" data-nga-preview-toggle aria-haspopup="dialog" aria-controls="nga-hover-tooltip" aria-expanded="false" class="portal-nga-preview__toggle">预览</button>`);
+      }
       const meta = parts.join("");
 
       const divider = asGrid ? "border-b border-slate-100" : (idx === 0 ? "" : "border-t border-slate-100");
@@ -312,6 +456,7 @@ function renderSimpleList(containerId, items, opts) {
 }
 
 function renderSkeleton(containerId, lines = 8) {
+  if (containerId === "nga-list") closeNgaPreview();
   const el = document.getElementById(containerId);
   if (!el) return;
   const blocks = [];

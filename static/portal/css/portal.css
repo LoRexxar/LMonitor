@@ -1037,6 +1037,80 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Homepage-only non-modal NGA preview; keep the NGA page tooltip separate. */
+.portal-nga-preview {
+  position: fixed;
+  z-index: 9999;
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(360px, calc(100vh - 24px));
+  max-height: min(360px, calc(100dvh - 24px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  color: #334155;
+  box-shadow: 0 12px 32px rgb(15 23 42 / 18%);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.portal-nga-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: 4px 8px 4px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+.portal-nga-preview__content {
+  min-height: 0;
+  padding: 10px 14px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.portal-nga-preview__hint {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  color: #64748b;
+  font-size: 11px;
+}
+.portal-nga-preview__close,
+.portal-nga-preview__toggle {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 4px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #4338ca;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
+  touch-action: manipulation;
+}
+.portal-nga-preview__close:hover,
+.portal-nga-preview__toggle:hover,
+.portal-nga-preview__toggle[aria-expanded="true"] { background: #e0e7ff; }
+.portal-nga-preview__close:focus-visible,
+.portal-nga-preview__toggle:focus-visible,
+.portal-nga-preview__content:focus-visible { outline: 2px solid #6366f1; outline-offset: -2px; }
+.portal-theme-dark .portal-nga-preview { background: #172033; border-color: #475569; color: #e2e8f0; }
+.portal-theme-dark .portal-nga-preview__header { color: #f8fafc; border-color: #334155; }
+.portal-theme-dark .portal-nga-preview__hint { color: #94a3b8; }
+.portal-theme-dark .portal-nga-preview__close,
+.portal-theme-dark .portal-nga-preview__toggle { background: #1e293b; border-color: #475569; color: #c7d2fe; }
+.portal-theme-dark .portal-nga-preview__close:hover,
+.portal-theme-dark .portal-nga-preview__toggle:hover,
+.portal-theme-dark .portal-nga-preview__toggle[aria-expanded="true"] { background: #334155; }
+
 .nga-tooltip {
     position: fixed;
     z-index: 50;
