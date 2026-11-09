@@ -19,7 +19,9 @@ from botend.raiderio_identity import activity_identity_digest, normalized_name
 from botend.wow_i18n import cn_class_from_slug, cn_spec_from_slug
 from botend.services.character_navigation import character_link
 
-TTL = timedelta(days=7)
+TTL = timedelta(days=30)
+UNAVAILABLE_TTL = timedelta(days=7)
+MISSING_TTL = timedelta(hours=24)
 MAX_BEST_RUNS = 8
 MAX_CANDIDATES = 40 * 20 * MAX_BEST_RUNS
 _RATE_LOCK = threading.Lock()
@@ -104,13 +106,19 @@ def _profile_url(character):
 
 
 def validate_details(data, run, rio_season):
+    """保留公共校验接口；不可展示的阵容仍返回 None。"""
+    return _validate_details(data, run, rio_season)[0]
+
+
+def _validate_details(data, run, rio_season):
+    """区分明确撤回与暂缺数据，避免缺项被长期缓存。"""
     run_id = run_reference(run, rio_season)
     if (not isinstance(data, dict) or data.get('season') != rio_season
             or _positive(data.get('keystone_run_id')) != run_id):
         raise ValueError('wrong detail identity')
     # A verified deletion is authoritative even if the source omits run facts.
     if data.get('deleted_at') not in (None, ''):
-        return None
+        return None, 'deleted'
     dungeon = _identity_part(data.get('dungeon'), ('id', 'name', 'slug', 'map_challenge_mode_id'))
     if not dungeon.get('name') or dungeon['name'] != run.get('dungeon'):
         raise ValueError('wrong dungeon')
@@ -130,8 +138,10 @@ def validate_details(data, run, rio_season):
         raise ValueError('conflicting completion time')
     privacy = data.get('runPrivacyMode')
     roster = data.get('roster')
+    if privacy == 'private':
+        return None, 'private'
     if privacy != 'public' or roster is None or roster == []:
-        return None
+        return None, 'missing'
     if not isinstance(roster, list) or len(roster) != 5:
         raise ValueError('invalid roster size')
     members, identities = [], set()
@@ -146,15 +156,17 @@ def validate_details(data, run, rio_season):
         if (type(source.get('id')) is int and source['id'] == 0
                 and not character['path'] and isinstance(source.get('realm'), dict)
                 and source['realm'].get('slug') == 'anonymous'):
-            return None
+            return None, 'anonymous'
         # Legacy central facts omit this field; present IDs must be real integers.
         if 'id' in source:
             character['id'] = _positive(source['id'])
         for key, fields in (('class', ('id', 'name', 'slug')), ('spec', ('id', 'name', 'slug', 'role')),
                             ('realm', ('slug',)), ('region', ('slug',))):
             character[key] = _identity_part(source.get(key), fields)
-        if not character['name'] or character['name'].lower() == 'anonymous':
-            return None
+        if not character['name']:
+            return None, 'missing'
+        if character['name'].lower() == 'anonymous':
+            return None, 'anonymous'
         path = _profile_url(character)
         if path:
             key = normalized_name(path)
@@ -164,7 +176,7 @@ def validate_details(data, run, rio_season):
         members.append({'role': _text(member.get('role')), 'character': character})
     return {'season': rio_season, 'keystone_run_id': run_id, 'dungeon': dungeon,
             **{key: data[key] for key in ('mythic_level', 'clear_time_ms', 'num_chests', 'completed_at')},
-            'runPrivacyMode': 'public', 'deleted_at': None, 'roster': members}
+            'runPrivacyMode': 'public', 'deleted_at': None, 'roster': members}, ''
 
 
 def _snapshot_json(values):
@@ -261,7 +273,7 @@ class RosterCollector:
             row.save(update_fields=['status', 'lease_token', 'last_attempt_at', 'next_attempt_at'])
             if guarded:
                 claimed_snapshot = _row_snapshot(row)
-        error, facts, retry = '', None, None
+        error, facts, retry, unavailable_reason = '', None, None, ''
         try:
             if not _pace(self.stop_event):
                 if guarded:
@@ -285,7 +297,7 @@ class RosterCollector:
             elif response.status_code != 200:
                 error = f'http_{response.status_code}'
             else:
-                facts = validate_details(response.json(), run, rio_season)
+                facts, unavailable_reason = _validate_details(response.json(), run, rio_season)
         except (ValueError, TypeError, KeyError, AttributeError):
             error = 'invalid_payload'
         except requests.RequestException:
@@ -310,7 +322,9 @@ class RosterCollector:
                 if facts:
                     row.payload_json, row.fetched_at = facts, stamp
                 row.failure_count, row.last_error = 0, ''
-                row.next_attempt_at = stamp + (TTL if facts else timedelta(hours=24))
+                delay = TTL if facts else (UNAVAILABLE_TTL if unavailable_reason in (
+                    'private', 'deleted', 'anonymous') else MISSING_TTL)
+                row.next_attempt_at = stamp + delay
             row.lease_token = ''
             row.save()
         return {**result, 'status': error or row.status}

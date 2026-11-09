@@ -57,6 +57,26 @@ class CharacterEnrichmentTests(TestCase):
         self.assertEqual(consume_enrichment(self.season, EnrichmentBudget(http))['attempted'], 0)
         self.assertEqual(http.call_count, 1)
 
+    def test_daily_renewed_candidate_keeps_thirty_day_roster_deadline(self):
+        now = timezone.now()
+        row = self.activity()
+        http = Mock(return_value=self.response())
+        with patch('django.utils.timezone.now', return_value=now):
+            enqueue_enrichment(row, self.season, self.player)
+            self.assertEqual(consume_enrichment(self.season, EnrichmentBudget(http))['ready'], 1)
+        due = now + timedelta(days=30)
+        for day in range(1, 30):
+            with patch('django.utils.timezone.now', return_value=now + timedelta(days=day)):
+                enqueue_enrichment(row, self.season, self.player)
+                self.assertEqual(consume_enrichment(self.season, EnrichmentBudget(http))['attempted'], 0)
+                self.assertEqual(CharacterEnrichmentTask.objects.get().due_at, due)
+        self.assertEqual(http.call_count, 1)
+        with patch('django.utils.timezone.now', return_value=due):
+            enqueue_enrichment(row, self.season, self.player)
+            self.assertEqual(consume_enrichment(self.season, EnrichmentBudget(http))['ready'], 1)
+        self.assertEqual(http.call_count, 2)
+        self.assertEqual(CharacterEnrichmentTask.objects.get().due_at, now + timedelta(days=60))
+
     def test_same_run_across_ranked_and_bound_identity_has_one_queue_entry(self):
         from botend.services.player_raiderio_activity import player_identity
         row = self.activity()

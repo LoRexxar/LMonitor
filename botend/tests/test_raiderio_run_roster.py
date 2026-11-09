@@ -83,6 +83,99 @@ class RunRosterTests(TestCase):
         with self.assertRaises(IntegrityError), transaction.atomic():
             RaiderIORunRoster.objects.create(rio_season=row.rio_season, run_id=row.run_id)
 
+    def test_success_reuses_thirty_days_without_postponing_publication_clock(self):
+        now = timezone.now()
+        collector, transport = self.collect()
+        with patch('django.utils.timezone.now', return_value=now):
+            self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'ready')
+        row = RaiderIORunRoster.objects.get()
+        original = RaiderIORunRoster.objects.values().get()
+        self.assertEqual(row.next_attempt_at, now + timedelta(days=30))
+        with patch('django.utils.timezone.now', return_value=now + timedelta(days=29)):
+            self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'fresh')
+            self.assertEqual(project_run_rosters([self.run], self.season.rio_season)[0]['roster_status'], 'ready')
+        self.assertEqual(transport.call_count, 1)
+        self.assertEqual(RaiderIORunRoster.objects.values().get(), original)
+        with patch('django.utils.timezone.now', return_value=now + timedelta(days=30, seconds=1)):
+            self.assertEqual(project_run_rosters([self.run], self.season.rio_season)[0]['roster_status'], 'stale')
+            self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'ready')
+        self.assertEqual(transport.call_count, 2)
+
+    def test_new_run_is_collected_immediately_despite_existing_fresh_run(self):
+        collector, transport = self.collect()
+        collector.refresh(self.run, self.season.rio_season)
+        other = {**self.run, 'keystone_run_id': 124, 'url': self.run['url'].replace('/123-', '/124-')}
+        transport.return_value.json.return_value = details(124)
+        self.assertEqual(collector.refresh(other, self.season.rio_season)['status'], 'ready')
+        self.assertEqual(transport.call_count, 2)
+        self.assertEqual(RaiderIORunRoster.objects.count(), 2)
+
+    def test_due_privacy_withdrawal_waits_seven_days_then_can_recover(self):
+        now = timezone.now()
+        collector, transport = self.collect()
+        with patch('django.utils.timezone.now', return_value=now):
+            collector.refresh(self.run, self.season.rio_season)
+        saved = RaiderIORunRoster.objects.get().payload_json
+        transport.return_value.json.return_value = {**details(), 'runPrivacyMode': 'private'}
+        with patch('django.utils.timezone.now', return_value=now + timedelta(days=30)):
+            self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'unavailable')
+        row = RaiderIORunRoster.objects.get()
+        self.assertEqual(row.next_attempt_at, now + timedelta(days=37))
+        self.assertEqual(row.payload_json, saved)
+        self.assertEqual(row.fetched_at, now)
+        self.assertFalse(row.roster_visible)
+        with patch('django.utils.timezone.now', return_value=now + timedelta(days=31)):
+            self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'backoff')
+            self.assertEqual(project_run_rosters([self.run], self.season.rio_season)[0]['roster'], [])
+        self.assertEqual(transport.call_count, 2)
+        transport.return_value.json.return_value = details()
+        with patch('django.utils.timezone.now', return_value=now + timedelta(days=37)):
+            self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'ready')
+        self.assertEqual(RaiderIORunRoster.objects.get().next_attempt_at, now + timedelta(days=67))
+
+    def test_only_explicit_unavailability_gets_long_negative_cache(self):
+        now = timezone.now()
+        anonymous = details()
+        anonymous['roster'][0]['character'].update(id=0, path='', realm={'slug': 'anonymous'})
+        missing_name = details()
+        missing_name['roster'][0]['character']['name'] = ''
+        cases = [
+            ({**details(), 'deleted_at': now.isoformat()}, 7),
+            (anonymous, 7),
+            ({**details(), 'runPrivacyMode': 'private'}, 7),
+            ({**details(), 'runPrivacyMode': None}, 1),
+            ({**details(), 'runPrivacyMode': 'unknown'}, 1),
+            ({**details(), 'roster': None}, 1),
+            ({**details(), 'roster': []}, 1),
+            (missing_name, 1),
+        ]
+        for data, days in cases:
+            with self.subTest(data=data), patch('django.utils.timezone.now', return_value=now):
+                collector, _ = self.collect(data)
+                self.assertEqual(collector.refresh(self.run, self.season.rio_season, force=True)['status'], 'unavailable')
+                self.assertEqual(RaiderIORunRoster.objects.get().next_attempt_at, now + timedelta(days=days))
+
+    def test_failed_recheck_and_partial_roster_keep_short_error_backoff(self):
+        now = timezone.now()
+        collector, transport = self.collect()
+        with patch('django.utils.timezone.now', return_value=now):
+            collector.refresh(self.run, self.season.rio_season)
+        original = RaiderIORunRoster.objects.get().payload_json
+        bad = {**details(), 'roster': details()['roster'][:4]}
+        transport.return_value.json.return_value = bad
+        due = now + timedelta(days=30)
+        with patch('django.utils.timezone.now', return_value=due):
+            self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'invalid_payload')
+        row = RaiderIORunRoster.objects.get()
+        self.assertEqual(row.next_attempt_at, due + timedelta(minutes=5))
+        self.assertEqual(row.payload_json, original)
+        self.assertEqual(row.fetched_at, now)
+        transport.return_value.status_code = 503
+        with patch('django.utils.timezone.now', return_value=row.next_attempt_at):
+            self.assertEqual(collector.refresh(self.run, self.season.rio_season)['status'], 'http_503')
+        row.refresh_from_db()
+        self.assertEqual(row.next_attempt_at, due + timedelta(minutes=15))
+
     def test_compact_roster_uses_shared_class_colors_and_spec_icons(self):
         from django.template.loader import render_to_string
         from html.parser import HTMLParser
@@ -401,7 +494,7 @@ class RosterMaintenanceTests(TestCase):
         result = collector.refresh(self.player, self.season, include_profile=True, force=True)
         self.assertEqual(result['status'], 'invalid_payload')
         self.assertNotIn('profile_payload', result)
-        self.assertEqual(RaiderIOCharacterActivity.objects.get().payload_json, original)
+        self.assertEqual(activity_tests.activity_facts(RaiderIOCharacterActivity.objects.get()), original)
         self.assertFalse(RaiderIORunRoster.objects.filter(run_id=999).exists())
         self.season.is_active = False
         transport.reset_mock()
@@ -426,7 +519,7 @@ class RosterMaintenanceTests(TestCase):
                 result = collector.refresh(self.player, self.season, force=True, include_profile=True)
                 self.assertEqual(result['status'], 'invalid_payload')
                 self.assertEqual(result['profile_payload']['gear'], data['gear'])
-                self.assertEqual(RaiderIOCharacterActivity.objects.get().payload_json, original)
+                self.assertEqual(activity_tests.activity_facts(RaiderIOCharacterActivity.objects.get()), original)
                 self.assertEqual(list(RaiderIORunRoster.objects.values_list('run_id', flat=True)), [123])
                 self.assertEqual(transport.call_count, 2)
 

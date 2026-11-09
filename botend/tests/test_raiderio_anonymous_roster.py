@@ -74,7 +74,10 @@ class AnonymousRosterTests(TestCase):
         server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True);thread.start()
         def transport(_url, **kwargs):
-            return requests.get(f'http://127.0.0.1:{server.server_port}/run-details', **kwargs)
+            # 本机测试服务不经过系统代理，避免误将回环请求发到外部。
+            with requests.Session() as session:
+                session.trust_env = False
+                return session.get(f'http://127.0.0.1:{server.server_port}/run-details', **kwargs)
         collector = RosterCollector(transport=transport, proxies={})
         try:
             self.assertEqual(collector.refresh(self.run, 'season-mn-2')['status'], 'ready')
