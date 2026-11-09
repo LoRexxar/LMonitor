@@ -324,7 +324,7 @@ def _currents(scope, budget):
         if ('talent_structure_token' in source_meta and not re.fullmatch(
                 '[0-9a-f]{64}', str(source_meta['talent_structure_token']))):
             raise Unsafe('invalid talent structure token')
-        allowed = {'generated_at', 'updated_at', '_snapshot'} | (
+        allowed = {'generated_at', 'updated_at', '_snapshot', '_data_contract'} | (
             {'dungeons'} if module == 'dungeon' else {'difficulties', 'zone_groups'})
         if set(index) - allowed:
             raise Unsafe('unknown index fields')
@@ -790,7 +790,7 @@ def _observe_current(scope, module, budget):
     meta = index.get('_snapshot')
     if not isinstance(meta, dict):
         raise Unsafe('invalid current metadata')
-    allowed = {'generated_at', 'updated_at', '_snapshot'} | (
+    allowed = {'generated_at', 'updated_at', '_snapshot', '_data_contract'} | (
         {'dungeons'} if module == 'dungeon' else {'difficulties', 'zone_groups'})
     if set(index) - allowed or set(meta) - {'schema', 'module', 'generation', 'scope',
             'details', 'detail_hashes', 'index_hash', 'payload_hash', 'input_fingerprint', 'talent_structure_token'}:

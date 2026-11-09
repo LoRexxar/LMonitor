@@ -8,6 +8,7 @@ from botend.controller.BaseScan import BaseScan
 from botend.services.rio_statistics import run_nightly_collection, root, _load, _stamp
 from botend.services.rio_statistics_scope import active_scope
 from botend.services.rio_statistics_schedule import flag_data
+from utils.log import logger
 
 
 class RioStatisticsMonitor(BaseScan):
@@ -40,6 +41,8 @@ class RioStatisticsMonitor(BaseScan):
         return complete
 
     def _record(self, identity, state, result):
+        logger.info('[RioStatistics] ' + json.dumps({'identity': identity, 'state': state,
+                    'result': result}, ensure_ascii=False, default=str))
         now = timezone.now()
         retry = now + timedelta(minutes=30)
         cooldown = _stamp(_load(root() / 'cooldown.json', {}).get('until'))

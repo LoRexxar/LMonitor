@@ -145,7 +145,7 @@ class SpecDetailAggregationMonitor(BaseScan):
                     spec_dir = os.path.join(base_dir, class_name, spec_name)
                     self._aggregate_dungeon(season, class_name, spec_name, spec_dir, cycle=cycle)
                     self._aggregate_raid(season, class_name, spec_name, spec_dir,
-                                         publish=partial(publish_stats, cycle=cycle))
+                                         publish=partial(publish_stats, cycle=cycle), cycle=cycle)
             finish_publication(cycle)
             return True
         except CycleOwnershipLost:
@@ -179,7 +179,7 @@ class SpecDetailAggregationMonitor(BaseScan):
             publish or (partial(publish_stats, cycle=cycle) if cycle else publish_stats), **kwargs)
 
     @staticmethod
-    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None):
+    def _aggregate_raid(season, class_name, spec_name, spec_dir, *, publish=None, cycle=None):
         if not season.raid_encounters and not season.raid_zones:
             return
 
@@ -190,6 +190,9 @@ class SpecDetailAggregationMonitor(BaseScan):
         path = os.path.join(spec_dir, 'raid.json')
         encounters = ([enc for zone in season.raid_zones for enc in zone.get('encounters', [])]
                       if season.raid_zones else season.raid_encounters)
+        selected_ids = (cycle.selected_samples.get(f'raid:{class_name}/{spec_name}')
+                        if cycle is not None else None)
+        source_cutoff = cycle.collected_at if cycle is not None else None
         prepared = {}
         checked = []
         scopes = [(season.id, enc['id'], RAID_BOSS_CN.get(enc['name'], enc['name']),
@@ -199,12 +202,12 @@ class SpecDetailAggregationMonitor(BaseScan):
         # Let each scope read its current inputs once in raid_stats instead of
         # doing a speculative full fingerprint and immediately redoing it on miss.
         if os.path.isfile(path):
-            for scope, fingerprint in zip(scopes, raid_fingerprints(scopes)):
+            for scope, fingerprint in zip(scopes, raid_fingerprints(scopes, selected_ids=selected_ids, source_cutoff=source_cutoff)):
                 difficulty, boss_id = scope[-1], scope[1]
                 prepared[difficulty, boss_id] = fingerprint
                 checked.append([difficulty, boss_id, fingerprint])
         def publication_fingerprint(scopes):
-            return content_digest({'algorithm': 'raid-publication-v4-current-metadata', 'scopes': scopes,
+            return content_digest({'algorithm': 'raid-publication-v5-wcl-log-only', 'scopes': scopes,
                 'zones': season.raid_zones, 'encounters': season.raid_encounters})
         required = [f'raid-{scope[-1]}-{scope[1]}' for scope in scopes]
         # Existing publication is the checkpoint. Prove its current input and
@@ -220,7 +223,9 @@ class SpecDetailAggregationMonitor(BaseScan):
             nonlocal reused
             result, fingerprint, hit = raid_stats(
                 season.id, enc['id'], cn_name, class_name, spec_name, difficulty,
-                fingerprint=prepared.get((difficulty, enc['id'])))
+                fingerprint=prepared.get((difficulty, enc['id'])),
+                selected_ids=selected_ids[f'{difficulty}:{enc["id"]}'] if selected_ids is not None else None,
+                source_cutoff=source_cutoff)
             fingerprints.append([difficulty, enc['id'], fingerprint])
             reused += int(hit)
             return result
@@ -257,6 +262,7 @@ class SpecDetailAggregationMonitor(BaseScan):
         heroic_zones = aggregate_difficulty(4)
 
         (publish or publish_stats)(path, {
+            '_data_contract': 'wcl-log-v2',
             '_talent_structure_token': token,
             '_input_fingerprint': publication_fingerprint(fingerprints),
             'zone_groups': mythic_zones,

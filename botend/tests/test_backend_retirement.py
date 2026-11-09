@@ -10,7 +10,87 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-ISOLATED_LABELS = ('isolated-WowDataVersionMonitor',)
+ISOLATED_LABELS = ('isolated-WowDataVersionMonitor', 'isolated-RioStatisticsMonitor')
+
+class BackendRetirementAdmissionTests(unittest.TestCase):
+    def test_short_work_continues_while_long_task_finishes_then_gate_closes(self):
+        from threading import Event, Thread
+        from botend.backend_lifecycle import BackendLifecycle
+        life = BackendLifecycle(retire_after=0)
+        started, finish = Event(), Event()
+        errors = []
+
+        def long_work():
+            try:
+                with life.monitor_admission() as permit:
+                    self.assertTrue(permit.allow_long_tasks)
+                    permit.classify(is_long=True)
+                    started.set()
+                    self.assertTrue(finish.wait(3))
+            except BaseException as exc:
+                errors.append(exc)
+                started.set()
+
+        worker = Thread(target=long_work)
+        worker.start()
+        try:
+            self.assertTrue(started.wait(2))
+            life.request_retirement()
+            self.assertTrue(life.retirement_requested)
+            self.assertFalse(life.retiring)
+            for _ in range(3):
+                with life.monitor_admission() as permit:
+                    self.assertIsNotNone(permit)
+                    self.assertFalse(permit.allow_long_tasks)
+                    permit.classify(is_long=False)
+            self.assertFalse(life.retiring)
+        finally:
+            finish.set()
+            worker.join(3)
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(errors, [])
+        self.assertTrue(life.retiring)
+        with life.monitor_admission() as permit:
+            self.assertIsNone(permit)
+        self.assertEqual(life._active, {})
+
+    def test_retirement_during_database_claim_preserves_admitted_long_task(self):
+        from botend.backend_lifecycle import BackendLifecycle
+        life = BackendLifecycle(retire_after=0)
+        with life.monitor_admission() as permit:
+            life.request_retirement()
+            self.assertFalse(life.retiring)
+            permit.classify(is_long=True)
+            self.assertFalse(life.retiring)
+        self.assertTrue(life.retiring)
+
+    def test_short_task_alone_does_not_keep_accepting_work_during_rotation(self):
+        from botend.backend_lifecycle import BackendLifecycle
+        life = BackendLifecycle(retire_after=0)
+        with life.monitor_admission() as permit:
+            permit.classify(is_long=False)
+            life.request_retirement()
+            self.assertTrue(life.retiring)
+            self.assertEqual(len(life._active), 1)
+            with life.monitor_admission() as refused:
+                self.assertIsNone(refused)
+
+    def test_automatic_rotation_and_long_runtime_deadline_are_finite(self):
+        from unittest.mock import patch
+        from botend.backend_lifecycle import BackendLifecycle
+        clock = [0]
+        with patch('botend.backend_lifecycle.time.monotonic', side_effect=lambda: clock[0]):
+            life = BackendLifecycle(retire_after=10, max_runtime=20)
+            with life.monitor_admission() as permit:
+                permit.classify(is_long=True)
+                clock[0] = 10
+                self.assertTrue(life.retirement_requested)
+                self.assertFalse(life.retiring)
+                clock[0] = 20
+                self.assertTrue(life.retiring)
+                with life.monitor_admission() as refused:
+                    self.assertIsNone(refused)
+
 
 # No signal mocks: this process imports the production admission/retirement code.
 WORKER = r'''
@@ -42,12 +122,14 @@ if mode.startswith('scheduler'):
     settings.MONITOR_TASK_MAX_RUNTIME_SECONDS = 5
     settings.MONITOR_RETIRE_CLEANUP_SECONDS = .2
     settings.SNAPSHOT_CACHE_GC_WORKER_ENABLED = True
-    def claim(*, lease_owner, task_names=None):
+    def claim(*, lease_owner, task_names=None, allow_long_tasks=True):
+        if task_names and not allow_long_tasks:
+            return None
         label = 'isolated-' + next(iter(task_names)) if task_names else 'ordinary'
         record('claim-' + label)
         if mode == 'scheduler-claim':
             time.sleep(.5)  # Retirement while the claim is in progress.
-        return SimpleNamespace(name=label, pk=label)
+        return SimpleNamespace(name=label, pk=label, _monitor_task_is_long=bool(task_names))
     def execute(self, task, owner):
         record('started-' + task.name)
         time.sleep(1.6)
@@ -136,6 +218,7 @@ record('drained')
 '''
 
 
+@unittest.skipUnless(os.name == 'posix', '需要 POSIX 信号、进程组及 Bash')
 class BackendRetirementProcessTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

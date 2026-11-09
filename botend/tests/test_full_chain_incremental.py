@@ -44,7 +44,7 @@ class FullChainIncrementalTests(TestCase):
     def raid(self, boss=1, **extra):
         return SpecRaidRanking.objects.create(season_id=self.season.pk, boss_id=boss, boss_name='首领',
             difficulty=5, class_name='Mage', spec_name='Fire', character_name='角色', realm='Realm',
-            region='eu', dps=100, **extra)
+            region='eu', dps=100, report_code='Report', fight_id=boss, **extra)
 
     def test_successful_pages_survive_failure_and_restart_but_not_new_cycle(self):
         with patch.object(self.monitor, 'fetch_wcl_rankings', side_effect=[self.page, None]) as fetch:
@@ -68,19 +68,19 @@ class FullChainIncrementalTests(TestCase):
         self.assertFalse(SpecAggregationWorkCache.objects.exists())
         self.assertFalse(list(self.work_root.rglob('*.json')))
 
-    def test_raid_change_recomputes_only_affected_boss_and_profile_changes_invalidate(self):
+    def test_raid_change_recomputes_only_affected_boss_and_profile_changes_do_not_invalidate(self):
         first, second = self.raid(), self.raid(2)
         def run(boss):
             return raid_stats(self.season.pk, boss, '首领', 'Mage', 'Fire', 5)
         run(1); run(2)
-        with patch.object(SpecStatsService, '_compute_raid_stats', wraps=SpecStatsService._compute_raid_stats) as compute:
+        with patch.object(SpecStatsService, '_compute_raid_records', wraps=SpecStatsService._compute_raid_records) as compute:
             self.assertTrue(run(1)[2]); self.assertTrue(run(2)[2]); compute.assert_not_called()
             SpecRaidRanking.objects.filter(pk=first.pk).update(dps=200)
             self.assertFalse(run(1)[2]); self.assertTrue(run(2)[2])
             self.assertEqual(compute.call_count, 1)
         PlayerSpecTopPlayer.objects.create(season_id=self.season.pk, class_name='Mage', spec_name='Fire',
             character_name='角色', realm='Realm', region='eu', race='Human', stats_json={'haste': 200})
-        self.assertFalse(run(1)[2])
+        self.assertTrue(run(1)[2])
 
     def test_publication_failure_reuses_computation_and_retries_publication(self):
         self.raid()
@@ -88,7 +88,7 @@ class FullChainIncrementalTests(TestCase):
             self.season, 'Mage', 'Fire', str(self.path), publish=publish)
         with self.assertRaises(OSError):
             run(Mock(side_effect=OSError('模拟发布失败')))
-        with patch.object(SpecStatsService, '_compute_raid_stats', side_effect=AssertionError('重复计算')):
+        with patch.object(SpecStatsService, '_compute_raid_records', side_effect=AssertionError('重复计算')):
             run(publish_stats)
         index = self.path / 'raid.json'
         before = index.read_bytes(), index.stat().st_mtime_ns
@@ -119,7 +119,7 @@ class FullChainIncrementalTests(TestCase):
         index = self.path / 'raid.json'
         before = index.read_bytes(), index.stat().st_mtime_ns
         with patch('botend.services.raid_aggregation.load_work', side_effect=AssertionError('unnecessary work decode')), \
-             patch.object(SpecStatsService, '_compute_raid_stats', side_effect=AssertionError('unnecessary compute')), \
+             patch.object(SpecStatsService, '_compute_raid_records', side_effect=AssertionError('unnecessary compute')), \
              patch('botend.services.wow_talent_display.refresh_aggregate_talents', side_effect=AssertionError('unnecessary enrichment')):
             run()
         self.assertEqual(before, (index.read_bytes(), index.stat().st_mtime_ns))
@@ -134,11 +134,11 @@ class FullChainIncrementalTests(TestCase):
         meta = old['_snapshot']
         detail = self.path / 'stats-details' / meta['generation'] / 'raid-5-1.json'
         detail.unlink()
-        with patch.object(SpecStatsService, '_compute_raid_stats', side_effect=AssertionError('work should survive lost published detail')):
+        with patch.object(SpecStatsService, '_compute_raid_records', side_effect=AssertionError('work should survive lost published detail')):
             run()
         self.assertIsNotNone(read_projection(index, 'raid-5-1'))
         SpecRaidRanking.objects.filter(pk=row.pk).update(dps=201)
-        with patch.object(SpecStatsService, '_compute_raid_stats', wraps=SpecStatsService._compute_raid_stats) as compute:
+        with patch.object(SpecStatsService, '_compute_raid_records', wraps=SpecStatsService._compute_raid_records) as compute:
             run()
         self.assertEqual(compute.call_count, 1)
         self.assertNotEqual(old['_snapshot']['input_fingerprint'], json.loads(index.read_text())['_snapshot']['input_fingerprint'])
@@ -184,7 +184,7 @@ class FullChainIncrementalTests(TestCase):
 
     def test_dungeon_publication_failure_preserves_summary_and_details(self):
         SpecDungeonRanking.objects.create(season_id=self.season.pk, dungeon_id=1, dungeon_name='一号',
-            class_name='Mage', spec_name='Fire', character_name='角色', dps=100, keystone_level=10)
+            class_name='Mage', spec_name='Fire', character_name='角色', dps=100, keystone_level=10, report_code='Report', fight_id=1)
         args = (self.season, 'Mage', 'Fire', self.path / 'dungeon.json')
         with self.assertRaises(OSError):
             aggregate_dungeon(*args, Mock(side_effect=OSError('发布中断')))

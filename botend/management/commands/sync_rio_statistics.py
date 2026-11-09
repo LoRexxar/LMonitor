@@ -15,7 +15,7 @@ class Command(BaseCommand):
         parser.add_argument('--regions', nargs='+', choices=tuple(REGIONS), default=['cn', 'world'])
         parser.add_argument('--modules', nargs='+', choices=MODULES, default=list(MODULES))
         parser.add_argument('--dungeons', nargs='*', default=[], help='只采集指定副本的空间网格')
-        parser.add_argument('--levels', nargs='+', choices=tuple(LEVELS), default=list(DEFAULT_LEVELS), help='默认采集全部汇总、区间与单层范围')
+        parser.add_argument('--levels', nargs='+', choices=tuple(LEVELS), default=list(DEFAULT_LEVELS), help='仅采集10–12层、16层及以上、20层及以上，默认全部三种')
         parser.add_argument('--periods', nargs='+', choices=tuple(PERIODS), default=['season', 'last-reset'])
         parser.add_argument('--max-requests', type=int, default=DAILY_REQUEST_BUDGET, help=f'单轮请求上限，最多 {MAX_REQUEST_BUDGET}；包含元数据和地图瓦片')
         parser.add_argument('--force', action='store_true', help='忽略数据有效期；仍遵守限流冷却')

@@ -182,7 +182,7 @@ class SnapshotStore:
 
     @staticmethod
     def _unpack(row):
-        if not row['payload']:
+        if row['payload'] is None:
             return {}
         try:
             decoder = zlib.decompressobj()
@@ -195,6 +195,8 @@ class SnapshotStore:
             if (body.get('schema') != SCHEMA or key_for(c) != row['key'] or not isinstance(body.get('data'), dict)
                     or c.get('scope', '') != row['scope'] or c['module'] != row['module']
                     or body.get('fetched_at') != row['fetched_at'] or body.get('upstream_at') != row['upstream_at']):
+                raise ValueError
+            if 'coordinate' in row.keys() and json.loads(row['coordinate']) != c:
                 raise ValueError
             return body
         except (ValueError, TypeError, KeyError, AttributeError, zlib.error):
@@ -328,14 +330,21 @@ class SnapshotStore:
                 db.execute('UPDATE cycles SET state=?,finished_at=?,details=? WHERE id=?',
                            ('interrupted', now, encoded(details).decode(), row['id']))
 
-    def backup(self):
+    def backup(self, *, include_audit=False):
         self.ensure()
         day = timezone.now().astimezone(LOCAL_TZ).date()
         folder = self.root / 'backups'; folder.mkdir(exist_ok=True)
         destination = folder / f'slot-{day.weekday()}.sqlite3'
         with _lock(self.root / 'backup.lock'):
-            if self.audit(deep=True)['state'] != 'ok':
+            report = self.audit(deep=True, reuse_verified=True)
+            if report['state'] != 'ok':
                 raise StorageError('缓存正文校验异常，未覆盖备份')
+            previous = report['maintenance'].get('backup', {})
+            if (previous.get('day') == day.isoformat() and previous.get('path') == destination.name
+                    and previous.get('data_revision') == report['data_revision'] and destination.is_file()
+                    and previous.get('file_digest') == self._file_digest(destination)):
+                value = dict(previous, reused=True)
+                return {**value, 'audit': report} if include_audit else value
             self._capacity(self.path.stat().st_size + 65536)
             with self.connection() as source:
                 if source.execute('PRAGMA quick_check(1)').fetchone()[0] != 'ok':
@@ -345,9 +354,19 @@ class SnapshotStore:
                     source.backup(target, pages=256)
                 finally:
                     target.close()
-                value = {'day': day.isoformat(), 'path': destination.name, 'at': timezone.now().isoformat()}
+                value = {'day': day.isoformat(), 'path': destination.name, 'at': timezone.now().isoformat(),
+                         'data_revision': report['data_revision'], 'file_digest': self._file_digest(destination),
+                         'reused': False}
                 source.execute('INSERT OR REPLACE INTO maintenance VALUES(?,?)', ('backup', encoded(value).decode()))
-        return value
+        return {**value, 'audit': report} if include_audit else value
+
+    @staticmethod
+    def _file_digest(path):
+        result = hashlib.sha256()
+        with path.open('rb') as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                result.update(chunk)
+        return result.hexdigest()
 
     def repair_from_backups(self, report):
         """只替换损坏记录，使用校验通过的固定槽副本；保留真实原采集时间。"""
@@ -409,7 +428,7 @@ class SnapshotStore:
         result['details'] = json.loads(result['details'])
         return result
 
-    def audit(self, *, deep=False):
+    def audit(self, *, deep=False, reuse_verified=False):
         if not self.initialized():
             return {'state': 'legacy', 'database': str(self.path), 'entries': len(self._legacy_index()['entries'])}
         with self.connection() as db:
@@ -422,19 +441,49 @@ class SnapshotStore:
             maintenance = {r['key']: json.loads(r['value']) for r in db.execute('SELECT * FROM maintenance')}
             invalid = []
             invalid_history = []
+            verified = reused = 0
+            revision = hashlib.sha256()
             if deep:
-                for row in db.execute('SELECT * FROM snapshots WHERE payload IS NOT NULL'):
-                    try:
-                        self._unpack(row)
-                    except StorageError:
-                        invalid.append(row['key'])
-                for row in db.execute('SELECT * FROM history'):
-                    try:
-                        self._unpack(row)
-                    except StorageError:
-                        invalid_history.append(f"{row['key']}@{row['day']}")
+                # 同日证明仅省去解压和 JSON 校验；每次仍重新散列正文及全部行字段。
+                # 日期、正文或元数据变化均重新完整验证，命令行深检默认不复用证明。
+                day = timezone.now().astimezone(LOCAL_TZ).date().isoformat()
+                proofs, changes = {}, []
+                if reuse_verified:
+                    db.execute('''CREATE TABLE IF NOT EXISTS payload_validation (
+                        identity TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, verified_day TEXT NOT NULL)''')
+                    db.execute('BEGIN IMMEDIATE')
+                    proofs = {r['identity']: r['fingerprint'] for r in db.execute(
+                        'SELECT identity,fingerprint FROM payload_validation WHERE verified_day=?', (day,))}
+                try:
+                    for table, invalid_rows in (('snapshots', invalid), ('history', invalid_history)):
+                        for row in db.execute(f'SELECT * FROM {table} ORDER BY key' + (',day' if table == 'history' else '')):
+                            values = dict(row)
+                            values['payload'] = hashlib.sha256(row['payload']).hexdigest() if row['payload'] is not None else None
+                            # 校验协议有变化时提升版本，避免新版本沿用旧规则的证明。
+                            fingerprint = hashlib.sha256(encoded(['payload-validation-v1', values])).hexdigest()
+                            identity = table + ':' + row['key'] + ('@' + row['day'] if table == 'history' else '')
+                            revision.update(encoded([identity, fingerprint]))
+                            if row['payload'] is None:
+                                continue
+                            if proofs.get(identity) == fingerprint:
+                                reused += 1
+                                continue
+                            try:
+                                self._unpack(row)
+                                verified += 1
+                                changes.append((identity, fingerprint, day))
+                            except StorageError:
+                                invalid_rows.append(row['key'] + ('@' + row['day'] if table == 'history' else ''))
+                    if reuse_verified:
+                        db.executemany('INSERT OR REPLACE INTO payload_validation VALUES(?,?,?)', changes)
+                        db.execute('COMMIT')
+                except BaseException:
+                    if reuse_verified:
+                        db.execute('ROLLBACK')
+                    raise
         return {'state': 'ok' if integrity == 'ok' and not invalid and not invalid_history else 'error', 'integrity': integrity,
                 'database': str(self.path), 'entries': count, 'history_entries': history,
                 'raw_bytes': raw, 'compressed_bytes': packed, 'invalid_payloads': invalid, 'invalid_history': invalid_history,
                 'last_cycle': dict(last) if last else None, 'last_nightly': dict(nightly) if nightly else None,
-                'maintenance': maintenance}
+                'maintenance': maintenance, 'verified_payloads': verified, 'reused_payloads': reused,
+                'data_revision': revision.hexdigest() if deep else None}

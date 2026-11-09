@@ -79,7 +79,7 @@ class Command(BaseCommand):
                                             cycle=cycle, publish=publish)
                     if not options.get('dungeon_only'):
                         self._aggregate_raid(
-                            season, class_name, spec_name, spec_dir, publish=publish)
+                            season, class_name, spec_name, spec_dir, publish=publish, cycle=cycle)
                         self._aggregate_leaderboard(season.pk, class_name, spec_name, spec_dir)
                     total_files += 1 if options.get('dungeon_only') else 3
                     self.stdout.write(f'  {class_name}/{spec_name} ✓')

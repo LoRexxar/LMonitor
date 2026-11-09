@@ -53,10 +53,10 @@ class DungeonWclOnlyTests(TestCase):
             SpecStatsService.get_dungeon_summary('DeathKnight', 'Frost', self.season.id),
             SpecStatsService.get_dungeon_detail(1, 'DeathKnight', 'Frost', self.season.id),
         ):
-            self.assertEqual(result['secondary_stats'], [])
-            self.assertEqual(result['race_distribution'][0]['race'], 'unknown')
+            self.assertNotIn('secondary_stats', result)
+            self.assertNotIn('race_distribution', result)
             self.assertEqual(result['gear_popularity']['头盔'][0]['id'], 123)
             self.assertEqual(result['gem_popularity'][0]['id'], 456)
             self.assertEqual(result['sample_size'], 1)
-            self.assertEqual(result['data_contract'], 'wcl-log-v1')
+            self.assertEqual(result['data_contract'], 'wcl-log-v2')
             self.assertTrue(all('Warcraft Logs' in v for v in result['field_sources'].values()))

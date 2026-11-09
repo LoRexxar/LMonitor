@@ -272,7 +272,7 @@ class SpecDetailBase(BaseScan):
 
         for attempt in range(3):
             try:
-                resp = requests.get(url, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"}, proxies=self._proxies)
+                resp = getattr(self, '_http_get', requests.get)(url, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"}, proxies=self._proxies)
                 if resp.status_code != 200:
                     logger.warning(f"[SpecDetail] Raider.IO HTTP {resp.status_code} for {class_name}/{spec_name}")
                     time.sleep(0.5 + attempt * 0.5)
@@ -293,7 +293,7 @@ class SpecDetailBase(BaseScan):
             "fields": "gear,talents,mythic_plus_scores_by_season:current"
         }
         try:
-            resp = requests.get(url, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"}, proxies=self._proxies)
+            resp = getattr(self, '_http_get', requests.get)(url, params=params, timeout=25, headers={"User-Agent": "Mozilla/5.0"}, proxies=self._proxies)
             if resp.status_code == 200:
                 return resp.json()
         except Exception as e:
@@ -316,7 +316,7 @@ class SpecDetailBase(BaseScan):
             return None
 
         try:
-            resp = requests.post(
+            resp = getattr(self, '_http_post', requests.post)(
                 token_url,
                 data={"grant_type": "client_credentials"},
                 auth=(client_id, client_secret),
@@ -363,7 +363,7 @@ class SpecDetailBase(BaseScan):
         headers = {"Authorization": f"Bearer {token}"}
 
         try:
-            resp = requests.get(url, params=params, headers=headers, timeout=25, proxies=self._proxies)
+            resp = getattr(self, '_http_get', requests.get)(url, params=params, headers=headers, timeout=25, proxies=self._proxies)
             if resp.status_code == 200:
                 return resp.json()
             else:

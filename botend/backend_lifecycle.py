@@ -1,11 +1,7 @@
-"""Process-local admission fence for planned backend retirement.
+"""后台轮换：先停领长任务，长任务收尾期间保持短任务采集，再关闭全部入口。
 
-USR1 means retire, INT/TERM mean an explicit operator stop. A renewable DB lease
-is NOT a runtime deadline. Each admitted operation has a separate finite runtime
-contract (default 48h, configurable); retirement never kills an operation still
-inside that contract. Python threads cannot safely be cancelled individually, so
-if draining hangs we only exit after *all* admitted deadlines plus cleanup grace.
-Lease recovery after that abnormal exit remains the existing owner/TTL protocol.
+USR1 请求计划轮换，INT/TERM 为显式停止。数据库续租不是运行期限；每个准入操作
+保留独立有限期限（默认48小时）及清理宽限。异常退出后的恢复仍由原租约协议承担。
 """
 from contextlib import contextmanager
 import math
@@ -28,20 +24,29 @@ class BackendLifecycle:
                for value in (self.max_runtime, self.cleanup_seconds)):
             raise ValueError('backend runtime and cleanup limits must be finite and positive')
         self._retiring = False
-        self._lock = threading.Lock()
+        self._retirement_requested = False
+        self._lock = threading.RLock()
         self._active = {}
+        self._rotation_holds = {}
+
+    @property
+    def retirement_requested(self):
+        if self._retire_at is not None and time.monotonic() >= self._retire_at:
+            self._retirement_requested = True
+        return self._retirement_requested
 
     @property
     def retiring(self):
-        if self._retire_at is not None and time.monotonic() >= self._retire_at:
-            self._retiring = True
-        return self._retiring
+        with self._lock:
+            if self.retirement_requested and not self._retiring:
+                # 长任务收尾期间继续普通采集；所有长任务期限到达后仍进入有限排空。
+                if not any(end > time.monotonic() for end in self._rotation_holds.values()):
+                    self._retiring = True
+            return self._retiring
 
     def request_retirement(self, signum=None, frame=None):
-        # Signal handlers must not acquire locks: the main thread may already
-        # hold one. The gate's flag check is the admission linearization point;
-        # a concurrent already-admitted claim is tracked until its cleanup ends.
-        self._retiring = True
+        # 信号处理仅置标志，不持锁；领取中途提出轮换时，已准入操作仍执行并清理。
+        self._retirement_requested = True
 
     def install_signal_handlers(self):
         previous = {}
@@ -71,6 +76,27 @@ class BackendLifecycle:
                 with self._lock:
                     del self._active[token]
 
+    @contextmanager
+    def monitor_admission(self):
+        """领取前登记在途操作；轮换申请后只允许领取短任务。"""
+        token = object()
+        with self._lock:
+            permit = None
+            if not self.retiring:
+                permit = _MonitorAdmission(self, token, not self.retirement_requested)
+                deadline = time.monotonic() + self.max_runtime
+                self._active[token] = ('monitor-claim-and-execution', deadline)
+                if permit.allow_long_tasks:
+                    # 领取事务尚未返回时不能确定任务类型，必须保护随后可能执行的长任务。
+                    self._rotation_holds[token] = deadline
+        try:
+            yield permit
+        finally:
+            if permit is not None:
+                with self._lock:
+                    self._rotation_holds.pop(token, None)
+                    self._active.pop(token, None)
+
     def wait(self, seconds):
         end = time.monotonic() + seconds
         while not self.retiring and time.monotonic() < end:
@@ -79,6 +105,8 @@ class BackendLifecycle:
 
     def drain_threads(self, threads):
         self.request_retirement()
+        # 主循环退出或异常均强制关闭入口；等待长任务时主循环尚未进入此处。
+        self._retiring = True
         with self._lock:
             # No admissions after this snapshot: flag + admission lock also
             # covers claims currently inside DB transactions (no lease TOCTOU).
@@ -94,6 +122,21 @@ class BackendLifecycle:
             for thread in threads:
                 thread.join(timeout=.05)
         print('[Backend] drained: all workers exited', flush=True)
+
+
+class _MonitorAdmission:
+    def __init__(self, lifecycle, token, allow_long_tasks):
+        self.lifecycle = lifecycle
+        self.token = token
+        self.allow_long_tasks = allow_long_tasks
+
+    def classify(self, *, is_long):
+        """短任务和空领取不延迟轮换；已准入长任务保留到清理结束。"""
+        if is_long and not self.allow_long_tasks:
+            raise RuntimeError('轮换期间不得领取新长任务')
+        if not is_long:
+            with self.lifecycle._lock:
+                self.lifecycle._rotation_holds.pop(self.token, None)
 
 
 def worker_cycles(lifecycle, *, interval, label):

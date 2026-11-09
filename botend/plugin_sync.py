@@ -1,4 +1,5 @@
 from datetime import timedelta
+import json
 from uuid import uuid4
 from zoneinfo import ZoneInfo
 from threading import Thread
@@ -44,9 +45,10 @@ PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
-# 仅保留原有游戏数据更新独立线程；榜单与 Wago 使用普通池的并发上限。
+# 版本更新与数据观察使用专用工作者，统一由数据库租约限制实际并发。
 ISOLATED_MONITOR_WORKERS = {
     'WowDataVersionMonitor': 'wow-data-update-worker',
+    'RioStatisticsMonitor': 'rio-statistics-worker',
 }
 ISOLATED_MONITOR_TASKS = frozenset(ISOLATED_MONITOR_WORKERS)
 
@@ -107,9 +109,6 @@ def portal_data_task_due_at(task, now=None):
         return None
 
     local_now = _normalized_now(now).astimezone(PORTAL_DATA_TIMEZONE)
-    # 数据观察只在凌晨启动；不把昨夜未运行的重采集补到白天。
-    if task.name == 'RioStatisticsMonitor' and local_now.hour >= 6:
-        return None
     from botend.services.wcl_collection_cycle import NO_OVERRIDE, scheduled_cycle_due_at
     override = scheduled_cycle_due_at(task, local_now)
     if override is not NO_OVERRIDE:
@@ -122,9 +121,9 @@ def portal_data_task_due_at(task, now=None):
     latest_slot = completed_slots[-1] if completed_slots else today_slots[-1] - timedelta(days=1)
 
     last_scan_time = getattr(task, "last_scan_time", None)
-    if last_scan_time is None:
+    if last_scan_time is None and task.name != 'RioStatisticsMonitor':
         return latest_slot
-    if timezone.is_naive(last_scan_time):
+    if last_scan_time is not None and timezone.is_naive(last_scan_time):
         last_scan_time = timezone.make_aware(last_scan_time, PORTAL_DATA_TIMEZONE)
     if task.name == 'RioStatisticsMonitor':
         from botend.services.rio_statistics_schedule import resume_due_at, flag_data
@@ -142,6 +141,10 @@ def portal_data_task_due_at(task, now=None):
             except (ScopeUnavailable, DatabaseError):
                 return None
         return resume_due_at(normalized, local_now, latest_slot, scope_token=scope_token)
+    if task.name == 'SpecDetailPlayerMonitor' and last_scan_time >= latest_slot:
+        from botend.services.player_daily_checkpoint import resume_due_at
+        from types import SimpleNamespace
+        return resume_due_at(SimpleNamespace(last_scan_time=last_scan_time, flag=getattr(task, 'flag', '')), local_now)
     return latest_slot if last_scan_time < latest_slot else None
 
 
@@ -160,7 +163,28 @@ def monitor_task_due_at(task, now=None):
     if timezone.is_naive(last_scan_time):
         last_scan_time = timezone.make_aware(last_scan_time, PORTAL_DATA_TIMEZONE)
     wait_time = int(getattr(task, "wait_time", monitor_default_wait_time(task.name)) or 0)
+    progress = {}
+    if task.name == 'PlayerRaiderIOActivityMonitor':
+        try:
+            progress = json.loads(getattr(task, 'flag', '') or '{}')
+            remaining = (progress.get('remaining_due'), (progress.get('enrichment') or {}).get('remaining_due'))
+            if any(type(value) is int and value > 0 for value in remaining):
+                wait_time = min(wait_time, 60)
+        except (ValueError, TypeError, AttributeError):
+            pass
     due_at = last_scan_time + timedelta(seconds=wait_time)
+    if task.name == 'PlayerRaiderIOActivityMonitor':
+        try:
+            from django.utils.dateparse import parse_datetime
+            retry = parse_datetime(progress.get('rate_limited_until') or '')
+            if retry and timezone.is_aware(retry):
+                from botend.models import CharacterEnrichmentTask
+                from botend.services.character_enrichment import ACTIVE_STATES
+                bnet_due = CharacterEnrichmentTask.objects.filter(season__is_active=True, kind='battlenet',
+                    state__in=ACTIVE_STATES, due_at__lte=claim_time, expires_at__gt=claim_time).exists()
+                due_at = min(due_at, last_scan_time + timedelta(seconds=60)) if bnet_due else max(due_at, retry)
+        except (ValueError, TypeError, AttributeError):
+            pass
     return due_at if due_at <= claim_time else None
 
 
@@ -219,7 +243,32 @@ def _night_lane_head(tasks):
     ), default=None)
 
 
-def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, task_names=None):
+def _night_lane_candidates(rows, due_tasks, automatic_scopes, *, long_limit):
+    """版本准备为屏障；两条链在凌晨并行，白天共用一个长任务位。"""
+    lane_scopes = _night_lane_scopes(rows)
+    running = lane_scopes & automatic_scopes
+    if len(running) >= long_limit:
+        return []
+    barrier = {'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor'}
+    barrier_scopes = {monitor_scope_key(r) for r in rows if r.name in barrier}
+    if running & barrier_scopes:
+        return []
+    pending = [r for r in due_tasks if monitor_scope_key(r) in lane_scopes]
+    if any(r.name in barrier for r in pending):
+        return [] if running else [_night_lane_head(pending)]
+    observation = {monitor_scope_key(r) for r in rows if r.name == 'RioStatisticsMonitor'}
+    heads = []
+    for scopes in (observation, lane_scopes - observation):
+        if not running & scopes:
+            head = _night_lane_head([r for r in pending if monitor_scope_key(r) in scopes])
+            if head:
+                heads.append(head)
+    # 白天唯一任务位的候选也必须在工作者分流前决定，避免专用线程绕过顺序。
+    return [_night_lane_head(heads)] if len(heads) > long_limit - len(running) else heads
+
+
+def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, task_names=None,
+                            allow_long_tasks=True):
     """原子领取当前工作队列中到期最久的任务；普通队列排除独立任务。"""
     claim_time = now or timezone.now()
     owner = str(lease_owner or uuid4().hex)
@@ -238,12 +287,23 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
         lane_scopes = _night_lane_scopes(rows)
         due_tasks = [row for row in canonical.values()
                      if monitor_scope_key(row) not in active_scopes
+                     and (allow_long_tasks or monitor_scope_key(row) not in lane_scopes)
                      and monitor_task_due_at(row, now=claim_time) is not None]
-        lane_head = None if lane_scopes & automatic_scopes else _night_lane_head(
-            [row for row in due_tasks if monitor_scope_key(row) in lane_scopes])
+        is_night = _normalized_now(claim_time).astimezone(PORTAL_DATA_TIMEZONE).hour < 6
+        lane_heads = _night_lane_candidates(rows, due_tasks, automatic_scopes,
+                                           long_limit=2 if is_night else 1)
+        short_running = automatic_scopes - lane_scopes
+        # 凌晨让长任务优先使用资源；06:00 只恢复短任务，不关闭长任务通道。
+        # 长任务全部完成或处于退避且没有运行者时，短任务也可填补空档。
+        night_long_priority = (
+            is_night and allow_long_tasks
+            and bool(lane_heads or automatic_scopes & lane_scopes)
+        )
         # Choose the global lane head BEFORE applying worker-specific routing.
         runnable_tasks = [row for row in due_tasks
-                          if (monitor_scope_key(row) not in lane_scopes or row is lane_head)
+                          if ((monitor_scope_key(row) not in lane_scopes
+                               and len(short_running) < 2 and not night_long_priority)
+                              or row in lane_heads)
                           and (row.name in task_names if task_names is not None
                                else row.name not in ISOLATED_MONITOR_TASKS)]
         tasks = [
@@ -265,8 +325,13 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
                 },
             )
             task.last_scan_time = claim_time
-            task.save(update_fields=('last_scan_time',))
+            fields = ['last_scan_time']
+            if task.name == 'SpecDetailPlayerMonitor':
+                task.flag = json.dumps({'kind': 'player_daily', 'day': claim_time.astimezone(PORTAL_DATA_TIMEZONE).date().isoformat(), 'state': 'claimed'})
+                fields.append('flag')
+            task.save(update_fields=fields)
             task._monitor_task_lease_owner = owner
+            task._monitor_task_is_long = monitor_scope_key(task) in lane_scopes
             from botend.services.wcl_collection_cycle import fence_claimed_cycle
             fence_claimed_cycle(task, claim_time=claim_time)
             return task

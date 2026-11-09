@@ -6,11 +6,12 @@ from __future__ import annotations
 from botend.wow.talents.render import build_talent_render_model
 
 
-def build_talent_view_model(talents, class_name='', spec_name=''):
+def build_talent_view_model(talents, class_name='', spec_name='', metadata_provider=None):
     render_model_dict = build_talent_render_model(
         talents,
         class_name=class_name,
         spec_name=spec_name,
+        metadata_provider=metadata_provider,
     ).to_dict()
     return {
         'build_code': render_model_dict['build_code'],

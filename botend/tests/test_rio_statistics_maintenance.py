@@ -150,7 +150,7 @@ class RioStorageMaintenanceTests(SimpleTestCase):
 
     def test_completed_statistics_with_unfinished_maps_is_partial(self):
         result = rio.Collector(max_requests=4, transport=Mock(return_value=self.response(fixtures.GRID))).run(
-            modules=['heatmaps'], regions=['cn'], levels=['10-plus'], periods=['season'])
+            modules=['heatmaps'], regions=['cn'], levels=['10-12'], periods=['season'])
         self.assertEqual(result['remaining'], 0)
         self.assertEqual(result['maps_remaining'], 1)
         self.assertEqual(result['state'], 'partial')
@@ -181,7 +181,9 @@ class RioStorageMaintenanceTests(SimpleTestCase):
         import requests
         transport = Mock(side_effect=requests.Timeout('来源不可用'))
         result = rio.Collector(max_requests=100, transport=transport).run(modules=['heatmaps'], regions=['cn'], periods=['season'])
-        self.assertEqual(transport.call_count, 6)
+        grid_requests = [call for call in transport.call_args_list if '/heatmaps/grid' in call.args[0]]
+        self.assertEqual(len(grid_requests), 6)
+        self.assertEqual(transport.call_count, 8)  # 三范围预算足够，先尝试底图及一次连接重试。
         self.assertEqual((result['state'], result['failed']), ('backoff', 3))
         self.assertTrue((self.directory / 'cooldown.json').is_file())
 
@@ -200,6 +202,30 @@ class RioStorageMaintenanceTests(SimpleTestCase):
         with patch.object(rio.timezone, 'now', return_value=start + timedelta(minutes=31)):
             result = rio.Collector(transport=Mock(side_effect=response)).run(modules=['overview'], regions=['cn', 'world'])
         self.assertEqual(result['ready'], 2)
+
+    def test_daytime_retry_fetches_only_failed_coordinate(self):
+        import requests
+        start = datetime(2026, 11, 5, 5, 40, tzinfo=ZoneInfo('Asia/Shanghai'))
+        self.meta['updated_at'] = start.isoformat()
+        rio._write(self.directory / 'catalog.json', self.meta)
+        bad = self.response({})
+        bad.status_code = 503
+        bad.raise_for_status.side_effect = requests.HTTPError(response=bad)
+
+        def first_response(url, **kwargs):
+            region = kwargs['params']['region']
+            return bad if region == 'world' else self.response(dict(fixtures.OVERVIEW, region=region))
+
+        with patch.object(rio.timezone, 'now', return_value=start):
+            first = rio.Collector(transport=Mock(side_effect=first_response)).run(modules=['overview'], regions=['cn', 'world'])
+        self.assertEqual((first['ready'], first['failed']), (1, 1))
+        transport = Mock(side_effect=lambda url, **kwargs:
+                         self.response(dict(fixtures.OVERVIEW, region=kwargs['params']['region'])))
+        with patch.object(rio.timezone, 'now', return_value=start + timedelta(minutes=31)):
+            resumed = rio.Collector(transport=transport).run(modules=['overview'], regions=['cn', 'world'])
+        self.assertEqual((resumed['ready'], resumed['failed']), (1, 0))
+        self.assertEqual(transport.call_count, 1)
+        self.assertEqual(transport.call_args.kwargs['params']['region'], 'world')
 
     def test_rate_limit_still_allows_daily_storage_check_and_backup(self):
         rio._publish(self.c, {'value': 1})
@@ -251,23 +277,42 @@ class RioNightResumeIntegrationTests(TestCase):
 
     def test_expired_claim_without_completion_can_resume_same_night(self):
         from botend.plugin_sync import claim_next_monitor_task
-        first = claim_next_monitor_task(now=self.now, lease_owner='old')
+        first = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now, lease_owner='old')
         self.assertEqual(first.pk, self.task.pk)
-        self.assertIsNone(claim_next_monitor_task(now=self.now + timedelta(minutes=20), lease_owner='new'))
-        resumed = claim_next_monitor_task(now=self.now + timedelta(minutes=31), lease_owner='new')
+        self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now + timedelta(minutes=20), lease_owner='new'))
+        resumed = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now + timedelta(minutes=31), lease_owner='new')
         self.assertEqual(resumed.pk, self.task.pk)
 
     def test_partial_waits_for_retry_then_complete_is_not_repeated(self):
         from botend.plugin_sync import claim_next_monitor_task, complete_monitor_task_lease
-        first = claim_next_monitor_task(now=self.now, lease_owner='one')
+        first = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now, lease_owner='one')
         flag = json.dumps({'identity': '2026-11-05@test', 'state': 'partial', 'retry_at': (self.now + timedelta(minutes=32)).isoformat()})
         self.assertTrue(complete_monitor_task_lease(first.pk, 'one', now=self.now + timedelta(minutes=2), task_updates={'flag': flag}))
-        self.assertIsNone(claim_next_monitor_task(now=self.now + timedelta(minutes=31), lease_owner='two'))
-        second = claim_next_monitor_task(now=self.now + timedelta(minutes=33), lease_owner='two')
+        self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now + timedelta(minutes=31), lease_owner='two'))
+        second = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now + timedelta(minutes=33), lease_owner='two')
         flag = json.dumps({'identity': '2026-11-05@test', 'state': 'complete'})
         complete_monitor_task_lease(second.pk, 'two', now=self.now + timedelta(minutes=34), task_updates={'flag': flag})
-        self.assertIsNone(claim_next_monitor_task(now=self.now + timedelta(hours=2), lease_owner='three'))
+        self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now + timedelta(hours=2), lease_owner='three'))
 
-    def test_daytime_still_never_starts_automatic_heavy_work(self):
+    def test_daytime_only_resumes_started_batch(self):
         from botend.plugin_sync import claim_next_monitor_task
-        self.assertIsNone(claim_next_monitor_task(now=self.now.replace(hour=8), lease_owner='day'))
+        self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now.replace(hour=8)))
+        self.task.last_scan_time = self.now
+        self.task.save(update_fields=['last_scan_time'])
+        claimed = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now.replace(hour=8), lease_owner='day')
+        self.assertEqual(claimed.pk, self.task.pk)
+
+    def test_partial_resumes_after_six_with_cooldown_and_completion_guard(self):
+        from botend.plugin_sync import claim_next_monitor_task, complete_monitor_task_lease
+        start = self.now.replace(hour=5, minute=50)
+        retry = start.replace(hour=6, minute=25)
+        first = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=start, lease_owner='night')
+        flag = json.dumps({'identity': '2026-11-05@test', 'state': 'partial', 'retry_at': retry.isoformat()})
+        self.assertTrue(complete_monitor_task_lease(first.pk, 'night', now=start + timedelta(minutes=2), task_updates={'flag': flag}))
+        self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=retry - timedelta(seconds=1)))
+        resumed = claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=retry, lease_owner='day')
+        self.assertEqual(resumed.pk, self.task.pk)
+        flag = json.dumps({'identity': '2026-11-05@test', 'state': 'complete'})
+        self.assertTrue(complete_monitor_task_lease(resumed.pk, 'day', now=retry + timedelta(minutes=2), task_updates={'flag': flag}))
+        with patch('botend.services.rio_statistics_scope.active_scope', return_value={'token': 'test'}):
+            self.assertIsNone(claim_next_monitor_task(task_names={'RioStatisticsMonitor'}, now=self.now.replace(hour=12)))

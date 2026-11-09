@@ -368,5 +368,5 @@ class CharacterBindingTests(TestCase):
         with patch.object(monitor, '_fetch_top_players', return_value=[]), patch.object(
             monitor, '_crawl_battlenet_stats'), patch.object(monitor, '_fetch_profile_with_activity', return_value=None) as fetch, patch.object(
             monitor, '_crawl_battlenet_stats_for_profile'):
-            self.assertTrue(monitor.scan(''))
+            self.assertFalse(monitor.scan(''))
         fetch.assert_called_once()

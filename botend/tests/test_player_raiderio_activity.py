@@ -222,7 +222,7 @@ class PlayerActivityTests(TestCase):
         with patch('requests.get', transport):
             combined = monitor._fetch_profile_with_activity(self.player, self.season)
         self.assertIn('gear', combined)
-        self.assertEqual(transport.call_count, 2)  # one profile plus one bounded run detail
+        self.assertEqual(transport.call_count, 1)  # 附加队伍采集已移至持久化队列。
         profile_call = next(call for call in transport.call_args_list if call.args[0].endswith('/profile'))
         self.assertIn('gear,talents,mythic_plus_best_runs:all', profile_call.kwargs['params']['fields'])
         RaiderIOCharacterActivity.objects.update(next_attempt_at=timezone.now() - timedelta(seconds=1))
@@ -232,14 +232,14 @@ class PlayerActivityTests(TestCase):
         with tempfile.TemporaryDirectory() as root, override_settings(MEDIA_ROOT=root), patch('requests.get', transport):
             monitor.preload_peak_rankings(rio_season=self.season.rio_season,
                 class_name='Priest', spec_name='Holy', rankings=rankings)
-        self.assertEqual(transport.call_count, 2)
+        self.assertEqual(transport.call_count, 1)
         self.assertEqual(sum(call.args[0].endswith('/profile') for call in transport.call_args_list), 1)
         current = PlayerSpecTopPlayer.objects.values().get(pk=self.player.pk)
         for field in ('gear_json', 'talents_json', 'stats_json', 'last_updated'):
             self.assertEqual(current[field], original[field])
         self.assertEqual(RaiderIOCharacterActivity.objects.get().status, 'ready')
 
-    def _scan_profile_response(self, data):
+    def _scan_profile_response(self, data, *, expected=True):
         """Exercise scan -> ranking parser -> enrichment -> ORM, not mocked services."""
         from django.test import override_settings
         from botend.models import MonitorTask
@@ -266,10 +266,10 @@ class PlayerActivityTests(TestCase):
 
         module = 'botend.controller.plugins.portal.SpecDetailPlayerMonitor'
         with override_settings(BATTLENET_CONFIG={}), patch(module + '.CLASS_SPEC_MAP', {'Priest': ['Holy']}), \
-                patch('requests.get', side_effect=transport), patch('time.sleep'):
-            self.assertTrue(monitor.scan(''))
+                patch('requests.get', side_effect=transport), patch('requests.Session.get', side_effect=transport), patch('time.sleep'):
+            self.assertEqual(monitor.scan(''), expected)
         task.refresh_from_db()
-        self.assertIn('@players=1@', task.flag)
+        self.assertIn('@players=1@' if expected else '@players=0@', task.flag)
         self.player.refresh_from_db()
         return profile_requests
 
@@ -318,13 +318,13 @@ class PlayerActivityTests(TestCase):
         self.player.stats_crawl_status = 1
         self.player.save()
         original = PlayerSpecTopPlayer.objects.values().get(pk=self.player.pk)
-        self._scan_profile_response(self._profile_payload('Wrong'))
+        self._scan_profile_response(self._profile_payload('Wrong'), expected=False)
         for field in ('gear_json', 'talents_json', 'talent_build_code', 'item_level',
                       'avatar_url', 'profile_url', 'stats_json', 'last_updated'):
             self.assertEqual(getattr(self.player, field), original[field], field)
         self.assertEqual(RaiderIOCharacterActivity.objects.get().last_error, 'invalid_payload')
 
-    def test_cn_daily_scan_activity_only_also_collects_roster(self):
+    def test_cn_daily_scan_activity_only_queues_roster(self):
         from botend.models import RaiderIORunRoster
         self.player.region = 'cn'
         self.player.profile_url = self.player.profile_url.replace('/eu/', '/cn/')
@@ -333,6 +333,12 @@ class PlayerActivityTests(TestCase):
         data['region'], data['profile_url'] = 'cn', self.player.profile_url
         requests = self._scan_profile_response(data)
         self.assertEqual(requests, [activity_fields(self.season.rio_season)])
+        from botend.models import CharacterEnrichmentTask
+        from botend.services.character_enrichment import consume_enrichment, EnrichmentBudget
+        from botend.tests.test_raiderio_run_roster import details
+        self.assertFalse(RaiderIORunRoster.objects.exists())
+        self.assertTrue(CharacterEnrichmentTask.objects.filter(kind='roster').exists())
+        consume_enrichment(self.season, EnrichmentBudget(self.transport(details())))
         self.assertEqual(RaiderIORunRoster.objects.get().status, 'ready')
         self.assertEqual(len(RaiderIORunRoster.objects.get().payload_json['roster']), 5)
 

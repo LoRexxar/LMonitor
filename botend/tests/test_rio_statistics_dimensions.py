@@ -50,12 +50,11 @@ class RioDimensionTests(SimpleTestCase):
         self.assertNotEqual(self.c(), self.c(timer_max='2'))
         self.assertEqual(self.c(item_min='200.0')['filters']['item_min'], 200)
 
-    def test_custom_levels_validate_both_ends(self):
-        c = self.c(level='custom', min_level='31', max_level='39')
-        self.assertEqual((c['min_level'], c['max_level']), (31, 39))
-        self.assertEqual(self.c(level='custom', min_level='12', max_level='12'), self.c(level='level-12'))
-        for low, high in [('1', '20'), ('15', '14'), ('2', '100'), ('nan', '20')]:
-            with self.assertRaises(ValueError): self.c(level='custom', min_level=low, max_level=high)
+    def test_custom_levels_are_rejected_and_explicit_bounds_must_match(self):
+        with self.assertRaises(ValueError): self.c(level='custom', min_level='10', max_level='12')
+        self.assertEqual(self.c(level='10-12', min_level='10', max_level='12'), self.c(level='10-12'))
+        for low, high in [('1', '20'), ('15', '14'), ('2', '100'), ('nan', '20'), ('10', '99')]:
+            with self.assertRaises(ValueError): self.c(level='10-12', min_level=low, max_level=high)
 
     def test_regions_weeks_and_custom_range_use_real_period_ids(self):
         weeks = week_options(self.meta, 'cn')
@@ -72,11 +71,11 @@ class RioDimensionTests(SimpleTestCase):
     def test_advanced_filter_values_are_forwarded_to_the_public_api(self):
         transport = Mock(return_value=Mock(status_code=200, headers={}, json=Mock(return_value=GRID)))
         c = self.c(include_classes='8', death_specs='63', include_affixes='9', item_min='200', timer_max='1.5',
-                   period='custom', week_start='2', week_end='3', level='custom', min_level='11', max_level='13')
+                   period='custom', week_start='2', week_end='3', level='10-12')
         rio.Collector(transport=transport).fetch(c, self.meta)
         params = transport.call_args.kwargs['params']
         self.assertEqual((params['includeClassIds'], params['includePlayerDeathSpecIds'], params['includeAffixIds']), ('8', '63', '9'))
-        self.assertEqual((params['minMythicLevel'], params['maxMythicLevel'], params['minPeriod'], params['maxPeriod']), (11, 13, 1078, 1079))
+        self.assertEqual((params['minMythicLevel'], params['maxMythicLevel'], params['minPeriod'], params['maxPeriod']), (10, 12, 1078, 1079))
         self.assertEqual((params['minItemLevel'], params['maxTimerFraction']), (200, 1.5))
 
     def test_class_and_spec_labels_are_chinese(self):
@@ -92,7 +91,7 @@ class RioDimensionTests(SimpleTestCase):
         self.assertEqual(pending_queries(self.meta), [c])
         transport = Mock(return_value=Mock(status_code=200, headers={}, json=Mock(return_value=GRID)))
         with patch('botend.services.rio_statistics_maps.collect_maps'):
-            result = rio.Collector(max_requests=1, transport=transport).run(modules=['heatmaps'], regions=['cn'], levels=['10-plus'], periods=['season'])
+            result = rio.Collector(max_requests=1, transport=transport).run(modules=['heatmaps'], regions=['cn'], levels=['10-12'], periods=['season'])
         self.assertEqual(result['ready'], 1)
         self.assertEqual(transport.call_args.kwargs['params']['includeClassIds'], '8')
 
@@ -152,13 +151,13 @@ class RioDimensionTests(SimpleTestCase):
         # 最小、独立的真实形状，不依赖被忽略的调研文件是否随仓库发布。
         return {'type': 'runs-over-time', 'status': 'ready', 'aggregated_at': '2026-11-04T23:13:46Z',
                 'query': {'type': 'runs-over-time', 'season': 'season-mn-2', 'region': 'cn', 'groupBy': 'period',
-                          'minMythicLevel': 2, 'maxMythicLevel': 99, 'seasonWeekStart': 1, 'seasonWeekEnd': 12,
+                          'minMythicLevel': 10, 'maxMythicLevel': 12, 'seasonWeekStart': 1, 'seasonWeekEnd': 12,
                           'version': 4, 'uniqueCharacters': False, 'timedOnly': False},
                 'data': [{'period': 1077, 'quantity': 1540251, 'timedRuns': 1295572, 'nonTimedRuns': 244679}]}
 
     def test_run_counts_and_rate_keep_source_identity_and_denominator(self):
         c, payload, stamp = normalize_runs(self.source(), self.meta)
-        self.assertEqual((c['module'], c['level']), ('runs', 'all'))
+        self.assertEqual((c['module'], c['level']), ('runs', '10-12'))
         self.assertEqual(payload['rows'][0]['quantity'], 1540251)
         self.assertAlmostEqual(payload['rows'][0]['timed_rate'], 1295572 / 1540251 * 100)
         self.assertEqual(payload['rows'][0]['week'], 1)
@@ -183,7 +182,7 @@ class RioDimensionTests(SimpleTestCase):
             self.assertFalse(import_file(path, self.meta))
             result = import_feeds(self.meta)
         self.assertEqual((result['imported'], result['skipped']), (0, 1))
-        c = rio.coordinate('runs', {'level': 'all'}, meta=self.meta)
+        c = rio.coordinate('runs', {'level': '10-12'}, meta=self.meta)
         good = rio.read_entry(c)['data']
         source = self.source(); source['status'] = 'generating'; rio._write(path, source)
         with self.assertRaises(StatisticsPending): import_file(path, self.meta)
@@ -193,4 +192,4 @@ class RioDimensionTests(SimpleTestCase):
         path = self.directory / 'source.json'; rio._write(path, self.source())
         with patch('botend.services.rio_statistics_scope.active_scope', return_value=dict(self.scope, token='b' * 64)):
             with self.assertRaises(ValueError): import_file(path, self.meta)
-        self.assertEqual(rio.read_entry(rio.coordinate('runs', {'level': 'all'}, meta=self.meta))['snapshot']['state'], 'pending')
+        self.assertEqual(rio.read_entry(rio.coordinate('runs', {'level': '10-12'}, meta=self.meta))['snapshot']['state'], 'pending')

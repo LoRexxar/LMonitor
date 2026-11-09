@@ -254,8 +254,10 @@ def refresh_views(*, keys=None, verify=None):
         previous, _ = _publication()
         previous = previous or {}
         same_scope = previous.get('scope') == scope['token']
-        old_entries = previous.get('entries', {}) if same_scope else {}
-        old_files = previous.get('files', {}) if same_scope else {}
+        allowed_keys = {rio.key_for(row['coordinate']) for row in previous.get('available', [])
+                        if rio.supported_coordinate(row['coordinate'])}
+        old_entries = {k: v for k, v in previous.get('entries', {}).items() if k in allowed_keys} if same_scope else {}
+        old_files = {k: v for k, v in previous.get('files', {}).items() if k in old_entries} if same_scope else {}
         context = _context(meta)
         same_context = same_scope and _context(previous.get('meta', {})) == context
         previous_layout = previous.get('layout', previous.get('schema'))
@@ -266,12 +268,13 @@ def refresh_views(*, keys=None, verify=None):
             selected.update(rio.key_for(v['coordinate']) for v in previous.get('available', [])
                             if v['coordinate']['module'] == 'runs')
         rows = rio.store().projection_entries(scope['token'], keys=selected if limited else None)
+        rows = {k: v for k, v in rows.items() if rio.supported_coordinate(v['coordinate'])}
         if not rows and old_entries and not limited:
             raise StorageError('当前范围统计意外为空，保留已有展示发布')
         entries = dict(old_entries) if limited else {}
         files = dict(old_files) if limited else {}
-        available = [v for v in previous.get('available', []) if rio.key_for(v['coordinate']) not in rows] if limited else []
-        retained_keys = set(previous.get('retained_keys', [])) - rows.keys() if limited else set()
+        available = [v for v in previous.get('available', []) if rio.key_for(v['coordinate']) not in rows and rio.supported_coordinate(v['coordinate'])] if limited else []
+        retained_keys = (set(previous.get('retained_keys', [])) & old_entries.keys()) - rows.keys() if limited else set()
         legacy_context = previous.get('legacy_context') if same_scope else None
         if same_scope and previous_layout in (1, 2):
             legacy_context = hashlib.sha256(encoded(previous['meta'])).hexdigest()
@@ -328,7 +331,7 @@ def refresh_views(*, keys=None, verify=None):
                 available.append({'coordinate': c, 'state': 'stale' if kept or entry.get('error') or not entry['has_payload'] else 'ready'})
         if rio.active_scope()['token'] != scope['token']:
             raise ScopeUnavailable('展示发布期间数据库版本发生变化，未切换目录')
-        source_revision = hashlib.sha256(encoded([meta, entries])).hexdigest()
+        source_revision = hashlib.sha256(encoded([meta, entries, list(rio.LEVELS.items())])).hexdigest()
         bad_index = False
         if verify:
             for prefix, reference in previous.get('indexes', {}).items():
@@ -344,6 +347,7 @@ def refresh_views(*, keys=None, verify=None):
             indexes = _publish_indexes(entries, files, previous if same_scope else {}, scope['token'], verify=verify)
             payload = {'schema': 2, 'layout': SCHEMA, 'revision': revision, 'generated_at': rio._now(),
                        'source_revision': source_revision, 'scope': scope['token'], 'meta': meta,
+                       'level_policy': list(rio.LEVELS),
                        'available': available, 'entries': entries, 'files': files, 'indexes': indexes,
                        'retained_keys': sorted(retained_keys), 'legacy_context': legacy_context}
             path = folder / f'catalog-{slot}.json'
@@ -353,7 +357,7 @@ def refresh_views(*, keys=None, verify=None):
                 raise StorageError('候选展示目录校验失败，未切换发布')
             compact, counts = _compact_available(available, display_meta)
             reader = {'schema': SCHEMA, 'revision': revision, 'scope': scope['token'], 'meta': meta,
-                      'available': compact, 'indexes': indexes,
+                      'available': compact, 'indexes': indexes, 'level_policy': list(rio.LEVELS),
                       'availability': {'total': len(available), 'modules': counts, 'complete_list': False}}
             _write_view(folder / f'reader-{slot}.json', reader)
             checked, _ = _file(folder / f'reader-{slot}.json')
@@ -390,6 +394,8 @@ def _boundaries(meta):
 
 def read_public(module, params, *, status_only=False, _retry=False):
     from botend.services import rio_statistics as rio
+    if module in ('heatmaps', 'runs'):
+        rio._add_level({}, params)
     try:
         scope = rio.active_scope()
     except (DatabaseError, ScopeUnavailable) as exc:
@@ -419,7 +425,8 @@ def read_public(module, params, *, status_only=False, _retry=False):
         phase = sum(boundary <= now.timestamp() for boundary in _boundaries(meta))
         return _response(('catalog', stamp, period_key), lambda: {
             **rio.describe_catalog(view_meta, published.get('available', [])),
-            'availability': published.get('availability'), 'revision': f"{published['revision']}:{phase}"})
+            'availability': published.get('availability') if published.get('level_policy') == list(rio.LEVELS) else None,
+            'revision': f"{published['revision']}:{phase}"})
     c = rio.coordinate(module, params, meta=view_meta)
     key = rio.key_for(c)
     path, expected_marker = _entry_location(published, key)
@@ -435,7 +442,7 @@ def read_public(module, params, *, status_only=False, _retry=False):
         raise StorageError('展示快照身份不一致')
     snapshot = envelope.get('snapshot') or {}
     fetched = rio._stamp(snapshot.get('fetched_at'))
-    expired = bool(fetched and now - fetched > timedelta(hours=36) and snapshot.get('state') == 'ready')
+    expired = bool(fetched and now - fetched > rio.freshness_window(c) and snapshot.get('state') == 'ready')
     def result():
         if not expired:
             return envelope

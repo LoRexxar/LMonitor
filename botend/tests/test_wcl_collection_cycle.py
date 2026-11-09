@@ -180,10 +180,10 @@ class WclCollectionCycleTests(TestCase):
                 patch.object(monitor, 'fetch_wcl_combatant_info', side_effect=logs):
             self.assertTrue(monitor.scan(''))
         self.assertEqual(trace, [('rank', 101, None), ('rank', 102, None),
-            ('rank', 201, 5), ('rank', 201, 4), ('logs', 'Shared', [101, 102])])
+            ('rank', 201, 5), ('rank', 201, 4), ('logs', 'Shared', [101, 102, 201])])
         cycle = WclCollectionCycle.objects.get()
         self.assertEqual(cycle.phase, 'ready')
-        self.assertEqual(cycle.counts['missing'], 2)
+        self.assertEqual(cycle.counts['missing'], 4)
 
     def test_combatant_quota_retry_keeps_frozen_ids_and_never_reselects(self):
         row = SpecDungeonRanking.objects.create(season_id=self.season.pk, dungeon_id=101,
@@ -287,7 +287,8 @@ class WclCollectionCycleTests(TestCase):
         from botend.models import WowDataUpdateState
         from botend.services.wcl_collection_cycle import _metadata_projection_due
         cycle = self.cycle(phase='published', collected_at=self.now,
-            last_attempt_at=self.now, published_at=self.now + timedelta(minutes=10))
+            last_attempt_at=self.now, published_at=self.now + timedelta(minutes=10),
+            counts={'statistics_contract': 'wcl-log-v2'})
         WowDataUpdateState.objects.update_or_create(branch='retail', defaults={
             'published_at': self.now + timedelta(minutes=5)})
         self.assertTrue(_metadata_projection_due(cycle))

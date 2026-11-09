@@ -9,7 +9,7 @@
 {% endblock %}
 
 {% block content %}
-{% if stats_refresh_required %}<p role="status">天赋资料已更新，统计正在重新生成，请稍后重试。</p>{% else %}
+{% if stats_refresh_required %}<p role="status">统计口径或基础资料已更新，统计正在重新生成，请稍后重试。</p>{% else %}
 <div class="spec-detail-page">
     {% include "portal/spec_detail/_overview_identity_and_tabs.html" with active_tab="dungeons" %}
 
@@ -29,7 +29,7 @@
         {% endif %}
         <details class="text-muted"><summary>字段来源与统计口径</summary>
             {% for field, source in dungeon_detail.field_sources.items %}<p>{{ source }}</p>{% endfor %}
-            <p>装备、宝石和附魔使用率以实际日志样本为分母；天赋、属性仅使用各自有效样本；缺失种族计入“未知”。目标样本量不作为统计分母。同角色在不同日志中的记录分别参与统计。</p>
+            <p>装备、宝石和附魔使用率以实际日志样本为分母；天赋、属性和种族仅使用各自有效样本；日志未提供的字段不生成统计。目标样本量不作为统计分母。同角色在不同日志中的记录分别参与统计。</p>
             {% for stat in dungeon_detail.secondary_stats %}<p>{{ stat.label }}：{{ stat.sample_size }} 份有效日志属性；区间为第 25 至第 75 百分位，不是最小值到最大值。</p>{% endfor %}
         </details>
 
@@ -101,10 +101,11 @@
         </div>
         {% endif %}
 
+        {% if dungeon_detail.secondary_stats %}
         <div class="section-block secondary-stats-section">
             <h4>日志属性绿字区间</h4>
             <p class="text-muted" style="font-size:12px;">WCL 日志记录值 · 区间为 P25–P75 · 可能包含日志时点增益</p>
-            {% if dungeon_detail.secondary_stats %}
+
             <div class="secondary-stat-grid">
                 {% for stat in dungeon_detail.secondary_stats %}
                 <div class="secondary-stat-row">
@@ -135,14 +136,13 @@
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
+        {% if dungeon_detail.faction_distribution %}
         <div class="section-block">
             <h4>阵营分布</h4>
-            {% if dungeon_detail.faction_distribution %}
+
             <div class="stat-cards stat-strip">
                 {% for fid, info in dungeon_detail.faction_distribution.items %}
                 <div class="stat-card">
@@ -152,14 +152,14 @@
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
+        {% if dungeon_detail.race_distribution %}
         <div class="section-block">
             <h4>种族分布</h4>
-            {% if dungeon_detail.race_distribution %}
+            <p class="text-muted">仅包含日志提供种族的样本。</p>
+
             <div class="stat-cards stat-strip">
                 {% for race in dungeon_detail.race_distribution %}
                 <div class="stat-card">
@@ -169,10 +169,8 @@
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
         <!-- 天赋热门度 -->
         {% if dungeon_detail.talent_popularity_tree.render_model %}
@@ -378,14 +376,17 @@
         {% endif %}
 
         {% if selected_dungeon_id != 'all' %}
+        {% if dungeon_detail.talent_build_popularity %}
         {% include "portal/spec_detail/_talent_build_analysis.html" with popularity=dungeon_detail.talent_build_popularity %}
+        {% endif %}
         {% endif %}
 
         <!-- 装备热门度 -->
+        {% if dungeon_detail.gear_popularity %}
         <div class="section-block popularity-section">
             <h4>装备热门度</h4>
             <div class="popularity-section-note">按部位统计样本玩家最常用装备，百分比代表样本中使用该装备的人数占比。</div>
-            {% if dungeon_detail.gear_popularity %}
+
             <div class="gear-slot-grid">
             {% for slot, items in dungeon_detail.gear_popularity.items %}
             <div class="gear-slot-section">
@@ -423,15 +424,14 @@
             </div>
             {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
+        {% if dungeon_detail.gem_popularity %}
         <div class="section-block popularity-section">
             <h4>宝石热门度</h4>
             <div class="popularity-section-note">按玩家去重统计：同一玩家插多个相同宝石只计 1 人。</div>
-            {% if dungeon_detail.gem_popularity %}
+
             <div class="popularity-card-grid">
             {% for gem in dungeon_detail.gem_popularity %}
             <a class="popularity-mini-card popularity-mini-card--link" href="{% if gem.wowhead_url %}{{ gem.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ gem.id }}{% endif %}" target="_blank">
@@ -460,15 +460,14 @@
             </a>
             {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
+        {% if dungeon_detail.enchant_popularity %}
         <div class="section-block popularity-section">
             <h4>附魔热门度</h4>
             <div class="popularity-section-note">按装备位置分组统计：显示样本中有多少人使用对应位置的附魔。</div>
-            {% if dungeon_detail.enchant_popularity %}
+
             <table class="data-table enchant-popularity-matrix">
                 <thead>
                     <tr><th>位置</th><th>#</th><th>附魔</th><th>热度</th><th>使用率</th><th>人数</th></tr>
@@ -494,10 +493,8 @@
                 {% endfor %}
                 </tbody>
             </table>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
         <div class="section-block">
             <h4>Top 5 DPS</h4>
@@ -548,7 +545,7 @@
                     <span>平均分数: <strong>{{ d.score.avg|floatformat:0 }}</strong></span>
                     {% endif %}
                     {% if d.faction_distribution %}
-                    <span>阵营: 
+                    <span>阵营:
                         {% for fid, info in d.faction_distribution.items %}
                             <strong>{% if fid == "0" %}联盟 {{ info.pct }}%{% elif fid == "1" %}部落 {{ info.pct }}%{% endif %}</strong>{% if not forloop.last %} / {% endif %}
                         {% endfor %}

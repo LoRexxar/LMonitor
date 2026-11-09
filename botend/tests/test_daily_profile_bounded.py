@@ -26,7 +26,7 @@ class DailyProfileBoundedTests(TransactionTestCase):
         self.enterContext(patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.CLASS_SPEC_MAP',
                                 {'Mage': ['Frost']}))
         self.enterContext(patch('botend.controller.plugins.portal.SpecDetailPlayerMonitor.time.sleep'))
-        self.enterContext(patch.object(self.monitor, '_crawl_battlenet_stats'))
+        self.enterContext(patch('botend.services.character_enrichment.enqueue_battlenet_profiles'))
         self.enterContext(patch('botend.services.character_bindings.refresh_bound_characters', return_value=0))
 
     def player(self, name, **extra):
@@ -63,7 +63,7 @@ class DailyProfileBoundedTests(TransactionTestCase):
     def daily(self, players):
         with patch.object(self.monitor, '_fetch_top_players', return_value=players), \
                 patch.object(self.monitor, '_backfill_ranking_sample_profiles'):
-            self.assertTrue(self.monitor.scan(''))
+            self.assertEqual(self.monitor.scan(''), not any(p.get('_profile_refresh_failed') for p in players))
 
     def incoming(self, name, **extra):
         fields = {'region': 'eu', 'realm': 'Hyjal', 'name': name,
@@ -136,37 +136,21 @@ class DailyProfileBoundedTests(TransactionTestCase):
         fields.update(extra)
         return model.objects.create(**fields)
 
-    def test_samples_keep_per_scope_limit_and_only_hydrate_union_of_selected_identities(self):
-        self.history()
-        targets = []
-        for model, scope in ((SpecDungeonRanking, 1), (SpecDungeonRanking, 2), (SpecRaidRanking, 3)):
-            for i in range(100):
-                name = f'Sample{scope}x{i}'
-                targets.append(self.player(name, class_name='DeathKnight' if i == 0 else 'Mage'))
-                self.ranking(model, name, scope, 1000 - i)
-            self.ranking(model, 'Excluded', scope, 0)
-        excluded = self.player('Excluded')
-        # Same character in another boss: keep the pre-existing sample identity de-duplication.
-        self.ranking(SpecRaidRanking, targets[0].character_name, 4, 2000)
+    def test_statistical_samples_never_read_or_update_personal_profiles(self):
+        player = self.player('Sample')
+        for model in (SpecDungeonRanking, SpecRaidRanking):
+            self.ranking(model, 'Sample', 1, 1000)
+            self.ranking(model, 'NotInTop20', 1, 900)
         with self.capture_profiles() as (loaded, queries), \
                 patch.object(self.monitor, '_enrich_profile_model_from_raiderio',
-                             side_effect=AssertionError('complete profiles must not refetch')):
-            updated = self.monitor._backfill_ranking_sample_profiles(self.season.pk, 'Mage', 'Frost')
-        self.assertEqual(updated, 300)
-        self.assertEqual(set(loaded), {p.pk for p in targets})
-        self.assertEqual(len(loaded), len(targets))
-        self.assert_bounded_sql(queries, 'samples-300', loaded, 6)
-        self.assertEqual(PlayerSpecTopPlayer.objects.filter(guild_name='Sample guild').count(), 300)
-        excluded.refresh_from_db()
-        self.assertIsNone(excluded.guild_name)
-        for p in targets:
-            p.refresh_from_db()
-            self.assertEqual((p.rank, p.score, p.stats_json), (4, 4000, {'retained': 123}))
-            self.assertEqual(p.class_name, 'DeathKnight' if p.character_name.endswith('x0') else 'Mage')
-        with CaptureQueriesContext(connection) as repeated:
+                             side_effect=AssertionError('统计样本不得补采个人资料')):
             self.assertEqual(self.monitor._backfill_ranking_sample_profiles(
                 self.season.pk, 'Mage', 'Frost'), 0)
-        self.assertFalse(any(q['sql'].startswith(('UPDATE', 'INSERT', 'DELETE')) for q in repeated))
+        self.assertEqual(loaded, [])
+        self.assertEqual(len(queries), 0)
+        player.refresh_from_db()
+        self.assertIsNone(player.guild_name)
+        self.assertFalse(PlayerSpecTopPlayer.objects.filter(character_name='NotInTop20').exists())
 
     def test_mysql_aliases_use_database_collation_and_reuse_one_loaded_object(self):
         if connection.vendor != 'mysql':
@@ -189,9 +173,9 @@ class DailyProfileBoundedTests(TransactionTestCase):
                 patch.object(self.monitor, '_enrich_profile_model_from_raiderio',
                              side_effect=AssertionError('collation alias must reuse existing data')):
             self.assertEqual(self.monitor._backfill_ranking_sample_profiles(
-                self.season.pk, 'Mage', 'Frost'), 1)
-        self.assertEqual(loaded, [player.pk])
-        self.assert_bounded_sql(queries, 'collation-sample', loaded, 2)
+                self.season.pk, 'Mage', 'Frost'), 0)
+        self.assertEqual(loaded, [])
+        self.assertEqual(len(queries), 0)
         self.assertEqual(PlayerSpecTopPlayer.objects.filter(character_name='Strasse').count(), 1)
 
     def test_mysql_concurrent_insert_conflict_is_exact_and_preserves_rank_score(self):

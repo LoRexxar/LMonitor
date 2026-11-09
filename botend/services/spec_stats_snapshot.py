@@ -108,7 +108,7 @@ def _summary(detail):
     """保留概览卡片全部指标，剥离天赋、装备与人物明细。"""
     fields = ('dungeon_id', 'dungeon_name', 'boss_id', 'boss_name', 'name', 'short_name',
               'sample_size', 'dps', 'keystone', 'clear_time', 'kill_time',
-              'faction_distribution', 'updated_at', 'last_updated')
+              'faction_distribution', 'updated_at', 'last_updated', 'data_contract')
     return {key: detail[key] for key in fields if key in detail}
 
 
@@ -185,7 +185,8 @@ def _publish_projection_locked(path, payload, write_json):
         detail_hashes[key] = content_digest(detail)
         detail_bodies[key] = detail
 
-    index = {'generated_at': payload.get('generated_at'),
+    index = {'_data_contract': payload.get('_data_contract'),
+             'generated_at': payload.get('generated_at'),
              'updated_at': payload.get('updated_at') or SpecOverviewService._latest_timestamp(
                  payload.get('dungeons') if module == 'dungeon' else payload.get('zone_groups'))
                  or payload.get('generated_at')}
@@ -368,4 +369,13 @@ def read_projection(path, detail_key=None):
                                   for boss in zone['bosses']]
                 zone['bosses'] = [boss for boss in zone['bosses'] if boss is not None]
         payload['zone_groups'] = next((row['zone_groups'] for row in payload['difficulties'] if row['difficulty'] == 5), [])
+    return payload
+
+
+def read_log_projection(path, detail_key=None):
+    """公开统计只接受当前纯日志版本；旧混合数据等待后台重建。"""
+    payload = read_projection(path, detail_key)
+    if isinstance(payload, dict) and Path(path).stem in ('dungeon', 'raid'):
+        if payload.get('_data_contract') != 'wcl-log-v2':
+            return {'_stats_refresh_required': True}
     return payload

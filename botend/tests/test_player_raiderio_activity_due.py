@@ -328,10 +328,12 @@ class DueTop20ActivityTests(TestCase):
         task = MonitorTask.objects.create(name='PlayerRaiderIOActivityMonitor', type=0, target='')
         with patch('requests.get', self.raid_http()), patch('django.utils.timezone.now', return_value=self.now):
             self.assertTrue(PlayerRaiderIOActivityMonitor(None, task).scan(''))
+            self.assertTrue(PlayerRaiderIOActivityMonitor(None, task).scan(''))
         row.refresh_from_db()
         self.assertTrue(row.payload_json['raid_first_kills']['visible'])
         later = self.now + timedelta(days=2)
         with patch('requests.get', self.raid_http(private=True)), patch('django.utils.timezone.now', return_value=later):
+            self.assertTrue(PlayerRaiderIOActivityMonitor(None, task).scan(''))
             self.assertTrue(PlayerRaiderIOActivityMonitor(None, task).scan(''))
         row.refresh_from_db()
         self.assertEqual(row.payload_json['raid_first_kills']['status'], 'private')
@@ -340,15 +342,19 @@ class DueTop20ActivityTests(TestCase):
         self.assertEqual(json.loads(task.flag)['raid_error'], 0)
         # Later failure retains the privacy tombstone, never revives last-good.
         with patch('requests.get', self.raid_http(status=403)), patch('django.utils.timezone.now', return_value=later + timedelta(days=2)):
+            self.assertTrue(PlayerRaiderIOActivityMonitor(None, task).scan(''))
             self.assertFalse(PlayerRaiderIOActivityMonitor(None, task).scan(''))
         row.refresh_from_db()
         self.assertFalse(row.payload_json['raid_first_kills']['visible'])
 
     def test_roster_and_raid_rate_limits_gate_new_instances_using_causal_clock(self):
         from botend.controller.plugins.portal.PlayerRaiderIOActivityMonitor import PlayerRaiderIOActivityMonitor
+        from botend.models import CharacterEnrichmentTask, RaiderIOSourceBackoff
         from botend.tests.test_player_raiderio_activity import payload
         for source, seconds in [('roster', 900), ('raid', 2700)]:
             with self.subTest(source=source):
+                CharacterEnrichmentTask.objects.all().delete()
+                RaiderIOSourceBackoff.objects.all().delete()
                 RaiderIOCharacterActivity.objects.all().delete()
                 PlayerSpecTopPlayer.objects.all().delete()
                 self.http = FixtureHTTP()
@@ -359,13 +365,15 @@ class DueTop20ActivityTests(TestCase):
                 transport = self.raid_http(status=429) if source == 'raid' else self.http
                 task = MonitorTask.objects.create(name=f'limited-{source}', type=0, target='')
                 with patch('requests.get', transport), patch('django.utils.timezone.now', return_value=self.now):
+                    self.assertTrue(PlayerRaiderIOActivityMonitor(None, task).scan(''))
                     self.assertFalse(PlayerRaiderIOActivityMonitor(None, task).scan(''))
                 self.assertEqual(len(self.http.calls), 2)
                 task.refresh_from_db()
                 summary = json.loads(task.flag)
                 self.assertEqual(timezone.datetime.fromisoformat(summary['rate_limited_until']), self.now + timedelta(seconds=seconds))
                 self.assertEqual(summary['rate_limit_clock_error'], '')
-                self.assertEqual(summary['ready'], 1)  # Profile publication is not the causal retry clock.
+                row.refresh_from_db()
+                self.assertEqual(row.status, 'ready')  # 活动成功状态独立于后续队伍/团本失败。
                 self.player('Other', spec='Shadow')
                 with patch('requests.get', transport), patch('django.utils.timezone.now', return_value=self.now + timedelta(seconds=600)):
                     self.assertTrue(PlayerRaiderIOActivityMonitor(None, MonitorTask.objects.get(pk=task.pk)).scan(''))
@@ -374,9 +382,12 @@ class DueTop20ActivityTests(TestCase):
                 deferred = json.loads(task.flag)
                 self.assertEqual((deferred['attempted'], deferred['ready'], deferred['remaining_due']), (0, 0, 1))
                 self.http.best_runs = []
-                with patch('requests.get', self.http), patch('django.utils.timezone.now', return_value=self.now + timedelta(seconds=seconds + 1)):
+                from botend.tests.test_raiderio_run_roster import details
+                self.http.roster_status, self.http.roster_data = 200, details()
+                resumed_http = self.raid_http() if source == 'raid' else self.http
+                with patch('requests.get', resumed_http), patch('django.utils.timezone.now', return_value=self.now + timedelta(seconds=seconds + 1)):
                     self.assertTrue(PlayerRaiderIOActivityMonitor(None, MonitorTask.objects.get(pk=task.pk)).scan(''))
-                self.assertEqual(len(self.http.calls), 3)
+                self.assertEqual(len(self.http.calls), 6 if source == 'raid' else 4)
 
     def test_changed_causal_clock_fails_closed_across_new_monitor_instances(self):
         from botend.controller.plugins.portal.PlayerRaiderIOActivityMonitor import PlayerRaiderIOActivityMonitor
@@ -469,7 +480,10 @@ class DueActivityMonitorTests(TestCase):
             roster_error=0, raid_error=0)
         with patch(service, return_value=partial) as refresh:
             self.assertFalse(monitor.scan(''))
-            refresh.assert_called_once_with(season, limit=100)
+            self.assertEqual(refresh.call_args.args, (season,))
+            self.assertEqual(refresh.call_args.kwargs['limit'], 20)
+            self.assertTrue(refresh.call_args.kwargs['collector'].defer_enrichment)
+            self.assertTrue(callable(refresh.call_args.kwargs['should_continue']))
         task.refresh_from_db()
         summary = json.loads(task.flag)
         self.assertEqual((summary['attempted'], summary['ready'], summary['partial']), (1, 0, 1))

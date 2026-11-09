@@ -8,6 +8,7 @@ import hashlib
 import json
 import logging
 import math
+import time
 from pathlib import Path
 from functools import lru_cache
 import re
@@ -29,12 +30,9 @@ from botend.services.rio_statistics_storage import SnapshotStore, StorageError
 
 logger = logging.getLogger(__name__)
 REGIONS = {'cn': '国服', 'world': '全球', 'us': '美服', 'eu': '欧服', 'kr': '韩服', 'tw': '台服'}
-LEVELS = {'all': (2, 99, '全部层数'), '10-plus': (10, 99, '10 层及以上'),
-          '20-plus': (20, 99, '20 层及以上'),
-          '2-5': (2, 5, '2–5 层'), '6-9': (6, 9, '6–9 层'),
-          '10-14': (10, 14, '10–14 层'), '15-19': (15, 19, '15–19 层'),
-          '20-24': (20, 24, '20–24 层'), '25-plus': (25, 99, '25 层及以上'),
-          **{f'level-{level}': (level, level, f'{level} 层') for level in range(2, 31)}}
+LEVELS = {'10-12': (10, 12, '10–12 层'),
+          '16-plus': (16, 99, '16 层及以上'),
+          '20-plus': (20, 99, '20 层及以上')}
 DEFAULT_LEVELS = tuple(LEVELS)
 DAILY_REQUEST_BUDGET = 6000
 MAX_REQUEST_BUDGET = 8000
@@ -49,6 +47,11 @@ LOCAL_TZ = ZoneInfo('Asia/Shanghai')
 def _next_daily():
     return (timezone.now().astimezone(LOCAL_TZ).replace(hour=0, minute=0, second=0, microsecond=0)
             + timedelta(days=1)).isoformat()
+
+
+def freshness_window(c):
+    """完整周保留迟到数据复核，其余活动统计仍每日更新。"""
+    return timedelta(hours=84) if c.get('module') == 'heatmaps' and c.get('period') == 'last-reset' else timedelta(hours=36)
 
 
 def root():
@@ -108,7 +111,7 @@ def read_entry(coordinate, *, meta=None):
     if not isinstance(data, dict) or data.get('coordinate') != coordinate or data.get('schema') != SCHEMA:
         data = {}
     stamp = _stamp(data.get('fetched_at'))
-    stale = bool(data) and (bool(entry.get('error')) or not stamp or timezone.now() - stamp > timedelta(hours=36))
+    stale = bool(data) and (bool(entry.get('error')) or not stamp or timezone.now() - stamp > freshness_window(coordinate))
     if data and coordinate['module'] == 'heatmaps':
         meta = meta or current_catalog()
         maps = meta.get('maps', {}).get(coordinate['dungeon'], {})
@@ -139,8 +142,17 @@ def read_entry(coordinate, *, meta=None):
 
 
 def _publish(coordinate, payload, *, upstream_at=None, newer_only=False):
+    next_at = _next_daily()
+    if coordinate.get('module') == 'heatmaps' and coordinate.get('period') == 'last-reset':
+        try:
+            previous, entry = store().read(coordinate)
+        except StorageError:
+            previous, entry = {}, {}
+        # 完整周连续两次结果一致才降低复核频率；变化和错误均恢复日更。
+        if previous and previous.get('data') == payload and not entry.get('error'):
+            next_at = (timezone.now() + timedelta(days=3)).isoformat()
     return store().publish(coordinate, payload, fetched_at=_now(), upstream_at=upstream_at,
-                           next_at=_next_daily(), newer_only=newer_only)
+                           next_at=next_at, newer_only=newer_only)
 
 
 def _failure(coordinate, message):
@@ -237,14 +249,13 @@ def describe_catalog(data, available):
     """组装展示目录，调用方可以使用后台已发布的可用范围。"""
     return {k: data.get(k) for k in ('seasons', 'raids', 'current_season', 'updated_at', 'scope', 'scope_state', 'scope_message')} | {
         'regions': [{'value': k, 'label': v} for k, v in REGIONS.items()],
-        'levels': [{'value': k, 'label': v[2], 'min': v[0], 'max': v[1],
-                    'group': '单层' if k.startswith('level-') else '层数区间' if k in ('2-5', '6-9', '10-14', '15-19', '20-24', '25-plus') else '汇总范围'}
-                   for k, v in LEVELS.items()] + [{'value': 'custom', 'label': '自选层数区间', 'group': '自选范围'}],
+        'levels': [{'value': k, 'label': v[2], 'min': v[0], 'max': v[1], 'group': '层数范围'}
+                   for k, v in LEVELS.items()],
         'periods': [{'value': k, 'label': v} for k, v in PERIODS.items()],
         'layers': [{'value': k, 'label': v} for k, v in LAYERS.items()],
         **identities(), 'affixes': data.get('affixes', []),
         'weeks': {region: week_options(data, region) for region in REGIONS},
-        'available': available,
+        'available': [row for row in available if supported_coordinate(row.get('coordinate', {}))],
     }
 
 
@@ -266,19 +277,21 @@ def current_catalog():
     return {**project_periods(data), 'scope': public_scope(scope), 'scope_state': 'ready', 'scope_message': ''}
 
 
-def _add_level(result, params, default):
+def supported_coordinate(c):
+    """停用范围保留历史文件，但不再采集、发布或列入可用目录。"""
+    return c.get('module') not in ('heatmaps', 'runs') or c.get('level') in LEVELS
+
+
+def _add_level(result, params, default='10-12'):
     level = params.get('level', default)
-    if level not in (*LEVELS, 'custom'):
-        raise ValueError('层数区间无效')
-    result['level'] = level
-    if level == 'custom':
+    if level not in LEVELS:
+        raise ValueError('仅支持10–12层、16层及以上、20层及以上')
+    if 'min_level' in params or 'max_level' in params:
         low = integer(params.get('min_level', ''), 2, 99)
         high = integer(params.get('max_level', ''), low, 99)
-        equivalent = next((k for k, v in LEVELS.items() if v[:2] == (low, high)), None)
-        if equivalent:
-            result['level'] = equivalent
-        else:
-            result.update(min_level=low, max_level=high)
+        if (low, high) != LEVELS[level][:2]:
+            raise ValueError('层数上下限与所选范围不一致')
+    result['level'] = level
 
 
 def coordinate(module, params, *, meta=None):
@@ -296,7 +309,7 @@ def coordinate(module, params, *, meta=None):
     if module == 'runs':
         if set(params) - {'season', 'region', 'level', 'min_level', 'max_level'}:
             raise ValueError('完成记录只支持地区和层数筛选，周区间按已收录记录展示')
-        _add_level(result, params, 'all')
+        _add_level(result, params)
     if module == 'raids':
         raid = params.get('raid', '')
         difficulty = params.get('difficulty', 'mythic')
@@ -310,13 +323,13 @@ def coordinate(module, params, *, meta=None):
             raise ValueError('存在不支持的筛选字段')
         season_row = next(r for r in data['seasons'] if r['slug'] == season)
         dungeon = params.get('dungeon', '')
-        layer, level, period = params.get('layer', 'player_death'), params.get('level', '10-plus'), params.get('period', 'season')
+        layer, level, period = params.get('layer', 'player_death'), params.get('level', '10-12'), params.get('period', 'season')
         zero = params.get('zero', '0')
-        if (dungeon not in {r['slug'] for r in season_row['dungeons']} or layer not in LAYERS or level not in (*LEVELS, 'custom')
+        if (dungeon not in {r['slug'] for r in season_row['dungeons']} or layer not in LAYERS or level not in LEVELS
                 or period not in PERIODS or str(zero) not in ('0', '1') or (str(zero) == '1' and layer == 'player_death')):
             raise ValueError('热力图筛选范围无效')
         result.update(dungeon=dungeon, layer=layer, level=level, period=period, zero=str(zero))
-        _add_level(result, params, '10-plus')
+        _add_level(result, params)
         add_period(result, params, data)
         if period == 'custom':
             result.update(week_start=str(int(params['week_start'])), week_end=str(int(params['week_end'])))
@@ -340,6 +353,7 @@ class Collector:
         self.stopped = False
         self.scope = None
         self._view_keys = set()
+        self.request_seconds = 0.0
 
     def publish_views(self):
         from botend.services.rio_statistics_views import refresh_views
@@ -354,6 +368,13 @@ class Collector:
             self._progress(stage=stage)
 
     def request(self, url, params=None):
+        started = time.monotonic()
+        try:
+            return self._request(url, params)
+        finally:
+            self.request_seconds += time.monotonic() - started
+
+    def _request(self, url, params=None):
         if self.stopped or self.requests >= self.max_requests:
             raise RuntimeError('本轮采集预算已用完')
         self.requests += 1
@@ -471,7 +492,7 @@ class Collector:
             return normalize_raid(data), None
         season = next(r for r in meta['seasons'] if r['slug'] == c['season'])
         dungeon = next(d for d in season['dungeons'] if d['slug'] == c['dungeon'])
-        minimum, maximum = ((c['min_level'], c['max_level']) if c['level'] == 'custom' else LEVELS[c['level']][:2])
+        minimum, maximum = LEVELS[c['level']][:2]
         params = {'season': c['season'], 'challengeModeId': dungeon['challenge_mode_id'],
                   'type': c['layer'], 'minMythicLevel': minimum, 'maxMythicLevel': maximum,
                   'dataType': 'enemy_position' if c['layer'] == 'npc_death' else 'player_position',
@@ -489,6 +510,11 @@ class Collector:
 
     def _progress(self, **fields):
         if fields.get('stage') and fields['stage'] != self._report.get('stage'):
+            clock = time.monotonic()
+            previous = self._report.get('stage', 'metadata')
+            timings = self._report.setdefault('stage_seconds', {})
+            timings[previous] = timings.get(previous, 0) + clock - getattr(self, '_stage_clock', clock)
+            self._stage_clock = clock
             self._report['stage_started_at'] = _now()
         self._report.update(fields)
         self._report.update(requests=self.requests, progress_at=_now())
@@ -517,6 +543,7 @@ class Collector:
                                           and set(regions) == {'cn', 'world'} and set(levels) == set(DEFAULT_LEVELS)
                                           and set(periods) == {'season', 'last-reset'})}
             self.cycle_id = cache.cycle(self._report)
+            self._stage_clock = time.monotonic()
             try:
                 cooldown = _stamp(_load(root() / 'cooldown.json', {}).get('until'))
                 if cooldown and cooldown > timezone.now():
@@ -532,27 +559,34 @@ class Collector:
                     result.update(state='partial', views_error=type(exc).__name__)
                     logger.exception('统计展示文件未能发布，保留现有展示')
                 if maintain:
-                    self._progress(stage='storage-audit')
-                    report = cache.audit(deep=True)
+                    try:
+                        self._progress(stage='backup')
+                        backup = cache.backup(include_audit=True)
+                        report = backup['audit']
+                        result['backup_reused'] = backup.get('reused', False)
+                    except StorageError:
+                        self._progress(stage='storage-audit')
+                        report = cache.audit(deep=True, reuse_verified=True)
+                        result.update(state='partial', maintenance_error='备份未完成，原备份保留')
                     entries = cache.index()['entries']
                     invalid_active = [key for key in report['invalid_payloads']
                         if entries[key]['coordinate'].get('scope') == (self.scope or {}).get('token')]
                     result['storage_state'] = 'ok' if report['state'] == 'ok' else 'warning'
+                    result['storage_verified_payloads'] = report.get('verified_payloads', 0)
+                    result['storage_reused_payloads'] = report.get('reused_payloads', 0)
                     if invalid_active:
                         result.update(state='partial', maintenance_error='当前版本仍有未修复缓存')
-                    try:
-                        self._progress(stage='backup')
-                        cache.backup()
-                    except StorageError:
-                        result.update(state='partial', maintenance_error='备份未完成，原备份保留')
                 result['cycle_id'] = self.cycle_id
+                self._progress(stage='finished')
+                result['stage_seconds'] = self._report.get('stage_seconds', {})
+                result['request_seconds'] = round(self.request_seconds, 3)
                 cache.cycle(dict(self._report, **result, scope=(self.scope or {}).get('token'), progress_at=_now()), cycle_id=self.cycle_id, final=True)
                 return result
             except BaseException as exc:
                 if maintain and isinstance(exc, Exception):
                     # 元数据或上游连接失败也要完成本地检查，不能因此漏掉当天备份。
                     try:
-                        local_report = cache.audit(deep=True)
+                        local_report = cache.audit(deep=True, reuse_verified=True)
                         self._report['storage_state'] = local_report['state']
                         cache.backup()
                     except (StorageError, OSError) as maintenance_exc:
@@ -570,10 +604,10 @@ class Collector:
         self._progress(scope=self.scope['token'], stage='planning')
         if self.maintain:
             self._progress(stage='storage-audit')
-            report = store().audit(deep=True)
+            report = store().audit(deep=True, reuse_verified=True)
             recovered = store().repair_from_backups(report)
             if recovered:
-                report = store().audit(deep=True)
+                report = store().audit(deep=True, reuse_verified=True)
                 self._progress(recovered_records=recovered)
             entries = _index()['entries']
             for key in report['invalid_payloads']:
@@ -630,7 +664,7 @@ class Collector:
         # 总览优先；其余同一模块先处理未尝试组合，避免单一坏组合饿死其他范围。
         tasks.sort(key=lambda c: (c['module'] != 'overview', key_for(c) not in subscribed_keys,
                                   MODULES.index(c['module']), bool(manifest.get(key_for(c), {}).get('attempted_at')),
-                                  c.get('level') != '10-plus', c.get('period') != 'season', c['region'] != 'cn',
+                                  c.get('level') != '10-12', c.get('period') != 'season', c['region'] != 'cn',
                                   manifest.get(key_for(c), {}).get('attempted_at', '')))
         ready = failed = 0
         consecutive_errors = 0

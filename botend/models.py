@@ -2741,6 +2741,46 @@ class SpecAggregationWorkCache(models.Model):
             fields=['season', 'scope'], name='spec_work_season_scope')]
 
 
+class CharacterEnrichmentTask(models.Model):
+    """按来源事实去重的持久化补采；与人物资料发布独立。"""
+    season = models.ForeignKey(SeasonMeta, on_delete=models.CASCADE)
+    kind = models.CharField(max_length=16)
+    key = models.CharField(max_length=64)
+    payload = models.JSONField(default=dict)
+    revision = models.CharField(max_length=64)
+    state = models.CharField(max_length=16, default='pending')
+    due_at = models.DateTimeField()
+    expires_at = models.DateTimeField()
+    lease_owner = models.CharField(max_length=32, default='', blank=True)
+    lease_expires_at = models.DateTimeField(null=True, blank=True)
+    failure_count = models.PositiveIntegerField(default=0)
+    last_error = models.CharField(max_length=80, default='', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['season', 'kind', 'key'], name='uniq_character_enrichment')]
+        indexes = [models.Index(fields=['season', 'state', 'due_at'], name='idx_enrichment_due'),
+                   models.Index(fields=['season', 'state', 'expires_at'], name='idx_enrichment_expiry')]
+
+
+class RaiderIOSourceBackoff(models.Model):
+    """人物资料和附加采集共用的来源冷却；不保存凭据或源响应。"""
+    key = models.CharField(max_length=32, primary_key=True)
+    until = models.DateTimeField()
+
+
+class PlayerDailyCheckpoint(models.Model):
+    """人物日更按任务保存可恢复进度；任务租约同时保护检查点写入。"""
+    task = models.OneToOneField(MonitorTask, on_delete=models.CASCADE)
+    day = models.DateField()
+    scope = models.CharField(max_length=64)
+    generation = models.CharField(max_length=32)
+    stages = models.JSONField(default=dict)
+    complete = models.BooleanField(default=False)
+    updated_at = models.DateTimeField(auto_now=True)
+
+
 class RaiderIOProfileCache(models.Model):
     """跨专精复用角色详情；成功采集时间独立于内容变更时间。"""
     season = models.ForeignKey('SeasonMeta', on_delete=models.CASCADE)
@@ -2752,6 +2792,8 @@ class RaiderIOProfileCache(models.Model):
     failure_count = models.PositiveIntegerField(default=0)
     lease_owner = models.CharField(max_length=32, blank=True, default='')
     lease_expires_at = models.DateTimeField(null=True, blank=True)
+    unchanged_count = models.PositiveIntegerField(default=0, db_default=0)
+    scope_token = models.CharField(max_length=64, default='', db_default='')
 
     class Meta:
         db_table = 'wow_raiderio_profile_cache'

@@ -165,31 +165,32 @@ class RioStatisticsTests(SimpleTestCase):
         self.assertIn('2825', params['includePlayerSpellIds'])
         self.assertEqual(payload['num_runs'], 10)
 
-    def test_level_ranges_and_exact_levels_are_isolated_and_sent_inclusively(self):
+    def test_only_three_level_ranges_are_isolated_and_sent_inclusively(self):
         transport = Mock(return_value=self.response(GRID))
         collector = rio.Collector(transport=transport)
-        for level, expected in [('level-2', (2, 2)), ('level-12', (12, 12)),
-                                ('level-30', (30, 30)), ('10-14', (10, 14)), ('25-plus', (25, 99))]:
+        keys = set()
+        for level, expected in [('10-12', (10, 12)), ('16-plus', (16, 99)), ('20-plus', (20, 99))]:
             with self.subTest(level=level):
                 coordinate = self.heat_coordinate(level=level)
+                keys.add(rio.key_for(coordinate))
                 collector.fetch(coordinate, self.meta)
                 params = transport.call_args.kwargs['params']
                 self.assertEqual((params['minMythicLevel'], params['maxMythicLevel']), expected)
-                self.assertNotEqual(rio.key_for(coordinate), rio.key_for(self.heat_coordinate(level='10-plus')))
-        rio._publish(self.heat_coordinate(level='10-plus'), {'num_runs': 10})
-        self.assertEqual(rio.read_entry(self.heat_coordinate(level='level-12'))['snapshot']['state'], 'pending')
-        for invalid in ['level-1', 'level-31', '14-10', '10,12']:
+        self.assertEqual(len(keys), 3)
+        rio._publish(self.heat_coordinate(level='10-12'), {'num_runs': 10})
+        self.assertEqual(rio.read_entry(self.heat_coordinate(level='16-plus'))['snapshot']['state'], 'pending')
+        for invalid in ['all', '10-plus', 'level-12', 'level-30', '10-14', '25-plus', 'custom']:
             with self.assertRaises(ValueError): self.heat_coordinate(level=invalid)
 
-    def test_nightly_default_includes_ranges_and_single_levels(self):
+    def test_nightly_default_contains_exactly_three_ranges(self):
         transport = Mock(return_value=self.response(GRID))
         with patch.object(rio, '_publish'), patch('botend.services.rio_statistics_maps.collect_maps'):
             result = rio.Collector(transport=transport).run(modules=['heatmaps'], regions=['cn'], periods=['season'])
         pairs = {(call.kwargs['params']['minMythicLevel'], call.kwargs['params']['maxMythicLevel'])
                  for call in transport.call_args_list}
-        self.assertTrue({(2, 2), (12, 12), (30, 30), (10, 14), (25, 99)} <= pairs)
+        self.assertEqual(pairs, {(10, 12), (16, 99), (20, 99)})
         self.assertEqual(result['remaining'], 0)
-        self.assertEqual(result['ready'], len(rio.DEFAULT_LEVELS) * 4)
+        self.assertEqual(result['ready'], 12)
 
     def test_database_version_change_hides_old_snapshot_immediately(self):
         c = self.overview_coordinate()

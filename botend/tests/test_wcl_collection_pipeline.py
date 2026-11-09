@@ -82,8 +82,8 @@ class DungeonCollectionPipelineTests(TestCase):
         rankings_trace = [('ranking', 1, None), ('ranking', 2, None),
                           ('ranking', 3, 5), ('ranking', 3, 4)]
         self.assertEqual(trace, rankings_trace + [
-                                 ('combatants', 'SharedReport', [1, 2])])
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 2)
+                                 ('combatants', 'SharedReport', [1, 2, 3])])
+        self.assertEqual(WclCombatantSnapshot.objects.count(), 3)
         cycle = WclCollectionCycle.objects.get()
         self.assertEqual(cycle.phase, 'ready')
         frozen_ids = cycle.selected_samples
@@ -105,9 +105,9 @@ class DungeonCollectionPipelineTests(TestCase):
         next_cycle = WclCollectionCycle.objects.exclude(pk=cycle.pk).get()
         self.assertEqual(next_cycle.phase, 'ready')
         self.assertEqual(next_cycle.selected_samples, frozen_ids)
-        self.assertEqual(next_cycle.counts['cached'], 2)
+        self.assertEqual(next_cycle.counts['cached'], 4)
         self.assertEqual(next_cycle.counts['reports_requested'], 0)
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 2)
+        self.assertEqual(WclCombatantSnapshot.objects.count(), 3)
 
     def test_bad_rankings_preserve_old_scope_and_never_enter_collection_union(self):
         invalid_pages = [

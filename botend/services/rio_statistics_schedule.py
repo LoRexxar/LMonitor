@@ -12,18 +12,17 @@ def flag_data(value):
 
 
 def resume_due_at(task, local_now, slot, *, scope_token=None):
-    if local_now.hour >= 6:
-        return None
     last = getattr(task, 'last_scan_time', None)
     if last is None or last < slot:
-        return slot
+        # 仅首次启动受凌晨窗口限制；当天已开始的未完成批次全天可补跑。
+        return slot if local_now.hour < 6 else None
     flag = flag_data(getattr(task, 'flag', ''))
     identity = str(flag.get('identity', '')).split('@', 1)
     day = identity[0]
     same_scope = scope_token is None or (len(identity) == 2 and identity[1] == scope_token)
     if flag.get('state') == 'complete' and day == local_now.date().isoformat() and same_scope:
         return None
-    # 相同日批次允许恢复；租约互斥仍由原队列保证。退避让其他夜间任务继续运行。
+    # 相同日批次全天允许恢复；租约互斥仍由原队列保证。退避让其他任务继续运行。
     due = last + timedelta(minutes=30)
     try:
         from datetime import datetime

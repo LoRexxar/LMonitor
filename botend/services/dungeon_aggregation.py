@@ -21,7 +21,7 @@ from botend.wow.talents.versioning import TalentVersionResolver
 
 
 # Bump when selection, aggregation, source interpretation or display code changes.
-ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v3-log-talents'
+ALGORITHM_VERSION = 'dungeon-shared-cohort-wcl-v4-log-only'
 _NON_CONTENT_FIELDS = {'created_at', 'updated_at', 'last_updated', 'fetched_at', 'variant_text_templates'}
 
 
@@ -305,10 +305,11 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
                 queryset, [{'id': pk} for pk in ids], stats.DUNGEON_SAMPLE_FIELDS)
             if len(selected) != len(ids):
                 raise ValueError('Frozen dungeon ranking references are missing')
+            selected = [row for row in selected if combatants._fight_key(row)]
             level_floor = stats._dungeon_sample_level_floor(selected)
             selected = [row for row in selected
                         if (row.get('keystone_level') or 0) >= level_floor]
-        by_dungeon[dungeon_id] = selected
+        by_dungeon[dungeon_id] = [row for row in selected if combatants._fight_key(row)]
     selected = [row for rows in by_dungeon.values() for row in rows]
     facts = combatants._load_facts(selected, fetched_before=source_cutoff)
     metadata = _metadata_dependencies(selected, facts, class_name, spec_name)
@@ -365,7 +366,7 @@ def aggregate_dungeon(season, class_name, spec_name, path, publish, *,
         target = len(encounters) * 100
         summary.update(target_sample_size=target, missing_sample_size=max(0, target - len(union)),
                        dungeon_samples=coverage)
-        publish(path, {'dungeons': singles, 'summary': summary, '_input_fingerprint': fingerprint,
+        publish(path, {'_data_contract': 'wcl-log-v2', 'dungeons': singles, 'summary': summary, '_input_fingerprint': fingerprint,
                        '_talent_structure_token': token},
                 class_name, spec_name)
         index = reusable_projection(path, fingerprint, required_keys)

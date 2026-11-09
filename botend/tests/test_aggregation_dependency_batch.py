@@ -35,6 +35,7 @@ class AggregationDependencyBatchTests(TestCase):
         self.rows = [SpecRaidRanking.objects.create(season_id=self.season.pk, boss_id=boss,
             boss_name=name, difficulty=5, class_name='Mage', spec_name='Fire',
             character_name='Player', realm='Realm', region='eu', dps=100 + boss,
+            report_code='Report', fight_id=boss,
             gear_json=[{'id': 123, 'slot': 'head', 'itemLevel': 200}])
             for boss, name in [(1, 'One'), (2, 'Two')]]
         self.player = PlayerSpecTopPlayer.objects.create(season_id=self.season.pk,
@@ -67,9 +68,10 @@ class AggregationDependencyBatchTests(TestCase):
         self.assertLess(len(batch_queries), len(independent_queries))
         print('AGGREGATION_QUERY_COUNTS', json.dumps({
             'independent': len(independent_queries), 'batch': len(batch_queries)}))
+        PlayerSpecTopPlayer.objects.filter(pk=self.player.pk).update(race='Orc')
+        self.assertEqual(actual, raid.raid_fingerprints(self.scopes))
         for change in (
             lambda: SpecRaidRanking.objects.filter(pk=self.rows[0].pk).update(dps=333),
-            lambda: PlayerSpecTopPlayer.objects.filter(pk=self.player.pk).update(race='Orc'),
             lambda: WowItemSnapshot.objects.filter(pk=self.item.pk).update(name_zh='新名称'),
             lambda: WowItemVariantSnapshot.objects.filter(item=self.item, variant_key='a').update(effects_json=[{'text': 'changed'}]),
         ):
@@ -83,7 +85,7 @@ class AggregationDependencyBatchTests(TestCase):
         path = Path(self.tmp.name) / str(self.season.pk) / 'Mage/Fire'
         run = lambda: SpecDetailAggregationMonitor._aggregate_raid(
             self.season, 'Mage', 'Fire', str(path), publish=publish_stats)
-        with patch.object(raid, 'raid_fingerprint', wraps=raid.raid_fingerprint) as fingerprint:
+        with patch.object(raid, '_fingerprint', wraps=raid._fingerprint) as fingerprint:
             run()
         self.assertEqual(fingerprint.call_count, len(self.scopes),
                          'No publication exists: do not fingerprint every scope twice')
@@ -103,9 +105,9 @@ class AggregationDependencyBatchTests(TestCase):
     def test_talent_batch_reuses_resolver_but_next_call_rechecks_central_publication(self):
         from botend.services.wow_spell_display import sync_spell_display
         from botend.wow.branches import spell_branch
-        version = WowTalentVersion.objects.create(key='retail', branch='retail',
+        version, _ = WowTalentVersion.objects.update_or_create(key='retail', defaults=dict(branch='retail',
             current_build='test-build', source_dir=self.tmp.name,
-            is_active=True, status='active', is_default_stats=True)
+            is_active=True, status='active', is_default_stats=True))
         node = WowTalentNodeMetadata.objects.create(talent_version=version,
             class_name='Mage', spec_name='Fire', tree_type='spec', node_id=77,
             talent_id=77, spell_id=770, name='Talent', name_zh='天赋',

@@ -217,5 +217,6 @@ class NightLaneConcurrentClaimsTests(TransactionTestCase):
         self.assertIsNone(claim_next_monitor_task(now=now, task_names=[data.name]))
         self.assertIsNone(claim_monitor_task(season.pk, now=now))
         fast = MonitorTask.objects.create(name='PortalPeakSpecRankMonitor', type=904, **values)
-        self.assertEqual(claim_next_monitor_task(now=now, task_names={fast.name}).pk, fast.pk)
+        self.assertIsNone(claim_next_monitor_task(now=now, task_names={fast.name}))
+        self.assertEqual(claim_next_monitor_task(now=now.replace(hour=6), task_names={fast.name}).pk, fast.pk)
         self.assertEqual(MonitorTaskLease.objects.count(), 3)

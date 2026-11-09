@@ -24,6 +24,7 @@ from botend.models import MonitorTask, MonitorWebhook
 from botend.monitor_env import filter_runnable_tasks
 from botend.plugin_sync import (
     ISOLATED_MONITOR_WORKERS,
+    NIGHT_LANE_TASKS,
     MONITOR_TASK_LEASE_SECONDS,
     start_isolated_monitor_worker,
     claim_next_monitor_task,
@@ -186,6 +187,8 @@ class LMonitorCoreBackend:
         self.lifecycle = lifecycle or BackendLifecycle()
         self._workers = []
         self.threadpool = ThreadPool()
+        # 一个人物数据链工作者及两个短任务工作者；数据库租约跨进程限额。
+        self.threadpool.max_thread_num = 3
         try:
             self._run()
         finally:
@@ -209,7 +212,7 @@ class LMonitorCoreBackend:
 
         logger.info("[LMonitor Main] Monitor Backend Start...now {} targets in monitor.".format(left_tasks))
 
-        # 每种长任务一个串行 worker，不占普通池，也不共用一个长任务槽。
+        # 独立工作者仍受数据库中的长任务配额与版本屏障约束。
         for task_name in ISOLATED_MONITOR_WORKERS:
             self._workers.append(start_isolated_monitor_worker(
                 LMonitorCore(self.lifecycle).scan, task_name=task_name))
@@ -387,14 +390,18 @@ class LMonitorCore:
         os.environ.setdefault('DJANGO_ALLOW_ASYNC_UNSAFE', '1')
         while self.lifecycle is None or not self.lifecycle.retiring:
             try:
-                admission = (self.lifecycle.admission('monitor-claim-and-execution')
-                             if self.lifecycle is not None else nullcontext(True))
-                with admission as admitted:
-                    if not admitted:
+                admission = (self.lifecycle.monitor_admission()
+                             if self.lifecycle is not None else nullcontext(None))
+                with admission as permit:
+                    if self.lifecycle is not None and permit is None:
                         return
                     close_old_connections()
                     lease_owner = uuid4().hex
-                    now_task = claim_next_monitor_task(lease_owner=lease_owner, task_names=task_names)
+                    now_task = claim_next_monitor_task(lease_owner=lease_owner, task_names=task_names,
+                        allow_long_tasks=permit.allow_long_tasks if permit is not None else True)
+                    if permit is not None:
+                        permit.classify(is_long=bool(now_task and getattr(now_task, '_monitor_task_is_long',
+                                                                         now_task.name in NIGHT_LANE_TASKS)))
                     if now_task:
                         # Admission covers the DB claim and its execution as
                         # one operation. A claim that finishes during retirement

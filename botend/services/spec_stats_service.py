@@ -432,11 +432,7 @@ class SpecStatsService:
 
     @staticmethod
     def get_dungeon_summary(class_name, spec_name, season_id=None):
-        """Union the existing per-dungeon WCL samples, never their percentages.
-
-        SpecDungeonRanking is a WCL-only fact table. Profile enrichment remains
-        field-scoped below and never adds observations to the ranking cohort.
-        """
+        """合并各副本的 WCL 日志样本后计算，始终不使用人物当前资料。"""
         season = (SeasonMeta.objects.filter(id=season_id).first() if season_id
                   else SpecStatsService.get_active_season())
         if not season:
@@ -479,7 +475,7 @@ class SpecStatsService:
             'dungeon_name': dungeon_name,
             'sample_size': 0,
             'source': 'Warcraft Logs',
-            'data_contract': 'wcl-log-v1',
+            'data_contract': 'wcl-log-v2',
             'field_sources': {
                 'performance': 'Warcraft Logs 原始日志',
                 'talent_usage': 'Warcraft Logs 日志天赋（仅有效天赋样本）',
@@ -487,10 +483,13 @@ class SpecStatsService:
                    if include_talent_build_popularity else {}),
                 'gear': 'Warcraft Logs 对应战斗的装备、宝石与附魔',
                 'secondary_stats': 'Warcraft Logs 对应角色的 CombatantInfo 原始绿字；可能包含日志时点增益，不等同于无增益装备面板；未提供百分比时不推算',
-                'race': 'Warcraft Logs 日志种族；缺失计入未知',
+                'race': 'Warcraft Logs 日志种族；仅统计提供种族的样本',
             },
         }
+        from botend.services.wcl_combatant_snapshot import _fight_key
+        selected_records = [row for row in selected_records if _fight_key(row)]
         if not selected_records:
+            _omit_unavailable_log_statistics(stats)
             return stats
 
         # DPS 统计
@@ -603,7 +602,8 @@ class SpecStatsService:
         stats['secondary_stats'] = _compute_secondary_stats_distribution(records)
         for stat in stats['secondary_stats']:
             stat['sample_size'] = sum(bool((row.get('stats_json') or {}).get(stat['key'])) for row in records)
-        stats['race_distribution'] = _compute_race_distribution(records)
+        stats['race_distribution'] = _compute_race_distribution([row for row in records if row.get('race')])
+        _omit_unavailable_log_statistics(stats)
 
         if full:
             # 详细模式：Top 5 玩家（与统计口径使用同一批筛选样本）
@@ -691,135 +691,55 @@ class SpecStatsService:
 
     @staticmethod
     def _compute_raid_stats(season_id, boss_id, boss_name, class_name, spec_name, full=False, difficulty=5):
-        """从原始数据计算团本统计"""
-        qs = SpecRaidRanking.objects.filter(
-            season_id=season_id, boss_id=boss_id,
-            class_name=class_name, spec_name=spec_name, difficulty=difficulty
-        )
+        """只聚合对应 WCL 日志；不读取人物当前资料。"""
+        from botend.services.raid_aggregation import select_raid_records
+        rows = select_raid_records(season_id, boss_id, class_name, spec_name, difficulty)
+        return SpecStatsService._compute_raid_records(
+            rows, season_id, boss_id, boss_name, class_name, spec_name, full=full)
 
-        stats = {
-            'boss_id': boss_id,
-            'boss_name': boss_name,
-            'sample_size': 0,
-        }
+    @staticmethod
+    def _compute_raid_records(records, season_id, boss_id, boss_name, class_name, spec_name,
+                              full=False, *, enriched_records=None):
+        # 装备、天赋、属性与大秘境共用同一日志投影，避免两套来源规则漂移。
+        from botend.services.wcl_combatant_snapshot import _fight_key
+        records = [row for row in records if _fight_key(row)]
+        result = SpecStatsService._compute_dungeon_records(
+            records, season_id, boss_id, boss_name, class_name, spec_name, full=full,
+            enriched_records=enriched_records)
+        result['boss_id'] = result.pop('dungeon_id')
+        result['boss_name'] = result.pop('dungeon_name')
+        times = sorted(row['kill_time'] for row in records if row.get('kill_time'))
+        if times:
+            avg, median = sum(times) // len(times), _percentile(times, 50)
+            result['kill_time'] = {'avg': avg, 'median': median,
+                                   'avg_fmt': _ms_to_time(avg), 'median_fmt': _ms_to_time(median)}
+        for row in result.get('top5', []):
+            if row.get('kill_time'):
+                row['kill_time_fmt'] = _ms_to_time(row['kill_time'])
+        return result
 
-        if not qs.exists():
-            return stats
 
-        dps_agg = qs.aggregate(avg=Avg('dps'), max=Max('dps'), min=Min('dps'))
-        dps_list = sorted(qs.values_list('dps', flat=True))
-        n = len(dps_list)
-
-        stats['sample_size'] = n
-        p25 = _percentile(dps_list, 25)
-        p75 = _percentile(dps_list, 75)
-        median = _percentile(dps_list, 50)
-        dps_min = dps_agg['min']
-        dps_max = dps_agg['max']
-        dps_range = dps_max - dps_min if dps_max and dps_min else 1
-
-        stats['dps'] = {
-            'avg': dps_agg['avg'],
-            'median': median,
-            'max': dps_max,
-            'min': dps_min,
-            'p25': p25,
-            'p75': p75,
-            'p25_pct': round((p25 - dps_min) / dps_range * 100, 1) if p25 and dps_range else 0,
-            'iqr_pct': round((p75 - p25) / dps_range * 100, 1) if p75 and p25 and dps_range else 0,
-            'median_pct': round((median - dps_min) / dps_range * 100, 1) if median and dps_range else 50,
-        }
-
-        kt_list = sorted([v for v in qs.values_list('kill_time', flat=True) if v])
-        if kt_list:
-            kt_median = _percentile(kt_list, 50)
-            kt_avg = sum(kt_list) // len(kt_list)
-            stats['kill_time'] = {
-                'avg': kt_avg,
-                'median': kt_median,
-                'avg_fmt': _ms_to_time(kt_avg),
-                'median_fmt': _ms_to_time(kt_median),
-            }
-
-        # 阵营分布
-        faction_counter = Counter(r for r in qs.values_list('faction', flat=True) if r is not None and r != -1)
-        if faction_counter:
-            total_factions = sum(faction_counter.values())
-            stats['faction_distribution'] = {
-                str(f): {'count': cnt, 'pct': round(cnt / total_factions * 100, 1)}
-                for f, cnt in faction_counter.most_common()
-            }
-
-        # 天赋/装备热门度（概览也展示）
-        records = list(qs.values('talents_json', 'talent_build_code', 'gear_json', 'faction', 'character_name', 'realm', 'region', 'dps'))
-        from botend.services.log_talent_analysis import prepare_log_talents
-        records = prepare_log_talents(records, class_name, spec_name)
-        profile_cache = {}
-        talent_limit = 20 if full else 10
-        gear_limit = 5 if full else 3
-        usage_snapshot = _build_talent_usage_snapshot(records, class_name, spec_name)
-        stats['talent_sample_size'] = usage_snapshot.get('total', 0)
-        stats['talent_popularity'] = _compute_talent_popularity(
-            records, top_n=talent_limit, snapshot=usage_snapshot,
-        )
-        stats['talent_usage'] = _compute_talent_usage(
-            records,
-            class_name,
-            spec_name,
-            top_n=talent_limit,
-            snapshot=usage_snapshot,
-        )
-        stats['talent_popularity_tree'] = _compute_talent_popularity_tree(
-            records,
-            class_name,
-            spec_name,
-            top_n=talent_limit,
-            snapshot=usage_snapshot,
-        )
-        stats['talent_build_popularity'] = _compute_talent_build_popularity(
-            records,
-            class_name,
-            spec_name,
-            top_n=20 if full else 5,
-        )
-
-        # 装备/宝石/附魔使用率：按当前详情页 ranking 样本统计（100 人里几个人使用）。
-        # gear_detail_records 优先用人物榜 Raider.IO gear 回填，补齐 slot/gems_detail/enchants_detail；长度不变，分母仍是 ranking 样本数。
-        gear_detail_records = _merge_player_profile_gear(
-            records, season_id, class_name, spec_name, profile_cache=profile_cache)
-        stats['gear_popularity'] = _compute_gear_popularity(gear_detail_records, top_n=gear_limit)
-        stats['gem_popularity'] = _compute_gem_popularity(gear_detail_records, top_n=20)
-        stats['enchant_popularity'] = _compute_enchant_popularity(gear_detail_records, top_n=20)
-
-        # 人物属性/种族按当前详情页 ranking 样本回填，避免人物榜 Top20/Top200 与 100 人样本混用。
-        player_detail_records = _merge_player_profile_fields(
-            records,
-            season_id,
-            class_name,
-            spec_name,
-            fields=('stats_json', 'race'),
-            profile_cache=profile_cache,
-        )
-        stats['secondary_stats'] = _compute_secondary_stats_distribution(player_detail_records)
-        stats['race_distribution'] = _compute_race_distribution(player_detail_records)
-
-        if full:
-            # Keep stable Python DPS ordering, including ties and zero. Only
-            # the selected identities need a second large-JSON hydration.
-            selected = sorted(qs.values('id', 'dps'),
-                              key=lambda r: r['dps'] or 0, reverse=True)[:5]
-            payloads = {r['id']: r for r in qs.filter(
-                id__in=[r['id'] for r in selected],
-            ).values('id', 'talents_json', 'gear_json', 'faction', 'guild_name',
-                     'character_name', 'realm', 'region', 'dps', 'kill_time')}
-            stats['top5'] = [{k: v for k, v in payloads[r['id']].items() if k != 'id'}
-                             for r in selected if r['id'] in payloads]
-            # 格式化 top5 击杀时间
-            for r in stats['top5']:
-                if r.get('kill_time'):
-                    r['kill_time_fmt'] = _ms_to_time(r['kill_time'])
-
-        return stats
+def _omit_unavailable_log_statistics(result):
+    """没有日志事实的具体板块不输出；部分缺失时保留实际有效样本。"""
+    for key in ('gear_popularity', 'gem_popularity', 'enchant_popularity',
+                'secondary_stats', 'race_distribution'):
+        if not result.get(key):
+            result.pop(key, None)
+    sources = result.get('field_sources', {})
+    if not result.get('secondary_stats'):
+        sources.pop('secondary_stats', None)
+    if not result.get('race_distribution'):
+        sources.pop('race', None)
+    if not any(result.get(key) for key in ('gear_popularity', 'gem_popularity', 'enchant_popularity')):
+        sources.pop('gear', None)
+    if not (result.get('talent_build_popularity') or {}).get('total'):
+        result.pop('talent_build_popularity', None)
+        sources.pop('talent_build_popularity', None)
+    if not result.get('talent_sample_size'):
+        for key in ('talent_popularity', 'talent_usage', 'talent_popularity_tree', 'talent_build_popularity'):
+            result.pop(key, None)
+        sources.pop('talent_usage', None)
+        sources.pop('talent_build_popularity', None)
 
 
 # ========== 辅助函数 ==========
@@ -886,7 +806,7 @@ def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
     # payload. Fetch talents/gear only for the final (at most 100) observations.
     selection_fields = ('id', 'report_code', 'fight_id', 'character_name',
                         'realm', 'region', 'dps', 'keystone_level')
-    rows = list(qs.values(*selection_fields))
+    rows = list(qs.exclude(report_code='').filter(fight_id__gt=0).values(*selection_fields))
     if not rows:
         return []
 
@@ -2555,7 +2475,7 @@ def _compute_race_distribution(player_records):
 
 
 def _compute_secondary_stats_distribution(player_records):
-    """聚合人物榜属性绿字区间。来源 PlayerSpecTopPlayer.stats_json。"""
+    """聚合传入样本中已明确来源的属性绿字，此处不补采或推算缺失字段。"""
     buckets = {key: {'pct': [], 'rating': []} for key in SECONDARY_STAT_LABELS}
     sample_size = 0
     for record in player_records or []:

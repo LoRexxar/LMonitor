@@ -189,11 +189,12 @@ def validate_payload(data, identity, season):
 
 class ActivityCollector:
     """One batch; 429 stops every subsequent request, including forced retries."""
-    def __init__(self, transport=None, proxies=None):
+    def __init__(self, transport=None, proxies=None, *, defer_enrichment=False):
         self.transport = transport or requests.get
         cfg = getattr(settings, 'REQUEST_CONFIG', {})
         self.proxies = proxies if proxies is not None else cfg.get('proxies') if cfg.get('enable_proxy') else None
         self.stopped = False
+        self.defer_enrichment = defer_enrichment
         from botend.services.raiderio_run_roster import RosterCollector
         self.roster_collector = RosterCollector(transport=self.transport, proxies=self.proxies)
 
@@ -322,6 +323,10 @@ class ActivityCollector:
         # Called outside the activity transaction, and never during its busy lease.
         if self.stopped or result['status'] == 'busy':
             return result
+        if self.defer_enrichment:
+            from botend.services.character_enrichment import enqueue_enrichment
+            result['enrichment_queued'] = enqueue_enrichment(row, season, player)
+            return result
         # Maintain only explicitly enrolled raid pilots; never expand to all players.
         # Its lease/TTL live inside the module, independent of M+ and profile clocks.
         if result['status'] in ('ready', 'fresh', 'partial') and 'raid_first_kills' in row.payload_json:
@@ -415,7 +420,7 @@ def _rate_limit_deadline(result, metadata, season):
 
 
 def refresh_due_top20_activity(season, *, limit=100, collector=None,
-                               rate_limited_until=None, rate_limit_clock_error=''):
+                               rate_limited_until=None, rate_limit_clock_error='', should_continue=None):
     """Maintain only due current-Top20 identities, never character profiles or AI.
 
     Candidate discovery is bounded per canonical spec before identity deduplication.
@@ -472,6 +477,9 @@ def refresh_due_top20_activity(season, *, limit=100, collector=None,
     deferred_module_states = {'ready', 'fresh', 'busy', 'backoff', 'unavailable', 'private', 'batch_stopped'}
     for _, digest, candidate in selected:
         if collector.stopped:
+            break
+        if should_continue is not None and not should_continue():
+            summary['stop'] = 'budget'
             break
         summary['attempted'] += 1
         try:

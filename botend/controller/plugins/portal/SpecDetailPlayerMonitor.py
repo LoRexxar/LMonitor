@@ -54,148 +54,191 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         super().__init__(req, task)
 
     def scan(self, url):
+        import requests
+        from collections import Counter
+        counts, seconds = Counter(), Counter()
+        with requests.Session() as session:
+            def get(endpoint, **kwargs):
+                kind = ('battlenet' if '/statistics' in endpoint else
+                        'roster' if 'run-details' in endpoint else
+                        'ranking' if '/rankings/' in endpoint else 'profile_activity')
+                started = time.monotonic()
+                counts[kind] += 1
+                try:
+                    return session.get(endpoint, **kwargs)
+                finally:
+                    seconds[kind] += time.monotonic() - started
+            from botend.services.character_enrichment import guarded_get
+            self._http_get = lambda endpoint, **kwargs: guarded_get(get, endpoint, **kwargs)
+            try:
+                return self._scan_daily(url)
+            finally:
+                logger.info(f'[SpecDetailPlayer] phase=http_summary requests={dict(counts)} seconds={dict(seconds)}')
+                del self._http_get
+
+    def _scan_daily(self, url):
         logger.info("[SpecDetailPlayer] 开始采集人物榜")
         started = time.monotonic()
         from botend.services.raiderio_profile_cache import ProfileCache
-        self._profile_cache = ProfileCache()
-        self._activity_collector = None
-
+        from botend.services.player_daily_checkpoint import DailyProgress
+        self._profile_cache, self._activity_collector = ProfileCache(), None
         season = SeasonMeta.objects.filter(is_active=True).first()
         if not season:
-            logger.warning("[SpecDetailPlayer] 无活跃赛季，先触发 SeasonMonitor")
             from botend.controller.plugins.portal.SpecDetailSeasonMonitor import SpecDetailSeasonMonitor
-            sm = SpecDetailSeasonMonitor(self.req, self.task)
-            sm.scan('')
+            SpecDetailSeasonMonitor(self.req, self.task).scan('')
             season = SeasonMeta.objects.filter(is_active=True).first()
-        if not season:
-            logger.error("[SpecDetailPlayer] SeasonMonitor 执行后仍无活跃赛季，跳过")
+        if not season or not season.rio_season:
+            logger.error('[SpecDetailPlayer] 缺少活跃赛季或Raider.IO赛季')
             return False
-
-        rio_season = season.rio_season
-        if not rio_season:
-            logger.error("[SpecDetailPlayer] SeasonMeta.rio_season 为空")
-            return False
-
-        total_inserted = 0
+        plan = {'classes': CLASS_SPEC_MAP, 'ranking_limit': self.PLAYER_RANKING_LIMIT,
+                'source_contract': 'top20-full-wcl-statistics-separate-v1'}
+        progress = DailyProgress(self.task, season, plan)
+        if progress.complete:
+            logger.info('[SpecDetailPlayer] 当天同范围检查点已完成，跳过重复运行')
+            return True
         refreshed_identities = set()
-
-        # 遍历所有专精
+        total_inserted = 0
+        required = []
         for class_name, specs in CLASS_SPEC_MAP.items():
             for spec_name in specs:
-                spec_started = time.monotonic()
-                before_counts = self._get_profile_cache().counts.copy()
-                # 从 Raider.IO 获取榜单玩家
-                players = self._fetch_top_players(class_name, spec_name, rio_season)
-                fetch_finished = time.monotonic()
-                logger.info(f"[SpecDetailPlayer] phase=daily_fetch_enrich {class_name}/{spec_name} "
-                            f"seconds={fetch_finished - spec_started:.3f} players={len(players)}")
-                if not players:
+                key = f'{class_name}/{spec_name}'
+                profiles_key = key + ':profiles'
+                required.append(profiles_key)
+                saved = progress.stages.get(profiles_key, {})
+                total_inserted += saved.get('players', 0)
+                refreshed_identities.update(saved.get('identities', []))
+                if progress.done(profiles_key):
+                    logger.info(f'[SpecDetailPlayer] phase=checkpoint_reuse spec={key}')
                     continue
-
-                with transaction.atomic():
-                    existing_map = self._load_profiles_for_identities(
-                        season.id, spec_name,
-                        ((p.get('region'), p.get('realm'), p.get('name')) for p in players),
-                    )
-                    for player in players:
-                        try:
-                            region = player.get('region', '')
-                            realm = player.get('realm', '')
-                            character_name = player.get('name', '')
-                            row_key = self._profile_identity_key(region, realm, character_name)
-
-                            existing = existing_map.get(row_key)
-                            stats_json = existing.stats_json if existing and existing.stats_json else {}
-                            stats_status = existing.stats_crawl_status if existing else 0
-
-                            defaults = {
-                                'faction': player.get('faction'),
-                                'race': player.get('race'),
-                                'gender': player.get('gender'),
-                                'guild_name': player.get('guild_name'),
-                                'realm_rank': player.get('realm_rank'),
-                                'avatar_url': player.get('avatar_url'),
-                                'profile_url': player.get('profile_url'),
-                                'achievement_points': player.get('achievement_points'),
-                                'item_level': player.get('item_level'),
-                                'gear_json': self._normalize_gear_list(player.get('gear', [])),
-                                'talent_build_code': player.get('talent_build_code', '') or TalentBuildCodeService.extract_build_code(
-                                    talents_json=player.get('talents', [])
-                                ),
-                                'talents_json': self._normalize_talent_nodes(
-                                    player.get('talents', []),
-                                    class_name,
-                                    spec_name,
-                                ),
-                                'stats_json': stats_json,
-                                'stats_crawl_status': stats_status,
-                                'last_updated': timezone.now(),
-                            }
-                            if player.get('_profile_refresh_failed'):
-                                # A failed source is not empty content or a successful
-                                # initialization. Short-task ranks may already be newer.
-                                defaults = {} if existing else {'last_updated': None}
-                            self._preserve_complete_talents_when_new_payload_is_downgrade(existing, defaults, class_name, spec_name)
-                            if existing:
-                                defaults['class_name'] = class_name
-                                self._save_changed_profile(existing, defaults)
-                            else:
-                                profile = PlayerSpecTopPlayer(
-                                    season_id=season.id,
-                                    region=(region or '').strip().lower(),
-                                    realm=(realm or '').strip(),
-                                    character_name=(character_name or '').strip(),
-                                    class_name=class_name,
-                                    spec_name=spec_name,
-                                )
-                                for field, value in defaults.items():
-                                    setattr(profile, field, value)
-                                existing_map[row_key] = self._save_profile_safely(profile)
-                            total_inserted += 1
-                            if not player.get('_profile_refresh_failed'):
-                                from botend.services.player_raiderio_activity import player_identity
-                                from botend.raiderio_identity import activity_identity_digest
-                                identity = player_identity(SimpleNamespace(region=region, realm=realm,
-                                    character_name=character_name, profile_url=player.get('profile_url')))
-                                if identity:
-                                    refreshed_identities.add(activity_identity_digest(**identity))
-                        except Exception as e:
-                            logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
-
-                profiles_finished = time.monotonic()
-                logger.info(f"[SpecDetailPlayer] phase=daily_profile_write {class_name}/{spec_name} "
-                            f"seconds={profiles_finished - fetch_finished:.3f}")
-                self._backfill_ranking_sample_profiles(
-                    season.id,
-                    class_name,
-                    spec_name,
-                    limit=self.RANKING_SAMPLE_BACKFILL_LIMIT,
-                )
-
-                logger.info(f"[SpecDetailPlayer] phase=daily_sample_backfill {class_name}/{spec_name} "
-                            f"seconds={time.monotonic() - profiles_finished:.3f}")
-                logger.info(f"[SpecDetailPlayer] 专精 {class_name}/{spec_name} "
-                            f"耗时 {time.monotonic() - spec_started:.1f}s，详情缓存统计 "
-                            f"{dict(self._get_profile_cache().counts - before_counts)}")
-
+                progress.check_scope()
+                from botend.services.player_normalization_cache import normalization_batch
+                with normalization_batch(season.id, class_name, spec_name) as normalization:
+                    before_counts = self._profile_cache.counts.copy()
+                    spec_started = time.monotonic()
+                    if not progress.done(profiles_key):
+                        players = self._fetch_top_players(class_name, spec_name, season.rio_season)
+                        fetched = time.monotonic()
+                        logger.info(f'[SpecDetailPlayer] phase=daily_fetch_enrich {key} seconds={fetched-spec_started:.3f} players={len(players)}')
+                        if players:
+                            progress.check_scope()
+                            count, identities, failures = self._write_daily_profiles(season, class_name, spec_name, players)
+                            total_inserted += count
+                            refreshed_identities.update(identities)
+                            if not failures:
+                                progress.mark(profiles_key, {'players': count, 'identities': sorted(identities)})
+                        logger.info(f'[SpecDetailPlayer] phase=daily_profile_write {key} seconds={time.monotonic()-fetched:.3f}')
+                    logger.info(f'[SpecDetailPlayer] 专精 {key} 耗时 {time.monotonic()-spec_started:.1f}s，详情缓存统计 '
+                                f'{dict(self._profile_cache.counts-before_counts)}')
+                logger.info(f"[SpecDetailPlayer] phase=normalization_cache {key} hits={normalization['hits']} builds={normalization['builds']}")
                 time.sleep(0.2)
-
-        logger.info(f"[SpecDetailPlayer] 人物榜采集完成，共 {total_inserted} 条")
-
-        # 补充 Battle.net 属性（排除国服）
-        stats_started = time.monotonic()
-        self._crawl_battlenet_stats(season.id, ranked_only=True)
-        logger.info(f"[SpecDetailPlayer] phase=daily_battlenet seconds={time.monotonic() - stats_started:.3f}")
-
+        from botend.services.character_enrichment import enqueue_battlenet_profiles
+        enqueue_battlenet_profiles(season, PlayerSpecTopPlayer.objects.filter(
+            season_id=season.pk, rank__gte=1, rank__lte=self.PLAYER_RANKING_LIMIT).exclude(region='cn').only(
+                'id', 'season_id', 'region', 'realm', 'character_name'))
+        progress.mark('battlenet-enqueued')
         from botend.services.character_bindings import refresh_bound_characters
-        bound_count = refresh_bound_characters(self, season, refreshed_identities)
+        binding_failures = []
+        bound_count = refresh_bound_characters(self, season, refreshed_identities,
+            completed={key.split(':', 1)[1] for key in progress.stages if key.startswith('binding:')},
+            on_complete=lambda digest: progress.mark('binding:' + digest), on_failure=binding_failures.append,
+            defer_stats=True)
+        complete = all(progress.done(key) for key in required) and not binding_failures
+        progress.finish(complete)
+        logger.info(f'[SpecDetailPlayer] 人物采集耗时 {time.monotonic()-started:.1f}s，详情缓存统计 '
+                    f'{dict(self._profile_cache.counts)}，完成={complete}，人物={total_inserted}，绑定={bound_count}')
+        return complete
 
-        logger.info(f"[SpecDetailPlayer] 人物采集耗时 {time.monotonic() - started:.1f}s，"
-                    f"详情缓存统计 {dict(self._get_profile_cache().counts)}")
+    def _write_daily_profiles(self, season, class_name, spec_name, players):
+        """先计算内容，再用短事务读取最新行并写入差异；不持有旧排名和属性快照。"""
+        total_inserted, failures = 0, sum(bool(p.get('_profile_refresh_failed')) for p in players)
+        refreshed_identities = set()
+        for player in players:
+            if player.get('_profile_refresh_failed') or player.get('_profile_refresh_unavailable'):
+                player['_daily_values'] = {}
+                continue
+            try:
+                defaults = {
+                    'faction': player.get('faction'),
+                    'race': player.get('race'),
+                    'gender': player.get('gender'),
+                    'guild_name': player.get('guild_name'),
+                    'realm_rank': player.get('realm_rank'),
+                    'avatar_url': player.get('avatar_url'),
+                    'profile_url': player.get('profile_url'),
+                    'achievement_points': player.get('achievement_points'),
+                    'item_level': player.get('item_level'),
+                    'gear_json': self._normalize_gear_list(player.get('gear', [])),
+                    'talent_build_code': player.get('talent_build_code', '') or TalentBuildCodeService.extract_build_code(
+                        talents_json=player.get('talents', [])
+                    ),
+                    'talents_json': self._normalize_talent_nodes(
+                        player.get('talents', []),
+                        class_name,
+                        spec_name,
+                    ),
+                    'last_updated': timezone.now(),
+                }
+                player['_daily_values'] = defaults
+            except Exception:
+                failures += 1
+                player['_profile_refresh_failed'], player['_daily_values'] = True, {}
+                logger.exception('[SpecDetailPlayer] 资料预处理失败')
+        with transaction.atomic():
+            existing_map = self._load_profiles_for_identities(
+                season.id, spec_name,
+                ((p.get('region'), p.get('realm'), p.get('name')) for p in players), for_update=True,
+            )
+            for player in players:
+                try:
+                    region = player.get('region', '')
+                    realm = player.get('realm', '')
+                    character_name = player.get('name', '')
+                    row_key = self._profile_identity_key(region, realm, character_name)
+                    if row_key is None:
+                        raise ValueError('来源人物身份不完整')
 
-        self.task.flag = f"{season.season_key}@players={total_inserted}@bound={bound_count}@{int(time.time())}"
-        self.task.save()
-        return True
+                    existing = existing_map.get(row_key)
+                    stats_json = existing.stats_json if existing and existing.stats_json else {}
+                    stats_status = existing.stats_crawl_status if existing else 0
+
+                    defaults = dict(player['_daily_values'])
+                    defaults.update(stats_json=stats_json, stats_crawl_status=stats_status)
+                    if player.get('_profile_refresh_failed') or player.get('_profile_refresh_unavailable'):
+                        # A failed source is not empty content or a successful
+                        # initialization. Short-task ranks may already be newer.
+                        defaults = {} if existing else {'last_updated': None}
+                    self._preserve_complete_talents_when_new_payload_is_downgrade(existing, defaults, class_name, spec_name)
+                    if existing:
+                        defaults['class_name'] = class_name
+                        self._save_changed_profile(existing, defaults)
+                    else:
+                        profile = PlayerSpecTopPlayer(
+                            season_id=season.id,
+                            region=(region or '').strip().lower(),
+                            realm=(realm or '').strip(),
+                            character_name=(character_name or '').strip(),
+                            class_name=class_name,
+                            spec_name=spec_name,
+                        )
+                        for field, value in defaults.items():
+                            setattr(profile, field, value)
+                        existing_map[row_key] = self._save_profile_safely(profile)
+                    total_inserted += 1
+                    if not (player.get('_profile_refresh_failed') or player.get('_profile_refresh_unavailable')):
+                        from botend.services.player_raiderio_activity import player_identity
+                        from botend.raiderio_identity import activity_identity_digest
+                        identity = player_identity(SimpleNamespace(region=region, realm=realm,
+                            character_name=character_name, profile_url=player.get('profile_url')))
+                        if identity:
+                            refreshed_identities.add(activity_identity_digest(**identity))
+                except Exception as e:
+                    failures += 1
+                    from botend.models import MonitorTaskLeaseLost
+                    if isinstance(e, MonitorTaskLeaseLost):
+                        raise
+                    logger.warning(f"[SpecDetailPlayer] 插入失败 {player.get('name')}: {e}")
+
+        return total_inserted, refreshed_identities, failures
 
     # 需要覆盖的地区列表
     REGIONS = ['us', 'eu', 'tw', 'kr', 'cn']
@@ -382,94 +425,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         }
 
     def _backfill_ranking_sample_profiles(self, season_id, class_name, spec_name, limit=100):
-        """按当前 ranking 样本定向补齐人物资料缓存，避免盲目扩大人物榜采集。"""
-        from botend.models import PlayerSpecTopPlayer, SpecDungeonRanking, SpecRaidRanking
-
-        sample_map = {}
-        ranking_fields = ('region', 'realm', 'character_name', 'faction', 'gear_json', 'talent_build_code', 'talents_json', 'guild_name')
-
-        dungeon_ids = SpecDungeonRanking.objects.filter(
-            season_id=season_id,
-            class_name=class_name,
-            spec_name=spec_name,
-        ).values_list('dungeon_id', flat=True).distinct()
-        for dungeon_id in dungeon_ids:
-            rows = SpecDungeonRanking.objects.filter(
-                season_id=season_id,
-                dungeon_id=dungeon_id,
-                class_name=class_name,
-                spec_name=spec_name,
-            ).order_by('-dps').values(*ranking_fields)[:limit]
-            self._add_profile_rows_to_sample_map(sample_map, rows)
-
-        boss_ids = SpecRaidRanking.objects.filter(
-            season_id=season_id,
-            class_name=class_name,
-            spec_name=spec_name,
-        ).values_list('boss_id', flat=True).distinct()
-        for boss_id in boss_ids:
-            rows = SpecRaidRanking.objects.filter(
-                season_id=season_id,
-                boss_id=boss_id,
-                class_name=class_name,
-                spec_name=spec_name,
-            ).order_by('-dps').values(*ranking_fields)[:limit]
-            self._add_profile_rows_to_sample_map(sample_map, rows)
-
-        if not sample_map:
-            return 0
-
-        existing = self._load_profiles_for_identities(
-            season_id, spec_name,
-            ((row.get('region'), row.get('realm'), row.get('character_name'))
-             for row in sample_map.values()),
-        )
-
-        updated = 0
-        for key, row in sample_map.items():
-            profile = existing.get(key)
-            needs_profile = self._profile_needs_rio_enrichment(profile)
-            original_values = None
-            if not profile:
-                profile = PlayerSpecTopPlayer(
-                    season_id=season_id,
-                    region=(row.get('region') or '').strip().lower(),
-                    realm=(row.get('realm') or '').strip(),
-                    character_name=(row.get('character_name') or '').strip(),
-                    class_name=class_name,
-                    spec_name=spec_name,
-                    rank=None,
-                    stats_crawl_status=0,
-                )
-            else:
-                original_values = {
-                    field: getattr(profile, field)
-                    for field in self.PROFILE_UPDATE_FIELDS
-                }
-
-            self._apply_ranking_row_to_profile(profile, row)
-            if needs_profile and (profile.region or '').lower() != 'cn':
-                self._enrich_profile_model_from_raiderio(profile)
-
-            if profile.pk:
-                values = {
-                    field: getattr(profile, field)
-                    for field in self.PROFILE_UPDATE_FIELDS
-                }
-                values['last_updated'] = timezone.now()
-                for field, value in (original_values or {}).items():
-                    setattr(profile, field, value)
-                changed = self._save_changed_profile(profile, values)
-            else:
-                profile.last_updated = timezone.now()
-                self._save_profile_safely(profile)
-                changed = True
-            existing[key] = profile
-            updated += int(changed)
-
-        logger.info(f"[SpecDetailPlayer] 定向补齐 ranking 样本: {class_name}/{spec_name} "
-                    f"候选 {len(sample_map)}，更新 {updated} 条")
-        return updated
+        """兼容旧调用：WCL统计样本不再创建、刷新或排队采集个人资料。"""
+        return 0
 
     def _add_profile_rows_to_sample_map(self, sample_map, rows):
         for row in rows:
@@ -545,7 +502,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             character_name=profile.character_name,
         ).first()
 
-    def _load_profiles_for_identities(self, season_id, spec_name, identities):
+    def _load_profiles_for_identities(self, season_id, spec_name, identities, *, for_update=False):
         """Resolve bounded unique keys in SQL, then hydrate only matched IDs.
 
         UNION ALL retains each input's ordinal: Python accent normalization is
@@ -578,7 +535,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             matches = list(probes[0].union(*probes[1:], all=True))
             missing_ids = {pk for _, pk in matches} - profiles_by_id.keys()
             if missing_ids:
-                profiles_by_id.update(PlayerSpecTopPlayer.objects.in_bulk(missing_ids))
+                query = PlayerSpecTopPlayer.objects.select_for_update() if for_update else PlayerSpecTopPlayer.objects.all()
+                profiles_by_id.update(query.in_bulk(sorted(missing_ids)))
             for index, pk in matches:
                 profile = profiles_by_id.get(pk)
                 if profile is not None:
@@ -653,7 +611,13 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     def _get_activity_collector(self):
         from botend.services.player_raiderio_activity import ActivityCollector
         if not getattr(self, '_activity_collector', None):
-            self._activity_collector = ActivityCollector(proxies=self._proxies)
+            import requests
+            from botend.services.character_enrichment import guarded_get
+            transport = getattr(self, '_http_get', None)
+            if transport is None:
+                transport = lambda endpoint, **kwargs: guarded_get(requests.get, endpoint, **kwargs)
+            self._activity_collector = ActivityCollector(proxies=self._proxies,
+                transport=transport, defer_enrichment=True)
         return self._activity_collector
 
     def _fetch_profile_with_activity(self, profile, season):
@@ -863,6 +827,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             name = player.get('name', '')
             if not all([region, realm, name]):
                 continue
+            if realm.strip().lower() == 'anonymous':
+                player['_profile_refresh_unavailable'] = True
+                continue
 
             try:
                 season = getattr(self, '_activity_season', None)
@@ -984,20 +951,28 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             if not name or not class_name or not spec_name:
                 continue
 
-            # 从 dungeon_ranking 匹配（优先，数据最全）
+            if self._has_display_ready_talents(player.get('talents')) and player.get('gear'):
+                continue
+            season = getattr(self, '_activity_season', None)
+            if season is None or not all(player.get(k) for k in ('region', 'realm')):
+                continue
+            identity = dict(season_id=season.pk, region=player['region'], realm=player['realm'])
+            # 从当前赛季、同地区服务器的准确人物中补缺。
             ranking = SpecDungeonRanking.objects.filter(
+                **identity,
                 character_name=name,
                 class_name=class_name,
                 spec_name=spec_name,
-            ).exclude(talents_json='[]').first()
+            ).exclude(talents_json=[]).only('talents_json', 'talent_build_code', 'gear_json').order_by('-last_updated', '-id').first()
 
             if not ranking:
                 # 从 raid_ranking 匹配
                 ranking = SpecRaidRanking.objects.filter(
+                    **identity,
                     character_name=name,
                     class_name=class_name,
                     spec_name=spec_name,
-                ).exclude(talents_json='[]').first()
+                ).exclude(talents_json=[]).only('talents_json', 'talent_build_code', 'gear_json').order_by('-last_updated', '-id').first()
 
             if ranking:
                 ranking_build_code = str(getattr(ranking, 'talent_build_code', '') or '').strip()
@@ -1352,7 +1327,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
     def _normalize_talent_nodes(talents, class_name, spec_name):
         if not talents:
             return []
-        vm = build_talent_view_model(talents, class_name=class_name, spec_name=spec_name)
+        from botend.services.player_normalization_cache import normalized_view
+        vm = normalized_view(talents, class_name, spec_name, build_talent_view_model)
         normalized = []
         for node in vm.get('nodes') or []:
             if not isinstance(node, dict):

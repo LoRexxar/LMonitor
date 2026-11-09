@@ -141,6 +141,12 @@ def freeze_samples(cycle, season, identities):
                 scopes[str(enc['id'])] = [row['id'] for row in _select_dungeon_sample_records(
                     rows, max_samples=100, hydrate_fields=('id',))]
             selected[f'{class_name}/{spec_name}'] = scopes
+            from botend.services.raid_aggregation import select_raid_records
+            selected[f'raid:{class_name}/{spec_name}'] = {
+                f'{difficulty}:{enc["id"]}': [row['id'] for row in select_raid_records(
+                    season.pk, enc['id'], class_name, spec_name, difficulty, hydrate_fields=('id',))]
+                for difficulty in (5, 4) for enc in season.raid_encounters or []}
+
         _save(current, cycle, selected_samples=selected, phase='combatants', next_retry_at=None, error='')
 
 
@@ -151,7 +157,8 @@ def frozen_season(cycle, season):
     Removed labels come from central ranking facts, never invented names.
     """
     projected = copy(season)
-    dungeon_ids = dict.fromkeys(int(key) for scopes in cycle.selected_samples.values() for key in scopes)
+    dungeon_ids = dict.fromkeys(int(key) for name, scopes in cycle.selected_samples.items()
+                                if not name.startswith('raid:') for key in scopes)
     raid_ids = dict.fromkeys(int(scope.split(':')[2]) for scope in cycle.completed_scopes
                              if scope.startswith('raid:'))
     current_dungeons = {int(enc['id']): enc for enc in season.mplus_encounters or []}
@@ -194,11 +201,15 @@ def frozen_season(cycle, season):
 
 
 def frozen_combatant_records(cycle):
-    ids = {pk for scopes in cycle.selected_samples.values() for rows in scopes.values() for pk in rows}
-    records = list(SpecDungeonRanking.objects.filter(season_id=cycle.season_id, pk__in=ids).values(
-        'id', 'report_code', 'fight_id', 'character_name', 'realm', 'region', 'class_name', 'spec_name'))
-    if len(records) != len(ids):
-        raise ValueError('frozen ranking references disappeared')
+    records = []
+    for raid, model in ((False, SpecDungeonRanking), (True, SpecRaidRanking)):
+        ids = {pk for name, scopes in cycle.selected_samples.items()
+               if name.startswith('raid:') == raid for rows in scopes.values() for pk in rows}
+        selected = list(model.objects.filter(season_id=cycle.season_id, pk__in=ids).values(
+            'id', 'report_code', 'fight_id', 'character_name', 'realm', 'region', 'class_name', 'spec_name'))
+        if len(selected) != len(ids):
+            raise ValueError('冻结的日志样本引用已丢失')
+        records.extend(selected)
     return records
 
 
@@ -244,13 +255,17 @@ def begin_aggregation(season, task=None, *, now=None, replay_published=False):
 def _metadata_projection_due(published):
     """中央装备/天赋发布后刷新普通投影；不依赖独立爆发统计。"""
     from botend.models import WowDataUpdateState
+    if published.published_at and (published.counts or {}).get('statistics_contract') != 'wcl-log-v2':
+        return True
     return bool(published.published_at and WowDataUpdateState.objects.filter(
         branch='retail', published_at__gt=published.last_attempt_at).exists())
 
 
 def finish_publication(cycle, *, metadata_checked_at=None):
     with fenced_cycle(cycle, phases=('aggregating',)) as current:
-        fields = {'phase': 'published', 'published_at': timezone.now(), 'next_retry_at': None, 'error': ''}
+        fields = {'phase': 'published', 'published_at': timezone.now(), 'next_retry_at': None, 'error': '',
+                  'counts': ({**(current.counts or {}), 'statistics_contract': 'wcl-log-v2'}
+                             if metadata_checked_at is None else current.counts)}
         if metadata_checked_at is not None:
             # 手工只重建部分专精不能确认其他专精已消费本轮中央更新。
             fields['last_attempt_at'] = metadata_checked_at

@@ -265,7 +265,7 @@ class RioRealDatabasePublicationTests(TestCase):
         self.prepare(30)
         self.assertEqual(json.loads(self.get().content)['data']['data']['value'], 30)
 
-    def test_completed_night_is_reopened_for_changed_database_scope_but_never_during_day(self):
+    def test_started_day_is_reopened_for_changed_database_scope_even_during_day(self):
         from botend.plugin_sync import monitor_task_due_at
         now = datetime(2026, 11, 5, 2, tzinfo=ZoneInfo('Asia/Shanghai'))
         task = SimpleNamespace(name='RioStatisticsMonitor', last_scan_time=now - timedelta(hours=1),
@@ -274,4 +274,4 @@ class RioRealDatabasePublicationTests(TestCase):
         self.version.current_build = '12.1.5.70001'
         self.version.save(update_fields=['current_build'])
         self.assertIsNotNone(monitor_task_due_at(task, now=now))
-        self.assertIsNone(monitor_task_due_at(task, now=now.replace(hour=10)))
+        self.assertIsNotNone(monitor_task_due_at(task, now=now.replace(hour=10)))

@@ -8,7 +8,7 @@ from django.conf import settings
 from django.core.cache import cache
 
 from botend.services.spec_stats_service import SpecStatsService
-from botend.services.spec_stats_snapshot import read_projection
+from botend.services.spec_stats_snapshot import read_log_projection
 from botend.services.character_navigation import character_link
 
 
@@ -17,7 +17,7 @@ class SpecOverviewService:
 
     SOURCES = {
         'players': 'Raider.IO',
-        'mythic-plus': 'Raider.IO',
+        'mythic-plus': 'Warcraft Logs',
         'raid': 'Warcraft Logs',
     }
     FILES = {'players': 'leaderboard.json', 'mythic-plus': 'dungeon.json', 'raid': 'raid.json'}
@@ -87,12 +87,12 @@ class SpecOverviewService:
         except OSError:
             projection_version = 0
         identity = (str(path.resolve()), sorted(expected_ids), projection_version)
-        key = 'spec-overview:summary-v3:' + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
+        key = 'spec-overview:summary-v4-log-only:' + hashlib.sha256(json.dumps(identity).encode()).hexdigest()
         cached = cache.get(key)
         if cached is not None:
             return cached
         try:
-            payload = read_projection(path)
+            payload = read_log_projection(path)
             if expected_ids and cls._projection_ids(module, payload) != expected_ids:
                 payload = {}
                 mtime = None

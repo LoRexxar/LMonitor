@@ -281,6 +281,10 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     raise ValueError('invalid ranking amount')
                                 server = r.get('server', {}) or {}
                                 report = r.get('report', {}) or {}
+                                from botend.services.wcl_combatant_snapshot import _fight_key
+                                if not _fight_key({'report_code': report.get('code'),
+                                                   'fight_id': report.get('fightID') or r.get('fightID')}):
+                                    continue
                                 guild = r.get('guild', {}) or {}
 
                                 # Missing nodes are projected from the central log
@@ -314,7 +318,7 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                                     faction=r.get('faction'),
                                     guild_name=guild.get('name', ''),
                                     report_code=report.get('code', ''),
-                                    fight_id=report.get('fightID'),
+                                    fight_id=report.get('fightID') or r.get('fightID'),
                                     fight_started_at=parse_ranking_fight_started_at(r),
                                     last_updated=now,
                                 ))
@@ -486,10 +490,14 @@ class SpecDetailRankingMonitor(SpecDetailBase):
                         try:
                             server = r.get('server', {}) or {}
                             report = r.get('report', {}) or {}
+                            from botend.services.wcl_combatant_snapshot import _fight_key
+                            if not _fight_key({'report_code': report.get('code'),
+                                               'fight_id': report.get('fightID') or r.get('fightID')}):
+                                continue
                             guild = r.get('guild', {}) or {}
 
-                            talents_payload = self._parse_rank_talents(r, combatant_cache,
-                                class_name=class_name, spec_name=spec_name)
+                            # 日志补充统一放在冻结 Top100 后，按报告/战斗批量读取。
+                            talents_payload = self.parse_wcl_talents(r.get('talents', []))
                             records.append(SpecRaidRanking(
                                 season_id=season.id,
                                 boss_id=enc_id,

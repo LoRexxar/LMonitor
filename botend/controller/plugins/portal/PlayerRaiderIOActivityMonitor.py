@@ -6,7 +6,8 @@ from django.utils.dateparse import parse_datetime
 
 from botend.controller.BaseScan import BaseScan
 from botend.models import SeasonMeta
-from botend.services.player_raiderio_activity import refresh_due_top20_activity
+from botend.services.player_raiderio_activity import ActivityCollector, refresh_due_top20_activity
+from botend.services.character_enrichment import EnrichmentBudget, consume_enrichment, source_backoff, enrichment_progress
 from utils.log import logger
 
 
@@ -49,20 +50,30 @@ class PlayerRaiderIOActivityMonitor(BaseScan):
             logger.error('[PlayerRaiderIOActivity] requires one active SeasonMeta with rio_season: %s', summary)
             return False
         season = seasons[0]
-        result = refresh_due_top20_activity(season, limit=100, **gate)
+        budget = EnrichmentBudget()
+        enrichment = consume_enrichment(season, budget, allow_rio=not gate)
+        until = source_backoff()
+        if until and until > timezone.now():
+            gate['rate_limited_until'] = max(until, gate.get('rate_limited_until', until))
+        collector = ActivityCollector(transport=budget.get, defer_enrichment=True)
+        result = refresh_due_top20_activity(season, limit=20, collector=collector,
+                                           should_continue=budget.can_start, **gate)
+        enrichment.update(enrichment_progress(season))
         # No large per-player result/payload in MonitorTask.flag. A completed scan
         # is not a declaration that partial/error/deferred modules are all ready.
         summary = {key: value for key, value in result.items() if key != 'results'}
-        summary.update(season_id=season.pk, checked_at=timezone.now().isoformat())
+        summary.update(season_id=season.pk, checked_at=timezone.now().isoformat(),
+                       enrichment=enrichment, http_requests=budget.requests)
         self._record(summary)
         logger.info('[PlayerRaiderIOActivity] %s', json.dumps(summary, sort_keys=True))
         # Scan outcome describes execution, not full business-data readiness.
         # Bounded backlog and anonymous source identities remain explicit in
         # flag, but are not permanent task failures on every successful pass.
         if (result['stop'] == 'rate_limited' and result['attempted'] == 0
+                and enrichment['error'] == 0
                 and not result.get('rate_limit_clock_error')):
             return True  # Known reset wait: no new source attempt or ready claim.
-        return not (result['stopped'] or any(result[key] for key in (
+        return not (enrichment['error'] or result['stopped'] or any(result[key] for key in (
             'error', 'partial', 'roster_error', 'raid_error')))
 
     def _record(self, summary):

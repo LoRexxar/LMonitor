@@ -9,7 +9,7 @@
 {% endblock %}
 
 {% block content %}
-{% if stats_refresh_required %}<p role="status">天赋资料已更新，统计正在重新生成，请稍后重试。</p>{% else %}
+{% if stats_refresh_required %}<p role="status">统计口径或基础资料已更新，统计正在重新生成，请稍后重试。</p>{% else %}
 <div class="spec-detail-page">
     {% include "portal/spec_detail/_overview_identity_and_tabs.html" with active_tab="raid" %}
 
@@ -34,6 +34,10 @@
         </div>
         {% if boss_detail.raid_instance_name %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_instance_name }}</p>{% elif boss_detail.raid_zone_cn %}<p class="text-muted" style="margin-bottom:4px;">{{ boss_detail.raid_zone_cn }} ({{ boss_detail.raid_zone_name }})</p>{% endif %}
         <p class="text-muted">样本量: {{ boss_detail.sample_size }} · {% if selected_raid_difficulty == 5 %}史诗难度{% else %}英雄难度{% endif %}</p>
+        <details class="text-muted"><summary>字段来源与统计口径</summary>
+            {% for field, source in boss_detail.field_sources.items %}<p>{{ source }}</p>{% endfor %}
+            <p>仅使用对应战斗日志，不补入人物当前资料。天赋、属性和种族仅统计各自有效样本。</p>
+        </details>
 
         {% if boss_detail.dps %}
         <div class="stat-cards stat-strip">
@@ -69,9 +73,11 @@
         </div>
         {% endif %}
 
+        {% if boss_detail.secondary_stats %}
         <div class="section-block secondary-stats-section">
-            <h4>属性绿字区间</h4>
-            {% if boss_detail.secondary_stats %}
+            <h4>日志属性绿字区间</h4>
+            <p class="text-muted">WCL 日志记录值 · 区间为 P25–P75 · 可能包含日志时点增益</p>
+
             <div class="secondary-stat-grid">
                 {% for stat in boss_detail.secondary_stats %}
                 <div class="secondary-stat-row">
@@ -93,14 +99,13 @@
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
+        {% if boss_detail.faction_distribution %}
         <div class="section-block">
             <h4>阵营分布</h4>
-            {% if boss_detail.faction_distribution %}
+
             <div class="stat-cards stat-strip">
                 {% for fid, info in boss_detail.faction_distribution.items %}
                 <div class="stat-card">
@@ -110,15 +115,15 @@
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
 
+        {% if boss_detail.race_distribution %}
         <div class="section-block">
             <h4>种族分布</h4>
-            {% if boss_detail.race_distribution %}
+            <p class="text-muted">仅包含日志提供种族的样本。</p>
+
             <div class="stat-cards stat-strip">
                 {% for race in boss_detail.race_distribution %}
                 <div class="stat-card">
@@ -128,10 +133,8 @@
                 </div>
                 {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
         {% if boss_detail.talent_popularity_tree.render_model %}
 
@@ -336,13 +339,16 @@
         </div>
         {% endif %}
 
+        {% if boss_detail.talent_build_popularity %}
         {% include "portal/spec_detail/_talent_build_analysis.html" with popularity=boss_detail.talent_build_popularity %}
+        {% endif %}
 
         <!-- 装备热门度 -->
+        {% if boss_detail.gear_popularity %}
         <div class="section-block popularity-section">
             <h4>装备热门度</h4>
             <div class="popularity-section-note">按部位统计样本玩家最常用装备，百分比代表样本中使用该装备的人数占比。</div>
-            {% if boss_detail.gear_popularity %}
+
             <div class="gear-slot-grid">
             {% for slot, items in boss_detail.gear_popularity.items %}
             <div class="gear-slot-section">
@@ -380,15 +386,14 @@
             </div>
             {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
+        {% if boss_detail.gem_popularity %}
         <div class="section-block popularity-section">
             <h4>宝石热门度</h4>
             <div class="popularity-section-note">按玩家去重统计：同一玩家插多个相同宝石只计 1 人。</div>
-            {% if boss_detail.gem_popularity %}
+
             <div class="popularity-card-grid">
             {% for gem in boss_detail.gem_popularity %}
             <a class="popularity-mini-card popularity-mini-card--link" href="{% if gem.wowhead_url %}{{ gem.wowhead_url }}{% else %}https://www.wowhead.com/cn/item={{ gem.id }}{% endif %}" target="_blank">
@@ -417,15 +422,14 @@
             </a>
             {% endfor %}
             </div>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
+        {% if boss_detail.enchant_popularity %}
         <div class="section-block popularity-section">
             <h4>附魔热门度</h4>
             <div class="popularity-section-note">按装备位置分组统计：显示样本中有多少人使用对应位置的附魔。</div>
-            {% if boss_detail.enchant_popularity %}
+
             <table class="data-table enchant-popularity-matrix">
                 <thead>
                     <tr><th>位置</th><th>#</th><th>附魔</th><th>热度</th><th>使用率</th><th>人数</th></tr>
@@ -451,10 +455,8 @@
                 {% endfor %}
                 </tbody>
             </table>
-            {% else %}
-            <div class="aggregation-pending">⏳ 数据等待聚合</div>
-            {% endif %}
         </div>
+        {% endif %}
 
         <div class="section-block">
             <h4>Top 5 DPS</h4>
@@ -505,7 +507,7 @@
                     <span>平均击杀: <strong>{{ b.kill_time.avg_fmt }}</strong></span>
                     {% endif %}
                     {% if b.faction_distribution %}
-                    <span>阵营: 
+                    <span>阵营:
                         {% for fid, info in b.faction_distribution.items %}
                             <strong>{% if fid == "0" %}联盟 {{ info.pct }}%{% elif fid == "1" %}部落 {{ info.pct }}%{% endif %}</strong>{% if not forloop.last %} / {% endif %}
                         {% endfor %}

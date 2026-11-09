@@ -153,7 +153,7 @@ class ProfileCacheTests(TestCase):
         self.assertEqual(original, ranking_signal({**data, 'rank': 2}))
         for key, value in [('gear', [{'id': 2}]), ('talent_build_code', 'new'), ('score', 11)]:
             self.assertNotEqual(original, ranking_signal({**data, key: value}))
-        self.assertEqual(ranking_signal({**data, 'gear': []}), '')
+        self.assertNotEqual(ranking_signal({**data, 'gear': []}), '')
 
     def test_daily_stats_collection_excludes_historical_sample_players(self):
         for rank, name in [(1, 'Current'), (None, 'Historical'), (21, 'Beyond')]:
@@ -165,3 +165,39 @@ class ProfileCacheTests(TestCase):
                 'botend.controller.plugins.portal.SpecDetailPlayerMonitor.time.sleep'):
             monitor._crawl_battlenet_stats(self.season.pk, ranked_only=True)
         fetch.assert_called_once_with('test', 'Current', 'eu')
+
+    def test_verified_stability_extends_recheck_but_caps_at_three_days(self):
+        signal = ranking_signal({'gear': [{'id': 1}], 'talent_build_code': 'code'})
+        self.get(signal)
+        self.age(hours=25)
+        self.get(signal)
+        self.assertEqual(self.fetch.call_count, 2)
+        self.age(hours=47)
+        self.get(signal)
+        self.assertEqual(self.fetch.call_count, 2)
+        self.age(hours=49)
+        self.get(signal)
+        self.assertEqual(self.fetch.call_count, 3)
+        self.age(hours=71)
+        self.get(signal)
+        self.assertEqual(self.fetch.call_count, 3)
+        self.age(hours=73)
+        self.get(signal)
+        self.assertEqual(self.fetch.call_count, 4)
+
+    def test_partial_signal_still_invalidates_available_changes_and_has_daily_ceiling(self):
+        signal = ranking_signal({'score': 10})
+        for _ in range(3):
+            self.get(signal)
+            self.age(hours=25)
+        self.get(signal)
+        self.assertEqual(self.fetch.call_count, 4)
+        self.get(ranking_signal({'score': 11}))
+        self.assertEqual(self.fetch.call_count, 5)
+        self.assertEqual(ranking_signal({'score': None, 'item_level': 0, 'gear': []}), '')
+
+    def test_build_changes_invalidate_even_recent_payload(self):
+        self.get()
+        self.season.game_build = 'new-build'
+        self.get()
+        self.assertEqual(self.fetch.call_count, 2)

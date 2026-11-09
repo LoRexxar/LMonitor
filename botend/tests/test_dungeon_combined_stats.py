@@ -43,9 +43,7 @@ class DungeonCombinedStatsTests(TestCase):
         result = SpecStatsService.get_dungeon_summary('Warrior', 'Arms', self.season.id)
         self.assertEqual(result['gem_popularity'][0]['id'], 456)
         self.assertEqual(result['gem_popularity'][0]['pct'], 20)
-        self.assertEqual(result['race_distribution'], [
-            {'race': 'unknown', 'race_cn': '未知', 'count': 5, 'pct': 100.0},
-        ])
+        self.assertNotIn('race_distribution', result)
         self.assertNotIn(999, [item['id'] for items in result['gear_popularity'].values() for item in items])
         self.assertEqual(result['sample_size'], 5)
         self.assertEqual(result['dps']['avg'], 300)
@@ -58,9 +56,11 @@ class DungeonCombinedStatsTests(TestCase):
         self.assertEqual(result['source'], 'Warcraft Logs')
         self.assertNotIn('talent_build_popularity', result)
         self.assertNotIn('talent_build_popularity', result['field_sources'])
-        for key in ('talent_usage', 'talent_popularity_tree',
-                    'gear_popularity', 'gem_popularity', 'enchant_popularity', 'secondary_stats', 'race_distribution', 'top5'):
+        for key in ('gear_popularity', 'gem_popularity', 'top5'):
             self.assertIn(key, result)
+        for key in ('talent_usage', 'talent_popularity_tree', 'enchant_popularity',
+                    'secondary_stats', 'race_distribution'):
+            self.assertNotIn(key, result)
 
     def test_summary_skips_build_computation_and_enrichment_only(self):
         self.row(gear_json=[{'id': 123, 'slot': 'head'}])
@@ -74,8 +74,8 @@ class DungeonCombinedStatsTests(TestCase):
             single = SpecStatsService.get_dungeon_detail(1, 'Warrior', 'Arms', self.season.id)
             builds.assert_called_once()
             enrichment.assert_not_called()
-        self.assertIn('talent_build_popularity', single)
-        self.assertIn('talent_build_popularity', single['field_sources'])
+        self.assertNotIn('talent_build_popularity', single)
+        self.assertNotIn('talent_build_popularity', single['field_sources'])
         self.assertNotIn('talent_build_popularity', summary)
         self.assertNotIn('talent_build_popularity', summary['field_sources'])
         # Same real cohort: every unrelated statistic and source must be identical.
@@ -209,7 +209,5 @@ class DungeonCombinedStatsTests(TestCase):
             if i == 1:
                 single_soup = BeautifulSoup(single.content, 'html.parser')
                 section = single_soup.select_one('#log-talents')
-                self.assertIsNotNone(section)
-                self.assertEqual(section.get('aria-label'), '日志天赋模板与变化')
-                self.assertIn('当前日志没有可完整比较的天赋样本', section.get_text())
+                self.assertIsNone(section)
         self.assertEqual(self.client.get('/portal/spec/Warrior/Arms/dungeons/?dungeon_id=bad').status_code, 404)

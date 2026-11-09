@@ -153,7 +153,7 @@ class RioScaleTests(SimpleTestCase):
             order.append('grid'); return original(c, meta)
         with patch.object(collector, 'fetch', side_effect=fetch), \
                 patch('botend.services.rio_statistics_maps.collect_maps', side_effect=lambda *a, **kw: order.append('maps')) as maps:
-            collector.run(modules=['heatmaps'], regions=['cn'], levels=['10-plus'], periods=['season'])
+            collector.run(modules=['heatmaps'], regions=['cn'], levels=['10-12'], periods=['season'])
         self.assertEqual(order[0], 'maps')
         maps.assert_called_once()
 
@@ -172,7 +172,7 @@ class RioScaleTests(SimpleTestCase):
             collector.stopped = True
             raise rio.RateLimited('地图来源限流')
         with patch('botend.services.rio_statistics_maps.collect_maps', side_effect=limited):
-            result = collector.run(modules=['heatmaps'], regions=['cn'], levels=['10-plus'], periods=['season'])
+            result = collector.run(modules=['heatmaps'], regions=['cn'], levels=['10-12'], periods=['season'])
         transport.assert_not_called()
         self.assertEqual((result['state'], result['failed']), ('backoff', 0))
         self.assertGreater(result['remaining'], 0)

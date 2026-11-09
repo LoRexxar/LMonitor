@@ -69,7 +69,6 @@
       ['raid', 'difficulty'].forEach((k) => query.set(k, $(k).value));
     }
     if (['heatmaps', 'runs'].includes(state.tab)) {
-      if ($('level').value === 'custom') ['min_level', 'max_level'].forEach((key) => query.set(key, $(key).value));
       if ($('period').value === 'custom') ['week_start', 'week_end'].forEach((key) => query.set(key, $(key).value));
     }
     return query;
@@ -114,7 +113,7 @@
     $('raid-filters').hidden = tab !== 'raids';
     if (load && tab === 'runs' && state.catalog) {
       const ready = state.catalog.available.filter((r) => r.coordinate.module === 'runs' && r.coordinate.region === $('region').value);
-      if (!ready.some((r) => r.coordinate.level === $('level').value)) $('level').value = ready[0]?.coordinate.level || 'all';
+      if (!ready.some((r) => r.coordinate.level === $('level').value)) $('level').value = ready[0]?.coordinate.level || '10-12';
     }
     rangeControls();
     if (load && state.catalog) refresh();
@@ -131,7 +130,6 @@
 
   function rangeControls() {
     const visible = ['heatmaps', 'runs'].includes(state.tab);
-    $('level-range').hidden = !visible || $('level').value !== 'custom';
     $('week-range').hidden = !visible || $('period').value !== 'custom';
   }
 
@@ -343,7 +341,7 @@
     const query = new URLSearchParams({ season: $('season').value, region: $('region').value,
       dungeon: $('dungeon').value, viewType: state.layer, scope: $('period').value === 'last-reset' ? 'last-reset' : 'season' });
     const level = state.catalog.levels.find((r) => r.value === $('level').value);
-    if (level) { query.set('minMythicLevel', level.value === 'custom' ? $('min_level').value : level.min); query.set('maxMythicLevel', level.value === 'custom' ? $('max_level').value : level.max); }
+    if (level) { query.set('minMythicLevel', level.min); query.set('maxMythicLevel', level.max); }
     const fieldNames = {include_classes:'includeClassIds',exclude_classes:'excludeClassIds',include_specs:'includeSpecIds',exclude_specs:'excludeSpecIds',death_classes:'includePlayerDeathClassIds',death_specs:'includePlayerDeathSpecIds',exclude_death_classes:'excludePlayerDeathClassIds',exclude_death_specs:'excludePlayerDeathSpecIds',include_affixes:'includeAffixIds',exclude_affixes:'excludeAffixIds',item_min:'minItemLevel',item_max:'maxItemLevel',deaths_min:'minPlayerDeaths',deaths_max:'maxPlayerDeaths',timer_min:'minTimerFraction',timer_max:'maxTimerFraction'};
     const selected = currentQuery();
     Object.entries(fieldNames).forEach(([key, name]) => { if (selected.has(key)) query.set(name, selected.get(key)); });
@@ -433,7 +431,9 @@
       $('version').textContent = scope ? `当前数据库赛季：${scope.season_name} · 版本 ${scope.game_build} · 每日凌晨更新${state.catalog.scope_message ? ' · ' + state.catalog.scope_message : ''}` : state.catalog.scope_message;
       select($('season'), state.catalog.seasons.map((s) => ({ value: s.slug, label: s.name })), state.catalog.current_season);
       select($('region'), state.catalog.regions, selection.get('region') || 'cn');
-      select($('level'), state.catalog.levels, selection.get('level') || (state.tab === 'runs' ? 'all' : '10-plus'));
+      const requestedLevel = selection.get('level');
+      if (requestedLevel && !state.catalog.levels.some((row) => row.value === requestedLevel)) throw new Error('链接中的层数范围已停用，请使用10–12层、16层及以上或20层及以上。');
+      select($('level'), state.catalog.levels, requestedLevel || '10-12');
       select($('period'), state.catalog.periods, selection.get('period') || 'season');
       populateWeeks(selection);
       idFilters.forEach((key) => {
@@ -442,7 +442,7 @@
         select($(key), rows, requested);
         if (requested && requested.split(',').some((id) => !rows.some((r) => String(r.value) === id))) throw new Error('当前版本未收录链接中的筛选条件，请重新选择。');
       });
-      [...numericFilters, 'min_level', 'max_level'].forEach((key) => { if (selection.has(key)) $(key).value = selection.get(key); });
+      numericFilters.forEach((key) => { if (selection.has(key)) $(key).value = selection.get(key); });
       const raids = [...state.catalog.raids].sort((a, b) => String(b.starts?.cn).localeCompare(String(a.starts?.cn)));
       select($('raid'), raids, selection.get('raid'));
       populateDungeons(selection.get('dungeon'));
@@ -463,10 +463,6 @@
     finally { host.setAttribute('aria-busy', 'false'); }
   }
   $('filters').addEventListener('submit', (event) => { event.preventDefault(); refresh(); });
-  $('apply-level-range').addEventListener('click', () => {
-    const invalid = ['min_level', 'max_level'].map((key) => $(key)).find((node) => !node.checkValidity());
-    if (invalid) invalid.reportValidity(); else refresh();
-  });
   controls.forEach((name) => $(name).addEventListener('change', () => {
     if (name === 'season') populateDungeons();
     if (name === 'region') populateWeeks();

@@ -27,10 +27,11 @@ class PlayerActivityMonitorRegistrationTests(TestCase):
         self.assertEqual(len(matches), 1, 'activity maintenance must be registered once')
         return matches[0], Monitor_Type_BaseObject_List
 
-    def test_registered_at_end_without_repurposing_historical_types(self):
+    def test_registration_preserves_historical_type_between_raid_and_rio(self):
         plugin, plugins = self.plugin()
-        self.assertIs(plugins[-1], plugin)
-        self.assertEqual(plugins[-2].__name__, 'RaidBurstAggregationMonitor')
+        index = plugins.index(plugin)
+        self.assertEqual(plugins[index - 1].__name__, 'RaidBurstAggregationMonitor')
+        self.assertEqual(plugins[index + 1].__name__, 'RioStatisticsMonitor')
         self.assertEqual(plugins[15].__name__, 'DedicatedSimcWorkerSlot')
         self.assertFalse(plugin.requires_browser)
         self.assertTrue(plugin.default_is_active)

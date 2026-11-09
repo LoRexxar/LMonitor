@@ -21,7 +21,7 @@ class OverviewProjectionCacheTests(TestCase):
         self.settings_override = override_settings(MEDIA_ROOT=self.temp.name)
         self.settings_override.enable()
         self.addCleanup(self.settings_override.disable)
-        self.season = SimpleNamespace(id=99, mplus_encounters=[{'id': 11}], raid_encounters=[{'id': 22}])
+        self.season = SimpleNamespace(id=99, rio_season='', mplus_encounters=[{'id': 11}], raid_encounters=[{'id': 22}])
         active = patch('botend.services.spec_overview_service.SpecStatsService.get_active_season',
                        return_value=self.season)
         active.start()
@@ -38,10 +38,10 @@ class OverviewProjectionCacheTests(TestCase):
     def payload(self, module):
         detail = {'last_updated': '2026-09-08T12:00:00Z', 'discarded_detail': ['x' * 1000] * 100}
         if module == 'mythic-plus':
-            return {'dungeons': [{'dungeon_id': 11, 'sample_size': 10, 'dps': {'median': 42},
+            return {'_data_contract': 'wcl-log-v2', 'dungeons': [{'dungeon_id': 11, 'sample_size': 10, 'dps': {'median': 42},
                                   'talent_usage': detail}]}
         zone = {'zone_id': 1, 'bosses': [{'boss_id': 22, 'sample_size': 20, 'talent_usage': detail}]}
-        return {'zone_groups': [zone], 'difficulties': [{'difficulty': 5, 'label': 'Mythic',
+        return {'_data_contract': 'wcl-log-v2', 'zone_groups': [zone], 'difficulties': [{'difficulty': 5, 'label': 'Mythic',
                                                        'zone_groups': [zone]}]}
 
     def test_cache_compacts_details_and_resolves_nested_timestamp_only_on_miss(self):

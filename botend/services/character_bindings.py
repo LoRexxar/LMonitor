@@ -175,8 +175,9 @@ def active_targets():
             .select_related('player').order_by('identity_digest', 'pk'))
 
 
-def refresh_bound_characters(monitor, season, refreshed_identities=()):
-    seen = set()
+def refresh_bound_characters(monitor, season, refreshed_identities=(), *, completed=(),
+                             on_complete=None, on_failure=None, defer_stats=False):
+    seen = set(completed)
     already_refreshed = set(refreshed_identities)
     refreshed = 0
     from utils.log import logger
@@ -202,6 +203,11 @@ def refresh_bound_characters(monitor, season, refreshed_identities=()):
                     profile_url=f'https://raider.io/characters/{binding.region}/{quote(binding.realm_slug, safe="")}/{quote(binding.character_name, safe="")}')
             UserCharacterBinding.objects.filter(identity_digest=binding.identity_digest).update(player=player)
             if binding.identity_digest in already_refreshed:
+                if defer_stats:
+                    from botend.services.character_enrichment import enqueue_battlenet_profiles
+                    enqueue_battlenet_profiles(season, [player])
+                if on_complete:
+                    on_complete(binding.identity_digest)
                 continue
             data = monitor._fetch_profile_with_activity(player, season)
             if data:
@@ -240,7 +246,19 @@ def refresh_bound_characters(monitor, season, refreshed_identities=()):
                 refreshed += 1
             # Stats have their own success state; one source failing must not
             # discard last-good facts from the other source.
-            monitor._crawl_battlenet_stats_for_profile(player)
-        except Exception:
+            if defer_stats:
+                from botend.services.character_enrichment import enqueue_battlenet_profiles
+                enqueue_battlenet_profiles(season, [player])
+            else:
+                monitor._crawl_battlenet_stats_for_profile(player)
+            callback = on_complete if data else on_failure
+            if callback:
+                callback(binding.identity_digest)
+        except Exception as exc:
+            from botend.models import MonitorTaskLeaseLost
+            if isinstance(exc, MonitorTaskLeaseLost):
+                raise
+            if on_failure:
+                on_failure(binding.identity_digest)
             logger.exception('[CharacterBinding] 绑定角色更新失败 id=%s', binding.pk)
     return refreshed

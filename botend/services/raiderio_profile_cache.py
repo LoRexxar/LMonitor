@@ -1,6 +1,7 @@
 """人物详情增量缓存：独立成功时钟、排名变化失效、失败退避和并发租约。"""
 import hashlib
 import json
+import math
 from collections import Counter
 from datetime import timedelta
 from uuid import uuid4
@@ -14,12 +15,46 @@ from botend.services.player_raiderio_activity import player_identity, validate_p
 
 
 def ranking_signal(player):
-    """排名数字不影响详情；分数、装备或天赋变化则重新核实。"""
-    if not player.get('gear') or not player.get('talent_build_code'):
-        return ''
-    values = {key: player.get(key) for key in (
-        '_class_name', '_spec_name', 'score', 'gear', 'item_level', 'talent_build_code')}
-    return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+    """仅比较来源实际提供的字段；缺失字段不是零值或内容未变的证据。"""
+    values = {}
+    for key in ('score', 'item_level'):
+        value = player.get(key)
+        if type(value) in (int, float) and math.isfinite(value) and (value >= 0 if key == 'score' else value > 0):
+            values[key] = value
+    if player.get('gear'):
+        values['gear'] = sorted(player['gear'], key=lambda item: json.dumps(item, sort_keys=True, ensure_ascii=False))
+    if player.get('talent_build_code'):
+        values['talent_build_code'] = player['talent_build_code']
+    return json.dumps({'v': 2, 'fields': values}, sort_keys=True, ensure_ascii=False) if values else ''
+
+
+def _fields(signal):
+    try:
+        value = json.loads(signal)
+        return value['fields'] if value.get('v') == 2 and isinstance(value.get('fields'), dict) else None
+    except (ValueError, TypeError, AttributeError, KeyError):
+        return None
+
+
+def _signal_state(signal, previous):
+    current, old = _fields(signal), _fields(previous)
+    if current is None or old is None:
+        if current is not None:
+            return bool(current.get('gear') and current.get('talent_build_code')), False
+        return bool(signal and previous is not None and signal != previous), False
+    changed = any(key not in old or current[key] != old[key] for key in current)
+    strong = all(key in current and key in old for key in ('gear', 'talent_build_code'))
+    return changed, strong and not changed
+
+
+def _profile_content(payload):
+    return {key: value for key, value in (payload or {}).items()
+            if not key.startswith('mythic_plus_') and key not in
+            ('raid_progression', 'last_crawled_at', 'last_updated_at')}
+
+
+def _scope(season):
+    return hashlib.sha256(json.dumps([season.pk, season.rio_season, season.game_build], sort_keys=True).encode()).hexdigest()
 
 
 class ProfileCache:
@@ -38,20 +73,23 @@ class ProfileCache:
             self.counts['unresolved'] += 1
             return fetch()
         now = timezone.now()
+        scope = _scope(season)
         owner = uuid4().hex
         with transaction.atomic():
             row, _ = RaiderIOProfileCache.objects.get_or_create(
                 season=season, identity_digest=activity_identity_digest(**identity))
             row = RaiderIOProfileCache.objects.select_for_update().get(pk=row.pk)
-            # 榜单信号不能证明所有人物字段未变；最长一天，变化信号可提前失效。
-            ttl = timedelta(days=1)
             signals = row.ranking_signals or {}
             previous = signals.get(signal_scope)
             # 不同专精的历史榜单信号不可互相比对，否则同一角色会反复失效。
-            changed = bool(signal and previous is not None and signal != previous)
+            changed, strong = _signal_state(signal, previous)
+            # 不完整或未知信号仍每天复核；完整信号且真实响应重复一致才逐步延长。
+            ttl = timedelta(days=1 + min(row.unchanged_count, 2) if strong else 1)
+            if row.scope_token != scope:
+                changed = True
             if (row.payload and row.fetched_at and not changed
                     and timedelta(0) <= now - row.fetched_at < ttl):
-                if signal and previous is None:
+                if signal and previous != signal:
                     row.ranking_signals = {**signals, signal_scope: signal}
                     row.save(update_fields=['ranking_signals'])
                 self.counts['hit'] += 1
@@ -80,6 +118,10 @@ class ProfileCache:
                     row.lease_owner = ''
                     row.lease_expires_at = None
                     if payload:
+                        row.unchanged_count = (min(2, row.unchanged_count + 1)
+                            if row.scope_token == scope and row.payload
+                            and _profile_content(row.payload) == _profile_content(payload) else 0)
+                        row.scope_token = scope
                         row.payload = payload
                         row.fetched_at = timezone.now()
                         if signal:

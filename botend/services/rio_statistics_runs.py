@@ -14,11 +14,21 @@ class StatisticsPending(ValueError):
     pass
 
 
+class RetiredLevel(ValueError):
+    """历史导入属于已停用层数，无需重复处理。"""
+
+
 def normalize_runs(source, meta):
     from botend.services.rio_statistics import LEVELS, coordinate, _stamp, number
     if not isinstance(source, dict) or source.get('type') != 'runs-over-time':
         raise ValueError('不是完成记录统计响应')
     if source.get('status') == 'generating':
+        query = source.get('query')
+        if isinstance(query, dict) and 'minMythicLevel' in query and 'maxMythicLevel' in query:
+            low = integer(query['minMythicLevel'], 2, 99)
+            high = integer(query['maxMythicLevel'], low, 99)
+            if (low, high) not in {value[:2] for value in LEVELS.values()}:
+                raise RetiredLevel('完成记录层数范围已停用')
         raise StatisticsPending('来源正在生成统计，已有数据保持不变')
     if source.get('status') != 'ready' or not isinstance(source.get('data'), list):
         raise ValueError('来源统计尚未就绪')
@@ -33,6 +43,8 @@ def normalize_runs(source, meta):
     low = integer(query.get('minMythicLevel'), 2, 99)
     high = integer(query.get('maxMythicLevel'), low, 99)
     level = next((key for key, value in LEVELS.items() if value[:2] == (low, high)), 'custom')
+    if level == 'custom':
+        raise RetiredLevel('完成记录层数范围已停用')
     params = {'season': query.get('season'), 'region': query.get('region') or 'world',
               'level': level, 'min_level': low, 'max_level': high}
     c = coordinate('runs', params, meta=meta)
@@ -101,6 +113,8 @@ def import_feeds(meta, *, changed_keys=None):
         try:
             changed = import_file(path, meta, retain=False, changed_keys=changed_keys)
             result['imported' if changed else 'skipped'] += 1
+        except RetiredLevel:
+            result['skipped'] += 1
         except StatisticsPending:
             result['pending'] += 1
         except (ValueError, KeyError, TypeError, OSError):

@@ -110,6 +110,7 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
             is_active=True, mplus_zone_id=1, raid_zone_id=2,
             mplus_encounters=[], raid_encounters=[{'id': 201, 'name': 'Old boss'}])
         self.monitor = SpecDetailRankingMonitor(None, None)
+        self.enterContext(patch.object(self.monitor, 'fetch_wcl_combatant_info', return_value=[]))
         self.directory = TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
         for p in (self.settings(MEDIA_ROOT=self.directory.name),
@@ -145,18 +146,18 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
              patch.object(self.monitor, 'fetch_wcl_combatant_info', return_value=events) as fetch:
             self.assertTrue(self.monitor.scan(''))
         old.refresh_from_db()
-        # Persistence omits parser defaults/aliases, not source selection facts.
-        self.assertEqual(old.talents_json, [{'tree_type': 'spec', 'talentID': 1234,
-            'entry_id': 1234, 'node_id': 1234, 'db2_trait_node_id': 4321,
-            'points': 1, 'source': 'wcl_combatantinfo'}])
-        self.assertEqual(normalize_talent_payload(old.talents_json),
+        self.assertEqual(old.talents_json, [])
+        from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
+        projected = enrich_dungeon_records([SpecRaidRanking.objects.filter(pk=old.pk).values().get()],
+                                           'Mage', 'Fire')[0]
+        self.assertEqual(normalize_talent_payload(projected['talents_json']),
             normalize_talent_payload(self.monitor.parse_wcl_talent_tree(events[0]['talentTree'])))
         current.refresh_from_db()
         self.assertEqual(current.talents_json,
             [{'talentID': 9876, 'points': 2, 'source': 'profile'}])
         self.assertEqual(fetch.call_count, 1)  # 两个难度共享中央战斗事实。
 
-    def test_raid_quota_preserves_entire_boss_then_resumes(self):
+    def test_raid_quota_keeps_frozen_rankings_then_resumes_logs(self):
         old = self.old_raid()
         before = SpecRaidRanking.objects.filter(pk=old.pk).values().get()
         def quota(*args):
@@ -167,14 +168,16 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
              patch.object(self.monitor, 'fetch_wcl_rankings', return_value=self.page()) as rankings, \
              patch.object(self.monitor, 'fetch_wcl_combatant_info', side_effect=quota):
             self.assertFalse(self.monitor.scan(''))
-        rankings.assert_called_once()
-        self.assertEqual(SpecRaidRanking.objects.filter(pk=old.pk).values().get(), before)
+        self.assertEqual(rankings.call_count, 4)
+        old.refresh_from_db()
+        self.assertEqual(old.dps, 123)
         cycle = WclCollectionCycle.objects.get()
-        self.assertEqual(cycle.phase, 'rankings')
-        self.assertEqual(cycle.completed_scopes, [])
+        self.assertEqual(cycle.phase, 'combatants')
+        self.assertEqual(set(cycle.completed_scopes), {'raid:5:201', 'raid:4:201'})
+        self.assertIsNone(cycle.published_at)
         self.assertEqual(cycle.next_retry_at, self.now + timedelta(hours=1))
         with patch(RANKING + '.timezone.now', return_value=cycle.next_retry_at), \
-             patch.object(self.monitor, 'fetch_wcl_rankings', return_value=self.page()), \
+             patch.object(self.monitor, 'fetch_wcl_rankings', side_effect=AssertionError('恢复日志不得重抓榜单')), \
              patch.object(self.monitor, 'fetch_wcl_combatant_info', return_value=[]):
             self.assertTrue(self.monitor.scan(''))
         cycle.refresh_from_db()
@@ -212,9 +215,10 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
         cycle = WclCollectionCycle.objects.get()
         self.assertEqual(cycle.phase, 'ready')
         self.assertEqual(set(cycle.completed_scopes), {'dungeon:101', 'raid:5:201', 'raid:4:201'})
-        self.assertEqual(cycle.selected_samples, {'Mage/Fire': {'101': [dungeon.pk]}})
+        self.assertEqual(cycle.selected_samples, {'Mage/Fire': {'101': []},
+            'raid:Mage/Fire': {'5:201': [old.pk], '4:201': []}})
 
-    def test_invalid_raid_combatant_payload_preserves_old_boss(self):
+    def test_invalid_raid_combatant_payload_blocks_publication_and_preserves_frozen_rankings(self):
         old = self.old_raid()
         before = SpecRaidRanking.objects.filter(pk=old.pk).values().get()
         for events in ([{}], [{'fight': 1, 'sourceID': 7, 'specID': 63,
@@ -225,8 +229,12 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
                 with patch.object(self.monitor, 'fetch_wcl_rankings', return_value=self.page()), \
                      patch.object(self.monitor, 'fetch_wcl_combatant_info', return_value=events):
                     self.assertFalse(self.monitor.scan(''))
-                self.assertEqual(SpecRaidRanking.objects.filter(pk=old.pk).values().get(), before)
-                self.assertEqual(WclCollectionCycle.objects.get().completed_scopes, [])
+                old.refresh_from_db()
+                self.assertEqual(old.dps, 123)
+                cycle = WclCollectionCycle.objects.get()
+                self.assertEqual(cycle.phase, 'combatants')
+                self.assertIsNone(cycle.published_at)
+                self.assertGreater(cycle.counts['failed'], 0)
 
     def test_bad_raid_empty_container_never_checkpoints(self):
         for page in ({}, {'rankings': []}, {'rankings': [], 'hasMorePages': True},

@@ -114,7 +114,7 @@ class RioNightScheduleTests(SimpleTestCase):
     def task(self, scanned=None):
         return SimpleNamespace(name='RioStatisticsMonitor', last_scan_time=scanned, wait_time=1, flag='', save=Mock())
 
-    def test_only_night_slot_and_once_per_local_day(self):
+    def test_daily_slot_and_completed_scope_not_repeated_during_daytime(self):
         zone = ZoneInfo('Asia/Shanghai')
         night = datetime(2026, 11, 5, 1, 0, tzinfo=zone)
         task = self.task(night - timedelta(days=1))
@@ -125,12 +125,14 @@ class RioNightScheduleTests(SimpleTestCase):
         task.flag = json.dumps({'identity': '2026-11-05@test', 'state': 'complete'})
         with patch('botend.services.rio_statistics_scope.active_scope', return_value={'token': 'test'}):
             self.assertIsNone(monitor_task_due_at(task, now=night + timedelta(hours=1)))
-        self.assertIsNone(monitor_task_due_at(task, now=night + timedelta(hours=10)))
+            self.assertIsNone(monitor_task_due_at(task, now=night + timedelta(hours=10)))
         self.assertIsNotNone(monitor_task_due_at(task, now=night + timedelta(days=1)))
 
-    def test_new_task_never_catches_up_during_daytime(self):
+    def test_daytime_does_not_start_a_new_daily_batch(self):
         now = datetime(2026, 11, 5, 10, 0, tzinfo=ZoneInfo('Asia/Shanghai'))
         self.assertIsNone(monitor_task_due_at(self.task(), now=now))
+        self.assertIsNone(monitor_task_due_at(self.task(now - timedelta(days=1)), now=now))
+        self.assertIsNotNone(monitor_task_due_at(self.task(now.replace(hour=5)), now=now))
 
     def test_night_plugin_does_not_repeat_successful_same_day_scope(self):
         self.assertFalse(RioStatisticsMonitor.requires_browser)

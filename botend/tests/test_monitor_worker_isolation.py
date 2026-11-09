@@ -34,23 +34,31 @@ class MonitorWorkerIsolationTests(TestCase):
                            for i in range(2)]
         self.assertEqual({task.pk for task in claimed_sources}, {wago.pk, peak.pk})
         first = claim_next_monitor_task(now=self.now, lease_owner='normal-1')
-        self.assertEqual(first.pk, news.pk)
+        self.assertEqual(first.pk, agg.pk)
+        self.assertIsNone(claim_next_monitor_task(now=self.now, lease_owner="quota-full"))
+        owner = next(task._monitor_task_lease_owner for task in claimed_sources if task.pk == wago.pk)
+        release_monitor_task_lease(wago.pk, owner)
         second = claim_next_monitor_task(now=self.now, lease_owner='normal-2')
-        self.assertEqual(second.pk, agg.pk)
+        self.assertEqual(second.pk, news.pk)
         cycle.refresh_from_db()
         self.assertEqual(WclCollectionCycle.objects.count(), 1)
         self.assertEqual(cycle.phase, 'aggregating')
-        self.assertEqual(cycle.owner, second._wcl_cycle_owner)
+        self.assertEqual(cycle.owner, first._wcl_cycle_owner)
         self.assertNotEqual(cycle.owner, 'interrupted')
         for task in (wago, peak):
             self.assertIsNone(claim_next_monitor_task(now=self.now,
                 task_names={task.name}, lease_owner='duplicate'))
             self.assertFalse(release_monitor_task_lease(task.pk, 'wrong-owner'))
-        self.assertEqual(MonitorTaskLease.objects.count(), 4)
+        self.assertEqual(MonitorTaskLease.objects.count(), 3)
 
     @override_settings(MONITOR_TASK_AUTO_SYNC_PLUGINS=False)
-    def test_backend_keeps_only_original_data_update_worker_outside_pool(self):
-        from botend.views import LMonitorCore, LMonitorCoreBackend
+    def test_backend_starts_two_isolated_long_workers(self):
+        # 隔离插件注册表；本测试仅验证工作者启动，不加载无关的Linux插件。
+        from types import ModuleType
+        registry = ModuleType("LMonitor.config")
+        registry.Monitor_Type_BaseObject_List = []
+        with patch.dict("sys.modules", {"LMonitor.config": registry}):
+            from botend.views import LMonitorCore, LMonitorCoreBackend
         started, release, lock = Event(), Event(), Lock()
         calls = []
 
@@ -81,8 +89,8 @@ class MonitorWorkerIsolationTests(TestCase):
                 backend._run()
                 self.assertTrue(started.wait(2), 'all slow-source workers must start independently')
                 self.assertCountEqual([names for names, _ in calls], [
-                    {'WowDataVersionMonitor'}])
-                self.assertEqual(len({thread.ident for _, thread in calls}), 1)
+                    {'WowDataVersionMonitor'}, {'RioStatisticsMonitor'}])
+                self.assertEqual(len({thread.ident for _, thread in calls}), 2)
                 self.assertTrue(all(thread.is_alive() for _, thread in calls))
                 backend.threadpool.new.assert_not_called()
         finally:
