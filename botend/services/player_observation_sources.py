@@ -897,9 +897,8 @@ def refresh_observation_sources(player, *, max_runs=MAX_RUNS, max_characters=MAX
         collector_status = result['activity']['status']
         activity = None
         if collector_status == 'backoff' and not batch.stop_event.is_set():
-            # A successful raid-partial envelope has a retry timer too. Reuse
-            # only this collector's exact identity/season row, with all M+
-            # clocks current to the latest attempt; failed last-good stays blocked.
+            # 团本未补齐也有重试时间；只复用当前人物、赛季的有效大秘境模块。
+            # 各模块独立判断成功时钟与待补状态，失败保留值不能冒充更新成功。
             activity = RaiderIOCharacterActivity.objects.filter(
                 pk=result['activity'].get('activity_id'), season=season, identity_digest=digest).first()
             if activity is not None and activity.status == 'partial' and mplus_modules_ready(activity):

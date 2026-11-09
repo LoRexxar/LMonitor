@@ -10,6 +10,7 @@ from botend.models import RaiderIOCharacterActivity
 from botend.services.player_analysis_recheck import Blocked, require_sources
 from botend.services.player_observation_sources import refresh_observation_sources
 from botend.services.player_raiderio_activity import mplus_modules_ready, project_player_activity
+from botend.tests.test_player_raiderio_activity import expire_activity_modules
 
 
 
@@ -115,7 +116,8 @@ class MplusModuleReadinessTests(TestCase):
         require_sources(self.collect())
         for field in ('mythic_plus_best_runs', 'mythic_plus_recent_runs', 'mythic_plus_dungeon_run_counts'):
             with self.subTest(field=field):
-                RaiderIOCharacterActivity.objects.filter(pk=self.row.pk).update(next_attempt_at=None)
+                self.row.refresh_from_db()
+                expire_activity_modules(self.row)
                 data = copy.deepcopy(self.data)
                 del data[field]
                 result = self.collect(data)
@@ -133,7 +135,8 @@ class MplusModuleReadinessTests(TestCase):
         data = copy.deepcopy(self.data); data['mythic_plus_scores_by_season'] = [{'season': 'season-old'}]; invalid.append(data)
         for data, status in [(d, 200) for d in invalid] + [(self.data, 503), (self.data, 429)]:
             with self.subTest(status=status, data=data):
-                RaiderIOCharacterActivity.objects.filter(pk=self.row.pk).update(next_attempt_at=None)
+                self.row.refresh_from_db()
+                expire_activity_modules(self.row)
                 with self.assertRaises(Blocked):
                     require_sources(self.collect(data, status))
                 self.assertFalse(mplus_modules_ready(self.row))

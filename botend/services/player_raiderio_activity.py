@@ -30,14 +30,61 @@ MODULES = {
     'raid_progression': 'raid_progression',
 }
 TTL = timedelta(hours=24)
+REFRESH_META = 'activity_refresh_meta'
+
+
+def _module_fresh(row, field, now, raid_scope=None):
+    """按各模块自己的成功时钟判断，不把其他模块的新请求视为失效。"""
+    meta = row.payload_json.get(REFRESH_META, {})
+    if field in meta.get('pending', {}):
+        return False
+    try:
+        stamp = _date(row.module_fetched_at.get(field))
+    except (ValueError, TypeError):
+        return False
+    if not stamp or not timedelta(0) <= now - stamp < TTL:
+        return False
+    # 旧记录或未经过本采集器的新尝试，仍需保守识别保留的旧值。
+    if (meta.get('attempted_at') != (row.last_attempt_at.isoformat() if row.last_attempt_at else None)
+            and row.last_attempt_at and stamp < row.last_attempt_at):
+        return False
+    if field != 'raid_progression':
+        return isinstance(row.payload_json.get(field), list)
+    from botend.services.player_raid_progression import META, progress_complete
+    if raid_scope is False or not isinstance(row.payload_json.get(field), dict):
+        return False
+    raid_meta = row.payload_json.get(META, {})
+    return (progress_complete(raid_scope, row.payload_json[field])
+            and raid_meta.get('complete') is not False
+            and (not raid_scope or raid_meta.get('scope_fingerprint') == raid_scope['fingerprint']))
+
+
+def _module_deadline(row, field, now, raid_scope):
+    pending = row.payload_json.get(REFRESH_META, {}).get('pending', {})
+    if field in pending:
+        try:
+            return _date(pending[field]) or now
+        except (ValueError, TypeError):
+            return now
+    if _module_fresh(row, field, now, raid_scope):
+        return _date(row.module_fetched_at[field]) + TTL
+    return now
+
+
+def _schedule_activity(row, now, raid_scope):
+    """完成状态来自完整缓存；下次领取由最早的模块到期或重试时间决定。"""
+    row.status = 'ready' if all(_module_fresh(row, field, now, raid_scope)
+                              for field in MODULES.values()) else 'partial'
+    row.next_attempt_at = min(
+        now + timedelta(hours=1) if field == 'raid_progression' and raid_scope is False
+        else _module_deadline(row, field, now, raid_scope)
+        for field in MODULES.values())
 
 
 def mplus_modules_ready(row):
-    """Current validated M+ facts, independent of raid progress completeness.
+    """检查大秘境模块有效性，不依赖团本进度是否完整。
 
-    A retained last-good module is not a successful response to the latest
-    attempt. Explicit empty lists count only with their own publication clock.
-    This does not override collector leases, backoffs or failed requests.
+    未补齐的模块不能借用保留旧值冒充成功，其他模块仍按自己的时钟复用。
     """
     now = timezone.now()
     if (row.status not in ('ready', 'partial') or row.last_error or not row.fetched_at
@@ -46,22 +93,19 @@ def mplus_modules_ready(row):
     for module, field in MODULES.items():
         if module == 'raid_progression':
             continue
-        try:
-            stamp = _date(row.module_fetched_at.get(field))
-        except (ValueError, TypeError):
-            return False
-        if (not isinstance(row.payload_json.get(field), list) or not stamp
-                or not timedelta(0) <= now - stamp <= TTL
-                or (row.last_attempt_at and stamp < row.last_attempt_at)):
+        if not _module_fresh(row, field, now):
             return False
     return True
 
 
-def activity_fields(rio_season, raid_slugs=None):
+def activity_fields(rio_season, raid_slugs=None, *, modules=None):
     raid = 'raid_progression:' + (':'.join(sorted(set(raid_slugs))) if raid_slugs is not None else 'current-tier')
-    return ','.join(filter(None, ('mythic_plus_best_runs:all', 'mythic_plus_recent_runs',
-                     f'mythic_plus_dungeon_run_counts:{rio_season}',
-                     raid if raid_slugs is None or raid_slugs else '', 'mythic_plus_scores_by_season:current')))
+    fields = dict(zip(MODULES.values(), ('mythic_plus_best_runs:all', 'mythic_plus_recent_runs',
+                  f'mythic_plus_dungeon_run_counts:{rio_season}',
+                  raid if raid_slugs is None or raid_slugs else '')))
+    selected = set(MODULES.values() if modules is None else modules)
+    return ','.join([value for field, value in fields.items() if field in selected and value]
+                    + ['mythic_plus_scores_by_season:current'])
 
 
 def player_identity(player):
@@ -117,7 +161,7 @@ def validate_profile_identity(data, identity):
         raise ValueError('wrong character identity')
 
 
-def validate_payload(data, identity, season):
+def validate_payload(data, identity, season, *, modules=None):
     """Validate before publication. Return only activity facts, never profile gear."""
     validate_profile_identity(data, identity)
     scores = data.get('mythic_plus_scores_by_season')
@@ -132,6 +176,8 @@ def validate_payload(data, identity, season):
         raid_scope = False
     facts = {}
     for module, field in MODULES.items():
+        if modules is not None and field not in modules:
+            continue
         if module == 'raid_progression' and raid_scope is False:
             continue
         if field not in data or data[field] is None:
@@ -220,10 +266,20 @@ class ActivityCollector:
             row = RaiderIOCharacterActivity.objects.select_for_update().get(pk=row.pk)
             starting_raid_clock = row.module_fetched_at.get('raid_progression')
             deferred = None
+            requested = []
             if row.next_attempt_at and row.next_attempt_at > now:
                 if row.status == 'fetching':
                     deferred = 'busy'
                 elif not (force or (refresh_ready and row.status == 'ready')):
+                    deferred = 'fresh' if row.status == 'ready' else 'backoff'
+            if deferred is None:
+                requested = [field for field in MODULES.values()
+                             if not (field == 'raid_progression' and raid_scope is False)
+                             and (force or (refresh_ready and row.status == 'ready')
+                                  or _module_deadline(row, field, now, raid_scope) <= now)]
+                if not requested:
+                    _schedule_activity(row, now, raid_scope)
+                    row.save(update_fields=['status', 'next_attempt_at'])
                     deferred = 'fresh' if row.status == 'ready' else 'backoff'
             # A profile refresh can reuse the transport even when activity is fresh;
             # only due activity fields are attached, never another activity request.
@@ -232,13 +288,16 @@ class ActivityCollector:
                 row.status = 'fetching'
                 row.last_attempt_at = now
                 row.next_attempt_at = now + timedelta(minutes=2)
-                row.save(update_fields=['status', 'last_attempt_at', 'next_attempt_at'])
+                pending = dict(row.payload_json.get(REFRESH_META, {}).get('pending', {}))
+                pending.update({field: row.next_attempt_at.isoformat() for field in requested})
+                row.payload_json[REFRESH_META] = {'attempted_at': now.isoformat(), 'pending': pending}
+                row.save(update_fields=['status', 'last_attempt_at', 'next_attempt_at', 'payload_json'])
         if deferred and not include_profile:
             return self._refresh_rosters({'status': deferred, 'activity_id': row.pk}, row, season, player)
-        fields = activity_fields(season.rio_season, raid_slugs) if collect_activity else ''
+        fields = activity_fields(season.rio_season, raid_slugs, modules=requested) if collect_activity else ''
         if include_profile:
             fields = ','.join(filter(None, ('gear,talents', fields)))
-        result = {'activity_id': row.pk}
+        result = {'activity_id': row.pk, 'requested_modules': requested}
         error, retry_seconds = '', None
         try:
             response = self.transport('https://raider.io/api/v1/characters/profile',
@@ -263,7 +322,7 @@ class ActivityCollector:
                     result['profile_payload'] = data
                 if not collect_activity:
                     return self._refresh_rosters({**result, 'status': deferred}, row, season, player)
-                facts, updated = validate_payload(data, identity, season)
+                facts, updated = validate_payload(data, identity, season, modules=requested)
         except (ValueError, TypeError, KeyError, AttributeError):
             error = 'invalid_payload'
         except requests.RequestException:
@@ -274,24 +333,28 @@ class ActivityCollector:
             current = RaiderIOCharacterActivity.objects.select_for_update().get(pk=row.pk)
             if current.last_attempt_at != now or current.status != 'fetching':
                 return {**result, 'status': 'superseded'}
+            pending = dict(current.payload_json.get(REFRESH_META, {}).get('pending', {}))
             if error:
                 current.failure_count += 1
                 current.status = 'error'
                 current.last_error = error
                 current.next_attempt_at = timezone.now() + timedelta(seconds=(retry_seconds or min(21600, 300 * 2 ** min(current.failure_count - 1, 6))))
+                pending.update({field: current.next_attempt_at.isoformat() for field in requested})
+                current.payload_json[REFRESH_META] = {'attempted_at': now.isoformat(), 'pending': pending}
             else:
                 # Merge the freshly locked payload: independent raid_first_kills
                 # and mythic_plus_scored_history retain their own clocks/leases.
-                complete_response = len(facts) == len(MODULES)
                 stamp = timezone.now()
+                completed = set(facts)
                 seed_source_clock(current)
-                if raid_scope and 'raid_progression' not in facts:
+                if raid_scope and 'raid_progression' in requested and 'raid_progression' not in facts:
                     current.payload_json[META] = {**current.payload_json.get(META, {}),
                         'status': 'partial', 'complete': False,
                         'next_attempt_at': (stamp + timedelta(hours=1)).isoformat()}
                 if 'raid_progression' in facts:
                     raid_complete = progress_complete(raid_scope, facts['raid_progression'])
-                    complete_response = complete_response and raid_complete
+                    if not raid_complete:
+                        completed.discard('raid_progression')
                     try:
                         latest_scope = bound_scope(SeasonMeta.objects.get(pk=season.pk))
                     except (ValueError, TypeError, KeyError):
@@ -299,7 +362,7 @@ class ActivityCollector:
                     if (current.module_fetched_at.get('raid_progression') != starting_raid_clock
                             or latest_scope != raid_scope or source_is_older(current, updated)):
                         facts.pop('raid_progression')
-                        complete_response = False
+                        completed.discard('raid_progression')
                     else:
                         current.payload_json[META] = progress_meta(current.payload_json.get(META, {}),
                             raid_scope, updated, stamp, raid_complete)
@@ -309,10 +372,15 @@ class ActivityCollector:
                 if facts:
                     current.fetched_at = stamp
                     current.source_updated_at = updated
-                current.status = 'ready' if complete_response else 'partial'
+                for field in requested:
+                    if field in completed:
+                        pending.pop(field, None)
+                    else:
+                        pending[field] = (stamp + timedelta(hours=1)).isoformat()
+                current.payload_json[REFRESH_META] = {'attempted_at': now.isoformat(), 'pending': pending}
                 current.failure_count = 0
                 current.last_error = ''
-                current.next_attempt_at = stamp + (TTL if current.status == 'ready' else timedelta(hours=1))
+                _schedule_activity(current, stamp, raid_scope)
             current.save()
         result['status'] = error or current.status
         return self._refresh_rosters(result, current, season, player)
@@ -450,7 +518,7 @@ def refresh_due_top20_activity(season, *, limit=100, collector=None,
     summary = dict(candidates=len(candidates), unresolved=len(candidates) - len(keyed),
         due=0, selected=0, attempted=0, ready=0, partial=0, fresh=0, fresh_race=0,
         busy=0, backoff=0, error=0, roster_error=0, raid_error=0,
-        remaining_due=0, stopped=False, stop='', states={}, results=[])
+        remaining_due=0, stopped=False, stop='', states={}, module_requests={}, results=[])
     now = timezone.now()
     metadata = _activity_metadata(season, keyed)
     due = []
@@ -489,6 +557,9 @@ def refresh_due_top20_activity(season, *, limit=100, collector=None,
                                                   candidate['player'].pk)
             result = {'status': 'collector_error'}
         state = result['status']
+        for field in result.get('requested_modules', []):
+            if field in MODULES.values():
+                summary['module_requests'][field] = summary['module_requests'].get(field, 0) + 1
         summary['states'][state] = summary['states'].get(state, 0) + 1
         counter = 'fresh_race' if state == 'fresh' else state if state in (
             'ready', 'partial', 'busy', 'backoff', 'unresolved') else 'error'

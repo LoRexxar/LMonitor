@@ -12,8 +12,24 @@ from django.utils import timezone
 
 from botend.models import PlayerSpecTopPlayer, SeasonMeta, RaiderIOCharacterActivity
 from botend.services.player_raiderio_activity import (
-    ActivityCollector, activity_fields, project_player_activity, top20_candidates,
+    ActivityCollector, REFRESH_META, TTL, activity_fields, project_player_activity, top20_candidates,
 )
+
+
+def activity_facts(row):
+    """重试元数据可以变化，已发布的来源事实必须保持不变。"""
+    return {key: value for key, value in row.payload_json.items() if key != REFRESH_META}
+
+
+def expire_activity_modules(row):
+    """构造模块真正到期的场景，而非仅提前整行领取时间。"""
+    now = timezone.now()
+    row.module_fetched_at = {field: (now - TTL).isoformat() for field in row.module_fetched_at}
+    meta = row.payload_json.get(REFRESH_META)
+    if meta:
+        meta['pending'] = {field: now.isoformat() for field in meta.get('pending', {})}
+    row.next_attempt_at = now
+    row.save(update_fields=['module_fetched_at', 'payload_json', 'next_attempt_at'])
 
 
 def payload(name='Tester'):
@@ -93,12 +109,12 @@ class PlayerActivityTests(TestCase):
         row = RaiderIOCharacterActivity.objects.get()
         self.assertEqual(row.payload_json['mythic_plus_best_runs'], old['mythic_plus_best_runs'])
         self.assertEqual(row.payload_json['mythic_plus_dungeon_run_counts'], [])
-        saved = copy.deepcopy(row.payload_json)
+        saved = copy.deepcopy(activity_facts(row))
         bad = payload(); bad['mythic_plus_recent_runs'] = 'not-a-list'
         collector.transport = self.transport(bad)
         self.assertEqual(collector.refresh(self.player, self.season, force=True)['status'], 'invalid_payload')
         row.refresh_from_db()
-        self.assertEqual(row.payload_json, saved)
+        self.assertEqual(activity_facts(row), saved)
         self.assertEqual(project_player_activity(self.player)['status'], 'stale')
         self.assertEqual(collector.refresh(self.player, self.season)['status'], 'backoff')
 
@@ -114,7 +130,7 @@ class PlayerActivityTests(TestCase):
             with self.subTest(payload=bad):
                 result = ActivityCollector(transport=self.transport(bad)).refresh(self.player, self.season, force=True)
                 self.assertEqual(result['status'], 'invalid_payload')
-        self.assertEqual(RaiderIOCharacterActivity.objects.get().payload_json, {})
+        self.assertEqual(activity_facts(RaiderIOCharacterActivity.objects.get()), {})
 
     def test_missing_and_empty_are_distinct_unknown_totals_not_zero(self):
         data = payload(); del data['mythic_plus_recent_runs']
@@ -195,7 +211,7 @@ class PlayerActivityTests(TestCase):
         row.save()
         self.assertEqual(collector.refresh(self.player, self.season, force=True)['status'], 'busy')
         row.next_attempt_at = timezone.now() - timedelta(seconds=1); row.save()
-        self.assertEqual(collector.refresh(self.player, self.season)['status'], 'ready')
+        self.assertEqual(collector.refresh(self.player, self.season)['status'], 'fresh')
 
     def test_candidate_discovery_is_bounded_scalar_then_identity_only(self):
         self.make_player('Holy', 'Historical', rank=None)
@@ -284,10 +300,9 @@ class PlayerActivityTests(TestCase):
     def test_daily_scan_invalid_activity_still_updates_valid_profile(self):
         ActivityCollector(transport=self.transport()).refresh(self.player, self.season)
         row = RaiderIOCharacterActivity.objects.get()
-        saved = copy.deepcopy(row.payload_json)
+        saved = copy.deepcopy(activity_facts(row))
         fetched_at = row.fetched_at
-        row.next_attempt_at = timezone.now() - timedelta(seconds=1)
-        row.save()
+        expire_activity_modules(row)
         data = self._profile_payload()
         data['mythic_plus_recent_runs'] = 'invalid-module'
         requests = self._scan_profile_response(data)
@@ -296,7 +311,7 @@ class PlayerActivityTests(TestCase):
         self.assertEqual(len(requests), 1)
         self.assertIn('gear,talents,mythic_plus_best_runs:all', requests[0])
         row.refresh_from_db()
-        self.assertEqual(row.payload_json, saved)
+        self.assertEqual(activity_facts(row), saved)
         self.assertEqual(row.fetched_at, fetched_at)
         self.assertEqual(row.last_error, 'invalid_payload')
         self.assertEqual(row.status, 'error')

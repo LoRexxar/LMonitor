@@ -15,6 +15,7 @@ from botend.raiderio_identity import activity_identity_digest
 from botend.services.player_raiderio_activity import (
     ActivityCollector, MODULES, TTL, player_identity, refresh_due_top20_activity,
 )
+from botend.tests.test_player_raiderio_activity import activity_facts, expire_activity_modules
 
 
 class FixtureHTTP:
@@ -212,12 +213,12 @@ class DueTop20ActivityTests(TestCase):
         result = self.run_due()
         self.assertEqual((result['error'], result['ready']), (1, 0))
         row.refresh_from_db()
-        self.assertEqual(row.payload_json, good)
+        self.assertEqual(activity_facts(row), good)
         self.assertEqual(row.last_error, 'invalid_payload')
         self.assertEqual(row.fetched_at, self.now - TTL - timedelta(minutes=1))
         self.http.bad_identity = False
         self.http.partial = True
-        RaiderIOCharacterActivity.objects.filter(pk=row.pk).update(next_attempt_at=self.now - timedelta(seconds=1))
+        expire_activity_modules(row)
         result = self.run_due()
         self.assertEqual((result['partial'], result['ready']), (1, 0))
         row.refresh_from_db()
@@ -229,14 +230,15 @@ class DueTop20ActivityTests(TestCase):
         row = self.activity(player, payload_json={'lastgood': ['kept']})
         for state in ('http_403', 'transport_error'):
             with self.subTest(state=state):
-                RaiderIOCharacterActivity.objects.filter(pk=row.pk).update(next_attempt_at=self.now)
+                row.refresh_from_db()
+                expire_activity_modules(row)
                 self.http.status = 403 if state == 'http_403' else 200
                 self.http.failure = requests.ConnectionError('fixture disconnect') if state == 'transport_error' else None
                 result = self.run_due()
                 self.assertEqual((result['error'], result['ready'], result['states']), (1, 0, {state: 1}))
                 row.refresh_from_db()
                 self.assertEqual(row.last_error, state)
-                self.assertEqual(row.payload_json, {'lastgood': ['kept']})
+                self.assertEqual(activity_facts(row), {'lastgood': ['kept']})
                 self.assertGreater(row.next_attempt_at, self.now)
                 calls = len(self.http.calls)
                 self.assertEqual(self.run_due()['backoff'], 1)
@@ -273,6 +275,8 @@ class DueTop20ActivityTests(TestCase):
         lastgood = copy.deepcopy(roster.payload_json)
         activity = RaiderIOCharacterActivity.objects.get()
         for roster_status in (403, 200, 429):
+            activity.refresh_from_db()
+            expire_activity_modules(activity)
             RaiderIOCharacterActivity.objects.filter(pk=activity.pk).update(next_attempt_at=self.now - timedelta(seconds=2))
             RaiderIORunRoster.objects.filter(pk=roster.pk).update(next_attempt_at=self.now)
             self.http.roster_status = roster_status
@@ -445,7 +449,7 @@ class DueTop20ActivityTests(TestCase):
         self.assertEqual(summary['states'], {'http_403': 1})
         self.assertNotIn('results', summary)
         self.http.status = 200
-        RaiderIOCharacterActivity.objects.update(next_attempt_at=self.now)
+        expire_activity_modules(RaiderIOCharacterActivity.objects.get())
         with patch('botend.services.player_raiderio_activity.requests.get', side_effect=self.http):
             self.assertTrue(monitor.scan(''))
         task.refresh_from_db()
