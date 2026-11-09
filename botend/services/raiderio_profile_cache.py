@@ -1,4 +1,4 @@
-"""人物详情增量缓存：独立成功时钟、排名变化失效、失败退避和并发租约。"""
+"""人物详情增量缓存：资料变化失效、独立复核时钟、失败退避和并发租约。"""
 import hashlib
 import json
 import math
@@ -15,12 +15,11 @@ from botend.services.player_raiderio_activity import player_identity, validate_p
 
 
 def ranking_signal(player):
-    """仅比较来源实际提供的字段；缺失字段不是零值或内容未变的证据。"""
+    """只记录资料变化信号；评分、排名不代表装备或天赋变化。"""
     values = {}
-    for key in ('score', 'item_level'):
-        value = player.get(key)
-        if type(value) in (int, float) and math.isfinite(value) and (value >= 0 if key == 'score' else value > 0):
-            values[key] = value
+    value = player.get('item_level')
+    if type(value) in (int, float) and math.isfinite(value) and value > 0:
+        values['item_level'] = value
     if player.get('gear'):
         values['gear'] = sorted(player['gear'], key=lambda item: json.dumps(item, sort_keys=True, ensure_ascii=False))
     if player.get('talent_build_code'):
@@ -31,7 +30,11 @@ def ranking_signal(player):
 def _fields(signal):
     try:
         value = json.loads(signal)
-        return value['fields'] if value.get('v') == 2 and isinstance(value.get('fields'), dict) else None
+        if value.get('v') == 2 and isinstance(value.get('fields'), dict):
+            # 兼容已保存的旧信号，忽略其中的评分；无需清缓存或全量回源。
+            return {key: value['fields'][key] for key in ('item_level', 'gear', 'talent_build_code')
+                    if key in value['fields']}
+        return None
     except (ValueError, TypeError, AttributeError, KeyError):
         return None
 

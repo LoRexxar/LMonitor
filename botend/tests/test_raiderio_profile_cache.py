@@ -1,5 +1,6 @@
 """验证重复运行请求量、变更失效、失败退避及活动刷新独立性。"""
 from datetime import timedelta
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -126,34 +127,78 @@ class ProfileCacheTests(TestCase):
         collector = Mock()
         collector.refresh.return_value = {'status': 'ready', 'profile_payload': self.payload}
         monitor._activity_collector = collector
+        self.player._ranking_signal = ranking_signal({'score': 3000})
         self.assertEqual(monitor._fetch_profile_with_activity(self.player, self.season), self.payload)
+        self.player._ranking_signal = ranking_signal({'score': 3010})
         self.assertEqual(monitor._fetch_profile_with_activity(self.player, self.season), self.payload)
         self.assertTrue(collector.refresh.call_args_list[0].kwargs['include_profile'])
         self.assertEqual(collector.refresh.call_args_list[1].kwargs, {})
 
-    def test_twenty_unchanged_players_same_day_make_zero_detail_requests(self):
+    def test_twenty_players_with_new_scores_same_day_make_zero_detail_requests(self):
         for index in range(20):
             self.player.character_name = f'Tester{index}'
             self.player.profile_url = f'https://raider.io/characters/eu/test-realm/Tester{index}'
             self.fetch.return_value = {**self.payload, 'name': self.player.character_name,
                 'profile_url': self.player.profile_url}
-            self.get('unchanged')
+            self.get(ranking_signal({'score': 3000, 'rank': index + 1}))
         self.assertEqual(self.fetch.call_count, 20)
         self.age(hours=12)
         self.fetch.reset_mock()
         for index in range(20):
             self.player.character_name = f'Tester{index}'
             self.player.profile_url = f'https://raider.io/characters/eu/test-realm/Tester{index}'
-            self.get('unchanged')
+            self.get(ranking_signal({'score': 3010, 'rank': 20 - index}))
         self.fetch.assert_not_called()
 
-    def test_signal_ignores_position_but_tracks_equipment_talents_and_score(self):
-        data = {'gear': [{'id': 1}], 'talent_build_code': 'code', 'score': 10, 'rank': 1}
+    def test_signal_ignores_score_and_position_but_tracks_profile_changes(self):
+        data = {'gear': [{'id': 1}], 'talent_build_code': 'code', 'item_level': 200,
+                'score': 10, 'rank': 1}
         original = ranking_signal(data)
-        self.assertEqual(original, ranking_signal({**data, 'rank': 2}))
-        for key, value in [('gear', [{'id': 2}]), ('talent_build_code', 'new'), ('score', 11)]:
+        self.assertEqual(original, ranking_signal({**data, 'rank': 2, 'score': 11}))
+        for key, value in [('gear', [{'id': 2}]), ('talent_build_code', 'new'), ('item_level', 201)]:
             self.assertNotEqual(original, ranking_signal({**data, key: value}))
         self.assertNotEqual(ranking_signal({**data, 'gear': []}), '')
+
+    def test_legacy_scores_are_ignored_without_resetting_freshness(self):
+        data = {'gear': [{'id': 1}], 'talent_build_code': 'code', 'item_level': 200}
+        self.get(ranking_signal(data))
+        self.age(hours=12)
+        before = RaiderIOProfileCache.objects.get().fetched_at
+        for fields in ({'score': 3000}, {**data, 'score': 3000}):
+            with self.subTest(fields=fields):
+                old = json.dumps({'v': 2, 'fields': fields})
+                RaiderIOProfileCache.objects.update(ranking_signals={'': old})
+                # 旧格式调用方与新格式调用方都不能因评分变化触发回源。
+                self.get(json.dumps({'v': 2, 'fields': {**fields, 'score': 3010}}))
+                self.get(ranking_signal({**fields, 'score': 3020}))
+                self.assertEqual(RaiderIOProfileCache.objects.get().fetched_at, before)
+        self.fetch.assert_called_once()
+
+    def test_score_only_changes_do_not_extend_the_daily_recheck(self):
+        now = timezone.now()
+        with patch('botend.services.raiderio_profile_cache.timezone.now', return_value=now):
+            self.get(ranking_signal({'score': 3000}))
+        for hours in (1, 12, 23):
+            with patch('botend.services.raiderio_profile_cache.timezone.now',
+                       return_value=now + timedelta(hours=hours)):
+                self.get(ranking_signal({'score': 3000 + hours}))
+        self.fetch.assert_called_once()
+        self.assertEqual(RaiderIOProfileCache.objects.get().fetched_at, now)
+        with patch('botend.services.raiderio_profile_cache.timezone.now',
+                   return_value=now + timedelta(hours=24)):
+            self.get(ranking_signal({'score': 3100}))
+        self.assertEqual(self.fetch.call_count, 2)
+
+    def test_profile_changes_still_refresh_immediately_with_legacy_scores(self):
+        data = {'gear': [{'id': 1}], 'talent_build_code': 'code', 'item_level': 200}
+        self.get(ranking_signal(data))
+        for index, (key, value) in enumerate((('gear', [{'id': 2}]),
+                ('talent_build_code', 'new'), ('item_level', 201)), start=2):
+            with self.subTest(field=key):
+                RaiderIOProfileCache.objects.update(ranking_signals={
+                    '': json.dumps({'v': 2, 'fields': {**data, 'score': 3000}})})
+                self.get(ranking_signal({**data, key: value, 'score': 3010}))
+                self.assertEqual(self.fetch.call_count, index)
 
     def test_daily_stats_collection_excludes_historical_sample_players(self):
         for rank, name in [(1, 'Current'), (None, 'Historical'), (21, 'Beyond')]:
@@ -186,13 +231,13 @@ class ProfileCacheTests(TestCase):
         self.assertEqual(self.fetch.call_count, 4)
 
     def test_partial_signal_still_invalidates_available_changes_and_has_daily_ceiling(self):
-        signal = ranking_signal({'score': 10})
+        signal = ranking_signal({'item_level': 200})
         for _ in range(3):
             self.get(signal)
             self.age(hours=25)
         self.get(signal)
         self.assertEqual(self.fetch.call_count, 4)
-        self.get(ranking_signal({'score': 11}))
+        self.get(ranking_signal({'item_level': 201}))
         self.assertEqual(self.fetch.call_count, 5)
         self.assertEqual(ranking_signal({'score': None, 'item_level': 0, 'gear': []}), '')
 
