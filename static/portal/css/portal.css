@@ -1037,6 +1037,80 @@ body {
     text-overflow: ellipsis;
 }
 
+/* Homepage-only non-modal NGA preview; keep the NGA page tooltip separate. */
+.portal-nga-preview {
+  position: fixed;
+  z-index: 9999;
+  box-sizing: border-box;
+  width: min(520px, calc(100vw - 24px));
+  max-width: calc(100vw - 24px);
+  max-height: min(360px, calc(100vh - 24px));
+  max-height: min(360px, calc(100dvh - 24px));
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  color: #334155;
+  box-shadow: 0 12px 32px rgb(15 23 42 / 18%);
+  font-size: 13px;
+  line-height: 1.6;
+}
+.portal-nga-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  gap: 12px;
+  padding: 4px 8px 4px 14px;
+  border-bottom: 1px solid #e2e8f0;
+  color: #0f172a;
+}
+.portal-nga-preview__content {
+  min-height: 0;
+  padding: 10px 14px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.portal-nga-preview__hint {
+  flex: 0 0 auto;
+  padding: 6px 14px;
+  color: #64748b;
+  font-size: 11px;
+}
+.portal-nga-preview__close,
+.portal-nga-preview__toggle {
+  min-width: 40px;
+  min-height: 40px;
+  padding: 4px 10px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #f8fafc;
+  color: #4338ca;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.2;
+  touch-action: manipulation;
+}
+.portal-nga-preview__close:hover,
+.portal-nga-preview__toggle:hover,
+.portal-nga-preview__toggle[aria-expanded="true"] { background: #e0e7ff; }
+.portal-nga-preview__close:focus-visible,
+.portal-nga-preview__toggle:focus-visible,
+.portal-nga-preview__content:focus-visible { outline: 2px solid #6366f1; outline-offset: -2px; }
+.portal-theme-dark .portal-nga-preview { background: #172033; border-color: #475569; color: #e2e8f0; }
+.portal-theme-dark .portal-nga-preview__header { color: #f8fafc; border-color: #334155; }
+.portal-theme-dark .portal-nga-preview__hint { color: #94a3b8; }
+.portal-theme-dark .portal-nga-preview__close,
+.portal-theme-dark .portal-nga-preview__toggle { background: #1e293b; border-color: #475569; color: #c7d2fe; }
+.portal-theme-dark .portal-nga-preview__close:hover,
+.portal-theme-dark .portal-nga-preview__toggle:hover,
+.portal-theme-dark .portal-nga-preview__toggle[aria-expanded="true"] { background: #334155; }
+
 .nga-tooltip {
     position: fixed;
     z-index: 50;
@@ -3230,3 +3304,75 @@ html.portal-theme-dark .portal-tool-row-badge.is-new {
 .portal-today-more { color: var(--portal-accent-primary, #6657c8); font-size: 0.72rem; white-space: nowrap; padding: 0.32rem 0.48rem; cursor: pointer; }
 .portal-today-more:hover { text-decoration: underline; }
 .portal-today-more:focus-visible { outline: 2px solid var(--portal-accent-primary, #6657c8); outline-offset: 2px; }
+
+
+/* Activity calendar: scoped independently of the legacy activity/Tailwind rules. */
+.portal-monthly {
+    --cal-line: #e2e8f0; --cal-muted: #64748b; --cal-ink: #0f172a;
+    --cal-surface: #fff; --cal-soft: #f8fafc; --cal-selected: #ecfdf5; --cal-accent: #047857;
+    display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .9fr);
+    color: var(--cal-ink); background: var(--cal-surface); border: 1px solid var(--cal-line);
+    border-radius: 14px; overflow: hidden; min-width: 0;
+}
+.portal-monthly *, .portal-monthly *::before, .portal-monthly *::after { box-sizing: border-box; }
+.portal-monthly-calendar, .portal-monthly-agenda { min-width: 0; }
+.portal-monthly-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 18px 16px 14px; }
+.portal-monthly h3 { margin: 0; font-size: 16px; font-weight: 700; line-height: 1.6; }
+.portal-monthly-toolbar p, .portal-monthly-agenda-head p { margin: 3px 0 0; font-size: 12px; color: var(--cal-muted); }
+.portal-monthly-controls { display: flex; gap: 4px; flex-shrink: 0; }
+.portal-monthly-controls button { min-height: 36px; min-width: 36px; padding: 4px 8px; border: 1px solid var(--cal-line); border-radius: 6px; color: var(--cal-ink); background: var(--cal-surface); font-size: 12px; cursor: pointer; }
+.portal-monthly-controls button:first-child, .portal-monthly-controls button:last-child { font-size: 22px; line-height: 1; }
+.portal-monthly-controls button:disabled { opacity: .35; cursor: not-allowed; }
+.portal-monthly-weekdays, .portal-monthly-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.portal-monthly-weekdays { padding: 8px 0; color: var(--cal-muted); font-size: 11px; text-align: center; border-top: 1px solid var(--cal-line); }
+.portal-monthly-grid { border-top: 1px solid var(--cal-line); }
+.portal-monthly-day { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0; min-height: 88px; padding: 7px 6px; border: 0; border-right: 1px solid var(--cal-line); border-bottom: 1px solid var(--cal-line); text-align: left; color: var(--cal-ink); background: var(--cal-surface); cursor: pointer; overflow: hidden; }
+.portal-monthly-day:nth-child(7n) { border-right: 0; }
+.portal-monthly-number { display: inline-flex; align-items: center; justify-content: center; width: 25px; height: 25px; flex-shrink: 0; font-size: 14px; font-weight: 600; border: 1px solid transparent; border-radius: 50%; }
+.portal-monthly-day.is-today .portal-monthly-number { border-color: var(--cal-accent); color: var(--cal-accent); }
+.portal-monthly-day.is-outside { color: var(--cal-muted); background: var(--cal-soft); }
+.portal-monthly-day.is-outside:disabled .portal-monthly-number { opacity: .6; }
+.portal-monthly-day[aria-pressed="true"] { background: var(--cal-selected); box-shadow: inset 0 0 0 2px var(--cal-accent); }
+.portal-monthly-day:disabled { cursor: default; opacity: .45; }
+.portal-monthly-day:not(:disabled):hover { background: var(--cal-selected); }
+.portal-monthly :is(button, summary, a):focus-visible { outline: 2px solid var(--cal-accent); outline-offset: -2px; }
+.portal-monthly-count { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; color: var(--cal-muted); font-size: 11px; line-height: 1.4; }
+.portal-monthly-dots { display: inline-flex; gap: 2px; }
+.portal-monthly-dots i { width: 4px; height: 4px; border-radius: 50%; background: #94a3b8; }
+.portal-monthly [data-status="active"] { --status-ink: #047857; --status-bg: #ecfdf5; }
+.portal-monthly [data-status="upcoming"] { --status-ink: #0369a1; --status-bg: #f0f9ff; }
+.portal-monthly [data-status="ended"], .portal-monthly [data-status="unknown"] { --status-ink: #64748b; --status-bg: #f1f5f9; }
+.portal-monthly-dots i[data-status] { background: var(--status-ink); }
+.portal-monthly-preview { display: block; width: 100%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 11px; line-height: 1.5; color: var(--cal-muted); }
+.portal-monthly-boundary { margin: 10px 14px; color: var(--cal-muted); font-size: 11px; line-height: 1.7; }
+.portal-monthly-all { margin: 0 14px 14px; border-top: 1px solid var(--cal-line); }
+.portal-monthly-all > summary { padding: 12px 0 0; color: var(--cal-accent); font-size: 12px; cursor: pointer; font-weight: 600; }
+.portal-monthly-agenda { border-left: 1px solid var(--cal-line); padding: 18px 20px; }
+.portal-monthly-agenda-head { padding-bottom: 13px; border-bottom: 1px solid var(--cal-line); }
+.portal-monthly-today { margin-left: 8px; font-size: 11px; font-weight: 500; color: var(--cal-accent); }
+.portal-monthly-event { padding: 16px 0; border-bottom: 1px solid var(--cal-line); }
+.portal-monthly-event:last-child { border-bottom: 0; }
+.portal-monthly-event-head { display: flex; align-items: flex-start; gap: 8px; justify-content: space-between; }
+.portal-monthly-event-link { min-width: 0; color: var(--cal-ink); font-size: 14px; font-weight: 600; line-height: 1.7; overflow-wrap: anywhere; }
+.portal-monthly a.portal-monthly-event-link:hover { color: var(--cal-accent); text-decoration: underline; text-underline-offset: 3px; }
+.portal-monthly-status { flex-shrink: 0; max-width: 45%; padding: 2px 7px; border-radius: 4px; background: var(--status-bg); color: var(--status-ink); font-size: 11px; line-height: 1.7; overflow-wrap: anywhere; }
+.portal-monthly-time { display: grid; gap: 3px; margin-top: 6px; color: var(--cal-muted); font-size: 12px; line-height: 1.7; overflow-wrap: anywhere; }
+.portal-monthly-description { margin-top: 9px; font-size: 12px; line-height: 1.8; color: var(--cal-muted); }
+.portal-monthly-description summary { cursor: pointer; width: fit-content; color: var(--cal-accent); }
+.portal-monthly-description > div { padding-top: 6px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.portal-monthly-empty { margin: 0; padding: 26px 0; color: var(--cal-muted); font-size: 13px; line-height: 1.8; }
+.portal-theme-dark .portal-monthly { --cal-line: #334155; --cal-muted: #94a3b8; --cal-ink: #e2e8f0; --cal-surface: #0f172a; --cal-soft: #172033; --cal-selected: #12352e; --cal-accent: #6ee7b7; }
+.portal-theme-dark .portal-monthly [data-status="active"] { --status-ink: #6ee7b7; --status-bg: #12352e; }
+.portal-theme-dark .portal-monthly [data-status="upcoming"] { --status-ink: #7dd3fc; --status-bg: #163047; }
+.portal-theme-dark .portal-monthly [data-status="ended"], .portal-theme-dark .portal-monthly [data-status="unknown"] { --status-ink: #cbd5e1; --status-bg: #243247; }
+@media (max-width: 767px) {
+    .portal-monthly { grid-template-columns: minmax(0, 1fr); }
+    .portal-monthly-agenda { border-left: 0; border-top: 1px solid var(--cal-line); padding: 16px; }
+    .portal-monthly-toolbar { padding: 14px 10px; gap: 8px; flex-wrap: wrap; }
+    .portal-monthly h3 { font-size: 15px; }
+    .portal-monthly-day { min-height: 64px; padding: 5px 3px; gap: 2px; }
+    .portal-monthly-preview { display: none; }
+    .portal-monthly-count { gap: 3px; }
+    .portal-monthly-dots { gap: 1px; }
+    .portal-monthly-event { padding: 14px 0; }
+}

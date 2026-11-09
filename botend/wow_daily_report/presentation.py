@@ -14,6 +14,8 @@ import hashlib
 import html
 import re
 from collections.abc import Callable, Mapping, Sequence
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
@@ -21,12 +23,12 @@ from zoneinfo import ZoneInfo
 
 _SHORT_NAMES = {
     'news': '新闻', 'nga': '社区', 'videos': '视频', 'cutoffs': '冲分',
-    'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修',
+    'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修', 'rio': '数据观察',
 }
 _DEFAULT_TITLES = {
     'news': '魔兽世界当天新闻', 'nga': 'NGA 热议',
     'videos': '当前更新的 WoW 视频列表', 'cutoffs': '大秘境分数线汇总',
-    'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修',
+    'today': '北美轮换', 'events': '活动日历', 'updates': '版本热修', 'rio': '数据观察',
 }
 _BEIJING = ZoneInfo('Asia/Shanghai')
 
@@ -119,6 +121,37 @@ def _generic_items(items: Sequence[Any]) -> str:
     return '<div class="article-list">' + '\n'.join(cards) + '</div>'
 
 
+_RIO_CSS = """
+.rio-report-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.rio-report-card{padding:18px 20px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.rio-report-heading{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}
+.rio-report-heading h3{margin:0;font-size:18px}.rio-report-heading>span{font-size:12px;color:var(--muted)}
+.rio-report-date{margin:3px 0 12px;color:var(--muted);font-size:12px}
+.rio-report-status{color:var(--gold);margin-left:8px}
+.rio-report-population{display:flex;align-items:baseline;gap:12px;margin:0 0 12px}
+.rio-report-population strong{font-size:30px;line-height:1.3;letter-spacing:-.02em;font-variant-numeric:tabular-nums}
+.rio-report-population>span{font-size:12px;color:var(--muted)}
+.rio-report-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin:0;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.rio-report-metrics dt{font-size:12px;color:var(--muted)}.rio-report-metrics dt span{display:block;font-size:11px}
+.rio-report-metrics dd{font-size:21px;font-weight:650;font-variant-numeric:tabular-nums;margin:3px 0 0}
+.rio-report-metrics dd[data-direction=positive]{color:#277050}.rio-report-metrics dd[data-direction=negative]{color:#a04444}
+.rio-report-source,.rio-report-missing{font-size:11px;color:var(--muted);line-height:1.7;margin:8px 0}
+.rio-report-links{display:flex;flex-wrap:wrap;gap:8px 20px;margin-top:10px;font-size:13px}
+.rio-weekly-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.rio-weekly-card{min-width:0;padding:18px 20px;background:var(--panel);border:1px solid var(--line);border-radius:8px}
+.rio-weekly-heading{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 14px}.rio-weekly-heading h3{margin:0;font-size:18px}.rio-weekly-heading>span{font-size:12px;color:var(--muted)}
+.rio-weekly-period{margin:3px 0 12px;font-size:12px;color:var(--muted)}
+.rio-weekly-population{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 12px;margin:0 0 12px}.rio-weekly-population strong{font-size:30px;line-height:1.3;font-variant-numeric:tabular-nums;letter-spacing:-.02em}.rio-weekly-population span{font-size:12px;color:var(--muted)}
+.rio-weekly-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:0;padding:10px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}.rio-weekly-metrics dt{font-size:11px;color:var(--muted)}.rio-weekly-metrics dd{margin:3px 0 0;font-size:20px;font-weight:650;font-variant-numeric:tabular-nums}.rio-weekly-metrics [data-direction=positive]{color:#277050}.rio-weekly-metrics [data-direction=negative]{color:#a04444}
+.rio-weekly-summary{font-size:13px;line-height:1.8;margin:10px 0;padding:8px 10px;border-left:2px solid var(--gold);background:var(--tint)}
+.rio-weekly-coverage{font-size:12px;margin:10px 0 6px;color:var(--muted)}
+.daily-report .rio-weekly-table{display:table;table-layout:fixed;width:100%;margin:0 0 10px;font-size:12px;font-variant-numeric:tabular-nums;line-height:1.6}.daily-report .rio-weekly-table :is(th,td){min-width:0;padding:5px 7px;border:0;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}.daily-report .rio-weekly-table tr>:first-child{text-align:left;width:29%}.rio-weekly-table tbody th{background:transparent;font-weight:400}
+.rio-weekly-source,.rio-weekly-missing{font-size:11px;color:var(--muted);line-height:1.7;margin:7px 0}.rio-weekly-links{display:flex;flex-wrap:wrap;gap:8px 20px;font-size:13px;margin-top:10px}
+@media(max-width:700px){.rio-weekly-grid{grid-template-columns:minmax(0,1fr);gap:12px}.rio-weekly-card{padding:16px}.rio-weekly-population strong{font-size:28px}.rio-weekly-metrics dd{font-size:18px}}
+@media(max-width:700px){.rio-report-grid{grid-template-columns:minmax(0,1fr);gap:12px}.rio-report-card{padding:16px}.rio-report-population strong{font-size:28px}}
+"""
+
+
 _CSS = """
 :root{color-scheme:light;--paper:var(--portal-bg,#f7f8fa);--panel:var(--portal-panel,#fff);--ink:var(--portal-text,#172e47);--muted:var(--portal-muted,#607185);--gold:#92651c;--tint:#fbf7ec;--line:#dde3e9;--link:#205a88;--blue-tint:#f0f5fa}
 *,:before,:after{box-sizing:border-box}
@@ -137,6 +170,7 @@ a:focus-visible{outline:2px solid var(--gold);outline-offset:4px}
 .daily-hero h1{margin:0;font-size:34px;font-weight:750;letter-spacing:.025em;line-height:1.3}
 .edition-date{margin:0 0 2px;text-align:right;font-size:20px;font-weight:650;line-height:1.5;font-variant-numeric:tabular-nums;white-space:nowrap}
 .edition-date-label{display:block;text-align:right;color:var(--muted);font-size:11px;font-weight:400;letter-spacing:.12em}
+.edition-period{padding:10px 0 11px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);line-height:1.7}.edition-period p{margin:0}.edition-period strong{color:var(--ink);font-weight:600}.edition-period+.edition-overview{padding-top:12px}
 .edition-overview{display:flex;align-items:center;gap:24px;margin:0 0 28px;padding:17px 0;border-bottom:1px solid var(--line)}
 .edition-overview h2{flex:none;margin:0;color:var(--muted);font-size:11px;font-weight:500;letter-spacing:.08em}
 .daily-nav{flex:1}
@@ -222,12 +256,19 @@ th{background:var(--blue-tint);font-weight:650}
 """
 
 
+@lru_cache(maxsize=1)
+def _bluepost_channel_css() -> str:
+    """Freeze the shared source palette into new editions, not published files."""
+    return (Path(__file__).resolve().parents[2] / 'static/shared/css/bluepost-channel.css').read_text(encoding='utf-8')
+
+
 def render_daily_document(
     report_date: dt.date | str,
     sections: Sequence[Mapping[str, Any]],
     body_renderers: Mapping[str, Callable[[Sequence[Any]], str]],
     *,
     generated_at: dt.datetime | str,
+    edition: Mapping[str, Any] | None = None,
 ) -> str:
     """Return a complete, self-contained Chinese daily edition.
 
@@ -240,6 +281,23 @@ def render_daily_document(
     stable occurrence suffix. No database, network or model calls occur here.
     """
     date_text = report_date.isoformat() if isinstance(report_date, dt.date) else _text(report_date)
+    # Absence is intentional: legacy HTML must never be relabelled by weekday.
+    weekly = False
+    if edition is not None:
+        from .edition import published_edition
+        validated = published_edition(report_date, {'edition': edition})
+        if validated is None:
+            raise ValueError('日报版次元数据与内容日期不一致')
+        weekly = validated['kind'] == 'wednesday_weekly'
+    heading = '魔兽世界周报' if weekly else '魔兽世界日报'
+    kicker = 'WOW WEEKLY · 周三特刊' if weekly else 'WOW DAILY · 每日读本'
+    display_date = validated['publication_date'] if weekly else date_text
+    period_html = (
+        '<div class="edition-period"><p><strong>数据观察周期 '
+        f'{_escape(validated["period_start"])}—{_escape(validated["period_end"])}</strong>'
+        '（周三—周二，北京时间）</p>'
+        f'<p>数据观察按完整7天汇总；新闻、活动等仍按日报内容日 {_escape(date_text)} 收录。</p></div>'
+    ) if weekly else ''
     output, overview = [], []
     seen: dict[str, int] = {}
     used_anchors: set[str] = set()
@@ -259,15 +317,17 @@ def render_daily_document(
             anchor = f'{base_anchor}-{seen[base_anchor]}'
         used_anchors.add(anchor)
         short_name = _SHORT_NAMES.get(key, '站内内容')
+        if weekly and key == 'rio':
+            short_name = '数据周报'
         title = _text(section.get('title')) or _DEFAULT_TITLES.get(key, '站内新内容')
         count = len(items)
         unit = {'news': '条新闻', 'nga': '个话题', 'videos': '个视频', 'cutoffs': '个地区',
-                'today': '张卡片', 'events': '项活动', 'updates': '份报告'}.get(key, '项')
+                'today': '张卡片', 'events': '项活动', 'updates': '份报告', 'rio': '个地区'}.get(key, '项')
         overview.append(
             f'<li data-section="{_escape(key)}"><a href="#{anchor}">{short_name}</a>'
             f'<strong class="overview-count">{count}</strong><span class="overview-unit">{unit}</span></li>'
         )
-        summary = _text(section.get('summary')) if key != 'cutoffs' else ''
+        summary = _text(section.get('summary')) if key not in ('cutoffs', 'rio') else ''
         summary_html = f'<p class="section-summary">{_escape(summary)}</p>' if summary else ''
         renderer = body_renderers.get(key)
         body = renderer(items) if renderer is not None else _generic_items(items)
@@ -278,6 +338,9 @@ def render_daily_document(
             + _source_metadata(section) + '\n' + summary_html + '\n'
             + '<div class="section-body">\n' + body + '\n</div>\n</section>'
         )
+        if key == 'rio':
+            overview[-1] = '<!--daily-rio:nav-->' + overview[-1] + '<!--/daily-rio:nav-->'
+            output[-1] = '<!--daily-rio:section-->' + output[-1] + '<!--/daily-rio:section-->'
     overview_html = (
         '<aside class="edition-overview" aria-labelledby="overview-title">'
         '<h2 id="overview-title">本期导读</h2><nav class="daily-nav" aria-label="本期目录">'
@@ -287,12 +350,14 @@ def render_daily_document(
     return (
         '<!doctype html>\n<html lang="zh-CN">\n<head>\n<meta charset="utf-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
-        f'<title>魔兽世界日报 - {_escape(date_text)}</title>\n<style>{_CSS}</style>\n</head>\n<body>\n'
+        f'<title>{heading} - {_escape(display_date)}</title>\n<style>{_CSS}</style>\n'
+        f'<style id="bluepost-channel-style">{_bluepost_channel_css()}</style>\n'
+        f'<!--daily-rio:style--><style id="daily-rio-style">{_RIO_CSS}</style>\n<!--/daily-rio:style--></head>\n<body>\n'
         '<a class="skip-link" href="#edition-content">跳到本期正文</a>\n'
         '<main class="daily-report">\n<header class="daily-hero">'
-        '<div class="edition-title"><p class="edition-kicker">WOW DAILY · 每日读本</p><h1>魔兽世界日报</h1></div>'
-        f'<div class="edition-dateline"><span class="edition-date-label">本期日期</span><p class="edition-date">{_escape(date_text)}</p></div>'
-        '</header>\n' + overview_html + '\n'
+        f'<div class="edition-title"><p class="edition-kicker">{kicker}</p><h1>{heading}</h1></div>'
+        f'<div class="edition-dateline"><span class="edition-date-label">{"发布日期" if weekly else "本期日期"}</span><p class="edition-date">{_escape(display_date)}</p></div>'
+        '</header>\n' + period_html + overview_html + '\n'
         + '<div id="edition-content">\n' + content_html + '\n</div>\n'
         + '<footer class="edition-footer">'
         f'<p class="edition-meta">北京时间（CST / UTC+8） · 生成于 {_escape(_time_text(generated_at))}</p>'

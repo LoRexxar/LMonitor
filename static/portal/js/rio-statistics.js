@@ -15,7 +15,15 @@
   const controls = ['season', 'region', 'days', 'percentile', 'dungeon', 'level', 'period', 'raid', 'difficulty', 'week_start', 'week_end'];
   const state = { tab: modules.includes(initial.get('tab')) ? initial.get('tab') : 'overview',
     layer: ['player_death', 'player_spell', 'npc_death'].includes(initial.get('layer')) ? initial.get('layer') : 'player_death',
-    catalog: null, payload: null, envelope: null, floor: null, controller: null, serial: 0 };
+    catalog: null, payload: null, appliedQuery: null, appliedTab: null, envelope: null, floor: null, controller: null, serial: 0 };
+
+  function fitFilters() {
+    const compact = window.innerWidth <= 640;
+    if (compact !== state.compactFilters) {
+      $('filter-disclosure').open = !compact;
+      state.compactFilters = compact;
+    }
+  }
 
   function element(tag, text, cls) {
     const node = document.createElement(tag);
@@ -73,8 +81,59 @@
     }
     return query;
   }
-  function updateUrl() {
+  // Floor changes and sharing must describe the loaded data, not unsubmitted inputs.
+  function viewQuery() {
     const query = currentQuery();
+    const manual = state.tab === 'heatmaps' ? [...idFilters, ...numericFilters] : [];
+    manual.forEach((key) => {
+      query.delete(key);
+      if (state.appliedTab === state.tab && state.appliedQuery?.has(key)) query.set(key, state.appliedQuery.get(key));
+    });
+    return query;
+  }
+  function layerLabel() {
+    return {player_death: '死亡位置', player_spell: '嗜血位置', npc_death: '怪物击杀'}[state.layer];
+  }
+  function updatePresentation() {
+    const labels = {
+      overview: ['统计总览', '先看参与规模与分数线，再比较所选日期范围内的变化。'],
+      runs: ['完成记录', '查看已收录记录的完成次数与限时率；未接入的数据不会用零值代替。'],
+      heatmaps: ['大秘境热力图', '选择副本、层数与周次，观察死亡、嗜血或怪物击杀事件集中在哪里。'],
+      raids: ['团本进度', '比较不同击杀进度档的公会数量，各档不相加为独立公会总数。'],
+    };
+    const chosen = (name) => $(name).selectedOptions[0]?.textContent || '—';
+    const query = viewQuery();
+    const parts = [chosen('season'), chosen('region')];
+    if (state.tab === 'overview') parts.push(chosen('days'), chosen('percentile'));
+    if (['heatmaps', 'runs'].includes(state.tab)) {
+      parts.push(chosen('level'));
+      parts.push($('period').value === 'custom'
+        ? `${chosen('week_start')} 至 ${chosen('week_end')}` : chosen('period'));
+    }
+    if (state.tab === 'heatmaps') {
+      parts.splice(2, 0, chosen('dungeon'));
+      parts.push(layerLabel());
+      if ($('zero').checked && !$('zero').disabled) parts.push('仅全程零死亡样本');
+      const advancedCount = [...idFilters, ...numericFilters].filter((key) => query.has(key)).length;
+      if (advancedCount) parts.push(`已应用 ${advancedCount} 项高级条件`);
+      $('filter-summary').textContent = advancedCount ? `（已应用 ${advancedCount} 项）` : '';
+    }
+    if (state.tab === 'raids') parts.push(chosen('raid'), chosen('difficulty'));
+    host.dataset.tab = state.tab;
+    $('module-title').textContent = labels[state.tab][0];
+    $('module-description').textContent = labels[state.tab][1];
+    $('context').textContent = parts.join(' · ');
+    $('heatmap-title').textContent = `${chosen('dungeon')} · ${layerLabel()}`;
+    const meaning = {player_death: '角色死亡事件', player_spell: '嗜血类技能的使用事件', npc_death: '怪物被击杀事件'}[state.layer];
+    $('heatmap-description').textContent = `颜色展示${meaning}的相对密度，越暖代表越集中；不代表死亡概率或推荐路线。`;
+    $('opacity-value').textContent = `${$('opacity').value}%`;
+    const availability = state.catalog?.availability?.modules;
+    $('runs-availability').hidden = !availability || (availability.runs ?? 0) !== 0;
+    $('runs-availability').textContent = '暂无快照';
+  }
+  function updateUrl(includeDraft = false) {
+    updatePresentation();
+    const query = includeDraft ? currentQuery() : viewQuery();
     query.set('tab', state.tab);
     if (state.tab === 'overview') {
       query.set('days', $('days').value);
@@ -116,6 +175,7 @@
       if (!ready.some((r) => r.coordinate.level === $('level').value)) $('level').value = ready[0]?.coordinate.level || '10-12';
     }
     rangeControls();
+    updatePresentation();
     if (load && state.catalog) refresh();
   }
   function layerControls() {
@@ -141,7 +201,7 @@
   }
 
   async function refresh() {
-    updateUrl();
+    updateUrl(true);
     const serial = ++state.serial;
     state.controller?.abort();
     state.controller = new AbortController();
@@ -150,6 +210,7 @@
     $('error').hidden = true;
     modules.forEach((tab) => $(tab).hidden = true);
     $('prepare').hidden = true; $('prepare').disabled = false; $('prepare').textContent = '加入凌晨更新';
+    $('status').dataset.state = 'loading';
     $('status').textContent = '正在读取所选范围…';
     try {
       const apiQuery = currentQuery();
@@ -157,14 +218,15 @@
       const envelope = await json(`/portal/api/rio-statistics/${state.tab}/?${apiQuery}`, state.controller.signal);
       if (serial !== state.serial) return;
       state.envelope = envelope;
-      if (state.tab === 'heatmaps') {
-        const count = [...idFilters, ...numericFilters].filter((key) => apiQuery.has(key)).length;
-        $('filter-summary').textContent = count ? `（已应用 ${count} 项）` : '';
-      }
       if (envelope.scope && envelope.scope.token !== state.catalog.scope?.token) {
         await bootstrap(true); return;
       }
       state.payload = envelope.data;
+      if (envelope.data) {
+        state.appliedQuery = new URLSearchParams(apiQuery);
+        state.appliedTab = state.tab;
+      }
+      updatePresentation();
       const snapshot = envelope.snapshot || {};
       $('status').dataset.state = snapshot.state || 'pending';
       $('status').textContent = snapshot.fetched_at
@@ -185,6 +247,7 @@
       else renderRaids();
     } catch (err) {
       if (err.name !== 'AbortError' && serial === state.serial) {
+        $('status').dataset.state = 'error';
         $('status').textContent = '本次读取未成功';
         error('暂时无法读取数据', err.message);
       }
@@ -283,8 +346,15 @@
     const populationRows = rows.filter((r) => typeof r.population === 'number');
     if (populationRows.length >= 2 && populationRows[0].population > 0) {
       const diff = populationRows.at(-1).population - populationRows[0].population;
+      $('change').dataset.direction = diff > 0 ? 'positive' : diff < 0 ? 'negative' : 'neutral';
       $('change').textContent = `${diff > 0 ? '+' : ''}${number(diff)}（${(diff / populationRows[0].population * 100).toFixed(1)}%）`;
-    } else $('change').textContent = '样本不足';
+    } else {
+      $('change').dataset.direction = 'unknown';
+      $('change').textContent = '样本不足';
+    }
+    const range = rows.length ? `${rows[0].date} 至 ${rows.at(-1).date}` : '暂无历史记录';
+    $('population-range').textContent = range;
+    $('score-range').textContent = range;
     drawLine('population-chart', rows, (r) => r.population, '参与角色');
     drawLine('score-chart', rows, cutoffFor, `前 ${percentile}% 分数线`, 2);
     $('percentiles').replaceChildren(...summary.percentiles.map((p) => tableRow([`前 ${p.percentile}%`, number(p.score, 2)], p.percentile === percentile)));
@@ -331,6 +401,7 @@
   }
 
   function renderHeatmap() {
+    const selected = viewQuery();
     const allFloors = state.payload.floors;
     const floors = allFloors.filter((f) => f.map?.image_url);
     const desired = $('floor').value || initial.get('floor');
@@ -343,7 +414,6 @@
     const level = state.catalog.levels.find((r) => r.value === $('level').value);
     if (level) { query.set('minMythicLevel', level.min); query.set('maxMythicLevel', level.max); }
     const fieldNames = {include_classes:'includeClassIds',exclude_classes:'excludeClassIds',include_specs:'includeSpecIds',exclude_specs:'excludeSpecIds',death_classes:'includePlayerDeathClassIds',death_specs:'includePlayerDeathSpecIds',exclude_death_classes:'excludePlayerDeathClassIds',exclude_death_specs:'excludePlayerDeathSpecIds',include_affixes:'includeAffixIds',exclude_affixes:'excludeAffixIds',item_min:'minItemLevel',item_max:'maxItemLevel',deaths_min:'minPlayerDeaths',deaths_max:'maxPlayerDeaths',timer_min:'minTimerFraction',timer_max:'maxTimerFraction'};
-    const selected = currentQuery();
     Object.entries(fieldNames).forEach(([key, name]) => { if (selected.has(key)) query.set(name, selected.get(key)); });
     const weeks = state.catalog.weeks?.[$('region').value] || [];
     if (weeks.length && $('period').value !== 'season') {
@@ -416,8 +486,7 @@
       context.fillRect(xx - radius, yy - radius, radius * 2, radius * 2);
     });
     context.restore(); context.globalAlpha = 1;
-    const layerName = {player_death: '死亡位置', player_spell: '嗜血位置', npc_death: '怪物击杀'}[state.layer];
-    canvas.setAttribute('aria-label', `${floor.name} · ${layerName}热力图`);
+    canvas.setAttribute('aria-label', `${floor.name} · ${layerLabel()}热力图`);
     const stats = [['样本场次', number(state.payload.num_runs)]];
     $('map-stats').replaceChildren(...stats.map(([label, value]) => { const row = element('div'); row.append(element('dt', label), element('dd', value)); return row; }));
   }
@@ -503,7 +572,10 @@
       $('error-message').textContent = body.data.message; button.textContent = '已加入凌晨更新';
     } catch (err) { if (serial === state.serial) { $('error-message').textContent = err.message; button.disabled = false; } }
   });
-  $('opacity').addEventListener('input', drawHeatmap);
+  $('opacity').addEventListener('input', () => {
+    $('opacity-value').textContent = `${$('opacity').value}%`;
+    drawHeatmap();
+  });
   $('floor').addEventListener('change', () => { drawHeatmap(); updateUrl(); });
   $('heatmap').addEventListener('pointermove', (event) => {
     if (state.drag) {
@@ -529,6 +601,7 @@
   });
   new MutationObserver(() => { if (state.tab === 'overview' && state.payload) renderOverview(); }).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
   window.addEventListener('resize', () => {
+    fitFilters();
     if (state.tab === 'overview' && state.payload) renderOverview();
     else if (state.tab === 'runs' && state.payload) renderRuns();
     else if (state.tab === 'heatmaps' && state.payload) drawHeatmap();
@@ -541,5 +614,6 @@
           || next.revision !== state.catalog.revision) await bootstrap(true);
     } catch { /* 本地目录读取失败不清空已有页面。 */ }
   }, 60000);
+  fitFilters();
   bootstrap();
 })();

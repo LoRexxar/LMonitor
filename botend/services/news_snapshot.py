@@ -80,7 +80,9 @@ def _digest(data):
 def lightweight_rows():
     """只在发布端读取元数据和有限摘要，绝不将正文大字段拉入 Python。"""
     fields = ('id', 'title', 'title_cn', 'url', 'author', 'source', 'category',
-              'publish_time', 'reply_count', 'nga_board_id')
+              'publish_time', 'reply_count', 'nga_board_id',
+              'blizzard_topic__category__game_version', 'blizzard_topic__category__external_id',
+              'blizzard_topic__category__name', 'blizzard_topic__category__url')
     return (WowArticle.objects.filter(is_active=True)
             .annotate(content_flag=Substr('content', 1, 1), translation_flag=Substr('content_cn', 1, 1),
                       preview=Case(When(source='nga', reply_count__gt=20, then=Substr('content', 1, 600)),
@@ -97,7 +99,7 @@ def _project(row):
         url = '/portal/reports/' + url[len('/static/portal/reports/'):]
     author = (row['author'] or '').strip()
     published = row['publish_time']
-    return {
+    result = {
         'id': row['id'], 'title': row['title'] or '', 'title_cn': row['title_cn'] or '',
         'url': url, 'article_url': f'/portal/article/{row["id"]}/',
         'author': '' if author == 'LMonitor' else author,
@@ -109,6 +111,15 @@ def _project(row):
         '_author': row['author'] or '', '_board': row['nga_board_id'],
         '_preview': '',
     }
+    if row['source'] == 'blizzard_tracker':
+        from botend.services.blizzard_forum import channel_payload
+        channel = channel_payload(
+            row.get('blizzard_topic__category__game_version'),
+            row.get('blizzard_topic__category__external_id'),
+            row.get('blizzard_topic__category__name'), row.get('blizzard_topic__category__url'))
+        if channel.get('game_version_label'):
+            result.update(channel)
+    return result
 
 
 def _public(row, *, nga=False):
@@ -142,6 +153,12 @@ def register_news_signals():
         request_news_refresh()
     post_save.connect(changed, sender=WowArticle, weak=False, dispatch_uid='news-snapshot-save')
     post_delete.connect(changed, sender=WowArticle, weak=False, dispatch_uid='news-snapshot-delete')
+    # A topic can move boards without changing any article. Publish that fact too.
+    for model in ('BlizzardForumCategory', 'BlizzardForumTopic'):
+        post_save.connect(changed, sender='botend.' + model, weak=False,
+                          dispatch_uid='news-snapshot-save-' + model)
+        post_delete.connect(changed, sender='botend.' + model, weak=False,
+                            dispatch_uid='news-snapshot-delete-' + model)
 
 
 def refresh_news_snapshot(*, poll=False):

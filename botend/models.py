@@ -287,7 +287,42 @@ class RssArticle(models.Model):
     is_active = models.BooleanField(default=True)
 
 
+class BlizzardForumCategory(models.Model):
+    """Official forum category facts; channel labels describe boards, not exclusivity."""
+
+    class GameVersion(models.TextChoices):
+        RETAIL = 'retail', '正式服'
+        FOREVER = 'forever', '无限服'
+        TEST = 'test', '测试服'
+
+    forum_url = models.CharField(max_length=255)
+    external_id = models.PositiveBigIntegerField()
+    name = models.CharField(max_length=255)
+    slug = models.CharField(max_length=255)
+    parent = models.ForeignKey('self', null=True, blank=True, on_delete=models.SET_NULL)
+    url = models.CharField(max_length=2000)
+    game_version = models.CharField(max_length=16, blank=True, default='', choices=GameVersion.choices)
+    last_observed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['forum_url', 'external_id'], name='blizz_forum_category_identity')]
+
+
+class BlizzardForumTopic(models.Model):
+    forum_url = models.CharField(max_length=255)
+    external_id = models.PositiveBigIntegerField()
+    category = models.ForeignKey(BlizzardForumCategory, null=True, blank=True, on_delete=models.SET_NULL)
+    last_observed_at = models.DateTimeField(null=True, blank=True)
+    response_sha256 = models.CharField(max_length=64, blank=True, default='')
+    source_url = models.CharField(max_length=2000, blank=True, default='')
+    metadata_retry_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['forum_url', 'external_id'], name='blizz_forum_topic_identity')]
+
+
 class WowArticle(models.Model):
+    blizzard_topic = models.ForeignKey(BlizzardForumTopic, null=True, blank=True, on_delete=models.SET_NULL)
     title = models.CharField(max_length=255, default=None, null=True)
     title_cn = models.CharField(max_length=255, default=None, null=True, blank=True)
     url = models.CharField(max_length=2000, default=None, null=True)

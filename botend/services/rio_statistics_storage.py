@@ -1,6 +1,6 @@
 """本地持久缓存：压缩正文与索引同事务发布；业务赛季与任务仍由主数据库管理。"""
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime
 import hashlib
 import json
 from pathlib import Path
@@ -221,6 +221,77 @@ class SnapshotStore:
         with self.connection() as db:
             row = db.execute('SELECT * FROM snapshots WHERE key=?', (key,)).fetchone()
         return (self._unpack(row), self._entry(row)) if row else ({}, {})
+
+    def read_reference(self, reference):
+        """精确恢复日报引用；不初始化、不迁移、不按当前赛季或最新正文回退。
+
+        history 本就按上海采集日保留压缩正文，同日覆盖后原 digest 不在即明确失败。
+        只读连接也保证调用方无法因一次读取产生空库或 journal 文件。
+        """
+        try:
+            if not isinstance(reference, dict) or reference.get('kind') != 'rio_statistics_snapshot':
+                raise ValueError
+            c = reference['coordinate']
+            if (not isinstance(c, dict) or set(c) != {'module', 'season', 'region', 'scope'}
+                    or c['module'] != 'overview' or c['region'] not in ('cn', 'world')
+                    or not isinstance(c['season'], str) or not re.fullmatch(r'season-[a-z]+-(?:0|[1-9][0-9]*)', c['season'])
+                    or not isinstance(c['scope'], str) or not re.fullmatch(r'[0-9a-f]{64}', c['scope'])):
+                raise ValueError
+            for field in ('key', 'digest'):
+                if not isinstance(reference[field], str) or not re.fullmatch(r'[0-9a-f]{64}', reference[field]):
+                    raise ValueError
+            if key_for(c) != reference['key']:
+                raise ValueError
+            for field in ('archive_day', 'data_date'):
+                value = reference[field]
+                if not isinstance(value, str) or date.fromisoformat(value).isoformat() != value:
+                    raise ValueError
+            if (type(reference['stale']) is not bool or not isinstance(reference['season_name'], str)
+                    or not reference['season_name'].strip()):
+                raise ValueError
+        except (KeyError, TypeError, ValueError):
+            raise StorageError('日报统计引用身份或格式不合法') from None
+
+        db = None
+        try:
+            db = sqlite3.connect(self.path.resolve().as_uri() + '?mode=ro', uri=True, timeout=30,
+                                 isolation_level=None)
+            db.row_factory = sqlite3.Row
+            db.execute('BEGIN')
+            if db.execute('PRAGMA user_version').fetchone()[0] != SCHEMA:
+                raise StorageError('日报统计引用数据库版本不可用')
+            key, digest, archive_day = (reference[k] for k in ('key', 'digest', 'archive_day'))
+            row = db.execute('SELECT * FROM snapshots WHERE key=? AND digest=?', (key, digest)).fetchone()
+            if row is None:
+                row = db.execute('SELECT * FROM history WHERE key=? AND day=? AND digest=?',
+                                 (key, archive_day, digest)).fetchone()
+            if row is None:
+                raise StorageError('日报统计引用正文已缺失，未回退到新数据')
+            body = self._unpack(row)
+            if (set(body) != {'schema', 'coordinate', 'fetched_at', 'upstream_at', 'data'}
+                    or hashlib.sha256(encoded(body)).hexdigest() != digest
+                    or body.get('coordinate') != c or type(body.get('schema')) is not int
+                    or body['data'].get('season') != c['season'] or body['data'].get('region') != c['region']
+                    or ('coordinate' in row.keys() and json.loads(row['coordinate']) != c)
+                    or ('day' in row.keys() and row['day'] != archive_day)):
+                raise ValueError
+            for field in ('fetched_at', 'upstream_at'):
+                stamp = body.get(field)
+                if stamp is None and field == 'upstream_at':
+                    continue
+                if not isinstance(stamp, str) or not stamp or epoch(stamp) is None:
+                    raise ValueError
+            collected_day = datetime.fromisoformat(body['fetched_at'].replace('Z', '+00:00')).astimezone(LOCAL_TZ).date()
+            if collected_day.isoformat() != archive_day:
+                raise ValueError
+            return body
+        except sqlite3.Error:
+            raise StorageError('日报统计引用数据库无法读取，未创建或修改缓存') from None
+        except (ValueError, TypeError, KeyError, AttributeError, OverflowError):
+            raise StorageError('日报统计引用正文身份或时间校验失败') from None
+        finally:
+            if db is not None:
+                db.close()
 
     def available(self, scope):
         if not self.initialized():

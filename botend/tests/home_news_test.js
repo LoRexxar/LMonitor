@@ -23,6 +23,35 @@ test('新闻来源桌面左右双栏，窄屏恢复单栏且卡片可收缩', ()
   assert.match(css, /@media\s*\(max-width:\s*900px\)\s*\{\s*\.home-news-sources\s*\{\s*grid-template-columns:\s*minmax\(0,\s*1fr\)/);
 });
 
+test('新闻区更正资讯文案，并复用其他模块的卡片头与图标', () => {
+  const template = readSource('templates/portal/index.html');
+  assert.doesNotMatch(template, /魔兽新闻与咨询/);
+  assert.match(template, /<div class="home-news-toolbar [^"]*\bportal-card\b[^\"]*\bportal-card-accent\b[^\"]*" id="home-news-controls">/);
+  assert.match(template, /<h2 id="home-news-title">\s*<svg[^>]*aria-hidden="true"[^>]*><use href="[^\n]*#icon-newspaper"><\/use><\/svg>\s*<span>魔兽新闻与资讯<\/span>\s*<\/h2>/);
+});
+
+test('新闻区与来源卡片头统一16px及600字重，手机不再放大', () => {
+  const css = readSource('static/portal/css/home-news.css');
+  for (const selector of ['\\.home-news-heading h2', '\\.home-news-source-heading h3']) {
+    const rules = [...css.matchAll(new RegExp(selector + '\\s*\\{([^}]*)\\}', 'g'))];
+    assert.ok(rules.length > 0);
+    assert.match(rules[0][1], /font-size:\s*16px\s*;/);
+    assert.match(rules[0][1], /font-weight:\s*600\s*;/);
+    for (const [,rule] of rules) if (/font-size:/.test(rule)) assert.match(rule, /font-size:\s*16px\s*;/);
+  }
+  assert.match(css, /\.home-news-heading h2 svg\s*\{[^}]*width:\s*16px\s*;[^}]*height:\s*16px\s*;/);
+  assert.match(css, /\.home-news-source-heading svg\s*\{[^}]*width:\s*16px\s*;[^}]*height:\s*16px\s*;/);
+});
+
+test('新闻条目标题桌面和窄屏统一14px，保持完整换行', () => {
+  const css = readSource('static/portal/css/home-news.css');
+  const rules = [...css.matchAll(/\.home-news-title\s*\{([^}]*)\}/g)];
+  assert.ok(rules.length > 0);
+  assert.match(rules[0][1], /font-size:\s*14px\s*;/);
+  assert.match(rules[0][1], /overflow-wrap:\s*anywhere\s*;/);
+  for (const [,rule] of rules) if (/font-size:/.test(rule)) assert.match(rule, /font-size:\s*14px\s*;/);
+});
+
 function setup(localStorage) {
   const elements = new Map();
   const element = id => {

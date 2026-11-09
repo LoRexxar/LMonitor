@@ -3,7 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const readSource = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8');
+// 测试插桩按逻辑行匹配，兼容 Windows 检出的 CRLF。
+const readSource = file => fs.readFileSync(path.resolve(__dirname, '../..', file), 'utf8').replace(/\r\n/g, '\n');
 function markerIndex(source, marker) {
     assert.ok(marker, 'marker must not be empty');
     const index = source.indexOf(marker);

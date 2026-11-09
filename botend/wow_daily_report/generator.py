@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.utils.dateparse import parse_datetime
 from django.utils.safestring import SafeData
 from botend.wow_daily_report.site_sections import collect_site_sections, day_window
+from botend.wow_daily_report.edition import SHANGHAI, edition_for_report_date
 
 from botend.models import PortalMplusSeasonCutoff, PortalVideo, WowArticle, WowDailyReport
 
@@ -413,6 +414,7 @@ NEWS_SECTION_SOURCES = ("wowhead", "blizzard_tracker")
 
 
 def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
+    from botend.services.blizzard_forum import article_channel
     start, end = _date_range(report_date)
     rows = (
         WowArticle.objects.filter(
@@ -423,6 +425,7 @@ def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
         )
         .exclude(category="nga")
         .exclude(category="video")
+        .select_related("blizzard_topic__category")
         .order_by("-publish_time", "-id")
     )
     items = [
@@ -435,6 +438,7 @@ def collect_news_section(report_date: datetime.date) -> Dict[str, Any]:
             "publish_time": a.publish_time,
             "body": _article_full_text(a),
             "body_html": _article_body_html(a),
+            **article_channel(a),
         }
         for a in rows
     ]
@@ -563,28 +567,35 @@ def _section_payload(section: Dict[str, Any]) -> Dict[str, Any]:
     return {**section, "items": items}
 
 
-def _render_news_items(items: List[Dict[str, Any]]) -> str:
+def _render_news_items(items: List[Dict[str, Any]], *, summary_only=False) -> str:
     if not items:
         return '<p class="empty">今日暂无相关新闻。</p>'
     out = ['<div class="article-list">']
     for item in items:
         out.append('<article class="daily-card news-card">')
         out.append(f'<h3 class="news-title"><a href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">{_safe_html(item.get("title"))}</a></h3>')
+        channel = (f'<span class="bluepost-channel-badge" data-game-version="{_safe_html(item.get("game_version"))}">[{_safe_html(item.get("game_version_label"))}]</span>'
+                   if item.get('source') == 'blizzard_tracker' and item.get('game_version_label') else '')
         out.append(
-            f'<div class="meta"><span>来源：{_safe_html(item.get("source"))}</span><span>时间：{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
+            f'<div class="meta"><span>来源：{_safe_html(item.get("source"))}</span>{channel}<span>时间：{_safe_html(_fmt_dt(item.get("publish_time")))}</span></div>'
         )
         out.append(f'<a class="original-link" href="{_safe_html(item.get("url"))}" target="_blank" rel="noopener">原文链接</a>')
         if item.get("portal_url"):
             out.append(f'<a class="original-link" href="{_safe_html(item["portal_url"])}">站内阅读</a>')
         summary_label = "AI 总结" if item.get("summary_llm_ok") else "内容摘要"
-        out.append(f'<div class="item-summary"><strong>{summary_label}：</strong>{_safe_html(item.get("summary") or _fallback_item_summary(item))}</div>')
-        out.append('<div class="original-label">新闻原文</div>')
-        body_html = _sanitize_body_html(item.get("body_html") or "")
-        if body_html:
-            out.append(f'<div class="body-html">{body_html}</div>')
+        summary = item.get("summary") or _fallback_item_summary(item)
+        if summary_only:
+            # Weekly news is one readable paragraph, not a hidden full article.
+            out.append(f'<p class="item-summary"><strong>{summary_label}：</strong>{_safe_html(_collapse_space(summary))}</p>')
         else:
-            body = item.get("body") or "（暂无正文片段）"
-            out.append(f'<p class="body-text">{_safe_html(body)}</p>')
+            out.append(f'<div class="item-summary"><strong>{summary_label}：</strong>{_safe_html(summary)}</div>')
+            out.append('<div class="original-label">新闻原文</div>')
+            body_html = _sanitize_body_html(item.get("body_html") or "")
+            if body_html:
+                out.append(f'<div class="body-html">{body_html}</div>')
+            else:
+                body = item.get("body") or "（暂无正文片段）"
+                out.append(f'<p class="body-text">{_safe_html(body)}</p>')
         out.append('</article>')
     out.append('</div>')
     return "\n".join(out)
@@ -665,6 +676,58 @@ def _render_cutoff_items(items: List[Dict[str, Any]]) -> str:
     return "\n".join(rows)
 
 
+def _render_rio_items(items):
+    """A small, deterministic projection; the central source owns all facts."""
+    if items and all(isinstance(item.get("weekly"), dict) for item in items):
+        from botend.wow_daily_report.rio_weekly_presentation import render_weekly_rio_items
+        return render_weekly_rio_items(items)
+    from botend.wow_daily_report.presentation import _source_href
+
+    def count(value, signed=False):
+        if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+            return '—'
+        number = Decimal(str(value))
+        if not number.is_finite() or number != number.to_integral_value():
+            return '—'
+        integer = int(number)
+        return ('+' if signed and integer > 0 else '') + f'{integer:,}'
+
+    def link(text, url):
+        href = _source_href(url)
+        return (f'<a href="{_safe_html(href)}" target="_blank" rel="noopener noreferrer">'
+                f'{_safe_html(text)} ↗</a>') if href else ''
+
+    cards = ['<div class="rio-report-grid">']
+    for item in items:
+        cards.append(f'<article class="rio-report-card" data-region="{_safe_html(item.get("region"))}">'
+                     f'<header class="rio-report-heading"><h3>{_safe_html(item.get("region_label"))}</h3>'
+                     f'<span>{_safe_html(item.get("season_name"))}</span></header>'
+                     f'<p class="rio-report-date">数据日期 <time>{_safe_html(item.get("data_date"))}</time>'
+                     + (' <span class="rio-report-status">保留快照</span>' if item.get('stale') else '') + '</p>'
+                     f'<p class="rio-report-population"><strong>{count(item.get("population"))}</strong><span>参与角色</span></p>'
+                     '<dl class="rio-report-metrics">')
+        for label, key, day_key in [('较前一日', 'day_delta', 'previous_date'), ('较7日前', 'week_delta', 'week_date')]:
+            value = item.get(key)
+            direction = 'positive' if isinstance(value, (int, float)) and not isinstance(value, bool) and value > 0 else (
+                'negative' if isinstance(value, (int, float)) and not isinstance(value, bool) and value < 0 else 'neutral')
+            cards.append(f'<div><dt>{label}<span>{_safe_html(item.get(day_key))}</span></dt>'
+                         f'<dd data-direction="{direction}">{count(value, True)}</dd></div>')
+        cards.append('</dl>')
+        if item.get('day_delta') is None or item.get('week_delta') is None:
+            cards.append('<p class="rio-report-missing">“—”表示对应日期无可比数据。</p>')
+        times = []
+        if item.get('fetched_at'):
+            times.append('采集：' + _fmt_source_time(item['fetched_at']))
+        if item.get('upstream_at'):
+            times.append('来源更新：' + _fmt_source_time(item['upstream_at']))
+        if times:
+            cards.append(f'<p class="rio-report-source">{_safe_html(" · ".join(times))}（北京时间）</p>')
+        cards.append('<nav class="rio-report-links" aria-label="数据观察详情">'
+                     + link('参与趋势', item.get('url')) + link('副本热力图', item.get('heatmap_url'))
+                     + '</nav></article>')
+    return ''.join(cards) + '</div>'
+
+
 def _render_site_items(items):
     from urllib.parse import urlsplit
     from botend.wow_daily_report.presentation import _source_href
@@ -711,13 +774,18 @@ def _render_site_items(items):
     return '\n'.join(rows + ['</div>'])
 
 
-def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]]) -> str:
+def render_daily_html(report_date: datetime.date, sections: List[Dict[str, Any]], *, edition=None) -> str:
     from botend.wow_daily_report.presentation import render_daily_document
+    if edition is None:
+        edition = edition_for_report_date(report_date)
     return render_daily_document(report_date, sections, {
-        'news': _render_news_items, 'nga': _render_nga_items,
+        'news': lambda items: _render_news_items(items, summary_only=edition['kind'] == 'wednesday_weekly'),
+        'nga': _render_nga_items,
         'videos': _render_video_items, 'cutoffs': _render_cutoff_items,
         'today': _render_site_items, 'events': _render_site_items, 'updates': _render_site_items,
-    }, generated_at=timezone.localtime(timezone.now()).strftime('%Y-%m-%d %H:%M:%S'))
+        'rio': _render_rio_items,
+    }, generated_at=timezone.localtime(timezone.now(), timezone=SHANGHAI).strftime('%Y-%m-%d %H:%M:%S'),
+        edition=edition)
 
 
 def _static_report_path(report_date: datetime.date):
@@ -735,6 +803,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
     if isinstance(report_date, str):
         report_date = datetime.date.fromisoformat(report_date)
 
+    edition = edition_for_report_date(report_date)
     previous_ext = _load_previous_ext(report_date)
     published = WowDailyReport.objects.filter(report_date=report_date).only("ext_json").first()
     try:
@@ -750,8 +819,13 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
     if video_section.get("items"):
         sections.insert(2, video_section)
 
+    from botend.wow_daily_report.rio_section import collect_rio_section
+    rio_section = collect_rio_section(report_date, published_ext=published_ext,
+                                      weekly=edition["kind"] == "wednesday_weekly")
+    if rio_section.get('items'):
+        sections.append(rio_section)
     available = {section["key"]: section for section in sections + collect_site_sections(report_date)}
-    sections = [available[key] for key in ("news", "events", "updates", "nga", "videos", "today", "cutoffs") if key in available]
+    sections = [available[key] for key in ("rio", "news", "events", "updates", "nga", "videos", "today", "cutoffs") if key in available]
 
     ext_sections: Dict[str, Any] = {}
     cutoff_snapshot: Dict[str, Any] = {}
@@ -765,7 +839,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 item["summary_error"] = item_summary.get("error") or ""
         fallback = _section_fallback_summary(key, section.get("items") or [])
         payload = _section_payload(section)
-        if key in ("cutoffs", "today", "events", "updates") or not section.get("items"):
+        if key in ("rio", "cutoffs", "today", "events", "updates") or not section.get("items"):
             summary_result = {"text": "", "llm_ok": False, "error": "summary_disabled"}
         else:
             summary_result = _summarize_section(key, section["title"], payload, fallback, use_llm=use_llm)
@@ -800,7 +874,7 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
                 }
 
     # AI may summarize prose, never delete facts or freely redesign the document.
-    html_content = render_daily_html(report_date, sections)
+    html_content = render_daily_html(report_date, sections, edition=edition)
     design_meta = {"renderer": "daily_editorial_v2", "error": ""}
     rel_path, full_path = _static_report_path(report_date)
     os.makedirs(os.path.dirname(full_path), exist_ok=True)
@@ -820,7 +894,8 @@ def generate_wow_daily_report(*, report_date=None, use_llm=True):
 
     ext = {
         "format": "html",
-        "generated_at": timezone.localtime(timezone.now()).strftime("%Y-%m-%d %H:%M:%S"),
+        "edition": edition,
+        "generated_at": timezone.localtime(timezone.now(), timezone=SHANGHAI).strftime("%Y-%m-%d %H:%M:%S"),
         "llm_enabled": bool(use_llm),
         "llm_errors": list(_LLM_RUN_ERRORS),
         "html_renderer": design_meta.get("renderer") or "fallback_static",

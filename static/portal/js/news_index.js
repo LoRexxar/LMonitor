@@ -166,6 +166,10 @@ function renderNewsList(items) {
           : "";
         const metaParts = [];
         if (source) metaParts.push(`<span>${icon("icon-globe", "w-3.5 h-3.5")} ${source}</span>`);
+        if (item.source === "blizzard_tracker" && item.game_version_label) {
+          const tooltip = item.forum_category?.name ? ` title="${escapeHtml(item.forum_category.name)}"` : "";
+          metaParts.push(`<span class="bluepost-channel-badge" data-game-version="${escapeHtml(item.game_version || "")}"${tooltip}>[${escapeHtml(item.game_version_label)}]</span>`);
+        }
         if (category) metaParts.push(`<span>${category}</span>`);
         if (author) metaParts.push(`<span>${icon("icon-user", "w-3.5 h-3.5")} ${author}</span>`);
         if (time) metaParts.push(`<span>${icon("icon-clock", "w-3.5 h-3.5")} ${time}</span>`);

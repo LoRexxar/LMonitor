@@ -34,12 +34,27 @@ from botend.models import (MonitorTask, TargetAuth, MonitorWebhook, WechatAccoun
                           SimcBenchmarkPanel, SimcBenchmarkExecution)
 
 from botend.services.simc_attribute_results import parse_attribute_result_filename
+from botend.services.blizzard_forum import channel_payload
 from botend.dashboard.permissions import (
     DashboardPermissionRequiredMixin,
     SECTION_PERMISSION_CODES,
     effective_dashboard_permissions,
     permission_catalog,
 )
+
+
+WOW_ARTICLE_CHANNEL_FIELDS = tuple(
+    f'blizzard_topic__category__{field}'
+    for field in ('game_version', 'external_id', 'name', 'url')
+)
+
+
+def _wow_article_channel(item):
+    """Consume scalar JOIN columns, keeping derived metadata outside the editable schema."""
+    board_values = [item.pop(field, None) for field in WOW_ARTICLE_CHANNEL_FIELDS]
+    if item.get('source') != 'blizzard_tracker':
+        return channel_payload('')
+    return channel_payload(*board_values)
 
 
 def _fmt_dt(dt):
@@ -657,7 +672,10 @@ class DashboardView(View):
                 total_pages = max(1, (total_count + page_size - 1) // page_size)
                 page = min(page, total_pages)
                 offset = (page - 1) * page_size
-                items = list(queryset.values(*fields)[offset:offset + page_size])
+                query_fields = fields
+                if table_name == 'WowArticle':
+                    query_fields = [*fields, *WOW_ARTICLE_CHANNEL_FIELDS]
+                items = list(queryset.values(*query_fields)[offset:offset + page_size])
             except Exception as e:
                 logger.error(f"获取表数据错误: {str(e)}\n{traceback.format_exc()}")
                 return JsonResponse({"status": "error", "message": f"获取表数据错误: {str(e)}"})
@@ -679,6 +697,8 @@ class DashboardView(View):
                 for field in model._meta.fields:
                     if self._is_sensitive_field(field, table_name) and field.name in item:
                         item[field.name] = '••••••' if item[field.name] not in (None, '') else ''
+                if table_name == 'WowArticle':
+                    item.update(_wow_article_channel(item))
 
             # 计算分页信息
             total_pages = max(1, (total_count + page_size - 1) // page_size)
@@ -734,7 +754,7 @@ class DashboardView(View):
             article = WowArticle.objects.filter(id=article_id).values(
                 'id', 'title', 'title_cn', 'url', 'author', 'publish_time', 'description',
                 'content', 'content_cn', 'content_blocks', 'content_blocks_cn',
-                'source', 'category', 'reply_count'
+                'source', 'category', 'reply_count', *WOW_ARTICLE_CHANNEL_FIELDS
             ).first()
             if not article:
                 return JsonResponse({"status": "error", "message": "文章不存在"})
@@ -748,6 +768,7 @@ class DashboardView(View):
                     article[key] = value.strftime('%Y-%m-%d %H:%M:%S')
             if article.get('author') == 'LMonitor':
                 article['author'] = ''
+            article.update(_wow_article_channel(article))
             return JsonResponse({"status": "success", "data": article})
         except Exception as e:
             logger.error(f"获取魔兽文章详情异常: {str(e)}\n{traceback.format_exc()}")
