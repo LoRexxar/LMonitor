@@ -2,6 +2,7 @@
 
 import logging
 import math
+from copy import deepcopy
 from datetime import timedelta
 
 from django.db import transaction
@@ -11,6 +12,7 @@ from django.utils import timezone
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcContentTemplate, SimcProfile,
     SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferenceSimulationSettings, SimcTalentString, SimcReferencePublication,
+    SimcReferenceSimulationScenario,
 )
 from botend.services import simc_task_service as tasks
 from botend.services.simc_player_config import canonical_simc_profile_key
@@ -66,10 +68,16 @@ def initialize_settings(*, use_ptr=False):
     backend = SimcBackendBinary.objects.filter(
         is_active=True, identifier='ptr' if use_ptr else 'production',
     ).first()
-    return SimcReferenceSimulationSettings.objects.get_or_create(
+    settings, created = SimcReferenceSimulationSettings.objects.get_or_create(
         use_ptr=use_ptr, defaults={'backend': backend,
                                  'template': templates[0] if len(templates) == 1 else None},
-    )[0]
+    )
+    if created:
+        for order, target in enumerate((1, 5)):
+            SimcReferenceSimulationScenario.objects.create(settings=settings,
+                name=f'{target} 目标 · 300 秒', display_order=order,
+                simulation_params=dict(desired_targets=target, max_time=300, iterations=10000))
+    return settings
 
 
 def validate_config(config):
@@ -90,14 +98,54 @@ def validate_settings(config):
         raise ValueError('请先选择可用的共享模板')
     if template.spec not in ('default', 'all', '*'):
         raise ValueError('全局模拟设置必须使用全专精共享模板')
-    if type(config.duration) is not int or not 10 <= config.duration <= 1800:
-        raise ValueError('战斗时长须为 10–1800 秒')
-    if type(config.iterations) is not int or not 100 <= config.iterations <= 100000:
-        raise ValueError('迭代次数须为 100–100000')
-    if (not isinstance(config.targets, list) or not 1 <= len(config.targets) <= 10
-            or any(type(n) is not int or not 1 <= n <= 20 for n in config.targets)
-            or len(set(config.targets)) != len(config.targets)):
-        raise ValueError('目标数量须为 1–20 之间不重复的整数，最多 10 个场景')
+
+
+def active_scenarios(config):
+    """Ordered enabled scenarios owned by this config's central settings."""
+    return list(config.settings.scenarios.filter(is_enabled=True).order_by('display_order', 'pk'))
+
+
+def scenario_simulation_params(scenario):
+    """Use the normal-task option contract; never hash options the task drops."""
+    from botend.services.simc_composer import validate_simulation_options
+    supplied = scenario.simulation_params
+    if not isinstance(supplied, dict) or not {'desired_targets', 'max_time', 'iterations'} <= supplied.keys():
+        raise ValueError('场景必须包含目标数、时长和迭代次数')
+    unknown = supplied.keys() - tasks.SIMULATION_PARAMS_WHITELIST
+    if unknown:
+        raise ValueError('场景包含不支持的模拟参数：' + ', '.join(sorted(unknown)))
+    params = dict(fight_style='Patchwerk', vary_combat_length=0,
+                  raid_buffs=[], use_class_raid_buff=False, extra_options=[])
+    params.update(deepcopy(supplied))
+    error = validate_simulation_options(params)
+    if error:
+        raise ValueError(error)
+    return params
+
+
+def scenario_for_snapshot(config, frozen):
+    """Match the complete input, never just target count; ambiguity is not a match."""
+    matches = []
+    for scene in active_scenarios(config):
+        try:
+            if scenario_simulation_params(scene) == frozen.get('simulation_params'):
+                matches.append(scene)
+        except ValueError:
+            continue
+    return matches[0] if len(matches) == 1 else None
+
+
+def _resolve_scenario(config, scenario):
+    if type(scenario) is int:
+        matches = [scene for scene in active_scenarios(config)
+                   if scene.simulation_params.get('desired_targets') == scenario]
+        if len(matches) != 1:
+            raise ValueError('目标数不能唯一确定场景，请明确选择场景 ID')
+        scenario = matches[0]
+    if (not isinstance(scenario, SimcReferenceSimulationScenario) or not scenario.pk
+            or scenario.settings_id != config.settings_id or not scenario.is_enabled):
+        raise ValueError('模拟场景已停用或不属于当前设置')
+    return scenario
 
 
 def _public_resources(config, profile, talent, apl, published_resources=None):
@@ -124,9 +172,10 @@ def _public_resources(config, profile, talent, apl, published_resources=None):
             raise ValueError('装备、天赋和 APL 必须属于同一专精')
 
 
-def snapshot(config, profile, talent, apl, targets, *, published_resources=None):
+def snapshot(config, profile, talent, apl, scenario, *, published_resources=None):
     validate_config(config)
     _public_resources(config, profile, talent, apl, published_resources)
+    scenario = _resolve_scenario(config, scenario)
     return {
         'spec': config.spec_key, 'use_ptr': config.use_ptr,
         'resources': {
@@ -136,11 +185,7 @@ def snapshot(config, profile, talent, apl, targets, *, published_resources=None)
             'template': [config.template_id, tasks._compute_content_hash(tasks._build_template_payload(config.template))],
         },
         'backend': [config.backend_id, config.backend.current_version, config.backend.game_build],
-        'simulation_params': {
-            'desired_targets': targets, 'max_time': config.duration, 'iterations': config.iterations,
-            'fight_style': 'Patchwerk', 'vary_combat_length': 0,
-            'raid_buffs': [], 'use_class_raid_buff': False, 'extra_options': [],
-        },
+        'simulation_params': scenario_simulation_params(scenario),
     }
 
 
@@ -166,18 +211,19 @@ def enqueue_configs(config_ids, user_id, *, force=False, combination=None):
                     if combination and (profile.pk, talent.pk, talent.default_apl_id) != combination:
                         continue
                     try:
-                        snapshots = [snapshot(config, profile, talent, apl, n) for n in config.targets]
+                        snapshots = [(scene, snapshot(config, profile, talent, apl, scene))
+                                     for scene in active_scenarios(config)]
                     except ValueError as exc:
                         result['errors'].append(f'{profile.name} / {talent.name}：{exc}')
                         continue
-                    for frozen in snapshots:
+                    for scene, frozen in snapshots:
                         signature = tasks._compute_content_hash(frozen)
                         states = ACTIVE if force else (*ACTIVE, 'completed')
                         if SimcReferenceSimulation.objects.filter(config=config, signature=signature, status__in=states).exists():
                             result['skipped'] += 1
                             continue
                         SimcReferenceSimulation.objects.create(
-                            config=config, profile=profile, talent=talent, apl=apl,
+                            config=config, scenario=scene, profile=profile, talent=talent, apl=apl,
                             requested_by_id=user_id, signature=signature, snapshot=frozen,
                         )
                         result['created'] += 1
@@ -228,8 +274,10 @@ def maintain_simulations(batch_size=5):
         try:
             row = SimcReferenceSimulation.objects.select_related('config__settings__backend', 'config__settings__template', 'profile', 'talent', 'apl').get(pk=row_id)
             config = row.config
-            current = snapshot(config, row.profile, row.talent, row.apl, row.snapshot['simulation_params']['desired_targets'])
-            if current != row.snapshot or current['simulation_params']['desired_targets'] not in config.targets:
+            scene = (SimcReferenceSimulationScenario.objects.filter(pk=row.scenario_id).first()
+                     if row.scenario_id else scenario_for_snapshot(config, row.snapshot))
+            current = snapshot(config, row.profile, row.talent, row.apl, scene)
+            if current != row.snapshot:
                 raise ValueError('配置已更新，请重新生成当前组合')
             kwargs = dict(user_id=row.requested_by_id, profile_id=row.profile_id, talent_string_id=row.talent_id,
                           apl_id=row.apl_id, template_id=config.template_id, backend_id=config.backend_id, is_admin=True)
@@ -239,9 +287,10 @@ def maintain_simulations(batch_size=5):
                 if locked.status != 'preparing' or locked.updated_at != claim:
                     continue
                 # Fence settings edits occurring while task inputs were prepared.
-                config.settings = SimcReferenceSimulationSettings.objects.select_for_update().get(pk=config.settings_id)
-                targets = row.snapshot['simulation_params']['desired_targets']
-                if targets not in config.targets or snapshot(config, row.profile, row.talent, row.apl, targets) != row.snapshot:
+                config = SimcReferenceSimulationConfig.objects.select_for_update().get(pk=locked.config_id)
+                config.settings = SimcReferenceSimulationSettings.objects.select_for_update().select_related('backend', 'template').get(pk=config.settings_id)
+                scene = SimcReferenceSimulationScenario.objects.select_for_update().filter(pk=scene.pk).first()
+                if snapshot(config, row.profile, row.talent, row.apl, scene) != row.snapshot:
                     raise ValueError('全局模拟条件已更新，请重新生成当前组合')
                 task = tasks.create_task_from_prepared(
                     prepared=prepared, **kwargs, name=f'公开配置 · {config.spec_key} · {row.pk}',
@@ -254,8 +303,8 @@ def maintain_simulations(batch_size=5):
                           for kind in ('profile', 'talent', 'apl', 'template')}
                 if actual != row.snapshot['resources'] or prepared.validation_identity[0] != row.snapshot['backend'][1]:
                     raise ValueError('任务创建期间资源版本发生变化，请重新生成')
-                locked.task, locked.status = task, 'submitted'
-                locked.save(update_fields=['task', 'status', 'updated_at'])
+                locked.task, locked.status, locked.scenario = task, 'submitted', scene
+                locked.save(update_fields=['task', 'status', 'scenario', 'updated_at'])
         except Exception as exc:
             logger.exception('公开配置模拟派发失败：%s', row_id)
             _fail(row_id, exc, claim=claim)
@@ -271,12 +320,12 @@ def public_results(spec_key, profile, talent, apl):
     if not config:
         return []
     try:
-        snapshots = [snapshot(config, profile, talent, apl, n) for n in config.targets]
+        snapshots = [(scene, snapshot(config, profile, talent, apl, scene)) for scene in active_scenarios(config)]
     except ValueError:
         return []
-    signatures = {tasks._compute_content_hash(value): value for value in snapshots}
+    signatures = [(scene, tasks._compute_content_hash(value), value) for scene, value in snapshots]
     found = {}
-    for signature in signatures:
+    for scene, signature, value in signatures:
         row = SimcReferenceSimulation.objects.filter(
             config=config, signature=signature, status='completed', dps__gt=0,
         ).order_by('-pk').values('dps').first()
@@ -285,5 +334,7 @@ def public_results(spec_key, profile, talent, apl):
     from botend.services.simc_reference_rankings import current_rankings
     rankings = current_rankings(config) if found else {}
     return [dict(value['simulation_params'], dps=found[key], ranking=rankings.get((config.pk, key)),
-                 config_id=config.pk, signature=key)
-            for key, value in signatures.items() if key in found]
+                 config_id=config.pk, signature=key, scenario_id=scene.pk, scenario_name=scene.name,
+                 name=scene.name, targets=value['simulation_params']['desired_targets'],
+                 duration=value['simulation_params']['max_time'])
+            for scene, key, value in signatures if key in found]

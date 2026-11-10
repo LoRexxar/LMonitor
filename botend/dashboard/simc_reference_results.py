@@ -9,8 +9,8 @@ from django.urls import reverse
 from django.views import View
 
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, effective_dashboard_permissions, permission_catalog
-from botend.models import SimcBackendBinary, SimcContentTemplate, SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferencePublication, SimcReferenceSimulationSettings, SimcProfile, SimcTalentString, SimcApl, SimcTaskArtifact
-from botend.services.simc_reference_simulations import catalog, enqueue_configs, initialize_configs, validate_config, validate_settings, snapshot
+from botend.models import SimcBackendBinary, SimcContentTemplate, SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferencePublication, SimcReferenceSimulationSettings, SimcReferenceSimulationScenario, SimcProfile, SimcTalentString, SimcApl, SimcTaskArtifact
+from botend.services.simc_reference_simulations import catalog, enqueue_configs, initialize_configs, validate_config, validate_settings, snapshot, active_scenarios, scenario_for_snapshot, scenario_simulation_params
 from botend.services.simc_task_service import _compute_content_hash
 from botend.services.simc_reference_management import public_combination_keys, scheme_results, with_report
 from botend.services.simc_reference_details import RESOURCE_LABELS, resource_is_shared, resource_preview
@@ -91,32 +91,16 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
 
 
 class ConfigForm(forms.ModelForm):
-    target_values = forms.CharField(label='目标数量', help_text='以逗号分隔，例如 1,5')
-
     class Meta:
         model = SimcReferenceSimulationSettings
-        fields = ['backend', 'template', 'duration', 'iterations', 'is_enabled']
-        labels = {'backend': '模拟后端', 'template': '输入模板', 'duration': '时长（秒）',
-                  'iterations': '迭代次数', 'is_enabled': '启用模拟结果维护与展示'}
+        fields = ['backend', 'template', 'is_enabled']
+        labels = {'backend': '模拟后端', 'template': '输入模板', 'is_enabled': '启用模拟结果维护与展示'}
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields['backend'].queryset = SimcBackendBinary.objects.filter(is_active=True)
         self.fields['template'].queryset = SimcContentTemplate.objects.filter(
-            is_active=True, is_selectable=True, owner_user_id__isnull=True,
-            spec__in=('default', 'all', '*'),
-        )
-        self.fields['target_values'].initial = ','.join(map(str, self.instance.targets))
-
-    def clean_target_values(self):
-        try:
-            values = [int(part.strip()) for part in self.cleaned_data['target_values'].replace('，', ',').split(',')]
-        except ValueError:
-            raise forms.ValidationError('请输入逗号分隔的目标数量，例如 1,5')
-        if not 1 <= len(values) <= 10 or len(set(values)) != len(values) or any(n < 1 or n > 20 for n in values):
-            raise forms.ValidationError('目标须为 1–20 的不重复整数，最多 10 个')
-        self.instance.targets = values
-        return values
+            is_active=True, is_selectable=True, owner_user_id__isnull=True, spec__in=('default', 'all', '*'))
 
     def clean(self):
         data = super().clean()
@@ -131,8 +115,87 @@ class ConfigForm(forms.ModelForm):
         return data
 
 
+class ScenarioDurationField(forms.FloatField):
+    """Keep integer inputs integer and fractional seconds intact in frozen hashes."""
+    def to_python(self, value):
+        parsed = super().to_python(value)
+        if parsed is None:
+            return None
+        return int(parsed) if parsed.is_integer() else parsed
+
+
+class ScenarioForm(forms.ModelForm):
+    desired_targets = forms.IntegerField(label='目标数')
+    max_time = ScenarioDurationField(label='时长（秒）', widget=forms.NumberInput(attrs={'step': 'any'}))
+    iterations = forms.IntegerField(label='迭代次数')
+
+    class Meta:
+        model = SimcReferenceSimulationScenario
+        fields = ['name', 'is_enabled']
+        labels = {'name': '场景名称', 'is_enabled': '启用'}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        params = self.instance.simulation_params or {}
+        for field, default in [('desired_targets', 1), ('max_time', 300), ('iterations', 10000)]:
+            self.fields[field].initial = params.get(field, default)
+
+    def clean(self):
+        data = super().clean()
+        if not self.errors:
+            params = dict(self.instance.simulation_params or {})
+            params.update({key: data[key] for key in ('desired_targets', 'max_time', 'iterations')})
+            self.instance.simulation_params = params
+            try:
+                scenario_simulation_params(self.instance)
+            except ValueError as exc:
+                raise forms.ValidationError(str(exc))
+        return data
+
+
+class ScenarioFormSet(forms.BaseInlineFormSet):
+    def clean(self):
+        super().clean()
+        if any(self.errors):
+            return
+        expected = set(self.get_queryset().values_list('pk', flat=True))
+        if self.initial_form_count() != len(expected):
+            raise forms.ValidationError('场景表单数量与现有清单不符，请刷新后重试。')
+        for index, form in enumerate(self.forms):
+            submitted_id = form.cleaned_data.get('id')
+            if index < len(expected):
+                if not submitted_id or submitted_id.pk != form.instance.pk or form.instance.pk not in expected:
+                    raise forms.ValidationError('已有场景的表单身份不匹配，请刷新后重试。')
+            elif submitted_id or form.instance.pk:
+                raise forms.ValidationError('新增场景不得携带已有记录的身份。')
+        submitted = [form.cleaned_data.get('id').pk for form in self.forms if form.cleaned_data.get('id')]
+        if len(submitted) != len(set(submitted)) or set(submitted) != expected:
+            raise forms.ValidationError('场景清单已变化或记录不属于当前游戏分支，请刷新后重试；不得遗漏现有场景。')
+        seen = set()
+        for form in self.forms:
+            if not form.cleaned_data or form.cleaned_data.get('DELETE'):
+                continue
+            params = scenario_simulation_params(form.instance)
+            identity = _compute_content_hash(params)
+            if identity in seen:
+                raise forms.ValidationError('场景参数不能完全重复；相同目标数可以使用不同时间。')
+            seen.add(identity)
+
+    def delete_existing(self, obj, commit=True):
+        # Stable scenario identities and historical evidence must never disappear.
+        obj.is_enabled = False
+        if commit:
+            obj.save(update_fields=['is_enabled'])
+
+
+ScenarioInlineFormSet = forms.inlineformset_factory(
+    SimcReferenceSimulationSettings, SimcReferenceSimulationScenario,
+    form=ScenarioForm, formset=ScenarioFormSet, extra=0, can_delete=True, max_num=100,
+    validate_max=True, absolute_max=200)
+
+
 class SimcReferenceSettingsView(DashboardPermissionRequiredMixin, View):
-    """每个游戏分支只有一份模拟条件，保存不派发任务。"""
+    """每个环境共享独立场景清单；仅保存配置，绝不派发任务。"""
     dashboard_permission = 'frontend.simulations'
     http_method_names = ['get', 'post', 'head', 'options']
 
@@ -142,15 +205,15 @@ class SimcReferenceSettingsView(DashboardPermissionRequiredMixin, View):
             raise Http404('游戏分支不存在')
         return branch
 
-    def render_page(self, request, branch, form, *, status=200):
+    def render_page(self, request, branch, form, scenarios, *, status=200):
         from botend.dashboard.dashboard import DashboardView
         dashboard = DashboardView()
         dashboard.setup(request)
         context = dashboard.get_context_data(title='后台', page_name='frontend-settings', include_stats=False)
         context.update(dashboard_permissions=sorted(effective_dashboard_permissions(request.user)),
                        dashboard_permission_catalog=permission_catalog(), dashboard_default_section='frontend-settings',
-                       management_title='模拟配置', management_description='统一管理所有专精的模拟条件，正式服与 PTR 分开设置。',
-                       branch=branch, settings_form=form)
+                       management_title='模拟配置', management_description='全部专精共享场景清单，正式服与 PTR 分开设置。',
+                       branch=branch, settings_form=form, scenario_formset=scenarios)
         response = render(request, 'dashboard/simc_reference_settings.html', context, status=status)
         response['Cache-Control'] = 'private, no-store'
         response['X-Robots-Tag'] = 'noindex, nofollow'
@@ -159,7 +222,9 @@ class SimcReferenceSettingsView(DashboardPermissionRequiredMixin, View):
     def get(self, request):
         branch = self.branch(request)
         settings = SimcReferenceSimulationSettings.objects.filter(use_ptr=branch == 'ptr').first()
-        return self.render_page(request, branch, ConfigForm(instance=settings or SimcReferenceSimulationSettings(use_ptr=branch == 'ptr')))
+        settings = settings or SimcReferenceSimulationSettings(use_ptr=branch == 'ptr')
+        return self.render_page(request, branch, ConfigForm(instance=settings),
+                                ScenarioInlineFormSet(instance=settings, prefix='scenarios'))
 
     def post(self, request):
         branch = self.branch(request)
@@ -167,11 +232,20 @@ class SimcReferenceSettingsView(DashboardPermissionRequiredMixin, View):
             raise Http404('操作不存在')
         with transaction.atomic():
             settings = SimcReferenceSimulationSettings.objects.select_for_update().filter(use_ptr=branch == 'ptr').first()
-            form = ConfigForm(request.POST, instance=settings or SimcReferenceSimulationSettings(use_ptr=branch == 'ptr'))
-            if form.is_valid():
+            settings = settings or SimcReferenceSimulationSettings(use_ptr=branch == 'ptr')
+            rows = SimcReferenceSimulationScenario.objects.select_for_update().filter(settings=settings).order_by('display_order', 'pk') if settings.pk else SimcReferenceSimulationScenario.objects.none()
+            list(rows)
+            form = ConfigForm(request.POST, instance=settings)
+            scenarios = ScenarioInlineFormSet(request.POST, instance=settings, queryset=rows, prefix='scenarios')
+            valid_form, valid_scenes = form.is_valid(), scenarios.is_valid()
+            if valid_form and valid_scenes:
                 form.save()
+                scenarios.save()
+                for order, scene_form in enumerate(scenarios.forms):
+                    if scene_form.instance.pk and not scene_form.cleaned_data.get('DELETE'):
+                        SimcReferenceSimulationScenario.objects.filter(pk=scene_form.instance.pk, settings=settings).update(display_order=order)
                 return redirect(reverse('simc_reference_settings') + f'?branch={branch}&saved=conditions')
-        return self.render_page(request, branch, form, status=400)
+        return self.render_page(request, branch, form, scenarios, status=400)
 
 
 class PublicationForm(forms.ModelForm):
@@ -258,9 +332,10 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
                 page = Paginator(simulations, 40).get_page(request.GET.get('page'))
                 for row in page:
                     try:
-                        targets = row.snapshot['simulation_params']['desired_targets']
-                        current = snapshot(row.config, row.profile, row.talent, row.apl, targets)
-                        row.is_stale = targets not in row.config.targets or _compute_content_hash(current) != row.signature
+                        scene = scenario_for_snapshot(row.config, row.snapshot)
+                        row.scene_name = scene.name if scene else '历史场景'
+                        current = snapshot(row.config, row.profile, row.talent, row.apl, scene) if scene else None
+                        row.is_stale = current is None or _compute_content_hash(current) != row.signature
                     except (ValueError, KeyError):
                         row.is_stale = True
             else:
@@ -277,7 +352,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             'view_mode': self.view_mode, 'management_title': self.management_title,
             'management_description': self.management_description, 'management_url': request.path,
             'spec_groups': spec_groups.items(), 'spec_count': sum(len(rows) for rows in spec_groups.values()),
-            'configs': configs, 'selected': selected, 'form': form, 'result': result, 'page': page,
+            'configs': configs, 'selected': selected, 'active_scenarios': active_scenarios(selected) if selected else [], 'form': form, 'result': result, 'page': page,
             'publication_form': publication_form, 'scheme_page': scheme_page, 'history_scheme': history_scheme,
             'module_section': 'publication' if self.view_mode == 'publication' else 'reference', 'admin_ranking': True,
             'module_reference_url': (reverse('simc_reference_results') + (f'?config={selected.pk}' if selected else '')) if self.view_mode == 'publication' else request.get_full_path(),

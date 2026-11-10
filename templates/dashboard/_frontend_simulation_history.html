@@ -1,7 +1,7 @@
 <div class="section-heading"><h3>方案历史记录</h3><a href="?config={{ selected.pk }}">返回方案汇总</a></div>
 <p class="admin-note">{{ history_scheme.profile.name }} · {{ history_scheme.talent.name }} · {{ history_scheme.apl.name }}</p>
 <div class="table-scroll" tabindex="0" role="region" aria-label="方案历史记录，可横向滚动"><table><thead><tr><th>模拟条件</th><th>状态</th><th class="number">DPS</th><th>登记时间</th><th>报告与管理</th></tr></thead><tbody>{% for row in page %}<tr>
-<td>{{ row.snapshot.simulation_params.desired_targets }} 目标 · {{ row.snapshot.simulation_params.max_time }} 秒<small>{{ row.snapshot.simulation_params.iterations }} 次迭代</small></td>
+<td>{{ row.scene_name|default:"历史场景" }} · {{ row.snapshot.simulation_params.desired_targets }} 目标 · {{ row.snapshot.simulation_params.max_time }} 秒<small>{{ row.snapshot.simulation_params.iterations }} 次迭代</small></td>
 <td>{{ row.get_status_display }}{% if row.is_stale %}<small class="issue">配置已变化，前台不展示</small>{% endif %}{% if row.error %}<details><summary>失败原因</summary>{{ row.error }}</details>{% endif %}</td>
 <td class="number">{% if row.dps %}{{ row.dps|floatformat:'2g' }}{% else %}—{% endif %}</td><td>{{ row.created_at|date:'m-d H:i' }}</td>
 <td>{% if row.has_report %}<a href="{% url 'simc_reference_report' row.pk %}" target="_blank" rel="noopener">查看报告</a>{% elif row.status == 'completed' %}<span class="muted">报告不可用</span>{% endif %}{% if row.status == 'queued' %}<form method="post">{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><input type="hidden" name="simulation" value="{{ row.pk }}"><button name="action" value="cancel">取消排队</button></form>{% endif %}</td>

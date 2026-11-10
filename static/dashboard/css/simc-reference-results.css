@@ -30,6 +30,20 @@ html[data-dashboard-theme="dark"] .reference-admin { --accent:#a8cdff; --error:#
 .reference-admin .settings-form input:not([type=checkbox]), .reference-admin .settings-form select { width:100%; min-height:40px; border:1px solid var(--line); border-radius:5px; padding:6px 9px; color:var(--ink); background:var(--dashboard-surface); }
 .reference-admin .settings-form .helptext { display:block; font-size:12px; color:var(--muted); }
 .reference-admin .settings-form button { justify-self:start; align-self:end; }
+.reference-admin .settings-form [data-scenario-editor] { grid-column:1/-1; min-width:0; padding:16px; border:1px solid var(--line); border-radius:8px; }
+.reference-admin [data-scenario-editor] legend { padding:0 6px; font-weight:650; }
+.reference-admin [data-scenario-editor] .admin-note { margin:8px 0 16px; }
+.reference-admin .scenario-table-scroll { max-width:100%; overflow-x:auto; }
+.reference-admin .scenario-table-scroll table { width:100%; min-width:860px; border-collapse:collapse; }
+.reference-admin .scenario-table-scroll th { padding:10px; text-align:left; font-size:13px; color:var(--muted); background:var(--dashboard-surface-muted); white-space:nowrap; }
+.reference-admin .scenario-table-scroll td { padding:10px; border-top:1px solid var(--line); vertical-align:middle; }
+.reference-admin .scenario-table-scroll td:first-child { min-width:180px; }
+.reference-admin .scenario-table-scroll td:nth-child(2), .reference-admin .scenario-table-scroll td:nth-child(3) { min-width:100px; }
+.reference-admin .scenario-table-scroll td:nth-child(4) { min-width:125px; }
+.reference-admin .scenario-table-scroll td:last-child { white-space:nowrap; }
+.reference-admin .scenario-add { min-height:40px; margin-top:12px; padding:8px 14px; border:1px solid var(--line); border-radius:6px; background:var(--dashboard-surface); color:var(--ink); }
+.reference-admin .settings-form > .primary { grid-column:1/-1; min-height:42px; }
+
 .reference-admin .errorlist { color:var(--error); grid-column:1/-1; }
 .reference-admin .history { margin-top:32px; }
 .reference-admin .table-scroll { overflow:auto; }

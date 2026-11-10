@@ -2208,15 +2208,27 @@ class SimcReferenceSimulationSettings(models.Model):
     use_ptr = models.BooleanField(default=False, unique=True)
     backend = models.ForeignKey(SimcBackendBinary, null=True, blank=True, on_delete=models.PROTECT)
     template = models.ForeignKey(SimcContentTemplate, null=True, blank=True, on_delete=models.PROTECT)
-    duration = models.PositiveIntegerField(default=300)
-    targets = models.JSONField(default=simc_reference_default_targets)
-    iterations = models.PositiveIntegerField(default=10000)
     is_enabled = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = '公开资料全局模拟设置'
         verbose_name_plural = '公开资料全局模拟设置'
+
+
+class SimcReferenceSimulationScenario(models.Model):
+    """Stable scenario identity; execution freezes the extensible option set."""
+
+    settings = models.ForeignKey(SimcReferenceSimulationSettings, on_delete=models.PROTECT, related_name='scenarios')
+    name = models.CharField(max_length=200)
+    simulation_params = models.JSONField(default=dict)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['display_order', 'pk']
+        verbose_name = '公开资料模拟场景'
+        verbose_name_plural = '公开资料模拟场景'
 
 
 class SimcReferenceSimulationConfig(models.Model):
@@ -2231,9 +2243,7 @@ class SimcReferenceSimulationConfig(models.Model):
     backend_id = property(lambda self: self.settings.backend_id)
     template = property(lambda self: self.settings.template)
     template_id = property(lambda self: self.settings.template_id)
-    duration = property(lambda self: self.settings.duration)
-    targets = property(lambda self: self.settings.targets)
-    iterations = property(lambda self: self.settings.iterations)
+
     is_enabled = property(lambda self: self.settings.is_enabled)
 
     class Meta:
@@ -2246,6 +2256,7 @@ class SimcReferenceSimulation(models.Model):
     """每次专用模拟独立留档，只有匹配当前输入的成功结果可供前台读取。"""
 
     config = models.ForeignKey(SimcReferenceSimulationConfig, on_delete=models.PROTECT, related_name='simulations')
+    scenario = models.ForeignKey(SimcReferenceSimulationScenario, null=True, blank=True, on_delete=models.PROTECT, related_name='simulations')
     profile = models.ForeignKey(SimcProfile, null=True, on_delete=models.SET_NULL)
     talent = models.ForeignKey(SimcTalentString, null=True, on_delete=models.SET_NULL)
     apl = models.ForeignKey(SimcApl, null=True, on_delete=models.SET_NULL)

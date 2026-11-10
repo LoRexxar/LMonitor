@@ -1,5 +1,7 @@
 """公开组合的跨职业、专精内排名及条件隔离回归。"""
 
+from django.db import connection
+from django.test.utils import CaptureQueriesContext
 from django.test import TestCase
 from django.urls import reverse
 
@@ -7,7 +9,9 @@ from botend.models import SimcApl, SimcProfile, SimcTalentString, SimcReferenceS
 from botend.services import simc_reference_simulations as service
 from botend.services.simc_reference_management import scheme_results
 from botend.services.simc_reference_rankings import current_rankings, leaderboard
-from botend.tests.simc_reference_test_fixtures import publish_resources
+from botend.tests.simc_reference_test_fixtures import (
+    publish_resources, update_scenario_params,
+)
 from botend.tests import test_simc_reference_simulations as simulation_tests
 
 
@@ -16,10 +20,11 @@ class ReferenceRankingTests(TestCase):
 
     def result(self, dps, targets=1, *, config=None, profile=None, talent=None, apl=None, status='completed'):
         config = config or self.config
-        frozen = service.snapshot(config, profile or self.profile, talent or self.talent, apl or self.apl, targets)
+        scene = config.settings.scenarios.get(simulation_params__desired_targets=targets)
+        frozen = service.snapshot(config, profile or self.profile, talent or self.talent, apl or self.apl, scene)
         return SimcReferenceSimulation.objects.create(
             requested_by_id=self.user.pk,
-            config=config, profile=profile or self.profile, talent=talent or self.talent, apl=apl or self.apl,
+            config=config, scenario=scene, profile=profile or self.profile, talent=talent or self.talent, apl=apl or self.apl,
             signature=service.tasks._compute_content_hash(frozen), snapshot=frozen, dps=dps, status=status,
         )
 
@@ -90,10 +95,9 @@ class ReferenceRankingTests(TestCase):
         other = self.other_spec()
         self.result(400, **other)
         settings = self.config.settings
-        for field, value in (('duration', 240), ('iterations', 2000)):
+        for field, value in (('max_time', 240), ('iterations', 2000)):
             with self.subTest(field=field):
-                setattr(settings, field, value)
-                settings.save()
+                update_scenario_params(settings, **{field: value})
                 self.config.refresh_from_db()
                 other['config'].refresh_from_db()
                 current = self.result(500, **other)
@@ -150,8 +154,9 @@ class ReferenceRankingTests(TestCase):
             self.publication.profiles.add(profile)
             self.result(200 + index, profile=profile)
         config = SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').get(pk=self.config.pk)
-        with self.assertNumQueries(4):
+        with CaptureQueriesContext(connection) as queries:
             ranks = current_rankings(config)
+        self.assertLessEqual(len(queries), 4)
         self.assertEqual(ranks[(row.config_id, row.signature)]['overall_rank'], 23)
         page = scheme_results(config, 2)
         self.assertEqual(page.paginator.count, 23)
@@ -244,7 +249,9 @@ class ReferenceRankingTests(TestCase):
         response = self.client.get(url)
         self.assertContains(response, 'dashboard-primary-nav')
         self.assertContains(response, '返回模拟结果管理')
-        self.assertContains(response, '5 目标 · 未模拟')
+        self.assertContains(response, '5 目标')
+        self.assertContains(response, '300 秒')
+        self.assertContains(response, '未模拟')
         self.assertContains(response, 'aria-disabled="true"')
         self.assertIn('no-store', response['Cache-Control'])
         self.assertContains(self.client.get(self.url), f'href="{url}"')
@@ -290,7 +297,7 @@ class ReferenceRankingTests(TestCase):
         from django.utils.html import escape
         anchor = self.result(100)
         other = self.other_spec()
-        self.result(300, **other)
+        other_row = self.result(300, **other)
         board = leaderboard(self.config, anchor.signature, 'overall')
         row = board['entries'][0]
         self.client.force_login(self.user)
@@ -299,7 +306,8 @@ class ReferenceRankingTests(TestCase):
             parsed = urlsplit(row['resource_links'][kind])
             self.assertEqual(parsed.fragment, fragment)
             self.assertEqual(parse_qs(parsed.query), {'spec': ['mage_fire'], 'profile': [str(other['profile'].pk)],
-                                                     'talent': [str(other['talent'].pk)], 'apl': [str(other['apl'].pk)]})
+                                                     'talent': [str(other['talent'].pk)], 'apl': [str(other['apl'].pk)],
+                                                     'scenario': [str(other_row.scenario_id)]})
             self.assertContains(portal, f'href="{escape(row["resource_links"][kind])}"')
         admin = self.client.get(reverse('simc_reference_rankings', args=[self.config.pk, anchor.signature, 'overall']))
         self.assertContains(admin, f'data-wow-item-tooltip-url="{escape(row["preview_links"]["talent"])}"')

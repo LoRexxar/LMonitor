@@ -18,7 +18,8 @@ class GlobalSettingsMigrationTests(TransactionTestCase):
         Config = self.apps.get_model('botend', 'SimcReferenceSimulationConfig')
         if 'settings_id' not in {col.name for col in connection.introspection.get_table_description(connection.cursor(), Config._meta.db_table)}:
             Config.objects.update(duration=300)
-        MigrationExecutor(connection).migrate(self.new)
+        executor = MigrationExecutor(connection)
+        executor.migrate(executor.loader.graph.leaf_nodes())
         super().tearDown()
 
     def migrate(self):

@@ -6,7 +6,9 @@ from botend.models import (SimcReferenceSimulationSettings, SimcReferenceSimulat
 from botend.services import simc_reference_simulations as service
 from botend.services.simc_reference_rankings import current_rankings
 from botend.tests import test_simc_reference_simulations as simulation_tests
-from botend.tests.simc_reference_test_fixtures import publish_resources
+from botend.tests.simc_reference_test_fixtures import (
+    publish_resources, update_scenario_params,
+)
 
 
 class GlobalReferenceSettingsTests(TestCase):
@@ -34,8 +36,7 @@ class GlobalReferenceSettingsTests(TestCase):
         frozen = list(SimcReferenceSimulation.objects.order_by('pk').values('pk', 'signature', 'snapshot', 'task_id'))
         self.assertEqual(len(self.results()), 2)
         settings = SimcReferenceSimulationSettings.objects.get(use_ptr=False)
-        settings.duration = 240
-        settings.save()
+        update_scenario_params(settings, max_time=240)
         self.assertEqual(SimcReferenceSimulation.objects.count(), 4)
         self.assertEqual(self.results(), [])
         self.assertEqual(service.public_results('mage_fire', profile, talent, apl), [])
@@ -46,14 +47,14 @@ class GlobalReferenceSettingsTests(TestCase):
 
     def test_queued_settings_drift_rejected_but_submitted_task_remains_frozen(self):
         self.enqueue()
-        SimcReferenceSimulationSettings.objects.filter(use_ptr=False).update(duration=240)
+        update_scenario_params(self.config.settings, max_time=240)
         self.dispatch()
         self.assertEqual(SimcReferenceSimulation.objects.filter(status='failed').count(), 2)
         self.enqueue()
         self.dispatch()
         tasks = list(SimcReferenceSimulation.objects.filter(status='submitted').values_list('task_id', flat=True))
         self.assertEqual(len(tasks), 2)
-        SimcReferenceSimulationSettings.objects.filter(use_ptr=False).update(duration=180)
+        update_scenario_params(self.config.settings, max_time=180)
         self.complete()
         self.assertEqual(SimcReferenceSimulation.objects.filter(status='completed').count(), 2)
         self.assertEqual(set(SimcReferenceSimulation.objects.filter(task_id__in=tasks).values_list('snapshot__simulation_params__max_time', flat=True)), {240})
@@ -67,7 +68,7 @@ class GlobalReferenceSettingsTests(TestCase):
 
         def change_settings(**kwargs):
             prepared = original(**kwargs)
-            SimcReferenceSimulationSettings.objects.filter(use_ptr=False).update(iterations=2000)
+            update_scenario_params(self.config.settings, iterations=2000)
             return prepared
 
         with patch.object(service.tasks, 'prepare_task_creation', side_effect=change_settings):
@@ -83,7 +84,7 @@ class GlobalReferenceSettingsTests(TestCase):
 
         def change_targets(**kwargs):
             prepared = original(**kwargs)
-            SimcReferenceSimulationSettings.objects.filter(use_ptr=False).update(targets=[5])
+            self.config.settings.scenarios.filter(simulation_params__desired_targets=1).update(is_enabled=False)
             return prepared
 
         with patch.object(service.tasks, 'prepare_task_creation', side_effect=change_targets):
@@ -109,5 +110,5 @@ class GlobalReferenceSettingsTests(TestCase):
         fields = {field.name for field in SimcReferenceSimulationConfig._meta.concrete_fields}
         self.assertEqual(fields, {'id', 'spec_key', 'use_ptr', 'settings'})
         self.assertEqual(other.settings_id, self.config.settings_id)
-        with self.assertRaises(AttributeError):
-            other.duration = 42
+        for field in ('duration', 'targets', 'iterations'):
+            self.assertFalse(hasattr(other, field), f'Legacy scalar proxy {field} must be absent')

@@ -3,10 +3,10 @@
 import math
 from collections import defaultdict
 
-from django.db.models import Max
+from django.db.models import CharField, Max, Value
 
 from botend.models import SimcReferencePublication, SimcReferenceSimulation
-from botend.services.simc_reference_simulations import snapshot, validate_config
+from botend.services.simc_reference_simulations import snapshot, validate_config, active_scenarios, scenario_for_snapshot, scenario_simulation_params
 from botend.services.simc_task_service import _compute_content_hash
 
 
@@ -21,8 +21,7 @@ def _current_cohorts(config):
     # 先在数据库缩小到可比较的执行环境，避免载入无关版本的历史记录。
     candidates = SimcReferenceSimulation.objects.filter(
         status='completed', dps__gt=0, config__settings__is_enabled=True,
-        config__use_ptr=config.use_ptr, config__settings__duration=config.duration,
-        config__settings__iterations=config.iterations,
+        config__use_ptr=config.use_ptr,
         config__settings__backend__current_version=config.backend.current_version,
         config__settings__backend__game_build=config.backend.game_build,
         config__settings__template__content=config.template.content,
@@ -33,22 +32,38 @@ def _current_cohorts(config):
     )
     published = {}
     publications = SimcReferencePublication.objects.filter(is_published=True)
-    for kind in ('profiles', 'talents', 'apls'):
-        for spec, resource_id in publications.values_list('spec_key', f'{kind}__pk'):
-            published.setdefault(spec, {}).setdefault(kind, set()).add(resource_id)
+    # UNION keeps each M2M projection independent (no Cartesian products) while
+    # leaving room for the shared scenario query within the existing SQL budget.
+    projections = [publications.order_by().annotate(
+        resource_kind=Value(kind, output_field=CharField()),
+    ).values_list('spec_key', f'{kind}__pk', 'resource_kind')
+        for kind in ('profiles', 'talents', 'apls')]
+    for spec, resource_id, kind in projections[0].union(*projections[1:], all=True):
+        published.setdefault(spec, {}).setdefault(kind, set()).add(resource_id)
 
+    # All specs in this environment share Settings; resolve the complete scene
+    # list once rather than one database lookup per historical result.
+    scenes_by_params = {}
+    for scene in active_scenarios(config):
+        try:
+            identity = _compute_content_hash(scenario_simulation_params(scene))
+        except ValueError:
+            continue
+        scenes_by_params.setdefault(identity, []).append(scene)
     current_signatures, cohorts = {}, defaultdict(list)
     for row in rows:
         if not math.isfinite(row.dps):
             continue
         params = (row.snapshot or {}).get('simulation_params', {})
-        targets = params.get('desired_targets')
-        if type(targets) is not int or targets not in row.config.targets or targets not in config.targets:
+        matches = scenes_by_params.get(_compute_content_hash(params), [])
+        if len(matches) != 1 or matches[0].settings_id != row.config.settings_id:
             continue
-        key = (row.config_id, row.profile_id, row.talent_id, row.apl_id, targets)
+        scenario = matches[0]
+        row.current_scenario = scenario
+        key = (row.config_id, row.profile_id, row.talent_id, row.apl_id, scenario.pk)
         if key not in current_signatures:
             try:
-                frozen = snapshot(row.config, row.profile, row.talent, row.apl, targets,
+                frozen = snapshot(row.config, row.profile, row.talent, row.apl, scenario,
                                   published_resources=published.get(row.config.spec_key, {}))
                 current_signatures[key] = _compute_content_hash(frozen)
             except ValueError:
@@ -114,6 +129,7 @@ def leaderboard(config, signature, scope):
             previous = row.dps
             detail_url = reverse('portal_simc_reference') + '?' + urlencode({
                 'spec': row.config.spec_key, 'profile': row.profile_id, 'talent': row.talent_id, 'apl': row.apl_id,
+                'scenario': row.current_scenario.pk,
             })
             entries.append({
                 'rank': rank, 'spec': labels.get(row.config.spec_key, row.config.spec_key),
@@ -126,14 +142,15 @@ def leaderboard(config, signature, scope):
                 'preview_links': resource_links(row.config, {'profile': row.profile, 'talent': row.talent, 'apl': row.apl}),
             })
         scene_signatures = {
-            row.snapshot['simulation_params']['desired_targets']: row.signature
+            row.current_scenario.pk: row.signature
             for cohort in cohorts for row in cohort
             if (row.config_id, row.profile_id, row.talent_id, row.apl_id) ==
                (anchor.config_id, anchor.profile_id, anchor.talent_id, anchor.apl_id)
         }
         return {'entries': entries, 'scope_label': '全职业' if scope == 'overall' else '本专精',
                 'targets': anchor.snapshot['simulation_params']['desired_targets'],
-                'duration': config.duration, 'iterations': config.iterations,
+                'duration': anchor.snapshot['simulation_params']['max_time'], 'iterations': anchor.snapshot['simulation_params']['iterations'],
+                'scenario_id': anchor.current_scenario.pk, 'scenario_name': anchor.current_scenario.name,
                 'current': next(entry for entry in entries if entry['is_current']),
                 'scene_signatures': scene_signatures,
                 'profile_id': anchor.profile_id, 'talent_id': anchor.talent_id, 'apl_id': anchor.apl_id}
@@ -156,10 +173,11 @@ def ranking_page_context(config, signature, scope, *, admin=False):
         for key, label in (('overall', '全职业'), ('spec', '当前专精'))
     ]
     board['scene_options'] = [
-        {'label': '单体' if targets == 1 else f'{targets} 目标', 'selected': targets == board['targets'],
-         'url': reverse(route, args=[config.pk, board['scene_signatures'][targets], scope])
-                if targets in board['scene_signatures'] else None}
-        for targets in config.targets
+        {'label': f"{scene.name} · {scene.simulation_params['desired_targets']} 目标 · {scene.simulation_params['max_time']} 秒 · {scene.simulation_params['iterations']} 次迭代",
+         'scenario_id': scene.pk, 'selected': scene.pk == board['scenario_id'],
+         'url': reverse(route, args=[config.pk, board['scene_signatures'][scene.pk], scope])
+                if scene.pk in board['scene_signatures'] else None}
+        for scene in active_scenarios(config)
     ]
     board['return_url'] = (reverse('simc_reference_spec_results', args=[config.spec_key]) + '?' + urlencode({'config': config.pk})
                            if admin else reverse('portal_simc_reference') + '?' + urlencode({
@@ -188,7 +206,7 @@ def ranking_entry(preferred_config_id=None):
         except ValueError:
             continue
         condition = _compute_content_hash([config.use_ptr, config.backend.current_version, config.backend.game_build,
-                                           config.template.content, config.duration, config.iterations, sorted(config.targets)])
+                                           config.template.content, [scene.simulation_params for scene in active_scenarios(config)]])
         if condition in checked:
             continue
         checked.add(condition)

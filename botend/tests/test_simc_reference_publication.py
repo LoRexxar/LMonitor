@@ -8,6 +8,7 @@ from django.urls import reverse
 from botend.models import DashboardUserGroup, SimcApl, SimcProfile, SimcTalentString, SimcReferencePublication, SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferenceSimulationSettings, SimcTaskArtifact, SimcTask
 from botend.services.simc_reference import reference_catalog
 from botend.tests import test_simc_reference_simulations as fixtures
+from botend.tests.simc_reference_test_fixtures import scenario_settings_payload
 
 
 class ReferencePublicationTests(TestCase):
@@ -263,22 +264,26 @@ class ReferencePublicationTests(TestCase):
         self.assertContains(response, '保存模拟配置')
         self.assertNotContains(response, 'id="result-spec-select"')
         self.assertNotContains(self.client.get(self.url), '保存模拟条件')
-        payload = {'action': 'save', 'branch': 'retail', 'backend': self.backend.pk, 'template': self.template.pk,
-                   'duration': 240, 'iterations': 2000, 'target_values': '1,3,5', 'is_enabled': 'on'}
+        payload = scenario_settings_payload(self.config.settings, self.backend, self.template,
+                                            [(1, 240, 2000), (3, 240, 2000), (5, 240, 2000)])
         saved = self.client.post(url, payload, follow=True)
         self.assertEqual(saved.status_code, 200)
         self.config.refresh_from_db()
         other.refresh_from_db()
         self.assertEqual(self.config.settings_id, other.settings_id)
-        self.assertEqual(self.config.duration, 240)
-        self.assertEqual(other.duration, 240)
-        self.assertEqual(other.targets, [1, 3, 5])
+        self.assertEqual(list(self.config.settings.scenarios.values_list('simulation_params__max_time', flat=True)), [240] * 3)
+        self.assertEqual([s.simulation_params['desired_targets'] for s in
+                          other.settings.scenarios.order_by('display_order', 'pk')], [1, 3, 5])
         self.assertEqual(self.client.post(self.url, dict(payload, config=self.config.pk)).status_code, 400)
-        invalid = self.client.post(url, dict(payload, target_values='1,1'))
+        invalid_payload = scenario_settings_payload(self.config.settings, self.backend, self.template,
+                                                    [(1, 240, 2000), (0, 240, 2000), (5, 240, 2000)])
+        invalid = self.client.post(url, invalid_payload)
         self.assertEqual(invalid.status_code, 400)
-        self.assertContains(invalid, '目标须为', status_code=400)
+        self.assertTrue(invalid.context['scenario_formset'].forms[1].errors)
+        self.assertContains(invalid, 'name="scenarios-1-desired_targets"', status_code=400)
         self.config.refresh_from_db()
-        self.assertEqual(self.config.targets, [1, 3, 5])
+        self.assertEqual([s.simulation_params['desired_targets'] for s in
+                          self.config.settings.scenarios.order_by('display_order', 'pk')], [1, 3, 5])
         self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
         self.assertEqual(SimcTask.objects.count(), 0)
         self.client.force_login(User.objects.create_user('无模拟配置权限'))
