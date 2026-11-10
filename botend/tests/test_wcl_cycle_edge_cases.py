@@ -146,7 +146,7 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
              patch.object(self.monitor, 'fetch_wcl_combatant_info', return_value=events) as fetch:
             self.assertTrue(self.monitor.scan(''))
         old.refresh_from_db()
-        self.assertEqual(old.talents_json, [])
+        self.assertEqual(old.talents_json, [{'talentID': 999}])
         from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
         projected = enrich_dungeon_records([SpecRaidRanking.objects.filter(pk=old.pk).values().get()],
                                            'Mage', 'Fire')[0]
@@ -289,24 +289,23 @@ class WclCycleEdgeCasesTests(TransactionTestCase):
                 self.assertEqual(boss.count(), 4)
                 self.assertEqual(set(boss.values_list('dps', flat=True)), {123})
 
-    def test_nonempty_raid_has_more_true_keeps_single_page_sampling(self):
-        self.old_raid()
+    def test_repeated_raid_page_defers_without_overwriting_previous_scope(self):
+        old = self.old_raid()
+        before = SpecRaidRanking.objects.filter(pk=old.pk).values().get()
         page = self.page()
-        page['rankings'][0]['talents'] = [{'talentID': 1234, 'points': 1}]
         page['hasMorePages'] = True
         response = {'worldData': {'encounter': {'characterRankings': page}}}
         with patch.object(self.monitor, '_wcl_graphql', return_value=response) as fetch:
-            self.assertTrue(self.monitor.scan(''))
+            self.assertFalse(self.monitor.scan(''))
         self.assertEqual(fetch.call_count, 2)
-        for call, difficulty in zip(fetch.call_args_list, (5, 4)):
-            self.assertIn('characterRankings(', call.args[0])
-            self.assertIn('page: 1', call.args[0])
-            self.assertIn(f'difficulty: {difficulty},', call.args[0])
-        self.assertEqual(list(SpecRaidRanking.objects.order_by('difficulty').values_list(
-            'difficulty', 'character_name', 'dps')), [(4, 'Player', 123), (5, 'Player', 123)])
+        for call, page_number in zip(fetch.call_args_list, (1, 2)):
+            self.assertIn(f'page: {page_number}', call.args[0])
+            self.assertIn('includeCombatantInfo: false', call.args[0])
+        self.assertEqual(SpecRaidRanking.objects.filter(pk=old.pk).values().get(), before)
         cycle = WclCollectionCycle.objects.get()
-        self.assertEqual(cycle.phase, 'ready')
-        self.assertEqual(set(cycle.completed_scopes), {'raid:5:201', 'raid:4:201'})
+        self.assertEqual(cycle.phase, 'rankings')
+        self.assertEqual(cycle.completed_scopes, [])
+        self.assertIsNotNone(cycle.next_retry_at)
 
     def test_frozen_scope_survives_season_changes_and_manual_replay(self):
         from botend.services.raid_burst_snapshot import load_published

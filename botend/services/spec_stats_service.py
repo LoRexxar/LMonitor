@@ -783,67 +783,25 @@ DUNGEON_SAMPLE_FIELDS = (
 )
 
 
-def _dungeon_sample_level_floor(rows):
-    """Inclusive floor for one season/class/spec/dungeon cohort, never gap-fill.
-
-    Frozen callers must pass only their frozen rows, not today's candidate pool.
-    """
-    return max((row.get('keystone_level') or 0 for row in rows), default=0) - 2
-
-
 def _select_dungeon_sample_records(qs, max_samples=100, *, hydrate_fields=None):
-    """
-    为 M+ 聚合选择最终样本。
-
-    规则：先按钥石层数从高到低分层，每层按 DPS 从高到低排序；每层只保留 DPS >= 该层中位数的日志，
-    再从高层到低层累积，最低只到本范围最高层减 2（含），不足不再向下补样；
-    按 region+realm+character_name 去重，最终最多 max_samples 个玩家样本。
-    """
-    fields = DUNGEON_SAMPLE_FIELDS
-    if hydrate_fields is not None:
-        fields = tuple(dict.fromkeys(('id', *hydrate_fields)))
-    # Median selection needs the cohort's scalar facts, not every large JSON
-    # payload. Fetch talents/gear only for the final (at most 100) observations.
+    """读取已入选的最多100人；旧数据只按DPS和身份去重，不再按层数、中位数缩减。"""
+    from .wcl_combatant_snapshot import _fight_key, _realm
+    fields = DUNGEON_SAMPLE_FIELDS if hydrate_fields is None else tuple(dict.fromkeys(('id', *hydrate_fields)))
     selection_fields = ('id', 'report_code', 'fight_id', 'character_name',
                         'realm', 'region', 'dps', 'keystone_level')
-    rows = list(qs.exclude(report_code='').filter(fight_id__gt=0).values(*selection_fields))
-    if not rows:
+    selected, seen_players = [], set()
+    if max_samples <= 0:
         return []
-
-    level_floor = _dungeon_sample_level_floor(rows)
-    by_level = defaultdict(list)
-    seen_logs = set()
-    for row in rows:
-        identity = _dungeon_log_identity(row)
-        if identity in seen_logs:
+    rows = qs.exclude(report_code='').filter(fight_id__gt=0).order_by('-dps', 'pk').values(*selection_fields)
+    for row in rows.iterator(chunk_size=100):
+        player = (str(row.get('region') or '').strip().casefold(), _realm(row.get('realm')),
+                  str(row.get('character_name') or '').strip().casefold())
+        if not _fight_key(row) or not all(player) or player[2] == 'anonymous' or player in seen_players:
             continue
-        seen_logs.add(identity)
-        level = row.get('keystone_level') or 0
-        by_level[level].append(row)
-
-    selected = []
-    seen_players = set()
-    for level in sorted(by_level.keys(), reverse=True):
-        if level < level_floor:
+        seen_players.add(player)
+        selected.append(row)
+        if len(selected) >= max_samples:
             break
-        level_rows = sorted(by_level[level], key=lambda r: r.get('dps') or 0, reverse=True)
-        dps_values = sorted([r.get('dps') or 0 for r in level_rows])
-        median_dps = _percentile(dps_values, 50)
-        for row in level_rows:
-            if len(selected) >= max_samples:
-                return _hydrate_dungeon_samples(qs, selected, fields)
-            if median_dps is not None and (row.get('dps') or 0) < median_dps:
-                continue
-            player_key = (
-                (row.get('region') or '').strip().lower(),
-                (row.get('realm') or '').strip().lower(),
-                (row.get('character_name') or '').strip().lower(),
-            )
-            if player_key in seen_players:
-                continue
-            seen_players.add(player_key)
-            selected.append(row)
-
     return _hydrate_dungeon_samples(qs, selected, fields)
 
 

@@ -145,7 +145,7 @@ class SpecDetailBase(BaseScan):
                 return True
         return False
 
-    def fetch_wcl_rankings(self, encounter_id, class_name, spec_name, metric='dps', difficulty=None, page=1):
+    def fetch_wcl_rankings(self, encounter_id, class_name, spec_name, metric='dps', difficulty=None, page=1, *, include_combatant_info=True):
         """
         获取 WCL 角色排名
         返回 rankings dict: {count, hasMorePages, page, rankings: [...]}
@@ -164,7 +164,7 @@ class SpecDetailBase(BaseScan):
                         metric: {metric}
                         {diff_param}
                         page: {page}
-                        includeCombatantInfo: true
+                        includeCombatantInfo: {str(include_combatant_info).lower()}
                     )
                 }}
             }}

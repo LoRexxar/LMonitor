@@ -185,9 +185,11 @@ def enrich_dungeon_records(records, class_name, spec_name, *, facts=None):
             row['stats_json'] = combatant_stats(event)
             if event.get('race'):
                 row['race'] = deepcopy(event['race'])
-            if not row.get('talents_json') and event.get('talentTree'):
+            if event.get('talentTree'):
                 from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
-                row['talents_json'] = SpecDetailBase.parse_wcl_talent_tree(event['talentTree'])
+                talents = SpecDetailBase.parse_wcl_talent_tree(event['talentTree'])
+                if talents:
+                    row['talents_json'] = talents
             gear = combatant_gear(event.get('gear'), catalog)
             if gear:
                 row['gear_json'] = gear

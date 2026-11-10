@@ -64,7 +64,11 @@ class SnapshotReadTests(TestCase):
         self.assertEqual(got['gear_json'][0]['enchants_detail'][0]['id'], 22222)
         self.assertNotIn('id', got['gear_json'][0]['enchants_detail'][1])
         row['talents_json'] = [{'node_id': 123}]
-        self.assertEqual(enrich_dungeon_records([row], 'DeathKnight', 'Frost')[0]['talents_json'], row['talents_json'])
+        self.assertEqual(enrich_dungeon_records([row], 'DeathKnight', 'Frost')[0]['talents_json'], got['talents_json'])
+        self.assertEqual(row['talents_json'], [{'node_id': 123}])
+        payload['talentTree'] = []
+        self.assertEqual(enrich_dungeon_records([row], 'DeathKnight', 'Frost',
+            facts={('Report', 11): [payload]})[0]['talents_json'], row['talents_json'])
         parsed = SpecDetailBase.parse_wcl_gear(payload['gear'])
         self.assertEqual(parsed[0]['permanentEnchant'], '7961')
         self.assertEqual(parsed[0]['gems_detail'][0]['id'], '240967')

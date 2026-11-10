@@ -47,20 +47,20 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
 
         rows = []
         for dungeon_id in range(1, 9):
-            # Fury: each layer median is 150, so only the 200 row survives.
+            # 已入选的两个日志均保留，均值150。
             rows.extend([
                 self._row(dungeon_id, 'Warrior', 'Fury', 100, f'fury-low-{dungeon_id}'),
                 self._row(dungeon_id, 'Warrior', 'Fury', 200, f'fury-high-{dungeon_id}'),
             ])
             if dungeon_id == 1:
-                # Arcane D1 keeps 500 and 300 (2 samples): min/avg/max = 300/400/500.
+                # 已入选的三个日志均保留，最小100、均值300、最大500。
                 rows.extend([
                     self._row(1, 'mage', 'arcane', 100, 'arcane-low-1'),
                     self._row(1, 'mage', 'arcane', 300, 'arcane-mid-1'),
                     self._row(1, 'mage', 'arcane', 500, 'arcane-high-1'),
                 ])
             else:
-                # D2-D8 keep one 500 sample each.
+                # 其他副本保留两个样本。
                 rows.extend([
                     self._row(dungeon_id, 'Mage', 'Arcane', 100, f'arcane-low-{dungeon_id}'),
                     self._row(dungeon_id, 'Mage', 'Arcane', 500, f'arcane-high-{dungeon_id}'),
@@ -89,10 +89,10 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
         self.assertEqual([(item['spec_name'], item['rank']) for item in overall], [('Arcane', 1), ('Fury', 2)])
         self.assertNotIn('Fire', [item['spec_name'] for item in overall])
         self.assertNotIn('Holy', [item['spec_name'] for item in overall])
-        self.assertEqual(overall[0]['sample_size'], 9)
+        self.assertEqual(overall[0]['sample_size'], 17)
         self.assertEqual(overall[0]['dungeon_count'], 8)
-        self.assertAlmostEqual(overall[0]['lower_dps'], (300 * 2 + 500 * 7) / 9, places=2)
-        self.assertAlmostEqual(overall[0]['average_dps'], (400 * 2 + 500 * 7) / 9, places=2)
+        self.assertAlmostEqual(overall[0]['lower_dps'], 100, places=2)
+        self.assertAlmostEqual(overall[0]['average_dps'], 300, places=2)
         self.assertAlmostEqual(overall[0]['highest_dps'], 500, places=2)
         self.assertEqual(overall[0]['detail_url'], '/portal/spec/Mage/Arcane/dungeons/')
         self.assertEqual(
@@ -102,9 +102,9 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
 
         dungeon_one = payload['rankings']['dungeon:1']
         self.assertEqual(dungeon_one[0]['spec_name'], 'Arcane')
-        self.assertEqual(dungeon_one[0]['sample_size'], 2)
-        self.assertEqual(dungeon_one[0]['lower_dps'], 300)
-        self.assertEqual(dungeon_one[0]['average_dps'], 400)
+        self.assertEqual(dungeon_one[0]['sample_size'], 3)
+        self.assertEqual(dungeon_one[0]['lower_dps'], 100)
+        self.assertEqual(dungeon_one[0]['average_dps'], 300)
         self.assertEqual(dungeon_one[0]['highest_dps'], 500)
 
     def test_average_dps_tiers_use_exact_equal_range_per_scope(self):
@@ -214,7 +214,7 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
             self._row(1, 'Mage', 'Arcane', 50, 'also-below-median', level=12),
         ]
         selected = select_representative_rows(rows, max_samples=100)
-        self.assertEqual([row['dps'] for row in selected], [500, 400])
+        self.assertEqual([row['dps'] for row in selected], [500, 400, 100, 50])
 
         production_rows = list(rows)
         for dungeon_id in range(2, 9):
@@ -224,8 +224,8 @@ class MplusDpsRankingAggregationTests(SimpleTestCase):
             ])
         payload = build_rankings_payload_from_rows(self.season, production_rows)
         dungeon_one = payload['rankings']['dungeon:1'][0]
-        self.assertEqual(dungeon_one['sample_size'], 2)
-        self.assertEqual(dungeon_one['average_dps'], 450)
+        self.assertEqual(dungeon_one['sample_size'], 4)
+        self.assertEqual(dungeon_one['average_dps'], 262.5)
 
     def test_atomic_publish_failure_preserves_previous_snapshot(self):
         from botend.services.mplus_dps_rankings_service import atomic_write_payload, snapshot_path

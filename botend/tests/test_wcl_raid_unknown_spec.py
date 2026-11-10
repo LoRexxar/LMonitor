@@ -43,7 +43,8 @@ class RaidUnknownSpecTests(TransactionTestCase):
         self.monitor = SpecDetailRankingMonitor(None, None)
         self.monitor._wcl_token, self.monitor._wcl_token_expire = 'not-real', float('inf')
         for p in (patch(RANKING + '.CLASS_SPEC_MAP', {'Warlock': ['Destruction']}),
-                  patch(RANKING + '.time.sleep')):
+                  patch(RANKING + '.time.sleep'),
+                  patch(RANKING + '.SpecDetailBase.prepare_combatant_worker_factory', return_value=None)):
             p.start()
             self.addCleanup(p.stop)
 
@@ -62,7 +63,7 @@ class RaidUnknownSpecTests(TransactionTestCase):
         self.assertEqual(kwargs['json']['variables']['fightIDs'], [self.ranking['report']['fightID']])
         return page(self.events)
 
-    def test_captured_empty_talents_finish_scan_without_stale_talents_or_facts(self):
+    def test_captured_missing_talents_preserve_same_log_cache_without_inventing_new_facts(self):
         self.assertIs(type(self.target['specID']), int)
         self.assertEqual((self.target['specID'], self.target['talents'], self.target['talentTree']), (0, [], []))
         self.assertEqual(len(self.target['gear']), 18)
@@ -73,12 +74,12 @@ class RaidUnknownSpecTests(TransactionTestCase):
         self.assertEqual(http.call_count, 3)  # two rankings share one report fetch
         self.assertEqual(self.events, original)
         old.refresh_from_db()
-        self.assertEqual(old.talents_json, [])
-        self.assertEqual(old.talent_build_code, '')
+        self.assertEqual(old.talents_json, [{'talentID': 999, 'points': 1}])
+        self.assertEqual(old.talent_build_code, 'old-code')
         self.assertEqual(old.dps, self.ranking['amount'])
-        self.assertTrue(old.gear_json)
+        self.assertEqual(old.gear_json, [])
         self.assertEqual(SpecRaidRanking.objects.count(), 2)
-        self.assertFalse(SpecRaidRanking.objects.exclude(talents_json=[]).exists())
+        self.assertEqual(SpecRaidRanking.objects.get(difficulty=4).talents_json, [])
         cycle = WclCollectionCycle.objects.get()
         self.assertEqual(cycle.phase, 'ready')
         self.assertEqual(set(cycle.completed_scopes), {'raid:5:3455', 'raid:4:3455'})
@@ -103,7 +104,10 @@ class RaidUnknownSpecTests(TransactionTestCase):
         self.assertTrue(expected)
         self.assertEqual(set(SpecRaidRanking.objects.values_list('class_name', 'spec_name')),
                          {('Rogue', 'Subtlety')})
-        self.assertEqual(list(SpecRaidRanking.objects.values_list('talents_json', flat=True)), [expected, expected])
+        self.assertEqual(list(SpecRaidRanking.objects.values_list('talents_json', flat=True)), [[], []])
+        from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
+        projected = enrich_dungeon_records(SpecRaidRanking.objects.values(), 'Rogue', 'Subtlety')
+        self.assertEqual([row['talents_json'] for row in projected], [expected, expected])
 
     def test_raid_unknown_spec_no_longer_blocks_real_mplus_supplement(self):
         self.season.mplus_encounters = [{'id': 101, 'name': 'Dungeon'}]
@@ -137,7 +141,7 @@ class RaidUnknownSpecTests(TransactionTestCase):
         cycle = WclCollectionCycle.objects.get()
         self.assertEqual(cycle.phase, 'ready')
         self.assertEqual((cycle.counts['selected'], cycle.counts['matched'], cycle.counts['missing'],
-                          cycle.counts['failed'], cycle.counts['snapshots_written']), (2, 1, 1, 0, 29))
+                          cycle.counts['failed'], cycle.counts['snapshots_written']), (4, 1, 3, 0, 58))
         self.assertIsNone(cycle.next_retry_at)
         self.assertEqual(WclCombatantSnapshot.objects.count(), 58)
         reports = {self.ranking['report']['code'], 'DungeonReport'}
@@ -235,6 +239,7 @@ class RaidUnknownSpecTests(TransactionTestCase):
                          requests.ConnectionError('offline fixture'), malformed):
             with self.subTest(response=type(response).__name__, status=getattr(response, 'status_code', None)):
                 WclCollectionCycle.objects.all().delete()
+                WclCombatantFetchState.objects.all().delete()
                 def fetch(*args, **kwargs):
                     if 'characterRankings' in kwargs['json']['query']:
                         return self.http(*args, **kwargs)
@@ -243,12 +248,17 @@ class RaidUnknownSpecTests(TransactionTestCase):
                     return response
                 with patch('requests.post', side_effect=fetch) as http:
                     self.assertFalse(self.monitor.scan(''))
-                self.assertEqual(http.call_count, 2)
-                self.assertEqual(SpecRaidRanking.objects.filter(pk=old.pk).values().get(), before)
+                self.assertEqual(http.call_count, 3)
+                old.refresh_from_db()
+                self.assertEqual(old.dps, self.ranking['amount'])
+                self.assertEqual(old.talents_json, before['talents_json'])
                 cycle = WclCollectionCycle.objects.get()
-                self.assertEqual((cycle.phase, cycle.completed_scopes), ('rankings', []))
+                self.assertEqual(cycle.phase, 'combatants')
+                self.assertEqual(set(cycle.completed_scopes), {'raid:5:3455', 'raid:4:3455'})
                 self.assertIsNotNone(cycle.next_retry_at)
-                self.assertFalse(WclCombatantFetchState.objects.exists())
+                self.assertFalse(WclCombatantSnapshot.objects.exists())
+                statuses = list(WclCombatantFetchState.objects.values_list('status', flat=True))
+                self.assertEqual(statuses, ['transient_error'] if isinstance(response, Exception) else [])
 
     def test_explicit_report_permission_is_unavailable_not_transient(self):
         denied = Response({'errors': [{'message': 'You do not have permission to view this report.',

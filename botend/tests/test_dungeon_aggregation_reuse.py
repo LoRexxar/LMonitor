@@ -426,7 +426,7 @@ class DungeonAggregationReuseTests(TestCase):
         self.assertFalse(self.aggregate(refresh_talents=True)['reused'])
         self.assert_talent_text('新名称新名称')
 
-    def test_frozen_cohort_drops_below_local_floor_without_reselecting_and_reuses(self):
+    def test_frozen_cohort_keeps_selected_rows_without_level_refilter_and_reuses(self):
         high = self.row(name='High', keystone_level=20,
                         gear_json=[{'id': 123, 'slot': 'head', 'gems': [{'id': 456}]}])
         middle = self.row(name='Middle', keystone_level=19)
@@ -448,22 +448,22 @@ class DungeonAggregationReuseTests(TestCase):
              patch.object(stats.SpecStatsService, '_compute_dungeon_records',
                           wraps=stats.SpecStatsService._compute_dungeon_records) as compute:
             first = self.aggregate(selected_ids=selected)
-        self.assertEqual(first['selected'], 6)
+        self.assertEqual(first['selected'], 8)
         self.assertEqual(selected, original_refs)
         self.assertEqual([row['id'] for row in compute.call_args_list[0].args[0]],
-                         [floor.pk, middle.pk, high.pk, middle_high.pk])
+                         [floor.pk, low.pk, middle.pk, high.pk, middle_high.pk])
         self.assertEqual([row['id'] for row in compute.call_args_list[1].args[0]],
-                         [local_floor.pk, local_high.pk])
-        self.assertEqual([self.detail(i)['sample_size'] for i in (1, 2)], [4, 2])
+                         [local_low.pk, local_floor.pk, local_high.pk])
+        self.assertEqual([self.detail(i)['sample_size'] for i in (1, 2)], [5, 3])
         summary = self.detail()
-        self.assertEqual(summary['sample_size'], 6)
-        self.assertEqual(summary['missing_sample_size'], 194)
-        self.assertEqual([row['sample_size'] for row in summary['dungeon_samples']], [4, 2])
-        self.assertEqual(self.detail(1)['gem_popularity'][0]['pct'], 25)
-        self.assertEqual(summary['gem_popularity'][0]['pct'], round(100 / 6, 1))
+        self.assertEqual(summary['sample_size'], 8)
+        self.assertEqual(summary['missing_sample_size'], 192)
+        self.assertEqual([row['sample_size'] for row in summary['dungeon_samples']], [5, 3])
+        self.assertEqual(self.detail(1)['gem_popularity'][0]['pct'], 20)
+        self.assertEqual(summary['gem_popularity'][0]['pct'], round(100 / 8, 1))
         crit = next(row for row in summary['secondary_stats'] if row['key'] == 'crit')
-        self.assertEqual(crit['sample_size'], 1)
-        self.assertEqual(crit['rating']['avg'], 100)
+        self.assertEqual(crit['sample_size'], 2)
+        self.assertEqual(crit['rating']['avg'], 50049.5)
         before = {p: (p.read_bytes(), p.stat().st_mtime_ns)
                   for p in self.path.parent.rglob('*.json')}
         with patch.object(stats, '_select_dungeon_sample_records', side_effect=AssertionError('reselect')), \
@@ -498,7 +498,7 @@ class DungeonAggregationReuseTests(TestCase):
         with patch.object(facts, '_load_facts', side_effect=AssertionError('second read')):
             self.assertEqual(facts.enrich_dungeon_records([row], 'Warrior', 'Arms', facts={})[0]['stats_json'], {})
 
-    def test_original_300_candidate_selection_and_top5_order_are_preserved(self):
+    def test_legacy_candidates_keep_hundred_unique_players_and_top5_order(self):
         SpecDungeonRanking.objects.bulk_create([
             SpecDungeonRanking(season_id=self.season.id, dungeon_id=1, dungeon_name='One',
                 class_name='Warrior', spec_name='Arms', character_name=f'P{i % 200}',
@@ -519,8 +519,8 @@ class DungeonAggregationReuseTests(TestCase):
         self.assertEqual(self.detail(1)['sample_size'], 100)
         self.assertEqual([row['id'] for row in self.detail(1)['top5']],
                          [row['id'] for row in sorted(original, key=lambda row: row['dps'], reverse=True)[:5]])
-        self.assertNotEqual([row['id'] for row in self.detail(1)['top5']],
-                            [row['id'] for row in original[:5]])
+        self.assertEqual([row['id'] for row in self.detail(1)['top5']],
+                         [row['id'] for row in original[:5]])
 
     def test_frozen_missing_reference_fails_without_publishing(self):
         row = self.row()

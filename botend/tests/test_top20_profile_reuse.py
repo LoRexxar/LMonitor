@@ -137,6 +137,51 @@ class Top20ProfileReuseTests(TestCase):
         self.assertEqual(next(iter(result.values())).gear_json, [{'id': 88}])
         self.assertEqual(counts['queried'], 1)
 
+    def test_lightweight_rankings_reuse_central_details_after_negative_cache(self):
+        from botend.models import WclCombatantSnapshot
+        row = self.ranking(talents_json=[], gear_json=[], report_code='Central', fight_id=1)
+        player = self.player()
+        result, _ = ranking_fallbacks(self.season, [player])
+        self.assertEqual(result, {})
+        payload = {'sourceID': 7, 'specID': 63,
+                   'source': {'id': 7, 'name': player['name'], 'server': player['realm']},
+                   'talentTree': [{'id': 1234, 'rank': 1}], 'gear': [{'id': 456}]}
+        WclCombatantSnapshot.objects.create(report_code='Central', fight_id=1, actor_id=7,
+                                            payload_json=payload)
+        result, counts = ranking_fallbacks(self.season, [player])
+        self.assertEqual(counts['queried'], 1)
+        projected = next(iter(result.values()))
+        self.assertEqual(projected.pk, row.pk)
+        self.assertEqual(projected.talents_json[0]['talentID'], 1234)
+        self.assertEqual(projected.gear_json[0]['id'], 456)
+        cached, counts = ranking_fallbacks(self.season, [player])
+        self.assertEqual(counts['cache_hits'], 1)
+        self.assertEqual(next(iter(cached.values())).talents_json, projected.talents_json)
+        row.refresh_from_db()
+        self.assertEqual(row.talents_json, [])
+        self.assertEqual(row.gear_json, [])
+
+    def test_central_reuse_matches_actor_and_batches_shared_fights(self):
+        from botend.models import WclCombatantSnapshot
+        players = [self.player(f'角色{i}') for i in range(20)]
+        for i, player in enumerate(players):
+            self.ranking(name=player['name'], talents_json=[], gear_json=[], report_code='Shared', fight_id=1)
+            WclCombatantSnapshot.objects.create(report_code='Shared', fight_id=1, actor_id=i+1,
+                payload_json={'sourceID': i+1, 'specID': 63,
+                              'source': {'id': i+1, 'name': player['name'], 'server': player['realm']},
+                              'talentTree': [{'id': 1000+i, 'rank': 1}]})
+        for run in range(2):
+            with CaptureQueriesContext(connection) as queries:
+                result, counts = ranking_fallbacks(self.season, players)
+            self.assertEqual(len(result), 20)
+            reads = [q['sql'] for q in queries if 'wow_wcl_combatant_snapshot' in q['sql'] and
+                     'payload_json' in q['sql']]
+            self.assertEqual(len(reads), 1)
+            for i, player in enumerate(players):
+                key = identity(player['region'], player['realm'], player['name'])
+                self.assertEqual(result[key, 'Mage', 'Fire'].talents_json[0]['talentID'], 1000+i)
+            self.assertEqual(counts['cache_hits'], 20 if run else 0)
+
     def test_deletion_and_wrong_identity_never_reuse_other_profile(self):
         row = self.ranking()
         player = self.player()

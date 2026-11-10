@@ -83,7 +83,7 @@ class WclStatisticsContractTests(TestCase):
         for name, code, level in [('NoLog', '', 30), ('WithLog', 'Report', 10)]:
             SpecDungeonRanking.objects.create(season_id=self.season.pk, dungeon_id=1,
                 class_name='Mage', spec_name='Fire', character_name=name, report_code=code,
-                fight_id=1, keystone_level=level, dps=100)
+                fight_id=1, keystone_level=level, dps=100, realm='Realm', region='eu')
         self.assertEqual([row['character_name'] for row in _select_dungeon_sample_records(qs)], ['WithLog'])
 
     def test_freeze_collects_raid_logs_and_does_not_reselect_after_resume(self):

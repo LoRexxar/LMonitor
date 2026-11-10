@@ -62,32 +62,11 @@ def _percentile(values, percentile):
 
 
 def select_representative_rows(rows, max_samples=SAMPLE_CAP_PER_SPEC_DUNGEON):
-    """Reuse the established M+ overview sampling rule without loading gear/talents."""
-    by_level = defaultdict(list)
-    for row in rows:
-        by_level[row.get('keystone_level') or 0].append(row)
-
-    selected = []
-    seen_players = set()
-    for level in sorted(by_level, reverse=True):
-        level_rows = sorted(by_level[level], key=lambda item: item.get('dps') or 0, reverse=True)
-        median_dps = _percentile([item.get('dps') or 0 for item in level_rows], 50)
-        for row in level_rows:
-            if len(selected) >= max_samples:
-                return selected
-            dps = row.get('dps') or 0
-            if median_dps is not None and dps < median_dps:
-                continue
-            player_key = (
-                str(row.get('region') or '').strip().lower(),
-                str(row.get('realm') or '').strip().lower(),
-                str(row.get('character_name') or '').strip().lower(),
-            )
-            if player_key in seen_players:
-                continue
-            seen_players.add(player_key)
-            selected.append(row)
-    return selected
+    """沿用采集阶段入选样本，仅为旧数据去重限量，不再按每层中位数筛减。"""
+    entries = [(row.get('keystone_level') or 0, row.get('dps') or 0,
+                tuple(str(row.get(key) or '').strip().casefold()
+                      for key in ('region', 'realm', 'character_name')), row) for row in rows]
+    return [entry[3] for entry in _select_representative_entries(entries, max_samples)]
 
 
 def _row_value(row, field):
@@ -97,30 +76,15 @@ def _row_value(row, field):
 
 
 def _select_representative_entries(rows, max_samples=SAMPLE_CAP_PER_SPEC_DUNGEON):
-    """Select original compact entries; trailing facts never affect selection.
-
-    Keep each run's timestamp attached through sorting and character deduplication,
-    including stable DPS ties. The first three fields retain the legacy contract.
-    """
-    by_level = defaultdict(list)
-    for entry in rows:
-        by_level[entry[0]].append(entry)
-
-    selected = []
-    seen_players = set()
-    for level in sorted(by_level, reverse=True):
-        level_rows = sorted(by_level[level], key=lambda item: item[1], reverse=True)
-        median_dps = _percentile([item[1] for item in level_rows], 50)
-        for entry in level_rows:
-            if len(selected) >= max_samples:
-                return selected
-            dps, player_key = entry[1:3]
-            if median_dps is not None and dps < median_dps:
-                continue
-            if player_key in seen_players:
-                continue
-            seen_players.add(player_key)
-            selected.append(entry)
+    """按DPS稳定排序去重，战斗时间随记录保留，不再对入选名单二次筛减。"""
+    selected, seen_players = [], set()
+    for entry in sorted(rows, key=lambda item: item[1], reverse=True):
+        if len(selected) >= max_samples:
+            break
+        if entry[2] in seen_players:
+            continue
+        seen_players.add(entry[2])
+        selected.append(entry)
     return selected
 
 
@@ -358,7 +322,7 @@ def build_rankings_payload_from_rows(season, rows, generated_at=None):
         'method': {
             'role': 'dps',
             'sample_cap_per_spec_dungeon': SAMPLE_CAP_PER_SPEC_DUNGEON,
-            'sample_rule': '按钥石层数从高到低；每层保留不低于该层中位数的记录；角色去重',
+            'sample_rule': '使用采集阶段入选的最多100位角色日志；不再按层数或中位数二次筛减',
             'dungeon_metrics': {'lower': 'min', 'average': 'time_weighted_mean', 'highest': 'max'},
             'time_weighting': {
                 'kind': 'exponential',

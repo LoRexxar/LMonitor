@@ -155,8 +155,8 @@ class MplusDpsTimeWeightingTests(SimpleTestCase):
             row(100, 'low'), row(50, 'lowest'),
         ]
         stat = dungeon_stat(build(rows))
-        self.assertEqual(stat['sample_size'], 2)
-        self.assertAlmostEqual(stat['average_dps'], (400 * .25 + 300) / 1.25)
+        self.assertEqual(stat['sample_size'], 4)
+        self.assertAlmostEqual(stat['average_dps'], (400 * .25 + 300 + 100 + 50) / 3.25)
 
     def test_overall_still_uses_dungeon_sample_sizes_not_time_weight_sums(self):
         rows = [

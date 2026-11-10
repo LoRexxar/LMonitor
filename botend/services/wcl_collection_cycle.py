@@ -124,7 +124,7 @@ def defer_cycle(cycle, error, retry_at=None, *, counts=None):
 
 
 def freeze_samples(cycle, season, identities):
-    """Freeze the existing 300-candidate/top100 selector's central row IDs."""
+    """冻结轻量榜单入选记录，后续只补这些日志的详情。"""
     from botend.services.spec_stats_service import _select_dungeon_sample_records
     expected = {f'dungeon:{enc["id"]}' for enc in season.mplus_encounters or []}
     expected.update(f'raid:{difficulty}:{enc["id"]}'

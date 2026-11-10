@@ -6,7 +6,7 @@ from botend.services.dungeon_aggregation import _metadata_dependencies
 from botend.services.spec_aggregation_cache import load_work, save_work
 from botend.services.spec_stats_snapshot import content_digest
 
-ALGORITHM_VERSION = 'raid-scope-v4-wcl-log-only'
+ALGORITHM_VERSION = 'raid-scope-v5-central-talents'
 
 
 def select_raid_records(season_id, boss_id, class_name, spec_name, difficulty, *, selected_ids=None, hydrate_fields=None):

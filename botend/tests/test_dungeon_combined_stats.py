@@ -122,32 +122,33 @@ class DungeonCombinedStatsTests(TestCase):
         self.assertIn('talents_json', queries[1]['sql'])
         self.assertIn(' IN ', queries[1]['sql'])
 
-    def test_level_floor_is_scope_local_inclusive_and_keeps_selection_rules(self):
+    def test_selection_keeps_all_levels_and_dps_without_second_filter(self):
         from django.db import connection
         from django.test.utils import CaptureQueriesContext
 
         high = self.row(name='High', dps=300, keystone_level=20)
         median = self.row(name='Median', dps=200, keystone_level=20)
-        self.row(name='BelowMedian', dps=100, keystone_level=20)
+        below = self.row(name='BelowMedian', dps=100, keystone_level=20)
         self.row(name='High', dps=300, keystone_level=20)  # duplicate log
-        self.row(name='High', dps=900, keystone_level=19, fight_id=2)
+        best = self.row(name='High', dps=900, keystone_level=19, fight_id=2)
         next_level = self.row(name='Next', dps=500, keystone_level=19)
-        self.row(name='Low19', dps=100, keystone_level=19)
+        low19 = self.row(name='Low19', dps=100, keystone_level=19)
         floor_a = self.row(name='FloorA', keystone_level=18)
         floor_b = self.row(name='FloorB', keystone_level=18)
-        self.row(name='Excluded17', dps=99999, keystone_level=17)
+        low17 = self.row(name='Excluded17', dps=99999, keystone_level=17)
         gap_high = self.row(dungeon=2, name='Gap20', keystone_level=20)
         gap_floor = self.row(dungeon=2, name='Gap18', keystone_level=18)
-        self.row(dungeon=2, name='Gap15', keystone_level=15)
+        gap_low = self.row(dungeon=2, name='Gap15', keystone_level=15)
         local_high = self.row(dungeon=3, name='Local12', keystone_level=12)
         local_floor = self.row(dungeon=3, name='Local10', keystone_level=10)
-        self.row(dungeon=3, name='Local9', keystone_level=9)
+        local_low = self.row(dungeon=3, name='Local9', keystone_level=9)
         for scope in ({'spec_name': 'Fury'}, {'class_name': 'Mage'},
                       {'season_id': self.season.id + 10}, {'dungeon': 99}):
             self.row(name='OtherScope', keystone_level=99, **scope)
 
-        expected = {1: [high.pk, median.pk, next_level.pk, floor_a.pk, floor_b.pk],
-                    2: [gap_high.pk, gap_floor.pk], 3: [local_high.pk, local_floor.pk]}
+        expected = {1: [low17.pk, best.pk, next_level.pk, median.pk, below.pk, low19.pk, floor_a.pk, floor_b.pk],
+                    2: [gap_high.pk, gap_floor.pk, gap_low.pk],
+                    3: [local_high.pk, local_floor.pk, local_low.pk]}
         for dungeon, ids in expected.items():
             with self.subTest(dungeon=dungeon):
                 qs = SpecDungeonRanking.objects.filter(season_id=self.season.id,
@@ -166,10 +167,10 @@ class DungeonCombinedStatsTests(TestCase):
                     self.season.id, dungeon, str(dungeon), 'Warrior', 'Arms')
                 self.assertEqual(single['sample_size'], len(ids))
         summary = SpecStatsService.get_dungeon_summary('Warrior', 'Arms', self.season.id)
-        self.assertEqual(summary['sample_size'], 9)
-        self.assertEqual(summary['missing_sample_size'], 791)
+        self.assertEqual(summary['sample_size'], 14)
+        self.assertEqual(summary['missing_sample_size'], 786)
         self.assertEqual([row['sample_size'] for row in summary['dungeon_samples']],
-                         [5, 2, 2, 0, 0, 0, 0, 0])
+                         [8, 3, 3, 0, 0, 0, 0, 0])
 
     def test_page_default_summary_and_all_single_links(self):
         import tempfile
