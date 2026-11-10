@@ -224,6 +224,32 @@ class ReferencePublicationTests(TestCase):
         self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
         self.assertEqual(SimcTask.objects.count(), 0)
 
+    def test_admin_navigation_uses_sidebar_and_publication_controls_share_header(self):
+        from bs4 import BeautifulSoup
+        self.login()
+        publication = self.client.get(self.publication_url)
+        soup = BeautifulSoup(publication.content, 'html.parser')
+        controls = soup.select_one('.publication-heading .publication-controls')
+        self.assertIsNotNone(controls)
+        self.assertIsNotNone(controls.select_one('#publication-spec-select'))
+        self.assertIsNotNone(controls.select_one('button[name=action][value=sync]'))
+        self.assertEqual(len(soup.select('button[name=action][value=sync]')), 1)
+        ranking_url = reverse('simc_reference_rankings_entry')
+        for url in (self.publication_url, self.url, ranking_url):
+            response = self.client.get(url)
+            document = BeautifulSoup(response.content, 'html.parser')
+            self.assertIsNone(document.select_one('nav[aria-label="模拟资料页面导航"]'))
+            menu = document.select_one('#frontend-simulation-sidebar-submenu')
+            self.assertEqual({a['href'] for a in menu.select('a')},
+                             {self.publication_url, reverse('simc_reference_results'), ranking_url})
+        ranking = self.client.get(ranking_url)
+        self.assertEqual(ranking.context['dashboard_default_section'], 'frontend-rankings')
+        from botend.dashboard.permissions import SECTION_PERMISSION_CODES
+        self.assertEqual(SECTION_PERMISSION_CODES['frontend-rankings'], 'frontend.simulations')
+        portal = self.client.get(reverse('portal_simc_reference'), {'spec': self.config.spec_key})
+        self.assertIsNotNone(BeautifulSoup(portal.content, 'html.parser').select_one('nav[aria-label="模拟资料页面导航"]'))
+        self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
+
     def test_old_entry_redirects_to_the_separate_page(self):
         self.login()
         entry = reverse('simc_reference_entry')

@@ -1,13 +1,13 @@
 {% extends 'dashboard/index.html' %}
 {% load static %}
 {% block dashboard_extra_head %}
-<link rel="stylesheet" href="{% static 'dashboard/css/simc-reference-results.css' %}?v=20261110_publication_dropdown">
+<link rel="stylesheet" href="{% static 'dashboard/css/simc-reference-results.css' %}?v=20261110_publication_toolbar">
 <link rel="stylesheet" href="{% static 'shared/css/simc-reference-rankings.css' %}?v=20261110_unified">
 <link rel="stylesheet" href="{% static 'shared/css/simc-reference-layout.css' %}?v=20261110_unified">
 {% endblock %}
 {% block dashboard_content %}
 <main class="reference-admin" id="{{ dashboard_default_section }}" aria-labelledby="reference-admin-title">
-{% block management_heading %}{% include 'shared/simc_reference_navigation.html' %}<header class="simc-page-heading"><div><h1 id="reference-admin-title">{{ management_title }}</h1><p>{{ management_description }}</p></div></header>{% endblock %}
+{% block management_heading %}<header class="simc-page-heading"><div><h1 id="reference-admin-title">{{ management_title }}</h1><p>{{ management_description }}</p></div></header>{% endblock %}
 {% block management_selector %}{% endblock %}
 {% block management_actions %}<div class="admin-toolbar">{% block management_toolbar %}{% endblock %}<a href="{{ management_url }}?config={{ selected.pk|default:'' }}">刷新状态</a></div>{% endblock %}
 {% if request.GET.saved %}<p class="admin-feedback" role="status">{% if request.GET.saved == 'publication' %}公开范围已保存，前台立即按此清单展示。{% else %}模拟条件已保存，可生成当前条件的结果。{% endif %}</p>{% endif %}

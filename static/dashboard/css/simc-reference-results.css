@@ -149,3 +149,19 @@ html[data-dashboard-theme="dark"] .reference-admin .status-error { color:#ffc1bd
 .reference-admin .scheme-primary-action button { min-height:40px; }
 .reference-admin .scheme-reports a { min-height:32px; }
 }
+
+.reference-admin .publication-heading { align-items:center; flex-wrap:wrap; gap:20px; }
+.reference-admin .publication-heading-copy { flex:1 1 240px; }
+.reference-admin .publication-controls { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+.reference-admin .publication-controls .result-spec-selector { margin:0; gap:10px; }
+.reference-admin .publication-controls select { width:240px; }
+.reference-admin .publication-controls form { display:flex; margin:0; }
+.reference-admin .publication-controls button,
+.reference-admin .publication-refresh { box-sizing:border-box; display:inline-flex; align-items:center; justify-content:center; min-height:42px; padding:8px 14px; border:1px solid var(--line); border-radius:6px; background:var(--dashboard-surface); color:var(--ink); white-space:nowrap; text-decoration:none; }
+.reference-admin .publication-refresh:hover { background:var(--dashboard-surface-muted); text-decoration:none; }
+@media(max-width:760px) {
+.reference-admin .publication-heading-copy,
+.reference-admin .publication-controls { width:100%; }
+.reference-admin .publication-controls .result-spec-selector { flex:1 1 100%; }
+.reference-admin .publication-controls select { width:100%; }
+}

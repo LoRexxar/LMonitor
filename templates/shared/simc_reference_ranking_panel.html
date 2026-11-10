@@ -1,4 +1,4 @@
-{% include 'shared/simc_reference_navigation.html' %}
+{% if not admin_ranking %}{% include 'shared/simc_reference_navigation.html' %}{% endif %}
 <header class="ranking-page-heading simc-page-heading"><div><h1 id="reference-admin-title">模拟排行榜</h1><p>比较同版本、同模拟条件下的公开配置组合。</p></div>{% if return_url %}<a class="ranking-back" href="{{ return_url }}">{{ return_label }}</a>{% endif %}</header>
 <div class="simc-ranking-workspace">
 {% if empty_ranking %}

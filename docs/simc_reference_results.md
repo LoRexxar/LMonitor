@@ -3,8 +3,8 @@
 ## 范围与入口
 
 - 前台仍为登录内测页 `/portal/simc-reference/`，没有增加公开导航入口。
-- 模块内统一提供“专精模拟资料／模拟排行榜”前台导航，以及“公开配置管理／模拟结果管理／模拟排行榜”后台三项导航，排名数字之外也可直接进入榜单。前后台根入口 `/portal/simc-reference/rankings/` 与 `/dashboard/frontend-simulations/rankings/` 仍分别遵循登录与后台权限要求；后台原有两个独立侧栏管理页保持不变，不增加前台全站导航入口。
-- 后台“内容运营”下设“前台数据模拟管理”父目录，包含两个独立子菜单与页面：“公开配置管理”位于 `/dashboard/frontend-simulations/publication/`，“模拟结果管理”位于 `/dashboard/frontend-simulations/results/`，不放在现有 SimC 菜单下。权限为 `frontend.simulations`；超级管理员自动拥有，其他后台用户由现有用户组分配权限，无需通用 SimC 历史任务权限。
+- 前台保留“专精模拟资料／模拟排行榜”导航；后台取消顶部三项导航，公开配置管理、模拟结果管理及模拟排行榜统一从既有侧边栏进入，排名数字之外也可直接进入榜单。前后台根入口 `/portal/simc-reference/rankings/` 与 `/dashboard/frontend-simulations/rankings/` 仍分别遵循登录与后台权限要求；后台原有两个独立侧栏管理页保持不变，不增加前台全站导航入口。
+- 后台“内容运营”下设“前台数据模拟管理”父目录，包含公开配置管理、模拟结果管理和模拟排行榜三个入口；“公开配置管理”位于 `/dashboard/frontend-simulations/publication/`，“模拟结果管理”位于 `/dashboard/frontend-simulations/results/`，不放在现有 SimC 菜单下。权限为 `frontend.simulations`；超级管理员自动拥有，其他后台用户由现有用户组分配权限，无需通用 SimC 历史任务权限。
 - 两项功能均处于后台公共框架内，复用后台顶栏、侧边栏、页脚与明暗主题。公开配置页只负责目录同步和公开清单保存；模拟结果管理在页面顶部通过下拉菜单选择专精，下方同页显示所选专精的组合、状态、DPS、报告与重跑操作。公开配置与结果管理使用独立视图类与模板，拒绝跨页面提交操作。
 - `/dashboard/frontend-simulations/results/` 自动选择首个可用专精。顶部使用原生 `select`，按职业以 `optgroup` 分组，当前专精标为选中；没有独立专精目录页或“返回专精列表”步骤。选择变化后跳转原有路径 `/dashboard/frontend-simulations/results/<spec_key>/`（路由名 `simc_reference_spec_results`），更新下方组合；多分支时在所选专精内切换正式服／PTR。
 - 原入口 `/dashboard/frontend-simulations/` 仅处理 GET 重定向，默认进入公开配置页，旧 `tab=results` 请求转入模拟结果页。新页面不依赖 `tab` 参数，已移除同页双标签导航。
@@ -26,7 +26,7 @@
 9. 缺失或未公开默认 APL 的装备与天赋组合仍保留，显示“默认 APL 待配置”和完善配置提示，不能启动。是否可运行还须通过当前快照校验；维护设置停用时返回可理解的配置错误，不将该情况作为不存在的页面处理。
 10. 后台组合表与榜单中的装备、天赋和 APL 名称为提示按钮，悬停、聚焦或点按时按需加载，保持在原表格内；按 Esc 或点击外部关闭。提示打开时可用上下方向键、PageUp／PageDown、Home／End 滚动长内容，按钮提供快捷键说明。装备仍为槽位、物品名、装等及属性覆盖摘要；天赋直接复用现有 SimC 后台的 `TalentTreeThumbnail.render` 绘制缩略树，不再列出截断的天赋名称摘要；APL 仍最多显示 6 组、每组前 3 项优先级与条件摘要。完整展示请打开对应的前台配置，提示不依赖入口所在位置；后台不提供完整详情页。
 11. 前台与后台均在每个场景的 DPS 下提供“全职业”和“本专精”排名链接，默认单体与 5 目标共四个入口，点击跳转独立排行榜页面。数字表示“名次／有效组合数”，分母不是职业数量，也不限同一装备。排行榜可切换全职业／当前专精及单体／5 目标，未模拟场景不可点击；页面展示当前装备、天赋、APL 摘要及完整榜单，当前行使用底色与“当前配置”标签标出，并支持锚点定位和焦点定位。前台返回链接保留专精及三类资源选择，后台返回对应专精与分支配置。未模拟或没有有效结果的组合不显示虚假排名。
-12. 前台榜单中的装备、天赋和 APL 名称链接携带完整 `spec/profile/talent/apl` 参数，打开对应组合并切换到该资料标签；每行另有“查看配置”。后台榜单名称继续使用提示和天赋缩略图，每行“前台配置”在新标签页打开对应完整组合。顶部模块导航可在资料与榜单、结果管理与榜单之间往返。
+12. 前台榜单中的装备、天赋和 APL 名称链接携带完整 `spec/profile/talent/apl` 参数，打开对应组合并切换到该资料标签；每行另有“查看配置”。后台榜单名称继续使用提示和天赋缩略图，每行“前台配置”在新标签页打开对应完整组合。前台顶部导航用于资料与榜单往返，后台则统一通过侧边栏切换管理页和榜单。
 
 ## 资料提示访问与版本
 
@@ -63,10 +63,10 @@
 
 - 延续现有 Portal 与后台功能页体系，既有主题与视觉约定见 [专精模拟资料界面改版](simc_reference_redesign.md)。本轮仅扩展前台结果区与后台公共框架内的管理模块，不新增全站品牌或设计系统。
 - `static/shared/css/simc-reference-layout.css` 是模拟模块统一布局的来源，由前台资料、前台排行榜及后台管理基底共同加载，版本为 `20261110_unified`。五页统一使用 `simc-page-heading`：最大内容宽度 1256 像素，桌面／手机外留白 32／16 像素，面板内边距 24／16 像素，章节间距 24／20 像素，面板圆角 12 像素、控件圆角 8 像素，一级标题 26／22 像素。后台宽度还受既有侧栏和内容区约束，前后台保留各自主题颜色。
-- 排行榜返回链接与标题同排，窄屏换行，榜单正文使用统一主题底板。后台公开配置页也接入三项模块导航，结果入口正确指向结果管理。前台页面根节点及后台模块滚动容器设置 `scrollbar-gutter: stable`，避免长短页面切换时因滚动条出现而改变宽度；手机后台内容留白为上下 24、左右 16 像素，保留原侧栏。表格说明与正文内边距对齐，后台子模板不重复加载榜单样式。
+- 排行榜返回链接与标题同排，窄屏换行，榜单正文使用统一主题底板。后台不再渲染顶部模块导航，三项侧边栏入口分别高亮当前页面。前台页面根节点及后台模块滚动容器设置 `scrollbar-gutter: stable`，避免长短页面切换时因滚动条出现而改变宽度；手机后台内容留白为上下 24、左右 16 像素，保留原侧栏。表格说明与正文内边距对齐，后台子模板不重复加载榜单样式。
 - 前台入口为 `templates/portal/simc_reference.html` 与 `static/portal/css/simc-reference.css`。结果区位于英雄筛选之后、资料章节导航之前，沿用 Portal 浅深主题变量；公共条件集中显示，每个场景的目标数、时长与 DPS 同行，DPS 下方显示全职业与本专精排名，使用等宽数字。桌面按两列排列场景，900 像素及以下改为单列；无成功结果时显示明确空态。
 - 后台共用模板 `templates/dashboard/simc_reference_management_base.html` 继承 `dashboard/index.html`；两个独立页面分别使用 `simc_reference_publication.html` 与 `simc_reference_results.html`。页面通过侧栏父目录下的两个子菜单切换，并分别高亮当前子菜单；不再使用同页标签切换业务。方案汇总和历史分别位于 `_frontend_simulation_schemes.html`、`_frontend_simulation_history.html`。两页复用后台顶栏、侧边栏与页脚，并继承当前明暗主题。
-- 公开配置页顶部使用按职业分组的专精下拉菜单，选定后在下方全宽编辑该专精的装备、天赋与 APL 清单，不再显示左侧长目录；正式服／PTR 共用同一专精公开范围，已有链接与保存后的专精选择保持兼容。结果管理顶部为原生专精下拉菜单，下方为全宽组合状态区；桌面标签与 300 像素宽的下拉框横排，手机标签上置、下拉框满宽，不再使用图标选项列表及固定高度内部滚动区。`dashboard_shell.js` 绑定选择变化事件并跳转至选定专精路径；历史可返回当前专精方案汇总。
+- 公开配置页标题、按职业分组的专精下拉、同步目录和刷新操作统一为顶部一行，窄屏自然换行；选定后在下方全宽编辑该专精的装备、天赋与 APL 清单，不再显示左侧长目录；正式服／PTR 共用同一专精公开范围，已有链接与保存后的专精选择保持兼容。结果管理顶部为原生专精下拉菜单，下方为全宽组合状态区；桌面标签与 300 像素宽的下拉框横排，手机标签上置、下拉框满宽，不再使用图标选项列表及固定高度内部滚动区。`dashboard_shell.js` 绑定选择变化事件并跳转至选定专精路径；历史可返回当前专精方案汇总。
 - 局部样式 `static/dashboard/css/simc-reference-results.css` 均限定于 `.reference-admin`，使用既有后台文字、背景和边框变量，保留可见键盘焦点。后台主页与子页共用 `sidebar.js` 中的主题、菜单权限和侧栏逻辑，`dashboard_shell.js` 高亮当前模块；`main.js` 与公共模板共同维持主页导航行为，视图提供后台公共上下文。
 - 摘要服务继续使用 `botend/services/simc_reference_details.py`，权限与组合核验位于 `SimcReferenceResourcePreviewView`。原 `templates/dashboard/simc_reference_resource_detail.html` 已复用为表格名称提示按钮的局部模板，`static/dashboard/css/simc-reference-details.css` 已复用为提示按钮及浮层样式，文件名不表示完整后台详情仍存在。交互复用共享物品提示组件的异步请求，浮层沿用后台明暗主题并限制窄屏边界。完整装备、天赋树与 APL 阅读留在前台；保留现有导航体系及 `PRODUCT.md`、`DESIGN.md` 和设计附属文件。
 - 前台天赋树直接复用玩家详情页原有三栏舞台及整体响应缩放：从 `botend/templates/portal/spec_detail/player_detail.html` 提取 `_talent_tree.html`，由玩家页与 `templates/portal/_simc_reference_trees.html` 共用，样式及缩放、选择节点交互提取为 `static/portal/css/player-talent-tree.css`、`static/portal/js/player-talent-tree.js`。`reference_trees` 输出标准 `render_model`，英雄树筛选同步作用于模型。原资料页独立百分比节点、独立树样式及手机树标签已移除，导入码复制保留。共享脚本使用 `ResizeObserver` 恢复隐藏章节显示后的缩放，节点保留可访问名称与聚焦提示，选择项提示使用 `textContent`。这是复用用户指定的既有玩家展示体系，不另建或重设计天赋树。

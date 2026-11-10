@@ -80,10 +80,10 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
                 raise Http404('当前配置已更新或不再公开，请返回结果管理查看排名')
         dashboard = DashboardView()
         dashboard.setup(request)
-        context = dashboard.get_context_data(title='后台', page_name='frontend-results', include_stats=False)
+        context = dashboard.get_context_data(title='后台', page_name='frontend-rankings', include_stats=False)
         context.update(board)
         context.update(dashboard_permissions=sorted(effective_dashboard_permissions(request.user)),
-                       dashboard_permission_catalog=permission_catalog(), dashboard_default_section='frontend-results')
+                       dashboard_permission_catalog=permission_catalog(), dashboard_default_section='frontend-rankings')
         response = render(request, 'dashboard/simc_reference_rankings.html', context)
         response['Cache-Control'] = 'private, no-store'
         response['X-Robots-Tag'] = 'noindex, nofollow'

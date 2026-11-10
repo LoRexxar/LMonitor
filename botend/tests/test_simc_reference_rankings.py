@@ -254,7 +254,7 @@ class ReferenceRankingTests(TestCase):
         self.assertContains(admin_empty, '前往模拟结果管理')
         self.assertContains(admin_empty, 'dashboard-primary-nav')
         results = self.client.get(self.url)
-        self.assertContains(results, '模拟资料页面导航', count=1)
+        self.assertNotContains(results, '模拟资料页面导航')
         self.assertNotContains(results, 'class="simc-ranking-panel"')
         self.assertNotContains(results, 'href=""')
         self.assertEqual(SimcReferenceSimulation.objects.count(), 0)

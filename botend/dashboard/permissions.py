@@ -29,7 +29,7 @@ DASHBOARD_PAGE_PERMISSIONS = OrderedDict((item['code'], item) for item in (
     {'code': 'simc.advanced', 'label': '高级设置', 'section': 'simc-advanced', 'parent': 'SimC'},
     {'code': 'simc.skill-damage', 'label': '技能伤害快照', 'section': 'simc-skill-damage', 'parent': 'SimC'},
     {'code': 'simc.benchmarks', 'label': '基准测试', 'section': 'simc-benchmarks', 'parent': 'SimC'},
-    {'code': 'frontend.simulations', 'label': '前台数据模拟管理', 'section': 'frontend-publication', 'sections': ['frontend-results'], 'parent': '前台数据'},
+    {'code': 'frontend.simulations', 'label': '前台数据模拟管理', 'section': 'frontend-publication', 'sections': ['frontend-results', 'frontend-rankings'], 'parent': '前台数据'},
     {'code': 'tools.wow-localization', 'label': '游戏名称管理', 'section': 'wow-localization', 'parent': '职业攻略'},
     {'code': 'tools.wcl-analysis', 'label': 'WCL 分析', 'section': 'wcl-analysis-entry', 'parent': '工具箱'},
     {'code': 'tools.wago-rerun', 'label': 'Wago 指定版本重跑', 'section': 'wago-skill-diff-rerun', 'parent': '工具箱'},
