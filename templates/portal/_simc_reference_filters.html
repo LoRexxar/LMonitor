@@ -1,0 +1,2 @@
+{% for option in heroes.options %}{% if option.selected %}<input type="hidden" name="hero" value="{{ option.id }}">{% endif %}{% endfor %}
+{% if heroes.apl_value %}<input type="hidden" name="apl_hero" value="{{ heroes.apl_value }}">{% endif %}

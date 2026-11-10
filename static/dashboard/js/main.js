@@ -1,45 +1,6 @@
-function initDashboardTheme() {
-    const storageKey = 'lmonitor-dashboard-theme';
-    const root = document.documentElement;
-    const toggle = document.getElementById('dashboard-theme-toggle');
-    const icon = document.getElementById('dashboard-theme-icon');
-    if (!toggle || !icon) return;
+function initDashboardTheme() { window.DashboardSidebar.initTheme(); }
 
-    const render = () => {
-        const isDark = root.dataset.dashboardTheme === 'dark';
-        toggle.setAttribute('aria-pressed', String(isDark));
-        toggle.setAttribute('aria-label', isDark ? '切换浅色模式' : '切换深色模式');
-        toggle.title = isDark ? '切换浅色模式' : '切换深色模式';
-        icon.className = `fas ${isDark ? 'fa-sun' : 'fa-moon'} text-sm`;
-    };
-    render();
-    toggle.addEventListener('click', () => {
-        const isDark = root.dataset.dashboardTheme === 'dark';
-        if (isDark) delete root.dataset.dashboardTheme;
-        else root.dataset.dashboardTheme = 'dark';
-        try { localStorage.setItem(storageKey, isDark ? 'light' : 'dark'); } catch (_) {}
-        render();
-    });
-}
-
-function applyDashboardPagePermissions() {
-    const permissionCodes = new Set(JSON.parse(document.getElementById('dashboard-permissions-data')?.textContent || '[]'));
-    const catalog = JSON.parse(document.getElementById('dashboard-permission-catalog-data')?.textContent || '[]');
-    const bySection = new Map(catalog.flatMap(item => [item.section, ...(item.sections || [])].map(section => [section, item.code])));
-    document.querySelectorAll('[data-section], [data-dashboard-section]').forEach(item => {
-        const section = item.getAttribute('data-section') || item.getAttribute('data-dashboard-section');
-        if (section === 'dashboard-home') return;
-        const code = bySection.get(section);
-        if (code && !permissionCodes.has(code)) item.remove();
-    });
-    document.querySelectorAll('.nav-item.has-submenu').forEach(item => {
-        if (!item.querySelector('.submenu-item')) item.remove();
-    });
-    document.querySelectorAll('.content-section').forEach(section => {
-        const code = bySection.get(section.id);
-        if (section.id !== 'dashboard-home' && code && !permissionCodes.has(code)) section.remove();
-    });
-}
+function applyDashboardPagePermissions() { window.DashboardSidebar.applyPermissions(); }
 
 /**
  * Dashboard页面的JavaScript功能
@@ -427,6 +388,7 @@ function initNavigation() {
                 return;
             }
 
+            if (this.dataset.dashboardUrl) return;
             // 可折叠菜单由 initSubmenuToggle 统一处理，避免同一次点击重复切换。
             if (this.classList.contains('has-submenu')) {
                 e.preventDefault();
@@ -541,6 +503,10 @@ function initNavigation() {
     // 处理子菜单项点击
     submenuItems.forEach(item => {
         item.addEventListener('click', function(e) {
+            if (this.dataset.dashboardUrl) {
+                e.stopPropagation();
+                return;
+            }
             e.preventDefault();
             e.stopPropagation(); // 阻止事件冒泡到父级菜单项
             const dashboardSection = this.getAttribute('data-dashboard-section');

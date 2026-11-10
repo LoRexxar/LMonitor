@@ -439,6 +439,17 @@ def _claim_task(task_id, discovered_agent, authorization, instance_id):
             return None
         if task is None:
             return None
+        request_manifest = (task.mode_params or {}).get('request_manifest')
+        if isinstance(request_manifest, dict) and request_manifest.get('reference_backend') is not None:
+            from botend.services.simc_reference_simulations import execution_backend_metadata, ReferenceAgentIncompatible
+            try:
+                execution_backend_metadata(task, agent=agent)
+            except ReferenceAgentIncompatible as exc:
+                # 只跳过版本不匹配的专用任务，继续寻找该 Agent 可执行的普通任务。
+                raise _ConditionalIncompatible(str(exc)) from exc
+            except ValueError:
+                # 后端自身已更新时，由下方输入解析将旧任务记为失败，避免永久等待。
+                pass
         if task.current_status == 1 and not any(run.status == 'pending' for run in locked_runs):
             return None
         if any(run.status == 'running' and run.lease_expires_at is not None

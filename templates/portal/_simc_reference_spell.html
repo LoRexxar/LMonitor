@@ -1,0 +1,4 @@
+<button type="button" class="reference-spell{% if compact %} reference-spell--compact{% endif %}" data-wow-item-tooltip-name="{{ spell.name }}" data-wow-item-tooltip="{{ spell.description }}"{% if spell.spell_id %} data-spell-id="{{ spell.spell_id }}"{% endif %}>
+    {% if spell.icon %}<img src="{{ spell.icon }}" width="{{ compact|yesno:'20,40' }}" height="{{ compact|yesno:'20,40' }}" alt="" loading="lazy">{% else %}<span class="reference-spell-placeholder" aria-hidden="true">?</span>{% endif %}
+    <span>{{ spell.name }}</span>
+</button>

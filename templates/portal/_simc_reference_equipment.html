@@ -1,0 +1,15 @@
+        {% if equipment_rows %}
+        <div class="reference-table-scroll" tabindex="0" role="region" aria-label="装备明细，可横向滚动">
+            <table class="reference-equipment-table">
+                <caption class="reference-sr-only">{{ selected_spec.label }}当前装备配置</caption>
+                <thead><tr><th scope="col">部位</th><th scope="col">装备</th><th scope="col">装等</th><th scope="col">附魔与宝石</th></tr></thead>
+                <tbody>{% for item in equipment_rows %}
+                    <tr><th scope="row">{{ item.slot_label }}</th>
+                        <td><button type="button" class="reference-item" data-wow-item-tooltip-name="{{ item.display_name }}" data-wow-item-tooltip="{{ item.tooltip_text }}" data-wow-item-tooltip-quality="{{ item.quality }}">{% if item.display_icon %}<img src="{{ item.display_icon }}" alt="" loading="lazy" width="40" height="40">{% else %}<span class="reference-spell-placeholder" aria-hidden="true">?</span>{% endif %}<span><strong class="quality-{{ item.quality }}">{{ item.display_name|default:item.name|default:'未收录名称' }}</strong><small>物品 ID：{{ item.item_id|default_if_none:'未记录' }}</small></span></button></td>
+                        <td>{{ item.item_level|default_if_none:'未记录' }}</td>
+                        <td class="reference-enhancements">{% if item.enchant %}<button type="button" data-wow-item-tooltip-name="{{ item.enchant.display_name }}" data-wow-item-tooltip="{{ item.enchant.tooltip_text }}">{% if item.enchant.display_icon %}<img src="{{ item.enchant.display_icon }}" width="20" height="20" alt="" loading="lazy">{% endif %}<span>附魔：{{ item.enchant.display_name }}</span></button>{% endif %}{% for gem in item.gems %}<button type="button" data-wow-item-tooltip-name="{{ gem.display_name }}" data-wow-item-tooltip="{{ gem.tooltip_text }}">{% if gem.display_icon %}<img src="{{ gem.display_icon }}" width="20" height="20" alt="" loading="lazy">{% endif %}<span>宝石：{{ gem.display_name }}</span></button>{% endfor %}{% if not item.enchant and not item.gems %}<span class="reference-muted">未配置</span>{% endif %}</td>
+                    </tr>
+                {% endfor %}</tbody>
+            </table>
+        </div>
+        {% else %}<p class="reference-empty">该配置没有保存可解析的装备明细。</p>{% endif %}

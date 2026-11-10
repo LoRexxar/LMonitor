@@ -1,0 +1,121 @@
+{% load wow_tags l10n %}
+{% localize off %}
+        <div class="talent-stage-scroll">
+            <div class="talent-stage-scale-wrapper" data-stage-width="{{ render_model.layout.width }}" data-stage-height="{{ render_model.layout.height }}">
+            <div
+                class="talent-render-stage"
+                style="width: {{ render_model.layout.width }}px; height: {{ render_model.layout.height }}px;"
+                data-layout-mode="{{ render_model.layout_mode }}"
+            >
+                <svg
+                    class="talent-stage-svg"
+                    viewBox="0 0 {{ render_model.layout.width }} {{ render_model.layout.height }}"
+                    preserveAspectRatio="xMinYMin meet"
+                    aria-hidden="true"
+                >
+                    {% for tree in render_model.trees %}
+                        {% if tree.panel %}
+                            <g class="talent-path-group talent-path-group--{{ tree.tree_type }}" data-tree-type="{{ tree.tree_type }}">
+                                {% for path in tree.paths %}
+                                <path
+                                    d="{{ path.svg_path }}"
+                                    class="talent-path"
+                                    data-parent-key="{{ path.parent_key }}"
+                                    data-child-key="{{ path.child_key }}"
+                                ></path>
+                                {% endfor %}
+                            </g>
+                        {% endif %}
+                    {% endfor %}
+                </svg>
+
+                {% for tree in render_model.trees %}
+                    {% if tree.panel %}
+                    <section
+                        class="talent-panel talent-panel--{{ tree.tree_type }}"
+                        style="left: {{ tree.panel.x }}px; top: {{ tree.panel.y }}px; width: {{ tree.panel.width }}px; height: {{ tree.panel.height }}px;"
+                        data-tree-type="{{ tree.tree_type }}"
+                    >
+                        <div class="talent-panel-head">
+                            <div>
+                                <div class="talent-panel-title">{{ tree.title }}</div>
+                            </div>
+
+                        </div>
+                    </section>
+                    {% endif %}
+                {% endfor %}
+
+                {% for tree in render_model.trees %}
+                    {% if tree.panel %}
+                        {% for node in tree.nodes %}
+                        <a
+                            class="talent-node-card talent-node-card--tree{% if node.selected %} is-selected{% else %} is-unselected{% endif %}{% if node.is_choice_node %} is-choice-node{% endif %}"
+                            style="left: {{ node.x }}px; top: {{ node.y }}px; width: {{ node.width }}px; height: {{ node.height }}px;"
+                            href="{% if node.spell_id %}https://www.wowhead.com/spell={{ node.spell_id }}{% elif node.talent_id %}https://www.wowhead.com/talent={{ node.talent_id }}{% else %}#{% endif %}"
+                            target="_blank"
+                            data-node-key="{{ node.node_key }}"
+                            data-tree-type="{{ node.tree_type }}"
+                            aria-label="{{ node.name }}，{{ node.points|default:0 }}/{{ node.max_points }} 点"
+                        >
+                            <div class="talent-node-icon">
+                                {% if node.is_choice_node and node.choice_options and not node.selected %}
+                                <div class="talent-icon-split" aria-label="{{ node.name }}">
+                                    {% for option in node.choice_options|slice:":2" %}
+                                    <span class="talent-icon-split-half{% if forloop.first %} is-left{% else %} is-right{% endif %}">
+                                        {% if option.icon %}
+                                        <img src="{% wow_icon option.icon "small" %}" alt="{{ option.name|default:'选项' }}">
+                                        {% else %}
+                                        <span>?</span>
+                                        {% endif %}
+                                    </span>
+                                    {% endfor %}
+                                </div>
+                                {% elif node.icon %}
+                                <img src="{% wow_icon node.icon "small" %}" width="42" height="42" alt="{{ node.name }}">
+                                {% else %}
+                                <span>ID</span>
+                                {% endif %}
+                            </div>
+                            {% if node.points %}
+                            <span class="talent-node-points">{% if node.max_points %}{{ node.points }}/{{ node.max_points }}{% else %}{{ node.points }}{% endif %}</span>
+                            {% endif %}
+                            {% if node.is_choice_node and node.choice_options %}
+                            <div class="talent-choice-popup">
+                                {% for option in node.choice_options %}
+                                <span
+                                    class="talent-choice-popup-option{% if option.spell_id == node.spell_id or option.display_spell_id == node.display_spell_id or option.talent_id == node.talent_id %} is-active{% endif %}"
+                                    onclick="window.open('{% if option.spell_id %}https://www.wowhead.com/spell={{ option.spell_id }}{% elif option.talent_id %}https://www.wowhead.com/talent={{ option.talent_id }}{% else %}#{% endif %}', '_blank')"
+                                    data-option-name="{{ option.name|default:'未命名' }}"
+                                    data-option-desc="{{ option.description_zh|default:option.description|default:'' }}"
+                                >
+                                    <div class="talent-choice-popup-icon">
+                                        {% if option.icon %}
+                                        <img src="{% wow_icon option.icon "small" %}" alt="{{ option.name|default:'选项' }}">
+                                        {% else %}
+                                        <span>?</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="talent-choice-popup-name">{{ option.name|default:"未命名" }}</div>
+                                </span>
+                                {% endfor %}
+                            </div>
+                            {% endif %}
+                            {% with node_desc=node.description_zh|default:node.description|default:'' %}
+                            <div class="talent-node-tooltip" data-tooltip-name="{{ node.name }}" data-tooltip-desc="{{ node_desc }}">
+                                <div class="talent-node-tooltip-name">{{ node.name }}</div>
+                                {% if node.description_zh %}
+                                <div class="talent-node-tooltip-desc">{{ node.description_zh }}</div>
+                                {% elif node.description %}
+                                <div class="talent-node-tooltip-desc">{{ node.description }}</div>
+                                {% endif %}
+                            </div>
+                            {% endwith %}
+                            </a>
+                        {% endfor %}
+                    {% endif %}
+                {% endfor %}
+            </div>
+            </div>{# /talent-stage-scale-wrapper #}
+        </div>
+{% endlocalize %}

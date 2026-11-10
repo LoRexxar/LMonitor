@@ -1,0 +1,406 @@
+.talent-stage-scroll { overflow: visible; padding-bottom: 6px; }
+.talent-render-stage { position: relative; min-width: 100%; border-radius: 20px; }
+.talent-stage-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 2;
+    pointer-events: none;
+}
+.talent-path {
+    fill: none;
+    stroke: rgba(96,165,250,.38);
+    stroke-width: 5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 6px rgba(37,99,235,.18));
+}
+.talent-panel {
+    position: absolute;
+    z-index: 1;
+    border-radius: 24px;
+    background: linear-gradient(180deg, #ffffff 0, #ffffff 64px, #f8fbff 100%);
+    border: 1px solid #dbeafe;
+    box-shadow: 0 14px 34px rgba(37,99,235,.08);
+}
+.talent-panel-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 18px 20px 0;
+}
+.talent-panel-title { font-size: 14px; font-weight: 700; color: #1d4ed8; }
+.talent-panel-subtitle { color: #64748b; font-size: 12px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.talent-group + .talent-group { margin-top: 22px; }
+.talent-group-head { display: flex; justify-content: space-between; gap: 12px; align-items: center; margin-bottom: 12px; }
+.talent-group-title { font-size: 14px; font-weight: 700; color: #1d4ed8; margin-bottom: 10px; }
+.talent-group-subtitle { color: #64748b; font-size: 12px; display: inline-flex; align-items: center; gap: 8px; }
+.talent-tree-grid {
+    display: grid;
+    grid-template-columns: repeat(var(--talent-columns), minmax(0, 1fr));
+    grid-auto-rows: 82px;
+    gap: 10px;
+    align-items: stretch;
+}
+.talent-node-card {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    text-decoration: none;
+    color: inherit;
+    padding: 12px;
+    border-radius: 18px;
+    background: #ffffff;
+    border: 1px solid #e5e7eb;
+    transition: transform .15s ease, border-color .15s ease;
+}
+.talent-node-card:hover { transform: translateY(-2px); border-color: rgba(96,165,250,.45); }
+.talent-node-card--tree {
+    min-width: 0;
+    position: relative;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    gap: 0;
+    padding: 10px 8px;
+    border-radius: 16px;
+    background: radial-gradient(circle at top, rgba(59,130,246,.16), rgba(15,23,42,.96) 65%);
+    overflow: visible;
+}
+.talent-render-stage .talent-node-card--tree {
+    position: absolute;
+    z-index: 3;
+    padding: 0;
+    border-radius: 50%;
+    background: transparent;
+    border: none;
+    box-shadow: none;
+    overflow: visible;
+    width: fit-content;
+    height: fit-content;
+}
+.talent-render-stage .talent-node-card--tree.is-selected .talent-node-icon {
+    box-shadow: 0 0 0 1px rgba(96,165,250,.8), 0 0 7px rgba(37,99,235,.3);
+}
+.talent-render-stage .talent-node-card--tree.is-unselected {
+    background: transparent;
+    border: none;
+    opacity: .85;
+}
+.talent-node-icon { width: 34px; height: 34px; border-radius: 50%; overflow: hidden; background: rgba(51,65,85,.9); display: flex; align-items: center; justify-content: center; color: #cbd5e1; flex-shrink: 0; }
+.talent-node-icon img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+.talent-node-card--tree.is-unselected .talent-node-icon img { filter: grayscale(1) saturate(.4) brightness(.82); opacity: .92; }
+.talent-node-card--tree .talent-node-icon {
+    position: relative;
+    width: 36px;
+    height: 36px;
+    box-shadow: 0 8px 20px rgba(2,6,23,.28);
+}
+.talent-render-stage .talent-node-card--tree .talent-node-icon {
+    width: 34px;
+    height: 34px;
+    box-shadow: none;
+    border: none;
+}
+.talent-render-stage .talent-panel--hero .talent-node-card--tree .talent-node-icon {
+    width: 30px;
+    height: 30px;
+}
+.talent-node-info { min-width: 0; }
+.talent-node-name { display: block; color: #1e293b; font-weight: 700; margin-bottom: 4px; }
+.talent-node-card--tree .talent-node-name { max-width: 100%; font-size: 13px; line-height: 1.25; }
+.talent-node-card--tree .talent-node-meta { justify-content: center; }
+.talent-node-meta { color: #94a3b8; font-size: 12px; display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.talent-node-points {
+    position: absolute;
+    right: -2px;
+    bottom: -2px;
+    min-width: 16px;
+    height: 14px;
+    padding: 0 3px;
+    border-radius: 999px;
+    background: #2563eb;
+    color: #eff6ff;
+    font-size: 8px;
+    line-height: 14px;
+    font-weight: 700;
+    box-shadow: 0 4px 12px rgba(37,99,235,.35);
+    white-space: nowrap;
+}
+.talent-render-stage .talent-node-points {
+    right: 1px;
+    bottom: 1px;
+    min-width: 14px;
+    height: 13px;
+    line-height: 13px;
+    font-size: 7px;
+    padding: 0 3px;
+    white-space: nowrap;
+}
+.talent-render-stage .talent-panel--hero .talent-node-points {
+    right: 0;
+    bottom: 0;
+    min-width: 12px;
+    height: 12px;
+    font-size: 7px;
+    line-height: 10px;
+}
+/* Talent Node Tooltip - shows on hover for all nodes */
+.talent-node-tooltip {
+    display: none;
+    position: absolute;
+    left: 50%;
+    bottom: calc(100% + 12px);
+    transform: translateX(-50%);
+    min-width: 160px;
+    max-width: 280px;
+    padding: 10px 14px;
+    border-radius: 10px;
+    background: rgba(15,23,42,.98);
+    border: 1px solid rgba(96,165,250,.4);
+    box-shadow: 0 8px 24px rgba(0,0,0,.5);
+    z-index: 9998;
+    pointer-events: none;
+}
+.talent-node-tooltip::after {
+    content: "";
+    position: absolute;
+    left: 50%;
+    top: 100%;
+    width: 8px;
+    height: 8px;
+    background: rgba(15,23,42,.98);
+    border-right: 1px solid rgba(96,165,250,.4);
+    border-bottom: 1px solid rgba(96,165,250,.4);
+    transform: translateX(-50%) rotate(45deg);
+}
+.talent-node-card--tree:not(.is-choice-node):hover .talent-node-tooltip,
+.talent-node-card--tree:not(.is-choice-node):focus-visible .talent-node-tooltip {
+    display: block;
+}
+/* Choice nodes use the two-option popup + option tooltip, not the base node tooltip. */
+.talent-node-card--tree.is-choice-node .talent-node-tooltip,
+.talent-node-card--tree.is-choice-node:hover .talent-node-tooltip,
+.talent-node-card--tree.is-choice-node.popup-active .talent-node-tooltip {
+    display: none;
+}
+.talent-node-card--tree.is-choice-node.popup-active {
+    z-index: 100;
+}
+.talent-node-tooltip-name {
+    color: #f1f5f9;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 4px;
+}
+.talent-node-tooltip-desc {
+    color: #cbd5e1;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: normal;
+}
+/* Dynamic tooltip for popup options */
+.talent-option-tooltip {
+    position: fixed;
+    min-width: 180px;
+    max-width: 320px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: rgba(15,23,42,.98);
+    border: 1px solid rgba(96,165,250,.45);
+    box-shadow: 0 12px 32px rgba(0,0,0,.6);
+    z-index: 99999;
+    pointer-events: none;
+}
+.talent-option-tooltip-name {
+    color: #f1f5f9;
+    font-size: 14px;
+    font-weight: 700;
+    margin-bottom: 6px;
+}
+.talent-option-tooltip-desc {
+    color: #cbd5e1;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: normal;
+}
+
+/* ===== Responsive Scaling ===== */
+.talent-stage-scale-wrapper {
+    width: 100%;
+    overflow: visible;
+    position: relative;
+}
+
+/* ===== Choice Node Popup (hover to reveal 2 options) ===== */
+.talent-choice-popup {
+    display: none;
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    flex-direction: column;
+    gap: 6px;
+    z-index: 9999;
+    pointer-events: auto;
+    /* bridge the gap between card and popup so hover doesn't flicker */
+    padding-bottom: 10px;
+    margin-bottom: -10px;
+}
+.talent-node-card--tree.is-choice-node:hover .talent-choice-popup,
+.talent-node-card--tree.is-choice-node.popup-active .talent-choice-popup,
+.talent-node-card--tree.is-choice-node:focus-within .talent-choice-popup {
+    display: flex;
+}
+/* transparent bridge to prevent hover flicker */
+.talent-choice-popup::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    height: 14px;
+}
+.talent-choice-popup::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: rgba(30,41,59,1);
+}
+.talent-choice-popup-option {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-radius: 10px;
+    background: rgba(30,41,59,1);
+    border: 1px solid rgba(148,163,184,.18);
+    text-decoration: none;
+    color: #cbd5e1;
+    white-space: nowrap;
+    position: relative;
+    transition: background .15s ease, border-color .15s ease;
+}
+.talent-choice-popup-option:hover {
+    background: rgba(51,65,85,.95);
+    border-color: rgba(96,165,250,.45);
+}
+.talent-choice-popup-option.is-active {
+    border-color: rgba(96,165,250,.55);
+    background: rgba(30,64,175,.7);
+    color: #eff6ff;
+}
+.talent-choice-popup-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: rgba(51,65,85,.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.talent-choice-popup-icon img {
+    width: 100%;
+    height: 100%;
+    display: block;
+    object-fit: cover;
+}
+.talent-choice-popup-icon span {
+    color: #64748b;
+    font-size: 12px;
+    font-weight: 700;
+}
+.talent-choice-popup-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #e2e8f0;
+}
+.talent-choice-popup-option.is-active .talent-choice-popup-name {
+    color: #93c5fd;
+}
+
+/* ===== Hero Tree Badge ===== */
+.talent-panel--hero .talent-panel-title { color: #fbbf24; }
+
+/* ===== Choice Node Tooltip ===== */
+
+/* Game-like choice node presentation */
+.talent-node-card--tree.is-choice-node {
+    border-style: none;
+}
+.talent-node-card--tree.is-choice-node::before,
+.talent-node-card--tree.is-choice-node::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    width: 0;
+    height: 0;
+    border-top: 7px solid transparent;
+    border-bottom: 7px solid transparent;
+    filter: drop-shadow(0 0 4px rgba(251,191,36,.65));
+    z-index: 5;
+    pointer-events: none;
+}
+.talent-node-card--tree.is-choice-node::before {
+    right: calc(100% - 9px);
+    border-right: 9px solid #facc15;
+    transform: translateY(-50%);
+}
+.talent-node-card--tree.is-choice-node::after {
+    left: calc(100% - 9px);
+    border-left: 9px solid #facc15;
+    transform: translateY(-50%);
+}
+.talent-node-card--tree.is-choice-node .talent-node-icon {
+    outline: 1.5px solid rgba(250,204,21,.88);
+    outline-offset: 1px;
+    box-shadow: 0 0 10px rgba(250,204,21,.28), 0 8px 20px rgba(2,6,23,.28);
+}
+.talent-node-card--tree.is-choice-node.is-unselected .talent-node-icon {
+    background: #111827;
+}
+.talent-node-card--tree.is-choice-node.is-unselected .talent-node-icon img,
+.talent-node-card--tree.is-choice-node.is-unselected .talent-icon-split img {
+    filter: grayscale(1) saturate(.25) brightness(.64);
+    opacity: .9;
+}
+.talent-icon-split {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    border-radius: inherit;
+    overflow: hidden;
+    background: #020617;
+}
+.talent-icon-split-half {
+    width: 50%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.talent-icon-split-half img {
+    width: 200%;
+    height: 100%;
+    object-fit: cover;
+    max-width: none;
+    border-radius: 0;
+}
+.talent-icon-split-half.is-left img { transform: translateX(25%); }
+.talent-icon-split-half.is-right img { transform: translateX(-25%); }
+.talent-icon-split-half + .talent-icon-split-half {
+    border-left: 1px solid rgba(250,204,21,.45);
+}
+
+
+@media(max-width:900px) { .talent-stage-scroll { margin:0 -4px; } }
+@media(max-width:640px) { .talent-tree-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } }

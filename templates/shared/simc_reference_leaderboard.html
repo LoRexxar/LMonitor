@@ -1,0 +1,15 @@
+<div class="simc-ranking-heading"><h3 tabindex="-1" data-ranking-title>{% if targets == 1 %}单体{% else %}{{ targets }} 目标{% endif %} · {{ scope_label }}榜单</h3><span>{{ entries|length }} 个有效组合</span></div>
+<p class="simc-ranking-description">{% if use_ptr %}PTR{% else %}正式服{% endif %} · {{ duration }} 秒 · {{ iterations }} 次迭代 · DPS 相同则并列</p>
+<div class="simc-ranking-scroll" tabindex="0" role="region" aria-label="{{ scope_label }}完整排名表">
+<table class="simc-leaderboard">
+    <thead><tr><th scope="col">排名</th><th scope="col">职业专精</th><th scope="col">装备</th><th scope="col">天赋</th><th scope="col">APL</th><th scope="col">DPS</th></tr></thead>
+    <tbody>{% for entry in entries %}<tr{% if entry.is_current %} id="ranking-current" class="is-current" data-ranking-current tabindex="-1" aria-current="true"{% endif %}>
+        <td class="simc-rank-place" data-label="排名">{{ entry.rank }}{% if entry.is_current %}<span class="simc-current-label">当前配置</span>{% endif %}</td>
+        <td class="simc-rank-spec" data-label="专精"><div>{{ entry.spec }}<a class="simc-config-link" href="{{ entry.detail_url }}"{% if admin_ranking %} target="_blank" rel="noopener"{% endif %}>{% if admin_ranking %}前台配置{% else %}查看配置{% endif %}</a></div></td>
+        <td data-label="装备">{% include 'shared/simc_reference_rank_resource.html' with name=entry.profile detail_url=entry.resource_links.profile preview_url=entry.preview_links.profile label='装备' %}</td>
+        <td data-label="天赋">{% include 'shared/simc_reference_rank_resource.html' with name=entry.talent detail_url=entry.resource_links.talent preview_url=entry.preview_links.talent label='天赋' %}</td>
+        <td data-label="APL">{% include 'shared/simc_reference_rank_resource.html' with name=entry.apl detail_url=entry.resource_links.apl preview_url=entry.preview_links.apl label='APL' %}</td>
+        <td class="simc-rank-dps" data-label="DPS">{{ entry.dps|floatformat:'2g' }}</td>
+    </tr>{% endfor %}</tbody>
+</table>
+</div>

@@ -1,0 +1,5 @@
+/* 组合资料仅在表格就地预览，沿用后台主题。 */
+.reference-admin button.scheme-resource-preview { min-height:32px; padding:2px 0; border:0; border-radius:2px; background:transparent; color:var(--accent); text-align:left; font-weight:inherit; text-decoration:underline dotted; text-underline-offset:4px; cursor:help; overflow-wrap:anywhere; }
+.reference-admin button.scheme-resource-preview:hover { background:transparent; text-decoration-style:solid; }
+.wow-item-tooltip[data-theme="dashboard"] { width:min(420px,calc(100vw - 16px)); grid-template-columns:minmax(0,1fr); background:var(--dashboard-surface); color:var(--dashboard-text); border-color:var(--dashboard-border); box-shadow:none; font-size:13px; line-height:1.65; }
+.wow-item-tooltip[data-theme="dashboard"] .wow-item-tooltip__name { color:var(--dashboard-text); font-size:14px; }

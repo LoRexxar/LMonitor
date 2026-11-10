@@ -544,18 +544,18 @@
         html[data-dashboard-theme="dark"] #simc-skill-damage select { background-color: #fff !important; border-color: #d6d0c7 !important; color: #292b2f !important; }
 
     </style>
-    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261022_my_characters"></script>
+    <script src="{% static 'dashboard/js/sidebar.js' %}?v=20261110_split_management"></script>
     {% block dashboard_extra_head %}{% endblock %}
-    {% if page_name == 'dashboard' %}
-    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260811_apl_full_catalog";</script>
     {{ dashboard_permissions|json_script:"dashboard-permissions-data" }}
     {{ dashboard_permission_catalog|json_script:"dashboard-permission-catalog-data" }}
     <script>window.DASHBOARD_DEFAULT_SECTION = "{{ dashboard_default_section|escapejs }}";</script>
+    {% if page_name == 'dashboard' %}
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script>window.SIMC_APL_EDITOR_MODULE_URL = "{% static 'dashboard/js/simc-apl-editor.js' %}?v=20260811_apl_full_catalog";</script>
     <script src="{% static 'shared/js/wow-item-tooltip.js' %}?v=20260817_dom_ready"></script>
     <script src="{% static 'portal/js/talent_tree_thumbnail.js' %}?v=20260817_thumbnail_compact"></script>
 <script src="{% static 'dashboard/js/simc_skill_query.js' %}?v=20261031_actor_page"></script>
-<script src="{% static 'dashboard/js/main.js' %}?v=20261108_channel_colors_1"></script>
+<script src="{% static 'dashboard/js/main.js' %}?v=20261110_split_management"></script>
     {% if 'content.class-guides' in dashboard_permissions or 'tools.wow-localization' in dashboard_permissions %}
     <link rel="stylesheet" href="{% static 'dashboard/css/class_guides.css' %}?v=20260908_shared_localization">
     <script src="{% static 'dashboard/js/guide_management.js' %}?v=20260909_tag_disclaimers" defer></script>
@@ -599,7 +599,7 @@
     <script src="{% static 'dashboard/js/mythic_planner_routes.js' %}?v=20260806a" defer></script>
     {% endif %}
     {% else %}
-    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20260908_shared_localization" defer></script>
+    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20261110_spec_dropdown" defer></script>
     {% endif %}
 </head>
 <body class="bg-gray-50 font-sans dashboard-page" data-dashboard-page="{{ page_name }}">
@@ -853,6 +853,13 @@
                             <i class="fas fa-shield-alt mr-3"></i>
                             职业配装管理
                         </a>
+                    </li>
+                    <li class="nav-item has-submenu open" data-section="frontend-simulations">
+                        <a href="#" aria-expanded="true" aria-controls="frontend-simulation-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600"><i class="fas fa-chart-line mr-3" aria-hidden="true"></i>前台数据模拟管理<i class="fas fa-chevron-down ml-auto text-xs" aria-hidden="true"></i></a>
+                        <ul class="sidebar-submenu submenu" id="frontend-simulation-sidebar-submenu">
+                            <li class="submenu-item" data-dashboard-section="frontend-publication" data-dashboard-url="{% url 'simc_reference_publication' %}"><a href="{% url 'simc_reference_publication' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">公开配置管理</a></li>
+                            <li class="submenu-item" data-dashboard-section="frontend-results" data-dashboard-url="{% url 'simc_reference_results' %}"><a href="{% url 'simc_reference_results' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">模拟结果管理</a></li>
+                        </ul>
                     </li>
                     <li class="nav-item has-submenu open" data-section="simc">
                         <a href="#" aria-expanded="true" aria-controls="simc-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors duration-200">

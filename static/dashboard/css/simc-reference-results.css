@@ -1,0 +1,151 @@
+/* 复用后台主题，样式仅作用于本模块内容。 */
+.reference-admin { --ink:var(--dashboard-text); --muted:var(--dashboard-muted); --line:var(--dashboard-border); --accent:#2859a6; --error:#a13436; }
+html[data-dashboard-theme="dark"] .reference-admin { --accent:#a8cdff; --error:#f3abab; }
+.reference-admin a { color:var(--accent); text-underline-offset:3px; }
+.reference-admin button, .reference-admin input, .reference-admin select { font:inherit; }
+.reference-admin button { min-height:40px; padding:8px 16px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:var(--dashboard-surface); cursor:pointer; }
+.reference-admin button:hover { background:var(--dashboard-surface-muted); }
+.reference-admin button.primary { background:var(--accent); border-color:var(--accent); color:white; }
+.reference-admin button.primary:hover { background:#244b87; }
+.reference-admin :focus-visible { outline:3px solid var(--accent); outline-offset:3px; }
+.reference-admin ::selection { background:#c9e0f7; color:#10263d; }
+.reference-admin { color:var(--ink); font-size:14px; line-height:1.6; min-width:0; }
+.reference-admin h1 { margin:0 0 8px; font-size:28px; font-weight:700; line-height:1.3; }
+.reference-admin h2 { margin:0; font-size:18px; font-weight:650; }
+.reference-admin header p { margin:0; color:var(--muted); }
+.reference-admin .admin-toolbar { display:flex; gap:12px; align-items:center; flex-wrap:wrap; margin:20px 0 12px; }
+.reference-admin .admin-note { font-size:13px; color:var(--muted); max-width:80ch; }
+.reference-admin .admin-feedback { padding:16px; background:var(--dashboard-surface-muted); margin:20px 0; overflow-wrap:anywhere; }
+.reference-admin .admin-workspace { display:grid; grid-template-columns:minmax(260px, 1fr) minmax(0, 2fr); gap:24px; margin-top:20px; background:var(--dashboard-surface); padding:24px; border:1px solid var(--line); border-radius:12px; }
+.reference-admin .section-heading { display:flex; justify-content:space-between; align-items:center; gap:12px; padding-bottom:12px; border-bottom:1px solid var(--line); }
+.reference-admin .section-heading>span { color:var(--muted); font-size:13px; }
+.reference-admin .config-list { max-height:640px; overflow-y:auto; scrollbar-color:var(--line) transparent; }
+.reference-admin .config-row { display:flex; flex-direction:column; padding:13px 12px; border-bottom:1px solid var(--line); text-decoration:none; color:var(--ink); }
+.reference-admin .config-row span, .reference-admin .config-row small { font-size:13px; color:var(--muted); }
+.reference-admin .config-row:hover, .reference-admin .config-row.selected { background:var(--dashboard-surface-muted); }
+.reference-admin .config-row .issue { color:var(--error); }
+.reference-admin .settings-form { display:grid; grid-template-columns:1fr 1fr; gap:12px 20px; margin-top:18px; }
+.reference-admin .settings-form p { margin:0; min-width:0; }
+.reference-admin .settings-form label { display:block; font-size:13px; color:var(--muted); margin-bottom:5px; }
+.reference-admin .settings-form input:not([type=checkbox]), .reference-admin .settings-form select { width:100%; min-height:40px; border:1px solid var(--line); border-radius:5px; padding:6px 9px; color:var(--ink); background:var(--dashboard-surface); }
+.reference-admin .settings-form .helptext { display:block; font-size:12px; color:var(--muted); }
+.reference-admin .settings-form button { justify-self:start; align-self:end; }
+.reference-admin .errorlist { color:var(--error); grid-column:1/-1; }
+.reference-admin .history { margin-top:32px; }
+.reference-admin .table-scroll { overflow:auto; }
+.reference-admin table { width:100%; border-collapse:collapse; background:var(--dashboard-surface); }
+.reference-admin th, .reference-admin td { text-align:left; padding:12px 14px; border-bottom:1px solid var(--line); font-size:13px; }
+.reference-admin th { color:var(--muted); background:var(--dashboard-surface-muted); font-weight:500; white-space:nowrap; }
+.reference-admin td small { display:block; color:var(--muted); }
+.reference-admin td details { max-width:32ch; overflow-wrap:anywhere; }
+.reference-admin td strong { font-weight:600; }
+.reference-admin .number { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.reference-admin .empty { padding:24px 12px; color:var(--muted); }
+.reference-admin .pagination { display:flex; justify-content:flex-end; gap:20px; margin:16px 0; }
+@media(max-width:760px) {.reference-admin .admin-workspace { grid-template-columns:1fr; padding:16px; gap:24px; }
+.reference-admin .config-list { max-height:240px; }
+.reference-admin .settings-form { grid-template-columns:1fr; }
+.reference-admin th, .reference-admin td { padding:10px; min-width:100px; } }
+.reference-admin .publication-workspace { grid-template-columns:210px minmax(0,1fr); }
+.reference-admin .management-content { min-width:0; }
+.reference-admin .management-tabs { display:flex; gap:24px; border-bottom:1px solid var(--line); margin:18px 0; }
+.reference-admin .management-tabs a { padding:8px 0; color:var(--muted); text-decoration:none; border-bottom:2px solid transparent; }
+.reference-admin .management-tabs a[aria-current] { color:var(--accent); border-bottom-color:var(--accent); font-weight:600; }
+.reference-admin .publication-switch { display:flex; align-items:center; gap:8px; margin:22px 0; font-weight:600; }
+.reference-admin input[type=checkbox] { width:17px; height:17px; accent-color:var(--accent); flex-shrink:0; }
+.reference-admin .publication-columns { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; margin:20px 0; }
+.reference-admin .publication-columns fieldset { min-width:0; padding:0; border:0; }
+.reference-admin .publication-columns legend { font-size:14px; font-weight:600; margin-bottom:12px; }
+.reference-admin .publication-options { max-height:420px; overflow:auto; }
+.reference-admin .publication-options label { display:flex; align-items:flex-start; gap:8px; padding:10px 0; border-bottom:1px solid var(--line); font-size:13px; overflow-wrap:anywhere; }
+.reference-admin .simulation-settings { padding:14px 0 20px; margin-bottom:22px; border-bottom:1px solid var(--line); }
+.reference-admin summary { cursor:pointer; }
+.reference-admin .muted { color:var(--muted); }
+.reference-admin .issue { color:var(--error); font-size:13px; }
+@media(max-width:980px) {.reference-admin .publication-workspace { grid-template-columns:200px minmax(0,1fr); }
+.reference-admin .publication-columns { grid-template-columns:1fr; }
+.reference-admin .publication-options { max-height:220px; } }
+@media(max-width:760px) {.reference-admin .publication-workspace { grid-template-columns:1fr; }
+ }
+
+.reference-admin button.primary { background:#2859a6; border-color:#2859a6; color:#fff; }
+.reference-admin a:hover { text-decoration:underline; }
+.reference-admin h3 { font-weight:650; }
+.reference-admin .results-workspace { min-width:0; padding:24px; margin-top:12px; background:var(--dashboard-surface); border:1px solid var(--line); border-radius:12px; }
+.reference-admin .result-spec-selector { display:flex; align-items:center; gap:14px; margin-top:20px; }
+.reference-admin .result-spec-selector label { color:var(--muted); font-size:13px; flex-shrink:0; }
+.reference-admin .result-spec-selector select { width:300px; max-width:100%; min-height:42px; padding:8px 12px; border:1px solid var(--line); border-radius:6px; color:var(--ink); background:var(--dashboard-surface); cursor:pointer; }
+@media(max-width:760px) { .reference-admin .result-spec-selector { align-items:stretch; flex-direction:column; gap:6px; }
+.reference-admin .result-spec-selector select { width:100%; } }
+
+.reference-admin .results-workspace { padding:0; margin-top:18px; overflow:hidden; }
+.reference-admin .results-header { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:20px 22px 14px; }
+.reference-admin .results-header h2 { font-size:20px; }
+.reference-admin .results-header p { margin:5px 0 0; color:var(--muted); font-size:12px; }
+.reference-admin .results-header-links { display:flex; flex-wrap:wrap; gap:18px; font-size:13px; }
+.reference-admin .results-header-links i { margin-right:6px; }
+.reference-admin .results-batch-actions { margin:0; padding:0 22px 14px; gap:8px; }
+.reference-admin .results-batch-actions button { min-height:34px; padding:5px 12px; font-size:12px; }
+.reference-admin .results-workspace .simulation-settings { margin:0 22px; padding:10px 0; border-top:1px solid var(--line); border-bottom:0; font-size:13px; }
+.reference-admin .simulation-settings summary span { margin-left:12px; color:var(--muted); font-size:12px; }
+.reference-admin .simulation-settings[open] { padding-bottom:18px; }
+.reference-admin .results-workspace .management-tabs { margin:0 22px 14px; }
+.reference-admin .results-history { padding:16px 22px; }
+.reference-admin .scheme-table-heading { display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:16px 22px 12px; }
+.reference-admin .scheme-table-heading h3 { margin:0; font-size:14px; }
+.reference-admin .scheme-table-heading h3 span { color:var(--muted); font-size:12px; margin-left:8px; font-weight:400; }
+.reference-admin .scheme-table-heading p { margin:0; color:var(--muted); font-size:12px; }
+.reference-admin .scheme-table-scroll { scrollbar-color:var(--line) transparent; }
+.reference-admin .scheme-table { table-layout:fixed; min-width:960px; }
+.reference-admin .scheme-table th, .reference-admin .scheme-table td { vertical-align:middle; padding:18px 16px; }
+.reference-admin .scheme-table thead th { padding-top:12px; padding-bottom:12px; font-size:12px; border-top:1px solid var(--line); }
+.reference-admin .scheme-table th:first-child, .reference-admin .scheme-table td:first-child { padding-left:22px; }
+.reference-admin .scheme-table th small { display:inline; margin-left:8px; font-size:11px; font-weight:400; color:var(--muted); }
+.reference-admin .scheme-table .scheme-resource { white-space:normal; overflow-wrap:anywhere; background:transparent; color:var(--ink); font-size:13px; font-weight:400; }
+.reference-admin .scheme-resource strong { font-weight:650; }
+.reference-admin .scheme-resource .issue { font-size:12px; line-height:1.5; margin:6px 0 0; }
+.reference-admin .scheme-table .scheme-apl { color:var(--muted); font-size:12px; }
+.reference-admin .scheme-table tbody tr:hover { background:var(--dashboard-surface-muted); }
+.reference-admin .scheme-table tbody tr:last-child>th, .reference-admin .scheme-table tbody tr:last-child>td { border-bottom:0; }
+.reference-admin .scheme-scene-column { width:158px; }
+.reference-admin .scheme-actions-column { width:232px; }
+.reference-admin .scheme-status { display:inline-flex; align-items:center; gap:5px; padding:2px 6px; border-radius:4px; font-size:11px; color:var(--muted); background:var(--dashboard-surface-muted); white-space:nowrap; }
+.reference-admin .scheme-status::before { content:""; width:5px; height:5px; border-radius:50%; background:currentColor; flex-shrink:0; }
+.reference-admin .status-running { color:#315b91; background:#e9f0fb; }
+.reference-admin .status-success { color:#27613e; background:#e6f2ea; }
+.reference-admin .status-warning { color:#805719; background:#fcf1d9; }
+.reference-admin .status-error { color:#a13436; background:#fae9e8; }
+html[data-dashboard-theme="dark"] .reference-admin .status-running { color:#b9d6ff; background:#273c56; }
+html[data-dashboard-theme="dark"] .reference-admin .status-success { color:#b4e3c3; background:#293f32; }
+html[data-dashboard-theme="dark"] .reference-admin .status-warning { color:#f0d29a; background:#463a25; }
+html[data-dashboard-theme="dark"] .reference-admin .status-error { color:#ffc1bd; background:#4c3032; }
+.reference-admin .scheme-dps { display:flex; align-items:baseline; gap:5px; margin-top:8px; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.reference-admin .scheme-dps strong { font-size:18px; font-weight:650; line-height:1.3; }
+.reference-admin .scheme-dps small { color:var(--muted); font-size:10px; }
+.reference-admin .scheme-ranking { display:grid; gap:2px; margin-top:7px; color:var(--muted); font-size:11px; line-height:1.5; font-variant-numeric:tabular-nums; white-space:nowrap; }
+.reference-admin .scheme-ranking strong { color:var(--ink); font-weight:650; }
+.reference-admin .scheme-ranking-note { margin:0 0 12px; line-height:1.6; }
+.reference-admin .no-dps { color:var(--muted); font-size:18px; line-height:1.3; }
+.reference-admin .scheme-primary-action { display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+.reference-admin .scheme-primary-action button { display:inline-flex; align-items:center; gap:7px; min-height:34px; padding:6px 11px; font-size:12px; border-radius:6px; }
+.reference-admin .scheme-primary-action button i { font-size:10px; }
+.reference-admin button:disabled { color:var(--muted); background:var(--dashboard-surface-muted); cursor:not-allowed; }
+.reference-admin .scheme-history-link { font-size:12px; }
+.reference-admin .scheme-reports { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-top:10px; font-size:12px; }
+.reference-admin .scheme-reports a { display:inline-flex; align-items:center; gap:5px; min-height:24px; }
+.reference-admin .report-unavailable { color:var(--muted); font-size:12px; }
+.reference-admin .scheme-scroll-hint { display:none; margin:0; padding:0 22px 12px; }
+.reference-admin .results-workspace>.pagination { margin:0; padding:12px 22px; border-top:1px solid var(--line); font-size:12px; }
+@media(max-width:1200px) { .reference-admin .scheme-scroll-hint { display:block; } }
+@media(max-width:760px) {
+.reference-admin .results-header { align-items:flex-start; flex-direction:column; padding:16px; gap:8px; }
+.reference-admin .results-header h2 { font-size:18px; }
+.reference-admin .results-batch-actions { padding:0 16px 12px; }
+.reference-admin .results-workspace .simulation-settings { margin:0 16px; }
+.reference-admin .results-history { padding:16px; }
+.reference-admin .scheme-table-heading { padding:14px 16px 10px; }
+.reference-admin .scheme-table-heading p { display:none; }
+.reference-admin .scheme-scroll-hint { padding:0 16px 12px; }
+.reference-admin .scheme-primary-action button { min-height:40px; }
+.reference-admin .scheme-reports a { min-height:32px; }
+}

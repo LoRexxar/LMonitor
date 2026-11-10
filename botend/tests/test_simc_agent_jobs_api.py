@@ -137,6 +137,45 @@ class SimcAgentJobAPITests(TestCase):
         task.refresh_from_db()
         self.assertEqual(task.current_status, 1)
 
+    def _reference_task(self):
+        self.backend.current_version = 'a' * 40
+        self.backend.save(update_fields=['current_version'])
+        task = self.task()
+        task.mode_params['request_manifest'] = {'reference_backend': [self.backend.pk, 'a' * 40, self.backend.game_build]}
+        task.save(update_fields=['mode_params'])
+        return task
+
+    def test_reference_task_skips_incompatible_agent_without_blocking_normal_work(self):
+        reference = self._reference_task()
+        normal = self.task(name='普通任务')
+        self.agent.capabilities = {'binary_revision': 'b' * 40}
+        self.agent.save(update_fields=['capabilities'])
+        response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(SimulationRun.objects.get(pk=response.json()['run_id']).task_id, normal.pk)
+        reference.refresh_from_db()
+        self.assertEqual(reference.current_status, 0)
+        self.assertFalse(reference.simulation_runs.exists())
+
+    def test_reference_task_matching_agent_freezes_backend_version(self):
+        task = self._reference_task()
+        self.agent.capabilities = {'binary_revision': 'a' * 40}
+        self.agent.save(update_fields=['capabilities'])
+        response = self.claim()
+        self.assertEqual(response.status_code, 200, response.content)
+        run = task.simulation_runs.get()
+        self.assertEqual(run.resource_manifest['backend_version'], 'a' * 40)
+
+    def test_reference_task_changed_backend_fails_instead_of_waiting_forever(self):
+        task = self._reference_task()
+        self.backend.current_version = 'b' * 40
+        self.backend.save(update_fields=['current_version'])
+        response = self.claim()
+        self.assertEqual(response.status_code, 204, response.content)
+        task.refresh_from_db()
+        self.assertEqual(task.current_status, 3)
+        self.assertIn('后端版本已变化', task.simulation_runs.get().error_detail)
+
     def test_invalid_only_candidate_finalizes_task_without_worker_retry(self):
         task = self.task(mode='comparison', candidates=[
             {'candidate_key': 'missing-off-hand', 'candidate_params': {

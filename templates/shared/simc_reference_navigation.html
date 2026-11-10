@@ -1,0 +1,5 @@
+<nav class="simc-module-navigation" aria-label="模拟资料页面导航">
+    {% if admin_ranking %}<a href="{% url 'simc_reference_publication' %}"{% if view_mode == 'publication' %} aria-current="page"{% endif %}>公开配置管理</a>{% endif %}
+    <a href="{{ module_reference_url }}"{% if module_section == 'reference' %} aria-current="page"{% endif %}>{% if admin_ranking %}模拟结果管理{% else %}专精模拟资料{% endif %}</a>
+    <a href="{{ module_rankings_url }}"{% if module_section == 'rankings' %} aria-current="page"{% endif %}>模拟排行榜</a>
+</nav>

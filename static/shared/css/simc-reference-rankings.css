@@ -1,0 +1,61 @@
+/* 独立榜单页与排名链接继承各自的 Portal、后台主题。 */
+.simc-reference { --rank-ink:var(--reference-text); --rank-muted:var(--reference-muted); --rank-line:var(--reference-border); --rank-surface:var(--reference-surface); --rank-soft:var(--reference-soft); --rank-accent:var(--reference-accent); }
+.reference-admin { --rank-ink:var(--ink); --rank-muted:var(--muted); --rank-line:var(--line); --rank-surface:var(--dashboard-surface); --rank-soft:var(--dashboard-surface-muted); --rank-accent:var(--accent); }
+.simc-module-navigation { display:flex; flex-wrap:wrap; gap:6px; border-bottom:1px solid var(--rank-line); margin:0 0 24px; }
+.simc-module-navigation a { display:block; padding:10px 16px; color:var(--rank-muted); text-decoration:none; border-bottom:2px solid transparent; }
+.simc-module-navigation a[aria-current="page"] { color:var(--rank-accent); border-bottom-color:currentColor; font-weight:650; }
+.simc-module-navigation a:hover { background:var(--rank-soft); }
+.simc-module-navigation a:focus-visible { outline:2px solid var(--rank-accent); outline-offset:2px; }
+.simc-ranking-resource { color:var(--rank-ink); text-decoration:underline; text-decoration-color:var(--rank-line); text-underline-offset:4px; }
+.simc-ranking-resource:hover { color:var(--rank-accent); text-decoration-color:currentColor; }
+.simc-config-link { display:block; margin-top:4px; font-size:11px; color:var(--rank-accent); text-decoration:underline; text-underline-offset:3px; }
+.ranking-empty { border-top:1px solid var(--rank-line); padding:24px 0; }
+.ranking-empty p { margin:10px 0 16px; color:var(--rank-muted); }
+.ranking-empty a { color:var(--rank-accent); text-decoration:underline; text-underline-offset:4px; }
+:is(.simc-reference,.reference-admin) .simc-ranking-button { display:inline-block; width:fit-content; min-height:30px; padding:3px 0; border:0; border-radius:2px; background:transparent; color:var(--rank-ink); font:inherit; text-decoration:underline; text-decoration-color:var(--rank-line); text-underline-offset:4px; cursor:pointer; white-space:nowrap; }
+:is(.simc-reference,.reference-admin) .simc-ranking-button:hover { color:var(--rank-accent); background:transparent; text-decoration-color:currentColor; }
+.ranking-back { display:inline-block; margin-bottom:22px; color:var(--rank-muted); font-size:13px; text-decoration:underline; text-underline-offset:4px; }
+.ranking-page-heading { margin-bottom:26px; }
+.ranking-page-heading p { margin-top:8px; color:var(--rank-muted); }
+.ranking-filters { display:flex; flex-wrap:wrap; gap:12px 32px; margin-bottom:24px; }
+.ranking-filters nav { display:flex; flex-wrap:wrap; gap:4px; border-bottom:1px solid var(--rank-line); }
+.ranking-filters :is(a,span) { display:block; padding:10px 16px; color:var(--rank-muted); text-decoration:none; }
+.ranking-filters a[aria-current="page"] { color:var(--rank-accent); border-bottom:2px solid currentColor; font-weight:650; }
+.ranking-filters a:hover { background:var(--rank-soft); }
+.ranking-filters span[aria-disabled] { font-size:12px; }
+.ranking-current-config { padding:18px 0; border-block:1px solid var(--rank-line); }
+.ranking-current-heading { display:flex; justify-content:space-between; flex-wrap:wrap; gap:10px; align-items:baseline; margin-bottom:12px; }
+:is(.simc-reference,.reference-admin) .ranking-current-heading h2 { font-size:14px; }
+.ranking-current-heading h2 span { margin-left:12px; color:var(--rank-muted); font-weight:400; }
+.ranking-current-heading a { color:var(--rank-accent); font-size:12px; text-decoration:underline; text-underline-offset:4px; }
+.ranking-current-config dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px 24px; margin:0; }
+.ranking-current-config dl>div { display:flex; gap:12px; align-items:baseline; min-width:0; font-size:13px; }
+.ranking-current-config dt { flex-shrink:0; color:var(--rank-muted); }
+.ranking-current-config dd { margin:0; overflow-wrap:anywhere; }
+.simc-ranking-panel { margin:28px 0; color:var(--rank-ink); min-width:0; }
+.simc-ranking-panel .simc-ranking-heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:6px 14px; }
+:is(.simc-reference,.reference-admin) .simc-ranking-panel h3 { font-size:17px; font-weight:650; color:var(--rank-ink); margin:0; }
+.simc-ranking-heading>span, .simc-ranking-description { font-size:12px; color:var(--rank-muted); }
+:is(.simc-reference,.reference-admin) .simc-ranking-description { margin:6px 0 14px; line-height:1.6; }
+.simc-ranking-scroll { overflow:visible; }
+.simc-ranking-panel .simc-leaderboard { width:100%; border-collapse:collapse; table-layout:fixed; font-size:13px; font-variant-numeric:tabular-nums; }
+.simc-leaderboard :is(th,td) { padding:12px 10px; text-align:left; border-bottom:1px solid var(--rank-line); overflow-wrap:anywhere; vertical-align:middle; }
+.simc-leaderboard th { position:sticky; top:0; z-index:1; background:var(--rank-surface); color:var(--rank-muted); font-size:12px; font-weight:500; }
+.simc-leaderboard th:first-child { width:100px; }
+.simc-leaderboard th:last-child { width:130px; text-align:right; }
+.simc-leaderboard .simc-rank-dps { text-align:right; font-weight:650; white-space:nowrap; }
+.simc-leaderboard .is-current { background:var(--rank-soft); scroll-margin-top:150px; }
+.simc-current-label { display:block; margin-top:3px; color:var(--rank-accent); font-size:11px; font-weight:650; white-space:nowrap; }
+.ranking-page :focus-visible { outline:2px solid var(--rank-accent); outline-offset:3px; }
+@media(max-width:700px) {
+    .ranking-current-heading { align-items:flex-start; flex-direction:column; }
+    .ranking-current-config dl { grid-template-columns:1fr; gap:8px; }
+    .simc-leaderboard thead { position:absolute; width:1px; height:1px; overflow:hidden; clip-path:inset(50%); }
+    .simc-leaderboard tbody { display:block; }
+    .simc-leaderboard tr { display:grid; grid-template-columns:1fr auto; padding:12px; border-bottom:1px solid var(--rank-line); gap:6px 12px; }
+    .simc-leaderboard td { display:flex; gap:8px; grid-column:1 / -1; border:0; padding:0; min-width:0; }
+    .simc-leaderboard td::before { content:attr(data-label); flex:0 0 28px; color:var(--rank-muted); font-size:12px; }
+    .simc-leaderboard .simc-rank-place { grid-column:1; grid-row:1; flex-wrap:wrap; align-items:center; }
+    .simc-leaderboard .simc-rank-dps { grid-column:2; grid-row:1; align-items:center; }
+    .simc-current-label { margin:0; }
+}

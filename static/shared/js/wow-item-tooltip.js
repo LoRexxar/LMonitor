@@ -11,6 +11,7 @@
   let activeTrigger = null;
   let hideTimer = null;
   let lastPointerType = "";
+  const previews = new Map();
 
   function cancelHide() {
     window.clearTimeout(hideTimer);
@@ -80,6 +81,7 @@
     ensureTooltipMounted();
     const name = String(trigger.dataset.wowItemTooltipName || trigger.textContent || "装备").trim();
     renderContent(tooltip, {name, description});
+    tooltip.dataset.theme = trigger.dataset.wowItemTooltipTheme || '';
     const quality = trigger.dataset.wowItemTooltipQuality;
     if (/^[0-7]$/.test(quality || "")) {
       const title = tooltip.querySelector(".wow-item-tooltip__name");
@@ -94,6 +96,34 @@
     tooltip.hidden = false;
     tooltip.scrollTop = 0;
     position(trigger);
+    const previewUrl = trigger.dataset.wowItemTooltipUrl;
+    if (previewUrl) {
+      // 按需加载，并防止快速切换或关闭后旧请求覆盖当前提示。
+      if (!previews.has(previewUrl)) {
+        const request = fetch(previewUrl, {credentials: 'same-origin', cache: 'no-store'})
+          .then(response => {
+            if (!response.ok) throw new Error('资料不可用');
+            return response.json();
+          });
+        previews.set(previewUrl, request);
+      }
+      previews.get(previewUrl).then(data => {
+        if (activeTrigger !== trigger || tooltip.hidden) return;
+        renderContent(tooltip, {name: data.name, description: data.description});
+        if (data.talent_render_model && window.TalentTreeThumbnail) {
+          const thumbnail = document.createElement('div');
+          tooltip.insertBefore(thumbnail, tooltip.children[1]);
+          const renderer = new window.TalentTreeThumbnail(thumbnail, {width: 390, borderRadius: 8});
+          renderer.render(data.talent_render_model, {spec_cn: data.name});
+        }
+        position(trigger);
+      }).catch(() => {
+        previews.delete(previewUrl);
+        if (activeTrigger !== trigger || tooltip.hidden) return;
+        renderContent(tooltip, {name, description: '资料暂不可用，请重新悬停或点按重试。'});
+        position(trigger);
+      });
+    }
   }
 
   function hide(trigger = null) {
@@ -137,12 +167,29 @@
       if (!tooltip.contains(event.target)) hide();
       return;
     }
+    // 鼠标和键盘激活预览时保留已由悬停/聚焦打开的浮层；触屏仍可再次点按关闭。
+    if (trigger.dataset.wowItemTooltipUrl && lastPointerType !== 'touch') {
+      show(trigger);
+      return;
+    }
     if (activeTrigger === trigger && !tooltip.hidden) hide(trigger);
     else show(trigger);
   });
   document.addEventListener("keydown", (event) => {
     lastPointerType = "";
     if (event.key === "Escape") hide();
+    if (!tooltip.hidden && activeTrigger?.dataset.wowItemTooltipUrl && event.target === activeTrigger) {
+      const page = Math.max(40, tooltip.clientHeight - 32);
+      const destinations = {
+        ArrowDown: tooltip.scrollTop + 40, ArrowUp: tooltip.scrollTop - 40,
+        PageDown: tooltip.scrollTop + page, PageUp: tooltip.scrollTop - page,
+        Home: 0, End: tooltip.scrollHeight,
+      };
+      if (Object.prototype.hasOwnProperty.call(destinations, event.key)) {
+        event.preventDefault();
+        tooltip.scrollTop = destinations[event.key];
+      }
+    }
   });
   window.addEventListener("resize", () => activeTrigger && position(activeTrigger));
   tooltip.addEventListener("pointerenter", cancelHide);
