@@ -5,7 +5,7 @@ from django.contrib.auth.models import User
 from django.test import TestCase
 from django.urls import reverse
 
-from botend.models import DashboardUserGroup, SimcApl, SimcProfile, SimcTalentString, SimcReferencePublication, SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcTaskArtifact, SimcTask
+from botend.models import DashboardUserGroup, SimcApl, SimcProfile, SimcTalentString, SimcReferencePublication, SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferenceSimulationSettings, SimcTaskArtifact, SimcTask
 from botend.services.simc_reference import reference_catalog
 from botend.tests import test_simc_reference_simulations as fixtures
 
@@ -21,6 +21,10 @@ class ReferencePublicationTests(TestCase):
 
     def login(self):
         self.client.force_login(self.user)
+
+    def make_spec_config(self, spec_key, use_ptr=False):
+        settings, _ = SimcReferenceSimulationSettings.objects.get_or_create(use_ptr=use_ptr)
+        return SimcReferenceSimulationConfig.objects.create(spec_key=spec_key, use_ptr=use_ptr, settings=settings)
 
     def test_unrun_public_matrix_is_visible_without_creating_tasks(self):
         extra = SimcProfile.objects.create(name='第二套公开装备', spec='warrior_fury', class_name='warrior', player_config_mode='manual_equipment')
@@ -58,7 +62,7 @@ class ReferencePublicationTests(TestCase):
         self.assertEqual(self.client.post(self.url, payload).status_code, 404)
         self.assertEqual(SimcReferenceSimulation.objects.count(), 2)
         other_url = reverse('simc_reference_spec_results', kwargs={'spec_key': 'mage_fire'})
-        other = SimcReferenceSimulationConfig.objects.create(spec_key='mage_fire')
+        other = self.make_spec_config('mage_fire')
         self.assertEqual(self.client.post(other_url, dict(payload, config=other.pk)).status_code, 404)
         self.assertEqual(self.client.post(self.publication_url, payload).status_code, 400)
 
@@ -108,14 +112,15 @@ class ReferencePublicationTests(TestCase):
 
     def test_results_keep_spec_selector_above_combinations_and_preserve_legacy_links(self):
         self.login()
-        other = SimcReferenceSimulationConfig.objects.create(spec_key='mage_fire')
+        other = self.make_spec_config('mage_fire')
         root = reverse('simc_reference_results')
         response = self.client.get(root, follow=True)
         self.assertEqual(response.context['selected'], other)
         self.assertContains(response, '选择专精')
         self.assertContains(response, self.url)
         self.assertContains(response, reverse('simc_reference_spec_results', kwargs={'spec_key': 'mage_fire'}))
-        self.assertContains(response, '保存模拟条件')
+        self.assertNotContains(response, '保存模拟条件')
+        self.assertContains(response, reverse('simc_reference_settings'))
         self.assertNotContains(response, '返回专精列表')
         self.enqueue()
         response = self.client.get(self.url)
@@ -135,7 +140,7 @@ class ReferencePublicationTests(TestCase):
         self.login()
         self.enqueue()
         row = SimcReferenceSimulation.objects.first()
-        other = SimcReferenceSimulationConfig.objects.create(spec_key='mage_fire')
+        other = self.make_spec_config('mage_fire')
         url = reverse('simc_reference_spec_results', kwargs={'spec_key': other.spec_key})
         response = self.client.get(url)
         self.assertEqual(response.context['selected'], other)
@@ -154,12 +159,12 @@ class ReferencePublicationTests(TestCase):
 
     def test_spec_actions_are_scoped_and_keep_current_branch(self):
         self.login()
-        other = SimcReferenceSimulationConfig.objects.create(spec_key='mage_fire')
+        other = self.make_spec_config('mage_fire')
         with patch('botend.dashboard.simc_reference_results.enqueue_configs', return_value={'created': 0, 'skipped': 0, 'errors': []}) as enqueue:
             self.client.post(self.url, {'action': 'generate'})
             self.assertEqual(enqueue.call_args.args[0], [self.config.pk])
             self.assertNotIn(other.pk, enqueue.call_args.args[0])
-        ptr = SimcReferenceSimulationConfig.objects.create(spec_key=self.config.spec_key, use_ptr=True)
+        ptr = self.make_spec_config(self.config.spec_key, use_ptr=True)
         response = self.client.get(self.url, {'config': ptr.pk})
         self.assertEqual(response.context['selected'], ptr)
         self.assertContains(response, 'aria-label="游戏分支"')
@@ -179,7 +184,7 @@ class ReferencePublicationTests(TestCase):
         self.assertEqual(publication.context['dashboard_default_section'], 'frontend-publication')
         self.assertTemplateUsed(publication, 'dashboard/simc_reference_publication.html')
         results = self.client.get(self.url, {'tab': 'publication'})
-        self.assertContains(results, '保存模拟条件')
+        self.assertNotContains(results, '保存模拟条件')
         self.assertNotContains(results, 'name="action" value="publish"')
         self.assertNotContains(results, '同步可用资料目录')
         self.assertEqual(results.context['dashboard_default_section'], 'frontend-results')
@@ -193,10 +198,8 @@ class ReferencePublicationTests(TestCase):
     def test_publication_selects_spec_before_editing_without_a_directory(self):
         from bs4 import BeautifulSoup
         fire_profile = SimcProfile.objects.create(name='火焰装备', spec='mage_fire', class_name='mage')
-        fire = SimcReferenceSimulationConfig.objects.create(
-            spec_key='mage_fire', backend=self.config.backend, template=self.config.template)
-        ptr = SimcReferenceSimulationConfig.objects.create(
-            spec_key=self.config.spec_key, use_ptr=True, backend=self.config.backend, template=self.config.template)
+        fire = self.make_spec_config('mage_fire')
+        ptr = self.make_spec_config(self.config.spec_key, use_ptr=True)
         self.login()
         response = self.client.get(self.publication_url, {'config': fire.pk})
         soup = BeautifulSoup(response.content, 'html.parser')
@@ -241,7 +244,7 @@ class ReferencePublicationTests(TestCase):
             self.assertIsNone(document.select_one('nav[aria-label="模拟资料页面导航"]'))
             menu = document.select_one('#frontend-simulation-sidebar-submenu')
             self.assertEqual({a['href'] for a in menu.select('a')},
-                             {self.publication_url, reverse('simc_reference_results'), ranking_url})
+                             {self.publication_url, reverse('simc_reference_settings'), reverse('simc_reference_results'), ranking_url})
         ranking = self.client.get(ranking_url)
         self.assertEqual(ranking.context['dashboard_default_section'], 'frontend-rankings')
         from botend.dashboard.permissions import SECTION_PERMISSION_CODES
@@ -249,6 +252,37 @@ class ReferencePublicationTests(TestCase):
         portal = self.client.get(reverse('portal_simc_reference'), {'spec': self.config.spec_key})
         self.assertIsNotNone(BeautifulSoup(portal.content, 'html.parser').select_one('nav[aria-label="模拟资料页面导航"]'))
         self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
+
+    def test_global_settings_page_updates_all_specs_without_enqueuing(self):
+        self.login()
+        other = self.make_spec_config('mage_fire')
+        url = reverse('simc_reference_settings')
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context['dashboard_default_section'], 'frontend-settings')
+        self.assertContains(response, '保存模拟配置')
+        self.assertNotContains(response, 'id="result-spec-select"')
+        self.assertNotContains(self.client.get(self.url), '保存模拟条件')
+        payload = {'action': 'save', 'branch': 'retail', 'backend': self.backend.pk, 'template': self.template.pk,
+                   'duration': 240, 'iterations': 2000, 'target_values': '1,3,5', 'is_enabled': 'on'}
+        saved = self.client.post(url, payload, follow=True)
+        self.assertEqual(saved.status_code, 200)
+        self.config.refresh_from_db()
+        other.refresh_from_db()
+        self.assertEqual(self.config.settings_id, other.settings_id)
+        self.assertEqual(self.config.duration, 240)
+        self.assertEqual(other.duration, 240)
+        self.assertEqual(other.targets, [1, 3, 5])
+        self.assertEqual(self.client.post(self.url, dict(payload, config=self.config.pk)).status_code, 400)
+        invalid = self.client.post(url, dict(payload, target_values='1,1'))
+        self.assertEqual(invalid.status_code, 400)
+        self.assertContains(invalid, '目标须为', status_code=400)
+        self.config.refresh_from_db()
+        self.assertEqual(self.config.targets, [1, 3, 5])
+        self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
+        self.assertEqual(SimcTask.objects.count(), 0)
+        self.client.force_login(User.objects.create_user('无模拟配置权限'))
+        self.assertEqual(self.client.get(url).status_code, 403)
 
     def test_old_entry_redirects_to_the_separate_page(self):
         self.login()

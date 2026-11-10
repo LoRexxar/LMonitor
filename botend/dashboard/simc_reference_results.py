@@ -9,8 +9,8 @@ from django.urls import reverse
 from django.views import View
 
 from botend.dashboard.permissions import DashboardPermissionRequiredMixin, effective_dashboard_permissions, permission_catalog
-from botend.models import SimcBackendBinary, SimcContentTemplate, SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferencePublication, SimcProfile, SimcTalentString, SimcApl, SimcTaskArtifact
-from botend.services.simc_reference_simulations import catalog, enqueue_configs, initialize_configs, validate_config, snapshot
+from botend.models import SimcBackendBinary, SimcContentTemplate, SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferencePublication, SimcReferenceSimulationSettings, SimcProfile, SimcTalentString, SimcApl, SimcTaskArtifact
+from botend.services.simc_reference_simulations import catalog, enqueue_configs, initialize_configs, validate_config, validate_settings, snapshot
 from botend.services.simc_task_service import _compute_content_hash
 from botend.services.simc_reference_management import public_combination_keys, scheme_results, with_report
 from botend.services.simc_reference_details import RESOURCE_LABELS, resource_is_shared, resource_preview
@@ -74,7 +74,7 @@ class SimcReferenceRankingsView(DashboardPermissionRequiredMixin, View):
                      'module_reference_url': reverse('simc_reference_results'),
                      'module_rankings_url': reverse('simc_reference_rankings_entry')}
         else:
-            config = get_object_or_404(SimcReferenceSimulationConfig.objects.select_related('backend', 'template'), pk=config_id)
+            config = get_object_or_404(SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template'), pk=config_id)
             board = ranking_page_context(config, signature, scope, admin=True)
             if board is None:
                 raise Http404('当前配置已更新或不再公开，请返回结果管理查看排名')
@@ -94,7 +94,7 @@ class ConfigForm(forms.ModelForm):
     target_values = forms.CharField(label='目标数量', help_text='以逗号分隔，例如 1,5')
 
     class Meta:
-        model = SimcReferenceSimulationConfig
+        model = SimcReferenceSimulationSettings
         fields = ['backend', 'template', 'duration', 'iterations', 'is_enabled']
         labels = {'backend': '模拟后端', 'template': '输入模板', 'duration': '时长（秒）',
                   'iterations': '迭代次数', 'is_enabled': '启用模拟结果维护与展示'}
@@ -104,7 +104,7 @@ class ConfigForm(forms.ModelForm):
         self.fields['backend'].queryset = SimcBackendBinary.objects.filter(is_active=True)
         self.fields['template'].queryset = SimcContentTemplate.objects.filter(
             is_active=True, is_selectable=True, owner_user_id__isnull=True,
-            spec__in=(self.instance.spec_key, self.instance.spec_key.split('_', 1)[-1], 'default', 'all', '*'),
+            spec__in=('default', 'all', '*'),
         )
         self.fields['target_values'].initial = ','.join(map(str, self.instance.targets))
 
@@ -125,10 +125,53 @@ class ConfigForm(forms.ModelForm):
                 setattr(self.instance, field, data[field])
         if data.get('is_enabled') and not self.errors:
             try:
-                validate_config(self.instance)
+                validate_settings(self.instance)
             except ValueError as exc:
                 raise forms.ValidationError(str(exc))
         return data
+
+
+class SimcReferenceSettingsView(DashboardPermissionRequiredMixin, View):
+    """每个游戏分支只有一份模拟条件，保存不派发任务。"""
+    dashboard_permission = 'frontend.simulations'
+    http_method_names = ['get', 'post', 'head', 'options']
+
+    def branch(self, request):
+        branch = request.POST.get('branch', 'retail') if request.method == 'POST' else request.GET.get('branch', 'retail')
+        if branch not in ('retail', 'ptr'):
+            raise Http404('游戏分支不存在')
+        return branch
+
+    def render_page(self, request, branch, form, *, status=200):
+        from botend.dashboard.dashboard import DashboardView
+        dashboard = DashboardView()
+        dashboard.setup(request)
+        context = dashboard.get_context_data(title='后台', page_name='frontend-settings', include_stats=False)
+        context.update(dashboard_permissions=sorted(effective_dashboard_permissions(request.user)),
+                       dashboard_permission_catalog=permission_catalog(), dashboard_default_section='frontend-settings',
+                       management_title='模拟配置', management_description='统一管理所有专精的模拟条件，正式服与 PTR 分开设置。',
+                       branch=branch, settings_form=form)
+        response = render(request, 'dashboard/simc_reference_settings.html', context, status=status)
+        response['Cache-Control'] = 'private, no-store'
+        response['X-Robots-Tag'] = 'noindex, nofollow'
+        return response
+
+    def get(self, request):
+        branch = self.branch(request)
+        settings = SimcReferenceSimulationSettings.objects.filter(use_ptr=branch == 'ptr').first()
+        return self.render_page(request, branch, ConfigForm(instance=settings or SimcReferenceSimulationSettings(use_ptr=branch == 'ptr')))
+
+    def post(self, request):
+        branch = self.branch(request)
+        if request.POST.get('action') != 'save':
+            raise Http404('操作不存在')
+        with transaction.atomic():
+            settings = SimcReferenceSimulationSettings.objects.select_for_update().filter(use_ptr=branch == 'ptr').first()
+            form = ConfigForm(request.POST, instance=settings or SimcReferenceSimulationSettings(use_ptr=branch == 'ptr'))
+            if form.is_valid():
+                form.save()
+                return redirect(reverse('simc_reference_settings') + f'?branch={branch}&saved=conditions')
+        return self.render_page(request, branch, form, status=400)
 
 
 class PublicationForm(forms.ModelForm):
@@ -157,7 +200,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
     def render_page(self, request, *, form=None, publication_form=None, result=None, status=200):
         directory = catalog(public_only=False)
         public_directory = catalog()
-        configs = list(SimcReferenceSimulationConfig.objects.select_related('backend', 'template').order_by('spec_key', 'use_ptr'))
+        configs = list(SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').order_by('spec_key', 'use_ptr'))
         spec_key = self.kwargs.get('spec_key')
         spec_groups = {}
         if self.view_mode in ('results', 'publication'):
@@ -201,8 +244,6 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             for specs in spec_groups.values():
                 for spec in specs:
                     spec['url'] = reverse('simc_reference_publication') + f"?config={primary_configs[spec['key']].pk}"
-        if form is None and selected and self.view_mode == 'results':
-            form = ConfigForm(instance=selected)
         if publication_form is None and selected and self.view_mode == 'publication':
             publication = SimcReferencePublication.objects.filter(spec_key=selected.spec_key).first()
             publication_form = PublicationForm(instance=publication or SimcReferencePublication(spec_key=selected.spec_key))
@@ -213,7 +254,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
                 simulations = with_report(SimcReferenceSimulation.objects.filter(
                     config=selected, profile_id=history_scheme.profile_id,
                     talent_id=history_scheme.talent_id, apl_id=history_scheme.apl_id,
-                )).select_related('profile', 'talent', 'apl', 'config__backend', 'config__template').order_by('-pk')
+                )).select_related('profile', 'talent', 'apl', 'config__settings__backend', 'config__settings__template').order_by('-pk')
                 page = Paginator(simulations, 40).get_page(request.GET.get('page'))
                 for row in page:
                     try:
@@ -273,14 +314,6 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
                     publication_form.save()
                     return redirect(f'{request.path}?config={config.pk}&saved=publication')
             return self.render_page(request, publication_form=publication_form, status=400)
-        if action == 'save':
-            with transaction.atomic():
-                config = get_object_or_404(SimcReferenceSimulationConfig.objects.select_for_update(), pk=result_config.pk)
-                form = ConfigForm(request.POST, instance=config)
-                if form.is_valid():
-                    form.save()
-                    return redirect(f'{request.path}?config={config.pk}&saved=conditions')
-            return self.render_page(request, form=form, status=400)
         if action in ('generate', 'rerun', 'rerun_scheme', 'start_scheme'):
             configs = SimcReferenceSimulationConfig.objects.filter(pk=result_config.pk)
             combination = None
@@ -318,8 +351,8 @@ class SimcReferenceResultsView(SimcReferenceManagementView):
     url_name = 'simc_reference_results'
     template_name = 'dashboard/simc_reference_results.html'
     management_title = '模拟结果管理'
-    management_description = '维护已公开方案的模拟条件、DPS 结果、运行历史与报告。'
-    allowed_actions = {'save', 'generate', 'rerun', 'rerun_scheme', 'start_scheme', 'cancel'}
+    management_description = '查看已公开方案的 DPS 结果、运行历史与报告，模拟条件由全局配置统一管理。'
+    allowed_actions = {'generate', 'rerun', 'rerun_scheme', 'start_scheme', 'cancel'}
 
     def get(self, request, **kwargs):
         if not kwargs.get('spec_key'):

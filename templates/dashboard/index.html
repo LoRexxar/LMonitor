@@ -599,7 +599,7 @@
     <script src="{% static 'dashboard/js/mythic_planner_routes.js' %}?v=20260806a" defer></script>
     {% endif %}
     {% else %}
-    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20261110_publication_dropdown" defer></script>
+    <script src="{% static 'dashboard/js/dashboard_shell.js' %}?v=20261110_global_settings" defer></script>
     {% endif %}
 </head>
 <body class="bg-gray-50 font-sans dashboard-page" data-dashboard-page="{{ page_name }}">
@@ -858,6 +858,7 @@
                         <a href="#" aria-expanded="true" aria-controls="frontend-simulation-sidebar-submenu" class="flex items-center px-4 py-3 text-gray-700 rounded-lg hover:bg-blue-50 hover:text-blue-600"><i class="fas fa-chart-line mr-3" aria-hidden="true"></i>前台数据模拟管理<i class="fas fa-chevron-down ml-auto text-xs" aria-hidden="true"></i></a>
                         <ul class="sidebar-submenu submenu" id="frontend-simulation-sidebar-submenu">
                             <li class="submenu-item" data-dashboard-section="frontend-publication" data-dashboard-url="{% url 'simc_reference_publication' %}"><a href="{% url 'simc_reference_publication' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">公开配置管理</a></li>
+                            <li class="submenu-item" data-dashboard-section="frontend-settings" data-dashboard-url="{% url 'simc_reference_settings' %}"><a href="{% url 'simc_reference_settings' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">模拟配置</a></li>
                             <li class="submenu-item" data-dashboard-section="frontend-results" data-dashboard-url="{% url 'simc_reference_results' %}"><a href="{% url 'simc_reference_results' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">模拟结果管理</a></li>
                             <li class="submenu-item" data-dashboard-section="frontend-rankings" data-dashboard-url="{% url 'simc_reference_rankings_entry' %}"><a href="{% url 'simc_reference_rankings_entry' %}" class="block px-4 py-2 text-sm text-gray-600 rounded-md hover:bg-gray-100">模拟排行榜</a></li>
                         </ul>

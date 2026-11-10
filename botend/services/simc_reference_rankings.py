@@ -20,16 +20,16 @@ def _current_cohorts(config):
         return []
     # 先在数据库缩小到可比较的执行环境，避免载入无关版本的历史记录。
     candidates = SimcReferenceSimulation.objects.filter(
-        status='completed', dps__gt=0, config__is_enabled=True,
-        config__use_ptr=config.use_ptr, config__duration=config.duration,
-        config__iterations=config.iterations,
-        config__backend__current_version=config.backend.current_version,
-        config__backend__game_build=config.backend.game_build,
-        config__template__content=config.template.content,
+        status='completed', dps__gt=0, config__settings__is_enabled=True,
+        config__use_ptr=config.use_ptr, config__settings__duration=config.duration,
+        config__settings__iterations=config.iterations,
+        config__settings__backend__current_version=config.backend.current_version,
+        config__settings__backend__game_build=config.backend.game_build,
+        config__settings__template__content=config.template.content,
     )
     latest_ids = candidates.order_by().values('config_id', 'signature').annotate(latest=Max('pk')).values('latest')
     rows = SimcReferenceSimulation.objects.filter(pk__in=latest_ids).select_related(
-        'config__backend', 'config__template', 'profile', 'talent', 'apl',
+        'config__settings__backend', 'config__settings__template', 'profile', 'talent', 'apl',
     )
     published = {}
     publications = SimcReferencePublication.objects.filter(is_published=True)
@@ -176,10 +176,10 @@ def ranking_entry(preferred_config_id=None):
     """独立入口优先使用指定配置，再选择有当前公开结果的比较组。"""
     from botend.models import SimcReferenceSimulationConfig
     configs = list(SimcReferenceSimulationConfig.objects.filter(
-        is_enabled=True,
+        settings__is_enabled=True,
         spec_key__in=SimcReferencePublication.objects.filter(is_published=True).values('spec_key'),
         pk__in=SimcReferenceSimulation.objects.filter(status='completed', dps__gt=0).values('config_id'),
-    ).select_related('backend', 'template').order_by('use_ptr', 'spec_key', 'pk'))
+    ).select_related('settings__backend', 'settings__template').order_by('use_ptr', 'spec_key', 'pk'))
     configs.sort(key=lambda config: str(config.pk) != str(preferred_config_id))
     checked = set()
     for config in configs:

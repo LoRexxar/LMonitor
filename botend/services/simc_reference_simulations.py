@@ -10,7 +10,7 @@ from django.utils import timezone
 
 from botend.models import (
     SimcApl, SimcBackendBinary, SimcContentTemplate, SimcProfile,
-    SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcTalentString, SimcReferencePublication,
+    SimcReferenceSimulation, SimcReferenceSimulationConfig, SimcReferenceSimulationSettings, SimcTalentString, SimcReferencePublication,
 )
 from botend.services import simc_task_service as tasks
 from botend.services.simc_player_config import canonical_simc_profile_key
@@ -51,25 +51,36 @@ def initialize_configs():
             continue
         SimcReferencePublication.objects.get_or_create(spec_key=key)
         for use_ptr in sorted({row['use_ptr'] for row in spec['profiles']} or {False}):
-            templates = list(SimcContentTemplate.objects.filter(
-                is_active=True, is_selectable=True, owner_user_id__isnull=True,
-                spec__in=(key, key.split('_', 1)[1], 'default', 'all', '*'),
-            ).order_by('pk'))
-            specific = [row for row in templates if row.spec not in ('default', 'all', '*')]
-            choices = specific or templates
-            backend = SimcBackendBinary.objects.filter(
-                is_active=True, identifier='ptr' if use_ptr else 'production',
-            ).first()
+            settings = initialize_settings(use_ptr=use_ptr)
             SimcReferenceSimulationConfig.objects.get_or_create(
-                spec_key=key, use_ptr=use_ptr,
-                defaults={'backend': backend, 'template': choices[0] if len(choices) == 1 else None,
-                          'targets': [1, 5]},
+                spec_key=key, use_ptr=use_ptr, defaults={'settings': settings},
             )
 
 
+def initialize_settings(*, use_ptr=False):
+    """显式管理入口初始化环境中央条件；不在公开读取时写库。"""
+    templates = list(SimcContentTemplate.objects.filter(
+        is_active=True, is_selectable=True, owner_user_id__isnull=True,
+        spec__in=('default', 'all', '*'),
+    ).order_by('pk'))
+    backend = SimcBackendBinary.objects.filter(
+        is_active=True, identifier='ptr' if use_ptr else 'production',
+    ).first()
+    return SimcReferenceSimulationSettings.objects.get_or_create(
+        use_ptr=use_ptr, defaults={'backend': backend,
+                                 'template': templates[0] if len(templates) == 1 else None},
+    )[0]
+
+
 def validate_config(config):
+    if config.use_ptr != config.settings.use_ptr:
+        raise ValueError('专精引用与全局设置的游戏环境不匹配')
+    validate_settings(config.settings)
+
+
+def validate_settings(config):
     if not config.is_enabled:
-        raise ValueError('该专精的模拟维护已停用')
+        raise ValueError('全局模拟维护已停用')
     if not config.backend_id or not config.backend.is_active:
         raise ValueError('请先选择可用的模拟后端')
     if not config.backend.current_version:
@@ -77,8 +88,8 @@ def validate_config(config):
     template = config.template
     if not template or not template.is_active or not template.is_selectable or template.owner_user_id:
         raise ValueError('请先选择可用的共享模板')
-    if template.spec not in (config.spec_key, config.spec_key.split('_', 1)[1], 'default', 'all', '*'):
-        raise ValueError('模板与专精不匹配')
+    if template.spec not in ('default', 'all', '*'):
+        raise ValueError('全局模拟设置必须使用全专精共享模板')
     if type(config.duration) is not int or not 10 <= config.duration <= 1800:
         raise ValueError('战斗时长须为 10–1800 秒')
     if type(config.iterations) is not int or not 100 <= config.iterations <= 100000:
@@ -139,7 +150,7 @@ def enqueue_configs(config_ids, user_id, *, force=False, combination=None):
     result = {'created': 0, 'skipped': 0, 'errors': []}
     for config_id in config_ids:
         with transaction.atomic():
-            config = SimcReferenceSimulationConfig.objects.select_for_update().get(pk=config_id)
+            config = SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').select_for_update().get(pk=config_id)
             spec = directory.get(config.spec_key, {})
             try:
                 validate_config(config)
@@ -215,7 +226,7 @@ def maintain_simulations(batch_size=5):
         if not SimcReferenceSimulation.objects.filter(pk=row_id, status='queued').update(status='preparing', updated_at=claim):
             continue
         try:
-            row = SimcReferenceSimulation.objects.select_related('config__backend', 'config__template', 'profile', 'talent', 'apl').get(pk=row_id)
+            row = SimcReferenceSimulation.objects.select_related('config__settings__backend', 'config__settings__template', 'profile', 'talent', 'apl').get(pk=row_id)
             config = row.config
             current = snapshot(config, row.profile, row.talent, row.apl, row.snapshot['simulation_params']['desired_targets'])
             if current != row.snapshot or current['simulation_params']['desired_targets'] not in config.targets:
@@ -227,6 +238,11 @@ def maintain_simulations(batch_size=5):
                 locked = SimcReferenceSimulation.objects.select_for_update().get(pk=row_id)
                 if locked.status != 'preparing' or locked.updated_at != claim:
                     continue
+                # Fence settings edits occurring while task inputs were prepared.
+                config.settings = SimcReferenceSimulationSettings.objects.select_for_update().get(pk=config.settings_id)
+                targets = row.snapshot['simulation_params']['desired_targets']
+                if targets not in config.targets or snapshot(config, row.profile, row.talent, row.apl, targets) != row.snapshot:
+                    raise ValueError('全局模拟条件已更新，请重新生成当前组合')
                 task = tasks.create_task_from_prepared(
                     prepared=prepared, **kwargs, name=f'公开配置 · {config.spec_key} · {row.pk}',
                     mode='normal', simulation_params=row.snapshot['simulation_params'],
@@ -249,8 +265,8 @@ def public_results(spec_key, profile, talent, apl):
     """仅返回本模块创建且严格匹配当前公开输入的结果。"""
     if not all((profile, talent, apl)):
         return []
-    config = SimcReferenceSimulationConfig.objects.select_related('backend', 'template').filter(
-        spec_key=spec_key, use_ptr=profile.use_ptr, is_enabled=True,
+    config = SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').filter(
+        spec_key=spec_key, use_ptr=profile.use_ptr, settings__is_enabled=True,
     ).first()
     if not config:
         return []

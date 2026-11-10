@@ -101,7 +101,8 @@ class ReferenceDetailsPresentationTests(TestCase):
         user, version, profile, talent, apl = presentation_fixture()
         user.is_superuser = True
         user.save(update_fields=['is_superuser'])
-        config = SimcReferenceSimulationConfig.objects.create(spec_key='warrior_fury')
+        from botend.services.simc_reference_simulations import initialize_settings
+        config = SimcReferenceSimulationConfig.objects.create(spec_key='warrior_fury', settings=initialize_settings())
         self.client.force_login(user)
         for kind, resource, expected in [('profile', profile, '勇士的战盔'),
                                          ('talent', talent, '职业天赋'),

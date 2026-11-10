@@ -23,13 +23,12 @@ class ReferenceRankingTests(TestCase):
             signature=service.tasks._compute_content_hash(frozen), snapshot=frozen, dps=dps, status=status,
         )
 
-    def other_spec(self, **config_fields):
+    def other_spec(self):
         apl = SimcApl.objects.create(name='火法优先级', spec='mage_fire', class_name='mage', is_system=True,
                                      is_selectable=True, content='actions=/fireball', source='user')
         talent = SimcTalentString.objects.create(name='火法天赋', spec='mage_fire', talent='demo', is_system=True, default_apl=apl)
         profile = SimcProfile.objects.create(name='火法装备', spec='mage_fire', class_name='mage', player_config_mode='manual_equipment')
-        config = SimcReferenceSimulationConfig.objects.create(spec_key='mage_fire', backend=self.backend,
-                                                               template=self.template, **config_fields)
+        config = SimcReferenceSimulationConfig.objects.create(spec_key='mage_fire', settings_id=self.config.settings_id)
         publish_resources('mage_fire', profiles=[profile], talents=[talent], apls=[apl])
         return dict(config=config, profile=profile, talent=talent, apl=apl)
 
@@ -79,8 +78,8 @@ class ReferenceRankingTests(TestCase):
         # 编辑输入、撤下公开资料后立即排除，不能继续展示旧排名。
         talent.talent = 'changed'
         talent.save()
-        other['config'].is_enabled = False
-        other['config'].save()
+        other['profile'].is_active = False
+        other['profile'].save()
         self.assertEqual(self.rank(row)['overall_total'], 1)
         self.assertIsNone(self.rank(rival))
         self.publication.talents.remove(self.talent)
@@ -88,40 +87,51 @@ class ReferenceRankingTests(TestCase):
 
     def test_distinct_simulation_conditions_are_not_compared(self):
         row = self.result(200)
-        other = self.other_spec(duration=240)
+        other = self.other_spec()
         self.result(400, **other)
-        self.assertEqual(self.rank(row)['overall_total'], 1)
-        other['config'].duration = 300
-        other['config'].iterations = 2000
-        other['config'].save()
-        self.result(500, **other)
-        self.assertEqual(self.rank(row)['overall_total'], 1)
+        settings = self.config.settings
+        for field, value in (('duration', 240), ('iterations', 2000)):
+            with self.subTest(field=field):
+                setattr(settings, field, value)
+                settings.save()
+                self.config.refresh_from_db()
+                other['config'].refresh_from_db()
+                current = self.result(500, **other)
+                self.assertIsNone(self.rank(row))
+                self.assertEqual(self.rank(current)['overall_total'], 1)
 
     def test_backend_version_template_and_branch_are_isolated(self):
         from botend.models import SimcBackendBinary, SimcContentTemplate
         row = self.result(200)
         other = self.other_spec()
-        backend = SimcBackendBinary.objects.create(identifier='ranking-other', name='不同版本', current_version='b' * 40)
-        other['config'].backend = backend
-        other['config'].save()
-        self.result(400, **other)
-        self.assertEqual(self.rank(row)['overall_total'], 1)
-        other['config'].backend = self.backend
-        other['config'].template = SimcContentTemplate.objects.create(name='不同条件', spec='mage_fire', content='optimal_raid=1')
-        other['config'].save()
-        self.result(400, **other)
-        self.assertEqual(self.rank(row)['overall_total'], 1)
-        # 模板正文相同但名称、ID 不同，仍是同一比较条件。
-        other['config'].template.content = self.template.content
-        other['config'].template.save()
-        self.result(400, **other)
-        self.assertEqual(self.rank(row)['overall_total'], 2)
+        settings = self.config.settings
+        settings.backend = SimcBackendBinary.objects.create(identifier='ranking-other', name='不同版本', current_version='b' * 40)
+        settings.save()
+        self.config.refresh_from_db()
+        other['config'].refresh_from_db()
+        current = self.result(400, **other)
+        self.assertIsNone(self.rank(row))
+        self.assertEqual(self.rank(current)['overall_total'], 1)
+        settings.backend = self.backend
+        settings.template = SimcContentTemplate.objects.create(name='不同条件', spec='all', content='optimal_raid=1')
+        settings.save()
+        self.config.refresh_from_db()
+        other['config'].refresh_from_db()
+        current = self.result(400, **other)
+        self.assertIsNone(self.rank(row))
+        self.assertEqual(self.rank(current)['overall_total'], 1)
+        anchor = self.result(300)
+        # PTR owns a different central settings row; never compare across environments.
+        ptr = service.initialize_settings(use_ptr=True)
+        ptr.backend, ptr.template = self.backend, self.template
+        ptr.save()
         other['config'].use_ptr = True
+        other['config'].settings = ptr
         other['config'].save()
         other['profile'].use_ptr = True
         other['profile'].save()
-        self.result(400, **other)
-        self.assertEqual(self.rank(row)['overall_total'], 1)
+        self.result(600, **other)
+        self.assertEqual(self.rank(anchor)['overall_total'], 1)
 
     def test_invalid_and_unrun_combinations_have_no_rank(self):
         row = self.result(200)
@@ -139,7 +149,7 @@ class ReferenceRankingTests(TestCase):
                                                 player_config_mode='manual_equipment')
             self.publication.profiles.add(profile)
             self.result(200 + index, profile=profile)
-        config = SimcReferenceSimulationConfig.objects.select_related('backend', 'template').get(pk=self.config.pk)
+        config = SimcReferenceSimulationConfig.objects.select_related('settings__backend', 'settings__template').get(pk=self.config.pk)
         with self.assertNumQueries(4):
             ranks = current_rankings(config)
         self.assertEqual(ranks[(row.config_id, row.signature)]['overall_rank'], 23)

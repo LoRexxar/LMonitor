@@ -1,0 +1,15 @@
+{% extends 'dashboard/simc_reference_management_base.html' %}
+{% block management_heading %}
+<header class="simc-page-heading publication-heading">
+  <div class="publication-heading-copy"><h1 id="reference-admin-title">模拟配置</h1><p>统一管理所有专精的模拟条件。</p></div>
+  <div class="publication-controls"><div class="result-spec-selector"><label for="simulation-settings-branch">游戏分支</label><select id="simulation-settings-branch" aria-label="选择游戏分支"><option value="{% url 'simc_reference_settings' %}?branch=retail"{% if branch == 'retail' %} selected{% endif %}>正式服</option><option value="{% url 'simc_reference_settings' %}?branch=ptr"{% if branch == 'ptr' %} selected{% endif %}>PTR</option></select></div></div>
+</header>
+{% endblock %}
+{% block management_actions %}{% endblock %}
+{% block management_workspace %}
+<section class="results-workspace" aria-label="全局模拟条件"><div class="results-history">
+  <h2>{% if branch == 'ptr' %}PTR{% else %}正式服{% endif %} · 全局模拟条件</h2>
+  <p class="admin-note">本页设置对该分支的全部专精生效。保存不会自动开始模拟，历史任务及其冻结输入保持不变。</p>
+  <form class="settings-form" method="post">{% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="branch" value="{{ branch }}">{{ settings_form.as_p }}<button class="primary" type="submit">保存模拟配置</button></form>
+</div></section>
+{% endblock %}
