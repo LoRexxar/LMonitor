@@ -18,7 +18,7 @@
 <form method="post" class="publication-form">{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><input type="hidden" name="action" value="publish">
 {{ publication_form.non_field_errors }}<label class="publication-switch">{{ publication_form.is_published }} 启用该专精的前台展示</label>
 <div class="publication-columns">{% for field in publication_form %}{% if field.name != 'is_published' %}<fieldset><legend>{{ field.label }}</legend>{{ field.errors }}<div class="publication-options">{% for choice in field %}<label>{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>{% empty %}<p class="empty">暂无可用资料</p>{% endfor %}</div></fieldset>{% endif %}{% endfor %}</div>
-<p class="admin-note">模拟只组合已公开的装备和天赋，并使用天赋绑定的默认 APL；默认 APL 也需明确勾选。未公开天赋不会从装备内嵌代码中回退展示。</p>
+<p class="admin-note">模拟按已勾选的装备 × 天赋 × APL 生成组合，不需要另行绑定天赋默认 APL。多选 APL 会分别生成独立组合；保存公开范围不会自动启动模拟。未公开天赋不会从装备内嵌代码中回退展示。</p>
 <button class="primary" type="submit">保存公开范围</button></form>
 
 {% endblock %}

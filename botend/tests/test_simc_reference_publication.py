@@ -67,20 +67,20 @@ class ReferencePublicationTests(TestCase):
         self.assertEqual(self.client.post(other_url, dict(payload, config=other.pk)).status_code, 404)
         self.assertEqual(self.client.post(self.publication_url, payload).status_code, 400)
 
-    def test_unpublished_default_apl_requires_configuration_and_rejects_start(self):
+    def test_no_published_apl_requires_configuration_and_rejects_start(self):
         self.login()
         self.publication.apls.clear()
         response = self.client.get(self.url)
         row = response.context['scheme_page'][0]
         self.assertFalse(row['can_run'])
-        self.assertContains(response, '请为该天赋绑定已公开的默认 APL')
+        self.assertContains(response, '请在公开配置管理中选择 APL')
         self.assertNotContains(response, '开始模拟')
         payload = {'action': 'start_scheme', 'config': self.config.pk, 'profile': self.profile.pk,
                    'talent': self.talent.pk, 'apl': self.apl.pk}
         self.assertEqual(self.client.post(self.url, payload).status_code, 404)
         self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
 
-    def test_new_default_apl_keeps_old_history_and_adds_unrun_combination(self):
+    def test_new_published_apl_keeps_old_public_history_and_adds_unrun_combination(self):
         self.enqueue()
         alternate = SimcApl.objects.create(name='新的公开APL', spec='warrior_fury', is_system=True, is_selectable=True, content='actions=/bloodthirst', source='simc_upstream')
         self.publication.apls.add(alternate)
@@ -89,12 +89,12 @@ class ReferencePublicationTests(TestCase):
         self.login()
         rows = list(self.client.get(self.url).context['scheme_page'])
         self.assertEqual(len(rows), 2)
-        self.assertEqual(rows[0]['apl_id'], alternate.pk)
-        self.assertTrue(rows[0]['can_run'])
-        self.assertEqual(rows[0]['record_count'], 0)
-        self.assertFalse(rows[1]['is_public'])
-        self.assertFalse(rows[1]['can_run'])
-        self.assertEqual(rows[1]['record_count'], 2)
+        rows = {row['apl_id']: row for row in rows}
+        self.assertTrue(rows[alternate.pk]['can_run'])
+        self.assertEqual(rows[alternate.pk]['record_count'], 0)
+        self.assertTrue(rows[self.apl.pk]['is_public'])
+        self.assertTrue(rows[self.apl.pk]['can_run'])
+        self.assertEqual(rows[self.apl.pk]['record_count'], 2)
 
     def test_public_matrix_pagination_is_stable_after_starting_a_row(self):
         for index in range(22):

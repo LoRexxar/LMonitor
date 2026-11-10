@@ -148,9 +148,19 @@ def _resolve_scenario(config, scenario):
     return scenario
 
 
+def public_combination_keys(config, *, spec=None):
+    """公开装备 × 天赋 × APL；缺 APL 时保留待配置行，不回退天赋默认值。"""
+    if spec is None:
+        spec = catalog().get(config.spec_key, {})
+    apl_ids = [row['id'] for row in spec.get('apls', [])] or [None]
+    return [(profile['id'], talent['id'], apl_id)
+            for profile in spec.get('profiles', []) if profile['use_ptr'] == config.use_ptr
+            for talent in spec.get('talents', []) for apl_id in apl_ids]
+
+
 def _public_resources(config, profile, talent, apl, published_resources=None):
     if not all((profile, talent, apl)):
-        raise ValueError('配置资源已删除或天赋尚未绑定默认 APL')
+        raise ValueError('请在公开配置管理中选择完整的装备、天赋和 APL')
     published = (all(resource.pk in published_resources.get(kind, ()) for kind, resource in
                      (('profiles', profile), ('talents', talent), ('apls', apl)))
                  if published_resources is not None else SimcReferencePublication.objects.filter(
@@ -165,8 +175,7 @@ def _public_resources(config, profile, talent, apl, published_resources=None):
     for resource in (talent, apl):
         if not resource.is_active or not resource.is_selectable or not resource.is_system or resource.owner_user_id is not None:
             raise ValueError('天赋或 APL 已停用或不再公开')
-    if talent.default_apl_id != apl.pk:
-        raise ValueError('天赋绑定的默认 APL 已变化')
+
     for resource in (profile, talent, apl):
         if canonical_simc_profile_key(resource.spec, getattr(resource, 'class_name', '')) != config.spec_key:
             raise ValueError('装备、天赋和 APL 必须属于同一专精')
@@ -205,28 +214,27 @@ def enqueue_configs(config_ids, user_id, *, force=False, combination=None):
             profiles = SimcProfile.objects.in_bulk(r['id'] for r in spec.get('profiles', []) if r['use_ptr'] == config.use_ptr)
             talents = SimcTalentString.objects.in_bulk(r['id'] for r in spec.get('talents', []))
             apls = SimcApl.objects.in_bulk(r['id'] for r in spec.get('apls', []))
-            for profile in profiles.values():
-                for talent in talents.values():
-                    apl = apls.get(talent.default_apl_id)
-                    if combination and (profile.pk, talent.pk, talent.default_apl_id) != combination:
+            for profile_id, talent_id, apl_id in public_combination_keys(config, spec=spec):
+                if combination and (profile_id, talent_id, apl_id) != combination:
+                    continue
+                profile, talent, apl = profiles.get(profile_id), talents.get(talent_id), apls.get(apl_id)
+                try:
+                    snapshots = [(scene, snapshot(config, profile, talent, apl, scene))
+                                 for scene in active_scenarios(config)]
+                except ValueError as exc:
+                    result['errors'].append(f'{getattr(profile, "name", profile_id)} / {getattr(talent, "name", talent_id)}：{exc}')
+                    continue
+                for scene, frozen in snapshots:
+                    signature = tasks._compute_content_hash(frozen)
+                    states = ACTIVE if force else (*ACTIVE, 'completed')
+                    if SimcReferenceSimulation.objects.filter(config=config, signature=signature, status__in=states).exists():
+                        result['skipped'] += 1
                         continue
-                    try:
-                        snapshots = [(scene, snapshot(config, profile, talent, apl, scene))
-                                     for scene in active_scenarios(config)]
-                    except ValueError as exc:
-                        result['errors'].append(f'{profile.name} / {talent.name}：{exc}')
-                        continue
-                    for scene, frozen in snapshots:
-                        signature = tasks._compute_content_hash(frozen)
-                        states = ACTIVE if force else (*ACTIVE, 'completed')
-                        if SimcReferenceSimulation.objects.filter(config=config, signature=signature, status__in=states).exists():
-                            result['skipped'] += 1
-                            continue
-                        SimcReferenceSimulation.objects.create(
-                            config=config, scenario=scene, profile=profile, talent=talent, apl=apl,
-                            requested_by_id=user_id, signature=signature, snapshot=frozen,
-                        )
-                        result['created'] += 1
+                    SimcReferenceSimulation.objects.create(
+                        config=config, scenario=scene, profile=profile, talent=talent, apl=apl,
+                        requested_by_id=user_id, signature=signature, snapshot=frozen,
+                    )
+                    result['created'] += 1
     return result
 
 

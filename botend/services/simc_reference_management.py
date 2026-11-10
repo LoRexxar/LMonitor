@@ -4,7 +4,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count, Exists, Max, OuterRef, Q
 
 from botend.models import SimcApl, SimcProfile, SimcTalentString, SimcReferenceSimulation, SimcTaskArtifact
-from botend.services.simc_reference_simulations import ACTIVE, catalog, snapshot, active_scenarios, scenario_for_snapshot
+from botend.services.simc_reference_simulations import ACTIVE, snapshot, active_scenarios, scenario_for_snapshot, public_combination_keys
 from botend.services.simc_task_service import _compute_content_hash
 
 
@@ -14,16 +14,6 @@ def with_report(queryset):
         run__status='completed', artifact_type='html_report',
     )))
 
-
-def public_combination_keys(config):
-    """公开装备与公开天赋的矩阵；默认 APL 不可用时保留待配置行。"""
-    spec = catalog().get(config.spec_key, {})
-    apl_ids = {row['id'] for row in spec.get('apls', [])}
-    return [
-        (profile['id'], talent['id'], talent['default_apl_id'] if talent['default_apl_id'] in apl_ids else None)
-        for profile in spec.get('profiles', []) if profile['use_ptr'] == config.use_ptr
-        for talent in spec.get('talents', [])
-    ]
 
 
 def scheme_results(config, page_number):
@@ -89,9 +79,9 @@ def scheme_results(config, page_number):
                              'error' if scene['latest'] and scene['latest'].status == 'failed' else
                              'success' if scene['latest'] and scene['latest'].status == 'completed' and scene['result'] else 'neutral')
         if not group['is_public']:
-            group['issue'] = '历史组合，已不在当前公开范围或默认 APL 已变更'
+            group['issue'] = '历史组合，已不在当前公开范围'
         elif not group['apl']:
-            group['issue'] = '请为该天赋绑定已公开的默认 APL'
+            group['issue'] = '请在公开配置管理中选择 APL'
         group['can_run'] = group['is_public'] and not group['issue']
         group['has_report'] = any(scene['result'] and scene['result'].has_report for scene in group['scenes'])
     page.object_list = groups

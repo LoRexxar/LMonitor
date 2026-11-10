@@ -59,28 +59,28 @@ class ReferenceSimulationTests(TestCase):
         self.apl.refresh_from_db()
         return service.public_results('warrior_fury', self.profile, self.talent, self.apl)
 
-    def test_matrix_crosses_all_shared_profiles_and_talents_using_bound_apl(self):
+    def test_matrix_crosses_all_published_profiles_talents_and_apls(self):
         second = SimcProfile.objects.create(name='第二套共享装备', spec='warrior_fury', class_name='warrior', player_config_mode='manual_equipment')
         alternate = SimcApl.objects.create(name='另一优先级', spec='warrior_fury', is_system=True, is_selectable=True, content='actions=/bloodthirst', source='simc_upstream')
         other = SimcTalentString.objects.create(name='第二份天赋', spec='warrior_fury', talent='other', is_system=True, default_apl=alternate)
         publish_resources('warrior_fury', profiles=[second], talents=[other], apls=[alternate])
         result = self.enqueue()
-        self.assertEqual(result, {'created': 8, 'skipped': 0, 'errors': []})
-        self.assertEqual(set(SimcReferenceSimulation.objects.filter(talent=other).values_list('apl_id', flat=True)), {alternate.pk})
+        self.assertEqual(result, {'created': 16, 'skipped': 0, 'errors': []})
+        self.assertEqual(set(SimcReferenceSimulation.objects.filter(talent=other).values_list('apl_id', flat=True)), {self.apl.pk, alternate.pk})
         self.assertEqual({r.snapshot['simulation_params']['desired_targets'] for r in SimcReferenceSimulation.objects.all()}, {1, 5})
-        self.assertEqual(self.enqueue()['skipped'], 8)
+        self.assertEqual(self.enqueue()['skipped'], 16)
         self.assertEqual(self.enqueue(force=True)['created'], 0)
 
-    def test_private_unselectable_and_missing_default_are_excluded(self):
+    def test_private_unselectable_are_excluded_but_missing_default_is_allowed(self):
         SimcProfile.objects.create(name='个人装备', spec='warrior_fury', user_id=self.user.pk)
         SimcTalentString.objects.create(name='个人天赋', spec='warrior_fury', talent='private', owner_user_id=self.user.pk)
         SimcTalentString.objects.create(name='未发布天赋', spec='warrior_fury', talent='hidden', is_system=True, is_selectable=False)
         missing = SimcTalentString.objects.create(name='未绑定天赋', spec='warrior_fury', talent='missing', is_system=True)
         self.publication.talents.add(missing)
         result = self.enqueue()
-        self.assertEqual(result['created'], 2)
-        self.assertEqual(len(result['errors']), 1)
-        self.assertIn('未绑定', result['errors'][0])
+        self.assertEqual(result['created'], 4)
+        self.assertEqual(result['errors'], [])
+        self.assertEqual(set(SimcReferenceSimulation.objects.values_list('talent_id', flat=True)), {self.talent.pk, missing.pk})
 
     def test_ptr_has_separate_config_and_requires_explicit_backend(self):
         SimcProfile.objects.create(name='测试服装备', spec='warrior_fury', class_name='warrior', use_ptr=True, player_config_mode='manual_equipment')
@@ -193,6 +193,8 @@ class ReferenceSimulationTests(TestCase):
         self.assertEqual(self.results(), [])
         SimcProfile.objects.filter(pk=self.profile.pk).update(user_id=None)
         SimcTalentString.objects.filter(pk=self.talent.pk).update(default_apl=None)
+        self.assertEqual(len(self.results()), 2)
+        self.publication.apls.remove(self.apl)
         self.assertEqual(self.results(), [])
 
     def test_admin_permissions_csrf_and_no_mutation_on_get(self):
