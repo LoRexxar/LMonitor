@@ -1,0 +1,3 @@
+{% firstof ranking_route 'portal_simc_reference_rankings' as route_name %}
+<a class="simc-ranking-button" href="{% url route_name config_id signature 'overall' %}" aria-label="查看{% if targets == 1 %}单体{% else %}{{ targets }} 目标{% endif %}全职业榜单">全职业 <strong>{{ ranking.overall_rank }}</strong> / {{ ranking.overall_total }}</a>
+<a class="simc-ranking-button" href="{% url route_name config_id signature 'spec' %}" aria-label="查看{% if targets == 1 %}单体{% else %}{{ targets }} 目标{% endif %}本专精榜单">本专精 <strong>{{ ranking.spec_rank }}</strong> / {{ ranking.spec_total }}</a>

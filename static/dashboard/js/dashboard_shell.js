@@ -2,6 +2,7 @@
     'use strict';
 
     function dashboardTarget(item) {
+        if (item.dataset.dashboardUrl) return item.dataset.dashboardUrl;
         const section = item.dataset.section || item.dataset.dashboardSection;
         const tool = item.dataset.tool;
         const table = item.dataset.table || item.dataset.dashboardTable;
@@ -108,11 +109,25 @@
     }
 
     function init() {
+        window.DashboardSidebar.initTheme();
+        window.DashboardSidebar.applyPermissions();
         window.DashboardSidebar.initGroups();
         bindDashboardLinks();
         bindSubmenus();
         bindMobileSidebar();
         bindUserMenu();
+        const specSelect = document.getElementById('result-spec-select');
+        if (specSelect) {
+            specSelect.addEventListener('change', () => {
+                if (specSelect.value) window.location.assign(specSelect.value);
+            });
+        }
+        const section = window.DASHBOARD_DEFAULT_SECTION;
+        const current = section && document.querySelector(`#sidebar [data-section="${section}"], #sidebar [data-dashboard-section="${section}"]`);
+        if (current) {
+            current.classList.add('active');
+            window.DashboardSidebar.reveal(current);
+        }
     }
 
     if (document.readyState === 'loading') {

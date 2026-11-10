@@ -137,6 +137,7 @@ from botend.mythic_planner.views import (
     DashboardMythicPlannerView,
     PortalMythicPlannerView,
 )
+from botend.dashboard.simc_reference_results import SimcReferenceResultsView, SimcReferenceReportView, SimcReferencePublicationView, SimcReferenceEntryView, SimcReferenceResourcePreviewView, SimcReferenceRankingsView
 from botend.portal.simc_benchmark_api import (
     PortalSimcAplRankingAPIView,
     PortalSimcBaselineResultsAPIView,
@@ -144,6 +145,7 @@ from botend.portal.simc_benchmark_api import (
     PortalSimcBenchmarkPanelDetailAPIView,
     PortalSimcSpecRankingAPIView,
 )
+from botend.portal.simc_reference import PortalSimcReferenceView, PortalSimcReferenceRankingsView
 from botend.simc_agent_api import (
     SimcAgentHeartbeatAPIView, SimcAgentRegisterAPIView,
     SimcAgentJobClaimAPIView, SimcAgentJobHeartbeatAPIView,
@@ -195,6 +197,17 @@ urlpatterns = [
     path('favicon.ico', RedirectView.as_view(url='/static/portal/favicons/3accfdf0352f2189a3292605e1ad80f12bd5a15c605069102f42c03c3c4fceda.ico', permanent=True)),
     path('', PortalHomeView.as_view(), name='portal_home'),
     path('portal/simc-benchmarks/', PortalSimcBenchmarkResultsView.as_view(), name='portal_simc_benchmark_results'),
+    path('portal/simc-reference/', PortalSimcReferenceView.as_view(), name='portal_simc_reference'),
+    path('portal/simc-reference/rankings/', PortalSimcReferenceRankingsView.as_view(), name='portal_simc_reference_rankings_entry'),
+    path('portal/simc-reference/rankings/<int:config_id>/<slug:signature>/<slug:scope>/', PortalSimcReferenceRankingsView.as_view(), name='portal_simc_reference_rankings'),
+    path('dashboard/frontend-simulations/', SimcReferenceEntryView.as_view(), name='simc_reference_entry'),
+    path('dashboard/frontend-simulations/publication/', SimcReferencePublicationView.as_view(), name='simc_reference_publication'),
+    path('dashboard/frontend-simulations/results/', SimcReferenceResultsView.as_view(), name='simc_reference_results'),
+    path('dashboard/frontend-simulations/rankings/', SimcReferenceRankingsView.as_view(), name='simc_reference_rankings_entry'),
+    path('dashboard/frontend-simulations/rankings/<int:config_id>/<slug:signature>/<slug:scope>/', SimcReferenceRankingsView.as_view(), name='simc_reference_rankings'),
+    path('dashboard/frontend-simulations/results/<slug:spec_key>/preview/<slug:kind>/<int:resource_id>/', SimcReferenceResourcePreviewView.as_view(), name='simc_reference_resource_preview'),
+    path('dashboard/frontend-simulations/results/<slug:spec_key>/', SimcReferenceResultsView.as_view(), name='simc_reference_spec_results'),
+    path('dashboard/frontend-simulations/results/<int:result_id>/report/', SimcReferenceReportView.as_view(), name='simc_reference_report'),
     path('portal/simc-benchmarks/<int:panel_id>/', PortalSimcBenchmarkResultsView.as_view(), name='portal_simc_benchmark_panel_results'),
     path('portal/news/', PortalNewsView.as_view(), name='portal_news'),
     path('portal/specs/', PortalSpecsView.as_view(), name='portal_specs'),

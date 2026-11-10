@@ -1,0 +1,56 @@
+{% if apl_display.groups %}
+<div class="reference-apl-workspace">
+<aside class="reference-scene-rail"><h3>执行场景</h3>
+<nav class="reference-apl-index" aria-label="切换优先级分组" data-apl-tabs>
+    {% for group in apl_display.groups %}<a id="{{ group.anchor }}-tab" href="#{{ group.anchor }}" data-apl-jump data-apl-tab>{{ group.label }} <span>{{ group.rows|length }}</span></a>{% endfor %}
+</nav>
+<p>按顺序检查技能，展开查看完整判定。</p></aside>
+<div class="reference-priorities">
+{% for group in apl_display.groups %}
+<section id="{{ group.anchor }}" class="reference-priority-group" aria-labelledby="{{ group.anchor }}-title" data-apl-panel{% if group.name is None %} data-apl-default{% endif %}>
+    <header class="reference-scenario-heading"><h3 id="{{ group.anchor }}-title">{{ group.label }}</h3>{% if group.name and not heroes.apl_id %}<code>{{ group.name }}</code>{% endif %}<span>{{ group.rows|length }} 项</span></header>
+    <div class="reference-scenario-context">
+        {% if group.name is None %}<p>从这里检查技能和场景分流；前一项没有执行时，再检查下一项。</p>
+        {% elif group.name == 'precombat' %}<p>开战前执行的准备。</p>
+        {% elif group.entries %}<p class="reference-context-label">进入本组的分流规则</p><ul>{% for entry in group.entries %}<li><a href="#{{ entry.anchor }}" data-apl-jump data-apl-rule="{{ entry.rule_anchor }}">{{ entry.parent }}</a><span>：{% if entry.condition %}{% for segment in entry.condition %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% else %}{{ segment.text }}{% endif %}{% endfor %}{% else %}{{ entry.text }}{% endif %}。</span></li>{% endfor %}</ul><small>到达上级列表的这条规则时才会进入；上级的条件和执行顺序仍然有效。</small>
+        {% else %}<p>未找到调用此组的分流规则，请结合完整 APL 判断使用场景。</p>{% endif %}
+    </div>
+    <div class="reference-priority-columns" aria-hidden="true"><span>顺序</span><span>技能 / 动作</span><span>使用时机</span><span></span></div>
+    <ol class="reference-priority-list">
+        {% for row in group.rows %}
+        <li class="reference-priority-row">
+            <details id="{{ row.anchor }}" class="reference-rule">
+                <summary class="reference-rule-line">
+                    <span class="reference-priority-number" aria-label="优先级 {{ row.priority }}">{{ row.priority|stringformat:'02d' }}</span>
+                    <span class="reference-rule-action">
+                        {% if row.reference %}{% include 'portal/_simc_reference_spell.html' with spell=row.reference compact=True only %}
+                        {% else %}<strong>{% if row.unsupported %}待解读规则{% else %}{{ row.label }}{% endif %}</strong>{% endif %}
+                    </span>
+                    <span class="reference-rule-preview">{% if row.unsupported %}此规则暂不能可靠说明，展开查看原文。{% else %}{{ row.guide_text }}{% endif %}</span>
+                    <span class="reference-rule-toggle"><span class="when-closed">展开</span><span class="when-open">收起</span></span>
+                </summary>
+                <div class="reference-rule-detail">
+                    {% if row.unsupported %}<p>此项暂无法转为可读说明，保留原文以免遗漏执行条件。</p>
+                    {% else %}
+                    <p class="reference-rule-guide">{% for segment in row.guide %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% else %}{{ segment.text }}{% endif %}{% endfor %}</p>
+                    {% if row.target_guide %}<p>{% for segment in row.target_guide %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% else %}{{ segment.text }}{% endif %}{% endfor %}</p>{% endif %}
+                    {% if row.target %}{% if row.target_anchor %}<a href="#{{ row.target_anchor }}" data-apl-jump class="reference-sublist-link">查看 {{ row.target_label }} <span aria-hidden="true">→</span></a>{% else %}<p>未找到子列表：{{ row.target }}</p>{% endif %}{% endif %}
+                    {% if row.behavior %}<p class="reference-action-behavior">{{ row.behavior }}</p>{% endif %}
+                    {% if row.fields %}<details class="reference-technical"><summary>详细判定与执行设置</summary><dl class="reference-conditions">
+                        {% for field in row.fields %}<div><dt>{{ field.label }}</dt><dd>{% for segment in field.segments %}{% if segment.reference %}{% include 'portal/_simc_reference_spell.html' with spell=segment.reference compact=True only %}{% else %}{{ segment.text }}{% endif %}{% endfor %}</dd></div>{% endfor %}
+                    </dl></details>{% endif %}
+                    {% endif %}
+                    <details class="reference-action-source"><summary>原始规则 · 第 {{ row.line }} 行</summary><code>{{ row.raw }}</code></details>
+                </div>
+            </details>
+        </li>
+        {% endfor %}
+    </ol>
+</section>
+{% endfor %}
+</div>
+</div>
+{% endif %}
+{% if apl_display.unsupported %}
+<details class="reference-disclosure"><summary>{{ apl_display.unsupported|length }} 行未转换内容</summary><p class="reference-note">以下内容不属于可识别的优先级规则，请结合原文阅读。</p>{% for row in apl_display.unsupported %}<pre>第 {{ row.line }} 行：{{ row.text }}</pre>{% endfor %}</details>
+{% endif %}

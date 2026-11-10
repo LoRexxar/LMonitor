@@ -2182,6 +2182,71 @@ class SimcAgentEnrollmentCode(models.Model):
         ]
 
 
+def simc_reference_default_targets():
+    """公开配置模拟默认覆盖单体和五目标。"""
+    return [1, 5]
+
+
+class SimcReferencePublication(models.Model):
+    """专精资料的显式发布清单；新增共享资源不会自动公开。"""
+
+    spec_key = models.CharField(max_length=100, unique=True)
+    is_published = models.BooleanField(default=False)
+    profiles = models.ManyToManyField(SimcProfile, blank=True)
+    talents = models.ManyToManyField(SimcTalentString, blank=True)
+    apls = models.ManyToManyField(SimcApl, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '前台专精公开范围'
+        verbose_name_plural = '前台专精公开范围'
+
+
+class SimcReferenceSimulationConfig(models.Model):
+    """专精资料的独立模拟配置；正式服与 PTR 分开维护。"""
+
+    spec_key = models.CharField(max_length=100)
+    use_ptr = models.BooleanField(default=False)
+    backend = models.ForeignKey(SimcBackendBinary, null=True, blank=True, on_delete=models.PROTECT)
+    template = models.ForeignKey(SimcContentTemplate, null=True, blank=True, on_delete=models.PROTECT)
+    duration = models.PositiveIntegerField(default=300)
+    targets = models.JSONField(default=simc_reference_default_targets)
+    iterations = models.PositiveIntegerField(default=10000)
+    is_enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['spec_key', 'use_ptr'], name='simc_ref_spec_branch_uniq')]
+        verbose_name = '公开配置模拟设置'
+        verbose_name_plural = '公开配置模拟设置'
+
+
+class SimcReferenceSimulation(models.Model):
+    """每次专用模拟独立留档，只有匹配当前输入的成功结果可供前台读取。"""
+
+    config = models.ForeignKey(SimcReferenceSimulationConfig, on_delete=models.PROTECT, related_name='simulations')
+    profile = models.ForeignKey(SimcProfile, null=True, on_delete=models.SET_NULL)
+    talent = models.ForeignKey(SimcTalentString, null=True, on_delete=models.SET_NULL)
+    apl = models.ForeignKey(SimcApl, null=True, on_delete=models.SET_NULL)
+    task = models.OneToOneField(SimcTask, null=True, blank=True, on_delete=models.SET_NULL, related_name='reference_simulation')
+    requested_by_id = models.PositiveBigIntegerField()
+    signature = models.CharField(max_length=64, db_index=True)
+    snapshot = models.JSONField(default=dict)
+    status = models.CharField(max_length=16, default='queued', choices=[
+        ('queued', '等待派发'), ('preparing', '准备中'), ('submitted', '排队或运行中'),
+        ('completed', '已完成'), ('failed', '失败'), ('cancelled', '已取消'),
+    ], db_index=True)
+    dps = models.FloatField(null=True, blank=True)
+    error = models.TextField(default='', blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = '公开配置模拟结果'
+        verbose_name_plural = '公开配置模拟结果'
+        indexes = [models.Index(fields=['config', 'profile', 'talent'], name='simc_ref_combination_idx')]
+
+
 class SimcBenchmarkPanel(models.Model):
     """A reusable benchmark definition; execution remains owned by SimcTask/SimulationRun."""
 

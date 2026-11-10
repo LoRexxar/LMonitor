@@ -2,6 +2,50 @@
 (() => {
     'use strict';
 
+    function initTheme() {
+        const storageKey = 'lmonitor-dashboard-theme';
+        const root = document.documentElement;
+        const toggle = document.getElementById('dashboard-theme-toggle');
+        const icon = document.getElementById('dashboard-theme-icon');
+        if (!toggle || !icon) return;
+
+        const render = () => {
+            const isDark = root.dataset.dashboardTheme === 'dark';
+            toggle.setAttribute('aria-pressed', String(isDark));
+            toggle.setAttribute('aria-label', isDark ? '切换浅色模式' : '切换深色模式');
+            toggle.title = isDark ? '切换浅色模式' : '切换深色模式';
+            icon.className = `fas ${isDark ? 'fa-sun' : 'fa-moon'} text-sm`;
+        };
+        render();
+        toggle.addEventListener('click', () => {
+            const isDark = root.dataset.dashboardTheme === 'dark';
+            if (isDark) delete root.dataset.dashboardTheme;
+            else root.dataset.dashboardTheme = 'dark';
+            try { localStorage.setItem(storageKey, isDark ? 'light' : 'dark'); } catch (_) {}
+            render();
+        });
+    }
+
+    function applyPermissions() {
+        const permissionCodes = new Set(JSON.parse(document.getElementById('dashboard-permissions-data')?.textContent || '[]'));
+        const catalog = JSON.parse(document.getElementById('dashboard-permission-catalog-data')?.textContent || '[]');
+        const bySection = new Map(catalog.flatMap(item => [item.section, ...(item.sections || [])].map(section => [section, item.code])));
+        document.querySelectorAll('[data-section], [data-dashboard-section]').forEach(item => {
+            const section = item.getAttribute('data-section') || item.getAttribute('data-dashboard-section');
+            if (section === 'dashboard-home') return;
+            const code = bySection.get(section);
+            if (code && !permissionCodes.has(code)) item.remove();
+        });
+        document.querySelectorAll('.nav-item.has-submenu').forEach(item => {
+            if (!item.querySelector('.submenu-item')) item.remove();
+        });
+        document.querySelectorAll('.content-section').forEach(section => {
+            const code = bySection.get(section.id);
+            if (section.id !== 'dashboard-home' && code && !permissionCodes.has(code)) section.remove();
+        });
+    }
+
+
     function setOpen(item, open) {
         const link = item?.querySelector(':scope > a');
         const menu = item?.querySelector(':scope > .submenu');
@@ -65,7 +109,7 @@
         const groups = [
             {key: 'overview', label: '概览统计', entries: [section('dashboard-home'), section('site-analytics')]},
             {key: 'content', label: '内容运营', entries: [
-                section('class-guide-module'), section('player-analyses'),
+                section('class-guide-module'), section('player-analyses'), section('frontend-simulations'),
                 folder('news', '资讯与报告', 'fa-newspaper', [section('news'), section('wow-daily-reports'), section('wago-hotfix-reports')]),
                 folder('site', '站点编排', 'fa-compass', [section('wow-today-settings'), section('portal-navigation')]),
             ]},
@@ -126,5 +170,5 @@
         });
     }
 
-    window.DashboardSidebar = {initGroups, bindSubmenus, setOpen, reveal};
+    window.DashboardSidebar = {initGroups, bindSubmenus, setOpen, reveal, initTheme, applyPermissions};
 })();

@@ -265,6 +265,11 @@ class SimcWorker:
         except Exception:
             logger.exception('[SimC Worker] benchmark reconcile sweep failed')
         try:
+            from botend.services.simc_reference_simulations import maintain_simulations
+            maintain_simulations()
+        except Exception:
+            logger.exception('[SimC Worker] 公开配置模拟维护失败')
+        try:
             from botend.services.simc_benchmark_result_snapshot import start_result_snapshot_refresh
             start_result_snapshot_refresh()
         except Exception:

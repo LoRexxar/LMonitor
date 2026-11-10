@@ -52,6 +52,11 @@ def resolve_task(task: SimcTask) -> ResolvedTaskContext:
     template_content = None
     apl_content = None
     resource_metadata = {}
+    # 专用公开配置任务在执行前核对版本，并将版本证据写入本地和 Agent 共用的清单。
+    request_manifest = (task.mode_params or {}).get('request_manifest')
+    if isinstance(request_manifest, dict) and request_manifest.get('reference_backend') is not None:
+        from botend.services.simc_reference_simulations import execution_backend_metadata
+        resource_metadata.update(execution_backend_metadata(task))
     profile_payload = {}
     template_payload = {}
     apl_payload = {}
