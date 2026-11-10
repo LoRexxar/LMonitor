@@ -116,8 +116,7 @@
         bindSubmenus();
         bindMobileSidebar();
         bindUserMenu();
-        const specSelect = document.getElementById('result-spec-select');
-        if (specSelect) {
+        for (const specSelect of document.querySelectorAll('#result-spec-select, #publication-spec-select')) {
             specSelect.addEventListener('change', () => {
                 if (specSelect.value) window.location.assign(specSelect.value);
             });

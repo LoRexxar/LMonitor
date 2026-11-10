@@ -190,6 +190,40 @@ class ReferencePublicationTests(TestCase):
                 self.assertEqual(self.client.post(url, {'action': action, 'config': self.config.pk}).status_code, 400)
         self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
 
+    def test_publication_selects_spec_before_editing_without_a_directory(self):
+        from bs4 import BeautifulSoup
+        fire_profile = SimcProfile.objects.create(name='火焰装备', spec='mage_fire', class_name='mage')
+        fire = SimcReferenceSimulationConfig.objects.create(
+            spec_key='mage_fire', backend=self.config.backend, template=self.config.template)
+        ptr = SimcReferenceSimulationConfig.objects.create(
+            spec_key=self.config.spec_key, use_ptr=True, backend=self.config.backend, template=self.config.template)
+        self.login()
+        response = self.client.get(self.publication_url, {'config': fire.pk})
+        soup = BeautifulSoup(response.content, 'html.parser')
+        selector = soup.select_one('#publication-spec-select')
+        self.assertIsNotNone(selector)
+        self.assertEqual(len(selector.select('option')), 2)
+        self.assertEqual(len(selector.select('optgroup')), 2)
+        self.assertEqual(selector.select_one('option[selected]')['value'], f'{self.publication_url}?config={fire.pk}')
+        self.assertIsNone(soup.select_one('aside[aria-label="专精目录"]'))
+        form = soup.select_one('.publication-form')
+        self.assertEqual(form.select_one('input[name=config]')['value'], str(fire.pk))
+        self.assertEqual([node['value'] for node in form.select('input[name=profiles]')], [str(fire_profile.pk)])
+        ptr_response = self.client.get(self.publication_url, {'config': ptr.pk})
+        ptr_soup = BeautifulSoup(ptr_response.content, 'html.parser')
+        self.assertEqual(len(ptr_soup.select('#publication-spec-select option')), 2)
+        self.assertEqual(ptr_soup.select_one('#publication-spec-select option[selected]')['value'],
+                         f'{self.publication_url}?config={ptr.pk}')
+        saved = self.client.post(self.publication_url, {'action': 'publish', 'config': self.config.pk,
+            'is_published': 'on', 'profiles': [self.profile.pk], 'talents': [self.talent.pk], 'apls': [self.apl.pk]}, follow=True)
+        saved_soup = BeautifulSoup(saved.content, 'html.parser')
+        self.assertEqual(saved_soup.select_one('#publication-spec-select option[selected]')['value'],
+                         f'{self.publication_url}?config={self.config.pk}')
+        self.assertEqual([node['value'] for node in saved_soup.select('.publication-form input[name=profiles]:checked')],
+                         [str(self.profile.pk)])
+        self.assertEqual(SimcReferenceSimulation.objects.count(), 0)
+        self.assertEqual(SimcTask.objects.count(), 0)
+
     def test_old_entry_redirects_to_the_separate_page(self):
         self.login()
         entry = reverse('simc_reference_entry')

@@ -160,7 +160,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
         configs = list(SimcReferenceSimulationConfig.objects.select_related('backend', 'template').order_by('spec_key', 'use_ptr'))
         spec_key = self.kwargs.get('spec_key')
         spec_groups = {}
-        if self.view_mode == 'results':
+        if self.view_mode in ('results', 'publication'):
             from botend.constants.wow import CLASS_CN
             for key in dict.fromkeys(row.spec_key for row in configs):
                 spec = directory.get(key, {})
@@ -192,6 +192,15 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
                 selected = None
             elif selected_id and not any(str(row.pk) == selected_id for row in configs):
                 raise Http404('该配置不属于当前专精')
+        if self.view_mode == 'publication':
+            primary_configs = {}
+            for config in configs:
+                primary_configs.setdefault(config.spec_key, config)
+            if selected:
+                primary_configs[selected.spec_key] = selected
+            for specs in spec_groups.values():
+                for spec in specs:
+                    spec['url'] = reverse('simc_reference_publication') + f"?config={primary_configs[spec['key']].pk}"
         if form is None and selected and self.view_mode == 'results':
             form = ConfigForm(instance=selected)
         if publication_form is None and selected and self.view_mode == 'publication':

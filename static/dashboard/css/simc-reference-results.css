@@ -46,7 +46,7 @@ html[data-dashboard-theme="dark"] .reference-admin { --accent:#a8cdff; --error:#
 .reference-admin .config-list { max-height:240px; }
 .reference-admin .settings-form { grid-template-columns:1fr; }
 .reference-admin th, .reference-admin td { padding:10px; min-width:100px; } }
-.reference-admin .publication-workspace { grid-template-columns:210px minmax(0,1fr); }
+.reference-admin .publication-workspace { grid-template-columns:minmax(0,1fr); }
 .reference-admin .management-content { min-width:0; }
 .reference-admin .management-tabs { display:flex; gap:24px; border-bottom:1px solid var(--line); margin:18px 0; }
 .reference-admin .management-tabs a { padding:8px 0; color:var(--muted); text-decoration:none; border-bottom:2px solid transparent; }
@@ -62,7 +62,7 @@ html[data-dashboard-theme="dark"] .reference-admin { --accent:#a8cdff; --error:#
 .reference-admin summary { cursor:pointer; }
 .reference-admin .muted { color:var(--muted); }
 .reference-admin .issue { color:var(--error); font-size:13px; }
-@media(max-width:980px) {.reference-admin .publication-workspace { grid-template-columns:200px minmax(0,1fr); }
+@media(max-width:980px) {
 .reference-admin .publication-columns { grid-template-columns:1fr; }
 .reference-admin .publication-options { max-height:220px; } }
 @media(max-width:760px) {.reference-admin .publication-workspace { grid-template-columns:1fr; }
