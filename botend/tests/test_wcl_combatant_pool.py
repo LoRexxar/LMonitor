@@ -52,6 +52,10 @@ def local_api(respond):
             except Exception as exc:
                 errors.append(type(exc).__name__)
                 status, payload = 500, {'error': 'fixture_failed'}
+            if status == 0:
+                # 本机连接在返回HTTP头之前关闭，用于复现真实网络异常。
+                self.close_connection = True
+                return
             raw = json.dumps(payload).encode()
             self.send_response(status)
             self.send_header('Content-Type', 'application/json')
@@ -64,8 +68,11 @@ def local_api(respond):
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     def transport(client_id, token, query, variables, **kwargs):
-        response = requests.post(f'http://127.0.0.1:{server.server_port}/',
-                                 json=variables, timeout=8)
+        try:
+            response = requests.post(f'http://127.0.0.1:{server.server_port}/',
+                                     json=variables, timeout=8)
+        except requests.RequestException:
+            return SimpleNamespace(payload=None, error='network', retry_at=None)
         payload = response.json()
         return SimpleNamespace(payload=payload, error=payload.get('error', ''),
                                retry_at=timezone.now() + timedelta(minutes=5)

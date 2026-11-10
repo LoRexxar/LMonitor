@@ -178,8 +178,8 @@ class CombatantNegativeCacheTests(TestCase):
         self.assertEqual([call.args for call in fetcher.fetch_wcl_combatant_info.call_args_list],
                          [('Report', [12]), ('Other', [11])])
 
-    def test_transient_and_incomplete_failures_never_create_negative_states(self):
-        for error in ('network', 'authentication', 'rate_limit', 'http_500', 'graphql',
+    def test_global_and_incomplete_failures_never_create_negative_states(self):
+        for error in ('authentication', 'rate_limit', 'graphql',
                       'request_failed', 'report_unavailable', 'invalid_payload',
                       'invalid_pagination', 'pagination_limit', ''):
             with self.subTest(error=error):
@@ -216,10 +216,10 @@ class CombatantNegativeCacheTests(TestCase):
     def test_expired_missing_refreshes_only_after_authoritative_result(self):
         old = self.state(expired=True)
         original = (old.checked_at, old.retry_after)
-        self.assertEqual(self.collect([sample()], self.fetcher(error='network'), apply=True)['failed'], 1)
+        self.assertEqual(self.collect([sample()], self.fetcher(error='network'), apply=True)['pending'], 1)
         old.refresh_from_db()
         self.assertEqual((old.checked_at, old.retry_after), original)
-        now = timezone.now()
+        now = self.states.get(report_code='Report', fight_id=0).retry_after + timedelta(seconds=1)
         with patch('django.utils.timezone.now', return_value=now):
             self.assertEqual(self.collect([sample()], self.fetcher([]), apply=True)['missing'], 1)
         old.refresh_from_db()

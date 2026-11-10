@@ -228,9 +228,14 @@ class WclInputCompletenessTests(TransactionTestCase):
             with self.subTest(response=response.payload):
                 result, _, _ = self.collect([sample(233), sample(234)],
                     [page([event(233)], 200), response, response, response])
-                self.assertEqual((result['failed'], result['missing'], result['snapshots_written']), (2, 0, 0))
                 self.assertFalse(WclCombatantSnapshot.objects.exists())
-                self.assertFalse(WclCombatantFetchState.objects.exists())
+                if response.status_code == 500:
+                    # 后续页临时失败只登记退避，不能发布前一页或伪装成缺失。
+                    self.assertEqual((result['pending'], result['failed'], result['missing']), (2, 0, 0))
+                    self.assertEqual(WclCombatantFetchState.objects.get().status, 'transient_error')
+                else:
+                    self.assertEqual((result['failed'], result['missing'], result['snapshots_written']), (2, 0, 0))
+                    self.assertFalse(WclCombatantFetchState.objects.exists())
 
     def test_unrelated_actor_metadata_and_explicit_npc_do_not_block_players(self):
         # Unreferenced metadata is not a candidate fact, even if incomplete.

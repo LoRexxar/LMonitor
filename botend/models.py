@@ -2964,15 +2964,12 @@ class WclCombatantSnapshot(models.Model):
 
 
 class WclCombatantFetchState(models.Model):
-    """Expiring fetch outcomes, never a second source of raw combatant facts.
-
-    fight_id=0 represents report-wide permission denial; positive IDs represent
-    a complete fetch with at least one requested observation still unmatched.
-    """
+    """带期限的获取状态；战斗0表示报告权限或临时故障，正数表示完整响应仍缺目标。"""
     report_code = models.CharField(max_length=50)
     fight_id = models.PositiveIntegerField()
     status = models.CharField(max_length=20, choices=[
         ('permission_denied', 'Permission denied'), ('missing', 'Missing'),
+        ('transient_error', '临时故障'),
     ])
     checked_at = models.DateTimeField(default=timezone.now)
     retry_after = models.DateTimeField()

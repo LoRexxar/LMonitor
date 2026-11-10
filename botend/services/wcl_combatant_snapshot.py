@@ -3,6 +3,7 @@ from collections import defaultdict, deque
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from copy import deepcopy
 from datetime import datetime, timedelta
+from queue import Empty, SimpleQueue
 import math
 import re
 import time
@@ -273,6 +274,8 @@ def _validated_events(events, fight_ids):
 # Retry policy, not an estimate of WCL request cost or account quota.
 WCL_PERMISSION_DENIED_TTL = timedelta(hours=1)
 WCL_COMBATANT_MISSING_TTL = timedelta(hours=6)
+WCL_TRANSIENT_RETRY_DELAY = timedelta(minutes=5)
+WCL_TRANSIENT_FAILURE_LIMIT = 3
 
 
 def _load_negative_fetch_states(records, now):
@@ -284,9 +287,9 @@ def _load_negative_fetch_states(records, now):
     where = Q()
     for code, fight in sorted(keys):
         where |= Q(report_code=code, fight_id=fight)
-    return {(row['report_code'], row['fight_id']): row['status']
+    return {(row['report_code'], row['fight_id']): row
             for row in WclCombatantFetchState.objects.filter(where, retry_after__gt=now).values(
-                'report_code', 'fight_id', 'status')}
+                'report_code', 'fight_id', 'status', 'retry_after')}
 
 
 def _save_negative_fetch_state(code, fight, status, checked_at):
@@ -294,6 +297,32 @@ def _save_negative_fetch_state(code, fight, status, checked_at):
     WclCombatantFetchState.objects.update_or_create(
         report_code=code, fight_id=fight,
         defaults={'status': status, 'checked_at': checked_at, 'retry_after': checked_at + ttl})
+
+
+def _defer_transient_report(code, retry_at=None):
+    """持久化报告级短期退避，不把网络故障记作日志缺失或覆盖有效权限状态。"""
+    from django.db import transaction
+    from django.utils import timezone
+    now = timezone.now()
+    deadline = now + WCL_TRANSIENT_RETRY_DELAY
+    if isinstance(retry_at, datetime) and timezone.is_aware(retry_at):
+        deadline = max(deadline, retry_at)
+    with transaction.atomic():
+        state, created = WclCombatantFetchState.objects.select_for_update().get_or_create(
+            report_code=code, fight_id=0, defaults={
+                'status': 'transient_error', 'checked_at': now, 'retry_after': deadline})
+        if not created:
+            if state.status == 'permission_denied' and state.retry_after > now:
+                return state.retry_after
+            state.status = 'transient_error'
+            state.checked_at = now
+            state.retry_after = max(deadline, state.retry_after)
+            state.save(update_fields=['status', 'checked_at', 'retry_after'])
+        return state.retry_after
+
+
+def _is_transient_error(error):
+    return error == 'network' or bool(re.fullmatch(r'http_5\d\d', str(error)))
 
 
 def _collection_worker_limit(fetcher):
@@ -378,8 +407,22 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     records = list(records)
     counts = dict(selected=len(records), cached=0, matched=0, missing=0,
                   permission_denied=0, failed=0, pending=0, snapshots_written=0,
-                  reports_requested=0, fights_requested=0, negative_cached=0)
+                  reports_requested=0, fights_requested=0, negative_cached=0,
+                  transient_errors=0, transient_cached=0, deferred_reports=0, circuit_open=0)
     pending = defaultdict(lambda: defaultdict(list))
+    deferred_reports = set()
+    local_retry_at = fatal_retry_at = None
+
+    def remember_local_retry(deadline):
+        nonlocal local_retry_at
+        local_retry_at = min(local_retry_at, deadline) if local_retry_at else deadline
+
+    def sync_retry():
+        # 账户级暂停期限优先；只有局部故障时按最早可恢复的报告调度。
+        deadline = fatal_retry_at or local_retry_at
+        if deadline is not None:
+            counts['retry_at'] = deadline.isoformat()
+
     # 以战斗为单位共享事实，避免按样本切片反复读回并解析整场JSON。
     preflight_started = preflight_logged = time.monotonic()
     counts.update(preflight_batches=0, preflight_fights=0, preflight_fact_rows=0,
@@ -389,7 +432,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     def emit_preflight():
         counts['preflight_seconds'] = time.monotonic() - preflight_started
         if log:
-            fields = ('selected', 'cached', 'negative_cached', 'preflight_batches',
+            fields = ('selected', 'cached', 'negative_cached', 'transient_cached', 'preflight_batches',
                       'preflight_fights', 'preflight_fact_rows', 'preflight_load_seconds',
                       'preflight_state_seconds', 'preflight_match_seconds', 'preflight_seconds')
             log('WCL combatants preflight ' + ' '.join(
@@ -409,16 +452,22 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
         started = time.monotonic()
         for row in batch_records:
             key = _fight_key(row)
+            report_state = states.get((key[0], 0), {}) if key else {}
+            fight_state = states.get(key, {})
             if not key or not row.get('realm') or not row.get('character_name') or str(row['character_name']).casefold() == 'anonymous':
                 counts['missing'] += 1
             elif match_combatant(facts.get(key, []), row, row['class_name'], row['spec_name']):
                 counts['cached'] += 1
-            elif states.get((key[0], 0)) == 'permission_denied':
+            elif report_state.get('status') == 'permission_denied':
                 counts['permission_denied'] += 1
                 counts['negative_cached'] += 1
-            elif states.get(key) == 'missing':
+            elif fight_state.get('status') == 'missing':
                 counts['missing'] += 1
                 counts['negative_cached'] += 1
+            elif report_state.get('status') == 'transient_error':
+                counts['transient_cached'] += 1
+                deferred_reports.add(key[0])
+                remember_local_retry(report_state['retry_after'])
             else:
                 pending[key[0]][key[1]].append(row)
         counts['preflight_match_seconds'] += time.monotonic() - started
@@ -427,8 +476,11 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
             emit_preflight()
             preflight_logged = time.monotonic()
     emit_preflight()
+    counts['deferred_reports'] = len(deferred_reports)
+    counts['pending'] = counts['selected'] - sum(counts[key] for key in (
+        'cached', 'matched', 'missing', 'permission_denied', 'failed'))
+    sync_retry()
     if not apply:
-        counts['pending'] = sum(len(rows) for fights in pending.values() for rows in fights.values())
         return counts
     if not pending:
         return counts
@@ -447,18 +499,30 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
     remaining = {code: deque(sorted(fights)) for code, fights in pending.items()}
     requested_reports = set()
     inflight = {}
+    completed_responses = SimpleQueue()
     stopped = False
-    fatal_error, fatal_retry_at = '', None
+    fatal_error = ''
+    consecutive_transient = 0
     admission_parked = []
     admission_rounds = 0
     admission_last_completed = -1
     started = last_progress = time.monotonic()
     counts.update(batches_completed=0, batches_dispatched=0, fetch_seconds=0.0, save_seconds=0.0)
 
+    def stop_collection(error, deadline=None):
+        nonlocal stopped, fatal_error, fatal_retry_at
+        stopped = True
+        fatal_error = fatal_error or error
+        if isinstance(deadline, datetime):
+            fatal_retry_at = max(fatal_retry_at, deadline) if fatal_retry_at else deadline
+        sync_retry()
+
     def emit_progress(force=False):
         nonlocal last_progress
         counts['pending'] = counts['selected'] - sum(counts[key] for key in (
             'cached', 'matched', 'missing', 'permission_denied', 'failed'))
+        counts['deferred_reports'] = len(deferred_reports)
+        sync_retry()
         now = time.monotonic()
         if not force and now - last_progress < 30:
             return
@@ -470,7 +534,8 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
         if log:
             fields = ('batches_completed', 'batches_dispatched', 'undispatched_batches',
                       'in_flight', 'workers', 'pending', 'matched', 'missing',
-                      'permission_denied', 'failed', 'fetch_seconds', 'save_seconds', 'elapsed_seconds')
+                      'permission_denied', 'failed', 'transient_errors', 'transient_cached',
+                      'deferred_reports', 'circuit_open', 'fetch_seconds', 'save_seconds', 'elapsed_seconds')
             log('WCL combatants progress ' + ' '.join(f'{key}={counts[key]}' for key in fields))
         if progress:
             progress(dict(counts))
@@ -486,10 +551,7 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                 # get a short resumable defer rather than a hot spin/90s lease.
                 completed = counts['matched'] + counts['missing'] + counts['permission_denied']
                 if admission_rounds >= 16 or completed == admission_last_completed:
-                    stopped = True
-                    fatal_error = 'admission_busy'
-                    fatal_retry_at = timezone.now() + timedelta(seconds=1)
-                    counts['retry_at'] = fatal_retry_at.isoformat()
+                    stop_collection('admission_busy', timezone.now() + timedelta(seconds=1))
                 else:
                     admission_rounds += 1
                     admission_last_completed = completed
@@ -526,11 +588,17 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                     future = Future()
                     future.set_result(_fetch_combatant_batch(fetcher, code, batch))
                 inflight[future] = (code, batch, batch_rows)
+                future.add_done_callback(completed_responses.put)
             if not inflight:
                 break
-            done, _ = wait(inflight, timeout=1, return_when=FIRST_COMPLETED)
-            # Drain ALL already completed responses before any new dispatch.
-            done.update(future for future in inflight if future.done())
+            wait(inflight, timeout=1, return_when=FIRST_COMPLETED)
+            # 按响应完成回调的接收顺序处理，避免无序集合误判连续故障。
+            done = []
+            while True:
+                try:
+                    done.append(completed_responses.get_nowait())
+                except Empty:
+                    break
             for future in done:
                 # Admission failures propagate to the cycle owner, not into
                 # failed/negative source facts. In-flight requests are drained
@@ -551,40 +619,47 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                         counts['snapshots_written'] += written
                         counts['matched'] += matched
                         counts['missing'] += missing
+                        consecutive_transient = 0
+                    elif _is_transient_error(error):
+                        deadline = _defer_transient_report(code, retry_at)
+                        remember_local_retry(deadline)
+                        deferred_reports.add(code)
+                        remaining[code].extendleft(reversed(batch))
+                        counts['transient_errors'] += 1
+                        consecutive_transient += 1
+                        if consecutive_transient >= WCL_TRANSIENT_FAILURE_LIMIT:
+                            counts['circuit_open'] = 1
+                            stop_collection(error, timezone.now() + WCL_TRANSIENT_RETRY_DELAY)
                     elif error == 'admission_busy':
                         remaining[code].extendleft(reversed(batch))
                         admission_parked.append(code)
                     elif error == 'admission_deferred':
                         # Its short deadline may pass while other HTTP drains.
                         # It is still pending, not a failed/empty observation.
-                        stopped = True
                         retry_at = max(retry_at, timezone.now() + timedelta(seconds=1))
-                        counts['retry_at'] = max(counts.get('retry_at', ''), retry_at.isoformat())
-                        if fatal_retry_at is None or retry_at > fatal_retry_at:
-                            fatal_error, fatal_retry_at = error, retry_at
+                        stop_collection(error, retry_at)
                     elif isinstance(retry_at, datetime) and retry_at > timezone.now():
-                        stopped = True
-                        counts['retry_at'] = max(counts.get('retry_at', ''), retry_at.isoformat())
-                        if fatal_retry_at is None or retry_at > fatal_retry_at:
-                            fatal_error, fatal_retry_at = error, retry_at
+                        stop_collection(error, retry_at)
                     elif error == 'permission':
+                        consecutive_transient = 0
                         _save_negative_fetch_state(code, 0, 'permission_denied', timezone.now())
                         counts['permission_denied'] += len(batch_rows) + sum(
                             len(pending[code][fight]) for fight in remaining[code])
                         remaining[code].clear()
                     else:
                         counts['failed'] += len(batch_rows)
-                        if (error in {'rate_limit', 'budget_wait', 'authentication', 'network',
-                                      'http_403', 'worker_exception'} or str(error).startswith('http_5')):
-                            stopped = True
-                            fatal_error = fatal_error or error
+                        if error in {'rate_limit', 'budget_wait', 'authentication', 'http_403', 'worker_exception'}:
+                            stop_collection(error)
                 except Exception as exc:
+                    from django.db import DatabaseError
                     counts['failed'] += len(batch_rows)
+                    if isinstance(exc, DatabaseError):
+                        stop_collection('storage_error')
                     if log:
                         log(f'WCL combatants batch_failed error_type={type(exc).__name__}')
                 finally:
                     counts['save_seconds'] += time.monotonic() - save_started
-                if remaining[code] and code not in admission_parked:
+                if remaining[code] and code not in admission_parked and code not in deferred_reports:
                     ready.append(code)
             emit_progress()
             if stopped and not inflight:
