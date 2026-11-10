@@ -1,4 +1,9 @@
+from botend.tests.test_wcl_raw_staging import RawStagingIsolationMixin, persisted_event
+from botend.models import WclCombatantFact
+from botend.services.wcl_combatant_store import canonical_event
+
 """Real local HTTP barriers -> Base pagination -> collector ORM/cycle.
+
 
 Only the transport endpoint and worker-limit read are substituted. No concurrent
 ORM is hidden behind SQLite: persistence stays on the calling thread; the shared
@@ -86,7 +91,7 @@ def local_api(respond):
         thread.join(3)
 
 
-class CombatantPoolTests(TransactionTestCase):
+class CombatantPoolTests(RawStagingIsolationMixin, TransactionTestCase):
     def fetcher(self):
         fetcher = SpecDetailBase(None, None)
         fetcher._wcl_token = 'local-fixture-token'
@@ -188,7 +193,7 @@ class CombatantPoolTests(TransactionTestCase):
         self.assertTrue(finish_collection(cycle, result))
         cycle.refresh_from_db()
         self.assertEqual((cycle.phase, cycle.counts['matched']), ('ready', 29))
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 29)
+        self.assertEqual(WclCombatantFact.objects.count(), 29)
         self.assertEqual(progress[-1]['in_flight'], 0)
         self.assertEqual(progress[-1]['batches_completed'], 29)
         self.assertLessEqual(max(entry['in_flight'] for entry in progress), 16)
@@ -215,7 +220,7 @@ class CombatantPoolTests(TransactionTestCase):
         self.assertIn('retry_at', result)
         self.assertEqual(fetcher._wcl_last_error, 'rate_limit')
         self.assertEqual(fetcher._wcl_retry_at.isoformat(), result['retry_at'])
-        self.assertEqual(WclCombatantSnapshot.objects.get().report_code, 'Success')
+        self.assertEqual(WclCombatantFact.objects.get().report_code, 'Success')
         self.assertFalse(WclCombatantFetchState.objects.exists())
 
     @override_settings(WCL_V2_CONFIG={'client_id': 'collector-pool-local-fixture'})
@@ -271,7 +276,7 @@ class CombatantPoolTests(TransactionTestCase):
         self.assertEqual(len(calls), 2)
         self.assertEqual((result['failed'], result['matched'], result['pending']), (1, 1, 1))
         self.assertFalse(WclCombatantFetchState.objects.exists())
-        self.assertEqual(WclCombatantSnapshot.objects.get().report_code, 'Good')
+        self.assertEqual(WclCombatantFact.objects.get().report_code, 'Good')
 
     def test_http_403_propagates_on_caller_without_losing_inflight_success(self):
         barrier = threading.Barrier(2, timeout=4)
@@ -303,7 +308,7 @@ class CombatantPoolTests(TransactionTestCase):
         self.assertEqual(published, [(main_thread, '_wcl_last_error', 'http_403'),
                                      (main_thread, '_wcl_retry_at', None)])
         self.assertFalse(WclCombatantFetchState.objects.exists())
-        self.assertEqual(WclCombatantSnapshot.objects.get().report_code, 'Good')
+        self.assertEqual(WclCombatantFact.objects.get().report_code, 'Good')
         # A new successful run clears aggregate fatal state on the same parent.
         with local_api(lambda body: (200, page(body['fightIDs']))) as (_, errors):
             recovered = service.collect_dungeon_combatants([sample('Forbidden')], fetcher, apply=True)

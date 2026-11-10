@@ -2995,6 +2995,42 @@ class WclCombatantSnapshot(models.Model):
         )]
 
 
+class WclCombatantDocument(models.Model):
+    """Content-addressed complete gear/talent lists, shared across observations."""
+    kind = models.CharField(max_length=10, choices=[('gear', 'Gear'), ('talents', 'Talents')])
+    content_hash = models.CharField(max_length=64, unique=True)
+    payload = models.JSONField(default=list)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = 'wow_wcl_combatant_document'
+
+
+class WclCombatantFact(models.Model):
+    """Immutable business projection; never stores the raw CombatantInfo event."""
+    report_code = models.CharField(max_length=50)
+    fight_id = models.PositiveIntegerField()
+    actor_id = models.PositiveIntegerField()
+    identity_json = models.JSONField(default=dict)
+    attributes_json = models.JSONField(default=dict)
+    gear_document = models.ForeignKey(
+        WclCombatantDocument, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='gear_facts')
+    talent_document = models.ForeignKey(
+        WclCombatantDocument, on_delete=models.PROTECT, null=True, blank=True,
+        related_name='talent_facts')
+    fetched_at = models.DateTimeField(default=timezone.now)
+    source_hash = models.CharField(max_length=64)
+    canonical_hash = models.CharField(max_length=64)
+
+    class Meta:
+        db_table = 'wow_wcl_combatant_fact'
+        constraints = [models.UniqueConstraint(
+            fields=['report_code', 'fight_id', 'actor_id'],
+            name='uniq_wcl_compact_actor',
+        )]
+
+
 class WclCombatantFetchState(models.Model):
     """带期限的获取状态；战斗0表示报告权限或临时故障，正数表示完整响应仍缺目标。"""
     report_code = models.CharField(max_length=50)

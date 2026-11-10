@@ -182,6 +182,24 @@ class Top20ProfileReuseTests(TestCase):
                 self.assertEqual(result[key, 'Mage', 'Fire'].talents_json[0]['talentID'], 1000+i)
             self.assertEqual(counts['cache_hits'], 20 if run else 0)
 
+    def test_new_compact_fact_invalidates_previously_missing_reference(self):
+        from botend.models import WclCombatantSnapshot
+        from botend.services.wcl_combatant_store import persist_events
+        row = self.ranking(talents_json=[], gear_json=[], report_code='Compact', fight_id=1)
+        player = self.player()
+        self.assertEqual(ranking_fallbacks(self.season, [player])[0], {})
+        payload = {'sourceID': 7, 'specID': 63,
+                   'source': {'id': 7, 'name': player['name'], 'server': player['realm']},
+                   'talentTree': [{'id': 1234, 'rank': 1}], 'gear': [{'id': 456}]}
+        self.assertEqual(persist_events('Compact', {1: [payload]}), 1)
+        result, counts = ranking_fallbacks(self.season, [player])
+        self.assertEqual(counts['queried'], 1)
+        projected = next(iter(result.values()))
+        self.assertEqual(projected.pk, row.pk)
+        self.assertEqual(projected.talents_json[0]['talentID'], 1234)
+        self.assertEqual(projected.gear_json[0]['id'], 456)
+        self.assertFalse(WclCombatantSnapshot.objects.exists())
+
     def test_deletion_and_wrong_identity_never_reuse_other_profile(self):
         row = self.ranking()
         player = self.player()

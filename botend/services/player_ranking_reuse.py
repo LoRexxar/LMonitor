@@ -5,7 +5,8 @@ from datetime import timedelta
 from django.db.models import Count, Max, Q
 from django.utils import timezone
 
-from botend.models import SpecDungeonRanking, SpecRaidRanking, WclCombatantSnapshot
+from botend.models import SpecDungeonRanking, SpecRaidRanking
+from botend.services.wcl_combatant_store import fact_revision
 from botend.raiderio_identity import normalized_name
 from botend.services.spec_aggregation_cache import load_state, save_state
 from botend.services.spec_stats_snapshot import content_digest
@@ -63,7 +64,7 @@ def ranking_fallbacks(season, players):
         return result, counts
     now = timezone.now().timestamp()
     # 主键索引末端读取，不扫描大型JSON表；新事实到达后立即重查此前缺失。
-    fact_revision = WclCombatantSnapshot.objects.order_by('-pk').values_list('pk', flat=True).first()
+    facts_version = fact_revision()
     for (cls, spec), targets in groups.items():
         counts['candidates'] += len(targets)
         queries = {kind: model.objects.filter(season_id=season.pk, class_name=cls, spec_name=spec)
@@ -71,7 +72,7 @@ def ranking_fallbacks(season, players):
         # 每个专精只读两份标量版本；新增、替换、删除及正常更新时间变化均失效。
         revisions = {kind: qs.aggregate(count=Count('pk'), newest=Max('last_updated'), last_id=Max('pk'))
                      for kind, qs in queries.items()}
-        fingerprint = content_digest(['player-ranking-reuse-v2-central', revisions, fact_revision,
+        fingerprint = content_digest(['player-ranking-reuse-v2-central', revisions, facts_version,
                                       getattr(season, 'game_build', ''), getattr(season, 'rio_season', '')])
         scope = f'player-ranking:{cls}:{spec}'
         cached = load_state(season.pk, scope, fingerprint) or {}

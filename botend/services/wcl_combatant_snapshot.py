@@ -11,7 +11,9 @@ import time
 from django.db.models import Q
 
 from botend.constants.wow import resolve_spec_identity
-from botend.models import WclCombatantFetchState, WclCombatantSnapshot, WowItemSnapshot
+from botend.models import WclCombatantFetchState, WowItemSnapshot
+from botend.services import wcl_combatant_store
+from botend.services.wcl_raw_staging import load_staged_events, stage_events, discard_staged_events
 
 
 # WCL CombatantInfo uses zero-based equipment slots, not InventoryType IDs.
@@ -65,21 +67,7 @@ def match_combatant(events, record, class_name, spec_name):
 
 
 def _load_facts(records, *, fetched_before=None):
-    keys = sorted({key for row in records if (key := _fight_key(row))})
-    facts = defaultdict(list)
-    for start in range(0, len(keys), 100):
-        where = Q()
-        for code, fight in keys[start:start + 100]:
-            where |= Q(report_code=code, fight_id=fight)
-        queryset = WclCombatantSnapshot.objects.filter(where)
-        if fetched_before is not None:
-            queryset = queryset.filter(fetched_at__lte=fetched_before)
-        for row in queryset.order_by('report_code', 'fight_id', 'actor_id').values(
-                'report_code', 'fight_id', 'actor_id', 'payload_json'):
-            payload = row['payload_json']
-            if isinstance(payload, dict) and _positive_int(payload.get('sourceID')) == row['actor_id']:
-                facts[(row['report_code'], row['fight_id'])].append(payload)
-    return facts
+    return wcl_combatant_store.load_facts(records, fetched_before=fetched_before)
 
 
 def _fact_read_batches(records, target_limit=100):
@@ -341,6 +329,9 @@ def _fetch_combatant_batch(fetcher, code, batch, *, factory=None):
     sent_token = business_requests_sent.set(0)
     started = time.monotonic()
     try:
+        staged = load_staged_events(code, batch)
+        if staged is not None:
+            return staged, '', None, time.monotonic() - started
         if factory is not None:
             close_old_connections()
             fetcher = factory()
@@ -365,14 +356,24 @@ def _persist_combatant_batch(code, batch, batch_rows, events):
     from django.utils import timezone
     by_fight = _validated_events(events, batch)
     now = timezone.now()
-    written = 0
+    # Include authoritative empty fights, so recovery is all-or-nothing.
+    staged = stage_events(code, {fight: by_fight.get(fight, []) for fight in batch}, fetched_at=now)
+    if staged['status'] != 'stored':
+        import logging
+        logging.getLogger(__name__).warning('WCL raw staging skipped status=%s', staged['status'])
     with transaction.atomic():
-        for fight, payloads in by_fight.items():
-            for payload in payloads:
-                _, created = WclCombatantSnapshot.objects.get_or_create(
-                    report_code=code, fight_id=fight, actor_id=payload['sourceID'],
-                    defaults={'payload_json': payload, 'fetched_at': now})
-                written += int(created)
+        # Collection has always been insert-only: an already recorded actor
+        # wins even if a later source response differs. Keep that contract at
+        # this boundary; the store's explicit migration/conflict checks remain
+        # strict for its other callers. No new teammate is dropped.
+        existing = wcl_combatant_store.load_facts([
+            {'report_code': code, 'fight_id': fight} for fight in batch])
+        recorded = {fight: {event['sourceID'] for event in payloads}
+                    for (_, fight), payloads in existing.items()}
+        new_events = {fight: [event for event in payloads
+                             if event['sourceID'] not in recorded.get(fight, set())]
+                      for fight, payloads in by_fight.items()}
+        written = wcl_combatant_store.persist_events(code, new_events, fetched_at=now)
     matched, missing = 0, 0
     missing_fights = set()
     for observations, references in _fact_read_batches(batch_rows):
@@ -390,6 +391,8 @@ def _persist_combatant_batch(code, batch, batch_rows, events):
             report_code=code, fight_id__in=[0, *sorted(set(batch) - missing_fights)]).delete()
         for fight in sorted(missing_fights):
             _save_negative_fetch_state(code, fight, 'missing', now)
+    # Do not extend a negative-cache window with successful stale raw responses.
+    transaction.on_commit(lambda: discard_staged_events(code, batch))
     return written, matched, missing
 
 

@@ -1,4 +1,8 @@
 """Contracts for unchanged samples and one cross-dungeon collection phase."""
+from botend.tests.test_wcl_raw_staging import RawStagingIsolationMixin, persisted_event
+from botend.models import WclCombatantFact
+from botend.services.wcl_combatant_store import canonical_event
+
 from datetime import datetime, timedelta
 from pathlib import Path
 import tempfile
@@ -20,8 +24,9 @@ from botend.services.spec_stats_service import _select_dungeon_sample_records
 from botend.tests.test_wcl_combatant_snapshot import event
 
 
-class DungeonCollectionPipelineTests(TestCase):
+class DungeonCollectionPipelineTests(RawStagingIsolationMixin, TestCase):
     def setUp(self):
+        super().setUp()
         isolate_work_cache(self)
         self.enterContext(patch('botend.services.raid_burst_aggregation.aggregate_raid_burst'))
         directory = tempfile.TemporaryDirectory(prefix='pipeline-')
@@ -83,7 +88,7 @@ class DungeonCollectionPipelineTests(TestCase):
                           ('ranking', 3, 5), ('ranking', 3, 4)]
         self.assertEqual(trace, rankings_trace + [
                                  ('combatants', 'SharedReport', [1, 2, 3])])
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 3)
+        self.assertEqual(WclCombatantFact.objects.count(), 3)
         cycle = WclCollectionCycle.objects.get()
         self.assertEqual(cycle.phase, 'ready')
         frozen_ids = cycle.selected_samples
@@ -107,7 +112,7 @@ class DungeonCollectionPipelineTests(TestCase):
         self.assertEqual(next_cycle.selected_samples, frozen_ids)
         self.assertEqual(next_cycle.counts['cached'], 4)
         self.assertEqual(next_cycle.counts['reports_requested'], 0)
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 3)
+        self.assertEqual(WclCombatantFact.objects.count(), 3)
 
     def test_bad_rankings_preserve_old_scope_and_never_enter_collection_union(self):
         invalid_pages = [

@@ -1,4 +1,8 @@
 """恢复按战斗归组的查询放大、内存边界与缓存语义回归。"""
+from botend.tests.test_wcl_raw_staging import RawStagingIsolationMixin, persisted_event
+from botend.models import WclCombatantFact
+from botend.services.wcl_combatant_store import canonical_event
+
 from collections import Counter
 from copy import deepcopy
 from datetime import timedelta
@@ -12,7 +16,7 @@ from botend.services import wcl_combatant_snapshot as service
 from botend.tests.test_wcl_combatant_snapshot import event, sample
 
 
-class GroupedFactReadTests(TestCase):
+class GroupedFactReadTests(RawStagingIsolationMixin, TestCase):
     def store(self, code, actors, fight=11):
         WclCombatantSnapshot.objects.bulk_create([
             WclCombatantSnapshot(report_code=code, fight_id=fight, actor_id=actor,
@@ -39,6 +43,7 @@ class GroupedFactReadTests(TestCase):
         fetcher.fetch_wcl_combatant_info.assert_not_called()
         self.assertEqual(rows, original)
         self.assertEqual(WclCombatantSnapshot.objects.count(), 360)
+        self.assertEqual(WclCombatantFact.objects.count(), 0)
         self.assertFalse(WclCombatantFetchState.objects.exists())
         self.assertIn('preflight_fact_rows=360', logs[-1])
         self.assertFalse(any('private-report-' in line or 'Player' in line for line in logs))

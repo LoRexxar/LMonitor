@@ -1,4 +1,8 @@
 """Persistent negative-cache contracts; ORM is real, only WCL is controlled."""
+from botend.tests.test_wcl_raw_staging import RawStagingIsolationMixin, persisted_event
+from botend.models import WclCombatantFact
+from botend.services.wcl_combatant_store import canonical_event
+
 from datetime import timedelta
 from unittest.mock import Mock, patch
 
@@ -23,13 +27,14 @@ def event(fight=11, actor=232):
                 critMelee=1410)
 
 
-class CombatantNegativeCacheTests(TestCase):
+class CombatantNegativeCacheTests(RawStagingIsolationMixin, TestCase):
     @property
     def states(self):
         return apps.get_model('botend', 'WclCombatantFetchState').objects
 
     def collect(self, rows, fetcher, **kwargs):
-        result = service.collect_dungeon_combatants(rows, fetcher, **kwargs)
+        with self.captureOnCommitCallbacks(execute=True):
+            result = service.collect_dungeon_combatants(rows, fetcher, **kwargs)
         self.assertEqual(result['selected'], sum(result[key] for key in (
             'cached', 'matched', 'missing', 'permission_denied', 'failed', 'pending')))
         return result
@@ -61,7 +66,7 @@ class CombatantNegativeCacheTests(TestCase):
         second.fetch_wcl_combatant_info.assert_called_once_with('Report', [11])
         self.assertEqual(recovered['matched'], 1)
         self.assertFalse(self.states.exists())
-        self.assertEqual(WclCombatantSnapshot.objects.get().payload_json, event())
+        self.assertEqual(persisted_event(), canonical_event(event()))
 
     def test_real_collector_instances_share_persisted_empty_result(self):
         from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
@@ -91,7 +96,7 @@ class CombatantNegativeCacheTests(TestCase):
         self.assertEqual((result['missing'], result['matched'], result['snapshots_written'],
                           result['negative_cached']), (0, 0, 0, 0))
         self.assertIn(collector._wcl_last_error, ('invalid_payload', 'invalid_pagination'))
-        self.assertFalse(WclCombatantSnapshot.objects.exists())
+        self.assertFalse(WclCombatantFact.objects.exists())
         self.assertFalse(self.states.exists())
 
     def test_permission_is_report_wide_and_skips_unrequested_batches(self):
@@ -130,7 +135,7 @@ class CombatantNegativeCacheTests(TestCase):
         fetcher.fetch_wcl_combatant_info.assert_not_called()
         self.assertTrue(all(q['sql'].lstrip().upper().startswith('SELECT') for q in queries))
         self.assertEqual(list(self.states.order_by('id').values()), before)
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 0)
+        self.assertEqual(WclCombatantFact.objects.count(), 0)
 
     def test_new_positive_facts_override_both_negative_scopes_without_mutation(self):
         self.state()
@@ -193,7 +198,7 @@ class CombatantNegativeCacheTests(TestCase):
                 result = self.collect([sample()], self.fetcher(payload), apply=True)
                 self.assertEqual(result['failed'], 1)
                 self.assertFalse(self.states.exists())
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 0)
+        self.assertEqual(WclCombatantFact.objects.count(), 0)
 
     def test_full_pagination_required_before_persisting_missing(self):
         from botend.controller.plugins.portal.SpecDetailBase import SpecDetailBase
@@ -206,12 +211,12 @@ class CombatantNegativeCacheTests(TestCase):
         with patch.object(collector, '_wcl_graphql', side_effect=[page(200), None]):
             self.assertEqual(self.collect([sample()], collector, apply=True)['failed'], 1)
         self.assertFalse(self.states.exists())
-        self.assertFalse(WclCombatantSnapshot.objects.exists())
+        self.assertFalse(WclCombatantFact.objects.exists())
         with patch.object(collector, '_wcl_graphql', side_effect=[page(200), page(None)]) as api:
             self.assertEqual(self.collect([sample()], collector, apply=True)['missing'], 1)
         self.assertEqual(api.call_count, 2)
         self.assertEqual(self.states.get().status, 'missing')
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 1)
+        self.assertEqual(WclCombatantFact.objects.count(), 1)
 
     def test_expired_missing_refreshes_only_after_authoritative_result(self):
         old = self.state(expired=True)

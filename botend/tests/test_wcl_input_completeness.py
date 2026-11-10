@@ -1,4 +1,8 @@
 """Real Base pagination, transport and ORM; only the HTTP boundary is controlled."""
+from botend.tests.test_wcl_raw_staging import RawStagingIsolationMixin, persisted_event
+from botend.models import WclCombatantFact
+from botend.services.wcl_combatant_store import canonical_event
+
 from copy import deepcopy
 from datetime import timedelta
 from unittest.mock import patch
@@ -46,8 +50,9 @@ def page(events, cursor=None, extra_actors=()):
 
 
 @override_settings(WCL_V2_CONFIG={'client_id': 'completeness-client', 'client_secret': 'not-real'})
-class WclInputCompletenessTests(TransactionTestCase):
+class WclInputCompletenessTests(RawStagingIsolationMixin, TransactionTestCase):
     def setUp(self):
+        super().setUp()
         now = timezone.now()
         WclApiBudget.objects.create(account_key=account_key('completeness-client'),
             limit_per_hour=18000, spent=0, reset_at=now + timedelta(hours=1), observed_at=now)
@@ -67,11 +72,11 @@ class WclInputCompletenessTests(TransactionTestCase):
         self.assertEqual(fetcher._wcl_last_error, 'http_403')
         self.assertEqual((result['failed'], result['permission_denied']), (1, 0))
         self.assertFalse(WclCombatantFetchState.objects.exists())
-        self.assertFalse(WclCombatantSnapshot.objects.exists())
+        self.assertFalse(WclCombatantFact.objects.exists())
         result, _, http = self.collect([sample()], [page([event()])])
         self.assertEqual(http.call_count, 1)
         self.assertEqual((result['matched'], result['negative_cached']), (1, 0))
-        self.assertEqual(WclCombatantSnapshot.objects.get().payload_json, event())
+        self.assertEqual(persisted_event(), canonical_event(event()))
 
     def test_bare_http_403_aborts_remaining_reports_without_negative_cache(self):
         other = {**sample(), 'report_code': 'Other'}
@@ -90,7 +95,7 @@ class WclInputCompletenessTests(TransactionTestCase):
         self.assertGreaterEqual(result['pending'], 1)
         self.assertEqual(result['batches_dispatched'], http.call_count)
         self.assertFalse(WclCombatantFetchState.objects.exists())
-        self.assertFalse(WclCombatantSnapshot.objects.exists())
+        self.assertFalse(WclCombatantFact.objects.exists())
 
     def test_only_report_scoped_graphql_permission_creates_report_negative(self):
         for path in (None, ['worldData', 'encounter'], ['reportData', 'other']):
@@ -129,6 +134,7 @@ class WclInputCompletenessTests(TransactionTestCase):
                 # poisoned negative cache mask the remaining invalid inputs.
                 WclCombatantFetchState.objects.all().delete()
                 WclCombatantSnapshot.objects.exclude(pk=old.pk).delete()
+                WclCombatantFact.objects.all().delete()
                 malformed = event(234)
                 target = malformed['source'] if container == 'source' else malformed
                 if value is None:
@@ -153,9 +159,10 @@ class WclInputCompletenessTests(TransactionTestCase):
                 self.assertEqual(http.call_count, 2)
                 self.assertEqual((recovered['cached'], recovered['matched'], recovered['negative_cached'],
                                   recovered['snapshots_written']), (1, 2, 0, 2))
-                self.assertEqual(WclCombatantSnapshot.objects.get(actor_id=234).payload_json, event(234))
+                self.assertEqual(persisted_event(actor_id=234), canonical_event(event(234)))
                 self.assertFalse(WclCombatantFetchState.objects.exists())
                 WclCombatantSnapshot.objects.exclude(pk=old.pk).delete()
+                WclCombatantFact.objects.all().delete()
 
     def test_complete_missing_player_fields_skip_only_that_actor_after_all_pages(self):
         cases = [('source', key, value) for key, values in (
@@ -164,7 +171,7 @@ class WclInputCompletenessTests(TransactionTestCase):
         cases += [('event', 'specID', value) for value in (None, '', 0, 'MISSING')]
         for container, key, value in cases:
             with self.subTest(container=container, field=key, value=value):
-                WclCombatantSnapshot.objects.all().delete()
+                WclCombatantFact.objects.all().delete()
                 WclCombatantFetchState.objects.all().delete()
                 missing = event(234)
                 # Unknown spec is unavailable even if other fields have data.
@@ -179,7 +186,7 @@ class WclInputCompletenessTests(TransactionTestCase):
                 self.assertEqual(http.call_count, 2)
                 self.assertEqual((result['matched'], result['missing'], result['failed'],
                                   result['snapshots_written']), (1, 1, 0, 1))
-                self.assertEqual(WclCombatantSnapshot.objects.get().payload_json, event(233))
+                self.assertEqual(persisted_event(), canonical_event(event(233)))
                 state = WclCombatantFetchState.objects.get()
                 self.assertEqual((state.report_code, state.fight_id, state.status), ('Report', 11, 'missing'))
                 self.assertEqual(state.retry_after - state.checked_at, timedelta(hours=6))
@@ -228,7 +235,7 @@ class WclInputCompletenessTests(TransactionTestCase):
             with self.subTest(response=response.payload):
                 result, _, _ = self.collect([sample(233), sample(234)],
                     [page([event(233)], 200), response, response, response])
-                self.assertFalse(WclCombatantSnapshot.objects.exists())
+                self.assertFalse(WclCombatantFact.objects.exists())
                 if response.status_code == 500:
                     # 后续页临时失败只登记退避，不能发布前一页或伪装成缺失。
                     self.assertEqual((result['pending'], result['failed'], result['missing']), (2, 0, 0))
@@ -244,5 +251,5 @@ class WclInputCompletenessTests(TransactionTestCase):
                    source={'id': 900, 'type': 'NPC'})
         result, _, _ = self.collect([sample()], [page([event(), npc], extra_actors=[{'id': 901}])])
         self.assertEqual((result['matched'], result['failed'], result['snapshots_written']), (1, 0, 1))
-        self.assertEqual(WclCombatantSnapshot.objects.get().payload_json, event())
+        self.assertEqual(persisted_event(), canonical_event(event()))
         self.assertFalse(WclCombatantFetchState.objects.exists())

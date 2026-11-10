@@ -1,4 +1,8 @@
 from copy import deepcopy
+from botend.tests.test_wcl_raw_staging import RawStagingIsolationMixin, persisted_event
+from botend.models import WclCombatantFact
+from botend.services.wcl_combatant_store import canonical_event
+
 
 from django.test import TestCase
 from django.utils import timezone
@@ -8,7 +12,7 @@ from botend.services.wcl_combatant_snapshot import enrich_dungeon_records
 from botend.tests.aggregation_cache_helpers import isolate_work_cache
 
 
-class SnapshotReadTests(TestCase):
+class SnapshotReadTests(RawStagingIsolationMixin, TestCase):
     def test_modern_wcl_eighteenth_slot_is_tabard_with_empty_slots_preserved(self):
         from botend.services.wcl_combatant_snapshot import combatant_gear
         gear = [{'id': 0} for _ in range(18)]
@@ -85,8 +89,9 @@ def event(fight=11, actor=232):
                 critMelee=1410, versatilityDamageDone=-114)
 
 
-class SnapshotCollectionTests(TestCase):
+class SnapshotCollectionTests(RawStagingIsolationMixin, TestCase):
     def setUp(self):
+        super().setUp()
         isolate_work_cache(self)
 
     def test_batch_by_report_persist_once_and_resume_without_network(self):
@@ -103,7 +108,7 @@ class SnapshotCollectionTests(TestCase):
         self.assertEqual(got['snapshots_written'], 3)
         self.assertEqual(got['reports_requested'], 1)
         fetcher.fetch_wcl_combatant_info.assert_called_once_with('Report', [11, 12])
-        self.assertEqual(WclCombatantSnapshot.objects.get(fight_id=11, actor_id=232).payload_json, event(11, 232))
+        self.assertEqual(persisted_event(fight_id=11, actor_id=232), canonical_event(event(11, 232)))
         fetcher.reset_mock()
         repeated = collect_dungeon_combatants(rows, fetcher, apply=True)
         self.assertEqual(repeated['cached'], 3)
@@ -178,14 +183,14 @@ class SnapshotCollectionTests(TestCase):
             call_command('backfill_wcl_dungeon_combatants', stdout=out, **kwargs)
             api.assert_not_called()
         self.assertEqual(json.loads(out.getvalue().splitlines()[0])['selected'], 200)
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 0)
+        self.assertEqual(WclCombatantFact.objects.count(), 0)
         with patch('botend.controller.plugins.portal.SpecDetailBase.SpecDetailBase._wcl_graphql',
                    return_value={'rateLimitData': {'limitPerHour': 3600, 'pointsSpentThisHour': 1}}), \
              patch('botend.controller.plugins.portal.SpecDetailBase.SpecDetailBase.fetch_wcl_combatant_info',
                    return_value=[event(fight, actor) for fight in (1, 2) for actor in range(1, 103)]) as fetch:
             call_command('backfill_wcl_dungeon_combatants', apply=True, stdout=StringIO(), **kwargs)
             fetch.assert_called_once_with('Report', [1, 2])
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 204)
+        self.assertEqual(WclCombatantFact.objects.count(), 204)
         with self.assertRaises(CommandError):
             call_command('backfill_wcl_dungeon_combatants', season=season.id + 1, stdout=StringIO())
 
@@ -217,7 +222,7 @@ class SnapshotCollectionTests(TestCase):
              patch.object(monitor, 'fetch_wcl_combatant_info', side_effect=combatants):
             self.assertTrue(monitor.scan(''))
         self.assertEqual(trace, [('ranking', 1), ('ranking', 2), ('combatant', 1), ('combatant', 2)])
-        self.assertEqual(WclCombatantSnapshot.objects.count(), 2)
+        self.assertEqual(WclCombatantFact.objects.count(), 2)
         cycle = WclCollectionCycle.objects.get(season=season)
         self.assertEqual(cycle.phase, 'ready')
         self.assertEqual(cycle.counts['matched'], 2)

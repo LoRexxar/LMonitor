@@ -1,4 +1,8 @@
 """用本机HTTP验证局部报告故障、持久化退避和全局熔断。"""
+from botend.tests.test_wcl_raw_staging import RawStagingIsolationMixin, persisted_event
+from botend.models import WclCombatantFact
+from botend.services.wcl_combatant_store import canonical_event
+
 import time
 import threading
 from io import StringIO
@@ -17,7 +21,7 @@ from botend.services.wcl_collection_cycle import begin_collection, finish_collec
 from botend.tests.test_wcl_combatant_pool import local_api, page, sample
 
 
-class TransientReportTests(TransactionTestCase):
+class TransientReportTests(RawStagingIsolationMixin, TransactionTestCase):
     def fetcher(self):
         fetcher = SpecDetailBase(None, None)
         fetcher._wcl_token = 'local-fixture-token'
@@ -79,7 +83,7 @@ class TransientReportTests(TransactionTestCase):
         self.assertEqual(errors, [])
         self.assertEqual([call['code'] for call in calls], ['Paged', 'Paged', 'Healthy'])
         self.assertEqual((result['matched'], result['pending']), (1, 1))
-        self.assertFalse(WclCombatantSnapshot.objects.filter(report_code='Paged').exists())
+        self.assertFalse(WclCombatantFact.objects.filter(report_code='Paged').exists())
         self.assertFalse(WclCombatantFetchState.objects.filter(status='missing').exists())
 
     def test_three_consecutive_reports_open_circuit_without_claiming_completion(self):
