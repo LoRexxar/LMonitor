@@ -81,6 +81,26 @@ def _load_facts(records, *, fetched_before=None):
     return facts
 
 
+def _fact_read_batches(records, target_limit=100):
+    """同场目标不拆批；按目标数控制常规批量，每批最多100场完整事实。
+
+    单场目标超过上限时独占一批，只扩大轻量目标列表，不重复加载该场JSON。
+    查询只传每场一个代表引用，避免在SQL范围构造中重复遍历全部目标。
+    """
+    groups = defaultdict(list)
+    for row in records:
+        groups[_fight_key(row)].append(row)
+    observations, references = [], []
+    for rows in groups.values():
+        if observations and len(observations) + len(rows) > target_limit:
+            yield observations, references
+            observations, references = [], []
+        observations.extend(rows)
+        references.append(rows[0])
+    if observations:
+        yield observations, references
+
+
 def combatant_stats(payload):
     """Raw event ratings (possibly buffed/negative); do not derive percentages."""
     fields = {'crit': ('critMelee', 'critSpell', 'critRanged'),
@@ -324,9 +344,8 @@ def _persist_combatant_batch(code, batch, batch_rows, events):
                 written += int(created)
     matched, missing = 0, 0
     missing_fights = set()
-    for offset in range(0, len(batch_rows), 100):
-        observations = batch_rows[offset:offset + 100]
-        persisted = _load_facts(observations)
+    for observations, references in _fact_read_batches(batch_rows):
+        persisted = _load_facts(references)
         for row in observations:
             key = _fight_key(row)
             if match_combatant(persisted.get(key, []), row, row['class_name'], row['spec_name']):
@@ -361,12 +380,33 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                   permission_denied=0, failed=0, pending=0, snapshots_written=0,
                   reports_requested=0, fights_requested=0, negative_cached=0)
     pending = defaultdict(lambda: defaultdict(list))
-    # All-spec repair can contain tens of thousands of observations. Inspect
-    # facts and retry states together, never hydrate all raw events together.
-    for start in range(0, len(records), 100):
-        batch_records = records[start:start + 100]
-        facts = _load_facts(batch_records)
-        states = _load_negative_fetch_states(batch_records, timezone.now())
+    # 以战斗为单位共享事实，避免按样本切片反复读回并解析整场JSON。
+    preflight_started = preflight_logged = time.monotonic()
+    counts.update(preflight_batches=0, preflight_fights=0, preflight_fact_rows=0,
+                  preflight_load_seconds=0.0, preflight_state_seconds=0.0,
+                  preflight_match_seconds=0.0, preflight_seconds=0.0)
+
+    def emit_preflight():
+        counts['preflight_seconds'] = time.monotonic() - preflight_started
+        if log:
+            fields = ('selected', 'cached', 'negative_cached', 'preflight_batches',
+                      'preflight_fights', 'preflight_fact_rows', 'preflight_load_seconds',
+                      'preflight_state_seconds', 'preflight_match_seconds', 'preflight_seconds')
+            log('WCL combatants preflight ' + ' '.join(
+                f'{key}={round(counts[key], 3) if isinstance(counts[key], float) else counts[key]}'
+                for key in fields))
+
+    for batch_records, references in _fact_read_batches(records):
+        started = time.monotonic()
+        facts = _load_facts(references)
+        counts['preflight_load_seconds'] += time.monotonic() - started
+        counts['preflight_fact_rows'] += sum(len(rows) for rows in facts.values())
+        counts['preflight_fights'] += sum(_fight_key(row) is not None for row in references)
+        counts['preflight_batches'] += 1
+        started = time.monotonic()
+        states = _load_negative_fetch_states(references, timezone.now())
+        counts['preflight_state_seconds'] += time.monotonic() - started
+        started = time.monotonic()
         for row in batch_records:
             key = _fight_key(row)
             if not key or not row.get('realm') or not row.get('character_name') or str(row['character_name']).casefold() == 'anonymous':
@@ -381,7 +421,12 @@ def collect_dungeon_combatants(records, fetcher=None, *, apply=False, batch_size
                 counts['negative_cached'] += 1
             else:
                 pending[key[0]][key[1]].append(row)
+        counts['preflight_match_seconds'] += time.monotonic() - started
         del facts, states
+        if time.monotonic() - preflight_logged >= 30:
+            emit_preflight()
+            preflight_logged = time.monotonic()
+    emit_preflight()
     if not apply:
         counts['pending'] = sum(len(rows) for fights in pending.values() for rows in fights.values())
         return counts

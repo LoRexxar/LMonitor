@@ -251,6 +251,8 @@ class CombatantNegativeCacheTests(TestCase):
             result = self.collect(rows, fetcher, apply=True)
         self.assertEqual(result['matched'], 201)
         self.assertTrue(all(len(call.args[0]) <= 100 for call in facts.call_args_list))
+        # 预检和写入后各读一次整场，201个目标不再拆成三次相同JSON回读。
+        self.assertEqual([len(call.args[0]) for call in facts.call_args_list], [1, 1])
         self.assertFalse(self.states.exists())
 
     def test_request_batches_remain_at_most_twenty_fights(self):

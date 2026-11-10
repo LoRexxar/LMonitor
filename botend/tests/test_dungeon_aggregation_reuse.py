@@ -574,7 +574,9 @@ class DungeonAggregationReuseTests(TestCase):
         fetcher.fetch_wcl_combatant_info.assert_called_once()
         self.assertFalse(WclCombatantFetchState.objects.exists())
         self.assertFalse(WclCombatantSnapshot.objects.exists())
-        duration_fields = {'fetch_seconds', 'save_seconds', 'elapsed_seconds'}
+        duration_fields = {'fetch_seconds', 'save_seconds', 'elapsed_seconds',
+                           'preflight_load_seconds', 'preflight_state_seconds',
+                           'preflight_match_seconds', 'preflight_seconds'}
         for key in duration_fields:
             self.assertIsInstance(result[key], (int, float))
             self.assertGreaterEqual(result[key], 0)
