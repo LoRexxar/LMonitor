@@ -98,3 +98,7 @@ Top20人物详情缓存只把装等、装备和天赋作为资料变化信号，
 本项验证：两组回归去重后共276项，275项通过；剩余1项为既有页面测试要求CSS与JS缓存版本号相等。已核对未改动的HEAD模板，两个标记原本就不同（20261104_local_equal_range / 20261104_local_equal_range_readable_rail），本次未修改该模板或放宽该断言。系统检查、迁移一致性、Python语法和git差异检查通过。
 
 项目脱敏WCL样本本地测量：同样100条，完整榜单未压缩JSON为392034字节，轻量投影24334字节，减少约93.8%；30次本地解码中位数分别约2.91毫秒、0.178毫秒。该结果仅说明榜单体积与解码成本，不代表线上压缩传输量、请求延迟或整轮提速。测试与测量记录位于tmp/nightly-review-20261110/ranking-headers-final-regression.log、ranking-headers-compatibility2.log及ranking-header-payload-size.json。未部署、未提交、未推送。
+
+2026年11月10日远程整合验证：本地四个采集优化提交与远程64af0382的四个公开模拟配置提交自动合并。新增0273_merge_wcl_and_simc_scenarios，仅连接0271_wcl_transient_report_state与0272_simc_reference_scenarios两个迁移分支，operations为空。系统检查、迁移一致性、迁移唯一叶节点、Python语法、后台脚本语法及差异检查通过。
+
+联合回归共442项，428项通过；13项SimC执行链失败与已有tmp/reference-commit-baseline-tests.log逐项一致，涉及本机二进制不可用；另1项为远程基线已存在的CSS/JS缓存版本相等断言失败。未放宽断言，也不报告全部回归通过。新增公开模拟场景与迁移测试、WCL采集和人物复用测试通过。完整日志为tmp/nightly-review-20261110/merge-remote-regression.log。此处仅验证本地合并，不代表线上部署或提速实测。

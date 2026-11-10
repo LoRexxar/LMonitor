@@ -137,7 +137,7 @@ from botend.mythic_planner.views import (
     DashboardMythicPlannerView,
     PortalMythicPlannerView,
 )
-from botend.dashboard.simc_reference_results import SimcReferenceResultsView, SimcReferenceReportView, SimcReferencePublicationView, SimcReferenceEntryView, SimcReferenceResourcePreviewView, SimcReferenceRankingsView
+from botend.dashboard.simc_reference_results import SimcReferenceSettingsView, SimcReferenceResultsView, SimcReferenceReportView, SimcReferencePublicationView, SimcReferenceEntryView, SimcReferenceResourcePreviewView, SimcReferenceRankingsView
 from botend.portal.simc_benchmark_api import (
     PortalSimcAplRankingAPIView,
     PortalSimcBaselineResultsAPIView,
@@ -201,6 +201,7 @@ urlpatterns = [
     path('portal/simc-reference/rankings/', PortalSimcReferenceRankingsView.as_view(), name='portal_simc_reference_rankings_entry'),
     path('portal/simc-reference/rankings/<int:config_id>/<slug:signature>/<slug:scope>/', PortalSimcReferenceRankingsView.as_view(), name='portal_simc_reference_rankings'),
     path('dashboard/frontend-simulations/', SimcReferenceEntryView.as_view(), name='simc_reference_entry'),
+    path('dashboard/frontend-simulations/settings/', SimcReferenceSettingsView.as_view(), name='simc_reference_settings'),
     path('dashboard/frontend-simulations/publication/', SimcReferencePublicationView.as_view(), name='simc_reference_publication'),
     path('dashboard/frontend-simulations/results/', SimcReferenceResultsView.as_view(), name='simc_reference_results'),
     path('dashboard/frontend-simulations/rankings/', SimcReferenceRankingsView.as_view(), name='simc_reference_rankings_entry'),

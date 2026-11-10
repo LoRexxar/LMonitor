@@ -2202,29 +2202,61 @@ class SimcReferencePublication(models.Model):
         verbose_name_plural = '前台专精公开范围'
 
 
-class SimcReferenceSimulationConfig(models.Model):
-    """专精资料的独立模拟配置；正式服与 PTR 分开维护。"""
+class SimcReferenceSimulationSettings(models.Model):
+    """每个游戏环境唯一的中央模拟条件；不按专精复制。"""
 
-    spec_key = models.CharField(max_length=100)
-    use_ptr = models.BooleanField(default=False)
+    use_ptr = models.BooleanField(default=False, unique=True)
     backend = models.ForeignKey(SimcBackendBinary, null=True, blank=True, on_delete=models.PROTECT)
     template = models.ForeignKey(SimcContentTemplate, null=True, blank=True, on_delete=models.PROTECT)
-    duration = models.PositiveIntegerField(default=300)
-    targets = models.JSONField(default=simc_reference_default_targets)
-    iterations = models.PositiveIntegerField(default=10000)
     is_enabled = models.BooleanField(default=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
+        verbose_name = '公开资料全局模拟设置'
+        verbose_name_plural = '公开资料全局模拟设置'
+
+
+class SimcReferenceSimulationScenario(models.Model):
+    """Stable scenario identity; execution freezes the extensible option set."""
+
+    settings = models.ForeignKey(SimcReferenceSimulationSettings, on_delete=models.PROTECT, related_name='scenarios')
+    name = models.CharField(max_length=200)
+    simulation_params = models.JSONField(default=dict)
+    is_enabled = models.BooleanField(default=True)
+    display_order = models.IntegerField(default=0)
+
+    class Meta:
+        ordering = ['display_order', 'pk']
+        verbose_name = '公开资料模拟场景'
+        verbose_name_plural = '公开资料模拟场景'
+
+
+class SimcReferenceSimulationConfig(models.Model):
+    """保留稳定的专精/环境身份，模拟条件仅引用中央设置。"""
+
+    spec_key = models.CharField(max_length=100)
+    use_ptr = models.BooleanField(default=False)
+    settings = models.ForeignKey(SimcReferenceSimulationSettings, on_delete=models.PROTECT, related_name='configs')
+
+    # Read-only compatibility for consumers; ORM paths must use settings__.
+    backend = property(lambda self: self.settings.backend)
+    backend_id = property(lambda self: self.settings.backend_id)
+    template = property(lambda self: self.settings.template)
+    template_id = property(lambda self: self.settings.template_id)
+
+    is_enabled = property(lambda self: self.settings.is_enabled)
+
+    class Meta:
         constraints = [models.UniqueConstraint(fields=['spec_key', 'use_ptr'], name='simc_ref_spec_branch_uniq')]
-        verbose_name = '公开配置模拟设置'
-        verbose_name_plural = '公开配置模拟设置'
+        verbose_name = '公开配置模拟引用'
+        verbose_name_plural = '公开配置模拟引用'
 
 
 class SimcReferenceSimulation(models.Model):
     """每次专用模拟独立留档，只有匹配当前输入的成功结果可供前台读取。"""
 
     config = models.ForeignKey(SimcReferenceSimulationConfig, on_delete=models.PROTECT, related_name='simulations')
+    scenario = models.ForeignKey(SimcReferenceSimulationScenario, null=True, blank=True, on_delete=models.PROTECT, related_name='simulations')
     profile = models.ForeignKey(SimcProfile, null=True, on_delete=models.SET_NULL)
     talent = models.ForeignKey(SimcTalentString, null=True, on_delete=models.SET_NULL)
     apl = models.ForeignKey(SimcApl, null=True, on_delete=models.SET_NULL)

@@ -56,8 +56,8 @@
     </form>
     {% endif %}
     <section class="reference-results" aria-labelledby="reference-results-title">
-        <div class="reference-results-heading"><h3 id="reference-results-title">模拟结果</h3>{% if simulation_results %}<span>固定时长站桩 · 无团队增益 · {{ simulation_results.0.iterations }} 次迭代</span>{% endif %}</div>
-        {% if simulation_results %}<dl>{% for result in simulation_results %}<div><dt>{% if result.desired_targets == 1 %}单体{% else %}{{ result.desired_targets }} 目标{% endif %}<span> · {{ result.max_time }} 秒</span></dt><dd>{{ result.dps|floatformat:'2g' }} <small>DPS</small></dd><dd class="reference-ranking">{% if result.ranking %}{% include 'shared/simc_reference_rank_buttons.html' with ranking=result.ranking config_id=result.config_id signature=result.signature targets=result.desired_targets only %}{% else %}<span>暂无排名</span>{% endif %}</dd></div>{% endfor %}</dl>
+        <div class="reference-results-heading"><h3 id="reference-results-title">模拟结果</h3>{% if simulation_results %}<span>{{ simulation_results|length }} 个场景 · 固定时长站桩 · 无团队增益</span>{% endif %}</div>
+        {% if simulation_results %}<dl>{% for result in simulation_results %}<div><dt>{{ result.scenario_name }}<span> · {{ result.desired_targets }} 目标 · {{ result.max_time }} 秒 · {{ result.iterations }} 次迭代</span></dt><dd>{{ result.dps|floatformat:'2g' }} <small>DPS</small></dd><dd class="reference-ranking">{% if result.ranking %}{% include 'shared/simc_reference_rank_buttons.html' with ranking=result.ranking config_id=result.config_id signature=result.signature targets=result.desired_targets only %}{% else %}<span>暂无排名</span>{% endif %}</dd></div>{% endfor %}</dl>
         <p class="reference-ranking-note">按相同版本与模拟条件下的公开组合排名，数字为名次 / 有效组合数；DPS 相同则并列。点击排名前往独立榜单页。</p>
         {% else %}<p>当前组合暂无已完成的模拟结果。</p>{% endif %}
     </section>

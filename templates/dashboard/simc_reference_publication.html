@@ -1,5 +1,18 @@
 {% extends 'dashboard/simc_reference_management_base.html' %}
-{% block management_toolbar %}<form method="post">{% csrf_token %}<button name="action" value="sync">同步可用资料目录</button></form>{% endblock %}
+{% block management_heading %}
+<header class="simc-page-heading publication-heading">
+    <div class="publication-heading-copy"><h1 id="reference-admin-title">{{ management_title }}</h1><p>{{ management_description }}</p></div>
+    <div class="publication-controls" aria-label="公开配置操作">
+        <div class="result-spec-selector">
+        {% if spec_count %}<label for="publication-spec-select">职业专精</label><select id="publication-spec-select" aria-label="选择专精">{% for class_name, specs in spec_groups %}<optgroup label="{{ class_name }}">{% for spec in specs %}<option value="{{ spec.url }}"{% if selected.spec_key == spec.key %} selected{% endif %}>{{ spec.label }}</option>{% endfor %}</optgroup>{% endfor %}</select>{% else %}<p class="empty">同步目录后，即可选择专精并编辑公开配置。</p>{% endif %}
+        </div>
+        <form method="post">{% csrf_token %}<button name="action" value="sync">同步可用资料目录</button></form>
+        <a class="publication-refresh" href="{{ management_url }}?config={{ selected.pk|default:'' }}">刷新状态</a>
+    </div>
+</header>
+{% endblock %}
+{% block management_actions %}{% endblock %}
+{% block management_directory %}{% endblock %}
 {% block management_content %}
 <p class="admin-note">只有勾选的资料可以在前台被看到。清单适用于该专精的所有分支，新增共享资料不会自动加入。</p>
 <form method="post" class="publication-form">{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><input type="hidden" name="action" value="publish">

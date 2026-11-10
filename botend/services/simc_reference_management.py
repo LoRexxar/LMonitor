@@ -4,7 +4,7 @@ from django.core.paginator import Paginator
 from django.db.models import Count, Exists, Max, OuterRef, Q
 
 from botend.models import SimcApl, SimcProfile, SimcTalentString, SimcReferenceSimulation, SimcTaskArtifact
-from botend.services.simc_reference_simulations import ACTIVE, catalog, snapshot
+from botend.services.simc_reference_simulations import ACTIVE, catalog, snapshot, active_scenarios, scenario_for_snapshot
 from botend.services.simc_task_service import _compute_content_hash
 
 
@@ -55,26 +55,31 @@ def scheme_results(config, page_number):
         group.update(profile=profile, talent=talent, apl=apl, scenes=[], issue='', has_active=False)
         group['preview_links'] = resource_links(config, {'profile': profile, 'talent': talent, 'apl': apl})
         wanted |= Q(profile_id=group['profile_id'], talent_id=group['talent_id'], apl_id=group['apl_id'])
-        for targets in config.targets:
-            scene = {'targets': targets, 'duration': config.duration, 'signature': ''}
+        for scenario in active_scenarios(config):
+            params = scenario.simulation_params
+            scene = {'scenario_id': scenario.pk, 'name': scenario.name, 'targets': params['desired_targets'],
+                     'duration': params['max_time'], 'iterations': params['iterations'], 'signature': ''}
             try:
-                scene['signature'] = _compute_content_hash(snapshot(config, profile, talent, apl, targets))
+                scene['signature'] = _compute_content_hash(snapshot(config, profile, talent, apl, scenario))
                 signatures.add(scene['signature'])
             except ValueError as exc:
                 group['issue'] = str(exc)
             group['scenes'].append(scene)
-    latest = list(base.filter(wanted).values(
-        'profile_id', 'talent_id', 'apl_id', 'snapshot__simulation_params__desired_targets',
-    ).annotate(latest_id=Max('pk')))
+    # Group historical status by stable scene identity, never by target count.
+    latest_by_scene = {}
+    status_ids = base.filter(wanted).values('profile_id', 'talent_id', 'apl_id', 'scenario_id', 'signature').annotate(latest_id=Max('pk')).values('latest_id')
+    for row in with_report(base.filter(pk__in=status_ids)).select_related('scenario').order_by('-pk'):
+        scenario = row.scenario or scenario_for_snapshot(config, row.snapshot)
+        if scenario:
+            key = (row.profile_id, row.talent_id, row.apl_id, scenario.pk)
+            latest_by_scene.setdefault(key, row)
     successful = list(base.filter(signature__in=signatures, status='completed', dps__gt=0).values('signature').annotate(latest_id=Max('pk')))
-    ids = {row['latest_id'] for row in latest + successful}
-    rows = with_report(SimcReferenceSimulation.objects.filter(pk__in=ids)).in_bulk()
-    latest_by_scene = {(r['profile_id'], r['talent_id'], r['apl_id'], r['snapshot__simulation_params__desired_targets']): rows[r['latest_id']] for r in latest}
+    rows = with_report(SimcReferenceSimulation.objects.filter(pk__in=[r['latest_id'] for r in successful])).in_bulk()
     success_by_signature = {r['signature']: rows[r['latest_id']] for r in successful}
     rankings = current_rankings(config) if successful else {}
     for group in groups:
         for scene in group['scenes']:
-            scene['latest'] = latest_by_scene.get((group['profile_id'], group['talent_id'], group['apl_id'], scene['targets']))
+            scene['latest'] = latest_by_scene.get((group['profile_id'], group['talent_id'], group['apl_id'], scene['scenario_id']))
             scene['result'] = success_by_signature.get(scene['signature'])
             scene['ranking'] = rankings.get((config.pk, scene['signature'])) if scene['result'] else None
             scene['stale'] = bool(scene['latest'] and scene['latest'].signature != scene['signature'])

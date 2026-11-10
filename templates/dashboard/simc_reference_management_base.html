@@ -1,21 +1,21 @@
 {% extends 'dashboard/index.html' %}
 {% load static %}
 {% block dashboard_extra_head %}
-<link rel="stylesheet" href="{% static 'dashboard/css/simc-reference-results.css' %}?v=20261110_rankings">
+<link rel="stylesheet" href="{% static 'dashboard/css/simc-reference-results.css' %}?v=20261110_reference_scenarios">
 <link rel="stylesheet" href="{% static 'shared/css/simc-reference-rankings.css' %}?v=20261110_unified">
 <link rel="stylesheet" href="{% static 'shared/css/simc-reference-layout.css' %}?v=20261110_unified">
 {% endblock %}
 {% block dashboard_content %}
 <main class="reference-admin" id="{{ dashboard_default_section }}" aria-labelledby="reference-admin-title">
-{% block management_heading %}{% include 'shared/simc_reference_navigation.html' %}<header class="simc-page-heading"><div><h1 id="reference-admin-title">{{ management_title }}</h1><p>{{ management_description }}</p></div></header>{% endblock %}
+{% block management_heading %}<header class="simc-page-heading"><div><h1 id="reference-admin-title">{{ management_title }}</h1><p>{{ management_description }}</p></div></header>{% endblock %}
 {% block management_selector %}{% endblock %}
 {% block management_actions %}<div class="admin-toolbar">{% block management_toolbar %}{% endblock %}<a href="{{ management_url }}?config={{ selected.pk|default:'' }}">刷新状态</a></div>{% endblock %}
 {% if request.GET.saved %}<p class="admin-feedback" role="status">{% if request.GET.saved == 'publication' %}公开范围已保存，前台立即按此清单展示。{% else %}模拟条件已保存，可生成当前条件的结果。{% endif %}</p>{% endif %}
 {% if result %}<div class="admin-feedback" role="status">{% if result.created != None %}已登记 {{ result.created }} 个场景，跳过 {{ result.skipped }} 个已有结果或正在处理的场景。{% endif %}{% if result.errors %}<details open><summary>{{ result.errors|length }} 项需要处理</summary><ul>{% for error in result.errors %}<li>{{ error }}</li>{% endfor %}</ul></details>{% endif %}</div>{% endif %}
 {% block management_workspace %}<div class="admin-workspace publication-workspace">
-<aside aria-label="专精目录"><div class="section-heading"><h2>职业专精</h2><span>{{ configs|length }} 个分支</span></div><div class="config-list">
+{% block management_directory %}<aside aria-label="专精目录"><div class="section-heading"><h2>职业专精</h2><span>{{ configs|length }} 个分支</span></div><div class="config-list">
 {% for config in configs %}<a class="config-row{% if selected.pk == config.pk %} selected{% endif %}" href="?config={{ config.pk }}"{% if selected.pk == config.pk %} aria-current="page"{% endif %}><strong>{{ config.label }}{% if config.use_ptr %} · PTR{% endif %}</strong><span>{% if view_mode == 'publication' %}{{ config.public_count }} 份公开资料{% else %}{{ config.combination_count }} 个公开组合{% endif %}</span></a>{% empty %}<p class="empty">{% if view_mode == 'publication' %}点击“同步可用资料目录”载入现有资料。新资料默认不公开。{% else %}暂无可维护的专精，请先在公开配置管理中同步目录。{% endif %}</p>{% endfor %}
-</div></aside>
+</div></aside>{% endblock %}
 <section class="management-content">
 {% if selected %}
 <div class="section-heading"><h2>{{ selected.label }}{% if selected.use_ptr %} · PTR{% endif %}</h2><a href="{% url 'portal_simc_reference' %}?spec={{ selected.spec_key }}" target="_blank" rel="noopener">查看前台</a></div>

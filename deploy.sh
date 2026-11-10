@@ -50,6 +50,18 @@ if [ "$DEPLOY_HASH_BEFORE" != "$DEPLOY_HASH_AFTER" ]; then
     exec "$DEPLOY_SCRIPT" "$@"
 fi
 
+# Opt-in maintenance cutover for schema changes incompatible with old consumers.
+# Keep the complete deployment entry point; never require live jobs to reach zero.
+if [ "${DEPLOY_STOP_BEFORE_MIGRATE:-0}" = "1" ]; then
+    echo "=== Schema maintenance: stop old consumers before migrate ==="
+    for session in lmweb lmback lmsimc; do
+        screen -S "$session" -X quit 2>/dev/null || true
+    done
+    kill_processes 'manage.py runserver 0.0.0.0:18000'
+    kill_processes 'LMonitorCoreBackend'
+    kill_processes 'manage.py simc_worker'
+fi
+
 echo "=== 2. Migrate and reconcile central item catalog ==="
 
 "$PYTHON_BIN" manage.py migrate --no-input

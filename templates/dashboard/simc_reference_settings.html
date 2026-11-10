@@ -1,0 +1,23 @@
+{% extends 'dashboard/simc_reference_management_base.html' %}
+{% block management_heading %}
+<header class="simc-page-heading publication-heading">
+  <div class="publication-heading-copy"><h1 id="reference-admin-title">模拟配置</h1><p>全部专精共享独立场景，可同时保留相同目标数的不同战斗时长。</p></div>
+  <div class="publication-controls"><div class="result-spec-selector"><label for="simulation-settings-branch">游戏分支</label><select id="simulation-settings-branch" aria-label="选择游戏分支"><option value="{% url 'simc_reference_settings' %}?branch=retail"{% if branch == 'retail' %} selected{% endif %}>正式服</option><option value="{% url 'simc_reference_settings' %}?branch=ptr"{% if branch == 'ptr' %} selected{% endif %}>PTR</option></select></div></div>
+</header>
+{% endblock %}
+{% block management_actions %}{% endblock %}
+{% block management_workspace %}
+<section class="results-workspace" aria-label="共享模拟场景"><div class="results-history">
+  <h2>{% if branch == 'ptr' %}PTR{% else %}正式服{% endif %} · 共享模拟场景</h2>
+  <p class="admin-note">本页设置对该分支的全部专精生效。保存不会自动开始模拟，历史任务及其冻结输入保持不变。</p>
+  <form class="settings-form" method="post">{% csrf_token %}<input type="hidden" name="action" value="save"><input type="hidden" name="branch" value="{{ branch }}">{{ settings_form.as_p }}
+    <fieldset data-scenario-editor><legend>模拟场景</legend>
+    <p class="admin-note">每行独立设置，例如 1 目标 / 300 秒、5 目标 / 300 秒、20 目标 / 40 秒及 20 目标 / 300 秒。取消启用后前台隐藏，移除已有行将停用并保留历史证据。</p>
+    {{ scenario_formset.management_form }}{{ scenario_formset.non_form_errors }}
+    <div class="scenario-table-scroll" role="region" aria-label="模拟场景列表，可横向滚动" tabindex="0"><table><thead><tr><th>名称</th><th>目标数</th><th>时长（秒）</th><th>迭代次数</th><th>启用</th><th>移除 / 停用</th></tr></thead>
+    <tbody data-scenario-rows>{% for scene_form in scenario_formset %}{% include 'dashboard/_frontend_simulation_scenario_form.html' %}{% endfor %}</tbody></table></div>
+    <template data-scenario-empty>{% include 'dashboard/_frontend_simulation_scenario_form.html' with scene_form=scenario_formset.empty_form %}</template>
+    <button type="button" class="scenario-add" data-scenario-add>添加场景</button></fieldset>
+    <button class="primary" type="submit">保存模拟配置</button></form>
+</div></section>
+{% endblock %}

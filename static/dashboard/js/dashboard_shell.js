@@ -116,8 +116,21 @@
         bindSubmenus();
         bindMobileSidebar();
         bindUserMenu();
-        const specSelect = document.getElementById('result-spec-select');
-        if (specSelect) {
+        for (const editor of document.querySelectorAll('[data-scenario-editor]')) {
+            const add = editor.querySelector('[data-scenario-add]');
+            if (!add || add.dataset.bound) continue;
+            add.dataset.bound = '1';
+            add.addEventListener('click', () => {
+                const total = editor.querySelector('input[name="scenarios-TOTAL_FORMS"]');
+                const index = Number(total.value);
+                if (index >= 100) return;
+                editor.querySelector('[data-scenario-rows]').insertAdjacentHTML('beforeend',
+                    editor.querySelector('[data-scenario-empty]').innerHTML.replaceAll('__prefix__', String(index)));
+                total.value = String(index + 1);
+                editor.querySelector('[data-scenario-rows]').lastElementChild.querySelector('input[name$="-name"]').focus();
+            });
+        }
+        for (const specSelect of document.querySelectorAll('#result-spec-select, #publication-spec-select, #simulation-settings-branch')) {
             specSelect.addEventListener('change', () => {
                 if (specSelect.value) window.location.assign(specSelect.value);
             });
