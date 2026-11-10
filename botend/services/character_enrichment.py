@@ -124,7 +124,7 @@ def _enqueue(season, kind, key, payload):
             return
         task.expires_at = now + timedelta(days=2)
         if task.state == 'expired':
-            task.state = 'pending'
+            task.state, task.due_at = 'pending', now
         if task.revision != revision:
             task.payload, task.revision = payload, revision
             task.due_at, task.state = now, 'pending'
@@ -133,6 +133,9 @@ def _enqueue(season, kind, key, payload):
 
 def enqueue_enrichment(activity, season, player):
     """只登记已发布来源引用；跨人物的同一通关记录共用一项工作。"""
+    from botend.services.player_maintenance_scope import maintained
+    if not maintained(player):
+        return 0
     from botend.services.raiderio_run_roster import run_reference, MAX_BEST_RUNS
     entries = []
     for run in (activity.payload_json.get('mythic_plus_best_runs') or [])[:MAX_BEST_RUNS]:
@@ -153,9 +156,11 @@ def enqueue_enrichment(activity, season, player):
 def enqueue_battlenet_profiles(season, players):
     """候选按资料行应用，实际请求仍按跨专精角色缓存去重。"""
     from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
+    from botend.services.player_maintenance_scope import maintained
     entries = [('battlenet', str(p.pk), {'profile_id': p.pk, 'rio_season': season.rio_season,
                 'identity': SpecDetailPlayerMonitor._battlenet_scope(p)})
-               for p in players if p.pk and p.season_id == season.pk and (p.region or '').lower() != 'cn']
+               for p in players if p.pk and p.season_id == season.pk and (p.region or '').lower() != 'cn'
+               and maintained(p)]
     _enqueue_many(season, entries)
     return len(entries)
 
@@ -201,7 +206,9 @@ def _run(task, budget):
         from botend.services.spec_aggregation_cache import load_state
         from botend.services.spec_stats_snapshot import content_digest
         player = PlayerSpecTopPlayer.objects.filter(pk=task.payload['profile_id'], season_id=season.pk).first()
-        if (player is None or (player.region or '').lower() == 'cn'
+        from botend.services.player_maintenance_scope import maintained
+        if (player is None or not maintained(player)
+                or (player.region or '').lower() == 'cn'
                 or SpecDetailPlayerMonitor._battlenet_scope(player) != task.payload['identity']):
             return 'obsolete', timezone.now() + timedelta(days=2)
         if not hasattr(budget, 'battlenet_monitor'):
@@ -214,6 +221,8 @@ def _run(task, budget):
         due = datetime.fromtimestamp(cached['next_attempt'], utc_timezone.utc) if cached else None
         return 'ready' if ok else 'battlenet_failed', due
     if task.kind == 'roster':
+        if int(task.key) not in _current_maintained_runs(season, budget):
+            return 'obsolete', timezone.now() + timedelta(days=2)
         from botend.services.raiderio_run_roster import RosterCollector
         collector = RosterCollector(transport=budget.get)
         result = collector.refresh(task.payload['run'], season.rio_season)
@@ -226,11 +235,12 @@ def _run(task, budget):
         row = RaiderIOCharacterActivity.objects.filter(pk=task.payload['activity_id'], season=season).first()
         if row is None or 'raid_first_kills' not in row.payload_json:
             return 'obsolete', timezone.now() + timedelta(days=2)
+        from botend.services.player_maintenance_scope import maintained
         players = PlayerSpecTopPlayer.objects.filter(season_id=season.pk, region=row.region,
-            character_name__iexact=row.character_name, rank__gte=1, rank__lte=20).only(
-                'id', 'season_id', 'region', 'realm', 'character_name', 'profile_url')
+            character_name__iexact=row.character_name).only(
+                'id', 'season_id', 'region', 'realm', 'character_name', 'profile_url', 'rank')
         player = next((p for p in players if (identity := player_identity(p))
-                       and activity_identity_digest(**identity) == row.identity_digest), None)
+                       and activity_identity_digest(**identity) == row.identity_digest and maintained(p)), None)
         if player is None:
             return 'obsolete', timezone.now() + timedelta(days=1)
         result = refresh_raid_sources(player, transport=budget.get)
@@ -240,7 +250,29 @@ def _run(task, budget):
     return 'obsolete', timezone.now() + timedelta(days=2)
 
 
+def _current_maintained_runs(season, budget):
+    """每轮消费复核Top20及绑定引用，兼容没有人物引用的旧队列项。"""
+    cached = getattr(budget, '_maintained_runs', None)
+    if cached is not None:
+        return cached
+    from botend.services.player_maintenance_scope import maintained_digests
+    from botend.services.raiderio_run_roster import run_reference, MAX_BEST_RUNS
+    digests = maintained_digests(season)
+    run_ids = set()
+    for runs in RaiderIOCharacterActivity.objects.filter(season=season, identity_digest__in=digests).values_list(
+            'payload_json__mythic_plus_best_runs', flat=True):
+        for run in (runs or [])[:MAX_BEST_RUNS]:
+            try:
+                run_ids.add(run_reference(run, season.rio_season))
+            except (ValueError, TypeError):
+                continue
+    budget._maintained_runs = run_ids
+    return run_ids
+
+
 def consume_enrichment(season, budget, *, limit=20, seconds=45, allow_rio=True):
+    if hasattr(budget, '_maintained_runs'):
+        del budget._maintained_runs
     summary = {'attempted': 0, 'ready': 0, 'deferred': 0, 'error': 0, 'stop': ''}
     now = timezone.now()
     CharacterEnrichmentTask.objects.filter(season=season, state__in=ACTIVE_STATES,
@@ -269,7 +301,7 @@ def consume_enrichment(season, budget, *, limit=20, seconds=45, allow_rio=True):
             seconds=min(21600, 300 * 2 ** min(task.failure_count, 6)))
         success = state in ('ready', 'fresh', 'unavailable', 'private', 'obsolete')
         deferred = state in ('busy', 'backoff', 'batch_stopped')
-        _finish(task, 'waiting' if success or deferred else 'error', due,
+        _finish(task, 'expired' if state == 'obsolete' else 'waiting' if success or deferred else 'error', due,
                 '' if success or deferred else state)
         summary['ready' if success else 'deferred' if deferred else 'error'] += 1
     summary.update(enrichment_progress(season))

@@ -109,6 +109,12 @@ def activity_fields(rio_season, raid_slugs=None, *, modules=None):
 
 
 def player_identity(player):
+    if str(player.profile_url or '').strip():
+        from botend.services.player_external_links import raiderio_url_identity
+        identity = raiderio_url_identity(player)
+        if identity is None or identity['realm_slug'].lower() == 'anonymous':
+            return None
+        return {**identity, 'character_name': normalized_name(identity['character_name'])}
     links = build_player_external_links(player)
     link = next((link for link in links if link['key'] == 'raiderio'), None)
     if not link:
@@ -436,7 +442,7 @@ def top20_candidates(season, *, class_name=None, spec_name=None, limit=None):
                 class_name=cls, spec_name=spec, rank__gte=1, rank__lte=20)
                 .order_by('rank', 'pk').values_list('pk', flat=True)[:20])
     candidates, keyed = [], {}
-    fields = ('id', 'season_id', 'region', 'realm', 'character_name', 'profile_url')
+    fields = ('id', 'season_id', 'region', 'realm', 'character_name', 'profile_url', 'rank')
     for player in PlayerSpecTopPlayer.objects.filter(pk__in=ids).only(*fields).order_by('pk'):
         identity = player_identity(player)
         key = tuple(identity.values()) if identity else ('unresolved', player.pk)
@@ -446,6 +452,29 @@ def top20_candidates(season, *, class_name=None, spec_name=None, limit=None):
             candidates.append(candidate)
         keyed[key]['player_ids'].append(player.pk)
     return candidates[:limit] if limit is not None else candidates
+
+
+def maintained_candidates(season):
+    """活动维护同时覆盖有效绑定，跨专精和重复绑定按身份只刷新一次。"""
+    from botend.services.player_maintenance_scope import active_bindings
+    candidates = top20_candidates(season)
+    keyed = {tuple(c['identity'].values()): c for c in candidates if c['identity']}
+    bindings = active_bindings().filter(player__season_id=season.pk).select_related('player').only(
+        'identity_digest', 'player_id', 'player__id', 'player__season_id', 'player__region',
+        'player__realm', 'player__character_name', 'player__profile_url', 'player__rank')
+    for binding in bindings:
+        player = binding.player
+        value = player_identity(player)
+        if value is None or activity_identity_digest(**value) != binding.identity_digest:
+            continue
+        key = tuple(value.values())
+        if key not in keyed:
+            candidate = {'player': player, 'player_ids': [], 'identity': value}
+            keyed[key] = candidate
+            candidates.append(candidate)
+        if player.pk not in keyed[key]['player_ids']:
+            keyed[key]['player_ids'].append(player.pk)
+    return candidates
 
 
 def _activity_deadline(row):
@@ -489,7 +518,7 @@ def _rate_limit_deadline(result, metadata, season):
 
 def refresh_due_top20_activity(season, *, limit=100, collector=None,
                                rate_limited_until=None, rate_limit_clock_error='', should_continue=None):
-    """Maintain only due current-Top20 identities, never character profiles or AI.
+    """仅维护到期的Top20与有效绑定活动身份，不抓取人物详情或运行AI。
 
     Candidate discovery is bounded per canonical spec before identity deduplication.
     The lightweight snapshot is scheduling advice only: refresh() rechecks the
@@ -512,7 +541,7 @@ def refresh_due_top20_activity(season, *, limit=100, collector=None,
             or len(active) != 1 or active[0]['id'] != season.pk
             or active[0]['rio_season'] != season.rio_season):
         raise ValueError('activity maintenance requires the unique active Raider.IO season')
-    candidates = top20_candidates(season)
+    candidates = maintained_candidates(season)
     keyed = {activity_identity_digest(**candidate['identity']): candidate
              for candidate in candidates if candidate['identity']}
     summary = dict(candidates=len(candidates), unresolved=len(candidates) - len(keyed),

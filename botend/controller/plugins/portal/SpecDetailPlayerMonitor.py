@@ -134,7 +134,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         from botend.services.character_enrichment import enqueue_battlenet_profiles
         enqueue_battlenet_profiles(season, PlayerSpecTopPlayer.objects.filter(
             season_id=season.pk, rank__gte=1, rank__lte=self.PLAYER_RANKING_LIMIT).exclude(region='cn').only(
-                'id', 'season_id', 'region', 'realm', 'character_name'))
+                'id', 'season_id', 'region', 'realm', 'character_name', 'rank'))
         progress.mark('battlenet-enqueued')
         from botend.services.character_bindings import refresh_bound_characters
         binding_failures = []
@@ -254,10 +254,48 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
             )
             players = self._fetch_top_players_from_regions(class_name, spec_name, season)
 
+        self._reuse_saved_profiles(players[:self.PROFILE_ENRICH_LIMIT], class_name, spec_name)
         # 只有前排玩家需要补充装备/天赋/属性等昂贵 profile 数据；race/faction 在榜单响应里已包含。
         self._enrich_talents(players[:self.PROFILE_ENRICH_LIMIT])
 
         return players
+
+    def _reuse_saved_profiles(self, players, class_name, spec_name):
+        """榜单缺项先复用已有同身份资料，保留原始信号供来源缓存独立判断。"""
+        from copy import deepcopy
+        from botend.services.raiderio_profile_cache import ranking_signal
+        started = time.monotonic()
+        if self._activity_season is None:
+            return
+        saved = self._load_profiles_for_identities(self._activity_season.pk, spec_name,
+            ((p.get('region'), p.get('realm'), p.get('name')) for p in players))
+        reused = 0
+        for player in players:
+            player['_ranking_signal'] = ranking_signal(player)
+            row = saved.get(self._profile_identity_key(player.get('region'), player.get('realm'), player.get('name')))
+            if row is None or row.class_name != class_name:
+                continue
+            reused += 1
+            if not player.get('gear'):
+                player['gear'] = deepcopy(row.gear_json or [])
+                player['_reused_gear'] = bool(player['gear'])
+            incoming = player.get('talent_build_code') or ''
+            if not incoming or incoming == row.talent_build_code:
+                if not incoming:
+                    player['talent_build_code'] = row.talent_build_code
+                    player['_reused_code'] = True
+                if not self._has_display_ready_talents(player.get('talents')):
+                    player['talents'] = deepcopy(row.talents_json or [])
+                    player['_reused_talents'] = bool(player['talents'])
+            # CN没有详情复核请求：用轻量榜单版本检测避免已有资料永久冻结。
+            player['_local_recheck'] = (str(player.get('region', '')).lower() == 'cn'
+                and bool(player.get('_reused_gear') or player.get('_reused_talents')))
+            for field in ('faction', 'race', 'gender', 'guild_name', 'realm_rank', 'avatar_url',
+                          'profile_url', 'achievement_points', 'item_level'):
+                if player.get(field) in (None, ''):
+                    player[field] = getattr(row, field)
+        logger.info(f'[SpecDetailPlayer] phase=profile_reuse {class_name}/{spec_name} '
+                    f'players={len(players)} reused={reused} seconds={time.monotonic()-started:.3f}')
 
     def _fetch_world_top_players(self, class_name, spec_name, season):
         """直接抓取 Raider.IO 世界榜。"""
@@ -667,15 +705,14 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return results
 
     def _enrich_profile_model_from_raiderio(self, profile):
-        rank = getattr(profile, 'rank', None)
+        from botend.services.player_maintenance_scope import maintained
+        if not maintained(profile):
+            return False
         season = SeasonMeta.objects.filter(pk=profile.season_id, is_active=True).first()
-        if season and isinstance(rank, int) and 1 <= rank <= 20:
+        if season:
             char_data = self._fetch_profile_with_activity(profile, season)
-        elif season:
-            char_data = self._get_profile_cache().get(profile, season, lambda:
-                self._request_raiderio_character(profile.region, profile.realm, profile.character_name))
         else:
-            char_data = self._request_raiderio_character(profile.region, profile.realm, profile.character_name)
+            return False
         if not char_data:
             return False
 
@@ -821,7 +858,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         2. 再从本地 ranking 表补充缺失的天赋（WCL 的天赋数据更可靠）
         """
         # 先为所有玩家调用 Raider.IO profile，获取装备+天赋（优先级最高）
-        for player in players:
+        for player in players[:self.PROFILE_ENRICH_LIMIT]:
             region = player.get('region', '')
             realm = player.get('realm', '')
             name = player.get('name', '')
@@ -835,9 +872,9 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 season = getattr(self, '_activity_season', None)
                 if season:
                     identity = SimpleNamespace(season_id=season.pk, region=region, realm=realm,
-                        character_name=name, profile_url=player.get('profile_url'))
+                        character_name=name, profile_url=player.get('profile_url'), _top20_snapshot=True)
                     from botend.services.raiderio_profile_cache import ranking_signal
-                    identity._ranking_signal = ranking_signal(player)
+                    identity._ranking_signal = player.get('_ranking_signal', ranking_signal(player))
                     identity._ranking_scope = f"{player.get('_class_name', '')}/{player.get('_spec_name', '')}"
                     if region.lower() == 'cn':
                         # Preserve the existing CN profile branch, but activity is supported.
@@ -875,6 +912,8 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                     player.get('_class_name', ''),
                     player.get('_spec_name', ''),
                 ):
+                    if talent_build_code != player.get('talent_build_code'):
+                        player['talents'] = self._parse_rio_talents(talent_build_code)
                     player['talent_build_code'] = talent_build_code
                 elif talent_build_code:
                     existing_code = player.get('talent_build_code', '')
@@ -885,8 +924,6 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         player['talent_build_code'] = ''
                         player['talents'] = []
 
-                if self._has_display_ready_talents(player.get('talents')):
-                    continue
                 structured = []
                 if not talent_build_code or TalentBuildCodeDecoder.matches_spec(
                     talent_build_code,
@@ -919,7 +956,7 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                 logger.warning(f"[SpecDetailPlayer] 获取天赋失败 {name}-{realm}@{region}: {e}")
 
         # 再从本地 ranking 表补充缺失的天赋（WCL 的 talents_json 更可靠）
-        self._enrich_from_local_rankings(players)
+        self._enrich_from_local_rankings(players[:self.PROFILE_ENRICH_LIMIT])
 
     @staticmethod
     def _has_display_ready_talents(talents):
@@ -941,38 +978,28 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
         return len(named_nodes) >= max(5, len(dict_nodes) // 3)
 
     def _enrich_from_local_rankings(self, players):
-        """从本地 dungeon_ranking / raid_ranking 表匹配天赋，必要时回填基础装备。"""
-        from botend.models import SpecDungeonRanking, SpecRaidRanking
-
-        for player in players:
+        """只对Top20缺项批量回填；未匹配结果不再逐人物反复查询大表。"""
+        from botend.services.player_ranking_reuse import ranking_fallbacks, identity
+        season = getattr(self, '_activity_season', None)
+        candidates = [p for p in players[:self.PROFILE_ENRICH_LIMIT]
+                      if p.get('_local_recheck') or not (
+                          self._has_display_ready_talents(p.get('talents')) and p.get('gear'))]
+        if season is None or not candidates:
+            return
+        started = time.monotonic()
+        rows, counts = ranking_fallbacks(season, candidates)
+        logger.info(f'[SpecDetailPlayer] phase=local_ranking_lookup seconds={time.monotonic()-started:.3f} '
+                    f'counts={counts}')
+        apply_started = time.monotonic()
+        for player in candidates:
             name = player.get('name', '')
             class_name = player.get('_class_name', '')
             spec_name = player.get('_spec_name', '')
             if not name or not class_name or not spec_name:
                 continue
 
-            if self._has_display_ready_talents(player.get('talents')) and player.get('gear'):
-                continue
-            season = getattr(self, '_activity_season', None)
-            if season is None or not all(player.get(k) for k in ('region', 'realm')):
-                continue
-            identity = dict(season_id=season.pk, region=player['region'], realm=player['realm'])
-            # 从当前赛季、同地区服务器的准确人物中补缺。
-            ranking = SpecDungeonRanking.objects.filter(
-                **identity,
-                character_name=name,
-                class_name=class_name,
-                spec_name=spec_name,
-            ).exclude(talents_json=[]).only('talents_json', 'talent_build_code', 'gear_json').order_by('-last_updated', '-id').first()
-
-            if not ranking:
-                # 从 raid_ranking 匹配
-                ranking = SpecRaidRanking.objects.filter(
-                    **identity,
-                    character_name=name,
-                    class_name=class_name,
-                    spec_name=spec_name,
-                ).exclude(talents_json=[]).only('talents_json', 'talent_build_code', 'gear_json').order_by('-last_updated', '-id').first()
+            key = identity(player.get('region'), player.get('realm'), name)
+            ranking = rows.get((key, class_name, spec_name))
 
             if ranking:
                 ranking_build_code = str(getattr(ranking, 'talent_build_code', '') or '').strip()
@@ -982,10 +1009,15 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                         ranking_build_code, class_name, spec_name,
                     )
                 )
-                if ranking_build_code and not ranking_code_mismatch and not player.get('talent_build_code'):
+                if ranking_build_code and not ranking_code_mismatch and (
+                        not player.get('talent_build_code') or player.get('_local_recheck') and player.get('_reused_code')):
                     player['talent_build_code'] = ranking_build_code
                 if (
                     not ranking_code_mismatch
+                    and (not self._has_display_ready_talents(player.get('talents'))
+                         or player.get('_local_recheck') and player.get('_reused_talents'))
+                    and not (ranking_build_code and player.get('talent_build_code')
+                             and ranking_build_code != player['talent_build_code'])
                     and ranking.talents_json
                     and isinstance(ranking.talents_json, list)
                 ):
@@ -995,8 +1027,10 @@ class SpecDetailPlayerMonitor(SpecDetailBase):
                             class_name,
                             spec_name,
                         )
-                if (not player.get('gear')) and ranking.gear_json and isinstance(ranking.gear_json, list) and ranking.gear_json:
+                if ((not player.get('gear') or player.get('_local_recheck') and player.get('_reused_gear'))
+                        and isinstance(ranking.gear_json, list) and ranking.gear_json):
                     player['gear'] = self._normalize_gear_list(ranking.gear_json)
+        logger.info(f'[SpecDetailPlayer] phase=local_ranking_apply seconds={time.monotonic()-apply_started:.3f}')
 
     def _parse_rio_talents_from_profile(self, char_data):
         """从 Raider.IO 角色 profile 响应中解析结构化天赋数据"""

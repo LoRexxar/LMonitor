@@ -3158,13 +3158,15 @@ class SpecStatsTalentRenderTests(TestCase):
 
     def test_fury_profile_ignores_active_arms_code_without_erasing_verified_fury_code(self):
         monitor = SpecDetailPlayerMonitor(MagicMock(), MagicMock())
-        monitor._request_raiderio_character = MagicMock(return_value={
+        monitor._fetch_profile_with_activity = MagicMock(return_value={
             'talentLoadout': {'loadout_text': self.ARMS_REFERENCE_CODE},
         })
-        from botend.models import PlayerSpecTopPlayer
+        from botend.models import PlayerSpecTopPlayer, SeasonMeta
+        SeasonMeta.objects.create(pk=987, season_key='天赋维护范围', season_name='测试',
+            mplus_zone_id=1, raid_zone_id=2, is_active=True)
         profile = PlayerSpecTopPlayer.objects.create(
             season_id=987, region='us', realm='realm', character_name='Player',
-            class_name='Warrior', spec_name='Fury',
+            class_name='Warrior', spec_name='Fury', rank=1,
             talent_build_code=self.FURY_REFERENCE_CODE,
             talents_json=[{'node_id': 1}], gear_json=[], item_level=0,
             achievement_points=0, profile_url='', avatar_url='', race='', faction='',
@@ -3913,10 +3915,15 @@ class SpecStatsTalentRenderTests(TestCase):
                 'faction': 'Alliance',
             },
         ]
-        mock_filter.return_value = FakeRankingQuerySet(
-            records,
-            first_row=SimpleNamespace(dungeon_name='Ara-Kara, City of Echoes'),
-        )
+        # 使用真实且带日志引用的榜单，覆盖纯日志筛选接口，避免旧假查询集脱节。
+        from botend.models import SpecDungeonRanking
+        rows = SpecDungeonRanking.objects.bulk_create([
+            SpecDungeonRanking(**{**record, 'faction': 0}, season_id=1, dungeon_id=42,
+                dungeon_name='Ara-Kara, City of Echoes', class_name='Monk', spec_name='Windwalker',
+                report_code=f'渲染日志{index}', fight_id=1, character_name=f'样本{index}', realm='test', region='eu')
+            for index, record in enumerate(records)
+        ])
+        mock_filter.return_value = SpecDungeonRanking.objects.all().filter(pk__in=[row.pk for row in rows])
 
         # 此夹具只验证连线渲染；日志完整性与条目解析由独立回归覆盖。
         with patch('botend.services.log_talent_analysis.prepare_log_talents',

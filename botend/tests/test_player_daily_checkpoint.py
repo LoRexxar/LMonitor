@@ -187,7 +187,7 @@ class BattlenetQueueTests(TestCase):
         players = [self.player]
         for index in range(7):
             players.append(PlayerSpecTopPlayer.objects.create(season_id=self.season.pk, region='eu', realm='test',
-                character_name=f'角色{index}', class_name='Mage', spec_name='Fire'))
+                character_name=f'角色{index}', class_name='Mage', spec_name='Fire', rank=index+2))
         enqueue_battlenet_profiles(self.season, players)
         before = list(CharacterEnrichmentTask.objects.values())
         with self.assertNumQueries(1):

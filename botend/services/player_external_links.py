@@ -48,6 +48,27 @@ def _localized_slug(name):
     return re.sub(r'\s+', '-', value).lower()
 
 
+def raiderio_url_identity(player):
+    """仅解析已验证格式的人物URL，不为身份判断查询服务器展示目录。"""
+    region = str(player.region or '').lower()
+    name = str(player.character_name or '').strip()
+    if region not in REGION_LOCALES or not name:
+        return None
+    try:
+        url = urlsplit(str(player.profile_url or '').strip())
+        parts = url.path.strip('/').split('/')
+        if (url.scheme != 'https' or url.netloc not in ('raider.io', 'www.raider.io')
+                or len(parts) != 4 or parts[0] != 'characters' or parts[1] != region
+                or unquote(parts[3]).casefold() != name.casefold()):
+            return None
+        slug = unquote(parts[2])
+        if not slug or '/' in slug or '\\' in slug or slug in ('.', '..'):
+            return None
+        return {'region': region, 'realm_slug': slug, 'character_name': name}
+    except ValueError:
+        return None
+
+
 def build_player_external_links(player):
     region = str(player.region or '').lower()
     name = str(player.character_name or '').strip()
@@ -57,18 +78,10 @@ def build_player_external_links(player):
     realm = None
     slug = ''
     if profile_url:
-        try:
-            url = urlsplit(profile_url)
-            parts = url.path.strip('/').split('/')
-            if (url.scheme != 'https' or url.netloc not in ('raider.io', 'www.raider.io')
-                    or len(parts) != 4 or parts[0] != 'characters' or parts[1] != region
-                    or unquote(parts[3]).casefold() != name.casefold()):
-                return []
-            slug = unquote(parts[2])
-            if not slug or '/' in slug or '\\' in slug or slug in ('.', '..'):
-                return []
-        except ValueError:
+        identity = raiderio_url_identity(player)
+        if identity is None:
             return []
+        slug = identity['realm_slug']
         realm = WowRealmDirectory.objects.filter(region=region, slug=slug).first()
     else:
         candidates = list(WowRealmDirectory.objects.filter(region=region).filter(

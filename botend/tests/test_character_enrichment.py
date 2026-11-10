@@ -96,12 +96,44 @@ class CharacterEnrichmentTests(TestCase):
         self.assertEqual(CharacterEnrichmentTask.objects.get(kind='raid').state, 'pending')
         self.assertEqual(http.call_count, 1)
 
-    def test_nonranking_identity_still_queues_rosters_without_enrolling_raid(self):
+    def test_nonranking_unbound_identity_does_not_queue_extra_collection(self):
         self.player.rank = None
         self.player.save(update_fields=['rank'])
         row = self.activity()
         enqueue_enrichment(row, self.season, self.player)
-        self.assertEqual(list(CharacterEnrichmentTask.objects.values_list('kind', flat=True)), ['roster'])
+        self.assertFalse(CharacterEnrichmentTask.objects.exists())
+
+    def test_dropped_unbound_roster_is_not_fetched_and_reentry_wakes_existing_queue(self):
+        row = self.activity()
+        enqueue_enrichment(row, self.season, self.player)
+        self.player.rank = None
+        self.player.save(update_fields=['rank'])
+        http = Mock(return_value=self.response())
+        consume_enrichment(self.season, EnrichmentBudget(http))
+        http.assert_not_called()
+        self.assertEqual(CharacterEnrichmentTask.objects.get().state, 'expired')
+        self.assertTrue(RaiderIOCharacterActivity.objects.filter(pk=row.pk).exists())
+        self.player.rank = 1
+        self.player.save(update_fields=['rank'])
+        enqueue_enrichment(row, self.season, self.player)
+        self.assertLessEqual(CharacterEnrichmentTask.objects.get().due_at, timezone.now())
+        consume_enrichment(self.season, EnrichmentBudget(http))
+        http.assert_called_once()
+
+    def test_active_bound_character_keeps_roster_maintenance_after_dropping(self):
+        from django.contrib.auth import get_user_model
+        from botend.models import UserCharacterBinding
+        row = self.activity()
+        user = get_user_model().objects.create_user(username='队伍绑定')
+        binding = UserCharacterBinding.objects.create(user=user, player=self.player, identity_digest=row.identity_digest,
+            region=row.region, realm_slug=row.realm_slug, character_name=row.character_name)
+        self.player.rank = None
+        self.player.save(update_fields=['rank'])
+        enqueue_enrichment(row, self.season, self.player)
+        http = Mock(return_value=self.response())
+        consume_enrichment(self.season, EnrichmentBudget(http))
+        http.assert_called_once()
+        self.assertEqual(CharacterEnrichmentTask.objects.get().state, 'waiting')
 
     def test_request_budget_leaves_remaining_work_for_new_instance(self):
         runs = payload()['mythic_plus_best_runs']

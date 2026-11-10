@@ -1,10 +1,9 @@
-"""Explicit Top20 raid first-kill refresh, isolated from all M+ freshness/state.
+"""Top20及有效绑定角色的团本首杀刷新，与大秘境有效期和状态隔离。
 
-Three bounded GETs: character page -> discovered siteMeta -> complete character
-API. No standalone raid-progress request, AI, retries, or per-character catalog
-storage. Only payload_json.raid_first_kills is written, under a module-local CAS
-lease. Network I/O is outside transactions. Internal webpage APIs are an observed
-contract: any contract change fails closed and retains (but may hide) last-good.
+通过三次有界GET读取人物页、发现的siteMeta和完整人物接口；不单独请求团本
+进度，不调用AI、不重试、不按人物保存目录。仅在模块独立的CAS租约下写入
+payload_json.raid_first_kills，网络请求在事务外进行。内部网页接口按已观察到
+的契约验证；契约变化时停止更新并保留最后有效数据，必要时隐藏旧数据。
 """
 import json
 import re
@@ -286,10 +285,11 @@ class _Transport:
 
 
 def _target(player):
+    from botend.services.player_maintenance_scope import maintained
     primary = PlayerSpecTopPlayer.objects.filter(pk=player.pk).only(
         'id', 'season_id', 'region', 'realm', 'character_name', 'profile_url',
         'class_name', 'spec_name', 'rank').first()
-    if primary is None or type(primary.rank) is not int or not 1 <= primary.rank <= 20 or not canonical_class_spec(primary.class_name, primary.spec_name):
+    if primary is None or not maintained(primary) or not canonical_class_spec(primary.class_name, primary.spec_name):
         raise SourceError('not_top20')
     season = SeasonMeta.objects.filter(pk=primary.season_id, is_active=True).first()
     if season is None or not isinstance(season.rio_season, str) or not re.fullmatch(r'season-[a-z0-9-]+', season.rio_season):
@@ -314,7 +314,7 @@ def _write(row, module):
 
 
 def refresh_raid_sources(player, transport=None, now=None):
-    """Return {status, activity_id, requests}; explicit, current Top20 only.
+    """返回状态、活动ID与请求数；只允许当前Top20或有效绑定角色。
 
     Ready/fresh are public validated facts (possibly raids=[]); private is a
     validated private response. Errors retain last-good and impose 30m backoff.

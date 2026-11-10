@@ -223,6 +223,10 @@ def refresh_bound_characters(monitor, season, refreshed_identities=(), *, comple
                             defaults={'class_name': scope[0], 'profile_url': player.profile_url})
                     player = target
                     UserCharacterBinding.objects.filter(identity_digest=binding.identity_digest).update(player=player)
+                from copy import deepcopy
+                fields = ['gear_json', 'item_level', 'achievement_points', 'profile_url',
+                          'avatar_url', 'race', 'faction', 'talent_build_code', 'talents_json', 'guild_name']
+                old_values = {field: deepcopy(getattr(player, field)) for field in fields}
                 monitor._apply_raiderio_profile(player, data)
                 guild = data.get('guild')
                 if isinstance(guild, dict):
@@ -234,10 +238,13 @@ def refresh_bound_characters(monitor, season, refreshed_identities=(), *, comple
                         if (isinstance(score, (int, float))
                                 and not isinstance(score, bool) and math.isfinite(score) and score >= 0):
                             personal_score = score
-                player.last_updated = timezone.now()
-                player.save(update_fields=['gear_json', 'item_level', 'achievement_points', 'profile_url',
-                    'avatar_url', 'race', 'faction', 'talent_build_code', 'talents_json',
-                    'guild_name', 'last_updated'])
+                values = {field: getattr(player, field) for field in fields}
+                values['last_updated'] = timezone.now()
+                for field, value in old_values.items():
+                    setattr(player, field, value)
+                # 与Top20使用同一差异写入规则，缓存命中不刷新资料时间。
+                from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
+                SpecDetailPlayerMonitor._save_changed_profile(player, values)
                 # The short ranking scan can promote/update this row during HTTP.
                 # Never save its stale score; decide ownership at the actual write.
                 if personal_score is not None:

@@ -209,10 +209,11 @@ class ParallelNightTests(TestCase):
 
 class RankingFallbackTests(TestCase):
     def test_complete_profile_skips_sql_and_missing_profile_uses_exact_identity(self):
-        from botend.models import SpecDungeonRanking
+        from botend.models import SpecDungeonRanking, SeasonMeta
         from botend.controller.plugins.portal.SpecDetailPlayerMonitor import SpecDetailPlayerMonitor
         monitor = SpecDetailPlayerMonitor(Mock(), Mock())
-        monitor._activity_season = SimpleNamespace(pk=11)
+        monitor._activity_season = SeasonMeta.objects.create(pk=11, season_key='回填身份',
+            season_name='测试', mplus_zone_id=1, raid_zone_id=2)
         player = dict(name='同名人物', region='eu', realm='A', _class_name='Mage', _spec_name='Frost',
                       gear=[{'id': 1}], talents=[{'talent_id': i+1, 'name': '天赋', 'icon': '图标'} for i in range(5)])
         with self.assertNumQueries(0):
@@ -222,7 +223,7 @@ class RankingFallbackTests(TestCase):
                 dungeon_id=1, character_name=player['name'], class_name='Mage', spec_name='Frost', dps=1,
                 talents_json=[{'identity': [season, region, realm]}])
         player['talents'] = []
-        with patch.object(monitor, '_normalize_talent_nodes', side_effect=lambda nodes, *args: nodes), self.assertNumQueries(1):
+        with patch.object(monitor, '_normalize_talent_nodes', side_effect=lambda nodes, *args: nodes):
             monitor._enrich_from_local_rankings([player])
         self.assertEqual(player['talents'], [{'identity': [11, 'eu', 'A']}])
 

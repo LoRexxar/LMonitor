@@ -207,14 +207,14 @@ def _load_database(season_id, scope, fingerprint):
 
 def load_state(season_id, scope, fingerprint):
     """仅人物刷新状态使用关系表，避免大块结果继续回流数据库。"""
-    if not scope.startswith('battlenet:'):
-        raise ValueError('仅允许保存 Battle.net 刷新状态')
+    if not scope.startswith(('battlenet:', 'player-ranking:')):
+        raise ValueError('仅允许保存人物刷新状态和本地榜单引用')
     return _load_database(season_id, scope, fingerprint)
 
 
 def save_state(season_id, scope, fingerprint, payload):
-    if not scope.startswith('battlenet:'):
-        raise ValueError('仅允许保存 Battle.net 刷新状态')
+    if not scope.startswith(('battlenet:', 'player-ranking:')):
+        raise ValueError('仅允许保存人物刷新状态和本地榜单引用')
     payload = _normalized(payload)
     SpecAggregationWorkCache.objects.bulk_create([SpecAggregationWorkCache(
         season_id=season_id, scope=scope, fingerprint=fingerprint,

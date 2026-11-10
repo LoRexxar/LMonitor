@@ -2827,7 +2827,7 @@ class RaiderIORunRoster(models.Model):
 
 
 class SpecAggregationWorkCache(models.Model):
-    """人物属性刷新状态及旧版中间缓存兼容；新的大块结果保存到私有文件。"""
+    """人物刷新、轻量榜单引用及旧缓存兼容；新的大块结果保存到私有文件。"""
     season = models.ForeignKey('SeasonMeta', on_delete=models.CASCADE)
     scope = models.CharField(max_length=240)
     fingerprint = models.CharField(max_length=64)
