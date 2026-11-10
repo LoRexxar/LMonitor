@@ -1,7 +1,7 @@
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
-from botend.journal_models import JournalState
+from botend.journal_models import JournalState, JournalEncounter
 from botend.services.wow_item_catalog_import import upsert_journal_base_item_facts
 
 
@@ -23,12 +23,17 @@ class Command(BaseCommand):
         overlays = manifest.get('ptr_overlays') or {}
         retail_build = str(manifest.get('retail_build') or release.build or '')
         rows_by_build = {}
-        instances = release.instances.prefetch_related('encounters').all()
+        instances = release.instances.all()
         for instance in instances:
             overlay = overlays.get(str(instance.journal_id)) or {}
             build = str(overlay.get('source_build') or retail_build)
             row = dict(instance.payload or {})
-            row['encounters'] = [dict(encounter.payload or {}) for encounter in instance.encounters.all()]
+            # Preserve the original encounter order (including first-loot wins),
+            # but never put large source JSON into a MySQL filesort record.
+            encounter_ids = list(instance.encounters.values_list('pk', flat=True))
+            loot_by_encounter = dict(JournalEncounter.objects.filter(pk__in=encounter_ids)
+                                     .order_by().values_list('pk', 'payload__loot'))
+            row['encounters'] = [{'loot': loot_by_encounter[pk] or []} for pk in encounter_ids]
             rows_by_build.setdefault(build, []).append(row)
 
         item_ids = set()
