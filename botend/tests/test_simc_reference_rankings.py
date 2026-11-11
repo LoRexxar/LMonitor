@@ -104,12 +104,12 @@ class ReferenceRankingTests(TestCase):
                 self.assertIsNone(self.rank(row))
                 self.assertEqual(self.rank(current)['overall_total'], 1)
 
-    def test_backend_version_template_and_branch_are_isolated(self):
+    def test_backend_route_template_and_branch_are_isolated(self):
         from botend.models import SimcBackendBinary, SimcContentTemplate
         row = self.result(200)
         other = self.other_spec()
         settings = self.config.settings
-        settings.backend = SimcBackendBinary.objects.create(identifier='ranking-other', name='不同版本', current_version='b' * 40)
+        settings.backend = SimcBackendBinary.objects.create(identifier='ranking-other', name='不同后端路由', current_version='b' * 40)
         settings.save()
         self.config.refresh_from_db()
         other['config'].refresh_from_db()

@@ -1,4 +1,4 @@
-"""当前公开组合的双维度排名；同条件、同版本，单体与多目标分别比较。"""
+"""当前公开组合的双维度排名；同路由、同条件，单体与多目标分别比较。"""
 
 import math
 from collections import defaultdict
@@ -6,27 +6,30 @@ from collections import defaultdict
 from django.db.models import CharField, Max, Value
 
 from botend.models import SimcReferencePublication, SimcReferenceSimulation
-from botend.services.simc_reference_simulations import snapshot, validate_config, active_scenarios, scenario_for_snapshot, scenario_simulation_params
+from botend.services.simc_reference_simulations import snapshot, normalized_snapshot, validate_config, active_scenarios, scenario_simulation_params
 from botend.services.simc_task_service import _compute_content_hash
 
 
 def _current_cohorts(config):
     """返回按可比条件分组的当前有效结果，覆盖所有专精和分页。
 
-    模板按实际正文匹配，不按专精标签或模板 ID 匹配。每份签名只取最新成功
+    模板按实际正文匹配，不按专精标签或模板 ID 匹配。每份输入只取最新成功
     结果；重跑期间保留原有效结果。分母为组合数，并列采用 1、1、3 名次。
     """
     if not config.backend_id or not config.template_id or not config.is_enabled:
         return []
-    # 先在数据库缩小到可比较的执行环境，避免载入无关版本的历史记录。
+    # 先在数据库缩小到可比较的路由和条件，二进制更新不影响历史结果。
     candidates = SimcReferenceSimulation.objects.filter(
         status='completed', dps__gt=0, config__settings__is_enabled=True,
         config__use_ptr=config.use_ptr,
-        config__settings__backend__current_version=config.backend.current_version,
-        config__settings__backend__game_build=config.backend.game_build,
+        config__settings__backend_id=config.backend_id,
         config__settings__template__content=config.template.content,
     )
-    latest_ids = candidates.order_by().values('config_id', 'signature').annotate(latest=Max('pk')).values('latest')
+    # Collapse legacy three-part and route-only snapshots before hydration.
+    latest_ids = candidates.order_by().values(
+        'config_id', 'profile_id', 'talent_id', 'apl_id', 'snapshot__spec', 'snapshot__use_ptr',
+        'snapshot__resources', 'snapshot__simulation_params', 'snapshot__backend__0',
+    ).annotate(latest=Max('pk')).values('latest')
     rows = SimcReferenceSimulation.objects.filter(pk__in=latest_ids).select_related(
         'config__settings__backend', 'config__settings__template', 'profile', 'talent', 'apl',
     )
@@ -68,12 +71,12 @@ def _current_cohorts(config):
                 current_signatures[key] = _compute_content_hash(frozen)
             except ValueError:
                 current_signatures[key] = None
-        if current_signatures[key] != row.signature:
+        if current_signatures[key] != _compute_content_hash(normalized_snapshot(row.snapshot)):
             continue
         # 所有战斗参数均进入比较组，避免今后增加场景参数时混榜。
         cohort = _compute_content_hash({
             'params': params, 'use_ptr': row.config.use_ptr,
-            'backend': [row.config.backend.current_version, row.config.backend.game_build],
+            'backend': [row.config.backend_id],
             'template': row.config.template.content,
         })
         cohorts[cohort].append(row)
@@ -205,7 +208,7 @@ def ranking_entry(preferred_config_id=None):
             validate_config(config)
         except ValueError:
             continue
-        condition = _compute_content_hash([config.use_ptr, config.backend.current_version, config.backend.game_build,
+        condition = _compute_content_hash([config.use_ptr, config.backend_id,
                                            config.template.content, [scene.simulation_params for scene in active_scenarios(config)]])
         if condition in checked:
             continue

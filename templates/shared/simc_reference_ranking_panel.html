@@ -1,5 +1,5 @@
 {% if not admin_ranking %}{% include 'shared/simc_reference_navigation.html' %}{% endif %}
-<header class="ranking-page-heading simc-page-heading"><div><h1 id="reference-admin-title">模拟排行榜</h1><p>比较同版本、同模拟条件下的公开配置组合。</p></div>{% if return_url %}<a class="ranking-back" href="{{ return_url }}">{{ return_label }}</a>{% endif %}</header>
+<header class="ranking-page-heading simc-page-heading"><div><h1 id="reference-admin-title">模拟排行榜</h1><p>比较相同模拟条件下的公开配置组合。</p></div>{% if return_url %}<a class="ranking-back" href="{{ return_url }}">{{ return_label }}</a>{% endif %}</header>
 <div class="simc-ranking-workspace">
 {% if empty_ranking %}
 <section class="ranking-empty"><h2>暂无可展示的模拟结果</h2><p>当前还没有已完成且有效的公开配置模拟结果，稍后可从这里查看榜单。</p><a href="{{ module_reference_url }}">{% if admin_ranking %}前往模拟结果管理{% else %}查看专精模拟资料{% endif %}</a></section>

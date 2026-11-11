@@ -86,8 +86,9 @@ class ReferenceSimulationTests(TestCase):
         SimcProfile.objects.create(name='测试服装备', spec='warrior_fury', class_name='warrior', use_ptr=True, player_config_mode='manual_equipment')
         service.initialize_configs()
         ptr = SimcReferenceSimulationConfig.objects.get(use_ptr=True)
-        if ptr.backend_id:
-            self.assertFalse(ptr.backend.current_version)
+        settings = ptr.settings
+        settings.backend = None
+        settings.save(update_fields=['backend'])
         result = service.enqueue_configs([ptr.pk], self.user.pk)
         self.assertEqual(result['created'], 0)
         self.assertIn('后端', result['errors'][0])
@@ -117,7 +118,6 @@ class ReferenceSimulationTests(TestCase):
             (SimcTalentString, self.talent, 'talent', 'new-talent'),
             (SimcApl, self.apl, 'content', 'actions=/bloodthirst'),
             (SimcContentTemplate, self.template, 'content', 'optimal_raid=1'),
-            (SimcBackendBinary, self.backend, 'current_version', 'b' * 40),
         ):
             with self.subTest(field=field):
                 original = getattr(obj, field)
@@ -156,8 +156,8 @@ class ReferenceSimulationTests(TestCase):
         self.assertEqual(SimcTask.objects.count(), 0)
         self.assertEqual(SimcReferenceSimulation.objects.filter(status='failed').count(), 2)
 
-    def test_invalid_results_and_wrong_execution_version_are_not_published(self):
-        for dps, version, valid in ((0, None, True), (True, None, True), (1200, 'b'*40, True), (1200, None, False)):
+    def test_invalid_results_are_not_published(self):
+        for dps, version, valid in ((0, None, True), (True, None, True), (-1200, None, True), (1200, None, False)):
             with self.subTest(dps=dps, version=version, valid=valid):
                 self.enqueue()
                 self.complete(dps=dps, version=version, valid=valid)
@@ -170,21 +170,18 @@ class ReferenceSimulationTests(TestCase):
         self.dispatch()
         self.assertEqual(SimcTask.objects.count(), 2)
 
-    def test_execution_checks_backend_again_and_requires_agent_measured_revision(self):
-        from types import SimpleNamespace
+    def test_binary_updates_do_not_invalidate_execution_or_valid_results(self):
         self.enqueue()
         self.dispatch()
         task = SimcTask.objects.first()
-        self.assertEqual(resolve_task(task).resource_metadata['backend_version'], 'a' * 40)
-        for capabilities in ({}, {'binary_revision': 'b' * 40}):
-            with self.assertRaises(ValueError):
-                service.execution_backend_metadata(task, agent=SimpleNamespace(capabilities=capabilities))
-        self.assertEqual(service.execution_backend_metadata(
-            task, agent=SimpleNamespace(capabilities={'binary_revision': 'a' * 40}),
-        )['backend_version'], 'a' * 40)
-        SimcBackendBinary.objects.filter(pk=self.backend.pk).update(current_version='b' * 40)
-        with self.assertRaises(ValueError):
-            resolve_task(task)
+        before = resolve_task(task)
+        self.assertNotIn('backend_version', before.resource_metadata)
+        self.assertNotIn('reference_backend', task.mode_params.get('request_manifest', {}))
+        SimcBackendBinary.objects.filter(pk=self.backend.pk).update(current_version='b' * 40, game_build='new-build')
+        self.assertEqual(resolve_task(task), before)
+        self.complete(version='c' * 40)
+        self.assertEqual(len(self.results()), 2)
+        self.assertEqual(self.enqueue()['skipped'], 2)
 
     def test_revoked_public_resource_and_different_apl_never_receive_results(self):
         self.enqueue()
