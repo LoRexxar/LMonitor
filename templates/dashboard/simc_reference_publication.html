@@ -1,25 +1,36 @@
 {% extends 'dashboard/simc_reference_management_base.html' %}
 {% block management_heading %}
-<header class="simc-page-heading publication-heading">
-    <div class="publication-heading-copy"><h1 id="reference-admin-title">{{ management_title }}</h1><p>{{ management_description }}</p></div>
-    <div class="publication-controls" aria-label="公开配置操作">
-        <div class="result-spec-selector">
-        {% if spec_count %}<label for="publication-spec-select">职业专精</label><select id="publication-spec-select" aria-label="选择专精">{% for class_name, specs in spec_groups %}<optgroup label="{{ class_name }}">{% for spec in specs %}<option value="{{ spec.url }}"{% if selected.spec_key == spec.key %} selected{% endif %}>{{ spec.label }}</option>{% endfor %}</optgroup>{% endfor %}</select>{% else %}<p class="empty">同步目录后，即可选择专精并编辑公开配置。</p>{% endif %}
-        </div>
-        <form method="post">{% csrf_token %}<button name="action" value="sync">同步可用资料目录</button></form>
-        <a class="publication-refresh" href="{{ management_url }}?config={{ selected.pk|default:'' }}">刷新状态</a>
-    </div>
+<header class="simc-page-heading">
+    <div><h1 id="reference-admin-title">公开配置管理</h1><p>从现有 SimC 资料中选择前台可见的装备、天赋与 APL。</p></div>
+    <details class="reference-more"><summary>目录操作</summary><div><form method="post">{% csrf_token %}<button name="action" value="sync">同步可用资料目录</button></form><a href="{{ management_url }}?config={{ selected.pk|default:'' }}">刷新状态</a></div></details>
 </header>
 {% endblock %}
-{% block management_actions %}{% endblock %}
-{% block management_directory %}{% endblock %}
-{% block management_content %}
-<p class="admin-note">只有勾选的资料可以在前台被看到。清单适用于该专精的所有分支，新增共享资料不会自动加入。</p>
-<form method="post" class="publication-form">{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><input type="hidden" name="action" value="publish">
-{{ publication_form.non_field_errors }}<label class="publication-switch">{{ publication_form.is_published }} 启用该专精的前台展示</label>
-<div class="publication-columns">{% for field in publication_form %}{% if field.name != 'is_published' %}<fieldset><legend>{{ field.label }}</legend>{{ field.errors }}<div class="publication-options">{% for choice in field %}<label>{{ choice.tag }}<span>{{ choice.choice_label }}</span></label>{% empty %}<p class="empty">暂无可用资料</p>{% endfor %}</div></fieldset>{% endif %}{% endfor %}</div>
-<p class="admin-note">模拟按已勾选的装备 × 天赋 × APL 生成组合，不需要另行绑定天赋默认 APL。多选 APL 会分别生成独立组合；保存公开范围不会自动启动模拟。未公开天赋不会从装备内嵌代码中回退展示。</p>
-<button class="primary" type="submit">保存公开范围</button></form>
-
+{% block management_selector %}
+<div class="reference-context-bar">
+    <div class="result-spec-selector"><label for="publication-spec-select">职业专精</label><select id="publication-spec-select" aria-label="选择专精">{% for class_name, specs in spec_groups %}<optgroup label="{{ class_name }}">{% for spec in specs %}<option value="{{ spec.url }}"{% if selected.spec_key == spec.key %} selected{% endif %}>{{ spec.label }}</option>{% endfor %}</optgroup>{% endfor %}</select></div>
+    {% if selected %}<div class="reference-context-links"><span class="publication-state">{% if selected_publication.is_published %}前台已启用{% else %}前台未启用{% endif %}</span><a href="{{ workflow.results_url }}">查看模拟结果</a><a href="{% url 'portal_simc_reference' %}?spec={{ selected.spec_key }}" target="_blank" rel="noopener">查看前台</a></div>{% endif %}
+</div>
 {% endblock %}
-{% block management_empty %}<p class="empty">同步目录后，即可指定每个专精的公开配置。</p>{% endblock %}
+{% block management_actions %}{% endblock %}
+{% block management_workspace %}
+{% if selected %}
+<form method="post" class="publication-form publication-editor" data-publication-form>{% csrf_token %}<input type="hidden" name="config" value="{{ selected.pk }}"><input type="hidden" name="action" value="publish">
+    <div class="publication-intro"><div><h2>{{ selected.label }}</h2><p>编辑源资料请使用 SimC 编辑器；这里维护公开范围。保存后再运行模拟。</p></div><label class="publication-switch">{{ publication_form.is_published }} 启用该专精的前台展示</label></div>
+    {{ publication_form.non_field_errors }}
+    <div class="publication-resource-grid">
+    {% for section in publication_sections %}<section data-resource-section="{{ section.key }}" class="publication-resource-section" aria-labelledby="resource-{{ section.key }}">
+        <header><h3 id="resource-{{ section.key }}">{{ section.field.label }}</h3><span data-selection-count aria-label="已选数量">{{ section.choices|length }} 份可用</span></header>
+        <p>{{ section.description }}</p>
+        <label class="resource-search"><span class="reference-visually-hidden">搜索{{ section.field.label }}</span><input type="search" data-resource-search placeholder="搜索{{ section.field.label }}" autocomplete="off"></label>
+        {{ section.field.errors }}
+        <div class="publication-resource-list">{% for item in section.choices %}<div class="publication-resource-row" data-resource-row data-resource-name="{{ item.resource.name }}">
+            <label>{{ item.choice.tag }}<span><strong>{{ item.resource.name }}</strong><small>{% if section.kind == 'profile' %}{% if item.resource.use_ptr %}PTR{% else %}正式服{% endif %} · {{ item.resource.version|default:'未标注版本' }}{% elif section.kind == 'talent' %}{{ item.resource.hero_talent_names|join:' / '|default:'共享天赋' }}{% else %}{{ item.resource.get_source_display }}{% endif %}</small></span></label>
+            {% if item.editor_url %}<a href="{{ item.editor_url }}" title="在 SimC 中编辑：{{ item.resource.name }}" aria-label="在 SimC 中编辑：{{ item.resource.name }}">编辑</a>{% endif %}
+        </div>{% empty %}<p class="resource-empty">暂无可用的共享资料。</p>{% endfor %}<p class="resource-empty" data-search-empty hidden>没有匹配的资料，试试其他名称。</p></div>
+        {% if section.library_url %}<a class="resource-library-link" href="{{ section.library_url }}">在 SimC 中管理{{ section.field.label }}</a>{% else %}<p class="resource-access-note">资料由拥有 SimC 工作流权限的管理员维护。</p>{% endif %}
+    </section>{% endfor %}
+    </div>
+    <footer class="publication-save-bar"><div><strong data-publication-summary>装备 × 天赋 × APL</strong><p><span data-save-status>勾选需要公开的资料</span> · 正式服与 PTR 分别模拟</p></div><button class="primary" type="submit">保存公开范围</button></footer>
+</form>
+{% else %}<section class="reference-onboarding"><h2>还没有可管理的专精</h2><p>先同步现有 SimC 共享资料目录，再选择需要向前台公开的组合。</p><form method="post">{% csrf_token %}<button class="primary" name="action" value="sync">同步可用资料目录</button></form></section>{% endif %}
+{% endblock %}

@@ -14,6 +14,7 @@ from botend.services.simc_reference_simulations import catalog, enqueue_configs,
 from botend.services.simc_task_service import _compute_content_hash
 from botend.services.simc_reference_management import public_combination_keys, scheme_results, with_report
 from botend.services.simc_reference_details import RESOURCE_LABELS, resource_is_shared, resource_preview
+from botend.services.simc_reference_workflow import workflow_context, publication_sections, editor_url
 
 
 def _positive_id(value):
@@ -214,6 +215,9 @@ class SimcReferenceSettingsView(DashboardPermissionRequiredMixin, View):
                        dashboard_permission_catalog=permission_catalog(), dashboard_default_section='frontend-settings',
                        management_title='模拟配置', management_description='全部专精共享场景清单，正式服与 PTR 分开设置。',
                        branch=branch, settings_form=form, scenario_formset=scenarios)
+        config_id = request.POST.get('config') or request.GET.get('config')
+        config = get_object_or_404(SimcReferenceSimulationConfig, pk=_positive_id(config_id)) if config_id else None
+        context.update(workflow=workflow_context(request, config, page='settings', branch=branch), return_config=config)
         response = render(request, 'dashboard/simc_reference_settings.html', context, status=status)
         response['Cache-Control'] = 'private, no-store'
         response['X-Robots-Tag'] = 'noindex, nofollow'
@@ -230,6 +234,9 @@ class SimcReferenceSettingsView(DashboardPermissionRequiredMixin, View):
         branch = self.branch(request)
         if request.POST.get('action') != 'save':
             raise Http404('操作不存在')
+        config_id = request.POST.get('config')
+        if config_id:
+            get_object_or_404(SimcReferenceSimulationConfig, pk=_positive_id(config_id))
         with transaction.atomic():
             settings = SimcReferenceSimulationSettings.objects.select_for_update().filter(use_ptr=branch == 'ptr').first()
             settings = settings or SimcReferenceSimulationSettings(use_ptr=branch == 'ptr')
@@ -244,7 +251,9 @@ class SimcReferenceSettingsView(DashboardPermissionRequiredMixin, View):
                 for order, scene_form in enumerate(scenarios.forms):
                     if scene_form.instance.pk and not scene_form.cleaned_data.get('DELETE'):
                         SimcReferenceSimulationScenario.objects.filter(pk=scene_form.instance.pk, settings=settings).update(display_order=order)
-                return redirect(reverse('simc_reference_settings') + f'?branch={branch}&saved=conditions')
+                config_id = request.POST.get('config')
+                suffix = f'&config={_positive_id(config_id)}' if config_id else ''
+                return redirect(reverse('simc_reference_settings') + f'?branch={branch}&saved=conditions{suffix}')
         return self.render_page(request, branch, form, scenarios, status=400)
 
 
@@ -293,7 +302,7 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             spec = directory.get(config.spec_key, {})
             config.label = spec.get('label', config.spec_key)
             public = public_directory.get(config.spec_key, {})
-            config.combination_count = sum(row['use_ptr'] == config.use_ptr for row in public.get('profiles', [])) * len(public.get('talents', []))
+            config.combination_count = sum(row['use_ptr'] == config.use_ptr for row in public.get('profiles', [])) * len(public.get('talents', [])) * len(public.get('apls', []))
             config.public_count = sum(len(public.get(kind, [])) for kind in ('profiles', 'talents', 'apls'))
             config.issue = ''
             try:
@@ -358,6 +367,15 @@ class SimcReferenceManagementView(DashboardPermissionRequiredMixin, View):
             'module_reference_url': (reverse('simc_reference_results') + (f'?config={selected.pk}' if selected else '')) if self.view_mode == 'publication' else request.get_full_path(),
             'module_rankings_url': reverse('simc_reference_rankings_entry') + (f'?config={selected.pk}' if selected else ''),
         })
+        workflow = workflow_context(request, selected, page=self.view_mode)
+        context['workflow'] = workflow
+        context['selected_publication'] = SimcReferencePublication.objects.filter(spec_key=selected.spec_key).first() if selected else None
+        if publication_form is not None and selected:
+            context['publication_sections'] = publication_sections(publication_form, selected, workflow)
+        if scheme_page is not None:
+            for scheme in scheme_page:
+                scheme['editor_links'] = {kind: editor_url(kind, scheme[kind + '_id'], config=selected, page='results')
+                                          for kind in ('profile', 'talent', 'apl') if scheme[kind + '_id']} if workflow['can_edit'] else {}
         response = render(request, self.template_name, context, status=status)
         response['Cache-Control'] = 'private, no-store'
         response['X-Robots-Tag'] = 'noindex, nofollow'
