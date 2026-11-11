@@ -212,7 +212,7 @@ class LMonitorCoreBackend:
 
         logger.info("[LMonitor Main] Monitor Backend Start...now {} targets in monitor.".format(left_tasks))
 
-        # 独立工作者仍受数据库中的长任务配额与版本屏障约束。
+        # 版本/RIO保留重型配额和准备屏障；日报独立发布位不等待这些任务。
         for task_name in ISOLATED_MONITOR_WORKERS:
             self._workers.append(start_isolated_monitor_worker(
                 LMonitorCore(self.lifecycle).scan, task_name=task_name))
@@ -400,8 +400,9 @@ class LMonitorCore:
                     now_task = claim_next_monitor_task(lease_owner=lease_owner, task_names=task_names,
                         allow_long_tasks=permit.allow_long_tasks if permit is not None else True)
                     if permit is not None:
-                        permit.classify(is_long=bool(now_task and getattr(now_task, '_monitor_task_is_long',
-                                                                         now_task.name in NIGHT_LANE_TASKS)))
+                        permit.classify(is_long=bool(now_task and getattr(now_task,
+                            '_monitor_task_holds_rotation', getattr(now_task, '_monitor_task_is_long',
+                                                                   now_task.name in NIGHT_LANE_TASKS))))
                     if now_task:
                         # Admission covers the DB claim and its execution as
                         # one operation. A claim that finishes during retirement

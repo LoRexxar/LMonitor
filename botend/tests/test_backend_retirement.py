@@ -10,7 +10,11 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[2]
-ISOLATED_LABELS = ('isolated-WowDataVersionMonitor', 'isolated-RioStatisticsMonitor')
+ISOLATED_LABELS = (
+    'isolated-WowDataVersionMonitor',
+    'isolated-RioStatisticsMonitor',
+    'isolated-WowDailyReportMonitor',
+)
 
 class BackendRetirementAdmissionTests(unittest.TestCase):
     def test_short_work_continues_while_long_task_finishes_then_gate_closes(self):
@@ -117,23 +121,28 @@ if mode.startswith('scheduler'):
     from unittest.mock import patch, Mock
     from django.conf import settings
     from botend import views
+    from botend.plugin_sync import PUBLICATION_MONITOR_TASKS
     from botend.management.commands.LMonitorCoreBackend import Command
     settings.MONITOR_TASK_AUTO_SYNC_PLUGINS = False
     settings.MONITOR_TASK_MAX_RUNTIME_SECONDS = 5
     settings.MONITOR_RETIRE_CLEANUP_SECONDS = .2
     settings.SNAPSHOT_CACHE_GC_WORKER_ENABLED = True
     def claim(*, lease_owner, task_names=None, allow_long_tasks=True):
-        if task_names and not allow_long_tasks:
+        name = next(iter(task_names)) if task_names else 'ordinary'
+        is_long = name in views.NIGHT_LANE_TASKS
+        holds_rotation = is_long or name in PUBLICATION_MONITOR_TASKS
+        if holds_rotation and not allow_long_tasks:
             return None
-        label = 'isolated-' + next(iter(task_names)) if task_names else 'ordinary'
+        label = 'isolated-' + name if task_names else 'ordinary'
         record('claim-' + label)
         if mode == 'scheduler-claim':
             time.sleep(.5)  # Retirement while the claim is in progress.
-        return SimpleNamespace(name=label, pk=label, _monitor_task_is_long=bool(task_names))
+        return SimpleNamespace(name=name, pk=label, _monitor_task_is_long=is_long,
+                               _monitor_task_holds_rotation=holds_rotation)
     def execute(self, task, owner):
-        record('started-' + task.name)
+        record('started-' + task.pk)
         time.sleep(1.6)
-        record('finished-' + task.name)
+        record('finished-' + task.pk)
     def refresh(label):
         def call(*args, **kwargs):
             record('started-' + label)
