@@ -26,27 +26,14 @@ def _monitor_task_lease_ttl(lease_seconds=None):
     return ttl_seconds
 
 
-# Daily cadence is not a resource class. Preparation is a dependency barrier;
-# publication consumes existing facts and must not wait for heavy ingestion.
-MONITOR_TASK_CATEGORIES = {
-    'SpecDetailSeasonMonitor': 'preparation',
-    'WowDataVersionMonitor': 'preparation',
-    'MythicDungeonToolsMonitor': 'preparation',
-    'RioStatisticsMonitor': 'heavy_collection',
-    'MaxrollClassGuideMonitor': 'heavy_collection',
-    'WowDailyReportMonitor': 'publication',
-    'SpecDetailPlayerMonitor': 'heavy_collection',
-    'SpecDetailRankingMonitor': 'heavy_collection',
-    'SpecDetailAggregationMonitor': 'heavy_aggregation',
-}
-DAILY_MONITOR_TASKS = tuple(MONITOR_TASK_CATEGORIES)
-PUBLICATION_MONITOR_TASKS = frozenset(name for name, category in MONITOR_TASK_CATEGORIES.items()
-                                    if category == 'publication')
-PREPARATION_MONITOR_TASKS = frozenset(name for name, category in MONITOR_TASK_CATEGORIES.items()
-                                    if category == 'preparation')
-# Compatibility name used by lifecycle/admission: only heavy resource scopes.
-NIGHT_LANE_TASKS = tuple(name for name in DAILY_MONITOR_TASKS
-                         if name not in PUBLICATION_MONITOR_TASKS)
+# Only long and short tasks. Daily timing does not make a task long.
+LONG_MONITOR_TASKS = (
+    'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor',
+    'RioStatisticsMonitor', 'MaxrollClassGuideMonitor', 'SpecDetailPlayerMonitor',
+    'SpecDetailRankingMonitor', 'SpecDetailAggregationMonitor',
+)
+NIGHT_LANE_TASKS = LONG_MONITOR_TASKS  # Compatibility name for existing long-task rules.
+DAILY_MONITOR_TASKS = (*LONG_MONITOR_TASKS, 'WowDailyReportMonitor')
 NIGHT_LANE_PRIORITY = {name: index for index, name in enumerate(NIGHT_LANE_TASKS)}
 
 PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
@@ -60,12 +47,10 @@ PORTAL_DATA_SCHEDULE_HOURS_BY_TASK = {
 PORTAL_DATA_SCHEDULED_TASKS = frozenset(PORTAL_DATA_SCHEDULE_HOURS_BY_TASK)
 PORTAL_DATA_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
-# Heavy sources retain their shared quota; publication has its own single slot.
-# Dedicated workers still claim through the same DB scope/lease mutex.
+# Existing long workers retain their shared quota and DB scope/lease mutex.
 ISOLATED_MONITOR_WORKERS = {
     'WowDataVersionMonitor': 'wow-data-update-worker',
     'RioStatisticsMonitor': 'rio-statistics-worker',
-    'WowDailyReportMonitor': 'daily-publication-worker',
 }
 ISOLATED_MONITOR_TASKS = frozenset(ISOLATED_MONITOR_WORKERS)
 
@@ -266,7 +251,7 @@ def _night_lane_candidates(rows, due_tasks, automatic_scopes, *, long_limit):
     running = lane_scopes & automatic_scopes
     if len(running) >= long_limit:
         return []
-    barrier = PREPARATION_MONITOR_TASKS
+    barrier = {'SpecDetailSeasonMonitor', 'WowDataVersionMonitor', 'MythicDungeonToolsMonitor'}
     barrier_scopes = {monitor_scope_key(r) for r in rows if r.name in barrier}
     if running & barrier_scopes:
         return []
@@ -302,33 +287,18 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
             if row.is_active and is_task_runnable(row):
                 canonical.setdefault(monitor_scope_key(row), row)
         lane_scopes = _night_lane_scopes(rows)
-        publication_scopes = {monitor_scope_key(row) for row in rows
-                              if row.name in PUBLICATION_MONITOR_TASKS}
-        rotation_scopes = lane_scopes | publication_scopes
         due_tasks = [row for row in canonical.values()
                      if monitor_scope_key(row) not in active_scopes
-                     and (allow_long_tasks or monitor_scope_key(row) not in rotation_scopes)
+                     and (allow_long_tasks or monitor_scope_key(row) not in lane_scopes)
                      and monitor_task_due_at(row, now=claim_time) is not None]
         is_night = _normalized_now(claim_time).astimezone(PORTAL_DATA_TIMEZONE).hour < 6
         lane_heads = _night_lane_candidates(rows, due_tasks, automatic_scopes,
                                            long_limit=2 if is_night else 1)
-        publication_pending = [row for row in due_tasks
-                               if monitor_scope_key(row) in publication_scopes]
-        publication_head = (min(publication_pending,
-            key=lambda row: (monitor_task_sort_key(row, now=claim_time), row.pk))
-            if publication_pending and not automatic_scopes & publication_scopes else None)
-        short_running = automatic_scopes - lane_scopes - publication_scopes
-        # 凌晨让长任务优先使用资源；06:00 只恢复短任务，不关闭长任务通道。
-        # 长任务全部完成或处于退避且没有运行者时，短任务也可填补空档。
-        night_long_priority = (
-            is_night and allow_long_tasks
-            and bool(lane_heads or automatic_scopes & lane_scopes)
-        )
+        short_running = automatic_scopes - lane_scopes
         # Choose the global lane head BEFORE applying worker-specific routing.
         runnable_tasks = [row for row in due_tasks
-                          if ((monitor_scope_key(row) not in (lane_scopes | publication_scopes)
-                               and len(short_running) < 2 and not night_long_priority)
-                              or row in lane_heads or row is publication_head)
+                          if ((monitor_scope_key(row) not in lane_scopes and len(short_running) < 2)
+                              or row in lane_heads)
                           and (row.name in task_names if task_names is not None
                                else row.name not in ISOLATED_MONITOR_TASKS)]
         tasks = [
@@ -357,9 +327,6 @@ def claim_next_monitor_task(now=None, *, lease_owner=None, lease_seconds=None, t
             task.save(update_fields=fields)
             task._monitor_task_lease_owner = owner
             task._monitor_task_is_long = monitor_scope_key(task) in lane_scopes
-            # Publication is not heavy resource usage, but an admitted LLM/file
-            # publication must finish before planned backend rotation.
-            task._monitor_task_holds_rotation = monitor_scope_key(task) in rotation_scopes
             from botend.services.wcl_collection_cycle import fence_claimed_cycle
             fence_claimed_cycle(task, claim_time=claim_time)
             return task

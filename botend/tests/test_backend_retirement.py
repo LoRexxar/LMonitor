@@ -13,7 +13,6 @@ ROOT = Path(__file__).resolve().parents[2]
 ISOLATED_LABELS = (
     'isolated-WowDataVersionMonitor',
     'isolated-RioStatisticsMonitor',
-    'isolated-WowDailyReportMonitor',
 )
 
 class BackendRetirementAdmissionTests(unittest.TestCase):
@@ -121,7 +120,6 @@ if mode.startswith('scheduler'):
     from unittest.mock import patch, Mock
     from django.conf import settings
     from botend import views
-    from botend.plugin_sync import PUBLICATION_MONITOR_TASKS
     from botend.management.commands.LMonitorCoreBackend import Command
     settings.MONITOR_TASK_AUTO_SYNC_PLUGINS = False
     settings.MONITOR_TASK_MAX_RUNTIME_SECONDS = 5
@@ -130,15 +128,13 @@ if mode.startswith('scheduler'):
     def claim(*, lease_owner, task_names=None, allow_long_tasks=True):
         name = next(iter(task_names)) if task_names else 'ordinary'
         is_long = name in views.NIGHT_LANE_TASKS
-        holds_rotation = is_long or name in PUBLICATION_MONITOR_TASKS
-        if holds_rotation and not allow_long_tasks:
+        if is_long and not allow_long_tasks:
             return None
         label = 'isolated-' + name if task_names else 'ordinary'
         record('claim-' + label)
         if mode == 'scheduler-claim':
             time.sleep(.5)  # Retirement while the claim is in progress.
-        return SimpleNamespace(name=name, pk=label, _monitor_task_is_long=is_long,
-                               _monitor_task_holds_rotation=holds_rotation)
+        return SimpleNamespace(name=name, pk=label, _monitor_task_is_long=is_long)
     def execute(self, task, owner):
         record('started-' + task.pk)
         time.sleep(1.6)
